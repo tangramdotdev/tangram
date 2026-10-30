@@ -11,6 +11,12 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::checkout::put::Arg,
 	) -> tg::Result<()> {
+		// Delete the existing checkout, so that a replaced dependency does not remain.
+		if arg.replace {
+			Self::delete_checkout(db, subspace, transaction, &arg.id)?;
+		}
+
+		// Put the checkout.
 		let key = Key::Checkout(crate::checkout::Key::Checkout(arg.id.clone()));
 		let key = Self::pack(subspace, &key);
 

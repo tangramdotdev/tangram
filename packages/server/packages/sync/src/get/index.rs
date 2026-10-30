@@ -795,6 +795,7 @@ impl Component {
 				.map(|(id, dependencies)| tangram_index::checkout::put::Arg {
 					dependencies: dependencies.clone(),
 					id: id.clone().into(),
+					replace: false,
 					touched_at,
 				})
 				.collect::<Vec<_>>();

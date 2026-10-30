@@ -6,7 +6,7 @@ use {
 };
 
 impl Index {
-	pub(crate) fn put_checkout(
+	pub(crate) async fn put_checkout(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::checkout::put::Arg,
@@ -14,6 +14,12 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let id = &arg.id;
 
+		// Delete the existing checkout, so that a replaced dependency does not remain.
+		if arg.replace {
+			crate::propagate!(Self::delete_checkout(txn, subspace, id, partition_total).await);
+		}
+
+		// Put the checkout.
 		let key = Key::Checkout(crate::checkout::Key::Checkout(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let value = tangram_index::checkout::Checkout {
@@ -54,14 +60,14 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 
-	pub(crate) fn put_checkouts_with_transaction(
+	pub(crate) async fn put_checkouts_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::checkout::put::Arg],
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for checkout in args {
-			crate::propagate!(Self::put_checkout(txn, subspace, checkout, partition_total,));
+			crate::propagate!(Self::put_checkout(txn, subspace, checkout, partition_total).await);
 		}
 		Ok(ControlFlow::Break(()))
 	}

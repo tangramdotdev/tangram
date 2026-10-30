@@ -628,6 +628,7 @@ impl Component {
 			vec![tangram_index::checkout::put::Arg {
 				dependencies: Vec::new(),
 				id: artifact.into(),
+				replace: false,
 				touched_at,
 			}]
 		} else {

@@ -52,6 +52,7 @@ impl Component {
 				put_index_checkout_args.push(tangram_index::checkout::put::Arg {
 					dependencies,
 					id: id.into(),
+					replace: false,
 					touched_at,
 				});
 			} else {
@@ -60,6 +61,7 @@ impl Component {
 					put_index_checkout_args.push(tangram_index::checkout::put::Arg {
 						dependencies: arg.dependencies,
 						id: arg.id,
+						replace: arg.replace,
 						touched_at: arg.touched_at,
 					});
 				}

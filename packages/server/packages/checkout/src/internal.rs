@@ -466,23 +466,20 @@ impl Component {
 				let mut batch = tangram_index::batch::Arg::default();
 				for entry in &entries {
 					let node = &entry.node;
-					if node.id.kind() == tg::id::Kind::Tag {
-						// Replace the tag checkout so a changed target does not retain its old dependency.
-						batch
-							.items
-							.push(tangram_index::batch::Item::DeleteCheckout(node.id.clone()));
-					}
 					let mut dependencies = node.parent.iter().cloned().collect::<Vec<_>>();
-					if node.id.kind() == tg::id::Kind::Tag {
+					let tag = node.id.kind() == tg::id::Kind::Tag;
+					if tag {
 						let target = entry.target.as_ref().ok_or_else(
 							|| tg::error!(id = %node.id, "the tag does not have a target"),
 						)?;
 						dependencies.push(target.clone());
 					}
+					// Replace a tag checkout so that a changed target does not retain its old dependency.
 					batch.items.push(tangram_index::batch::Item::PutCheckout(
 						tangram_index::checkout::put::Arg {
 							dependencies,
 							id: node.id.clone(),
+							replace: tag,
 							touched_at,
 						},
 					));
@@ -1443,6 +1440,7 @@ impl Component {
 		let arg = tangram_index::checkout::put::Arg {
 			dependencies: dependencies.iter().cloned().map(Into::into).collect(),
 			id: item.id.into(),
+			replace: false,
 			touched_at,
 		};
 
