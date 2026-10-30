@@ -136,7 +136,6 @@ async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 	let transaction = index.env.read_txn().unwrap();
 	let requested = tg::authorization::permission::Set::from_permission(permission);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested,
 		required: requested,

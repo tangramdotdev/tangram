@@ -51,7 +51,6 @@ pub trait Index:
 		&self,
 		resource: tg::Selector<tg::Id>,
 		permissions: tg::authorization::permission::Set,
-		storage: tg::storage::Set,
 		config: crate::verify::Config,
 		principal: &tg::Principal,
 	) -> impl Future<Output = tg::Result<crate::verify::Output>> + Send
@@ -63,7 +62,6 @@ pub trait Index:
 			requested: permissions,
 			required: permissions,
 			resource,
-			storage,
 			tokens: Vec::new(),
 		};
 		async move {

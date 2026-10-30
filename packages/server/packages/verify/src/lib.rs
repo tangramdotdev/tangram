@@ -434,7 +434,6 @@ impl Component {
 				requested: permissions,
 				required: permissions,
 				resource: item.resource.clone(),
-				storage: item.storage.empty_like(),
 				subject: subject.cloned(),
 				tokens: item.bodies.clone(),
 			};
@@ -594,7 +593,6 @@ impl Component {
 			requested: subtree,
 			required: subtree,
 			resource: tg::Selector::Id(parent.into()),
-			storage: item.storage,
 			subject: subject.cloned(),
 			tokens: item.bodies.clone(),
 		};

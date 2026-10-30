@@ -424,7 +424,6 @@ async fn shared_log_objects_do_not_materialize_permissions_on_unrelated_processe
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(processes[0].clone().into()),
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		tokens: Vec::new(),
 	};
@@ -486,7 +485,6 @@ async fn shared_log_objects_do_not_materialize_implied_permissions_for_a_parent(
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(child.clone().into()),
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		tokens: Vec::new(),
 	};

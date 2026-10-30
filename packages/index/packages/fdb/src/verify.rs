@@ -691,36 +691,6 @@ impl Index {
 
 				Output::Permissions { after, permissions }
 			},
-			Request::Storage { resource } => {
-				let storage = if resource.kind().is_object() {
-					let object = resource.clone().try_into()?;
-					let object = crate::propagate!(
-						Self::try_get_object_with_transaction(txn, subspace, &object).await
-					);
-					tg::storage::Set::Object(
-						object
-							.map_or_else(tg::object::storage::Set::empty, |object| object.storage),
-					)
-				} else if resource.kind() == tg::id::Kind::Process {
-					let process = resource.clone().try_into()?;
-					let process = crate::propagate!(
-						Self::try_get_process_with_transaction(txn, subspace, &process).await
-					);
-					tg::storage::Set::Process(
-						process
-							.filter(|process| process.status.is_some())
-							.map_or_else(tg::process::storage::Set::empty, |process| {
-								process.storage
-							}),
-					)
-				} else {
-					return Err(tg::error!(
-						"the storage requirement does not match the resource"
-					));
-				};
-
-				Output::Storage(storage)
-			},
 
 			Request::Tag { tag } => {
 				let tag =

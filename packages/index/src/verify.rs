@@ -5,7 +5,6 @@ pub struct Arg {
 	pub requested: tg::authorization::permission::Set,
 	pub required: tg::authorization::permission::Set,
 	pub resource: tg::Selector<tg::Id>,
-	pub storage: tg::storage::Set,
 	/// The subject to verify, or the request principal when absent.
 	pub subject: Option<tg::authorization::Subject>,
 	/// Validated token bodies available to the subject being verified.
@@ -17,7 +16,6 @@ pub struct Output {
 	pub expires_at: Option<i64>,
 	pub outcome: Outcome,
 	pub permissions: tg::authorization::permission::Set,
-	pub storage: tg::storage::Set,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -178,74 +176,4 @@ pub fn validate(
 		validate_permission(resource, permission)?;
 	}
 	Ok(())
-}
-
-#[must_use]
-pub fn storage_permissions(
-	storage: tg::storage::Set,
-	permissions: tg::authorization::permission::Set,
-) -> tg::authorization::permission::Set {
-	if storage.is_empty() {
-		return permissions.empty_like();
-	}
-	match storage {
-		tg::storage::Set::Object(storage) => {
-			let mut permissions = tg::authorization::permission::object::Set::empty();
-			for storage in storage.iter() {
-				let permission = match storage {
-					tg::object::storage::Storage::Node => {
-						tg::authorization::permission::object::Permission::Node
-					},
-					tg::object::storage::Storage::Subtree => {
-						tg::authorization::permission::object::Permission::Subtree
-					},
-				};
-				permissions.insert(tg::authorization::permission::object::Set::from_permission(
-					permission,
-				));
-			}
-			tg::authorization::permission::Set::Object(permissions)
-		},
-		tg::storage::Set::Process(storage) => {
-			let mut permissions = tg::authorization::permission::process::Set::empty();
-			for storage in storage.iter() {
-				let permission = match storage {
-					tg::process::storage::Storage::Node => {
-						tg::authorization::permission::process::Permission::Node
-					},
-					tg::process::storage::Storage::NodeCommandObjects => {
-						tg::authorization::permission::process::Permission::NodeCommandObjects
-					},
-					tg::process::storage::Storage::NodeErrorObjects => {
-						tg::authorization::permission::process::Permission::NodeErrorObjects
-					},
-					tg::process::storage::Storage::NodeLogObjects => {
-						tg::authorization::permission::process::Permission::NodeLogObjects
-					},
-					tg::process::storage::Storage::NodeOutputObjects => {
-						tg::authorization::permission::process::Permission::NodeOutputObjects
-					},
-					tg::process::storage::Storage::Subtree => {
-						tg::authorization::permission::process::Permission::Subtree
-					},
-					tg::process::storage::Storage::SubtreeCommandObjects => {
-						tg::authorization::permission::process::Permission::SubtreeCommandObjects
-					},
-					tg::process::storage::Storage::SubtreeErrorObjects => {
-						tg::authorization::permission::process::Permission::SubtreeErrorObjects
-					},
-					tg::process::storage::Storage::SubtreeLogObjects => {
-						tg::authorization::permission::process::Permission::SubtreeLogObjects
-					},
-					tg::process::storage::Storage::SubtreeOutputObjects => {
-						tg::authorization::permission::process::Permission::SubtreeOutputObjects
-					},
-				};
-				permissions.insert(
-					tg::authorization::permission::process::Set::from_permission(permission),
-				);
-			}
-			tg::authorization::permission::Set::Process(permissions)
-		},
-	}
 }

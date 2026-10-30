@@ -1147,7 +1147,6 @@ async fn concurrent_identical_process_puts_grant_both_callers() {
 		requested: permission.into(),
 		required: permission.into(),
 		resource: tg::Selector::Id(id.into()),
-		storage: tg::storage::Set::Process(tg::process::storage::Set::empty()),
 		subject: None,
 		tokens: Vec::new(),
 	};
@@ -1196,7 +1195,6 @@ async fn identical_sandbox_put_grants_permissions_after_comparison() {
 		requested: permission.into(),
 		required: permission.into(),
 		resource: tg::Selector::Id(id.into()),
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		tokens: Vec::new(),
 	};
@@ -1460,7 +1458,6 @@ async fn sandbox_rejection_preserves_permissions_and_unrelated_writes() {
 		requested: permission.into(),
 		required: permission.into(),
 		resource: tg::Selector::Id(existing.into()),
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		tokens: Vec::new(),
 	};

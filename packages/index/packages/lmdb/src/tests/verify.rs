@@ -359,7 +359,6 @@ async fn is_verified(
 ) -> bool {
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -381,7 +380,6 @@ async fn verify_secs(
 ) -> f64 {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: node,
 		required: node,
@@ -412,7 +410,6 @@ async fn verify_batch_chain_secs(
 		.iter()
 		.rev()
 		.map(|resource| tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: node,
 			required: node,
@@ -466,7 +463,6 @@ async fn verify_overlapping_exhausted_secs(
 	depth: usize,
 	leaves: &[tg::object::Id],
 	user: &tg::user::Id,
-	storage: tg::object::storage::Set,
 ) -> f64 {
 	let ancestor = tangram_index::verify::SearchConfig {
 		max_depth: depth / 2,
@@ -491,7 +487,6 @@ async fn verify_overlapping_exhausted_secs(
 	let args = leaves
 		.iter()
 		.map(|leaf| tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(storage),
 			subject: None,
 			requested: node,
 			required: node,
@@ -543,7 +538,6 @@ async fn verify_overlapping_descendant_secs(
 	let args = leaves
 		.iter()
 		.map(|leaf| tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: node,
 			required: node,
@@ -594,7 +588,6 @@ async fn verify_overlapping_subtree_secs(
 	let args = nodes
 		.iter()
 		.map(|node| tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: subtree,
 			required: subtree,
@@ -669,7 +662,6 @@ async fn verify_object_process_permissions_secs(
 	};
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: node,
 		required: node,
@@ -698,7 +690,6 @@ async fn deny_secs(
 ) -> f64 {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: node,
 		required: node,
@@ -759,7 +750,6 @@ async fn verify_new_specifier_with_parent_write_permission() {
 	let permissions = tg::authorization::permission::Set::from_permission(permission);
 	let args = [
 		tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: permissions,
 			required: permissions,
@@ -767,7 +757,6 @@ async fn verify_new_specifier_with_parent_write_permission() {
 			tokens: Vec::new(),
 		},
 		tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: permissions,
 			required: permissions,
@@ -775,7 +764,6 @@ async fn verify_new_specifier_with_parent_write_permission() {
 			tokens: Vec::new(),
 		},
 		tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: permissions,
 			required: permissions,
@@ -942,7 +930,6 @@ async fn verify_process_parent_delegates_only_read_like_permissions() {
 	let mut requested = read;
 	requested.insert(write);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested,
 		required: read,
@@ -1272,7 +1259,6 @@ async fn verify_process_node_fields_cover_object_subtrees() {
 						.map(|(object, permission, _)| {
 							let permissions = object_permission(*permission).into();
 							tangram_index::verify::Arg {
-								storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 								subject: None,
 								requested: permissions,
 								required: permissions,
@@ -1523,7 +1509,6 @@ async fn verify_derives_process_permissions_without_materialized_permissions() {
 		tg::authorization::permission::process::Permission::NodeCommandObjects,
 	);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permission.into(),
 		required: permission.into(),
@@ -1661,7 +1646,6 @@ async fn verify_combines_ancestor_and_descendant_searches() {
 
 	let permissions = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -1758,25 +1742,18 @@ async fn verify_overlapping_exhausted_ancestor_batch_scales_linearly() {
 
 	transaction.commit().unwrap();
 
-	for storage in [
-		tg::object::storage::Set::empty(),
-		tg::object::storage::Set::NODE,
-	] {
-		let base =
-			verify_overlapping_exhausted_secs(&index, BASE, &base_leaves, &user, storage).await;
-		let deep =
-			verify_overlapping_exhausted_secs(&index, DEEP, &deep_leaves, &user, storage).await;
-		let ratio = deep / base;
-		eprintln!(
-			"overlapping exhausted ancestor batch ({storage:?}): {BASE} leaves = {:.1}ms, {DEEP} leaves = {:.1}ms, ratio = {ratio:.1}x",
-			base * 1e3,
-			deep * 1e3,
-		);
-		assert!(
-			ratio < 8.0,
-			"verification compounded {ratio:.1}x over a 4x larger overlapping exhausted graph: ancestor work was repeated per root"
-		);
-	}
+	let base = verify_overlapping_exhausted_secs(&index, BASE, &base_leaves, &user).await;
+	let deep = verify_overlapping_exhausted_secs(&index, DEEP, &deep_leaves, &user).await;
+	let ratio = deep / base;
+	eprintln!(
+		"overlapping exhausted ancestor batch: {BASE} leaves = {:.1}ms, {DEEP} leaves = {:.1}ms, ratio = {ratio:.1}x",
+		base * 1e3,
+		deep * 1e3,
+	);
+	assert!(
+		ratio < 8.0,
+		"verification compounded {ratio:.1}x over a 4x larger overlapping exhausted graph: ancestor work was repeated per root"
+	);
 }
 
 #[tokio::test]
@@ -1875,7 +1852,6 @@ async fn verify_ancestor_search_can_deny_when_the_descendant_cannot() {
 	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -1928,7 +1904,6 @@ async fn verify_initial_search_limits_can_disable_descendants() {
 	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -1999,7 +1974,6 @@ async fn verify_initial_search_limits_can_disable_derived_subtrees() {
 	let permission = object_permission(tg::authorization::permission::object::Permission::Subtree);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -2053,7 +2027,6 @@ async fn verify_trait_returns_verified_and_denied_outcomes() {
 		&index,
 		resource.clone(),
 		permissions,
-		tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		tangram_index::verify::Config::default(),
 		&tg::Principal::User(user),
 	)
@@ -2065,7 +2038,6 @@ async fn verify_trait_returns_verified_and_denied_outcomes() {
 		&index,
 		resource,
 		permissions,
-		tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		tangram_index::verify::Config::default(),
 		&tg::Principal::User(outsider),
 	)
@@ -2110,7 +2082,6 @@ async fn verify_returns_an_exhausted_outcome_when_searches_exhaust() {
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let resource = tg::Selector::Id(child.into());
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -2118,7 +2089,6 @@ async fn verify_returns_an_exhausted_outcome_when_searches_exhaust() {
 		tokens: Vec::new(),
 	};
 	let verified_arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -2145,7 +2115,6 @@ async fn verify_returns_an_exhausted_outcome_when_searches_exhaust() {
 		&index,
 		resource,
 		permissions,
-		tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		config,
 		&tg::Principal::User(user),
 	)
@@ -2185,7 +2154,6 @@ async fn verify_returns_an_exhausted_outcome_when_the_subtree_search_exhausts() 
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let resource = tg::Selector::Id(object.into());
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -2204,7 +2172,6 @@ async fn verify_returns_an_exhausted_outcome_when_the_subtree_search_exhausts() 
 		&index,
 		resource,
 		permissions,
-		tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		config,
 		&tg::Principal::User(user),
 	)
@@ -2212,87 +2179,6 @@ async fn verify_returns_an_exhausted_outcome_when_the_subtree_search_exhausts() 
 	.unwrap();
 	let error = outcome.into_result().unwrap_err();
 	assert!(error.to_string().contains("verification search exhausted"));
-}
-
-#[tokio::test]
-async fn verify_permission_denial_survives_sync_discovery_exhaustion() {
-	let subtree = tangram_index::verify::SubtreeConfig {
-		max_objects: 0,
-		..Default::default()
-	};
-	let config = tangram_index::verify::Config {
-		permissions: tangram_index::verify::PermissionsConfig {
-			subtree,
-			..Default::default()
-		},
-	};
-	let (_directory, index) = new_index();
-	let object = object_id(0);
-	let process = tg::process::Id::new();
-	let sandbox = tg::sandbox::Id::new();
-	let user = tg::user::Id::new();
-	let mut transaction = index.env.write_txn().unwrap();
-	let record = tangram_index::object::Object {
-		checkout: None,
-		metadata: tg::object::Metadata::default(),
-		put: [0; 16],
-		reference_count: 0,
-		storage: tg::object::storage::Set::empty(),
-		touched_at: 0,
-	};
-	let key = Key::Object(ObjectKey::Object(object.clone()));
-	put_value(&index, &mut transaction, &key, &record.serialize().unwrap());
-	put_sandbox(&index, &mut transaction, &sandbox);
-	let set = tangram_index::process::Set {
-		command_objects: true,
-		..Default::default()
-	};
-	put_process_with_set(&index, &mut transaction, &process, &sandbox, set);
-	put_process_object(
-		&index,
-		&mut transaction,
-		&process,
-		&object,
-		tangram_index::process::object::Kind::Command,
-	);
-	put_resource_permission(
-		&index,
-		&mut transaction,
-		process.into(),
-		tg::authorization::Subject::User(user.clone()),
-		tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Node,
-		),
-	);
-	transaction.commit().unwrap();
-
-	// Discovering a sync checks command object permissions, whose derived subtree search exhausts.
-	let permissions =
-		object_permission(tg::authorization::permission::object::Permission::Node).into();
-	let arg = tangram_index::verify::Arg {
-		requested: permissions,
-		required: permissions,
-		resource: tg::Selector::Id(object.into()),
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
-		subject: None,
-		tokens: Vec::new(),
-	};
-	let mut storage = arg.clone();
-	storage.storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
-	let outputs = index
-		.verify_batch(&[arg, storage], config, &tg::Principal::User(user))
-		.await
-		.unwrap();
-
-	assert_eq!(
-		outputs[0].outcome,
-		tangram_index::verify::Outcome::Unsatisfied
-	);
-	assert!(outputs[0].permissions.is_empty());
-	assert_eq!(
-		outputs[1].outcome,
-		tangram_index::verify::Outcome::Exhausted
-	);
 }
 
 #[tokio::test]
@@ -2328,7 +2214,6 @@ async fn verify_returns_required_permissions_when_an_optional_search_exhausts() 
 	]);
 	let required = tg::authorization::permission::Set::from(node);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required,
@@ -2517,7 +2402,6 @@ async fn verify_process_aspect_denial_wins_over_an_exhausted_object() {
 	);
 	let permissions = permission.into();
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -2550,7 +2434,6 @@ async fn verify_does_not_share_token_results_between_batch_arguments() {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let args = vec![
 		tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: node,
 			required: node,
@@ -2564,7 +2447,6 @@ async fn verify_does_not_share_token_results_between_batch_arguments() {
 			}],
 		},
 		tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: node,
 			required: node,
@@ -2606,7 +2488,6 @@ async fn verify_keeps_ancestor_or_descendant_and_derived_subtree_results_separat
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let args = vec![
 		tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: subtree,
 			required: subtree,
@@ -2614,7 +2495,6 @@ async fn verify_keeps_ancestor_or_descendant_and_derived_subtree_results_separat
 			tokens: Vec::new(),
 		},
 		tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: subtree,
 			required: subtree,
@@ -2669,7 +2549,6 @@ async fn verify_reuses_an_overlapping_derived_subtree_denial() {
 		let args = objects
 			.into_iter()
 			.map(|object| tangram_index::verify::Arg {
-				storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 				subject: None,
 				requested: subtree,
 				required: subtree,
@@ -2726,7 +2605,6 @@ async fn verify_reuses_an_overlapping_derived_subtree_proof() {
 		let args = objects
 			.into_iter()
 			.map(|object| tangram_index::verify::Arg {
-				storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 				subject: None,
 				requested: subtree,
 				required: subtree,
@@ -2783,7 +2661,6 @@ async fn verify_prunes_a_covered_subtree_before_loading_its_children() {
 	let output = verify(
 		&index,
 		vec![tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: subtree,
 			required: subtree,
@@ -2843,7 +2720,6 @@ async fn verify_visits_shared_descendants_once() {
 	let output = verify(
 		&index,
 		vec![tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: subtree,
 			required: subtree,
@@ -2884,7 +2760,6 @@ async fn verify_subtree_ignores_a_visited_child_at_the_depth_limit() {
 	let output = verify(
 		&index,
 		vec![tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: subtree,
 			required: subtree,
@@ -2924,7 +2799,6 @@ async fn verify_accumulates_permissions_from_different_proofs() {
 	let output = verify(
 		&index,
 		vec![tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: permissions,
 			required: permissions,
@@ -2964,7 +2838,6 @@ async fn verify_ancestor_or_descendant_cycle_with_an_verified_escape() {
 	let output = verify(
 		&index,
 		vec![tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: node,
 			required: node,
@@ -3034,7 +2907,6 @@ async fn verify_descendant_node_proof_can_walk_upward() {
 	let output = verify(
 		&index,
 		vec![tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: subtree,
 			required: subtree,
@@ -3152,7 +3024,6 @@ async fn verify_searches_traverse_memberships_in_both_directions() {
 
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: node,
 		required: node,
@@ -3180,7 +3051,6 @@ async fn verify_searches_traverse_memberships_in_both_directions() {
 	assert!(output[0].permissions.contains(node));
 
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: node,
 		required: node,
@@ -3273,7 +3143,6 @@ async fn verify_ancestor_search_processes_the_shallowest_depth_first() {
 
 	let permissions = node.into();
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -3329,7 +3198,6 @@ async fn verify_derived_search_can_finish_after_ancestor_or_descendant_search_ex
 
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: subtree,
 		required: subtree,
@@ -3409,7 +3277,6 @@ async fn verify_batch_propagates_a_converging_positive_proof() {
 	let permissions =
 		object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let args = [&target, &first_far, &second_far].map(|object| tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -3474,7 +3341,6 @@ async fn verify_checks_the_requested_object_before_enumerating() {
 		resource: parent.into(),
 	};
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -3552,7 +3418,6 @@ async fn multiple_tokens_combine_subtree_proofs_and_expirations() {
 	];
 	let permissions = object_permissions([Permission::Subtree]);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -3605,7 +3470,6 @@ async fn multiple_tokens_preserve_descendant_proof_expiration() {
 	};
 	let permissions = object_permissions([Permission::Subtree]);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permissions,
 		required: permissions,
@@ -3734,7 +3598,6 @@ async fn sync_read_confers_only_read_like_permissions() {
 				(process.clone().into(), process_parent, false),
 			] {
 				let arg = tangram_index::verify::Arg {
-					storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 					subject: None,
 					required: permission.into(),
 					requested: permission.into(),
@@ -3801,84 +3664,3 @@ async fn verify_denies_sandbox_node_for_process_without_a_local_record() {
 	);
 }
 
-#[tokio::test]
-async fn verify_combines_permissions_and_storage_without_conflating_them() {
-	let (_dir, index) = new_index();
-	let object = object_id(0);
-	let user = tg::user::Id::new();
-	let mut transaction = index.env.write_txn().unwrap();
-	let record = tangram_index::object::Object {
-		checkout: None,
-		metadata: tg::object::Metadata::default(),
-		put: [0; 16],
-		reference_count: 0,
-		storage: tg::object::storage::Set::NODE,
-		touched_at: 0,
-	};
-	let key = Key::Object(ObjectKey::Object(object.clone()));
-	put_value(&index, &mut transaction, &key, &record.serialize().unwrap());
-	put_permission(
-		&index,
-		&mut transaction,
-		&object,
-		&user,
-		tg::authorization::permission::object::Permission::Node,
-	);
-	transaction.commit().unwrap();
-	let permissions = object_permissions([tg::authorization::permission::object::Permission::Node]);
-	let node = tg::storage::Set::Object(tg::object::storage::Set::NODE);
-	let subtree = tg::storage::Set::Object(tg::object::storage::Set::SUBTREE);
-	let arg = tangram_index::verify::Arg {
-		requested: permissions,
-		required: permissions,
-		resource: tg::Selector::Id(object.into()),
-		storage: node,
-		subject: None,
-		tokens: Vec::new(),
-	};
-	let missing_storage = tangram_index::verify::Arg {
-		storage: subtree,
-		..arg.clone()
-	};
-	let storage_only = tangram_index::verify::Arg {
-		requested: permissions.empty_like(),
-		required: permissions.empty_like(),
-		..arg.clone()
-	};
-	let missing_permissions = tangram_index::verify::Arg {
-		subject: Some(tg::authorization::Subject::User(tg::user::Id::new())),
-		..arg.clone()
-	};
-	let outputs = index
-		.verify_batch(
-			&[arg, missing_storage, storage_only, missing_permissions],
-			tangram_index::verify::Config::default(),
-			&tg::Principal::User(user),
-		)
-		.await
-		.unwrap();
-	assert_eq!(
-		outputs[0].outcome,
-		tangram_index::verify::Outcome::Satisfied
-	);
-	assert!(outputs[0].permissions.contains(permissions));
-	assert_eq!(outputs[0].storage, node);
-	assert_eq!(
-		outputs[1].outcome,
-		tangram_index::verify::Outcome::Unsatisfied
-	);
-	assert!(outputs[1].permissions.contains(permissions));
-	assert_eq!(outputs[1].storage, node);
-	assert_eq!(
-		outputs[2].outcome,
-		tangram_index::verify::Outcome::Satisfied
-	);
-	assert!(outputs[2].permissions.is_empty());
-	assert_eq!(outputs[2].storage, node);
-	assert_eq!(
-		outputs[3].outcome,
-		tangram_index::verify::Outcome::Unsatisfied
-	);
-	assert!(outputs[3].permissions.is_empty());
-	assert_eq!(outputs[3].storage, node);
-}

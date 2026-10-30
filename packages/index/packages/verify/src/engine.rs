@@ -31,7 +31,6 @@ pub struct Batch {
 	resources: Vec<Resolution>,
 	search_indices: BTreeMap<SearchContext, usize>,
 	searches: Vec<TokenSearch>,
-	stored: Option<Vec<tg::storage::Set>>,
 }
 
 enum BatchPhase {
@@ -157,44 +156,8 @@ impl Batch {
 		let started = std::time::Instant::now();
 		tracing::debug!(target: "tangram_index::verify::timing", args = self.args.len(), "starting a verification batch");
 
-		if self.stored.is_none() {
-			let storage = futures::future::try_join_all(
-				self.args.iter().map(|arg| read_storage(arg, &client)),
-			)
-			.await?;
-			let mut stored = Vec::with_capacity(self.args.len());
-			for storage in storage {
-				let storage = match storage {
-					ControlFlow::Break(storage) => storage,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				stored.push(storage);
-			}
-			for (arg, storage) in std::iter::zip(&mut self.args, &stored) {
-				if storage.contains(arg.storage) {
-					arg.storage = arg.storage.empty_like();
-				}
-			}
-			self.stored = Some(stored);
-		}
 		let client_for_reads = client.clone();
-		let result = match self.verify_inner(client).await? {
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			ControlFlow::Break(mut results) => {
-				let stored = self.stored.as_ref().unwrap();
-				for ((arg, result), storage) in
-					std::iter::zip(std::iter::zip(&self.args, &mut results), stored)
-				{
-					result.storage = *storage;
-					if !storage.contains(arg.storage) && result.outcome == super::Outcome::Satisfied
-					{
-						result.outcome = super::Outcome::Unsatisfied;
-					}
-				}
-
-				Ok(ControlFlow::Break(results))
-			},
-		};
+		let result = self.verify_inner(client).await;
 		let reads = client_for_reads.reads();
 		tracing::debug!(
 			target: "tangram_index::verify::timing",
@@ -281,7 +244,7 @@ impl Batch {
 		} else if matches!(principal, tg::Principal::Root)
 			&& args
 				.iter()
-				.all(|arg| arg.subject.is_none() && arg.storage.is_empty())
+				.all(|arg| arg.subject.is_none())
 		{
 			let outcomes = args
 				.iter()
@@ -289,7 +252,6 @@ impl Batch {
 					expires_at: None,
 					outcome: super::Outcome::Satisfied,
 					permissions: arg.requested,
-					storage: arg.storage.empty_like(),
 				})
 				.collect();
 			Some(outcomes)
@@ -313,7 +275,6 @@ impl Batch {
 			resources: vec![Resolution::Pending; args.len()],
 			search_indices: BTreeMap::new(),
 			searches: Vec::new(),
-			stored: None,
 		})
 	}
 
@@ -412,7 +373,6 @@ impl Batch {
 				expires_at: outcome.expires_at,
 				outcome: outcome.outcome,
 				permissions: outcome.permissions,
-				storage: outcome.storage,
 			})
 			.collect();
 		Ok(results)
@@ -438,7 +398,6 @@ impl Batch {
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		let mut roots = BTreeMap::<SearchContext, Vec<Key>>::new();
-		let mut storage_roots = BTreeMap::<SearchContext, Vec<Key>>::new();
 		for (index, (arg, resource)) in std::iter::zip(&self.args, &resources).enumerate() {
 			let Some((id, _)) = resource else {
 				continue;
@@ -448,15 +407,6 @@ impl Batch {
 			};
 			if super::validate(id, requested).is_err() {
 				continue;
-			}
-			for permission in super::storage_permissions(arg.storage, requested).iter() {
-				let context = context(arg, permission.is_read_like());
-				let key = (id.clone(), permission, arg.subject.clone());
-				storage_roots
-					.entry(context.clone())
-					.or_default()
-					.push(key.clone());
-				roots.entry(context).or_default().push(key);
 			}
 			if arg.subject.is_none()
 				&& (matches!(self.principal, tg::Principal::Root)
@@ -478,13 +428,11 @@ impl Batch {
 			let (tokens, subject, process_parent_delegation) = &context;
 			let index = self.searches.len();
 			self.search_indices.insert(context.clone(), index);
-			let storage = storage_roots.remove(&context).unwrap_or_default();
 			self.searches.push(TokenSearch::new(
 				self.config,
 				&self.principal,
 				*process_parent_delegation,
 				roots,
-				storage,
 				tokens.clone(),
 				subject.clone(),
 			));
@@ -510,7 +458,6 @@ impl Batch {
 					expires_at: None,
 					outcome: super::Outcome::Unsatisfied,
 					permissions: arg.requested.empty_like(),
-					storage: arg.storage.empty_like(),
 				});
 				continue;
 			};
@@ -519,7 +466,6 @@ impl Batch {
 					expires_at: None,
 					outcome: super::Outcome::Unsatisfied,
 					permissions: arg.requested.empty_like(),
-					storage: arg.storage.empty_like(),
 				});
 				continue;
 			};
@@ -528,7 +474,6 @@ impl Batch {
 					expires_at: None,
 					outcome: super::Outcome::Unsatisfied,
 					permissions: arg.requested.empty_like(),
-					storage: arg.storage.empty_like(),
 				});
 				continue;
 			};
@@ -537,25 +482,8 @@ impl Batch {
 					expires_at: None,
 					outcome: super::Outcome::Unsatisfied,
 					permissions: arg.requested.empty_like(),
-					storage: arg.storage.empty_like(),
 				});
 				continue;
-			}
-			let mut storage_exhausted = false;
-			let mut search_permissions = requested;
-			search_permissions.insert(super::storage_permissions(arg.storage, requested));
-			for permission in super::permissions_in_search_order(search_permissions) {
-				if let Some(search_index) = self
-					.search_indices
-					.get(&context(arg, permission.is_read_like()))
-				{
-					let key = (id.clone(), permission, arg.subject.clone());
-					storage_exhausted |= !arg.storage.is_empty()
-						&& self.searches[*search_index]
-							.state
-							.storage_exhausted
-							.contains(&key);
-				}
 			}
 			if arg.subject.is_none()
 				&& (matches!(self.principal, tg::Principal::Root)
@@ -563,13 +491,8 @@ impl Batch {
 			{
 				let output = super::Output {
 					expires_at: None,
-					outcome: if storage_exhausted {
-						super::Outcome::Exhausted
-					} else {
-						super::Outcome::Satisfied
-					},
+					outcome: super::Outcome::Satisfied,
 					permissions: arg.requested,
-					storage: arg.storage.empty_like(),
 				};
 				outcomes.push(output);
 				continue;
@@ -618,9 +541,7 @@ impl Batch {
 				arg.requested.empty_like()
 			};
 			let expires_at = (expires_at != i64::MAX).then_some(expires_at);
-			let outcome = if storage_exhausted {
-				super::Outcome::Exhausted
-			} else if permissions.contains(arg.requested) {
+			let outcome = if permissions.contains(arg.requested) {
 				super::Outcome::Satisfied
 			} else if !indeterminate.is_empty() {
 				super::Outcome::Exhausted
@@ -632,7 +553,6 @@ impl Batch {
 				expires_at,
 				outcome,
 				permissions,
-				storage: arg.storage.empty_like(),
 			};
 			outcomes.push(output);
 		}
@@ -648,13 +568,10 @@ impl TokenSearch {
 		principal: &tg::Principal,
 		process_parent_delegation: bool,
 		roots: Vec<Key>,
-		storage: Vec<Key>,
 		tokens: Vec<tg::authorization::Body>,
 		subject: Option<tg::authorization::Subject>,
 	) -> Self {
 		let mut state = State::default();
-		state.storage_children.extend(storage.iter().cloned());
-		state.storage.extend(storage);
 		state.set_token_subject(subject);
 		state.set_process_parent_delegation(process_parent_delegation);
 
@@ -710,9 +627,6 @@ impl TokenSearch {
 							return Ok(reads);
 						}
 						if let Some(outcome) = search.outcome() {
-							if outcome == Outcome::Exhausted {
-								self.state.exhaust_storage(key);
-							}
 							self.final_search.apply(&mut self.state, key, outcome);
 							self.active = None;
 							continue;
@@ -1585,42 +1499,6 @@ where
 			}
 		},
 
-		Read::StorageChildren {
-			after,
-			depth: _,
-			key,
-			limit,
-			objects,
-		} => {
-			let request = if *objects {
-				facts::Request::ProcessObjects {
-					after: after.clone(),
-					limit: *limit,
-					process: key.0.clone().try_into()?,
-				}
-			} else if let Ok(object) = key.0.clone().try_into() {
-				facts::Request::ObjectChildren {
-					after: after.clone(),
-					limit: *limit,
-					object,
-				}
-			} else {
-				facts::Request::ProcessChildren {
-					after: after.clone(),
-					limit: *limit,
-					process: key.0.clone().try_into()?,
-				}
-			};
-			match read!(request) {
-				facts::Output::ProcessObjects { after, objects } => {
-					ReadOutput::ProcessObjects { after, objects }
-				},
-				output => {
-					let (after, ids) = output.into_ids()?;
-					ReadOutput::Ids { after, ids }
-				},
-			}
-		},
 		Read::ObjectParents {
 			after,
 			limit,
@@ -1867,42 +1745,6 @@ fn principal_is_resource(principal: &tg::Principal, resource: &tg::Id) -> bool {
 	matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == *resource)
 }
 
-async fn read_storage<E>(
-	arg: &super::Arg,
-	client: &facts::Client<E>,
-) -> Result<ControlFlow<tg::storage::Set, E>, tg::Error>
-where
-	E: Clone + Send + Sync + 'static,
-{
-	if arg.storage.is_empty() {
-		return Ok(ControlFlow::Break(arg.storage.empty_like()));
-	}
-	let tg::Selector::Id(resource) = &arg.resource else {
-		return Err(tg::error!("a storage requirement requires a resource id"));
-	};
-	let valid = match arg.storage {
-		tg::storage::Set::Object(_) => resource.kind().is_object(),
-		tg::storage::Set::Process(_) => resource.kind() == tg::id::Kind::Process,
-	};
-	if !valid {
-		return Err(tg::error!(
-			"the storage requirement does not match the resource"
-		));
-	}
-	let request = facts::Request::Storage {
-		resource: resource.clone(),
-	};
-	let output = match client.read(request).await? {
-		ControlFlow::Break(output) => output,
-		ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-	};
-	let facts::Output::Storage(storage) = output else {
-		return Err(tg::error!("unexpected storage fact response"));
-	};
-
-	Ok(ControlFlow::Break(storage))
-}
-
 #[cfg(test)]
 mod tests {
 	use {
@@ -1918,6 +1760,7 @@ mod tests {
 		tokio::sync::Barrier,
 	};
 
+	mod budget;
 	mod resume;
 
 	#[test]
@@ -2156,7 +1999,6 @@ mod tests {
 			),
 		);
 		let arg = super::super::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: permissions,
 			required: permissions,
@@ -2434,7 +2276,6 @@ mod tests {
 		let permissions = tg::authorization::permission::Set::from_permission(permission);
 
 		super::super::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			requested: permissions,
 			required: permissions,
@@ -2497,7 +2338,6 @@ mod tests {
 			| Read::OwnerSandboxes { .. }
 			| Read::ProcessChildren { .. }
 			| Read::ProcessParents { .. }
-			| Read::StorageChildren { .. }
 			| Read::Resolve { .. }
 			| Read::SubtreeObjectChildren { .. }
 			| Read::SubtreeProcessChildren { .. } => match read {

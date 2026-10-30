@@ -271,7 +271,6 @@ async fn process_parent_traverses_delegations_before_propagation() {
 				tg::authorization::permission::object::Permission::Subtree,
 			);
 			let arg = tangram_index::verify::Arg {
-				storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 				subject: None,
 				requested: permission.into(),
 				required: permission.into(),
@@ -434,7 +433,6 @@ async fn verified(
 		tg::authorization::permission::object::Permission::Node
 	});
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permission.into(),
 		required: permission.into(),
@@ -532,7 +530,6 @@ async fn shared_ancestor_paths_are_bounded_by_states() {
 		tg::authorization::permission::object::Permission::Node,
 	);
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		requested: permission.into(),
 		required: permission.into(),
@@ -624,7 +621,6 @@ async fn sync_tokens_satisfy_dependencies_and_preserve_expiration() {
 		requested: subtree.into(),
 		required: subtree.into(),
 		resource: tg::Selector::Id(root.clone().into()),
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		tokens: Vec::new(),
 	};
@@ -691,7 +687,6 @@ async fn scoped_tag_verification_does_not_inherit_root_authority() {
 		requested: node.into(),
 		required: node.into(),
 		resource: tg::Selector::Id(root.clone().into()),
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: Some(tag.clone()),
 		tokens: Vec::new(),
 	};
@@ -729,7 +724,6 @@ async fn verification_tokens_are_scoped_and_request_local() {
 		requested: subtree.into(),
 		required: subtree.into(),
 		resource: tg::Selector::Id(resource.clone().into()),
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: Some(tg::authorization::Subject::Tag(tg::tag::Id::new())),
 		tokens: vec![tg::authorization::Body {
 			expires_at: 80,
@@ -807,7 +801,6 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 		requested: subtree.into(),
 		required: subtree.into(),
 		resource: tg::Selector::Id(file.into()),
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		tokens: vec![tg::authorization::Body {
 			expires_at: 90,
@@ -887,7 +880,6 @@ async fn process_output_aspect_preserves_permanent_descendant_node_permissions()
 		requested: node.into(),
 		required: node.into(),
 		resource: tg::Selector::Id(file.clone().into()),
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		subject: None,
 		tokens: vec![tg::authorization::Body {
 			expires_at: 1000,

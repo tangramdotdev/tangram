@@ -10,7 +10,6 @@ use {
 
 mod ancestor;
 mod descendant;
-mod storage;
 mod subtree;
 
 pub(crate) use {
@@ -227,13 +226,6 @@ pub(crate) enum Read {
 		index: usize,
 		selector: tg::Selector<tg::Id>,
 	},
-	StorageChildren {
-		after: Option<Vec<u8>>,
-		depth: usize,
-		key: Key,
-		limit: usize,
-		objects: bool,
-	},
 
 	SubjectPermissions {
 		after: Option<Vec<u8>>,
@@ -364,10 +356,6 @@ pub(crate) struct State {
 	newly_evaluated: BTreeSet<Key>,
 	process_facts: HashMap<tg::process::Id, Arc<ProcessFacts>>,
 	process_parent_delegation: bool,
-	pub(crate) storage: BTreeSet<Key>,
-	pub(crate) storage_children: BTreeSet<Key>,
-	pub(crate) storage_dependents: BTreeMap<Key, BTreeSet<Key>>,
-	pub(crate) storage_exhausted: BTreeSet<Key>,
 	sync_access: BTreeSet<Key>,
 
 	token_subject: Option<tg::authorization::Subject>,
@@ -655,7 +643,7 @@ impl AncestorOrDescendantSearch {
 		let roots = roots
 			.iter()
 			.filter(|root| {
-				state.search_outcome(root) == Outcome::Pending && seen.insert((*root).clone())
+				state.ancestor_or_descendant(root) == Outcome::Pending && seen.insert((*root).clone())
 			})
 			.cloned()
 			.collect::<Vec<_>>();
@@ -723,8 +711,7 @@ impl AncestorOrDescendantSearch {
 			}
 
 			if self.roots.iter().all(|root| {
-				(state.ancestor_or_descendant(root) != Outcome::Pending
-					&& (!state.storage.contains(root) || self.ancestor.is_none()))
+				state.ancestor_or_descendant(root) != Outcome::Pending
 					|| (self.ancestor_exhausted.contains(root)
 						&& self.descendant_exhausted.contains(root))
 			}) {
@@ -776,9 +763,6 @@ impl AncestorOrDescendantSearch {
 				if ancestor_reads.is_empty() {
 					let mut search = self.ancestor.take().unwrap();
 					search.finish(state);
-					for key in &search.incomplete {
-						state.exhaust_storage(key);
-					}
 					for root in &self.roots {
 						if state.is_verified(root) {
 							continue;
@@ -813,8 +797,7 @@ impl AncestorOrDescendantSearch {
 			| Read::GroupMembers { .. }
 			| Read::ObjectParents { .. }
 			| Read::OrganizationMembers { .. }
-			| Read::ProcessParents { .. }
-			| Read::StorageChildren { .. }) => self
+			| Read::ProcessParents { .. }) => self
 				.ancestor
 				.as_mut()
 				.ok_or_else(|| tg::error!("received a read after the ancestor search completed"))?
@@ -1470,9 +1453,6 @@ impl FinalSearch {
 				Outcome::Verified => {
 					self.deferred.remove(&key);
 					self.outcomes.insert(key.clone(), Outcome::Verified);
-					if state.storage.contains(&key) {
-						self.enqueue_dependencies(state, &key);
-					}
 				},
 				Outcome::Denied => {
 					self.outcomes.insert(key.clone(), Outcome::Denied);

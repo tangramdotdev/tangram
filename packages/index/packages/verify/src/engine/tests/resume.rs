@@ -37,7 +37,6 @@ async fn interrupted_batches_resume_at_every_read_boundary() {
 		assert_eq!(expected[0].outcome, Outcome::Unsatisfied);
 		assert_eq!(expected[2].outcome, Outcome::Satisfied);
 		assert!(!expected[2].permissions.is_empty());
-		assert!(!expected[2].storage.is_empty());
 		assert!(expected[2].expires_at.is_some());
 
 		// Interrupt each read boundary with a fresh fact cache for every attempt.
@@ -68,8 +67,8 @@ async fn a_batch_keeps_progress_across_repeated_interruptions() {
 	};
 	let mut batch = Batch::new(&args, Config::default(), &tg::Principal::Anonymous).unwrap();
 
-	// Interrupt storage, resource resolution, and permission search in successive attempts.
-	for (attempt, interrupt_at) in [1, 3, 3, complete.requests.len() / 2, 0]
+	// Interrupt resource resolution and permission search in successive attempts.
+	for (attempt, interrupt_at) in [1, 1, 3, complete.requests.len() / 2, 0]
 		.into_iter()
 		.enumerate()
 	{
@@ -78,34 +77,17 @@ async fn a_batch_keeps_progress_across_repeated_interruptions() {
 			interrupted.outcome,
 			ControlFlow::Continue(Interrupt)
 		));
-		if attempt == 0 {
-			assert!(batch.stored.is_none());
-		} else {
-			assert!(batch.stored.is_some());
-		}
-		if attempt == 1 {
+		if attempt <= 1 {
 			assert!(matches!(batch.phase, BatchPhase::Resolve { .. }));
 		}
 		if attempt >= 2 {
 			assert!(matches!(batch.phase, BatchPhase::Search { .. }));
-			assert!(
-				interrupted
-					.requests
-					.iter()
-					.all(|request| !matches!(request, facts::Request::Storage { .. }))
-			);
 		}
 	}
 
-	// Finish the search without rereading the stored results or restarting the batch.
+	// Finish the search without restarting the batch.
 	let resumed = run(&mut batch, 4, None).await;
 	assert!(resumed.requests.len() < complete.requests.len());
-	assert!(
-		resumed
-			.requests
-			.iter()
-			.all(|request| !matches!(request, facts::Request::Storage { .. }))
-	);
 	let ControlFlow::Break(actual) = resumed.outcome else {
 		panic!("expected the resumed verification to complete");
 	};
@@ -149,14 +131,14 @@ async fn an_interrupted_concurrent_group_replays_its_successful_reads() {
 	let args = args();
 	let mut batch = Batch::new(&args, Config::default(), &tg::Principal::Anonymous).unwrap();
 
-	// Complete storage and one resolution read before interrupting its concurrent group.
-	let interrupted = run(&mut batch, 4, Some(args.len() + 1)).await;
+	// Complete one resolution read before interrupting its concurrent group.
+	let interrupted = run(&mut batch, 4, Some(1)).await;
 	assert!(matches!(
 		interrupted.outcome,
 		ControlFlow::Continue(Interrupt)
 	));
 	assert!(interrupted.maximum > 1);
-	let facts::Request::Id { id } = &interrupted.requests[args.len()] else {
+	let facts::Request::Id { id } = &interrupted.requests[0] else {
 		panic!("expected a successful resource resolution read");
 	};
 	assert!(!batch.inflight.is_empty());
@@ -188,16 +170,11 @@ fn args() -> Vec<Arg> {
 		)],
 		resource: object(4).into(),
 	};
-	let mut args = vec![
+	vec![
 		arg(object(0).into(), Some(super::empty_token(object(2)))),
 		arg(object(1).into(), Some(super::empty_token(object(3)))),
 		arg(object(4).into(), Some(token)),
-	];
-	for arg in &mut args {
-		arg.storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
-	}
-
-	args
+	]
 }
 
 async fn run(batch: &mut Batch, concurrency: usize, interrupt_at: Option<usize>) -> Attempt {
@@ -270,9 +247,6 @@ fn answer(request: facts::Request) -> facts::Output {
 				permissions: Vec::new(),
 			}
 		},
-		facts::Request::Storage { .. } => {
-			facts::Output::Storage(tg::storage::Set::Object(tg::object::storage::Set::NODE))
-		},
 		facts::Request::TargetTags { .. } => facts::Output::Tags {
 			after: None,
 			tags: Vec::new(),
@@ -287,6 +261,5 @@ fn assert_outputs(actual: &[Output], expected: &[Output]) {
 		assert_eq!(actual.expires_at, expected.expires_at);
 		assert_eq!(actual.outcome, expected.outcome);
 		assert_eq!(actual.permissions, expected.permissions);
-		assert_eq!(actual.storage, expected.storage);
 	}
 }
