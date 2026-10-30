@@ -750,16 +750,6 @@ impl Config {
 				"the archive queue concurrency must be greater than zero"
 			));
 		}
-		if queue.batch_timeout.is_zero() {
-			return Err(tg::error!(
-				"the archive queue batch timeout must be greater than zero"
-			));
-		}
-		if queue.fragment_size == 0 {
-			return Err(tg::error!(
-				"the archive queue fragment size must be greater than zero"
-			));
-		}
 		if queue.sequence_reservation_size == 0 {
 			return Err(tg::error!(
 				"the archive queue sequence reservation size must be greater than zero"
@@ -771,16 +761,6 @@ impl Config {
 		if queue.concurrency == 0 {
 			return Err(tg::error!(
 				"the index queue concurrency must be greater than zero"
-			));
-		}
-		if queue.batch_timeout.is_zero() {
-			return Err(tg::error!(
-				"the index queue batch timeout must be greater than zero"
-			));
-		}
-		if queue.fragment_size == 0 {
-			return Err(tg::error!(
-				"the index queue fragment size must be greater than zero"
 			));
 		}
 		if queue.sequence_reservation_size == 0 {

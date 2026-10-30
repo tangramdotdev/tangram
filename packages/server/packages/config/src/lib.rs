@@ -615,7 +615,7 @@ pub struct IndexerBillingCleanup {
 
 #[derive(Clone, Debug)]
 pub struct IndexerEnqueue {
-	/// The maximum number of fragment payload bytes in each indexer request.
+	/// The maximum number of encoded item bytes in each indexer request.
 	pub request_size: usize,
 
 	pub retry: Retry,
@@ -667,7 +667,7 @@ pub struct IndexerPartitions {
 
 #[derive(Clone, Debug)]
 pub struct IndexerQueue {
-	/// The maximum number of queue fragment payload bytes to hold in memory.
+	/// The maximum number of queue entry payload bytes to hold in memory.
 	pub memory: usize,
 }
 
@@ -816,12 +816,7 @@ pub struct ObjectCache {
 
 #[derive(Clone, Debug)]
 pub struct ArchiveQueue {
-	pub batch_timeout: Duration,
-
 	pub concurrency: usize,
-
-	/// The maximum number of encoded bytes in each archive queue fragment.
-	pub fragment_size: usize,
 
 	pub retry: Retry,
 
@@ -830,12 +825,7 @@ pub struct ArchiveQueue {
 
 #[derive(Clone, Debug)]
 pub struct IndexQueue {
-	pub batch_timeout: Duration,
-
 	pub concurrency: usize,
-
-	/// The maximum number of encoded bytes in each index queue fragment.
-	pub fragment_size: usize,
 
 	pub retry: Retry,
 
@@ -2745,9 +2735,7 @@ impl Default for ObjectCache {
 impl Default for ArchiveQueue {
 	fn default() -> Self {
 		Self {
-			batch_timeout: Duration::from_mins(1),
 			concurrency: 64,
-			fragment_size: 256 * 1024,
 			retry: queue_retry_default(),
 			sequence_reservation_size: 1024,
 		}
@@ -2757,9 +2745,7 @@ impl Default for ArchiveQueue {
 impl Default for IndexQueue {
 	fn default() -> Self {
 		Self {
-			batch_timeout: Duration::from_mins(1),
 			concurrency: 64,
-			fragment_size: 256 * 1024,
 			retry: queue_retry_default(),
 			sequence_reservation_size: 1024,
 		}

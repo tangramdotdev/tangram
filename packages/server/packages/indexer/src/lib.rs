@@ -69,7 +69,6 @@ pub struct IndexerState {
 struct Tasks {
 	archive_queue: SharedTask<tg::Result<()>>,
 	archive_sequence_reservations: SharedTask<tg::Result<()>>,
-	batch_expiration: SharedTask<tg::Result<()>>,
 	billing_cleanup: Task<tg::Result<()>>,
 	permission_capture: SharedTask<tg::Result<()>>,
 	cleaning: Task<tg::Result<()>>,
@@ -283,23 +282,6 @@ impl Component {
 				}
 				tokio::select! {
 					result = indexer.sequence_reservations_task(&state, &changed, queue::Kind::Archive) => result,
-					() = stopper.wait() => Ok(()),
-				}
-			}
-		});
-
-		// Spawn the batch expiration task.
-		let batch_expiration_task = SharedTask::spawn({
-			let indexer = indexer.clone();
-			let changed = changed.clone();
-			let state = state.clone();
-			move |stopper| async move {
-				if indexer.id.is_none() {
-					stopper.wait().await;
-					return Ok(());
-				}
-				tokio::select! {
-					result = indexer.batch_expiration_task(&state, &changed) => result,
 					() = stopper.wait() => Ok(()),
 				}
 			}
@@ -571,7 +553,6 @@ impl Component {
 		let tasks = Tasks {
 			archive_queue: archive_queue_task,
 			archive_sequence_reservations: archive_sequence_reservations_task,
-			batch_expiration: batch_expiration_task,
 			billing_cleanup: billing_cleanup_task,
 			permission_capture: permission_capture_task,
 			cleaning: cleaning_task,
@@ -603,7 +584,6 @@ impl Component {
 				"archive sequence reservations",
 				tasks.archive_sequence_reservations.clone(),
 			),
-			("batch expiration", tasks.batch_expiration.clone()),
 			(
 				"index sequence reservations",
 				tasks.index_sequence_reservations.clone(),
@@ -694,7 +674,6 @@ impl Indexer {
 		let Tasks {
 			archive_queue,
 			archive_sequence_reservations,
-			batch_expiration,
 			billing_cleanup,
 			permission_capture,
 			cleaning,
@@ -789,7 +768,6 @@ impl Indexer {
 				"archive sequence reservations",
 				archive_sequence_reservations,
 			),
-			("batch expiration", batch_expiration),
 			("index sequence reservations", index_sequence_reservations),
 			("queue checkpoints", queue_checkpoints),
 			("write", write),

@@ -9,14 +9,12 @@ let local = server spawn --config {
 		path: 'database.sqlite3',
 	},
 	indexer: {
+		enqueue: { request_size: 64 },
 		id: 'idx_0000000000000000000000000000',
 	},
 	object: {
 		archive_queue: { sequence_reservation_size: 2 },
-		index_queue: {
-			fragment_size: 64,
-			sequence_reservation_size: 2,
-		},
+		index_queue: { sequence_reservation_size: 2 },
 		queue_checkpoint_interval: 0.01,
 	},
 }

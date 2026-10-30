@@ -57,31 +57,14 @@ pub(crate) enum RequestArg {
 	Wait,
 }
 
-/// Fragments of archive and index batches to write to the cache's queues.
+/// A serialized archive arg and a serialized index write arg to write to the cache's queues as one entry each.
 #[derive(Clone, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) struct EnqueueRequestArg {
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
-	pub archive: Vec<Fragment>,
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub archive: Option<bytes::Bytes>,
 
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "Vec::is_empty")]
-	pub index: Vec<Fragment>,
-}
-
-/// A fragment of a serialized archive or index batch.
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-#[expect(clippy::struct_field_names)]
-pub(crate) struct Fragment {
-	#[tangram_serialize(id = 0)]
-	pub batch: queue::BatchId,
-
-	#[tangram_serialize(id = 1)]
-	pub fragment: u64,
-
-	#[tangram_serialize(id = 2)]
-	pub fragments: u64,
-
-	#[tangram_serialize(id = 3)]
-	pub payload: bytes::Bytes,
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub index: Option<bytes::Bytes>,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -378,7 +361,7 @@ impl Indexer {
 		}
 	}
 
-	#[tracing::instrument(name = "indexer.enqueue", level = "debug", skip_all, fields(archive = arg.archive.len(), index = arg.index.len()), err(level = "debug"))]
+	#[tracing::instrument(name = "indexer.enqueue", level = "debug", skip_all, fields(archive = arg.archive.as_ref().map_or(0, bytes::Bytes::len), index = arg.index.as_ref().map_or(0, bytes::Bytes::len)), err(level = "debug"))]
 	async fn handle_enqueue_request(
 		write_sender: &queue::write::Sender,
 		arg: EnqueueRequestArg,

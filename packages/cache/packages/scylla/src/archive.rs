@@ -65,24 +65,17 @@ impl Cache {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get archive queue items"))?;
 		let mut rows = pager
-			.rows_stream::<(i64, Vec<u8>, i64, i64, Vec<u8>)>()
+			.rows_stream::<(i64, Vec<u8>)>()
 			.map_err(|error| tg::error!(!error, "failed to get the archive queue rows"))?;
 
 		// Read the items.
 		let mut output = Vec::new();
-		while let Some((sequence, batch, fragment, fragments, payload)) = rows
+		while let Some((sequence, payload)) = rows
 			.try_next()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read an archive queue row"))?
 		{
-			let batch = batch
-				.try_into()
-				.map(archive::queue::batch::Id::new)
-				.map_err(|_| tg::error!("invalid archive queue batch id"))?;
 			let item = archive::queue::Item {
-				batch,
-				fragment: value(fragment)?,
-				fragments: value(fragments)?,
 				indexer: arg.indexer.clone(),
 				payload: payload.into(),
 				sequence: value(sequence)?,
@@ -95,19 +88,9 @@ impl Cache {
 
 	pub async fn put_archive_queue_item(&self, arg: archive::queue::put::Arg) -> tg::Result<()> {
 		let item = arg.item;
-		let batch = item.batch.value();
-		let fragment_index = sequence(item.fragment)?;
-		let fragments = sequence(item.fragments)?;
 		let indexer = item.indexer.to_bytes();
 		let sequence = sequence(item.sequence)?;
-		let params = (
-			batch.as_slice(),
-			fragment_index,
-			fragments,
-			indexer.as_ref(),
-			item.payload,
-			sequence,
-		);
+		let params = (indexer.as_ref(), item.payload, sequence);
 		self.session
 			.execute_unpaged(&self.statements.archive.put, params)
 			.await
@@ -130,25 +113,13 @@ impl Cache {
 			.into_rows_result()
 			.map_err(|error| tg::error!(!error, "failed to get the archive queue row"))?;
 		let item = result
-			.maybe_first_row::<(Vec<u8>, i64, i64, Vec<u8>)>()
+			.maybe_first_row::<(Vec<u8>,)>()
 			.map_err(|error| tg::error!(!error, "failed to deserialize the archive queue row"))?
-			.map(|(batch, fragment, fragments, payload)| {
-				let batch = batch
-					.try_into()
-					.map(archive::queue::batch::Id::new)
-					.map_err(|_| tg::error!("invalid archive queue batch id"))?;
-				let item = archive::queue::Item {
-					batch,
-					fragment: value(fragment)?,
-					fragments: value(fragments)?,
-					indexer: arg.indexer.clone(),
-					payload: payload.into(),
-					sequence: arg.sequence,
-				};
-
-				Ok::<_, tg::Error>(item)
-			})
-			.transpose()?;
+			.map(|(payload,)| archive::queue::Item {
+				indexer: arg.indexer.clone(),
+				payload: payload.into(),
+				sequence: arg.sequence,
+			});
 
 		Ok(item)
 	}
@@ -167,33 +138,33 @@ impl Statements {
 		let get = prepare(
 			session,
 			indoc!(
-				r#"
-					select "batch", fragment, fragments, payload
+				r"
+					select payload
 					from archive_queue
 					where indexer = ? and sequence = ?;
-				"#
+				"
 			),
 		)
 		.await?;
 		let get_batch = prepare(
 			session,
 			indoc!(
-				r#"
-					select sequence, "batch", fragment, fragments, payload
+				r"
+					select sequence, payload
 					from archive_queue
 					where indexer = ? and sequence >= ? and sequence < ?;
-				"#
+				"
 			),
 		)
 		.await?;
 		let put = prepare(
 			session,
 			indoc!(
-				r#"
+				r"
 					insert into archive_queue (
-						"batch", fragment, fragments, indexer, payload, sequence
-					) values (?, ?, ?, ?, ?, ?);
-				"#
+						indexer, payload, sequence
+					) values (?, ?, ?);
+				"
 			),
 		)
 		.await?;

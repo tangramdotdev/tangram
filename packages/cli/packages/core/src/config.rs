@@ -996,7 +996,7 @@ pub struct Indexer {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexerEnqueue {
-	/// The maximum number of fragment payload bytes in each indexer request.
+	/// The maximum number of encoded item bytes in each indexer request.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request_size: Option<usize>,
 
@@ -1091,7 +1091,7 @@ pub struct IndexerPartitions {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexerQueue {
-	/// The maximum number of queue fragment payload bytes to hold in memory.
+	/// The maximum number of queue entry payload bytes to hold in memory.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory: Option<usize>,
 }
@@ -1319,20 +1319,11 @@ pub struct ObjectCache {
 	pub poll_interval: Option<Duration>,
 }
 
-#[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArchiveQueue {
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub batch_timeout: Option<Duration>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
-
-	/// The maximum number of encoded bytes in each archive queue fragment.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub fragment_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
@@ -1341,20 +1332,11 @@ pub struct ArchiveQueue {
 	pub sequence_reservation_size: Option<u64>,
 }
 
-#[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexQueue {
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub batch_timeout: Option<Duration>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
-
-	/// The maximum number of encoded bytes in each index queue fragment.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub fragment_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,

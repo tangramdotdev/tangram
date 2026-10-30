@@ -1389,14 +1389,8 @@ fn resolve_object_cache(source: ObjectCache) -> server::ObjectCache {
 
 fn resolve_archive_queue(source: ArchiveQueue) -> server::ArchiveQueue {
 	let mut target = server::ArchiveQueue::default();
-	if let Some(value) = source.batch_timeout {
-		target.batch_timeout = value;
-	}
 	if let Some(value) = source.concurrency {
 		target.concurrency = value;
-	}
-	if let Some(value) = source.fragment_size {
-		target.fragment_size = value;
 	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
@@ -1409,14 +1403,8 @@ fn resolve_archive_queue(source: ArchiveQueue) -> server::ArchiveQueue {
 
 fn resolve_index_queue(source: IndexQueue) -> server::IndexQueue {
 	let mut target = server::IndexQueue::default();
-	if let Some(value) = source.batch_timeout {
-		target.batch_timeout = value;
-	}
 	if let Some(value) = source.concurrency {
 		target.concurrency = value;
-	}
-	if let Some(value) = source.fragment_size {
-		target.fragment_size = value;
 	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
@@ -3398,9 +3386,7 @@ mod tests {
 					"sequence_reservation_size": 200,
 				},
 				"index_queue": {
-					"batch_timeout": 0.3,
 					"concurrency": 42,
-					"fragment_size": 333,
 					"retry": {
 						"backoff": 0.04,
 						"jitter": 0.05,
@@ -3446,12 +3432,7 @@ mod tests {
 			Duration::from_secs(1)
 		);
 		assert_eq!(target.object.archive_queue.retry.max_retries, 4);
-		assert_eq!(
-			target.object.index_queue.batch_timeout,
-			Duration::from_millis(300)
-		);
 		assert_eq!(target.object.index_queue.concurrency, 42);
-		assert_eq!(target.object.index_queue.fragment_size, 333);
 		assert_eq!(target.object.index_queue.sequence_reservation_size, 300);
 		assert_eq!(
 			target.object.index_queue.retry.backoff,

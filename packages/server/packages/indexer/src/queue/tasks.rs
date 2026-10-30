@@ -1,6 +1,5 @@
 use {
 	crate::{Indexer, IndexerState, queue},
-	futures::future,
 	std::{ops::ControlFlow, sync::Mutex},
 	tangram_client::prelude::*,
 };
@@ -29,31 +28,6 @@ impl Indexer {
 			} else {
 				notified.await;
 			}
-		}
-	}
-
-	pub(crate) async fn batch_expiration_task(
-		&self,
-		state: &Mutex<IndexerState>,
-		changed: &tokio::sync::Notify,
-	) -> tg::Result<()> {
-		loop {
-			let notified = changed.notified();
-			let deadline = state.lock().unwrap().queues.next_batch_deadline();
-			let sleep = async {
-				if let Some(deadline) = deadline {
-					tokio::time::sleep_until(deadline).await;
-				} else {
-					future::pending::<()>().await;
-				}
-			};
-			tokio::select! { () = notified => continue, () = sleep => {} }
-			let mut state = state.lock().unwrap();
-			for kind in [queue::Kind::Archive, queue::Kind::Index] {
-				state.queues.expire_batches(kind, self.batch_timeout(kind));
-			}
-			drop(state);
-			changed.notify_waiters();
 		}
 	}
 
@@ -107,12 +81,7 @@ impl Indexer {
 			}
 			notified.await;
 		}
-		let target_sequences = {
-			let mut state = state.lock().unwrap();
-			state.queues.abandon_incomplete_batches();
-			state.queues.target_sequences()
-		};
-		changed.notify_waiters();
+		let target_sequences = state.lock().unwrap().queues.target_sequences();
 		loop {
 			let notified = changed.notified();
 			let finished = state
