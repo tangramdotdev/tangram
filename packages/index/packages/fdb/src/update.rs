@@ -597,6 +597,7 @@ impl Index {
 								partition_totals,
 								Some(*permissions),
 								Some(&version),
+								None,
 							)
 							.await
 						)
@@ -770,6 +771,13 @@ impl Index {
 		for (id, (put, version)) in items {
 			let changed = match &id {
 				tg::Either::Left(id) => {
+					// Enqueue the permission and usage updates that depend on a put object.
+					if put {
+						crate::propagate!(
+							Self::enqueue_object_put_updates(txn, subspace, id, partition_totals)
+								.await
+						);
+					}
 					crate::propagate!(Self::update_object(txn, subspace, id).await)
 				},
 				tg::Either::Right(id) => {
@@ -809,6 +817,51 @@ impl Index {
 		output.count = keys.len();
 
 		Ok(ControlFlow::Break(output))
+	}
+
+	async fn enqueue_object_put_updates(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::object::Id,
+		partition_totals: crate::PartitionTotals,
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		// Read the object and the subjects with permissions on it.
+		let resource = tg::Id::from(id.clone());
+		let (object, subjects) = futures::join!(
+			Self::try_get_object_with_transaction(txn, subspace, id),
+			Self::get_resource_permission_subjects_with_transaction(txn, subspace, &resource),
+		);
+		let object = crate::propagate!(object);
+		let subjects = crate::propagate!(subjects);
+		let Some(object) = object else {
+			return Ok(ControlFlow::Break(()));
+		};
+
+		// Resume permission derivation now that the object's children are known.
+		for subject in subjects {
+			Self::enqueue_update_with_kind(
+				txn,
+				subspace,
+				&tg::Either::Left(id.clone()),
+				&Kind::Permission(subject),
+				Source::Put,
+				partition_totals.permission_update,
+			);
+		}
+
+		// Enqueue a usage put for each account that stores a parent of the object.
+		crate::propagate!(
+			Self::enqueue_account_object_from_parents(
+				txn,
+				subspace,
+				id,
+				partition_totals.usage_update,
+				object.touched_at,
+			)
+			.await
+		);
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn try_get_update_propagated_version(
