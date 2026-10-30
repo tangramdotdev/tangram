@@ -1,8 +1,8 @@
 use {
-	futures::{SinkExt as _, StreamExt as _, channel::mpsc},
+	futures::StreamExt as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_tests_util::{Config, Temp, cli::Server},
+	tangram_tests_util::{Config, cli::Server},
 };
 
 /// Destroy sandbox requests on a runner control connection enforce runner ownership and are idempotent.
@@ -40,7 +40,7 @@ async fn destroy_sandbox_requires_ownership() -> tg::Result<()> {
 		"remotes": { "default": { "token": created_token, "url": remote.client()?.url().to_string() } },
 		"runner": { "id": created.data.id.to_string(), "remote": "default", "token": created_token },
 	}));
-	let directory = Temp::with_parent(std::path::Path::new(&quota))
+	let directory = tangram_tests_util::Temp::with_parent(std::path::Path::new(&quota))
 		.map_err(|error| tg::error!(!error, "failed to create the runner's directory"))?;
 	let mut runner =
 		Server::start_with_path(tangram, config, directory.path().join("server")).await?;
@@ -147,12 +147,15 @@ async fn sandbox_control_requires_proof() -> tg::Result<()> {
 }
 
 /// Open a runner control connection as the runner, check whether the server says that the runner hosts the sandbox, and request that the sandbox be destroyed twice. Return whether each request destroyed it.
+#[cfg(target_os = "linux")]
 async fn destroy_sandbox(
 	server: &Server,
 	runner: &tg::runner::create::Output,
 	sandbox: &tg::sandbox::Id,
 	hosts: bool,
 ) -> tg::Result<(bool, bool)> {
+	use futures::SinkExt as _;
+
 	// Open the connection.
 	let token = runner
 		.token
@@ -161,7 +164,7 @@ async fn destroy_sandbox(
 		.ok_or_else(|| tg::error!("expected the runner's token"))?;
 	let session = server.client()?.session(&tg::Context::new(Some(token)));
 	let (mut sender, receiver) =
-		mpsc::unbounded::<tg::Result<tg::runner::control::ClientMessage>>();
+		futures::channel::mpsc::unbounded::<tg::Result<tg::runner::control::ClientMessage>>();
 	let arg = tg::runner::control::Arg {
 		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
 		host: "test".to_owned(),
@@ -229,6 +232,7 @@ async fn destroy_sandbox(
 	Ok((destroyed[0], destroyed[1]))
 }
 
+#[cfg(target_os = "linux")]
 async fn sandbox_status(
 	server: &Server,
 	token: &str,

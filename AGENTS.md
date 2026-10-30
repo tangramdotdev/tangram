@@ -4,6 +4,8 @@ Tangram is a build system and package manager that makes builds and tests fast a
 
 ## Git
 
+Write commit messages in lowercase.
+
 Work in the current checkout. Do not create additional Git worktrees.
 
 Force pushing branches other than `main` is allowed. Never force push `main`.

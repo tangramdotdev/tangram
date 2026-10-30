@@ -6,7 +6,6 @@ use {
 };
 
 /// A runner must not start a shortcut child of a process that it does not run, since the child would receive the parent's authority over the command's objects, or in a sandbox that it does not host, since the sandbox's owner is billed for the child.
-#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn shortcut_start_requires_proof() -> tg::Result<()> {
 	// Start a server with users.
@@ -166,7 +165,6 @@ async fn shortcut_start_requires_proof() -> tg::Result<()> {
 }
 
 /// A process that starts after its parent finished does not receive the parent's authority over the command's objects.
-#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn finished_parent_child() -> tg::Result<()> {
 	// Start a server with users and a root token.
