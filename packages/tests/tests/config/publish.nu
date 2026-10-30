@@ -55,3 +55,24 @@ let output = tg publish --tag hello/1.0.0 $path | complete
 success $output
 assert ($output.stderr | str contains 'warning') $output.stderr
 success (tg tag get hello/1.0.0 | complete)
+
+# Publishing checks the interfaces of every config in the packages that it publishes, including the configs that are not roots and the packages that are path dependencies.
+let path = artifact {
+	greet: {
+		tangram.json: '{ "runtime": "../runtime", "metadata": { "tag": "greet-dependency/1.0.0" } }'
+	}
+	other.tg.json: '{ "runtime": "./runtime" }'
+	runtime: { tangram.ts: $runtime }
+	tangram.ts: '
+		import * as greet from "./greet";
+		import * as other from "./other.tg.json";
+		export default () => null;
+		export let metadata = { tag: "greet-importer/1.0.0" };
+	'
+}
+let output = tg publish $path | complete
+failure $output
+assert ($output.stderr | str contains '--update-interface') $output.stderr
+success (tg publish --update-interface $path | complete)
+assert ($path | path join greet tangram.tgi | path exists)
+assert ($path | path join other.tg.tgi | path exists)

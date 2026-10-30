@@ -73,20 +73,10 @@ struct Item {
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
-	// Check the interface of the root package's config against the interface that its runtime generates.
+	// Check in the root package.
 	let absolute_path = tangram_util::fs::canonicalize_parent(&args.path)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-	check_interface(
-		cli,
-		&client,
-		&absolute_path,
-		args.update_interface && !args.dry_run,
-	)
-	.boxed_local()
-	.await?;
-
-	// Check in the root package.
 	let arg = tg::checkin::Arg {
 		options: tg::checkin::Options::default(),
 		path: absolute_path.clone(),
@@ -129,6 +119,21 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.boxed()
 		.await
 		.map_err(|error| tg::error!(!error, "failed to create publishing plan"))?;
+
+	// Check the interfaces of the configs in the packages that publishing checks in from disk against the interfaces that their runtimes generate, before checking them in again.
+	let mut paths = vec![absolute_path.clone()];
+	for step in &plan {
+		match step {
+			Step::Item(item) => paths.extend(item.path.clone()),
+			Step::Cycle(items) => paths.extend(items.iter().filter_map(|item| item.path.clone())),
+		}
+	}
+	let update = args.update_interface && !args.dry_run;
+	for path in config_paths(&paths).await? {
+		check_interface(cli, &client, &path, update)
+			.boxed_local()
+			.await?;
+	}
 
 	// Print the plan if this is a dry run.
 	if args.dry_run {
@@ -733,29 +738,38 @@ async fn push_tag_ancestors(
 	Ok(())
 }
 
-/// Check the interface of a package's root config against the interface that its runtime's `interface` export generates, and write the generated interface beside the config if `update` is true.
+/// Get the paths of the configs in packages on disk, which are package directories or single files.
+async fn config_paths(paths: &[PathBuf]) -> tg::Result<BTreeSet<PathBuf>> {
+	let mut configs = BTreeSet::new();
+	let mut pending = paths.to_vec();
+	while let Some(path) = pending.pop() {
+		let metadata = tokio::fs::symlink_metadata(&path).await.map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to get the metadata"),
+		)?;
+		if metadata.is_dir() {
+			let mut entries = tokio::fs::read_dir(&path).await.map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to read the directory"),
+			)?;
+			while let Some(entry) = entries.next_entry().await.map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to read the directory"),
+			)? {
+				pending.push(entry.path());
+			}
+		} else if metadata.is_file() && tg::module::config::Format::for_path(&path).is_some() {
+			configs.insert(path);
+		}
+	}
+	Ok(configs)
+}
+
+/// Check the interface of a config against the interface that its runtime's `interface` export generates, and write the generated interface beside the config if `update` is true.
 async fn check_interface(
 	cli: &mut Cli,
 	client: &tg::Client,
 	path: &Path,
 	update: bool,
 ) -> tg::Result<()> {
-	// Get the root config.
-	let path = if path.is_dir() {
-		let name = tg::module::ROOT_MODULE_FILE_NAMES
-			.iter()
-			.filter(|name| tg::module::config::Format::for_path(name).is_some())
-			.find(|name| path.join(name).is_file());
-		let Some(name) = name else {
-			return Ok(());
-		};
-		path.join(name)
-	} else if tg::module::config::Format::for_path(path).is_some() {
-		path.to_owned()
-	} else {
-		return Ok(());
-	};
-	let name = tg::module::config::interface_file_name(&path)
+	let name = tg::module::config::interface_file_name(path)
 		.ok_or_else(|| tg::error!("failed to get the file name of the interface"))?;
 	let interface_path = path.with_file_name(name);
 

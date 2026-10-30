@@ -54,15 +54,32 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<diagnostics::DocumentOutput>> {
 		let compiler = compiler.clone();
 		async move {
-			// Report an invalid config at the range of its error.
+			// Report an invalid config or interface at the range of its error.
 			let mut diagnostics = Vec::new();
 			for module in arg.modules {
 				let text = compiler.load_module(&module).await?;
-				let Some(format) = tg::module::config::Format::for_kind(module.kind) else {
+				let result = if module.kind == tg::module::Kind::Interface {
+					serde_json::from_str::<tg::Interface>(&text)
+						.map(|_| ())
+						.map_err(|error| {
+							let position = tg::Position {
+								character: u32::try_from(error.column().saturating_sub(1))
+									.unwrap_or(0),
+								line: u32::try_from(error.line().saturating_sub(1)).unwrap_or(0),
+							};
+							let range = tg::Range {
+								end: position,
+								start: position,
+							};
+							let error = tg::error!(argument, message = %error, "invalid interface");
+							(error, Some(range))
+						})
+				} else if let Some(format) = tg::module::config::Format::for_kind(module.kind) {
+					tg::module::Config::parse_with_range(&text, format).map(|_| ())
+				} else {
 					continue;
 				};
-				let Err((error, range)) = tg::module::Config::parse_with_range(&text, format)
-				else {
+				let Err((error, range)) = result else {
 					continue;
 				};
 				let location = range.map(|range| tg::module::data::Location {

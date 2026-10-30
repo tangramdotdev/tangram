@@ -1,7 +1,7 @@
 use ../../util/test.nu *
 use ../../util/lsp.nu
 
-# The language server reports an invalid config at the position of its error, and answers other requests for config documents with empty results.
+# The language server reports an invalid config or interface at the position of its error, and answers other requests for config documents with empty results.
 
 let local = server spawn
 let path = artifact {'env.tg.toml': ''}
@@ -30,4 +30,22 @@ $session = lsp send_all $session [
 let response = lsp wait_result $session 12
 $session = $response.session
 assert equal $response.result.items []
+lsp stop $session
+
+# An invalid interface is reported at the position of its error.
+let path = artifact {'env.tg.tgi': ''}
+let uri = lsp uri ($path | path join env.tg.tgi)
+let source = "{\n  \"exports\": 1\n}\n"
+mut session = lsp start
+$session = lsp send_all $session [
+    (lsp initialize 1)
+    (lsp initialized)
+    (lsp notification 'textDocument/didOpen' {textDocument: {uri: $uri, languageId: 'json', version: 1, text: $source}})
+    (lsp diagnostics 10 $uri)
+]
+let response = lsp wait_result $session 10
+$session = $response.session
+let diagnostic = $response.result.items.0
+assert ($diagnostic.message | str contains 'invalid interface') $diagnostic.message
+assert equal $diagnostic.range.start.line 1
 lsp stop $session
