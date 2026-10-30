@@ -44,7 +44,7 @@ for case in [
     ]
 
     # Open a module in the bindings directory with unsaved text.
-    let bindings_path = if ($case.main | str ends-with '.py') { $bindings_directory | path join 'immutable.tg.py' } else { $bindings_directory | path join 'immutable.tg.js' }
+    let bindings_path = if ($case.main | str ends-with '.py') { $bindings_directory | path join 'immutable.tg.py' } else { $bindings_directory | path join 'immutable.tg.ts' }
     $case.source | save --force $bindings_path
     let bindings_uri = lsp uri $bindings_path
     let original = open --raw $bindings_path

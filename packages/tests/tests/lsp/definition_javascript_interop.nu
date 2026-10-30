@@ -13,6 +13,7 @@ let responses = lsp exchange [
     (lsp initialized)
     (lsp did_open $uri $source)
     (lsp definition 10 $uri 1 2)
+    (lsp definition 14 $uri 0 27)
     (lsp request 11 textDocument/prepareRename {textDocument: {uri: $uri}, position: {line: 1, character: 2}})
     (lsp rename 12 $uri 1 2 welcome)
     (lsp request 13 workspace/symbol {query: greet})
@@ -24,10 +25,16 @@ assert equal (lsp result $responses 10) [{
     range: {start: {line: 0, character: 4}, end: {line: 0, character: 9}}
 }]
 
+# The definition of the import's specifier is the original Python module.
+assert equal (lsp result $responses 14) [{
+    uri: (lsp uri ($path | path join helper.tg.py))
+    range: {start: {line: 0, character: 0}, end: {line: 0, character: 0}}
+}]
+
 # Workspace search finds the JavaScript bindings.
 let location = lsp result $responses 13 | where { |symbol| $symbol.location.uri | str contains '/bindings/' } | get 0.location
 let bindings = lsp path_for_uri $location.uri
-assert ($bindings | str ends-with '.tg.js')
+assert ($bindings | str ends-with '.tg.ts')
 let text = open --raw $bindings
 assert equal (lsp result $responses 11) {
     placeholder: greet

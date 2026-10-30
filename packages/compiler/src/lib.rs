@@ -1137,6 +1137,18 @@ impl Compiler {
 				let location = lsp::Location { uri, range };
 				return Ok(location);
 			}
+
+			// Map the start of the bindings, which is where the language service locates the module itself, to the start of the original module.
+			let start = tg::Position {
+				character: 0,
+				line: 0,
+			};
+			if location.range.start == start && location.range.end == start {
+				let uri = self.lsp_uri_for_module(&location.module).await?;
+				let range = location.range.into();
+				let location = lsp::Location { uri, range };
+				return Ok(location);
+			}
 		}
 
 		// Otherwise, use the representation whose positions the language service returned.
@@ -1496,7 +1508,7 @@ fn bindings_language(
 			| tg::module::Kind::Toml
 			| tg::module::Kind::Yaml
 			| tg::module::Kind::Python,
-		) => Some((tg::module::load::Language::JavaScript, "js")),
+		) => Some((tg::module::load::Language::JavaScript, "ts")),
 		_ => None,
 	}
 }
