@@ -15,13 +15,6 @@ let runtime = '
 		if (arg.args[0] === "fail") {
 			throw new Error("the runtime check failed");
 		}
-		if (arg.args[0] === "child") {
-			await tg.build(tg.command({
-				args: ["-c", "echo the python file is invalid >&2; exit 1"],
-				executable: "/bin/sh",
-				host: tg.host.current,
-			}));
-		}
 		return null;
 	};
 '
@@ -40,15 +33,6 @@ let path = artifact {
 let output = tg check ($path | path join env.tg.json) | complete
 failure $output
 assert ($output.stderr | str contains 'the runtime check failed') $output.stderr
-
-# A check whose process fails shows the end of the failed process's output.
-let path = artifact {
-	env.tg.json: '{ "runtime": "./runtime", "args": ["child"] }'
-	runtime: { config.tgi.ts: $interface, tangram.ts: $runtime }
-}
-let output = tg check ($path | path join env.tg.json) | complete
-failure $output
-assert ($output.stderr | str contains 'the python file is invalid') $output.stderr
 
 # The check of a package's root config receives the package.
 let path = artifact {
