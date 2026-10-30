@@ -71,19 +71,16 @@ for operation in [status wait] {
 
 # A finished control response must wait for the indexed record before answering a full get.
 let watch = tg --url $local_owner.url --token $root_token checkpoint watch process.get.index --params $params | from json | get watch
-let response_watch = tg --url $local_owner.url --token $root_token checkpoint watch process.control.response.published --params ({ kind: get, process: $process } | to json --raw) | from json | get watch
+let required = checkpoint watch process.get.index.required --url $local_owner.url --token $root_token --params { process: $process }
 let get_job = job spawn {
 	let job_id = job id
 	let output = tg --url $local_owner.url --token $root_token get $process | complete
 	$output | job send --tag $job_id 0
 }
-let required = checkpoint watch process.get.index.required --url $local_owner.url --token $root_token --params { process: $process }
 tg --url $local_owner.url --token $root_token checkpoint wait --timeout 10s process.get.index $watch 0 | ignore
-tg --url $local_owner.url --token $root_token checkpoint wait --timeout 10s process.control.response.published $response_watch 0 | ignore
 checkpoint pass $required
 checkpoint unwatch $required
 tg --url $local_owner.url --token $root_token checkpoint unwatch process.get.index $watch
-tg --url $local_owner.url --token $root_token checkpoint unwatch process.control.response.published $response_watch
 let output = job recv --tag $get_job --timeout 10sec
 success $output
 assert equal ($output.stdout | from json | get log | referent node) ($indexed.log | referent node)

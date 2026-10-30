@@ -4,7 +4,6 @@ use ../../util/test.nu *
 for remote_runner in [false true] {
 	let local_owner = server spawn --name local-owner --config {
 		advanced: { checkpoints: true },
-		control: { read_timeout: 0.25 },
 		roles: (if $remote_runner { [api indexer scheduler] } else { [api indexer runner scheduler] }),
 	}
 	let runner = if $remote_runner {
@@ -18,7 +17,7 @@ for remote_runner in [false true] {
 	} else {
 		$local_owner
 	}
-	let local_client = server spawn --name local-client --config { control: { read_timeout: 0.25 }, remotes: { default: { url: $local_owner.url } } }
+	let local_client = server spawn --name local-client --config { remotes: { default: { url: $local_owner.url } } }
 	let finish = tg --url $runner.url checkpoint watch runner.process.control.finish.request | from json | get watch
 	let path = artifact { tangram.ts: 'export default () => { console.log("source log"); return "done"; };' }
 	let process = tg --url $local_owner.url build --no-tokens --detach $path | referent node
