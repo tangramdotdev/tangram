@@ -105,10 +105,11 @@ impl Component {
 				})
 			},
 
-			// Handle a JavaScript, Python, or TypeScript module from a path.
+			// Handle a text module from a path.
 			tg::module::Data {
 				kind:
-					tg::module::Kind::Json
+					tg::module::Kind::Interface
+					| tg::module::Kind::Json
 					| tg::module::Kind::Toml
 					| tg::module::Kind::Yaml
 					| tg::module::Kind::JavaScript
@@ -131,10 +132,11 @@ impl Component {
 				})
 			},
 
-			// Handle a JavaScript, Python, or TypeScript module from an object.
+			// Handle a text module from an object.
 			tg::module::Data {
 				kind:
-					tg::module::Kind::Json
+					tg::module::Kind::Interface
+					| tg::module::Kind::Json
 					| tg::module::Kind::Toml
 					| tg::module::Kind::Yaml
 					| tg::module::Kind::JavaScript

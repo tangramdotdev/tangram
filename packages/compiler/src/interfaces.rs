@@ -403,7 +403,7 @@ impl Compiler {
 		};
 
 		// Resolve the imports concurrently.
-		let modules = future::join_all(
+		let mut modules: Vec<_> = future::join_all(
 			imports
 				.into_iter()
 				.map(|import| self.resolve_import(module, import)),
@@ -413,6 +413,13 @@ impl Compiler {
 		.filter_map(Result::ok)
 		.filter(|module| group(module.kind).is_some())
 		.collect();
+
+		// Add the interface in a config's runtime package, which the config's interface may come from.
+		if module.kind.is_config()
+			&& let Some(module) = self.try_get_config_runtime_interface_module(module).await?
+		{
+			modules.push(module);
+		}
 
 		Ok(modules)
 	}
@@ -430,9 +437,10 @@ impl Interfaces {
 /// Get the group of a module's checker.
 fn group(kind: tg::module::Kind) -> Option<Group> {
 	match kind {
-		tg::module::Kind::Json | tg::module::Kind::Toml | tg::module::Kind::Yaml => {
-			Some(Group::Config)
-		},
+		tg::module::Kind::Interface
+		| tg::module::Kind::Json
+		| tg::module::Kind::Toml
+		| tg::module::Kind::Yaml => Some(Group::Config),
 		tg::module::Kind::JavaScript
 		| tg::module::Kind::TypeScript
 		| tg::module::Kind::TypeScriptDeclaration => Some(Group::JavaScript),

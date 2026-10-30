@@ -1,15 +1,11 @@
 use ../../util/test.nu *
 
-# Checking a config module validates the config and runs its runtime's check export, which passes or fails with its error.
+# Checking a config module validates the config and its interface, and builds its check export when its interface has one, which passes or fails with its error.
 
 let local = server spawn
 
 let runtime = '
 	export default async (arg: { export: string; args: Array<tg.Value>; package?: tg.Directory }) => {
-		if (arg.export === "interface") {
-			const type = { kind: "command", args: { kind: "tuple", elements: [] }, output: { kind: "null" } };
-			return { exports: { check: { type } } };
-		}
 		if (arg.export !== "check") {
 			return null;
 		}
@@ -22,16 +18,17 @@ let runtime = '
 		return null;
 	};
 '
+let interface = '{ "exports": { "check": { "type": { "kind": "command", "args": { "kind": "tuple", "elements": [] }, "output": { "kind": "null" } } } } }'
 
 let path = artifact {
 	env.tg.json: '{ "runtime": "./runtime" }'
-	runtime: { tangram.ts: $runtime }
+	runtime: { config.tgi: $interface, tangram.ts: $runtime }
 }
 success (tg check ($path | path join env.tg.json) | complete)
 
 let path = artifact {
 	env.tg.json: '{ "runtime": "./runtime", "args": ["fail"] }'
-	runtime: { tangram.ts: $runtime }
+	runtime: { config.tgi: $interface, tangram.ts: $runtime }
 }
 let output = tg check ($path | path join env.tg.json) | complete
 failure $output
@@ -40,14 +37,31 @@ assert ($output.stderr | str contains 'the runtime check failed') $output.stderr
 # The check of a package's root config receives the package.
 let path = artifact {
 	tangram.json: '{ "runtime": "./runtime", "args": ["package"] }'
-	runtime: { tangram.ts: $runtime }
+	runtime: { config.tgi: $interface, tangram.ts: $runtime }
 }
 success (tg check $path | complete)
+
+# A config whose interface has no check export checks without building one.
+let path = artifact {
+	env.tg.json: '{ "runtime": "./runtime", "args": ["fail"] }'
+	runtime: { tangram.ts: $runtime }
+}
+success (tg check ($path | path join env.tg.json) | complete)
+
+# An invalid interface fails checking.
+let path = artifact {
+	env.tg.json: '{ "runtime": "./runtime" }'
+	env.tg.tgi: '{ "exports": 1 }'
+	runtime: { tangram.ts: $runtime }
+}
+let output = tg check ($path | path join env.tg.json) | complete
+failure $output
+assert ($output.stderr | str contains 'invalid interface') $output.stderr
 
 # An invalid config fails checking.
 let path = artifact {
 	env.tg.json: '{ "runtime": "./runtime", "imports": {} }'
-	runtime: { tangram.ts: $runtime }
+	runtime: { config.tgi: $interface, tangram.ts: $runtime }
 }
 let output = tg check ($path | path join env.tg.json) | complete
 failure $output

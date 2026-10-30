@@ -6,6 +6,9 @@ use {
 #[cfg(test)]
 mod tests;
 
+/// The file name of the interface in a runtime package that configs which use the runtime have when they have no interface beside them.
+pub const RUNTIME_INTERFACE_FILE_NAME: &str = "config.tgi";
+
 /// The config of a config module, which names the runtime that runs the module and the module's dependencies.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -157,6 +160,15 @@ impl Format {
 		};
 		Some(format)
 	}
+}
+
+/// Get the file name of the interface beside a config: `tangram.json` has `tangram.tgi`, and `foo.tg.json` has `foo.tg.tgi`.
+#[must_use]
+pub fn interface_file_name(path: impl AsRef<Path>) -> Option<String> {
+	Format::for_path(path.as_ref())?;
+	let name = path.as_ref().file_name()?.to_str()?;
+	let stem = name.rsplit_once('.')?.0;
+	Some(format!("{stem}.tgi"))
 }
 
 impl From<RawDependency> for Dependency {

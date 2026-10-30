@@ -52,6 +52,48 @@ impl Compiler {
 					});
 				}
 
+				// Import the interface beside a config on disk, so that checking in the config includes it.
+				if let tg::module::data::Source::Path(path) = &module.referent.node
+					&& let Some(name) = tg::module::config::interface_file_name(path)
+					&& path.with_file_name(&name).is_file()
+				{
+					imports.insert(tg::module::Import {
+						kind: Some(tg::module::Kind::Interface),
+						reference: format!("./{name}").parse()?,
+					});
+				}
+
+				let analysis = Analysis {
+					diagnostics: Vec::new(),
+					imports,
+				};
+				Ok(analysis)
+			},
+			tg::module::Kind::Interface => {
+				// Get the imports of the interface whose paths are relative to it.
+				let interface = tg::Interface::deserialize_json(text)
+					.map_err(|error| tg::error!(argument, !error, "invalid interface"))?;
+				let mut imports = HashSet::default();
+				for import in interface.imports.values() {
+					let tg::module::data::Source::Path(path) = &import.referent.node else {
+						continue;
+					};
+					if path.is_absolute() {
+						continue;
+					}
+					let path = path
+						.to_str()
+						.ok_or_else(|| tg::error!("invalid import path"))?;
+					let reference = if path.starts_with('.') {
+						path.parse()?
+					} else {
+						format!("./{path}").parse()?
+					};
+					imports.insert(tg::module::Import {
+						kind: Some(import.kind),
+						reference,
+					});
+				}
 				let analysis = Analysis {
 					diagnostics: Vec::new(),
 					imports,

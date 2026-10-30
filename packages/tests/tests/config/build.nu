@@ -11,10 +11,6 @@ let runtime = '
 		package?: tg.Directory;
 		dependencies: { [name: string]: { item: tg.Artifact } };
 	}) => {
-		if (arg.export === "interface") {
-			const type = { kind: "command", args: { kind: "array", item: { kind: "value" } }, output: { kind: "value" } };
-			return { exports: { default: { type }, greet: { type } } };
-		}
 		const dependencies: { [name: string]: string } = {};
 		for (const [name, dependency] of Object.entries(arg.dependencies)) {
 			tg.File.assert(dependency.item);
@@ -72,6 +68,7 @@ assert equal ($output.stdout | from json | get package) true
 let path = artifact {
 	greet: {
 		tangram.json: '{ "runtime": "./runtime" }'
+		tangram.tgi: '{ "exports": { "default": { "type": { "kind": "command", "args": { "kind": "array", "item": { "kind": "value" } }, "output": { "kind": "value" } } } } }'
 		runtime: { tangram.ts: $runtime }
 	}
 	tangram.ts: '

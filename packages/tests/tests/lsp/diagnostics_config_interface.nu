@@ -1,21 +1,14 @@
 use ../../util/test.nu *
 use ../../util/lsp.nu
 
-# Editing the runtime of a config module updates the types that its importers see.
+# Editing the interface in the runtime package of a config module updates the types that its importers see.
 
 let local = server spawn
-let runtime = '
-	export default async (arg: { export: string }) => {
-		if (arg.export === "interface") {
-			return { exports: { greet: { type: { kind: "command", args: { kind: "tuple", elements: [] }, output: { kind: "OUTPUT" } } } } };
-		}
-		return null;
-	};
-'
+let interface = '{ "exports": { "greet": { "type": { "kind": "command", "args": { "kind": "tuple", "elements": [] }, "output": { "kind": "OUTPUT" } } } } }'
 let source = "import { greet } from \"./greet.tg.json\";\nexport default async () => { const text: string = await greet.build(); return text; };\n"
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime" }'
-	runtime: { tangram.ts: ($runtime | str replace OUTPUT string) }
+	runtime: { config.tgi: ($interface | str replace OUTPUT string), tangram.ts: 'export default async () => null;' }
 	tangram.ts: $source
 }
 let uri = lsp uri ($path | path join tangram.ts)
@@ -25,7 +18,7 @@ let response = lsp wait_result $session 10
 $session = $response.session
 assert equal $response.result.items []
 
-$runtime | str replace OUTPUT number | save --force ($path | path join runtime/tangram.ts)
+$interface | str replace OUTPUT number | save --force ($path | path join runtime/config.tgi)
 $session = lsp send $session (lsp diagnostics 11 $uri)
 let response = lsp wait_result $session 11
 $session = $response.session

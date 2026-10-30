@@ -69,6 +69,9 @@ pub enum Kind {
 	#[tangram_serialize(id = 9)]
 	Graph,
 
+	#[tangram_serialize(id = 16)]
+	Interface,
+
 	#[tangram_serialize(id = 0)]
 	#[display("javascript")]
 	JavaScript,
@@ -115,6 +118,8 @@ pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Ki
 		Ok(tg::module::Kind::Python)
 	} else if let Some(format) = tg::module::config::Format::for_path(path) {
 		Ok(format.kind())
+	} else if path.extension().is_some_and(|extension| extension == "tgi") {
+		Ok(tg::module::Kind::Interface)
 	} else {
 		Err(tg::error!(path = %path.display(), "unknown or missing file extension"))
 	}
@@ -130,7 +135,7 @@ pub fn is_module_path(path: &Path) -> bool {
 	};
 	tg::module::ROOT_MODULE_FILE_NAMES.contains(&name)
 		|| [
-			".tg.js", ".tg.json", ".tg.py", ".tg.toml", ".tg.ts", ".tg.yaml",
+			".tg.js", ".tg.json", ".tg.py", ".tg.toml", ".tg.ts", ".tg.yaml", ".tgi",
 		]
 		.iter()
 		.any(|suffix| name.ends_with(suffix))
@@ -230,6 +235,7 @@ impl std::str::FromStr for Kind {
 			"error" => Self::Error,
 			"file" => Self::File,
 			"graph" => Self::Graph,
+			"interface" => Self::Interface,
 			"javascript" => Self::JavaScript,
 			"json" => Self::Json,
 			"object" => Self::Object,
