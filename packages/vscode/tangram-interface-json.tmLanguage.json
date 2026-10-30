@@ -1,0 +1,13 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"fileTypes": [
+		".tgi.json"
+	],
+	"name": "Tangram Interface JSON",
+	"patterns": [
+		{
+			"include": "source.json"
+		}
+	],
+	"scopeName": "source.tgi.json"
+}

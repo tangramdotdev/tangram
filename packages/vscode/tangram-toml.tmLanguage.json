@@ -1,0 +1,13 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"fileTypes": [
+		".tg.toml"
+	],
+	"name": "Tangram TOML",
+	"patterns": [
+		{
+			"include": "source.toml"
+		}
+	],
+	"scopeName": "source.tg.toml"
+}

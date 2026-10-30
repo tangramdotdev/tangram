@@ -1,0 +1,40 @@
+name = "Tangram TOML"
+grammar = "toml"
+path_suffixes = [
+    "tangram.toml",
+    "tg.toml",
+]
+line_comments = ["# "]
+autoclose_before = ",]}"
+
+[[brackets]]
+start = "{"
+end = "}"
+close = true
+newline = true
+
+[[brackets]]
+start = "["
+end = "]"
+close = true
+newline = true
+
+[[brackets]]
+start = '"'
+end = '"'
+close = true
+newline = false
+not_in = [
+    "comment",
+    "string",
+]
+
+[[brackets]]
+start = "'"
+end = "'"
+close = true
+newline = false
+not_in = [
+    "comment",
+    "string",
+]

@@ -60,7 +60,27 @@
 			"title": "Tangram"
 		},
 		"configurationDefaults": {
+			"[tangram-interface-json]": {
+				"editor.detectIndentation": false,
+				"editor.insertSpaces": true,
+				"editor.tabSize": 2
+			},
+			"[tangram-interface-python]": {
+				"editor.detectIndentation": false,
+				"editor.insertSpaces": true,
+				"editor.tabSize": 4
+			},
+			"[tangram-interface-typescript]": {
+				"editor.detectIndentation": false,
+				"editor.insertSpaces": true,
+				"editor.tabSize": 2
+			},
 			"[tangram-javascript]": {
+				"editor.detectIndentation": false,
+				"editor.insertSpaces": true,
+				"editor.tabSize": 2
+			},
+			"[tangram-json]": {
 				"editor.detectIndentation": false,
 				"editor.insertSpaces": true,
 				"editor.tabSize": 2
@@ -70,7 +90,17 @@
 				"editor.insertSpaces": true,
 				"editor.tabSize": 4
 			},
+			"[tangram-toml]": {
+				"editor.detectIndentation": false,
+				"editor.insertSpaces": true,
+				"editor.tabSize": 2
+			},
 			"[tangram-typescript]": {
+				"editor.detectIndentation": false,
+				"editor.insertSpaces": true,
+				"editor.tabSize": 2
+			},
+			"[tangram-yaml]": {
 				"editor.detectIndentation": false,
 				"editor.insertSpaces": true,
 				"editor.tabSize": 2
@@ -110,13 +140,92 @@
 			},
 			{
 				"injectTo": [
-					"source.tg.ts"
+					"source.tg.ts",
+					"source.tgi.ts"
 				],
 				"path": "./tangram-typescript-jsdoc-injection.tmLanguage.json",
 				"scopeName": "documentation.injection.tg.ts"
+			},
+			{
+				"embeddedLanguages": {
+					"source.json": "json"
+				},
+				"language": "tangram-json",
+				"path": "./tangram-json.tmLanguage.json",
+				"scopeName": "source.tg.json"
+			},
+			{
+				"embeddedLanguages": {
+					"source.toml": "toml"
+				},
+				"language": "tangram-toml",
+				"path": "./tangram-toml.tmLanguage.json",
+				"scopeName": "source.tg.toml"
+			},
+			{
+				"embeddedLanguages": {
+					"source.yaml": "yaml"
+				},
+				"language": "tangram-yaml",
+				"path": "./tangram-yaml.tmLanguage.json",
+				"scopeName": "source.tg.yaml"
+			},
+			{
+				"embeddedLanguages": {
+					"source.json": "json"
+				},
+				"language": "tangram-interface-json",
+				"path": "./tangram-interface-json.tmLanguage.json",
+				"scopeName": "source.tgi.json"
+			},
+			{
+				"embeddedLanguages": {
+					"source.python": "python"
+				},
+				"language": "tangram-interface-python",
+				"path": "./tangram-interface-python.tmLanguage.json",
+				"scopeName": "source.tgi.py"
+			},
+			{
+				"embeddedLanguages": {
+					"source.ts": "typescript"
+				},
+				"language": "tangram-interface-typescript",
+				"path": "./tangram-interface-typescript.tmLanguage.json",
+				"scopeName": "source.tgi.ts"
 			}
 		],
 		"languages": [
+			{
+				"aliases": [
+					"Tangram Interface JSON"
+				],
+				"configuration": "./tangram-json-language-configuration.json",
+				"extensions": [
+					".tgi.json"
+				],
+				"id": "tangram-interface-json"
+			},
+			{
+				"aliases": [
+					"Tangram Interface Python"
+				],
+				"configuration": "./tangram-python-language-configuration.json",
+				"extensions": [
+					".tgi.py"
+				],
+				"id": "tangram-interface-python"
+			},
+			{
+				"aliases": [
+					"Tangram Interface TypeScript"
+				],
+				"configuration": "./tangram-typescript-language-configuration.json",
+				"extensions": [
+					".tgi.ts"
+				],
+				"id": "tangram-interface-typescript"
+			},
 			{
 				"aliases": [
 					"Tangram JavaScript"
@@ -129,6 +238,19 @@
 					".tg.js"
 				],
 				"id": "tangram-javascript"
+			},
+			{
+				"aliases": [
+					"Tangram JSON"
+				],
+				"configuration": "./tangram-json-language-configuration.json",
+				"filenames": [
+					"tangram.json"
+				],
+				"extensions": [
+					".tg.json"
+				],
+				"id": "tangram-json"
 			},
 			{
 				"aliases": [
@@ -145,6 +267,19 @@
 			},
 			{
 				"aliases": [
+					"Tangram TOML"
+				],
+				"configuration": "./tangram-toml-language-configuration.json",
+				"filenames": [
+					"tangram.toml"
+				],
+				"extensions": [
+					".tg.toml"
+				],
+				"id": "tangram-toml"
+			},
+			{
+				"aliases": [
 					"Tangram TypeScript"
 				],
 				"configuration": "./tangram-typescript-language-configuration.json",
@@ -155,6 +290,19 @@
 					".tg.ts"
 				],
 				"id": "tangram-typescript"
+			},
+			{
+				"aliases": [
+					"Tangram YAML"
+				],
+				"configuration": "./tangram-yaml-language-configuration.json",
+				"filenames": [
+					"tangram.yaml"
+				],
+				"extensions": [
+					".tg.yaml"
+				],
+				"id": "tangram-yaml"
 			}
 		]
 	},
