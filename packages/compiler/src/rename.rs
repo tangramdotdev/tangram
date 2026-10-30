@@ -98,10 +98,6 @@ impl Compiler {
 		position: tg::Position,
 		new_name: String,
 	) -> tg::Result<Option<Vec<Edit>>> {
-		if self.is_bindings(module) {
-			return Ok(None);
-		}
-
 		// Create the arg.
 		let arg = Arg {
 			module: module.clone(),
@@ -112,13 +108,11 @@ impl Compiler {
 		// Get the output.
 		let output = self.backend(module.kind).rename(self, arg).await?;
 
-		// A rename must never apply positions in bindings to a source in another language.
+		// A rename must never apply positions in bindings to the module that they were generated from.
 		if output.edits.as_ref().is_some_and(|edits| {
 			edits.iter().any(|edit| {
 				let location = &edit.location;
-				(location.module.kind == tg::module::Kind::Python)
-					!= (module.kind == tg::module::Kind::Python)
-					|| self.is_bindings(&location.module)
+				!Self::is_editable(module.kind, &location.module)
 			})
 		}) {
 			return Ok(None);

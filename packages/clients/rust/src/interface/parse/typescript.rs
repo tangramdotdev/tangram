@@ -14,7 +14,7 @@ struct Local {
 /// Parse an interface file in TypeScript, as a subset of TypeScript declarations.
 pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
 	let tokens = super::lex(text, tg::interface::Language::TypeScript)?;
-	let mut parser = Parser::new(tokens, text.len());
+	let mut parser = Parser::new(tokens, text);
 	let mut interface = tg::Interface::default();
 	let mut locals = BTreeMap::<String, Local>::new();
 	let mut exports = Vec::new();
@@ -46,9 +46,10 @@ pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
 		} else if parser.eat_keyword("export") {
 			if parser.eat_keyword("declare") {
 				parser.expect_keyword("const")?;
+				let name_range = parser.position_range();
 				let name = parser.expect_identifier()?;
 				parser.expect_punctuation(":")?;
-				let export = export(&mut parser, documentation)?;
+				let export = export(&mut parser, documentation, name_range)?;
 				let range = start..parser.range().start;
 				super::insert(&mut interface.exports, name, export, range, "export")?;
 			} else if parser.eat_punctuation("{") {
@@ -82,9 +83,10 @@ pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
 			}
 		} else if parser.eat_keyword("declare") {
 			parser.expect_keyword("const")?;
+			let name_range = parser.position_range();
 			let name = parser.expect_identifier()?;
 			parser.expect_punctuation(":")?;
-			let export = export(&mut parser, documentation)?;
+			let export = export(&mut parser, documentation, name_range)?;
 			let range = start..parser.range().start;
 			let local = Local {
 				export,
@@ -155,10 +157,11 @@ fn definition(parser: &mut Parser) -> Result<(String, tg::interface::Type), Erro
 	Ok((name, type_))
 }
 
-/// Parse the type of an export, which is a type, or `tg.NonValue<"reason">` for an export that is not a value.
+/// Parse the type of an export, which is a type, or `tg.NonValue<"reason">` for an export that is not a value, with the range of the name of its declaration.
 fn export(
 	parser: &mut Parser,
 	documentation: Option<String>,
+	range: Option<tg::Range>,
 ) -> Result<tg::interface::Export, Error> {
 	let non_value = matches!(parser.peek_kind(0), Some(TokenKind::Identifier(name)) if name == "tg")
 		&& matches!(parser.peek_kind(2), Some(TokenKind::Identifier(name)) if name == "NonValue");
@@ -176,7 +179,7 @@ fn export(
 	let export = tg::interface::Export {
 		documentation,
 		error,
-		range: None,
+		range,
 		type_,
 	};
 	Ok(export)

@@ -22,6 +22,7 @@ use {
 };
 
 mod backend;
+mod home;
 #[cfg(all(feature = "javascript", feature = "python"))]
 #[cfg_attr(not(any(feature = "tsrs", feature = "ty")), expect(dead_code))]
 mod interfaces;
@@ -1055,10 +1056,6 @@ impl Compiler {
 		Ok(module)
 	}
 
-	fn is_bindings(&self, module: &tg::module::Data) -> bool {
-		matches!(&module.referent.node, tg::module::data::Source::Path(path) if path.starts_with(self.library_path.join("bindings")))
-	}
-
 	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::module::Data> {
 		// Verify the scheme and get the path.
 		if uri.scheme().unwrap().as_str() != "file" {
@@ -1073,14 +1070,6 @@ impl Compiler {
 		}
 
 		// Handle a path in the library directory.
-		if path.starts_with(self.library_path.join("bindings")) {
-			let kind = tg::module::module_kind_for_path(path)?;
-			let module = tg::module::Data {
-				kind,
-				referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
-			};
-			return Ok(module);
-		}
 		if path.starts_with(self.library_path.join("python")) {
 			let module = tg::module::Data {
 				kind: tg::module::Kind::Python,
@@ -1112,80 +1101,6 @@ impl Compiler {
 		};
 
 		Ok(module)
-	}
-
-	/// Convert a location returned by a language service for a module of the given kind, mapping a position in bindings to its source in the original module.
-	async fn lsp_location_with_language(
-		&self,
-		location: &tg::module::data::Location,
-		kind: tg::module::Kind,
-	) -> tg::Result<lsp::Location> {
-		// Map a position in bindings to the source of its export.
-		if let Some((language, _)) = bindings_language(kind, location.module.kind) {
-			let text = self
-				.load_module_with_language(&location.module, Some(language))
-				.await?;
-			let encoding = *self.position_encoding.read().unwrap();
-			if let Some(offset) = location
-				.range
-				.start
-				.try_to_byte_index_in_string(&text, encoding)
-				&& let Some(source) = load::source(&text, offset)
-			{
-				let uri = self.lsp_uri_for_module(&location.module).await?;
-				let range = source.range(encoding).into();
-				let location = lsp::Location { uri, range };
-				return Ok(location);
-			}
-
-			// Map the start of the bindings, which is where the language service locates the module itself, to the start of the original module.
-			let start = tg::Position {
-				character: 0,
-				line: 0,
-			};
-			if location.range.start == start && location.range.end == start {
-				let uri = self.lsp_uri_for_module(&location.module).await?;
-				let range = location.range.into();
-				let location = lsp::Location { uri, range };
-				return Ok(location);
-			}
-		}
-
-		// Otherwise, use the representation whose positions the language service returned.
-		let uri = self
-			.lsp_uri_for_module_with_language(&location.module, kind)
-			.await?;
-		let range = location.range.into();
-		let location = lsp::Location { uri, range };
-
-		Ok(location)
-	}
-
-	async fn lsp_uri_for_module_with_language(
-		&self,
-		module: &tg::module::Data,
-		kind: tg::module::Kind,
-	) -> tg::Result<lsp::Uri> {
-		let Some((language, extension)) = bindings_language(kind, module.kind) else {
-			return self.lsp_uri_for_module(module).await;
-		};
-
-		// Materialize the representation whose positions the language service returned.
-		let text = self
-			.load_module_with_language(module, Some(language))
-			.await?;
-		let id = tg::blob::Id::new(text.as_bytes());
-		let directory = self.library_path.join("bindings");
-		let path = directory.join(format!("{id}.tg.{extension}"));
-		tokio::fs::create_dir_all(&directory)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the bindings directory"))?;
-		tokio::fs::write(&path, text)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to materialize the bindings"))?;
-		let uri = format!("file://{}", path.display()).parse().unwrap();
-
-		Ok(uri)
 	}
 
 	async fn lsp_uri_for_module(&self, module: &tg::module::Data) -> tg::Result<lsp::Uri> {
@@ -1381,7 +1296,13 @@ impl Compiler {
 			let text = self.load_module_inner(module, None).await?;
 			let entry = typed.then(|| self.try_get_interface(module)).flatten();
 			let output = if let Some(entry) = entry {
-				load::bindings(&entry.interface, &text, language)
+				let home = self.interface_home(module).await?;
+				let home_text = if home == *module {
+					text
+				} else {
+					self.load_module_inner(&home, None).await?
+				};
+				load::bindings(&entry.interface, &home_text, language)
 			} else {
 				load::module(module, &text, Some(language))?
 			};
@@ -1488,11 +1409,11 @@ impl Drop for Owned {
 	}
 }
 
-/// Get the language and extension of the representation that a module of the given kind uses for a module in another language.
+/// Get the language of the representation that a module of the given kind uses for a module in another language.
 fn bindings_language(
 	kind: tg::module::Kind,
 	module_kind: tg::module::Kind,
-) -> Option<(tg::module::load::Language, &'static str)> {
+) -> Option<tg::module::load::Language> {
 	match (kind, module_kind) {
 		(
 			tg::module::Kind::Python,
@@ -1501,14 +1422,14 @@ fn bindings_language(
 			| tg::module::Kind::Yaml
 			| tg::module::Kind::JavaScript
 			| tg::module::Kind::TypeScript,
-		) => Some((tg::module::load::Language::Python, "py")),
+		) => Some(tg::module::load::Language::Python),
 		(
 			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
 			tg::module::Kind::Json
 			| tg::module::Kind::Toml
 			| tg::module::Kind::Yaml
 			| tg::module::Kind::Python,
-		) => Some((tg::module::load::Language::JavaScript, "ts")),
+		) => Some(tg::module::load::Language::JavaScript),
 		_ => None,
 	}
 }

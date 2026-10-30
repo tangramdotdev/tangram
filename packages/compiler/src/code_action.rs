@@ -33,10 +33,6 @@ impl Compiler {
 		range: tg::Range,
 		only: Option<Vec<String>>,
 	) -> tg::Result<Option<Vec<Action>>> {
-		if self.is_bindings(module) {
-			return Ok(None);
-		}
-
 		// Create the arg.
 		let arg = Arg {
 			module: module.clone(),
@@ -47,17 +43,15 @@ impl Compiler {
 		// Get the output.
 		let output = self.backend(module.kind).code_action(self, arg).await?;
 
-		// Exclude actions that would edit an immutable cross-language representation.
+		// Exclude actions that would apply positions in bindings to the module that they were generated from.
 		let actions = output.actions.map(|actions| {
 			actions
 				.into_iter()
 				.filter(|action| {
 					action.edits.as_ref().is_none_or(|edits| {
-						edits.iter().all(|edit| {
-							(edit.module.kind == tg::module::Kind::Python)
-								== (module.kind == tg::module::Kind::Python)
-								&& !self.is_bindings(&edit.module)
-						})
+						edits
+							.iter()
+							.all(|edit| Self::is_editable(module.kind, &edit.module))
 					})
 				})
 				.collect::<Vec<_>>()

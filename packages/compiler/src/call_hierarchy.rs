@@ -153,15 +153,19 @@ impl Compiler {
 		};
 
 		// Convert the items.
+		let kind = module.kind;
 		let items = items
 			.into_iter()
 			.map(|item| {
 				let compiler = self.clone();
-				async move { compiler.call_hierarchy_item_to_lsp(item).await }
+				async move { compiler.call_hierarchy_item_to_lsp(item, kind).await }
 			})
 			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
+			.try_collect::<Vec<_>>()
+			.await?
+			.into_iter()
+			.flatten()
+			.collect();
 
 		Ok(Some(items))
 	}
@@ -182,20 +186,30 @@ impl Compiler {
 		};
 
 		// Convert the calls.
+		let kind = module.kind;
 		let calls = calls
 			.into_iter()
 			.map(|call| {
 				let compiler = self.clone();
 				async move {
-					let from = compiler.call_hierarchy_item_to_lsp(call.from).await?;
-					let from_ranges = call.from_ranges.into_iter().map(Into::into).collect();
+					let from_module = call.from.module.clone();
+					let Some(from) = compiler.call_hierarchy_item_to_lsp(call.from, kind).await?
+					else {
+						return Ok(None);
+					};
+					let from_ranges = compiler
+						.lsp_ranges(&from_module, call.from_ranges, kind)
+						.await?;
 					let call = lsp::CallHierarchyIncomingCall { from, from_ranges };
-					Ok::<_, tg::Error>(call)
+					Ok::<_, tg::Error>(Some(call))
 				}
 			})
 			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
+			.try_collect::<Vec<_>>()
+			.await?
+			.into_iter()
+			.flatten()
+			.collect();
 
 		Ok(Some(calls))
 	}
@@ -215,21 +229,28 @@ impl Compiler {
 			return Ok(None);
 		};
 
-		// Convert the calls.
+		// Convert the calls, whose ranges are in the module of the requested item.
+		let kind = module.kind;
 		let calls = calls
 			.into_iter()
 			.map(|call| {
 				let compiler = self.clone();
+				let module = module.clone();
 				async move {
-					let to = compiler.call_hierarchy_item_to_lsp(call.to).await?;
-					let from_ranges = call.from_ranges.into_iter().map(Into::into).collect();
+					let Some(to) = compiler.call_hierarchy_item_to_lsp(call.to, kind).await? else {
+						return Ok(None);
+					};
+					let from_ranges = compiler.lsp_ranges(&module, call.from_ranges, kind).await?;
 					let call = lsp::CallHierarchyOutgoingCall { to, from_ranges };
-					Ok::<_, tg::Error>(call)
+					Ok::<_, tg::Error>(Some(call))
 				}
 			})
 			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
+			.try_collect::<Vec<_>>()
+			.await?
+			.into_iter()
+			.flatten()
+			.collect();
 
 		Ok(Some(calls))
 	}
@@ -249,7 +270,12 @@ impl Compiler {
 		Ok((module, position))
 	}
 
-	async fn call_hierarchy_item_to_lsp(&self, item: Item) -> tg::Result<lsp::CallHierarchyItem> {
+	/// Convert an item that a language service for a module of the given kind returned, mapping its locations in bindings to the home of its module's interface, or returning `None` if it has no place there.
+	async fn call_hierarchy_item_to_lsp(
+		&self,
+		item: Item,
+		service: tg::module::Kind,
+	) -> tg::Result<Option<lsp::CallHierarchyItem>> {
 		let Item {
 			name,
 			kind,
@@ -260,7 +286,23 @@ impl Compiler {
 			container_name,
 			data,
 		} = item;
-		let uri = self.lsp_uri_for_module(&module).await?;
+
+		// Map the selection, and the range, which is the selection if the range has no place in the home.
+		let location = tg::module::data::Location {
+			module: module.clone(),
+			range: selection,
+		};
+		let Some(selection) = self.try_lsp_location(&location, service).await? else {
+			return Ok(None);
+		};
+		let location = tg::module::data::Location { module, range };
+		let range = self
+			.try_lsp_location(&location, service)
+			.await?
+			.filter(|location| location.uri == selection.uri)
+			.map_or(selection.range, |location| location.range);
+
+		// Create the item.
 		let kind = symbol_kind_for_script_element_kind(&kind);
 		let data = data.map(|data| serde_json::to_value(data).unwrap());
 		let item = lsp::CallHierarchyItem {
@@ -268,12 +310,13 @@ impl Compiler {
 			kind,
 			tags: None,
 			detail: detail.or(container_name),
-			uri,
-			range: range.into(),
-			selection_range: selection.into(),
+			uri: selection.uri,
+			range,
+			selection_range: selection.range,
 			data,
 		};
-		Ok(item)
+
+		Ok(Some(item))
 	}
 }
 

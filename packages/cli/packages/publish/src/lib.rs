@@ -818,12 +818,13 @@ async fn check_interface(
 			|error| tg::error!(!error, path = %interface_path.display(), "failed to read the interface"),
 		)?;
 		let interface = tg::interface::parse::parse(&text, *language)?;
-		interface == generated
+		without_ranges(interface) == without_ranges(generated.clone())
 	} else {
 		let arg = tg::module::interface::Arg {
 			module: module.to_data(),
 		};
-		let interface = client.module_interface(arg).await?.interface;
+		let interface = without_ranges(client.module_interface(arg).await?.interface);
+		let generated = without_ranges(generated.clone());
 		interface.definitions == generated.definitions
 			&& interface.exports == generated.exports
 			&& interface
@@ -894,6 +895,14 @@ async fn generate_interface(
 	let text = file.text_with_instance(client).await?;
 	let interface = tg::interface::parse::parse(&text, language)?;
 	Ok((language, text, interface))
+}
+
+/// Remove the ranges of an interface's exports, which depend on the text that the interface was parsed from.
+fn without_ranges(mut interface: tg::Interface) -> tg::Interface {
+	for export in interface.exports.values_mut() {
+		export.range = None;
+	}
+	interface
 }
 
 /// Get the path of an interface file from its stem and its language.

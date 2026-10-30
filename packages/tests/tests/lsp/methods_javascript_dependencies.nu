@@ -31,13 +31,7 @@ let diagnostic = (lsp result $responses 12).items | where range.start.line == 1 
 assert ($diagnostic.message | str contains 'string')
 assert equal $diagnostic.range {start: {line: 1, character: 27}, end: {line: 1, character: 29}}
 assert equal ((lsp result $responses 14) | where name == welcome and location.uri == $py_uri | length) 1
-let bindings = (lsp result $responses 14) | where {|symbol| $symbol.name == welcome and ($symbol.location.uri | str contains '/bindings/') }
-assert (($bindings | length) > 0)
-for symbol in $bindings {
-    let text = open --raw (lsp path_for_uri $symbol.location.uri)
-    let range = $symbol.location.range
-    assert ($text | lines | get $range.start.line | str substring $range.start.character..<$range.end.character | str contains welcome)
-}
+assert not ((lsp result $responses 14) | any {|symbol| $symbol.location.uri | str contains '/bindings/' })
 assert equal ((lsp result $responses 15) | where location.uri == $uri | length) 1
 let target = (lsp result $responses 16).0
 assert equal $target.range {start: {line: 1, character: 16}, end: {line: 1, character: 21}}

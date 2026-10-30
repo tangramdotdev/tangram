@@ -88,10 +88,6 @@ impl Compiler {
 		module: &tg::module::Data,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<Entry>>> {
-		if self.is_bindings(module) {
-			return Ok(None);
-		}
-
 		// Create the arg.
 		let arg = Arg {
 			module: module.clone(),
@@ -112,10 +108,6 @@ impl Compiler {
 		source: Option<String>,
 		data: Option<serde_json::Value>,
 	) -> tg::Result<Option<EntryDetails>> {
-		if self.is_bindings(module) {
-			return Ok(None);
-		}
-
 		// Create the arg.
 		let arg = ResolveArg {
 			module: module.clone(),

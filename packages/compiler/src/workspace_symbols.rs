@@ -1,5 +1,5 @@
 use {
-	super::Compiler,
+	super::{Compiler, bindings_language},
 	futures::{TryStreamExt as _, stream::FuturesOrdered},
 	lsp_types as lsp,
 	tangram_client::prelude::*,
@@ -41,7 +41,7 @@ impl Compiler {
 				.workspace_symbol(self, arg)
 				.await?;
 			let javascript = self
-				.materialize_workspace_symbols(
+				.map_workspace_symbols(
 					output.symbols.unwrap_or_default(),
 					tg::module::Kind::TypeScript,
 				)
@@ -62,42 +62,40 @@ impl Compiler {
 				.workspace_symbol(self, arg)
 				.await?;
 			let python = self
-				.materialize_workspace_symbols(
-					output.symbols.unwrap_or_default(),
-					tg::module::Kind::Python,
-				)
+				.map_workspace_symbols(output.symbols.unwrap_or_default(), tg::module::Kind::Python)
 				.await?;
 			symbols.extend(python);
 		}
 		Ok(Some(symbols))
 	}
 
-	async fn materialize_workspace_symbols(
+	/// Map the symbols in bindings to the homes of their modules' interfaces, dropping the symbols that have no place there and the symbols that another language service already reports there.
+	async fn map_workspace_symbols(
 		&self,
-		mut symbols: Vec<Symbol>,
+		symbols: Vec<Symbol>,
 		kind: tg::module::Kind,
 	) -> tg::Result<Vec<Symbol>> {
-		for symbol in &mut symbols {
-			let is_bindings = matches!(
-				(kind, symbol.module.kind),
-				(
-					tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
-					tg::module::Kind::Python,
-				) | (
-					tg::module::Kind::Python,
-					tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
-				)
-			);
-			if !is_bindings {
+		let mut output = Vec::new();
+		for mut symbol in symbols {
+			if bindings_language(kind, symbol.module.kind).is_none() {
+				output.push(symbol);
 				continue;
 			}
-			let uri = self
-				.lsp_uri_for_module_with_language(&symbol.module, kind)
-				.await?;
-			symbol.module = self.module_for_lsp_uri(&uri).await?;
+			if !symbol.module.kind.is_config() {
+				continue;
+			}
+			let location = tg::module::data::Location {
+				module: symbol.module.clone(),
+				range: symbol.range,
+			};
+			let Some(location) = self.try_lsp_location(&location, kind).await? else {
+				continue;
+			};
+			symbol.module = self.module_for_lsp_uri(&location.uri).await?;
+			symbol.range = location.range.into();
+			output.push(symbol);
 		}
-
-		Ok(symbols)
+		Ok(output)
 	}
 }
 

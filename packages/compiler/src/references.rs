@@ -1,9 +1,4 @@
-use {
-	super::Compiler,
-	futures::{TryStreamExt as _, stream::FuturesOrdered},
-	lsp_types as lsp,
-	tangram_client::prelude::*,
-};
+use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 #[derive(Debug)]
 pub struct Arg {
@@ -38,20 +33,12 @@ impl Compiler {
 			return Ok(None);
 		};
 
-		// Convert the reference.
-		let locations = locations
-			.into_iter()
-			.map(|location| {
-				let kind = module.kind;
-				let compiler = self.clone();
-				async move {
-					compiler
-						.lsp_location_with_language(&location.to_data(), kind)
-						.await
-				}
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
+		// Convert the references, dropping the references in bindings that have no place in the home of an interface.
+		let locations = self
+			.lsp_locations(
+				locations.iter().map(tg::module::Location::to_data),
+				module.kind,
+			)
 			.await?;
 
 		Ok(Some(locations))

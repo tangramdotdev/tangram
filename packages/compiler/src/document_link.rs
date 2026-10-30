@@ -56,7 +56,8 @@ impl Compiler {
 			.map(|link| {
 				let compiler = self.clone();
 				async move {
-					let target = Some(compiler.lsp_uri_for_module(&link.module).await?);
+					let home = compiler.interface_home(&link.module).await?;
+					let target = Some(compiler.lsp_uri_for_module(&home).await?);
 					let link = lsp::DocumentLink {
 						range: link.range.into(),
 						target,

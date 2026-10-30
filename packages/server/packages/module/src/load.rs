@@ -70,15 +70,16 @@ impl Component {
 				&output.text,
 			)
 			.await?;
-			let interface = if let Some(module) = module {
+			let (interface, text) = if let Some(module) = module {
 				let text = self.load_module_inner(session, &module).await?.text;
 				let language = tg::interface::Language::for_kind(module.kind)
 					.ok_or_else(|| tg::error!("expected an interface module"))?;
-				tg::interface::parse::parse(&text, language)?
+				let interface = tg::interface::parse::parse(&text, language)?;
+				(interface, text)
 			} else {
-				tg::Interface::default()
+				(tg::Interface::default(), output.text.clone())
 			};
-			output.text = tangram_compiler::load::bindings(&interface, &output.text, language);
+			output.text = tangram_compiler::load::bindings(&interface, &text, language);
 			return Ok(output);
 		}
 

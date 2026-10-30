@@ -46,6 +46,9 @@ struct Parser {
 	/// The references to types, with their ranges, to check after the definitions and imports are known.
 	references: Vec<(Option<String>, String, Range<usize>)>,
 
+	/// The text of the interface file.
+	text: String,
+
 	tokens: Vec<Token>,
 }
 
@@ -287,13 +290,23 @@ fn import(specifier: &str, kind: Option<&str>) -> std::result::Result<tg::module
 }
 
 impl Parser {
-	fn new(tokens: Vec<Token>, end: usize) -> Self {
+	fn new(tokens: Vec<Token>, text: &str) -> Self {
 		Self {
-			end,
+			end: text.len(),
 			index: 0,
 			references: Vec::new(),
+			text: text.to_owned(),
 			tokens,
 		}
+	}
+
+	/// Get the range of the current token in the text, with UTF-8 character offsets.
+	fn position_range(&self) -> Option<tg::Range> {
+		tg::Range::try_from_byte_range_in_string(
+			&self.text,
+			self.range(),
+			tg::position::Encoding::Utf8,
+		)
 	}
 
 	fn peek(&self) -> Option<&Token> {

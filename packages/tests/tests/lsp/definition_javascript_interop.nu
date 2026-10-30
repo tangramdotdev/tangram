@@ -31,11 +31,9 @@ assert equal (lsp result $responses 14) [{
     range: {start: {line: 0, character: 0}, end: {line: 0, character: 0}}
 }]
 
-# Workspace search finds the JavaScript bindings.
-let location = lsp result $responses 13 | where { |symbol| $symbol.location.uri | str contains '/bindings/' } | get 0.location
-let bindings = lsp path_for_uri $location.uri
-assert ($bindings | str ends-with '.tg.ts')
-let text = open --raw $bindings
+# Workspace search never finds bindings.
+let symbols = lsp result $responses 13
+assert not ($symbols | any { |symbol| $symbol.location.uri | str contains '/bindings/' }) ($symbols | to json)
 assert equal (lsp result $responses 11) {
     placeholder: greet
     range: {start: {line: 1, character: 0}, end: {line: 1, character: 5}}
@@ -58,14 +56,4 @@ let renamed = $lines | str join "\n"
 assert equal $renamed "import { greet as welcome } from './helper.tg.py';\nwelcome.build();\n"
 $renamed | save --force ($path | path join main.tg.ts)
 success (tg check ($path | path join main.tg.ts) | complete)
-assert equal (open --raw $bindings) $text
 assert equal (open --raw ($path | path join helper.tg.py)) (doc "def greet():\n    return \"a sufficiently long string\"\n")
-
-# Opening the bindings must not allow edits through rename.
-let responses = lsp exchange [
-    (lsp initialize 1)
-    (lsp initialized)
-    (lsp did_open $location.uri $text)
-    (lsp rename 10 $location.uri $location.range.start.line $location.range.start.character welcome)
-]
-assert equal (lsp result $responses 10) null

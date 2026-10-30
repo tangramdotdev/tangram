@@ -1,9 +1,4 @@
-use {
-	super::Compiler,
-	futures::{TryStreamExt as _, stream::FuturesOrdered},
-	lsp_types as lsp,
-	tangram_client::prelude::*,
-};
+use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 #[derive(Debug)]
 pub struct Arg {
@@ -123,30 +118,14 @@ impl Compiler {
 		};
 
 		// Convert the locations.
-		let locations = locations
-			.into_iter()
-			.map(|location| {
-				let kind = module.kind;
-				let compiler = self.clone();
-				async move {
-					compiler
-						.lsp_location_with_language(&location.to_data(), kind)
-						.await
-				}
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect::<Vec<_>>()
+		let locations = self
+			.lsp_locations(
+				locations.iter().map(tg::module::Location::to_data),
+				module.kind,
+			)
 			.await?;
 
-		// Remove duplicate locations, such as several declarations in bindings that map to the same source.
-		let mut unique = Vec::new();
-		for location in locations {
-			if !unique.contains(&location) {
-				unique.push(location);
-			}
-		}
-
-		let response = lsp::GotoDefinitionResponse::Array(unique);
+		let response = lsp::GotoDefinitionResponse::Array(locations);
 
 		Ok(Some(response))
 	}
@@ -171,30 +150,14 @@ impl Compiler {
 		};
 
 		// Convert the locations.
-		let locations = locations
-			.into_iter()
-			.map(|location| {
-				let kind = module.kind;
-				let compiler = self.clone();
-				async move {
-					compiler
-						.lsp_location_with_language(&location.to_data(), kind)
-						.await
-				}
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect::<Vec<_>>()
+		let locations = self
+			.lsp_locations(
+				locations.iter().map(tg::module::Location::to_data),
+				module.kind,
+			)
 			.await?;
 
-		// Remove duplicate locations, such as several declarations in bindings that map to the same source.
-		let mut unique = Vec::new();
-		for location in locations {
-			if !unique.contains(&location) {
-				unique.push(location);
-			}
-		}
-
-		let response = lsp::GotoDefinitionResponse::Array(unique);
+		let response = lsp::GotoDefinitionResponse::Array(locations);
 
 		Ok(Some(response))
 	}
@@ -219,30 +182,14 @@ impl Compiler {
 		};
 
 		// Convert the locations.
-		let locations = locations
-			.into_iter()
-			.map(|location| {
-				let kind = module.kind;
-				let compiler = self.clone();
-				async move {
-					compiler
-						.lsp_location_with_language(&location.to_data(), kind)
-						.await
-				}
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect::<Vec<_>>()
+		let locations = self
+			.lsp_locations(
+				locations.iter().map(tg::module::Location::to_data),
+				module.kind,
+			)
 			.await?;
 
-		// Remove duplicate locations, such as several declarations in bindings that map to the same source.
-		let mut unique = Vec::new();
-		for location in locations {
-			if !unique.contains(&location) {
-				unique.push(location);
-			}
-		}
-
-		let response = lsp::GotoDefinitionResponse::Array(unique);
+		let response = lsp::GotoDefinitionResponse::Array(locations);
 
 		Ok(Some(response))
 	}

@@ -164,7 +164,7 @@ fn an_interface_round_trips_through_every_language() {
 	let interface = interface();
 	for language in Language::ALL {
 		let text = tg::interface::print::print(&interface, language).unwrap();
-		let parsed = tg::interface::parse::parse(&text, language).unwrap();
+		let parsed = without_ranges(tg::interface::parse::parse(&text, language).unwrap());
 		assert_eq!(parsed, interface, "{text}");
 	}
 }
@@ -197,6 +197,15 @@ class Options(TypedDict):
 "#;
 	let typescript = tg::interface::parse::parse(typescript, Language::TypeScript).unwrap();
 	let python = tg::interface::parse::parse(python, Language::Python).unwrap();
+	assert_eq!(
+		typescript.exports["greet"].range.map(|range| range.start),
+		Some(tg::Position {
+			character: 23,
+			line: 4,
+		})
+	);
+	let typescript = without_ranges(typescript);
+	let python = without_ranges(python);
 	assert_eq!(typescript, python);
 	assert_eq!(
 		typescript.exports["greet"].documentation.as_deref(),
@@ -227,4 +236,12 @@ fn invalid_interfaces_have_ranges() {
 		};
 		assert_eq!(range.unwrap().start.line, line, "{text}");
 	}
+}
+
+/// Remove the ranges of an interface's exports, which depend on the text that it was parsed from.
+fn without_ranges(mut interface: Interface) -> Interface {
+	for export in interface.exports.values_mut() {
+		export.range = None;
+	}
+	interface
 }

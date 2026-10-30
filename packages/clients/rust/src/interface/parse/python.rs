@@ -44,7 +44,7 @@ pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
 
 	// Parse the statements.
 	let tokens = super::lex(text, tg::interface::Language::Python)?;
-	let mut parser = Parser::new(tokens, text.len());
+	let mut parser = Parser::new(tokens, text);
 	while let Some(token) = parser.peek() {
 		let start = token.range.start;
 		if token.column != 0 {
@@ -68,9 +68,10 @@ pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
 			let range = start..parser.range().start;
 			super::insert(&mut interface.definitions, name, type_, range, "type")?;
 		} else {
+			let name_range = parser.position_range();
 			let name = parser.expect_identifier()?;
 			parser.expect_punctuation(":")?;
-			let export = export(&mut parser)?;
+			let export = export(&mut parser, name_range)?;
 			end(&parser)?;
 			let range = start..parser.range().start;
 			super::insert(&mut interface.exports, name, export, range, "export")?;
@@ -184,8 +185,8 @@ fn class(parser: &mut Parser) -> Result<(String, tg::interface::Type), Error> {
 	Ok((name, tg::interface::Type::Record { fields }))
 }
 
-/// Parse the type of an export, with a docstring on the line after it, and `tg.NonValue["reason"]` for an export that is not a value.
-fn export(parser: &mut Parser) -> Result<tg::interface::Export, Error> {
+/// Parse the type of an export, with a docstring on the line after it, and `tg.NonValue["reason"]` for an export that is not a value, with the range of its name.
+fn export(parser: &mut Parser, range: Option<tg::Range>) -> Result<tg::interface::Export, Error> {
 	let non_value = parser.is_keyword("tg")
 		&& matches!(parser.peek_kind(2), Some(TokenKind::Identifier(name)) if name == "NonValue");
 	let (error, type_) = if non_value {
@@ -209,7 +210,7 @@ fn export(parser: &mut Parser) -> Result<tg::interface::Export, Error> {
 	let export = tg::interface::Export {
 		documentation,
 		error,
-		range: None,
+		range,
 		type_,
 	};
 	Ok(export)
