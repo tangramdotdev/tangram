@@ -518,6 +518,7 @@ impl Index {
 		partition_totals: crate::PartitionTotals,
 		process_data_fragment_size: usize,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
+		let mut rejection = None;
 		for process in args {
 			// Put the sandbox, which the process's membership requires.
 			if let Some(tangram_index::process::put::Sandbox::Put(sandbox)) = &process.sandbox {
@@ -531,7 +532,8 @@ impl Index {
 					.await
 				);
 				if let Err(error) = result {
-					return Ok(ControlFlow::Break(Err(error)));
+					rejection.get_or_insert(error);
+					continue;
 				}
 			}
 
@@ -547,7 +549,8 @@ impl Index {
 				.await
 			);
 			if let Err(error) = result {
-				return Ok(ControlFlow::Break(Err(error)));
+				rejection.get_or_insert(error);
+				continue;
 			}
 
 			// Put the account's storage entry, which requires the accepted process.
@@ -575,7 +578,10 @@ impl Index {
 			);
 		}
 
-		Ok(ControlFlow::Break(Ok(())))
+		// Return the first rejection, since a rejected process does not affect the other processes.
+		let result = rejection.map_or(Ok(()), Err);
+
+		Ok(ControlFlow::Break(result))
 	}
 
 	pub(crate) fn put_process_data(

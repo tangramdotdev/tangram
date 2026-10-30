@@ -1306,7 +1306,7 @@ fn execute_write_requests(
 }
 
 #[tokio::test]
-async fn process_rejection_commits_unrelated_requests_and_prior_items() {
+async fn process_rejection_commits_the_other_items_and_requests() {
 	let (_dir, index) = new_index();
 	let existing = tg::process::Id::new();
 	put_process(
@@ -1345,7 +1345,7 @@ async fn process_rejection_commits_unrelated_requests_and_prior_items() {
 	assert!(matches!(&results[0], Ok(crate::Response::Mutation(Err(_)))));
 	assert!(matches!(&results[1], Ok(crate::Response::Mutation(Ok(())))));
 	assert!(index.try_get_process(&before).await.unwrap().is_some());
-	assert!(index.try_get_process(&after).await.unwrap().is_none());
+	assert!(index.try_get_process(&after).await.unwrap().is_some());
 	assert!(index.try_get_process(&unrelated).await.unwrap().is_some());
 	assert_eq!(
 		index
@@ -1361,7 +1361,7 @@ async fn process_rejection_commits_unrelated_requests_and_prior_items() {
 }
 
 #[tokio::test]
-async fn process_rejection_skips_remaining_bulk_writes() {
+async fn process_rejection_commits_the_other_bulk_writes() {
 	let (_dir, index) = new_index();
 	let before = tg::process::Id::new();
 	let rejected = tg::process::Id::new();
@@ -1385,7 +1385,7 @@ async fn process_rejection_skips_remaining_bulk_writes() {
 	assert!(matches!(&results[1], Ok(crate::Response::Mutation(Ok(())))));
 	assert!(index.try_get_process(&before).await.unwrap().is_some());
 	assert!(index.try_get_process(&rejected).await.unwrap().is_none());
-	assert!(index.try_get_process(&after).await.unwrap().is_none());
+	assert!(index.try_get_process(&after).await.unwrap().is_some());
 	assert!(index.try_get_process(&unrelated).await.unwrap().is_some());
 }
 

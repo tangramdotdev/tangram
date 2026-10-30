@@ -498,24 +498,6 @@ impl Index {
 		let mut current_count: usize = 0;
 
 		for (request, sender) in requests {
-			// Use an ordered batch so a rejected write prevents later writes in the same request.
-			let request = match request {
-				Request::PutProcesses(args) => {
-					let items = args
-						.into_iter()
-						.map(tangram_index::batch::Item::PutProcess)
-						.collect();
-					Request::Batch(tangram_index::batch::Arg { items })
-				},
-				Request::PutSandboxes(args) => {
-					let items = args
-						.into_iter()
-						.map(tangram_index::batch::Item::PutSandbox)
-						.collect();
-					Request::Batch(tangram_index::batch::Arg { items })
-				},
-				request => request,
-			};
 			let tracker_idx = trackers.len();
 			trackers.push(RequestTracker {
 				remaining: 0,
