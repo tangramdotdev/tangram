@@ -163,3 +163,63 @@ let path = artifact {
 let output = tg check $path | complete
 failure $output
 assert ($output.stderr | str contains "Type 'string' is not assignable to type 'number'") $output.stderr
+
+# A checked-in interface may import a module relative to itself, beside a config or in its runtime package.
+let importer = '
+	import { greet } from "greeting/^1";
+	export default async () => { const text: number = (await greet.build()).text; return text; };
+'
+let package = artifact {
+	tangram.json: '{ "runtime": "./runtime" }'
+	tangram.tgi: $greeting
+	greeting.tg.ts: 'export interface Greeting { text: string; }'
+	runtime: { tangram.ts: 'export default async () => ({ text: "Hello!" });' }
+}
+tg tag put -p greeting/1.0.0 $package
+let output = tg check (artifact { tangram.ts: $importer }) | complete
+failure $output
+assert ($output.stderr | str contains "Type 'string' is not assignable to type 'number'") $output.stderr
+let package = artifact {
+	tangram.json: '{ "runtime": "./runtime" }'
+	runtime: {
+		config.tgi: $greeting
+		greeting.tg.ts: 'export interface Greeting { text: string; }'
+		tangram.ts: 'export default async () => ({ text: "Hello!" });'
+	}
+}
+tg tag put -p greeting/1.1.0 $package
+let output = tg check (artifact { tangram.ts: $importer }) | complete
+failure $output
+assert ($output.stderr | str contains "Type 'string' is not assignable to type 'number'") $output.stderr
+
+# Importers in TypeScript and Python run a config whose interface imports a module.
+let config = {
+	greet.tg.json: '{ "runtime": "./runtime" }'
+	greet.tg.tgi: $greeting
+	greeting.tg.ts: 'export interface Greeting { text: string; }'
+	runtime: { tangram.ts: 'export default async () => ({ text: "Hello!" });' }
+}
+let path = artifact ($config | merge {
+	tangram.ts: '
+		import { greet } from "./greet.tg.json";
+		export default async () => (await greet.build()).text;
+	'
+})
+let output = tg build $path | complete
+success $output
+assert equal ($output.stdout | from json) 'Hello!'
+let path = artifact ($config | merge {
+	tangram.py: '
+		# /// script
+		# [tool.tangram.dependencies.greet]
+		# specifier = "./greet.tg.json"
+		# ///
+		from greet import greet
+		async def default() -> str:
+		    output = await greet.build()
+		    return output["text"]
+	'
+})
+let output = tg build $path | complete
+success $output
+assert equal ($output.stdout | from json) 'Hello!'

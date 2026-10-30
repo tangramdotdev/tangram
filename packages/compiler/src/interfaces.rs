@@ -383,6 +383,11 @@ impl Compiler {
 
 	/// Get the modules that a module imports.
 	async fn module_imports(&self, module: &tg::module::Data) -> tg::Result<Vec<tg::module::Data>> {
+		// Get the interface modules of a config, which are the only modules that its interface depends on.
+		if module.kind.is_config() {
+			return self.config_interface_modules(module).await;
+		}
+
 		// Get the imports from the dependencies of a checked-in Python module, or otherwise from the module's source.
 		let imports = if module.kind == tg::module::Kind::Python
 			&& let tg::module::data::Source::Edge(_) = &module.referent.node
@@ -403,7 +408,7 @@ impl Compiler {
 		};
 
 		// Resolve the imports concurrently.
-		let mut modules: Vec<_> = future::join_all(
+		let modules = future::join_all(
 			imports
 				.into_iter()
 				.map(|import| self.resolve_import(module, import)),
@@ -413,13 +418,6 @@ impl Compiler {
 		.filter_map(Result::ok)
 		.filter(|module| group(module.kind).is_some())
 		.collect();
-
-		// Add the interface in a config's runtime package, which the config's interface may come from.
-		if module.kind.is_config()
-			&& let Some(module) = self.try_get_config_runtime_interface_module(module).await?
-		{
-			modules.push(module);
-		}
 
 		Ok(modules)
 	}

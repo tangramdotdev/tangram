@@ -23,7 +23,6 @@ use {
 
 mod backend;
 mod build;
-mod config;
 #[cfg(all(feature = "javascript", feature = "python"))]
 #[cfg_attr(not(any(feature = "tsrs", feature = "ty")), expect(dead_code))]
 mod interfaces;
@@ -37,6 +36,7 @@ pub mod call_hierarchy;
 pub mod check;
 pub mod code_action;
 pub mod completion;
+pub mod config;
 pub mod definition;
 pub mod diagnostics;
 pub mod document;

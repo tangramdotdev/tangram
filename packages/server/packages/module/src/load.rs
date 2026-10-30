@@ -58,19 +58,25 @@ impl Component {
 			});
 		}
 
-		// Generate the bindings of a config module from its interface, because its runtime declares its exports.
+		// Generate the bindings of a config module from its interface file, without resolving the interface's imports, which the bindings use only for types.
 		#[cfg(all(feature = "javascript", feature = "python"))]
 		if arg.module.kind.is_config()
 			&& let Some(language) = arg.language
 		{
 			let mut output = self.load_module_inner(session, &arg.module).await?;
-			let interface_arg = tg::module::interface::Arg {
-				module: arg.module.clone(),
+			let module = tangram_compiler::config::try_get_interface_module(
+				session,
+				&arg.module,
+				&output.text,
+			)
+			.await?;
+			let interface = if let Some(module) = module {
+				let text = self.load_module_inner(session, &module).await?.text;
+				tg::Interface::deserialize_json(&text)
+					.map_err(|error| tg::error!(argument, !error, "invalid interface"))?
+			} else {
+				tg::Interface::default()
 			};
-			let interface = self
-				.module_interface(session, interface_arg)
-				.await?
-				.interface;
 			output.text = tangram_compiler::load::bindings(&interface, &output.text, language);
 			return Ok(output);
 		}

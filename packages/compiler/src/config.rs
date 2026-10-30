@@ -7,6 +7,22 @@ use {
 /// The backend for config modules, whose runtimes run them, and for interface modules, which declare the interfaces of config modules.
 pub(crate) struct Backend;
 
+/// Get the module of a config's interface: the interface beside the config, which the config imports, or else the interface for configs in its runtime package.
+pub async fn try_get_interface_module<I>(
+	instance: &I,
+	module: &tg::module::Data,
+	text: &str,
+) -> tg::Result<Option<tg::module::Data>>
+where
+	I: tg::Instance,
+{
+	if let Some(module) = try_get_sibling_interface_module(instance, module).await? {
+		return Ok(Some(module));
+	}
+	let module = try_get_runtime_interface_module(instance, module, text).await?;
+	Ok(module)
+}
+
 impl crate::backend::Backend for Backend {
 	fn feature(&self) -> &'static str {
 		"config"
@@ -63,161 +79,24 @@ impl Compiler {
 		&self,
 		module: &tg::module::Data,
 	) -> tg::Result<tg::Interface> {
-		let Some(module) = self.try_get_config_interface_module(module).await? else {
+		let text = self.load_module(module).await?;
+		let Some(module) = try_get_interface_module(&self.instance, module, &text).await? else {
 			return Ok(tg::Interface::default());
 		};
 		let interface = self.read_interface(&module).await?;
 		Ok(interface)
 	}
 
-	/// Get the interface module of a config: the interface beside it, or else its runtime's interface for configs.
-	pub(crate) async fn try_get_config_interface_module(
+	/// Get the interface modules of a config that exist, which its interface may come from.
+	pub(crate) async fn config_interface_modules(
 		&self,
 		module: &tg::module::Data,
-	) -> tg::Result<Option<tg::module::Data>> {
-		if let Some(module) = self.try_get_config_sibling_interface_module(module).await? {
-			return Ok(Some(module));
-		}
-		let module = self.try_get_config_runtime_interface_module(module).await?;
-		Ok(module)
-	}
-
-	/// Get the module of the interface beside a config, which the config imports.
-	async fn try_get_config_sibling_interface_module(
-		&self,
-		module: &tg::module::Data,
-	) -> tg::Result<Option<tg::module::Data>> {
-		// Get the file name of the interface.
-		let path = match &module.referent.node {
-			tg::module::data::Source::Edge(_) => module.referent.path(),
-			tg::module::data::Source::Path(path) => Some(path.as_path()),
-		};
-		let Some(name) = path.and_then(tg::module::config::interface_file_name) else {
-			return Ok(None);
-		};
-		let reference = format!("./{name}").parse::<tg::Reference>()?;
-
-		// Determine whether the config imports the interface.
-		let exists = match &module.referent.node {
-			tg::module::data::Source::Path(path) => {
-				tokio::fs::try_exists(path.with_file_name(&name))
-					.await
-					.map_err(|error| {
-						tg::error!(!error, "failed to determine whether the interface exists")
-					})?
-			},
-			tg::module::data::Source::Edge(edge) => {
-				let file = match tg::graph::Edge::<tg::Object>::try_from_data(edge.clone())? {
-					tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
-					tg::graph::Edge::Object(object) => object
-						.try_unwrap_file()
-						.map_err(|_| tg::error!("expected the config to be a file"))?,
-					tg::graph::Edge::Pointer(pointer) => tg::File::with_pointer(pointer),
-				};
-				file.state()
-					.set_location(module.referent.options.location.clone());
-				file.state()
-					.set_tokens(module.referent.options.tokens.clone());
-				file.dependencies_with_instance(&self.instance)
-					.await?
-					.contains_key(&reference)
-			},
-		};
-		if !exists {
-			return Ok(None);
-		}
-
-		// Resolve the interface.
-		let import = tg::module::Import {
-			kind: Some(tg::module::Kind::Interface),
-			reference,
-		};
-		let arg = tg::module::resolve::Arg {
-			import,
-			referrer: Some(module.clone()),
-		};
-		let output =
-			self.instance.resolve_module(arg).await.map_err(|error| {
-				tg::error!(!error, "failed to resolve the interface of the config")
-			})?;
-
-		Ok(Some(output.module))
-	}
-
-	/// Get the module of the interface for configs in a config's runtime package, if the runtime is a package that has one.
-	pub(crate) async fn try_get_config_runtime_interface_module(
-		&self,
-		module: &tg::module::Data,
-	) -> tg::Result<Option<tg::module::Data>> {
-		// Resolve the runtime's package.
+	) -> tg::Result<Vec<tg::module::Data>> {
 		let text = self.load_module(module).await?;
-		let format = tg::module::config::Format::for_kind(module.kind).unwrap();
-		let config = tg::module::Config::parse(&text, format)?;
-		let mut import = config.runtime.import()?;
-		import.kind = Some(tg::module::Kind::Directory);
-		let arg = tg::module::resolve::Arg {
-			import,
-			referrer: Some(module.clone()),
-		};
-		let Ok(output) = self.instance.resolve_module(arg).await else {
-			return Ok(None);
-		};
-		let package = output.module;
-		let name = tg::module::config::RUNTIME_INTERFACE_FILE_NAME;
-
-		// Get the interface in the package.
-		let referent = match &package.referent.node {
-			tg::module::data::Source::Path(path) => {
-				let path = path.join(name);
-				let exists = tokio::fs::try_exists(&path).await.map_err(|error| {
-					tg::error!(!error, "failed to determine whether the interface exists")
-				})?;
-				if !exists {
-					return Ok(None);
-				}
-				tg::Referent::with_node(tg::module::data::Source::Path(path))
-			},
-			tg::module::data::Source::Edge(edge) => {
-				let directory = match tg::graph::Edge::<tg::Object>::try_from_data(edge.clone())? {
-					tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
-					tg::graph::Edge::Object(object) => object
-						.try_unwrap_directory()
-						.map_err(|_| tg::error!("expected the runtime to be a directory"))?,
-					tg::graph::Edge::Pointer(pointer) => tg::Directory::with_pointer(pointer),
-				};
-				directory
-					.state()
-					.set_location(package.referent.options.location.clone());
-				directory
-					.state()
-					.set_tokens(package.referent.options.tokens.clone());
-				let Some(edge) = directory
-					.try_get_entry_edge_with_instance(&self.instance, name)
-					.await?
-				else {
-					return Ok(None);
-				};
-				let edge = tg::graph::Edge::<tg::Object>::from(edge).to_data();
-				let path = package
-					.referent
-					.path()
-					.map_or_else(|| name.into(), |path| path.join(name));
-				let options = tg::referent::Options {
-					path: Some(path),
-					..package.referent.options.clone()
-				};
-				tg::Referent {
-					node: tg::module::data::Source::Edge(edge),
-					options,
-				}
-			},
-		};
-		let module = tg::module::Data {
-			kind: tg::module::Kind::Interface,
-			referent,
-		};
-
-		Ok(Some(module))
+		let sibling = try_get_sibling_interface_module(&self.instance, module).await?;
+		let runtime = try_get_runtime_interface_module(&self.instance, module, &text).await?;
+		let modules = sibling.into_iter().chain(runtime).collect();
+		Ok(modules)
 	}
 
 	/// Read an interface module, and resolve its imports whose paths are relative to it.
@@ -258,4 +137,147 @@ impl Compiler {
 		}
 		Ok(interface)
 	}
+}
+
+/// Get the module of the interface beside a config, which the config imports.
+async fn try_get_sibling_interface_module<I>(
+	instance: &I,
+	module: &tg::module::Data,
+) -> tg::Result<Option<tg::module::Data>>
+where
+	I: tg::Instance,
+{
+	// Get the file name of the interface.
+	let path = match &module.referent.node {
+		tg::module::data::Source::Edge(_) => module.referent.path(),
+		tg::module::data::Source::Path(path) => Some(path.as_path()),
+	};
+	let Some(name) = path.and_then(tg::module::config::interface_file_name) else {
+		return Ok(None);
+	};
+	let reference = format!("./{name}").parse::<tg::Reference>()?;
+
+	// Determine whether the config imports the interface.
+	let exists = match &module.referent.node {
+		tg::module::data::Source::Path(path) => tokio::fs::try_exists(path.with_file_name(&name))
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to determine whether the interface exists")
+			})?,
+		tg::module::data::Source::Edge(edge) => {
+			let file = match tg::graph::Edge::<tg::Object>::try_from_data(edge.clone())? {
+				tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
+				tg::graph::Edge::Object(object) => object
+					.try_unwrap_file()
+					.map_err(|_| tg::error!("expected the config to be a file"))?,
+				tg::graph::Edge::Pointer(pointer) => tg::File::with_pointer(pointer),
+			};
+			file.state()
+				.set_location(module.referent.options.location.clone());
+			file.state()
+				.set_tokens(module.referent.options.tokens.clone());
+			file.dependencies_with_instance(instance)
+				.await?
+				.contains_key(&reference)
+		},
+	};
+	if !exists {
+		return Ok(None);
+	}
+
+	// Resolve the interface.
+	let import = tg::module::Import {
+		kind: Some(tg::module::Kind::Interface),
+		reference,
+	};
+	let arg = tg::module::resolve::Arg {
+		import,
+		referrer: Some(module.clone()),
+	};
+	let output = instance
+		.resolve_module(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to resolve the interface of the config"))?;
+
+	Ok(Some(output.module))
+}
+
+/// Get the module of the interface for configs in a config's runtime package, if the runtime is a package that has one.
+async fn try_get_runtime_interface_module<I>(
+	instance: &I,
+	module: &tg::module::Data,
+	text: &str,
+) -> tg::Result<Option<tg::module::Data>>
+where
+	I: tg::Instance,
+{
+	// Resolve the runtime's package.
+	let format = tg::module::config::Format::for_kind(module.kind)
+		.ok_or_else(|| tg::error!("expected a config module"))?;
+	let config = tg::module::Config::parse(text, format)?;
+	let mut import = config.runtime.import()?;
+	import.kind = Some(tg::module::Kind::Directory);
+	let arg = tg::module::resolve::Arg {
+		import,
+		referrer: Some(module.clone()),
+	};
+	let Ok(output) = instance.resolve_module(arg).await else {
+		return Ok(None);
+	};
+	let package = output.module;
+	let name = tg::module::config::RUNTIME_INTERFACE_FILE_NAME;
+
+	// Get the interface in the package.
+	let referent = match &package.referent.node {
+		tg::module::data::Source::Path(path) => {
+			let path = path.join(name);
+			let exists = tokio::fs::try_exists(&path).await.map_err(|error| {
+				tg::error!(!error, "failed to determine whether the interface exists")
+			})?;
+			if !exists {
+				return Ok(None);
+			}
+			tg::Referent::with_node(tg::module::data::Source::Path(path))
+		},
+		tg::module::data::Source::Edge(edge) => {
+			let directory = match tg::graph::Edge::<tg::Object>::try_from_data(edge.clone())? {
+				tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
+				tg::graph::Edge::Object(object) => object
+					.try_unwrap_directory()
+					.map_err(|_| tg::error!("expected the runtime to be a directory"))?,
+				tg::graph::Edge::Pointer(pointer) => tg::Directory::with_pointer(pointer),
+			};
+			directory
+				.state()
+				.set_location(package.referent.options.location.clone());
+			directory
+				.state()
+				.set_tokens(package.referent.options.tokens.clone());
+			let Some(edge) = directory
+				.try_get_entry_edge_with_instance(instance, name)
+				.await?
+			else {
+				return Ok(None);
+			};
+			let edge = tg::graph::Edge::<tg::Object>::from(edge).to_data();
+			let path = package
+				.referent
+				.path()
+				.map_or_else(|| name.into(), |path| path.join(name));
+			let options = tg::referent::Options {
+				path: Some(path),
+				..package.referent.options.clone()
+			};
+			tg::Referent {
+				node: tg::module::data::Source::Edge(edge),
+				options,
+			}
+		},
+	};
+	let module = tg::module::Data {
+		kind: tg::module::Kind::Interface,
+		referent,
+	};
+
+	Ok(Some(module))
 }

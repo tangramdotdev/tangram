@@ -47,23 +47,14 @@ pub fn module(module: &tg::module::Data, text: &str) -> tg::Result<tg::Interface
 			}
 		},
 		tg::module::Kind::Json | tg::module::Kind::Toml | tg::module::Kind::Yaml => {
-			// Give a config module a default export, because its runtime declares its exports.
+			// Give a config module no exports, because its exports come from its interface file.
 			#[cfg(any(feature = "javascript", feature = "python"))]
 			{
-				let export = Export {
-					documentation: None,
-					range: None,
-				};
-				Ok(std::collections::BTreeMap::from([(
-					"default".to_owned(),
-					export,
-				)]))
+				Ok(std::collections::BTreeMap::<String, Export>::new())
 			}
 			#[cfg(not(any(feature = "javascript", feature = "python")))]
 			{
-				return Err(tg::error!(
-					"the javascript and python features are not enabled"
-				));
+				return Ok(tg::Interface::default());
 			}
 		},
 		_ => {
