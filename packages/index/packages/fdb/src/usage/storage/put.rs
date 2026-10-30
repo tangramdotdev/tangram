@@ -430,7 +430,7 @@ impl Index {
 		partition_totals: crate::PartitionTotals,
 		permissions: Option<tg::authorization::permission::Set>,
 		version: Option<&fdbt::Versionstamp>,
-		size: Option<u64>,
+		put: Option<&tangram_index::object::put::Arg>,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let cleaning_partition_total = partition_totals.cleaning;
 		let usage_partition_total = partition_totals.usage;
@@ -512,9 +512,9 @@ impl Index {
 			return Ok(ControlFlow::Break(false));
 		}
 
-		// Read the object's size unless it is provided, which also determines whether the object exists.
-		let size = if let Some(size) = size {
-			size
+		// Read the object's size unless the object's put provides it, which also determines whether the object exists.
+		let size = if let Some(put) = put {
+			put.metadata.node.size
 		} else {
 			let object = crate::propagate!(
 				Self::try_get_object_with_transaction(txn, subspace, &arg.object).await
@@ -562,18 +562,21 @@ impl Index {
 			usage_partition,
 		);
 
-		crate::propagate!(
-			Self::propagate_account_storage(
-				txn,
-				subspace,
-				&tg::Either::Left(arg.object.clone()),
-				&arg.account,
-				arg.touched_at,
-				partition_totals.usage_update,
-				version
-			)
-			.await
-		);
+		// Propagate the entry to the children, unless the object's put gives the children their own entries.
+		if put.is_none() {
+			crate::propagate!(
+				Self::propagate_account_storage(
+					txn,
+					subspace,
+					&tg::Either::Left(arg.object.clone()),
+					&arg.account,
+					arg.touched_at,
+					partition_totals.usage_update,
+					version
+				)
+				.await
+			);
+		}
 
 		Ok(ControlFlow::Break(true))
 	}

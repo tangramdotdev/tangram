@@ -768,7 +768,7 @@ impl Component {
 			permission_capture_items,
 			put_checkout_args,
 			mut put_permission_args,
-			mut put_object_args,
+			put_object_args,
 			put_process_args,
 			storage_roots,
 		) = {
@@ -822,8 +822,9 @@ impl Component {
 		};
 		session.server.index.write(arg).await??;
 
-		// Put the account's storage entries for the storage roots, with the object puts for roots that are being indexed.
+		// Put the account's storage entries for the process storage roots.
 		let mut account_items = Vec::new();
+		let mut object_roots = Vec::new();
 		if let Some(account) = &account {
 			for id in &storage_roots {
 				if let Ok(process) = tg::process::Id::try_from(id.clone()) {
@@ -833,43 +834,42 @@ impl Component {
 						touched_at,
 					};
 					account_items.push(tangram_index::Item::PutAccountProcess(Box::new(entry)));
-					continue;
-				}
-				let Ok(object) = tg::object::Id::try_from(id.clone()) else {
-					continue;
-				};
-				if let Some(arg) = put_object_args.iter_mut().find(|arg| arg.id == object) {
-					arg.account = Some(account.clone());
-				} else {
-					let entry = tangram_index::usage::storage::put::ObjectArg {
-						account: account.clone(),
-						object,
-						touched_at,
-					};
-					account_items.push(tangram_index::Item::PutAccountObject(Box::new(entry)));
+				} else if let Ok(object) = tg::object::Id::try_from(id.clone()) {
+					object_roots.push(object);
 				}
 			}
 		}
 
+		// Create the items to index the objects and permissions.
+		let mut items = put_checkout_args
+			.into_iter()
+			.map(|arg| tangram_index::Item::PutCheckout(Box::new(arg)))
+			.chain(
+				put_object_args
+					.into_iter()
+					.map(|arg| tangram_index::Item::PutObject(Box::new(arg))),
+			)
+			.chain(
+				put_permission_args
+					.into_iter()
+					.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))),
+			)
+			.chain(permission_capture_items)
+			.chain(account_items)
+			.collect::<Vec<_>>();
+
+		// Put the account's storage entries for the objects in the object storage roots' subtrees.
+		if let Some(account) = &account {
+			tangram_index::usage::storage::put::put_account_objects(
+				&mut items,
+				account,
+				&object_roots,
+				touched_at,
+			);
+		}
+
 		// Index the objects and permissions.
-		let arg = tangram_index::write::Arg {
-			items: put_checkout_args
-				.into_iter()
-				.map(|arg| tangram_index::Item::PutCheckout(Box::new(arg)))
-				.chain(
-					put_object_args
-						.into_iter()
-						.map(|arg| tangram_index::Item::PutObject(Box::new(arg))),
-				)
-				.chain(
-					put_permission_args
-						.into_iter()
-						.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))),
-				)
-				.chain(permission_capture_items)
-				.chain(account_items)
-				.collect(),
-		};
+		let arg = tangram_index::write::Arg { items };
 		tangram_server_core::checkpoint!(session.server, "sync.get.index.enqueue", sync = %sync)
 			.await;
 		match session

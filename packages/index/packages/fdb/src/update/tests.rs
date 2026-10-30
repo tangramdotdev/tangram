@@ -96,7 +96,7 @@ async fn older_propagation_through_a_completed_item_preserves_the_wait_version()
 			let key = crate::Key::Update(Key::StorageAndMetadataUpdate {
 				id: tg::Either::Left(middle.id.clone()),
 				partition,
-				source: super::Source::Put,
+				source: super::StorageAndMetadataSource::Put,
 				version: foundationdb_tuple::Versionstamp::incomplete(0),
 			});
 			let key = Index::pack_with_versionstamp(&index.subspace, &key);
@@ -173,7 +173,13 @@ async fn duplicate_updates_are_idempotent() {
 		let id = tg::Either::Left(parent.id.clone());
 		for _ in 0..4 {
 			crate::run(&index.database, async |txn| {
-				Index::enqueue_update(txn, &index.subspace, &id, 2);
+				Index::enqueue_update(
+					txn,
+					&index.subspace,
+					&id,
+					super::StorageAndMetadataSource::Put,
+					2,
+				);
 				Ok(ControlFlow::Break(()))
 			})
 			.await

@@ -147,10 +147,16 @@ impl Index {
 		txn.set(&key, &[]);
 
 		// Enqueue the update, which also resumes the permission and usage derivation that depend on the object.
+		let source = if arg.account.is_some() {
+			crate::update::StorageAndMetadataSource::PutWithAccount
+		} else {
+			crate::update::StorageAndMetadataSource::Put
+		};
 		Self::enqueue_update(
 			txn,
 			subspace,
 			&tg::Either::Left(id.clone()),
+			source,
 			partition_totals.storage_and_metadata_update,
 		);
 
@@ -166,7 +172,7 @@ impl Index {
 		for object in args {
 			crate::propagate!(Self::put_object(txn, subspace, object, partition_totals).await);
 
-			// Put the account's storage entry with the object's size, so that it does not read the object.
+			// Put the account's storage entry with the object's put, so that it does not read the object or propagate to the children, whose entries the write puts.
 			if let Some(account) = &object.account {
 				let entry = tangram_index::usage::storage::put::ObjectArg {
 					account: account.clone(),
@@ -181,7 +187,7 @@ impl Index {
 						partition_totals,
 						None,
 						None,
-						Some(object.metadata.node.size),
+						Some(object),
 					)
 					.await
 				);

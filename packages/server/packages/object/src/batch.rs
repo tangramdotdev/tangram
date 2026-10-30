@@ -201,26 +201,28 @@ impl Component {
 				account_objects.remove(child);
 			}
 		}
+
+		// Create the items to index the objects.
+		let mut items = put_object_args
+			.into_iter()
+			.map(|arg| tangram_index::Item::PutObject(Box::new(arg)))
+			.chain(
+				put_permission_args
+					.into_iter()
+					.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))),
+			)
+			.collect::<Vec<_>>();
+
+		// Put the account's storage entries for the objects in the batch roots' subtrees.
 		if let Some(account) = &account {
-			for arg in &mut put_object_args {
-				if account_objects.contains(&arg.id) {
-					arg.account = Some(account.clone());
-				}
-			}
+			let roots = account_objects.into_iter().collect::<Vec<_>>();
+			tangram_index::usage::storage::put::put_account_objects(
+				&mut items, account, &roots, now,
+			);
 		}
 
 		// Index the objects.
-		let index_arg = tangram_index::write::Arg {
-			items: put_object_args
-				.into_iter()
-				.map(|arg| tangram_index::Item::PutObject(Box::new(arg)))
-				.chain(
-					put_permission_args
-						.into_iter()
-						.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))),
-				)
-				.collect(),
-		};
+		let index_arg = tangram_index::write::Arg { items };
 		self.put_object_batch_and_index(&session.server, put_args, index_arg)
 			.await?;
 
