@@ -119,7 +119,16 @@ impl Index {
 			)
 			.await
 		);
-		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations);
+		let syncs = crate::propagate!(
+			Self::delete_expired_syncs(
+				txn,
+				subspace,
+				now,
+				batch_size.saturating_sub(permissions + delegations),
+			)
+			.await
+		);
+		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations + syncs);
 
 		// Preserve the numeric kind order when timestamps tie.
 		let cutoffs = [
@@ -256,6 +265,7 @@ impl Index {
 		);
 		output.done = delegations == 0
 			&& permissions == 0
+			&& syncs == 0
 			&& candidates.is_empty()
 			&& propagated_versions == 0;
 

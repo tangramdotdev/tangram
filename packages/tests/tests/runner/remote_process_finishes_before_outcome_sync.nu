@@ -52,10 +52,11 @@ assert ($params | where {|param| $param.key starts-with 'tokens[' } | any {|para
 	($body.resource | str starts-with 'syn_') and ('sync_read' in $body.permissions)
 }) "the outcome must carry sync authorization"
 
-# Reading the outcome must wait for its objects rather than fail authorization.
+# Reading the outcome that the local server returned must wait for its objects rather than fail authorization.
+let referent = $output.stdout | str trim
 let read = job spawn {
 	let job_id = job id
-	let output = tg --url $local.url read $file | complete
+	let output = tg --url $local.url read $referent | complete
 	$output | job send --tag $job_id 0
 }
 let output = try { job recv --tag $read --timeout 1sec } catch { null }

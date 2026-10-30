@@ -313,6 +313,12 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::GetIndexers(output)
 			},
+			tangram_index::read::Request::GetPermissions { args } => {
+				let result =
+					Self::get_permissions_with_transaction(transaction, subspace, args).await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::GetPermissions(output)
+			},
 			tangram_index::read::Request::TryGetProcessChildrenCount { id } => {
 				let result = Self::try_get_process_children_count_with_transaction(
 					transaction,
@@ -555,6 +561,11 @@ impl Index {
 						.await;
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::TryGetSpecifiersForIds(output)
+			},
+			tangram_index::read::Request::TryGetSyncs { ids } => {
+				let result = Self::try_get_syncs_with_transaction(transaction, subspace, ids).await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::TryGetSyncs(output)
 			},
 			tangram_index::read::Request::TryGetTags { ids } => {
 				let result = Self::try_get_tags_with_transaction(transaction, subspace, ids).await;

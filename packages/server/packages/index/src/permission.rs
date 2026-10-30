@@ -47,6 +47,18 @@ impl Index {
 		}
 	}
 
+	pub async fn get_permissions(
+		&self,
+		args: &[index::permission::get::Arg],
+	) -> tg::Result<Vec<Vec<tg::authorization::Permission>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_permissions(args).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_permissions(args).await,
+		}
+	}
+
 	pub async fn put_permissions(&self, args: &[index::permission::put::Arg]) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
@@ -92,6 +104,13 @@ impl index::permission::Index for Index {
 		entry: &index::permission::capture::Entry,
 	) -> tg::Result<()> {
 		self.complete_permission_capture(entry).await
+	}
+
+	async fn get_permissions(
+		&self,
+		args: &[index::permission::get::Arg],
+	) -> tg::Result<Vec<Vec<tg::authorization::Permission>>> {
+		self.get_permissions(args).await
 	}
 
 	async fn put_permissions(&self, args: &[index::permission::put::Arg]) -> tg::Result<()> {

@@ -9,6 +9,38 @@ use {
 };
 
 impl Index {
+	pub(crate) async fn get_permissions_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		args: &[tangram_index::permission::get::Arg],
+	) -> tg::Result<ControlFlow<Vec<Vec<tg::authorization::Permission>>, fdb::FdbError>> {
+		// Get the permissions of each subject on each resource.
+		let results = futures::future::try_join_all(args.iter().map(|arg| async move {
+			let entries = crate::propagate!(
+				Self::get_resource_permission_entries_for_subject_with_transaction(
+					txn,
+					subspace,
+					&arg.resource,
+					&arg.subject,
+				)
+				.await
+			);
+			let permissions = entries.into_iter().map(|entry| entry.permission).collect();
+			Ok::<_, tg::Error>(ControlFlow::Break(permissions))
+		}))
+		.await?;
+		let mut output = Vec::with_capacity(results.len());
+		for result in results {
+			let permissions = match result {
+				ControlFlow::Break(permissions) => permissions,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			output.push(permissions);
+		}
+
+		Ok(ControlFlow::Break(output))
+	}
+
 	pub(crate) async fn get_resource_permission_subjects_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,

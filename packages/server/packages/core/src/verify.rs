@@ -18,15 +18,9 @@ pub struct Arg {
 pub struct VerifyBatchArg<'a> {
 	pub args: Vec<Arg>,
 	pub current_sync: Option<&'a tg::sync::Id>,
-	pub mode: Mode,
 	pub required: Option<tg::authorization::permission::Set>,
+	pub search: bool,
 	pub subject: Option<tg::authorization::Subject>,
-	pub wait_for_requested_permissions: bool,
-}
-
-pub enum Mode {
-	Initial,
-	Normal,
 }
 
 #[derive(Clone, Debug)]
@@ -76,9 +70,7 @@ impl Session {
 		current_sync: Option<&tg::sync::Id>,
 	) -> tg::Result<Output> {
 		let args = [(resource, permissions, None, storage)];
-		let mut outputs = self
-			.verify_batch_inner(args, None, false, current_sync)
-			.await?;
+		let mut outputs = self.verify_batch_inner(args, None, current_sync).await?;
 		Ok(outputs.pop().unwrap())
 	}
 
@@ -94,10 +86,9 @@ impl Session {
 			.verify_batch_inner_with_subject(
 				[(resource, requested, None, storage)],
 				Some(required),
-				true,
 				Some(subject),
-				Mode::Normal,
 				None,
+				true,
 			)
 			.await?;
 		Ok(outputs.pop().unwrap())
@@ -113,32 +104,8 @@ impl Session {
 		let args = args
 			.into_iter()
 			.map(|(resource, permissions, storage)| (resource, permissions, None, storage));
-		let outputs = self.verify_batch_inner(args, None, false, None).await?;
+		let outputs = self.verify_batch_inner(args, None, None).await?;
 		Ok(outputs)
-	}
-
-	pub(crate) async fn verify_batch_initial<R, I>(
-		&self,
-		args: I,
-		required: tg::authorization::permission::Set,
-		current_sync: Option<&tg::sync::Id>,
-	) -> tg::Result<Vec<Output>>
-	where
-		R: IntoAuthorizationResource,
-		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
-	{
-		let args = args
-			.into_iter()
-			.map(|(resource, requested)| (resource, requested, None, empty_storage(requested)));
-		self.verify_batch_inner_with_subject(
-			args,
-			Some(required),
-			false,
-			None,
-			Mode::Initial,
-			current_sync,
-		)
-		.await
 	}
 
 	pub(crate) async fn verify_batch_with_required<R, I>(
@@ -154,7 +121,7 @@ impl Session {
 		let args = args
 			.into_iter()
 			.map(|(resource, permissions, storage)| (resource, permissions, None, storage));
-		self.verify_batch_inner(args, Some(required), false, current_sync)
+		self.verify_batch_inner(args, Some(required), current_sync)
 			.await
 	}
 
@@ -162,7 +129,6 @@ impl Session {
 		&self,
 		args: I,
 		required: Option<tg::authorization::permission::Set>,
-		wait_for_requested_permissions: bool,
 		current_sync: Option<&tg::sync::Id>,
 	) -> tg::Result<Vec<Output>>
 	where
@@ -176,25 +142,17 @@ impl Session {
 			),
 		>,
 	{
-		self.verify_batch_inner_with_subject(
-			args,
-			required,
-			wait_for_requested_permissions,
-			None,
-			Mode::Normal,
-			current_sync,
-		)
-		.await
+		self.verify_batch_inner_with_subject(args, required, None, current_sync, true)
+			.await
 	}
 
-	async fn verify_batch_inner_with_subject<R, I>(
+	pub(crate) async fn verify_batch_inner_with_subject<R, I>(
 		&self,
 		args: I,
 		required: Option<tg::authorization::permission::Set>,
-		wait_for_requested_permissions: bool,
 		subject: Option<tg::authorization::Subject>,
-		mode: Mode,
 		current_sync: Option<&tg::sync::Id>,
+		search: bool,
 	) -> tg::Result<Vec<Output>>
 	where
 		R: IntoAuthorizationResource,
@@ -223,10 +181,9 @@ impl Session {
 		let arg = VerifyBatchArg {
 			args,
 			current_sync,
-			mode,
 			required,
+			search,
 			subject,
-			wait_for_requested_permissions,
 		};
 		self.server.components.verify.verify_batch(self, arg).await
 	}

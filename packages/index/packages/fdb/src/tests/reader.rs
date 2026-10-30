@@ -59,7 +59,6 @@ async fn concurrent_verifications_complete_before_the_deadline() {
 			requested: permissions,
 			required: permissions,
 			resource: tg::Selector::Id(resource.into()),
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 			subject: None,
 			tokens,
 		};

@@ -7,6 +7,27 @@ use {
 };
 
 impl Index {
+	pub(crate) fn get_permissions_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		args: &[tangram_index::permission::get::Arg],
+	) -> tg::Result<Vec<Vec<tg::authorization::Permission>>> {
+		args.iter()
+			.map(|arg| {
+				let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&arg.resource,
+					&arg.subject,
+				)?;
+				let permissions = entries.into_iter().map(|entry| entry.permission).collect();
+				Ok(permissions)
+			})
+			.collect()
+	}
+
 	pub(crate) fn get_resource_permission_subjects_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

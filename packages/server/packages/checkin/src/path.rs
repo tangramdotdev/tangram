@@ -82,7 +82,7 @@ impl Component {
 			tg::authorization::permission::object::Permission::Subtree,
 		);
 		let authorization = session
-			.authorize_object_read(referent.clone(), true)
+			.authorize_object_read(referent.clone())
 			.await?
 			.check_exhaustion()?;
 		let expiration = if authorization.permissions.contains(subtree) {

@@ -8,6 +8,7 @@ mod organization;
 mod permission;
 mod process;
 mod sandbox;
+mod sync;
 mod tag;
 mod usage;
 mod user;

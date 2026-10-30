@@ -284,7 +284,6 @@ impl Component {
 							.verify_batch_inner(
 								args,
 								None,
-								false,
 								state
 									.arg
 									.sync
@@ -696,7 +695,6 @@ impl Component {
 							.verify_batch_inner(
 								args,
 								None,
-								false,
 								state
 									.arg
 									.sync

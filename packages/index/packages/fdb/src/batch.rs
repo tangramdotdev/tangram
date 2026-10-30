@@ -271,6 +271,9 @@ impl Index {
 						return Ok(ControlFlow::Break(Err(error)));
 					}
 				},
+				tangram_index::batch::Item::PutSync(arg) => {
+					crate::propagate!(Self::put_sync_with_transaction(txn, subspace, arg).await);
+				},
 				tangram_index::batch::Item::PutTag(arg) => {
 					crate::propagate!(
 						Self::put_tags_with_transaction(

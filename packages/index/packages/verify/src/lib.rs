@@ -1,9 +1,6 @@
 use {
 	tangram_client::prelude::*,
-	tangram_index::verify::{
-		Arg, Config, Outcome, Output, SearchConfig, SubtreeConfig, Sync, storage_permissions,
-		validate,
-	},
+	tangram_index::verify::{Arg, Config, Outcome, Output, SearchConfig, SubtreeConfig, validate},
 };
 
 mod engine;

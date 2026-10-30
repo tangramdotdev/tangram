@@ -10,6 +10,9 @@ pub enum Request {
 	},
 
 	GetIndexers,
+	GetPermissions {
+		args: Vec<crate::permission::get::Arg>,
+	},
 	GetRunnerSandboxes {
 		runner: tg::runner::Id,
 	},
@@ -93,6 +96,9 @@ pub enum Request {
 	TryGetSpecifiersForIds {
 		ids: Vec<tg::Id>,
 	},
+	TryGetSyncs {
+		ids: Vec<tg::sync::Id>,
+	},
 	TryGetTags {
 		ids: Vec<tg::tag::Id>,
 	},
@@ -113,6 +119,7 @@ pub enum Request {
 pub enum Response {
 	ContainsIds(Vec<bool>),
 	GetIndexers(Vec<crate::indexer::Indexer>),
+	GetPermissions(Vec<Vec<tg::authorization::Permission>>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSubjectsForPrincipal(Vec<tg::authorization::Subject>),
 	GetTransactionId(u64),
@@ -138,6 +145,7 @@ pub enum Response {
 	TryGetSandboxProcessesCount(Option<u64>),
 	TryGetSandboxes(Vec<Option<crate::sandbox::Sandbox>>),
 	TryGetSpecifiersForIds(Vec<Option<tg::Specifier>>),
+	TryGetSyncs(Vec<Option<crate::sync::Sync>>),
 	TryGetTags(Vec<Option<crate::tag::Tag>>),
 	TryGetUsers(Vec<Option<crate::user::User>>),
 	VerifyBatch(Vec<crate::verify::Output>),

@@ -78,6 +78,9 @@ pub enum Item {
 	#[tangram_serialize(id = 17)]
 	PutSandbox(crate::sandbox::put::Arg),
 
+	#[tangram_serialize(id = 31)]
+	PutSync(crate::sync::put::Arg),
+
 	#[tangram_serialize(id = 18)]
 	PutTag(crate::tag::put::Arg),
 

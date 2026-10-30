@@ -420,12 +420,6 @@ fn resolve_verification(source: Verification) -> tg::Result<server::Verification
 	if let Some(source) = source.permissions {
 		target.permissions = resolve_verification_permissions(&source)?;
 	}
-	if let Some(value) = source.poll_interval {
-		target.poll_interval = value;
-	}
-	if let Some(value) = source.request_timeout {
-		target.request_timeout = value;
-	}
 	if let Some(source) = source.write_retry {
 		target.write_retry = resolve_retry_with_default(source, target.write_retry);
 	}

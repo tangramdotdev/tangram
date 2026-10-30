@@ -118,9 +118,6 @@ pub enum Request {
 	Specifier {
 		specifier: tg::Specifier,
 	},
-	Storage {
-		resource: tg::Id,
-	},
 	SubjectPermissions {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -173,7 +170,6 @@ pub enum Output {
 		objects: Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 	},
 	SandboxOwner(Option<tg::Principal>),
-	Storage(tg::storage::Set),
 	Tag(Option<tangram_index::tag::Tag>),
 	Tags {
 		after: Option<Vec<u8>>,
@@ -246,7 +242,6 @@ enum CacheKey {
 	},
 	SandboxOwner(tg::sandbox::Id),
 	Specifier(tg::Specifier),
-	Storage(tg::Id),
 	Tag(tg::tag::Id),
 	TargetTags {
 		after: Option<Vec<u8>>,
@@ -407,7 +402,6 @@ impl Request {
 			},
 			Self::SandboxOwner { sandbox } => CacheKey::SandboxOwner(sandbox.clone()),
 			Self::Specifier { specifier } => CacheKey::Specifier(specifier.clone()),
-			Self::Storage { resource } => CacheKey::Storage(resource.clone()),
 			Self::Tag { tag } => CacheKey::Tag(tag.clone()),
 			Self::TargetTags {
 				after,

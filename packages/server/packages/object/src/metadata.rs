@@ -81,7 +81,7 @@ impl Component {
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let authorization = session
-			.authorize_object_read(resource, true)
+			.authorize_object_read(resource)
 			.await?
 			.check_exhaustion()?;
 		let permissions = authorization.permissions;

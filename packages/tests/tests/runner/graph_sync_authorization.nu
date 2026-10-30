@@ -32,7 +32,7 @@ let path = artifact {
 # Build the file by ID so loading its contents must follow the pointer to the graph.
 let file = tg --url $local.url checkin ($path | path join tangram.ts) | referent node
 let graph = tg --url $local.url get --no-tokens $file | parse --regex '(?<id>gph_[a-z0-9]+)' | first | get id
-let graph_watch = tg --url $remote.url --token $root_token checkpoint watch verification.index --params ({ resource: $graph } | to json --raw) | from json | get watch
+let graph_watch = tg --url $remote.url --token $root_token checkpoint watch sync.service.request --params ({ node: $graph } | to json --raw) | from json | get watch
 # Hold a descendant until the graph is requested so the file is authorized before its subtree.
 let blob = tg --url $local.url put --no-tokens 'tg.blob("import \"./tangram.ts\"; export const other = 2;")' | referent node
 let store_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blob } | to json --raw) | from json | get watch
@@ -44,10 +44,10 @@ let build = job spawn {
 	$output | job send --tag $job_id 0
 }
 success (tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.get.store.object $store_watch 0 | complete) 'the upload should reach the held blob'
-let graph_request = tg --url $remote.url --token $root_token checkpoint wait --timeout 10s verification.index $graph_watch 0 | complete
+let graph_request = tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.service.request $graph_watch 0 | complete
 success $graph_request 'the runner should request the backing graph'
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store_watch
-tg --url $remote.url --token $root_token checkpoint unwatch verification.index $graph_watch
+tg --url $remote.url --token $root_token checkpoint unwatch sync.service.request $graph_watch
 let output = job recv --tag $build --timeout 10sec
 success $output 'the sync should authorize the build without waiting for indexing'
 assert equal ($output.stdout | str trim) '1'

@@ -10,6 +10,7 @@ mod page;
 mod process;
 mod reader;
 mod storage;
+mod sync;
 mod tag;
 mod update;
 mod usage;
