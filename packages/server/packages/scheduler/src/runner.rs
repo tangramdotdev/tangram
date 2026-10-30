@@ -517,7 +517,7 @@ impl Component {
 				let data = data.without_location_and_tokens_except_sync();
 
 				let arg = tangram_index::write::Arg {
-					items: std::iter::once(tangram_index::Item::PutProcess(
+					items: std::iter::once(tangram_index::Item::PutProcess(Box::new(
 						tangram_index::process::put::Arg {
 							account: None,
 							cached: false,
@@ -548,7 +548,7 @@ impl Component {
 							time_to_touch: server.config.process.time_to_touch,
 							touched_at: now,
 						},
-					))
+					)))
 					.collect(),
 				};
 				server
@@ -604,7 +604,7 @@ impl Component {
 			None
 		};
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutSandbox(
+			items: vec![tangram_index::Item::PutSandbox(Box::new(
 				tangram_index::sandbox::put::Arg {
 					account,
 					created_at: indexed.created_at,
@@ -620,7 +620,7 @@ impl Component {
 					stopped_usage: None,
 					touched_at: now,
 				},
-			)],
+			))],
 		};
 		server
 			.index

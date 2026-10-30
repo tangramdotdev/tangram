@@ -3,6 +3,7 @@ use {
 	tangram_util::serde::is_default,
 };
 
+pub mod delete;
 pub mod put;
 
 #[derive(

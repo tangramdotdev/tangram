@@ -553,7 +553,7 @@ impl Component {
 			)?;
 			captures.extend(command_captures);
 		}
-		let items = vec![tangram_index::Item::PutProcess(
+		let items = vec![tangram_index::Item::PutProcess(Box::new(
 			tangram_index::process::put::Arg {
 				account,
 				cached: false,
@@ -584,7 +584,7 @@ impl Component {
 				time_to_touch: session.server.config.process.time_to_touch,
 				touched_at,
 			},
-		)];
+		))];
 
 		// Submit the prepared batch without waiting for its index commit, continuing if the index cannot accept it.
 		let index_arg = tangram_index::write::Arg { items };

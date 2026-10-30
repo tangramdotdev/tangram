@@ -49,7 +49,7 @@ impl Component {
 			touched_at: now,
 		};
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutSandbox(put_sandbox)],
+			items: vec![tangram_index::Item::PutSandbox(Box::new(put_sandbox))],
 		};
 		session
 			.server
