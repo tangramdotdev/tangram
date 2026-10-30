@@ -15,6 +15,16 @@ pub struct Arg {
 }
 
 impl Arg {
+	/// Get the process that grants authority and the other process that receives it, for a capture from one process to another.
+	#[must_use]
+	pub fn process_grant(&self) -> Option<(tg::process::Id, tg::process::Id)> {
+		let tg::Principal::Process(source) = &self.principal else {
+			return None;
+		};
+		let destination = tg::process::Id::try_from(self.resource.clone()).ok()?;
+		(*source != destination).then(|| (source.clone(), destination))
+	}
+
 	pub fn validate(&self) -> tg::Result<()> {
 		if self.id.len() != 16 {
 			return Err(tg::error!("invalid permission capture identity"));

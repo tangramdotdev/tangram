@@ -998,14 +998,15 @@ impl Component {
 					.server
 					.components
 					.authorization
-					.create_capture_permissions_batch_items_with_permissions(
+					.create_captures_with_permissions(
 						session,
 						destination,
 						None,
 						roots.into_iter().collect(),
 						source,
 						created_at,
-					)?,
+					)?
+					.into_items(),
 			);
 		}
 		Ok(items)

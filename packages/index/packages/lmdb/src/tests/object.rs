@@ -107,6 +107,7 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 				Some(checkout_a.clone()),
 			)),
 			tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+				captures: tangram_index::permission::capture::Captures::default(),
 				touched_at: 0,
 				version: "initial".into(),
 				account: None,

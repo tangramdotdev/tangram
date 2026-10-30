@@ -4,10 +4,55 @@ use {
 	num::ToPrimitive as _,
 	std::ops::Bound,
 	tangram_client::prelude::*,
-	tangram_index::permission::capture::{Entry, enqueue},
+	tangram_index::permission::capture::{Captures, Entry, enqueue},
 };
 
 impl Index {
+	/// Put the permissions, delegations, and capture that a resource's put carries, skipping a grant from a finished process to a process that it does not list as a child.
+	pub(crate) fn put_captures_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		captures: &Captures,
+	) -> tg::Result<()> {
+		// Put the permissions.
+		Self::put_permissions_with_transaction(db, subspace, transaction, &captures.permissions)?;
+
+		// Put the delegations.
+		for delegation in &captures.delegations {
+			if let Some((source, destination)) = delegation.process_grant()
+				&& Self::try_get_process_accepts_child_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&source,
+					&destination,
+				)? == Some(false)
+			{
+				continue;
+			}
+			Self::put_delegation_with_transaction(db, subspace, transaction, delegation)?;
+		}
+
+		// Enqueue the captures.
+		for enqueue in &captures.enqueues {
+			if let Some((source, destination)) = enqueue.process_grant()
+				&& Self::try_get_process_accepts_child_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&source,
+					&destination,
+				)? == Some(false)
+			{
+				continue;
+			}
+			Self::enqueue_permission_capture_with_transaction(db, subspace, transaction, enqueue)?;
+		}
+
+		Ok(())
+	}
+
 	pub(crate) fn enqueue_permission_capture_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

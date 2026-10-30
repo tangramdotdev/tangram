@@ -15,6 +15,18 @@ pub struct Arg {
 }
 
 impl Arg {
+	/// Get the process that grants authority and the other process that receives it, for a delegation from one process to another.
+	#[must_use]
+	pub fn process_grant(&self) -> Option<(tg::process::Id, tg::process::Id)> {
+		let tg::authorization::Subject::Process(source) = &self.source else {
+			return None;
+		};
+		let tg::authorization::Subject::Process(destination) = &self.subject else {
+			return None;
+		};
+		(source != destination).then(|| (source.clone(), destination.clone()))
+	}
+
 	pub fn validate(&self) -> tg::Result<()> {
 		if self.version.is_some() && !matches!(self.subject, tg::authorization::Subject::Tag(_)) {
 			return Err(tg::error!("a versioned delegation must have a tag subject"));

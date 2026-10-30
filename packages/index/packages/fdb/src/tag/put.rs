@@ -14,7 +14,14 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
 			crate::propagate!(Self::put_tag(txn, subspace, arg, partition_totals).await);
+
+			// Put the captures, which check the tag's version.
+			crate::propagate!(
+				Self::put_captures_with_transaction(txn, subspace, &arg.captures, partition_totals)
+					.await
+			);
 		}
+
 		Ok(ControlFlow::Break(()))
 	}
 

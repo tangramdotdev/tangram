@@ -661,14 +661,14 @@ impl Component {
 		Ok(())
 	}
 
-	pub(crate) fn create_capture_permissions_batch_items(
+	pub(crate) fn create_captures(
 		session: &Session,
 		resource: tg::Id,
 		version: Option<String>,
 		roots: impl IntoIterator<Item = tg::Referent<tg::Id>>,
 		principal: tg::Principal,
 		created_at: i64,
-	) -> tg::Result<Vec<tangram_index::batch::Item>> {
+	) -> tg::Result<tangram_index::permission::capture::Captures> {
 		let roots = roots
 			.into_iter()
 			.map(|resource| {
@@ -680,19 +680,19 @@ impl Component {
 				Ok((resource, permissions))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		Self::create_capture_permissions_batch_items_with_permissions(
+		Self::create_captures_with_permissions(
 			session, resource, version, roots, principal, created_at,
 		)
 	}
 
-	pub(crate) fn create_capture_permissions_batch_items_with_permissions(
+	pub(crate) fn create_captures_with_permissions(
 		session: &Session,
 		resource: tg::Id,
 		version: Option<String>,
 		roots: impl IntoIterator<Item = (tg::Referent<tg::Id>, tg::authorization::permission::Set)>,
 		principal: tg::Principal,
 		created_at: i64,
-	) -> tg::Result<Vec<tangram_index::batch::Item>> {
+	) -> tg::Result<tangram_index::permission::capture::Captures> {
 		let (creator, subject) = match resource.kind() {
 			tg::id::Kind::Process if version.is_none() => {
 				let process = tg::process::Id::try_from(resource.clone())?;
@@ -707,7 +707,7 @@ impl Component {
 			},
 			_ => return Err(tg::error!("invalid permission capture resource or version")),
 		};
-		let mut items = Vec::new();
+		let mut captures = tangram_index::permission::capture::Captures::default();
 		let mut pending = Vec::new();
 		for (mut resource, mut proven) in roots {
 			let requested = tangram_server_authorization_common::permission_capture_permissions(
@@ -759,7 +759,7 @@ impl Component {
 					time_to_touch: None,
 					version: version.clone(),
 				};
-				items.push(tangram_index::batch::Item::PutPermission(arg));
+				captures.permissions.push(arg);
 			}
 			if proven.contains(requested) {
 				continue;
@@ -801,25 +801,24 @@ impl Component {
 					subject: subject.clone(),
 					version: version.clone(),
 				};
-				items.push(tangram_index::batch::Item::PutDelegation(arg));
+				captures.delegations.push(arg);
 			}
 			resource.options.tokens = tg::authorization::Tokens::with_authorization(tokens);
 			pending.push(resource);
 		}
 		if session.server.config.indexer.permission_capture.enabled {
-			items.extend(enqueue_permission_capture_items(
-				principal, resource, version, pending,
-			));
+			captures.enqueues =
+				enqueue_permission_capture_args(principal, resource, version, pending);
 		}
 
-		Ok(items)
+		Ok(captures)
 	}
 }
 
 impl tangram_server_core::component::Lifecycle for Component {}
 
 impl tangram_server_core::authorization::Component for Component {
-	fn create_capture_permissions_batch_items(
+	fn create_captures(
 		&self,
 		session: &Session,
 		resource: tg::Id,
@@ -827,13 +826,11 @@ impl tangram_server_core::authorization::Component for Component {
 		roots: Vec<tg::Referent<tg::Id>>,
 		principal: tg::Principal,
 		created_at: i64,
-	) -> tg::Result<Vec<tangram_index::batch::Item>> {
-		Self::create_capture_permissions_batch_items(
-			session, resource, version, roots, principal, created_at,
-		)
+	) -> tg::Result<tangram_index::permission::capture::Captures> {
+		Self::create_captures(session, resource, version, roots, principal, created_at)
 	}
 
-	fn create_capture_permissions_batch_items_with_permissions(
+	fn create_captures_with_permissions(
 		&self,
 		session: &Session,
 		resource: tg::Id,
@@ -841,8 +838,8 @@ impl tangram_server_core::authorization::Component for Component {
 		roots: Vec<(tg::Referent<tg::Id>, tg::authorization::permission::Set)>,
 		principal: tg::Principal,
 		created_at: i64,
-	) -> tg::Result<Vec<tangram_index::batch::Item>> {
-		Self::create_capture_permissions_batch_items_with_permissions(
+	) -> tg::Result<tangram_index::permission::capture::Captures> {
+		Self::create_captures_with_permissions(
 			session, resource, version, roots, principal, created_at,
 		)
 	}
@@ -1002,28 +999,25 @@ impl tangram_server_core::authorization::Component for Component {
 	}
 }
 
-/// Enqueue one permission capture entry per root, so that each entry's size is bounded by one root and its tokens.
-fn enqueue_permission_capture_items(
+/// Create one permission capture entry per root, so that each entry's size is bounded by one root and its tokens.
+fn enqueue_permission_capture_args(
 	principal: tg::Principal,
 	resource: tg::Id,
 	version: Option<String>,
 	mut roots: Vec<tg::Referent<tg::Id>>,
-) -> Vec<tangram_index::batch::Item> {
+) -> Vec<tangram_index::permission::capture::enqueue::Arg> {
 	// Clone the shared fields for every root but the last, which takes them.
 	let Some(last) = roots.pop() else {
 		return Vec::new();
 	};
-	let mut items = roots
+	let mut args = roots
 		.into_iter()
-		.map(|root| {
-			let arg = tangram_index::permission::capture::enqueue::Arg {
-				id: uuid::Uuid::now_v7().as_bytes().to_vec(),
-				principal: principal.clone(),
-				resource: resource.clone(),
-				roots: vec![root],
-				version: version.clone(),
-			};
-			tangram_index::batch::Item::EnqueuePermissionCapture(arg)
+		.map(|root| tangram_index::permission::capture::enqueue::Arg {
+			id: uuid::Uuid::now_v7().as_bytes().to_vec(),
+			principal: principal.clone(),
+			resource: resource.clone(),
+			roots: vec![root],
+			version: version.clone(),
 		})
 		.collect::<Vec<_>>();
 	let arg = tangram_index::permission::capture::enqueue::Arg {
@@ -1033,7 +1027,7 @@ fn enqueue_permission_capture_items(
 		roots: vec![last],
 		version,
 	};
-	items.push(tangram_index::batch::Item::EnqueuePermissionCapture(arg));
+	args.push(arg);
 
-	items
+	args
 }

@@ -1992,14 +1992,15 @@ impl Component {
 				.server
 				.components
 				.authorization
-				.create_capture_permissions_batch_items_with_permissions(
+				.create_captures_with_permissions(
 					session,
 					destination,
 					None,
 					roots.into_iter().collect(),
 					source,
 					now,
-				)?,
+				)?
+				.into_items(),
 		);
 
 		// Apply the initial data before the finished data can be written.

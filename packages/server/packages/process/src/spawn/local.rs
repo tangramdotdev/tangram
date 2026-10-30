@@ -626,14 +626,15 @@ impl Component {
 					.server
 					.components
 					.authorization
-					.create_capture_permissions_batch_items(
+					.create_captures(
 						session,
 						destination,
 						None,
 						roots.into_iter().collect(),
 						session.context.principal.clone(),
 						now,
-					)?,
+					)?
+					.into_items(),
 			);
 		}
 		if !items.is_empty() {
