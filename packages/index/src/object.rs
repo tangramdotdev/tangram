@@ -92,6 +92,14 @@ pub trait Index {
 }
 
 impl Object {
+	/// Whether the object's storage and subtree metadata are fully derived, so that an update can no longer change them.
+	#[must_use]
+	pub fn complete(&self) -> bool {
+		let storage = !self.storage.contains(storage::Set::NODE)
+			|| self.storage.contains(storage::Set::SUBTREE);
+		storage && self.metadata.subtree.complete()
+	}
+
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
 			.map_err(|error| tg::error!(!error, "failed to serialize the object"))
@@ -100,5 +108,47 @@ impl Object {
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn complete() {
+		// Create an object whose subtree metadata is complete.
+		let subtree = tg::object::metadata::Subtree {
+			count: Some(1),
+			depth: Some(1),
+			size: Some(1),
+			solvable: Some(false),
+			solved: Some(true),
+		};
+		let mut object = Object {
+			checkout: None,
+			metadata: tg::object::Metadata {
+				subtree,
+				..Default::default()
+			},
+			put: [0; 16],
+			reference_count: 0,
+			storage: storage::Set::NODE | storage::Set::SUBTREE,
+			touched_at: 0,
+		};
+		assert!(object.complete());
+
+		// An object without node storage has no subtree storage to derive.
+		object.storage = storage::Set::empty();
+		assert!(object.complete());
+
+		// An object with node storage but without subtree storage is incomplete.
+		object.storage = storage::Set::NODE;
+		assert!(!object.complete());
+
+		// An object missing any subtree metadata is incomplete.
+		object.storage = storage::Set::NODE | storage::Set::SUBTREE;
+		object.metadata.subtree.solved = None;
+		assert!(!object.complete());
 	}
 }
