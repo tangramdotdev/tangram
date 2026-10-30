@@ -88,8 +88,8 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 		let kinds = [Kind::Permission(subject)];
 		let arg = tangram_index::write::Arg {
 			items: vec![
-				tangram_index::Item::PutObject(object),
-				tangram_index::Item::PutProcess(process),
+				tangram_index::Item::PutObject(Box::new(object)),
+				tangram_index::Item::PutProcess(Box::new(process)),
 			],
 		};
 		index.write(arg).await.unwrap().unwrap();

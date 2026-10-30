@@ -1660,7 +1660,10 @@ mod tests {
 	async fn batch_items_split_across_transactions_up_to_the_batch_size() {
 		// Create a batch request with more items than the batch size.
 		let items = (0..2_500)
-			.map(|_| tangram_index::Item::DeleteTag(tg::tag::Id::new()))
+			.map(|_| {
+				let id = tg::tag::Id::new();
+				tangram_index::Item::DeleteTag(Box::new(tangram_index::tag::delete::Arg { id }))
+			})
 			.collect();
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Write(tangram_index::write::Arg { items });

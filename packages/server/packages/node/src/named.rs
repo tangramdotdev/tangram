@@ -131,12 +131,14 @@ impl Component {
 			let rows =
 				tangram_server_core::database::retry!(result, "failed to list the group members");
 			for row in rows {
-				batch.items.push(tangram_index::Item::DeleteGroupMember(
-					tangram_index::group::member::delete::Arg {
-						group: row.group,
-						member: row.member,
-					},
-				));
+				batch
+					.items
+					.push(tangram_index::Item::DeleteGroupMember(Box::new(
+						tangram_index::group::member::delete::Arg {
+							group: row.group,
+							member: row.member,
+						},
+					)));
 			}
 
 			let statement = format!(
@@ -152,12 +154,12 @@ impl Component {
 			for row in rows {
 				batch
 					.items
-					.push(tangram_index::Item::DeleteOrganizationMember(
+					.push(tangram_index::Item::DeleteOrganizationMember(Box::new(
 						tangram_index::organization::member::delete::Arg {
 							member: row.member,
 							organization: row.organization,
 						},
-					));
+					)));
 			}
 
 			match session
@@ -228,16 +230,26 @@ impl Component {
 		for (id, _) in ids_and_specifiers {
 			let item = match id {
 				id if id.kind() == tg::id::Kind::Group => {
-					tangram_index::Item::DeleteGroup(id.clone().try_into()?)
+					tangram_index::Item::DeleteGroup(Box::new(tangram_index::group::delete::Arg {
+						id: id.clone().try_into()?,
+					}))
 				},
 				id if id.kind() == tg::id::Kind::Organization => {
-					tangram_index::Item::DeleteOrganization(id.clone().try_into()?)
+					tangram_index::Item::DeleteOrganization(Box::new(
+						tangram_index::organization::delete::Arg {
+							id: id.clone().try_into()?,
+						},
+					))
 				},
 				id if id.kind() == tg::id::Kind::Tag => {
-					tangram_index::Item::DeleteTag(id.clone().try_into()?)
+					tangram_index::Item::DeleteTag(Box::new(tangram_index::tag::delete::Arg {
+						id: id.clone().try_into()?,
+					}))
 				},
 				id if id.kind() == tg::id::Kind::User => {
-					tangram_index::Item::DeleteUser(id.clone().try_into()?)
+					tangram_index::Item::DeleteUser(Box::new(tangram_index::user::delete::Arg {
+						id: id.clone().try_into()?,
+					}))
 				},
 				_ => return Err(tg::error!("invalid named node kind")),
 			};

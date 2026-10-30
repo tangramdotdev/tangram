@@ -1335,11 +1335,11 @@ impl Component {
 			let id = Self::sync_get_database_node_id(node)?;
 			let item = match node {
 				tg::sync::PutNodeMessage::Group(message) => {
-					tangram_index::Item::PutGroup(tangram_index::group::put::Arg {
+					tangram_index::Item::PutGroup(Box::new(tangram_index::group::put::Arg {
 						id: message.id.clone(),
 						parent: message.parent.clone(),
 						specifier: message.specifier.clone(),
-					})
+					}))
 				},
 				tg::sync::PutNodeMessage::Object(_)
 				| tg::sync::PutNodeMessage::Process(_)
@@ -1347,11 +1347,13 @@ impl Component {
 					return Err(tg::error!("invalid sync node kind"));
 				},
 				tg::sync::PutNodeMessage::Organization(message) => {
-					tangram_index::Item::PutOrganization(tangram_index::organization::put::Arg {
-						billing_ready: None,
-						id: message.id.clone(),
-						specifier: message.specifier.clone(),
-					})
+					tangram_index::Item::PutOrganization(Box::new(
+						tangram_index::organization::put::Arg {
+							billing_ready: None,
+							id: message.id.clone(),
+							specifier: message.specifier.clone(),
+						},
+					))
 				},
 				tg::sync::PutNodeMessage::Tag(message) => {
 					let (permissions, version) = tag_permissions
@@ -1385,7 +1387,7 @@ impl Component {
 							session.context.principal.clone(),
 							touched_at,
 						)?;
-					tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
+					tangram_index::Item::PutTag(Box::new(tangram_index::tag::put::Arg {
 						account: tag_accounts.get(&message.id).cloned().flatten(),
 						captures,
 						id: message.id.clone(),
@@ -1395,14 +1397,14 @@ impl Component {
 						target,
 						touched_at,
 						version,
-					})
+					}))
 				},
 				tg::sync::PutNodeMessage::User(message) => {
-					tangram_index::Item::PutUser(tangram_index::user::put::Arg {
+					tangram_index::Item::PutUser(Box::new(tangram_index::user::put::Arg {
 						billing_ready: None,
 						id: message.id.clone(),
 						specifier: message.specifier.clone(),
-					})
+					}))
 				},
 			};
 			batch.items.push(item);
@@ -1410,7 +1412,9 @@ impl Component {
 			if created.contains(&id)
 				&& let Some(arg) = Self::sync_get_create_permission(session, &id, None)?
 			{
-				batch.items.push(tangram_index::Item::PutPermission(arg));
+				batch
+					.items
+					.push(tangram_index::Item::PutPermission(Box::new(arg)));
 			}
 		}
 		Ok(batch)

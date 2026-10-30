@@ -161,8 +161,8 @@ impl Component {
 				version: None,
 			});
 		let arg = tangram_index::write::Arg {
-			items: std::iter::once(tangram_index::Item::PutObject(arg))
-				.chain(put_permission.map(tangram_index::Item::PutPermission))
+			items: std::iter::once(tangram_index::Item::PutObject(Box::new(arg)))
+				.chain(put_permission.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))))
 				.collect(),
 		};
 		self.put_object_and_index(&session.server, put_arg, arg)

@@ -455,13 +455,13 @@ impl Component {
 			)
 			.await;
 		tangram_server_core::database::retry!(result, "failed to execute the statement");
-		batch.items.push(tangram_index::Item::PutGroup(
+		batch.items.push(tangram_index::Item::PutGroup(Box::new(
 			tangram_index::group::put::Arg {
 				id: id.clone(),
 				parent: parent.cloned(),
 				specifier: specifier.clone(),
 			},
-		));
+		)));
 		if !matches!(
 			session.context.principal,
 			tg::Principal::Anonymous | tg::Principal::Root

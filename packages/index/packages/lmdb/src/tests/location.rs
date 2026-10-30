@@ -31,14 +31,14 @@ async fn process_location_survives_partial_and_finished_updates() {
 			touched_at: 1,
 		};
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutProcess(process.clone())],
+			items: vec![tangram_index::Item::PutProcess(Box::new(process.clone()))],
 		};
 		index.write(arg).await.unwrap().unwrap();
 
 		// A location-only update must be written even when the touch interval has not elapsed.
 		process.location = Some(location.clone());
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutProcess(process.clone())],
+			items: vec![tangram_index::Item::PutProcess(Box::new(process.clone()))],
 		};
 		index.write(arg).await.unwrap().unwrap();
 		let (indexed, data) = index.try_get_process_with_data(&id).await.unwrap().unwrap();
@@ -60,7 +60,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 		for data in [process.data.clone(), None] {
 			process.data = data;
 			let arg = tangram_index::write::Arg {
-				items: vec![tangram_index::Item::PutProcess(process.clone())],
+				items: vec![tangram_index::Item::PutProcess(Box::new(process.clone()))],
 			};
 			let arg = tangram_index::write::Arg::deserialize(&arg.serialize().unwrap()).unwrap();
 			index.write(arg).await.unwrap().unwrap();
@@ -90,7 +90,7 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 			touched_at: 1,
 		};
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutSandbox(sandbox.clone())],
+			items: vec![tangram_index::Item::PutSandbox(Box::new(sandbox.clone()))],
 		};
 		index.write(arg).await.unwrap().unwrap();
 		let indexed = index.try_get_sandbox(&id).await.unwrap().unwrap();
@@ -107,7 +107,7 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 		for data in [sandbox.data.clone(), None] {
 			sandbox.data = data;
 			let arg = tangram_index::write::Arg {
-				items: vec![tangram_index::Item::PutSandbox(sandbox.clone())],
+				items: vec![tangram_index::Item::PutSandbox(Box::new(sandbox.clone()))],
 			};
 			let arg = tangram_index::write::Arg::deserialize(&arg.serialize().unwrap()).unwrap();
 			index.write(arg).await.unwrap().unwrap();

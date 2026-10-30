@@ -331,7 +331,7 @@ impl Component {
 			.write(tangram_index::write::Arg {
 				items: put_processes
 					.into_iter()
-					.map(tangram_index::Item::PutProcess)
+					.map(|arg| tangram_index::Item::PutProcess(Box::new(arg)))
 					.collect(),
 			})
 			.await

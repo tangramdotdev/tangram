@@ -355,12 +355,12 @@ impl Component {
 		for row in organization_members {
 			batch
 				.items
-				.push(tangram_index::Item::DeleteOrganizationMember(
+				.push(tangram_index::Item::DeleteOrganizationMember(Box::new(
 					tangram_index::organization::member::delete::Arg {
 						member: row.member,
 						organization: row.organization,
 					},
-				));
+				)));
 		}
 		match session
 			.server
@@ -372,9 +372,13 @@ impl Component {
 			ControlFlow::Break(()) => (),
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		batch.items.push(tangram_index::Item::DeleteOrganization(
-			id.clone().try_into()?,
-		));
+		batch
+			.items
+			.push(tangram_index::Item::DeleteOrganization(Box::new(
+				tangram_index::organization::delete::Arg {
+					id: id.clone().try_into()?,
+				},
+			)));
 		for statement in [
 			format!("delete from organization_members where organization = {p}1;"),
 			format!("delete from organizations where id = {p}1;"),

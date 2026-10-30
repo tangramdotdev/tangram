@@ -264,7 +264,7 @@ impl Component {
 
 		// Put the process in the index.
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutProcess(put_process_arg)],
+			items: vec![tangram_index::Item::PutProcess(Box::new(put_process_arg))],
 		};
 		let result = if defer_index {
 			session

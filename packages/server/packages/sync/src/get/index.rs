@@ -680,7 +680,7 @@ impl Component {
 		let arg = tangram_index::write::Arg {
 			items: put_sandbox_args
 				.into_iter()
-				.map(tangram_index::Item::PutSandbox)
+				.map(|arg| tangram_index::Item::PutSandbox(Box::new(arg)))
 				.collect(),
 		};
 		session.server.index.write(arg).await??;
@@ -817,7 +817,7 @@ impl Component {
 		let arg = tangram_index::write::Arg {
 			items: put_process_args
 				.into_iter()
-				.map(tangram_index::Item::PutProcess)
+				.map(|arg| tangram_index::Item::PutProcess(Box::new(arg)))
 				.collect(),
 		};
 		session.server.index.write(arg).await??;
@@ -832,7 +832,7 @@ impl Component {
 						process,
 						touched_at,
 					};
-					account_items.push(tangram_index::Item::PutAccountProcess(entry));
+					account_items.push(tangram_index::Item::PutAccountProcess(Box::new(entry)));
 					continue;
 				}
 				let Ok(object) = tg::object::Id::try_from(id.clone()) else {
@@ -846,7 +846,7 @@ impl Component {
 						object,
 						touched_at,
 					};
-					account_items.push(tangram_index::Item::PutAccountObject(entry));
+					account_items.push(tangram_index::Item::PutAccountObject(Box::new(entry)));
 				}
 			}
 		}
@@ -855,16 +855,16 @@ impl Component {
 		let arg = tangram_index::write::Arg {
 			items: put_checkout_args
 				.into_iter()
-				.map(tangram_index::Item::PutCheckout)
+				.map(|arg| tangram_index::Item::PutCheckout(Box::new(arg)))
 				.chain(
 					put_object_args
 						.into_iter()
-						.map(tangram_index::Item::PutObject),
+						.map(|arg| tangram_index::Item::PutObject(Box::new(arg))),
 				)
 				.chain(
 					put_permission_args
 						.into_iter()
-						.map(tangram_index::Item::PutPermission),
+						.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))),
 				)
 				.chain(permission_capture_items)
 				.chain(account_items)

@@ -107,17 +107,16 @@ impl Component {
 		let sandboxes = arg
 			.items
 			.iter()
-			.filter_map(|item| match item {
-				index::Item::PutProcess(index::process::put::Arg {
-					sandbox: Some(index::process::put::Sandbox::Put(arg)),
-					..
-				})
-				| index::Item::PutSandbox(arg)
-					if arg.data.is_some() =>
-				{
-					Some(arg.id.clone())
-				},
-				_ => None,
+			.filter_map(|item| {
+				let arg = match item {
+					index::Item::PutProcess(arg) => match &arg.sandbox {
+						Some(index::process::put::Sandbox::Put(arg)) => arg,
+						_ => return None,
+					},
+					index::Item::PutSandbox(arg) => arg,
+					_ => return None,
+				};
+				arg.data.is_some().then(|| arg.id.clone())
 			})
 			.collect::<Vec<_>>();
 		let processes = arg

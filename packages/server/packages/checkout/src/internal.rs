@@ -475,14 +475,14 @@ impl Component {
 						dependencies.push(target.clone());
 					}
 					// Replace a tag checkout so that a changed target does not retain its old dependency.
-					batch.items.push(tangram_index::Item::PutCheckout(
+					batch.items.push(tangram_index::Item::PutCheckout(Box::new(
 						tangram_index::checkout::put::Arg {
 							dependencies,
 							id: node.id.clone(),
 							replace: tag,
 							touched_at,
 						},
-					));
+					)));
 				}
 				session.server.index.write(batch).await??;
 				tangram_server_core::checkpoint!(session.server, "checkout.named.materialize")
@@ -888,7 +888,7 @@ impl Component {
 
 		// Index the checkout.
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutCheckout(put_checkout_arg)],
+			items: vec![tangram_index::Item::PutCheckout(Box::new(put_checkout_arg))],
 		};
 		session
 			.server
@@ -1019,7 +1019,7 @@ impl Component {
 		let arg = tangram_index::write::Arg {
 			items: put_checkout_args
 				.into_iter()
-				.map(tangram_index::Item::PutCheckout)
+				.map(|arg| tangram_index::Item::PutCheckout(Box::new(arg)))
 				.collect(),
 		};
 		session

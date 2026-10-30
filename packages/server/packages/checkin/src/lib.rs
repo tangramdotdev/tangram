@@ -733,7 +733,7 @@ impl Component {
 				};
 				index_arg
 					.items
-					.push(tangram_index::Item::PutAccountObject(entry));
+					.push(tangram_index::Item::PutAccountObject(Box::new(entry)));
 			}
 		}
 
