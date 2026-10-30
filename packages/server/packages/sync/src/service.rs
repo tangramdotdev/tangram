@@ -150,6 +150,7 @@ impl Component {
 		let mut retained = BTreeMap::<tg::Id, Vec<Retained>>::new();
 		let mut prune = tokio::time::interval(options.retry_interval);
 		prune.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+		let mut cancelled = false;
 		let mut finish_closed = false;
 		let mut stopping_at = None;
 		loop {
@@ -166,6 +167,14 @@ impl Component {
 						finish_closed = true;
 						Err(tg::error!(code = tg::error::Code::Cancellation, "the sync was cancelled"))
 					};
+					// Reject the requests of a cancelled sync and drain for one attempt TTL, instead of staying subscribed while requesters retry.
+					if finished.is_none()
+						&& stopping_at.is_none()
+						&& result.as_ref().err().is_some_and(error_is_cancellation)
+					{
+						cancelled = true;
+						stopping_at = Some(Instant::now() + options.attempt_ttl);
+					}
 					self.sync_service_finish(server, &graph, &mut finished, &mut retained, result).await;
 					if record.is_none() && !recorded {
 						record = Some(Self::sync_service_record(server.clone(), id.clone()).boxed());
@@ -214,7 +223,7 @@ impl Component {
 			// Stop once a stopping server's responses are acknowledged, or once the index records that the sync finished and the sync has no attempts left.
 			let now = Instant::now();
 			let status = service.status();
-			let drained = stopping_at.is_some() && status.unacknowledged == 0;
+			let drained = stopping_at.is_some() && !cancelled && status.unacknowledged == 0;
 			if stopping_at.is_some_and(|deadline| drained || now >= deadline)
 				|| (recorded && status.attempts == 0)
 			{
@@ -508,6 +517,21 @@ impl tangram_messenger::Payload for Response {
 			.map(Self)
 			.map_err(tangram_messenger::Error::deserialization)
 	}
+}
+
+fn error_is_cancellation(error: &tg::Error) -> bool {
+	let mut current: Option<&(dyn std::error::Error + 'static)> = Some(error);
+	while let Some(error) = current {
+		if error
+			.downcast_ref::<tg::Error>()
+			.is_some_and(|error| matches!(error.code(), Some(tg::error::Code::Cancellation)))
+		{
+			return true;
+		}
+		current = error.source();
+	}
+
+	false
 }
 
 fn subject(id: &tg::sync::Id) -> String {
