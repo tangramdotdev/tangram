@@ -1,0 +1,39 @@
+name = "Tangram YAML"
+grammar = "yaml"
+path_suffixes = [
+    "tangram.yaml",
+    "tg.yaml",
+]
+line_comments = ["# "]
+autoclose_before = ",]}"
+auto_indent_on_paste = false
+auto_indent_using_last_non_empty_line = false
+increase_indent_pattern = '(:?^[^#]*:\s*[|>]?\s*$)|(:?^\s*-[^#]*:\s*(:?#+.*)$)'
+prettier_parser_name = "yaml"
+tab_size = 2
+
+[[brackets]]
+start = "{"
+end = "}"
+close = true
+newline = true
+
+[[brackets]]
+start = "["
+end = "]"
+close = true
+newline = true
+
+[[brackets]]
+start = '"'
+end = '"'
+close = true
+newline = false
+not_in = ["string"]
+
+[[brackets]]
+start = "'"
+end = "'"
+close = true
+newline = false
+not_in = ["string"]

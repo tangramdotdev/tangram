@@ -1,0 +1,48 @@
+name = "Tangram JSON"
+grammar = "json"
+path_suffixes = [
+    "tangram.json",
+    "tg.json",
+]
+line_comments = ["// "]
+autoclose_before = ",]}"
+tab_size = 2
+prettier_parser_name = "json"
+debuggers = ["JavaScript"]
+word_characters = ["#"]
+
+[[brackets]]
+start = "{"
+end = "}"
+close = true
+surround = true
+newline = true
+
+[[brackets]]
+start = "["
+end = "]"
+close = true
+surround = true
+newline = true
+
+[[brackets]]
+start = "("
+end = ")"
+close = true
+surround = true
+newline = false
+
+[[brackets]]
+start = '"'
+end = '"'
+close = true
+surround = true
+newline = false
+not_in = ["string"]
+
+[overrides.string]
+completion_query_characters = [
+    ":",
+    " ",
+    ".",
+]

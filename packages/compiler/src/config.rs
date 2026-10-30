@@ -1,5 +1,8 @@
 use {
-	crate::{Compiler, check},
+	crate::{
+		Compiler, check, code_action, completion, diagnostics, document_link, folding_range, hover,
+		inlay_hint, semantic_tokens, symbols,
+	},
 	futures::{FutureExt as _, future::BoxFuture},
 	tangram_client::prelude::*,
 };
@@ -26,6 +29,111 @@ where
 impl crate::backend::Backend for Backend {
 	fn feature(&self) -> &'static str {
 		"config"
+	}
+
+	fn code_action(
+		&self,
+		_compiler: &Compiler,
+		_arg: code_action::Arg,
+	) -> BoxFuture<'static, tg::Result<code_action::Output>> {
+		futures::future::ok(code_action::Output { actions: None }).boxed()
+	}
+
+	fn completion(
+		&self,
+		_compiler: &Compiler,
+		_arg: completion::Arg,
+	) -> BoxFuture<'static, tg::Result<completion::Output>> {
+		futures::future::ok(completion::Output { entries: None }).boxed()
+	}
+
+	fn document_diagnostics(
+		&self,
+		compiler: &Compiler,
+		arg: diagnostics::DocumentArg,
+	) -> BoxFuture<'static, tg::Result<diagnostics::DocumentOutput>> {
+		let compiler = compiler.clone();
+		async move {
+			// Report an invalid config or interface at the range of its error.
+			let mut diagnostics = Vec::new();
+			for module in arg.modules {
+				let text = compiler.load_module(&module).await?;
+				let result = if let Some(language) = tg::interface::Language::for_kind(module.kind)
+				{
+					tg::interface::parse::parse_with_range(&text, language).map(|_| ())
+				} else if let Some(format) = tg::module::config::Format::for_kind(module.kind) {
+					tg::module::Config::parse_with_range(&text, format).map(|_| ())
+				} else {
+					continue;
+				};
+				let Err((error, range)) = result else {
+					continue;
+				};
+				let location = range.map(|range| tg::module::data::Location {
+					module: module.without_token(),
+					range,
+				});
+				let message = crate::interface::non_value_message(&error);
+				let diagnostic = tg::diagnostic::Data {
+					location,
+					message,
+					severity: tg::diagnostic::Severity::Error,
+				};
+				diagnostics.push(diagnostic);
+			}
+
+			let output = diagnostics::DocumentOutput { diagnostics };
+			Ok(output)
+		}
+		.boxed()
+	}
+
+	fn document_link(
+		&self,
+		_compiler: &Compiler,
+		_arg: document_link::Arg,
+	) -> BoxFuture<'static, tg::Result<document_link::Output>> {
+		futures::future::ok(document_link::Output { links: None }).boxed()
+	}
+
+	fn folding_range(
+		&self,
+		_compiler: &Compiler,
+		_arg: folding_range::Arg,
+	) -> BoxFuture<'static, tg::Result<folding_range::Output>> {
+		futures::future::ok(folding_range::Output { ranges: None }).boxed()
+	}
+
+	fn hover(
+		&self,
+		_compiler: &Compiler,
+		_arg: hover::Arg,
+	) -> BoxFuture<'static, tg::Result<hover::Output>> {
+		futures::future::ok(hover::Output { text: None }).boxed()
+	}
+
+	fn inlay_hint(
+		&self,
+		_compiler: &Compiler,
+		_arg: inlay_hint::Arg,
+	) -> BoxFuture<'static, tg::Result<inlay_hint::Output>> {
+		futures::future::ok(inlay_hint::Output { hints: None }).boxed()
+	}
+
+	fn semantic_tokens(
+		&self,
+		_compiler: &Compiler,
+		_arg: semantic_tokens::Arg,
+	) -> BoxFuture<'static, tg::Result<semantic_tokens::Output>> {
+		futures::future::ok(semantic_tokens::Output { tokens: None }).boxed()
+	}
+
+	fn symbols(
+		&self,
+		_compiler: &Compiler,
+		_arg: symbols::Arg,
+	) -> BoxFuture<'static, tg::Result<symbols::Output>> {
+		futures::future::ok(symbols::Output { symbols: None }).boxed()
 	}
 
 	fn check(

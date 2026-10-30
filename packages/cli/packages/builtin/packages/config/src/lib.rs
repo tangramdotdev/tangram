@@ -159,13 +159,23 @@ fn module_artifact(module: &tg::Module) -> tg::Result<tg::Artifact> {
 	let tg::module::Source::Edge(edge) = module.referent.node() else {
 		return Err(tg::error!("expected a module that refers to an object"));
 	};
-	match edge.clone() {
-		tg::graph::Edge::Index(_) => Err(tg::error!("missing graph")),
+	let artifact = match edge.clone() {
+		tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 		tg::graph::Edge::Object(object) => {
-			tg::Artifact::try_from(object).map_err(|_| tg::error!("expected an artifact"))
+			tg::Artifact::try_from(object).map_err(|_| tg::error!("expected an artifact"))?
 		},
-		tg::graph::Edge::Pointer(pointer) => Ok(tg::Artifact::with_pointer(pointer)),
-	}
+		tg::graph::Edge::Pointer(pointer) => tg::Artifact::with_pointer(pointer),
+	};
+
+	// Authorize the artifact with the module's tokens.
+	artifact
+		.state()
+		.set_location(module.referent.options.location.clone());
+	artifact
+		.state()
+		.set_tokens(module.referent.options.tokens.clone());
+
+	Ok(artifact)
 }
 
 /// Resolve an import of a config module.

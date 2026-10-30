@@ -64,3 +64,19 @@ fn formats_follow_the_file_name() {
 		assert_eq!(Format::for_path(name), format, "{name}");
 	}
 }
+
+#[test]
+fn parse_errors_have_ranges_in_every_format() {
+	for (text, format, line) in [
+		(
+			"{\n  \"runtime\": \"env\",\n  \"imports\": {}\n}",
+			Format::Json,
+			2,
+		),
+		("runtime = \"env\"\nimports = {}\n", Format::Toml, 1),
+		("runtime: env\nimports: {}\n", Format::Yaml, 1),
+	] {
+		let (_, range) = Config::parse_with_range(text, format).unwrap_err();
+		assert_eq!(range.unwrap().start.line, line, "{format:?}");
+	}
+}

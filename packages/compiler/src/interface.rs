@@ -151,8 +151,6 @@ pub(crate) fn import(
 }
 
 /// Describe why an export is not a value, with the message and values of each error in the error's chain.
-#[cfg(all(feature = "javascript", feature = "python"))]
-#[cfg_attr(not(any(feature = "tsrs", feature = "ty")), expect(dead_code))]
 pub(crate) fn non_value_message(error: &tg::Error) -> String {
 	let mut messages = Vec::new();
 	let mut current = Some(error);

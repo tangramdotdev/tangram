@@ -9802,6 +9802,7 @@ dependencies = [
  "tangram_client",
  "tangram_compiler",
  "tangram_util",
+ "tokio",
 ]
 
 [[package]]

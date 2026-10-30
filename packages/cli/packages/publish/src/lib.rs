@@ -29,6 +29,10 @@ pub struct Args {
 
 	#[arg(long, short)]
 	pub tag: Option<String>,
+
+	/// Write the interface beside each config whose interface differs from the interface that its runtime generates.
+	#[arg(default_value = "false", long)]
+	pub update_interfaces: bool,
 }
 
 #[derive(Default)]
@@ -115,6 +119,21 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.boxed()
 		.await
 		.map_err(|error| tg::error!(!error, "failed to create publishing plan"))?;
+
+	// Check the interfaces of the configs in the packages that publishing checks in from disk against the interfaces that their runtimes generate, before checking them in again.
+	let mut paths = vec![absolute_path.clone()];
+	for step in &plan {
+		match step {
+			Step::Item(item) => paths.extend(item.path.clone()),
+			Step::Cycle(items) => paths.extend(items.iter().filter_map(|item| item.path.clone())),
+		}
+	}
+	let update = args.update_interfaces && !args.dry_run;
+	for path in config_paths(&paths).await? {
+		check_interface(cli, &client, &path, update)
+			.boxed_local()
+			.await?;
+	}
 
 	// Print the plan if this is a dry run.
 	if args.dry_run {
@@ -719,6 +738,171 @@ async fn push_tag_ancestors(
 	Ok(())
 }
 
+/// Get the paths of the configs in packages on disk, which are package directories or single files.
+async fn config_paths(paths: &[PathBuf]) -> tg::Result<BTreeSet<PathBuf>> {
+	let mut configs = BTreeSet::new();
+	let mut pending = paths.to_vec();
+	while let Some(path) = pending.pop() {
+		let metadata = tokio::fs::symlink_metadata(&path).await.map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to get the metadata"),
+		)?;
+		if metadata.is_dir() {
+			let mut entries = tokio::fs::read_dir(&path).await.map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to read the directory"),
+			)?;
+			while let Some(entry) = entries.next_entry().await.map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to read the directory"),
+			)? {
+				pending.push(entry.path());
+			}
+		} else if metadata.is_file() && tg::module::config::Format::for_path(&path).is_some() {
+			configs.insert(path);
+		}
+	}
+	Ok(configs)
+}
+
+/// Check the interface of a config against the interface file that its runtime's `interface` export generates, and write the generated file beside the config if `update` is true.
+async fn check_interface(
+	cli: &mut Cli,
+	client: &tg::Client,
+	path: &Path,
+	update: bool,
+) -> tg::Result<()> {
+	// Find the interfaces beside the config.
+	let stem = tg::module::config::interface_file_stem(path)
+		.ok_or_else(|| tg::error!("failed to get the file name of the interface"))?;
+	let stem = path.with_file_name(stem);
+	let mut existing = Vec::new();
+	for language in tg::interface::Language::ALL {
+		let interface_path = interface_file_path(&stem, language);
+		let exists = tokio::fs::try_exists(&interface_path)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to determine whether the interface exists")
+			})?;
+		if exists {
+			existing.push((language, interface_path));
+		}
+	}
+	if existing.len() > 1 {
+		return Err(
+			tg::error!(path = %path.display(), "the config has more than one interface beside it"),
+		);
+	}
+
+	// Build the interface export, and skip the check if the runtime does not generate an interface file.
+	let reference = path
+		.to_str()
+		.ok_or_else(|| tg::error!("invalid path"))?
+		.parse::<tg::Reference>()?;
+	let module = tangram_cli_reference::get_module(cli, &reference).await?;
+	let result = generate_interface(client, module.clone())
+		.boxed_local()
+		.await;
+	let (language, text, generated) = match result {
+		Ok(output) => output,
+		Err(error) => {
+			let path = path.display();
+			let message = format!(
+				"skipped checking the interface of {path} because its runtime did not generate one: {error}"
+			);
+			Cli::print_warning_message(&message);
+			return Ok(());
+		},
+	};
+
+	// Compare the generated interface with the interface beside the config, or else with the config's interface, whose imports resolve relative to where it came from.
+	let matches = if let Some((language, interface_path)) = existing.first() {
+		let text = tokio::fs::read_to_string(interface_path).await.map_err(
+			|error| tg::error!(!error, path = %interface_path.display(), "failed to read the interface"),
+		)?;
+		let interface = tg::interface::parse::parse(&text, *language)?;
+		interface == generated
+	} else {
+		let arg = tg::module::interface::Arg {
+			module: module.to_data(),
+		};
+		let interface = client.module_interface(arg).await?.interface;
+		interface.definitions == generated.definitions
+			&& interface.exports == generated.exports
+			&& interface
+				.imports
+				.iter()
+				.map(|(name, import)| (name, import.kind))
+				.eq(generated
+					.imports
+					.iter()
+					.map(|(name, import)| (name, import.kind)))
+	};
+	if matches {
+		return Ok(());
+	}
+
+	// Write the generated interface file beside the config, and remove an interface in another language, or fail.
+	if !update {
+		return Err(tg::error!(
+			path = %path.display(),
+			"the config's interface differs from the interface that its runtime generates, so publish with --update-interfaces to write it"
+		));
+	}
+	let interface_path = interface_file_path(&stem, language);
+	tokio::fs::write(&interface_path, text).await.map_err(
+		|error| tg::error!(!error, path = %interface_path.display(), "failed to write the interface"),
+	)?;
+	for (other, path) in existing {
+		if other != language {
+			tokio::fs::remove_file(&path).await.map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to remove the interface"),
+			)?;
+		}
+	}
+
+	Ok(())
+}
+
+/// Build a config's interface export, which is an interface file whose module kind names its language.
+async fn generate_interface(
+	client: &tg::Client,
+	module: tg::Module,
+) -> tg::Result<(tg::interface::Language, String, tg::Interface)> {
+	let command =
+		tg::command::Builder::with_module(module, Some("interface".to_owned()), []).build()?;
+	let command = tg::Referent::with_node(tg::Either::Right(command));
+	let arg = tg::process::Arg {
+		command: Some(command),
+		stderr: tg::process::Stdio::Log,
+		stdin: tg::process::Stdio::Null,
+		stdout: tg::process::Stdio::Log,
+		..Default::default()
+	};
+	let value = tg::process::build::build_with_instance(client, arg)
+		.boxed_local()
+		.await?;
+	let file = value
+		.try_unwrap_object()
+		.ok()
+		.and_then(|object| object.try_unwrap_file().ok())
+		.ok_or_else(|| tg::error!("expected the interface to be a file"))?;
+	let language = file
+		.module_with_instance(client)
+		.await?
+		.and_then(tg::interface::Language::for_kind)
+		.ok_or_else(|| {
+			tg::error!("expected the interface file to have an interface module kind")
+		})?;
+	let text = file.text_with_instance(client).await?;
+	let interface = tg::interface::parse::parse(&text, language)?;
+	Ok((language, text, interface))
+}
+
+/// Get the path of an interface file from its stem and its language.
+fn interface_file_path(stem: &Path, language: tg::interface::Language) -> PathBuf {
+	let mut path = stem.as_os_str().to_owned();
+	path.push(format!(".{}", language.extension()));
+	path.into()
+}
+
 /// Given an object, get the tag from its internal metadata by statically parsing the module.
 async fn try_get_package_tag(
 	client: &impl tg::Instance,
@@ -740,6 +924,31 @@ async fn try_get_package_tag(
 			else {
 				return Ok(None);
 			};
+
+			// Get the metadata of a config package from its config.
+			if let Some(format) = tg::module::config::Format::for_path(name) {
+				let file = directory
+					.get_with_instance(client, name)
+					.await?
+					.try_unwrap_file()
+					.map_err(|_| tg::error!("expected a file"))?;
+				let text = file.text_with_instance(client).await?;
+				let config = tg::module::Config::parse(&text, format)?;
+				let Some(metadata) = config.metadata else {
+					return Ok(None);
+				};
+				let tag = metadata
+					.get("tag")
+					.ok_or_else(|| tg::error!(%name, "metadata is missing the 'tag' field"))?;
+				let tg::Value::String(tag) = tag else {
+					return Err(tg::error!(%name, "expected 'tag' to be a string"));
+				};
+				let tag = tag
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
+				return Ok(Some(tag));
+			}
+
 			let file = directory
 				.get_with_instance(client, name)
 				.await?
