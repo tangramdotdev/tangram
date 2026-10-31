@@ -9,10 +9,9 @@ pub(crate) const NAME: &str = "sandbox.control.service";
 /// The subject under which the control services serve the subjects of their sandboxes.
 pub(crate) const SUBJECT: &str = "sandboxes.control.service";
 
-/// The handle with which a sandbox control connection keeps its control service running. Dropping every sender finishes the service.
-#[derive(Clone)]
-pub(crate) struct Sender {
-	_sender: tokio::sync::mpsc::UnboundedSender<()>,
+/// The handle with which a sandbox control connection keeps its control service running. Dropping it stops the service.
+pub(crate) struct Handle {
+	server: service::Server<Request, Response>,
 }
 
 /// The state of a control service.
@@ -88,7 +87,7 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		runner: Option<tg::runner::Id>,
-	) -> Sender {
+	) -> Handle {
 		// Start the control service, and register it so that the requests on this server skip the messenger. A reconnect replaces the service of the connection that it reconnects.
 		let options = session.server.config.sandbox.control_service;
 		let observer = Arc::new(service::Checkpoints::new(
@@ -119,8 +118,9 @@ impl Component {
 			id: id.clone(),
 			runner,
 		};
-		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-		let sender = Sender { _sender: sender };
+		let handle = Handle {
+			server: server.clone(),
+		};
 		self.control
 			.service_tasks
 			.spawn({
@@ -128,48 +128,36 @@ impl Component {
 				session.context.stopper = None;
 				let id = id.clone();
 				move |stopper| async move {
-					let result =
-						Self::sandbox_control_service_task(state, &server, receiver, stopper).await;
+					Self::sandbox_control_service_task(&state, &server, stopper).await;
 					drop(guard);
 					server.wait().await;
 					tangram_server_core::checkpoint!(session.server, "sandbox.control.service.stopped", sandbox = %id).await;
-					if let Err(error) = &result {
-						tracing::error!(error = %error.trace(), "the sandbox control service task failed");
-					}
-					result
+					Ok(())
 				}
 			})
 			.detach();
 
-		sender
+		handle
 	}
 
 	async fn sandbox_control_service_task(
-		state: State,
+		state: &State,
 		server: &service::Server<Request, Response>,
-		mut receiver: tokio::sync::mpsc::UnboundedReceiver<()>,
 		stopper: Stopper,
-	) -> tg::Result<()> {
-		// Answer each request until every sender is dropped or the server stops.
+	) {
+		// Answer each request until the handle is dropped or the server stops.
 		loop {
 			tokio::select! {
 				() = stopper.wait() => break,
-				event = receiver.recv() => {
-					if event.is_none() {
-						break;
-					}
-				},
 				incoming = server.next() => {
 					let Some((request, reply)) = incoming else {
-						return Err(tg::error!("the sandbox control service stopped"));
+						break;
 					};
 					let response = state.response(&request);
 					reply.send(&response);
 				},
 			}
 		}
-
-		Ok(())
 	}
 
 	/// Verify with a sandbox's control service that a principal may act for the sandbox, waiting until a control connection for the sandbox can answer.
@@ -233,6 +221,12 @@ impl Component {
 		}
 
 		Ok(Some(response))
+	}
+}
+
+impl Drop for Handle {
+	fn drop(&mut self) {
+		self.server.stop();
 	}
 }
 

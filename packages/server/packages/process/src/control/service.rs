@@ -9,10 +9,9 @@ pub(crate) const NAME: &str = "process.control.service";
 /// The subject under which the control services serve the subjects of their processes.
 pub(crate) const SUBJECT: &str = "processes.control.service";
 
-/// The handle with which a process control connection keeps its control service running. Dropping every sender finishes the service.
-#[derive(Clone)]
-pub(crate) struct Sender {
-	_sender: tokio::sync::mpsc::UnboundedSender<()>,
+/// The handle with which a process control connection keeps its control service running. Dropping it stops the service.
+pub(crate) struct Handle {
+	server: service::Server<Request, Response>,
 }
 
 /// The arg of a control service.
@@ -171,7 +170,7 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		arg: Arg,
-	) -> Sender {
+	) -> Handle {
 		let state = State {
 			id: id.clone(),
 			indexed: arg.indexed,
@@ -202,7 +201,7 @@ impl Component {
 			runner: None,
 			syncs: false,
 		};
-		let sender = self
+		let handle = self
 			.spawn_process_control_service_task_with_state(session, state)
 			.await;
 
@@ -211,7 +210,7 @@ impl Component {
 		let sleep = session.server.clock.sleep(ttl);
 		tokio::spawn(async move {
 			sleep.await;
-			drop(sender);
+			drop(handle);
 		});
 	}
 
@@ -219,7 +218,7 @@ impl Component {
 		&self,
 		session: &Session,
 		state: State,
-	) -> Sender {
+	) -> Handle {
 		// Start the control service, and register it so that the requests on this server skip the messenger. A reconnect replaces the service of the connection that it reconnects.
 		let options = session.server.config.process.control_service;
 		let observer = Arc::new(service::Checkpoints::new(
@@ -253,64 +252,47 @@ impl Component {
 		});
 
 		// Spawn the task that answers the requests, and wait for the service's responses to be acknowledged once it ends.
-		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-		let sender = Sender { _sender: sender };
+		let handle = Handle {
+			server: server.clone(),
+		};
 		let mut task_session = session.clone();
 		task_session.context.stopper = None;
 		self.control
 			.service_tasks
 			.spawn({
 				move |stopper| async move {
-					let id = state.id.clone();
-					let result = Self::process_control_service_task(
-						&task_session,
-						state,
-						&server,
-						receiver,
-						stopper,
-					)
-					.await;
+					Self::process_control_service_task(&task_session, &state, &server, stopper)
+						.await;
 					drop(guard);
 					server.wait().await;
-					tangram_server_core::checkpoint!(task_session.server, "process.control.service.stopped", process = %id).await;
-					if let Err(error) = &result {
-						tracing::error!(error = %error.trace(), "the process control service task failed");
-					}
-					result
+					tangram_server_core::checkpoint!(task_session.server, "process.control.service.stopped", process = %state.id).await;
+					Ok(())
 				}
 			})
 			.detach();
 
-		sender
+		handle
 	}
 
 	async fn process_control_service_task(
 		session: &Session,
-		state: State,
+		state: &State,
 		server: &service::Server<Request, Response>,
-		mut receiver: tokio::sync::mpsc::UnboundedReceiver<()>,
 		stopper: Stopper,
-	) -> tg::Result<()> {
-		// Answer each request until every sender is dropped or the server stops.
+	) {
+		// Answer each request until the handle is dropped or the server stops.
 		loop {
 			tokio::select! {
 				() = stopper.wait() => break,
-				event = receiver.recv() => {
-					if event.is_none() {
-						break;
-					}
-				},
 				incoming = server.next() => {
 					let Some((request, reply)) = incoming else {
-						return Err(tg::error!("the process control service stopped"));
+						break;
 					};
 					let response = state.response(session, &request).await;
 					reply.send(&response);
 				},
 			}
 		}
-
-		Ok(())
 	}
 
 	/// Get one of a process's syncs from its control service, waiting until a control connection for the process can answer.
@@ -401,6 +383,12 @@ impl Component {
 		}
 
 		Ok(Some(response))
+	}
+}
+
+impl Drop for Handle {
+	fn drop(&mut self) {
+		self.server.stop();
 	}
 }
 
