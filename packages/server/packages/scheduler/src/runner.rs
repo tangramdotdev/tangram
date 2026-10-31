@@ -119,6 +119,65 @@ impl SchedulerState {
 		);
 	}
 
+	pub(super) fn handle_destroy_runner_sandbox_request(
+		&mut self,
+		scheduler: &Scheduler,
+		id: String,
+		request: super::DestroyRunnerSandboxRequestArg,
+	) {
+		// Fail if the runner is not connected, because only the runner can destroy the sandbox.
+		let Some(connection_index) = self
+			.runners
+			.entries
+			.get(&request.runner)
+			.map(|runner| runner.connection_index)
+		else {
+			let error = tg::error!(sandbox = %request.sandbox, runner = %request.runner, "the sandbox's runner is unavailable");
+			let response = scheduler.response(id, Err(error));
+			scheduler.send_response(self, response);
+			return;
+		};
+
+		// Ask the runner to destroy the sandbox.
+		let session = scheduler.server.session(&scheduler.server.context);
+		let scheduler_id = scheduler.id.clone();
+		let retry = scheduler.server.config.control.request_retry.clone().into();
+		let timeout = scheduler.server.config.control.request_timeout;
+		let options = tangram_server_core::control::Options { retry, timeout };
+		self.operations.push(
+			async move {
+				let arg = tg::runner::control::ServerRequestArg::DestroySandbox(
+					tg::runner::control::DestroySandboxServerRequestArg {
+						error: request.error.clone(),
+						sandbox: request.sandbox.clone(),
+					},
+				);
+				let result = session
+					.server
+					.components
+					.runner
+					.send_runner_control_request(
+						&session,
+						&request.runner,
+						&scheduler_id,
+						connection_index,
+						arg,
+						options,
+					)
+					.await
+					.and_then(std::convert::identity)
+					.and_then(|output| {
+						output
+							.try_unwrap_destroy_sandbox()
+							.map_err(|_| tg::error!("expected a destroy sandbox response"))
+							.map(|output| output.destroyed)
+					});
+				super::Operation::DestroyRunnerSandbox { id, result }
+			}
+			.boxed(),
+		);
+	}
+
 	pub(super) fn handle_remove_runner_request(
 		&mut self,
 		scheduler: &Scheduler,
@@ -230,13 +289,25 @@ impl Component {
 			)?;
 		tracing::warn!(%runner, sandboxes = sandboxes.len(), "stopping the expired runner sandboxes");
 		tangram_server_core::checkpoint!(server, "scheduler.runner.expired", %runner).await;
-		for sandbox in sandboxes {
+		let indexed =
+			server.index.try_get_sandboxes(&sandboxes).await.map_err(
+				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
+			)?;
+		for (sandbox, indexed) in std::iter::zip(sandboxes, indexed) {
+			// Destroy a sandbox with a zero ttl, because its processes are lost, and stop the others.
 			let error = tg::error::Data {
 				code: Some(tg::error::Code::Internal),
 				message: Some("heartbeat expired".to_owned()),
 				..Default::default()
 			};
-			self.stop_runner_sandbox(server, &sandbox, error).await?;
+			let ttl = indexed
+				.and_then(|indexed| indexed.data)
+				.and_then(|data| data.data.ttl);
+			if ttl.is_some_and(|ttl| ttl.is_zero()) {
+				self.destroy_runner_sandbox(server, &sandbox, error).await?;
+			} else {
+				self.stop_runner_sandbox(server, &sandbox, error).await?;
+			}
 		}
 
 		Ok(())

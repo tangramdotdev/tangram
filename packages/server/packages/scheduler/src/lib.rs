@@ -18,10 +18,11 @@ use {
 	tangram_server_core::{Server, Session},
 	tangram_server_scheduler_core::{
 		Ack, AddRunnerRequestArg, AddRunnerResponseOutput, BorrowableCapacityNotification,
-		DequeueSandboxRequestArg, DequeueSandboxResponseOutput, EnqueueSandboxRequestArg,
-		EnqueueSandboxResponseOutput, HeartbeatAcknowledgement, HeartbeatNotification, Message,
-		Notification, RemoveRunnerRequestArg, RemoveRunnerResponseOutput, Request, RequestArg,
-		Response, ResponseOutput, runner_heartbeat_subject, scheduler_heartbeat_subject,
+		DequeueSandboxRequestArg, DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
+		DestroyRunnerSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
+		HeartbeatAcknowledgement, HeartbeatNotification, Message, Notification,
+		RemoveRunnerRequestArg, RemoveRunnerResponseOutput, Request, RequestArg, Response,
+		ResponseOutput, runner_heartbeat_subject, scheduler_heartbeat_subject,
 		scheduler_server_subject,
 	},
 };
@@ -85,6 +86,7 @@ struct Requests {
 enum RequestKind {
 	AddRunner,
 	DequeueSandbox,
+	DestroyRunnerSandbox,
 	EnqueueSandbox,
 	RemoveRunner,
 }
@@ -111,6 +113,10 @@ enum Operation {
 	Publish {
 		context: &'static str,
 		result: tg::Result<()>,
+	},
+	DestroyRunnerSandbox {
+		id: String,
+		result: tg::Result<bool>,
 	},
 	RemoveRunner {
 		id: Option<String>,
@@ -197,6 +203,29 @@ impl Component {
 	pub(crate) async fn started(&self) {
 		let mut receiver = self.started.subscribe();
 		receiver.wait_for(|started| *started).await.ok();
+	}
+
+	/// Ask a stopped sandbox's runner to destroy it, which removes its directory, returning whether the runner destroyed it.
+	pub(crate) async fn destroy_stopped_runner_sandbox(
+		&self,
+		session: &Session,
+		runner: &tg::runner::Id,
+		sandbox: &tg::sandbox::Id,
+		error: Option<tg::error::Data>,
+	) -> tg::Result<bool> {
+		let request = DestroyRunnerSandboxRequestArg {
+			error,
+			runner: runner.clone(),
+			sandbox: sandbox.clone(),
+		};
+		let (_, response) = self
+			.send_scheduler_request(session, RequestArg::DestroyRunnerSandbox(request))
+			.boxed()
+			.await?;
+		let output = response?
+			.try_unwrap_destroy_runner_sandbox()
+			.map_err(|_| tg::error!("expected a destroy runner sandbox response"))?;
+		Ok(output.destroyed)
 	}
 
 	pub(crate) async fn dequeue_sandbox(
@@ -817,6 +846,7 @@ impl Scheduler {
 		let kind = match &request.arg {
 			RequestArg::AddRunner(_) => RequestKind::AddRunner,
 			RequestArg::DequeueSandbox(_) => RequestKind::DequeueSandbox,
+			RequestArg::DestroyRunnerSandbox(_) => RequestKind::DestroyRunnerSandbox,
 			RequestArg::EnqueueSandbox(_) => RequestKind::EnqueueSandbox,
 			RequestArg::RemoveRunner(_) => RequestKind::RemoveRunner,
 		};
@@ -908,6 +938,9 @@ impl Scheduler {
 					self.send_dequeue_sandbox_response(state, id, output);
 				}
 			},
+			RequestArg::DestroyRunnerSandbox(request) => {
+				state.handle_destroy_runner_sandbox_request(self, id, request);
+			},
 			RequestArg::EnqueueSandbox(request) => {
 				state.handle_enqueue_sandbox_request(self, id, request);
 			},
@@ -972,6 +1005,15 @@ impl Scheduler {
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "{context}");
 				}
+			},
+			Operation::DestroyRunnerSandbox { id, result } => {
+				let result = result.map(|destroyed| {
+					ResponseOutput::DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput {
+						destroyed,
+					})
+				});
+				let response = self.response(id, result);
+				self.send_response(state, response);
 			},
 			Operation::RemoveRunner { id, result } => {
 				if let Some(id) = id {
@@ -1228,6 +1270,17 @@ impl tangram_server_core::scheduler::Component for Component {
 		error: tg::error::Data,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.destroy_runner_sandbox(server, id, error).boxed()
+	}
+
+	fn destroy_stopped_runner_sandbox<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		runner: &'a tg::runner::Id,
+		sandbox: &'a tg::sandbox::Id,
+		error: Option<tg::error::Data>,
+	) -> BoxFuture<'a, tg::Result<bool>> {
+		self.destroy_stopped_runner_sandbox(session, runner, sandbox, error)
+			.boxed()
 	}
 
 	fn dequeue_sandbox<'a>(

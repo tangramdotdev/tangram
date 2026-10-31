@@ -411,6 +411,15 @@ impl Component {
 			.lock()
 			.unwrap()
 			.replace(id.clone());
+
+		// Decide what happens to the previous run's sandboxes before accepting work.
+		let previous = match self.finish_previous_sandboxes(session).await {
+			Ok(previous) => previous,
+			Err(error) => {
+				tracing::error!(error = %error.trace(), "failed to finish the previous sandboxes");
+				Vec::new()
+			},
+		};
 		self.start_sandbox_pool(session);
 		let mut cleanup = true;
 		let mut retries = None::<BoxStream<'static, ()>>;
@@ -418,7 +427,8 @@ impl Component {
 			let stop_future = stopper.wait();
 			let stop_future = pin!(stop_future);
 			let started = tokio::time::Instant::now();
-			let run_future = self.runner_task_inner(session, &id, &mut cleanup, stopper.clone());
+			let run_future =
+				self.runner_task_inner(session, &id, &previous, &mut cleanup, stopper.clone());
 			let run_future = pin!(run_future);
 			let future::Either::Right((result, _)) = future::select(stop_future, run_future).await
 			else {
@@ -514,7 +524,7 @@ impl Component {
 		let terminate_future = sandboxes
 			.into_iter()
 			.map(|(id, sandbox)| async move {
-				if let Err(error) = sandbox.destroy().await {
+				if let Err(error) = sandbox.stop().await {
 					tracing::error!(?id, error = %error.trace(), "failed to terminate a sandbox");
 				}
 			})
@@ -567,6 +577,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::runner::Id,
+		previous: &[(tg::sandbox::Id, crate::sandbox::Teardown)],
 		cleanup: &mut bool,
 		stopper: Stopper,
 	) -> tg::Result<ControlFlow<(), tg::Error>> {
@@ -591,15 +602,17 @@ impl Component {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 
-		tracing::info!(runner = %id, scheduler = %header.scheduler, previous_sandboxes = header.sandboxes.len(), "connected the runner to the scheduler");
+		tracing::info!(runner = %id, scheduler = %header.scheduler, yielded_sandboxes = header.sandboxes.len(), "connected the runner to the scheduler");
 
-		// Destroy the previous sandboxes before accepting work.
+		// Report the previous sandboxes' stops and destructions before accepting work, or, after a reconnection, give up the sandboxes that the server took over when the runner's heartbeat expired.
 		let mut index = 1;
 		if *cleanup {
-			self.cleanup_runner_sandboxes(session, header.sandboxes, &mut control, &mut index)
+			self.cleanup_runner_sandboxes(session, previous.to_vec(), &mut control, &mut index)
 				.boxed()
 				.await?;
 			*cleanup = false;
+		} else {
+			self.yield_runner_sandboxes(&header.sandboxes);
 		}
 		tracing::info!(runner = %id, "the runner is ready to accept work");
 		session
@@ -620,7 +633,7 @@ impl Component {
 	async fn cleanup_runner_sandboxes(
 		&self,
 		session: &Session,
-		sandboxes: Vec<tg::sandbox::Id>,
+		sandboxes: Vec<(tg::sandbox::Id, crate::sandbox::Teardown)>,
 		control: &mut tangram_server_core::control::Stream<
 			tg::runner::control::ServerMessage,
 			tg::runner::control::ClientMessage,
@@ -628,7 +641,7 @@ impl Component {
 		index: &mut u64,
 	) -> tg::Result<()> {
 		let sender = control.sender();
-		let destroy = self.destroy_runner_sandboxes(sandboxes, sender.clone());
+		let destroy = self.finish_runner_sandboxes(session, sandboxes, sender.clone());
 		let mut destroy = pin!(destroy);
 		let mut interval = tokio::time::interval(session.server.config.runner.heartbeat_interval);
 		loop {
@@ -661,36 +674,61 @@ impl Component {
 				// The control stream has already acknowledged duplicate responses.
 				tg::runner::control::ServerMessage::Response(_) => continue,
 			};
-			let tg::runner::control::ServerRequestArg::CreateSandbox(_) = request.arg;
-			let output = tg::runner::control::CreateSandboxClientResponseOutput { created: false };
-			let message = Self::create_runner_control_response(
-				request.id,
-				Ok(tg::runner::control::ClientResponseOutput::CreateSandbox(
-					output,
-				)),
-			);
+			let result = match request.arg {
+				tg::runner::control::ServerRequestArg::CreateSandbox(_) => {
+					let output =
+						tg::runner::control::CreateSandboxClientResponseOutput { created: false };
+					Ok(tg::runner::control::ClientResponseOutput::CreateSandbox(
+						output,
+					))
+				},
+				tg::runner::control::ServerRequestArg::DestroySandbox(arg) => {
+					self.spawn_destroy_stopped_sandbox_task(session, request.id, arg, &sender);
+					continue;
+				},
+			};
+			let message = Self::create_runner_control_response(request.id, result);
 			sender.send(message).await?;
 		}
 
 		Ok(())
 	}
 
-	async fn destroy_runner_sandboxes(
+	async fn finish_runner_sandboxes(
 		&self,
-		sandboxes: Vec<tg::sandbox::Id>,
+		session: &Session,
+		sandboxes: Vec<(tg::sandbox::Id, crate::sandbox::Teardown)>,
 		sender: RunnerSender,
 	) -> tg::Result<()> {
-		for sandbox in sandboxes {
-			let arg = tg::runner::control::DestroySandboxClientRequestArg {
-				error: None,
-				sandbox,
+		for (sandbox, teardown) in sandboxes {
+			// Report the previous sandbox's stop or destruction, and remove the directory of a destroyed sandbox once its destruction is reported.
+			let result = match teardown {
+				crate::sandbox::Teardown::Destroy => {
+					let arg = tg::runner::control::DestroySandboxClientRequestArg {
+						error: None,
+						sandbox: sandbox.clone(),
+					};
+					let result = Self::request_runner_sandbox_destroy(&sender, arg).await?;
+					if result.is_break() {
+						self.remove_previous_sandbox_directory(session, &sandbox)
+							.await?;
+					}
+					result
+				},
+				crate::sandbox::Teardown::Stop => {
+					let arg = tg::runner::control::StopSandboxClientRequestArg {
+						error: None,
+						sandbox,
+					};
+					Self::request_runner_sandbox_stop(&sender, arg).await?
+				},
 			};
-			match Self::request_runner_sandbox_destroy(&sender, arg).await? {
+			match result {
 				ControlFlow::Break(()) => (),
 				ControlFlow::Continue(error) => {
 					return Err(tg::error!(
 						!error,
-						"failed to destroy the previous runner sandbox"
+						"failed to finish the previous runner sandbox"
 					));
 				},
 			}
@@ -732,7 +770,7 @@ impl Component {
 		}
 	}
 
-	async fn request_runner_sandbox_destroy(
+	pub(crate) async fn request_runner_sandbox_destroy(
 		sender: &RunnerSender,
 		arg: tg::runner::control::DestroySandboxClientRequestArg,
 	) -> tg::Result<ControlFlow<(), tg::Error>> {
@@ -771,6 +809,105 @@ impl Component {
 		Ok(ControlFlow::Break(()))
 	}
 
+	/// Stop or destroy each running sandbox that the server stopped, destroyed, or started at another boot when the runner's heartbeat expired, applying the same rule as the server: destroy a sandbox whose ttl is zero, and stop the others.
+	fn yield_runner_sandboxes(&self, sandboxes: &[tg::sandbox::Id]) {
+		let sandboxes = sandboxes
+			.iter()
+			.filter_map(|id| {
+				let sandbox = self.state.sandboxes.get_by_id(id)?;
+				if sandbox.status.is_settled() {
+					return None;
+				}
+				let request = match crate::sandbox::Teardown::with_ttl(sandbox.create.ttl) {
+					crate::sandbox::Teardown::Destroy => {
+						tg::sandbox::control::ServerRequestArg::Destroy(
+							tg::sandbox::control::DestroyServerRequestArg { error: None },
+						)
+					},
+					crate::sandbox::Teardown::Stop => tg::sandbox::control::ServerRequestArg::Stop(
+						tg::sandbox::control::StopServerRequestArg {},
+					),
+				};
+				Some((sandbox.id.clone(), sandbox.control_sender.clone(), request))
+			})
+			.collect::<Vec<_>>();
+		for (id, control_sender, request) in sandboxes {
+			tracing::warn!(sandbox = %id, "giving up a sandbox that the server took over");
+			tokio::spawn(async move {
+				let result = async {
+					control_sender.send_request(request).await?.await??;
+					Ok::<_, tg::Error>(())
+				}
+				.await;
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), sandbox = %id, "failed to give up the sandbox");
+				}
+			});
+		}
+	}
+
+	/// Destroy a stopped sandbox in a task, so that the control stream keeps receiving the response to the sandbox's destroy report.
+	fn spawn_destroy_stopped_sandbox_task(
+		&self,
+		session: &Session,
+		id: String,
+		arg: tg::runner::control::DestroySandboxServerRequestArg,
+		sender: &RunnerSender,
+	) {
+		let component = self.clone();
+		let session = session.clone();
+		let sender = sender.clone();
+		tokio::spawn(async move {
+			let result = component
+				.destroy_stopped_sandbox(&session, arg, &sender)
+				.await
+				.map(tg::runner::control::ClientResponseOutput::DestroySandbox);
+			let message = Self::create_runner_control_response(id, result);
+			if let Err(error) = sender.send(message).await {
+				tracing::error!(error = %error.trace(), "failed to send the destroy sandbox response");
+			}
+		});
+	}
+
+	async fn request_runner_sandbox_stop(
+		sender: &RunnerSender,
+		arg: tg::runner::control::StopSandboxClientRequestArg,
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
+		let request = tg::runner::control::ClientRequest {
+			arg: tg::runner::control::ClientRequestArg::StopSandbox(arg),
+			id: tangram_server_core::control::id(),
+		};
+		let response = sender
+			.request(
+				tg::runner::control::ClientMessage::Request(request),
+				tangram_server_core::control::Priority::High,
+			)
+			.await;
+		let response = match response {
+			Ok(response) => response.await,
+			Err(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let Ok(response) = response else {
+			let error = tg::error!("the runner control response stream ended");
+			return Ok(ControlFlow::Continue(error));
+		};
+		let tg::runner::control::ServerMessage::Response(response) = response else {
+			return Err(tg::error!("expected a runner control response"));
+		};
+		if let Some(error) = response.error {
+			let error = tg::Error::try_from(error).map_err(|error| {
+				tg::error!(!error, "failed to deserialize the runner control error")
+			})?;
+			return Err(tg::error!(!error, "the stop sandbox request failed"));
+		}
+		let Some(tg::runner::control::ServerResponseOutput::StopSandbox(_)) = response.output
+		else {
+			return Err(tg::error!("expected a stop sandbox response"));
+		};
+
+		Ok(ControlFlow::Break(()))
+	}
+
 	async fn run_get_runner_control_stream(
 		&self,
 		session: &Session,
@@ -798,12 +935,23 @@ impl Component {
 		let heartbeat = Self::create_runner_heartbeat(session, 0, cleanup);
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
+		let sandboxes = self
+			.state
+			.sandboxes
+			.iter()
+			.filter(|sandbox| !sandbox.status.is_settled())
+			.map(|sandbox| tg::runner::control::ArgSandbox {
+				boot: sandbox.boot,
+				id: sandbox.id.clone(),
+			})
+			.collect();
 		let scheduler_ttl = session.server.config.runner.scheduler_ttl;
 		let arg = tg::runner::control::Arg {
 			heartbeat,
 			host,
 			id: id.clone(),
 			location,
+			sandboxes,
 			scheduler_ttl,
 		};
 		let output = self
@@ -883,7 +1031,13 @@ impl Component {
 				tg::runner::control::ServerMessage::Response(_) => continue,
 			};
 			let id = message.id;
-			let tg::runner::control::ServerRequestArg::CreateSandbox(request) = message.arg;
+			let request = match message.arg {
+				tg::runner::control::ServerRequestArg::CreateSandbox(request) => request,
+				tg::runner::control::ServerRequestArg::DestroySandbox(arg) => {
+					self.spawn_destroy_stopped_sandbox_task(session, id.clone(), arg, &sender);
+					continue;
+				},
+			};
 
 			let requested = request.capacity;
 
