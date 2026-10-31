@@ -47,6 +47,30 @@ impl Pool {
 
 		Some(Id { pool, value })
 	}
+
+	/// Acquire a specific ID, such as one that a stopped sandbox's directory already has.
+	#[must_use]
+	pub fn acquire_value(&self, value: u32) -> Option<Id> {
+		let mut state = self.0.lock().unwrap();
+		let offset = value.checked_sub(state.range.start)?;
+		if offset >= state.range.count {
+			return None;
+		}
+		if offset < state.next {
+			if !state.available.remove(&value) {
+				return None;
+			}
+		} else {
+			let start = state.range.start;
+			for skipped in state.next..offset {
+				state.available.insert(start + skipped);
+			}
+			state.next = offset + 1;
+		}
+		let pool = self.clone();
+
+		Some(Id { pool, value })
+	}
 }
 
 impl Id {
@@ -81,5 +105,21 @@ mod tests {
 		first.release();
 		let first = pool.acquire().unwrap();
 		assert_eq!(first.value(), 101);
+	}
+
+	#[test]
+	fn acquires_specific_ids() {
+		let pool = Pool::new(FilesystemProjectIds {
+			count: 4,
+			start: 101,
+		});
+		let third = pool.acquire_value(103).unwrap();
+		assert!(pool.acquire_value(103).is_none());
+		assert_eq!(pool.acquire().unwrap().value(), 101);
+		assert_eq!(pool.acquire().unwrap().value(), 102);
+		assert_eq!(pool.acquire().unwrap().value(), 104);
+		assert!(pool.acquire_value(105).is_none());
+		third.release();
+		assert_eq!(pool.acquire_value(103).unwrap().value(), 103);
 	}
 }

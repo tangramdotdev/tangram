@@ -215,19 +215,92 @@ impl Component {
 		let get_future = self.try_get_sandbox_from_index(session, id);
 		let (authorized, sandbox) = future::try_join(authorize_future, get_future).await?;
 		let authorized = authorized.check_exhaustion()?;
-		if sandbox.is_none_or(|sandbox| {
-			sandbox
-				.location
-				.as_ref()
-				.is_some_and(tg::Location::is_remote)
-		}) || !authorized.permissions.contains(permission)
+		let Some(sandbox) = sandbox else {
+			return Ok(None);
+		};
+		if sandbox
+			.location
+			.as_ref()
+			.is_some_and(tg::Location::is_remote)
+			|| !authorized.permissions.contains(permission)
 		{
 			return Ok(None);
+		}
+
+		// Destroy a stopped sandbox without its runner, because it has no control connection. Confirm the stop after pending indexing, because a start may not be indexed yet.
+		let mut stopped = sandbox
+			.data
+			.as_ref()
+			.is_some_and(|data| data.data.status.is_stopped());
+		if stopped {
+			Self::wait_for_indexing(session).await?;
+			stopped = self
+				.try_get_sandbox_from_index(session, id)
+				.await?
+				.and_then(|sandbox| sandbox.data)
+				.is_some_and(|data| data.data.status.is_stopped());
+		}
+		let running = session
+			.server
+			.components
+			.runner
+			.state()
+			.sandboxes()
+			.get_by_id(id)
+			.is_some_and(|state| !state.status.is_settled());
+		if stopped && !running {
+			self.destroy_stopped_sandbox(session, id, arg.error.clone(), sandbox.runner.as_ref())
+				.await?;
+			return Ok(Some(true));
 		}
 
 		self.destroy_sandbox_with_control(session, id, arg.error.clone(), None)
 			.boxed()
 			.await
+	}
+
+	async fn destroy_stopped_sandbox(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+		runner: Option<&tg::runner::Id>,
+	) -> tg::Result<()> {
+		// Record the destruction in the index.
+		let error = match error {
+			Some(tg::Either::Left(data)) => data,
+			Some(tg::Either::Right(id)) => tg::Error::with_id(id)
+				.data_with_instance(session)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
+			None => tg::error::Data {
+				code: Some(tg::error::Code::Cancellation),
+				message: Some("the sandbox was destroyed".into()),
+				..Default::default()
+			},
+		};
+		session
+			.server
+			.components
+			.scheduler
+			.destroy_runner_sandbox(&session.server, id, error)
+			.await?;
+
+		// Remove the directory and release the filesystem project ID if this server's runner holds them. Another runner removes them when it next starts.
+		let state = session.server.components.runner.state();
+		if runner.is_some_and(|runner| state.id().as_ref() == Some(runner)) {
+			let path = session.server.path.join("sandboxes").join(id.to_string());
+			let mut temp = tangram_server_core::temp::Temp::with_path(&session.server, path);
+			if let Err(error) = temp.remove().await {
+				tracing::error!(%error, sandbox = %id, "failed to remove the sandbox directory");
+			}
+			#[cfg(target_os = "linux")]
+			if let Some((_, project_id)) = state.stopped_project_ids.remove(id) {
+				project_id.release();
+			}
+		}
+
+		Ok(())
 	}
 
 	async fn destroy_sandbox_with_control(
