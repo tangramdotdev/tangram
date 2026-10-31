@@ -48,6 +48,26 @@ pub(super) fn create(path: &Path, project: u32) -> tg::Result<File> {
 	Ok(directory)
 }
 
+pub(super) fn id(path: &Path) -> tg::Result<u32> {
+	let directory = File::open(path).map_err(|error| {
+		tg::error!(!error, path = %path.display(), "failed to open the sandbox filesystem directory")
+	})?;
+	let mut attributes = std::mem::MaybeUninit::<FsXAttr>::zeroed();
+	let request = ioctl_read_request(b'X', 31, std::mem::size_of::<FsXAttr>());
+
+	// SAFETY: The descriptor refers to an open directory and the attribute pointer is valid for writes.
+	if unsafe { libc::ioctl(directory.as_raw_fd(), request, attributes.as_mut_ptr()) } != 0 {
+		return Err(
+			tg::error!(source = std::io::Error::last_os_error(), path = %path.display(), "failed to read the sandbox filesystem project"),
+		);
+	}
+
+	// SAFETY: The ioctl initialized the structure on success.
+	let attributes = unsafe { attributes.assume_init() };
+
+	Ok(attributes.project)
+}
+
 pub(super) fn control(
 	directory: &std::fs::File,
 	command: libc::c_int,
@@ -77,6 +97,32 @@ pub(super) fn usage(directory: &std::fs::File, project: u32) -> tg::Result<u64> 
 	let quota = unsafe { quota.assume_init() };
 
 	Ok(quota.dqb_curspace)
+}
+
+const fn ioctl_read_request(group: u8, number: u8, size: usize) -> libc::c_ulong {
+	#[cfg(any(
+		target_arch = "mips",
+		target_arch = "mips32r6",
+		target_arch = "mips64",
+		target_arch = "mips64r6",
+		target_arch = "powerpc",
+		target_arch = "powerpc64"
+	))]
+	let (direction, direction_shift) = (2_u64, 29_u32);
+	#[cfg(not(any(
+		target_arch = "mips",
+		target_arch = "mips32r6",
+		target_arch = "mips64",
+		target_arch = "mips64r6",
+		target_arch = "powerpc",
+		target_arch = "powerpc64"
+	)))]
+	let (direction, direction_shift) = (2_u64, 30_u32);
+	let value = (direction << direction_shift)
+		| ((size as u64) << 16)
+		| ((group as u64) << 8)
+		| number as u64;
+	value as libc::c_ulong
 }
 
 const fn ioctl_write_request(group: u8, number: u8, size: usize) -> libc::c_ulong {
