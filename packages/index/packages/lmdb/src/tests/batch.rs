@@ -81,6 +81,7 @@ fn sandbox_arg(
 ) -> tangram_index::sandbox::put::Arg {
 	let data = tg::sandbox::get::Output {
 		data: tg::sandbox::Data {
+			boot: 0,
 			cpu: None,
 			creator: tg::Principal::Root,
 			error: None,
@@ -698,13 +699,17 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.processes
 	);
 
-	// A final runner snapshot establishes runner order without growing the sandbox record.
+	// A final runner snapshot appends the processes that are not indexed without growing the sandbox record.
 	let processes = [first.clone(), second.clone()]
 		.into_iter()
 		.chain((0..3998).map(|_| tg::process::Id::new()))
 		.collect::<Vec<_>>();
 	let mut final_arg = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Destroyed);
 	final_arg.processes = Some(processes.clone());
+	let processes = [second.clone(), first.clone()]
+		.into_iter()
+		.chain(processes[2..].iter().cloned())
+		.collect::<Vec<_>>();
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutSandbox(final_arg)],
 	};
