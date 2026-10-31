@@ -13,12 +13,28 @@ impl Index {
 		sandbox: &tg::sandbox::Id,
 		process: &tg::process::Id,
 	) -> tg::Result<()> {
-		// A replay must not recreate a deleted sandbox or change its finalized list.
+		// A replay must not recreate a deleted sandbox or change the list of a destroyed sandbox.
 		let indexed = Self::try_get_sandbox_with_transaction(db, subspace, transaction, sandbox)?;
-		if indexed.is_none_or(|sandbox| sandbox.set.processes) {
+		if indexed.is_none_or(|sandbox| {
+			sandbox
+				.data
+				.as_ref()
+				.is_some_and(|data| data.data.status.is_destroyed())
+		}) {
 			return Ok(());
 		}
+		Self::append_sandbox_process_with_transaction(db, subspace, transaction, sandbox, process)?;
 
+		Ok(())
+	}
+
+	fn append_sandbox_process_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		sandbox: &tg::sandbox::Id,
+		process: &tg::process::Id,
+	) -> tg::Result<()> {
 		// Preserve the first indexed position when initialization is replayed.
 		let key = Key::Process(crate::process::Key::ProcessSandbox {
 			process: process.clone(),
@@ -81,25 +97,15 @@ impl Index {
 		sandbox: &tg::sandbox::Id,
 		processes: &[tg::process::Id],
 	) -> tg::Result<()> {
-		Self::delete_sandbox_processes_with_transaction(db, subspace, transaction, sandbox)?;
-		for (position, process) in processes.iter().enumerate() {
-			let position = i64::try_from(position)
-				.map_err(|error| tg::error!(!error, "the sandbox has too many processes"))?;
-			let key = Key::Sandbox(super::Key::SandboxProcess {
-				position,
-				process: process.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[])
-				.map_err(|error| tg::error!(!error, "failed to put the sandbox process entry"))?;
-			let key = Key::Process(crate::process::Key::ProcessSandbox {
-				process: process.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &position.to_be_bytes())
-				.map_err(|error| tg::error!(!error, "failed to put the sandbox process entry"))?;
+		// Append the processes that are not indexed, so that the lists reported by each boot merge.
+		for process in processes {
+			Self::append_sandbox_process_with_transaction(
+				db,
+				subspace,
+				transaction,
+				sandbox,
+				process,
+			)?;
 		}
 
 		Ok(())

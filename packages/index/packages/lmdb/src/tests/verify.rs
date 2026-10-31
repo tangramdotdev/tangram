@@ -303,6 +303,7 @@ fn put_sandbox(index: &Index, txn: &mut lmdb::RwTxn<'_>, sandbox: &tg::sandbox::
 		reference_count: 0,
 		runner: None,
 		touched_at: 0,
+		usages: std::collections::BTreeMap::new(),
 	}
 	.serialize()
 	.unwrap();

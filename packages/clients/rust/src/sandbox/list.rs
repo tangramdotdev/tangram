@@ -21,6 +21,9 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub owner: Option<tg::Principal>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub status: Option<tg::sandbox::Status>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -70,6 +73,7 @@ pub struct Options {
 	pub limit: Option<u64>,
 	pub location: Option<tg::location::Arg>,
 	pub owner: Option<tg::Principal>,
+	pub status: Option<tg::sandbox::Status>,
 }
 
 pub async fn list(options: tg::sandbox::list::Options) -> tg::Result<tg::sandbox::list::Output> {
@@ -89,6 +93,7 @@ where
 		limit: options.limit,
 		location: options.location,
 		owner: options.owner,
+		status: options.status,
 	};
 	instance.list_sandboxes(arg).await
 }

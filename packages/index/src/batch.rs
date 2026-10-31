@@ -141,6 +141,7 @@ mod tests {
 		let user = tg::user::Id::new();
 		let data = tg::sandbox::get::Output {
 			data: tg::sandbox::Data {
+				boot: 0,
 				cpu: Some(2.into()),
 				creator: tg::Principal::User(user.clone()),
 				error: None,

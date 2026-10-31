@@ -15,7 +15,7 @@ impl Component {
 	pub(crate) async fn destroy_unfinished_sandboxes(&self, server: &Server) -> tg::Result<()> {
 		let session = server.session(&server.context);
 		let outputs = self
-			.list_sandboxes_local(&session, None, None)
+			.list_sandboxes_local(&session, None, None, None)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
 		outputs

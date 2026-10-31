@@ -532,6 +532,8 @@ impl Component {
 
 			authorization_tokens: tg::authorization::Tokens::default(),
 
+			boot: 0,
+
 			capacity,
 
 			changed: tokio::sync::watch::channel(()).0,
@@ -1616,6 +1618,7 @@ impl Component {
 		// Create the destroyed sandbox's data.
 		let error = Self::sandbox_error_data(session, error);
 		let data = tg::sandbox::Data {
+			boot: 0,
 			cpu: arg.cpu,
 			creator,
 			error: Some(error),

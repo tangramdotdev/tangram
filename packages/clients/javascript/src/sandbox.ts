@@ -163,6 +163,7 @@ export namespace Sandbox {
 	};
 
 	export type Data = {
+		boot?: number;
 		cpu?: tg.Sandbox.Cpu | null;
 		creator?: string | null;
 		error?: tg.Error.Data | tg.Error.Id | null;
@@ -532,7 +533,12 @@ export namespace Sandbox {
 		};
 	}
 
-	export type Status = "created" | "started" | "destroyed";
+	export type Status =
+		| "destroyed"
+		| "started"
+		| "starting"
+		| "stopped"
+		| "stopping";
 
 	export type Port = string;
 

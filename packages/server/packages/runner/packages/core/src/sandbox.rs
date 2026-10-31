@@ -42,6 +42,7 @@ pub struct Sandboxes {
 pub struct State {
 	pub allocation: Option<Arc<tokio::sync::Mutex<Option<crate::capacity::Allocation>>>>,
 	pub authorization_tokens: tg::authorization::Tokens,
+	pub boot: u64,
 	pub capacity: tg::runner::Capacity,
 	pub changed: tokio::sync::watch::Sender<()>,
 	pub control_sender: tangram_server_sandbox_core::control::local::Local,
@@ -123,6 +124,7 @@ impl State {
 		let id = self.id.clone();
 		let arg = &self.create;
 		let data = tg::sandbox::Data {
+			boot: self.boot,
 			cpu: arg.cpu,
 			creator: self.creator.clone(),
 			error: self.error.clone(),

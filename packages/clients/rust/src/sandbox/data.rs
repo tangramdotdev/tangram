@@ -2,6 +2,7 @@ use {
 	crate::prelude::*,
 	serde_with::{DurationSecondsWithFrac, serde_as},
 	std::time::Duration,
+	tangram_util::serde::is_default,
 };
 
 #[serde_as]
@@ -14,6 +15,11 @@ use {
 	tangram_serialize::Serialize,
 )]
 pub struct Data {
+	/// The number of times the sandbox has started after its creation.
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 14, skip_serializing_if = "is_default")]
+	pub boot: u64,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub cpu: Option<tg::sandbox::Cpu>,
