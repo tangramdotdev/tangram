@@ -66,8 +66,13 @@ pub fn run(command_arg: &crate::run::Command, arg: &Arg, prepared: &Prepared) ->
 		retain_setup_capabilities()?;
 	}
 
-	// Write an OCI bundle referencing the prepared filesystem.
+	// Write an OCI bundle referencing the prepared filesystem, replacing the bundle from an earlier start.
 	let bundle = root.parent().unwrap().join("gvisor");
+	match std::fs::remove_dir_all(&bundle) {
+		Ok(()) => {},
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+		Err(error) => return Err(tg::error!(!error, "failed to remove the gvisor bundle")),
+	}
 	std::fs::create_dir(&bundle)
 		.map_err(|error| tg::error!(!error, "failed to create the gvisor bundle"))?;
 	let spec = spec(command_arg, arg, prepared)?;
