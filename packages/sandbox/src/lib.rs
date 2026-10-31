@@ -78,6 +78,8 @@ pub struct State {
 	#[cfg(target_os = "linux")]
 	accounting: tokio::sync::Mutex<Option<usage::Accounting>>,
 
+	activated: AtomicBool,
+
 	arg: Arg,
 
 	#[cfg(target_os = "linux")]
@@ -90,7 +92,7 @@ pub struct State {
 
 	destroy: tokio::sync::Mutex<()>,
 
-	destroyed: AtomicBool,
+	stopped: AtomicBool,
 
 	exit: tokio::sync::watch::Receiver<Option<tg::Result<std::process::ExitStatus>>>,
 
@@ -106,8 +108,6 @@ pub struct State {
 	next_process_index: AtomicU64,
 
 	pid: u32,
-
-	started: std::sync::atomic::AtomicBool,
 
 	stderr: self::stderr::Stderr,
 }
@@ -322,9 +322,21 @@ pub fn filesystem_project_usage(path: &Path, project: u32) -> tg::Result<u64> {
 	filesystem::usage(&directory, project)
 }
 
+/// Read the filesystem project ID of the sandbox directory at a root path, which is zero when the directory has no project.
+#[cfg(target_os = "linux")]
+pub fn filesystem_project_id(root_path: &Path) -> tg::Result<Option<u32>> {
+	let path = Sandbox::host_filesystem_path_from_root(root_path);
+	if !path.exists() {
+		return Ok(None);
+	}
+	let project = filesystem::project_id(&path)?;
+	let project = (project != 0).then_some(project);
+	Ok(project)
+}
+
 impl Sandbox {
-	#[tracing::instrument(name = "sandbox.create_physical", level = "debug", skip_all, fields(sandbox_index = arg.index), err(level = "debug"))]
-	pub async fn new(arg: Arg) -> tg::Result<Self> {
+	#[tracing::instrument(name = "sandbox.start_physical", level = "debug", skip_all, fields(sandbox_index = arg.index), err(level = "debug"))]
+	pub async fn start(arg: Arg) -> tg::Result<Self> {
 		// Validate the sandbox resources and mount targets.
 		validate_resources(&arg.backend, arg.cpu, arg.memory)?;
 		for resource in [arg.memory, arg.storage].into_iter().flatten() {
@@ -575,6 +587,8 @@ impl Sandbox {
 			#[cfg(target_os = "linux")]
 			accounting: tokio::sync::Mutex::new(None),
 
+			activated: AtomicBool::new(false),
+
 			arg,
 
 			#[cfg(target_os = "linux")]
@@ -586,8 +600,6 @@ impl Sandbox {
 			client,
 
 			destroy: tokio::sync::Mutex::new(()),
-
-			destroyed: AtomicBool::new(false),
 
 			exit,
 
@@ -603,9 +615,9 @@ impl Sandbox {
 
 			pid,
 
-			started: std::sync::atomic::AtomicBool::new(false),
-
 			stderr,
+
+			stopped: AtomicBool::new(false),
 		}));
 
 		Ok(sandbox)
@@ -632,10 +644,10 @@ impl Sandbox {
 	}
 
 	/// Activate the assigned sandbox before spawning workloads.
-	pub async fn start(&self) -> tg::Result<()> {
+	pub async fn activate(&self) -> tg::Result<()> {
 		// Serialize activation with sandbox destruction.
 		let _destroy = self.0.destroy.lock().await;
-		if self.0.started.load(Ordering::Relaxed) {
+		if self.0.activated.load(Ordering::Relaxed) {
 			return Ok(());
 		}
 
@@ -675,7 +687,7 @@ impl Sandbox {
 				self.0.arg.memory_sampling_interval,
 			)?);
 		}
-		self.0.started.store(true, Ordering::Relaxed);
+		self.0.activated.store(true, Ordering::Relaxed);
 
 		// Schedule the duration limit.
 		if let Some(duration) = self.0.arg.resources.max_duration {
@@ -908,11 +920,39 @@ impl Sandbox {
 		Ok((listener, guest_url))
 	}
 
+	/// Stop the sandbox and settle its usage, keeping its directory so that a new sandbox with the same path can start on it.
+	#[tracing::instrument(name = "sandbox.stop_physical", level = "debug", skip_all, fields(sandbox_index = self.index()), err(level = "debug"))]
+	pub async fn stop(&self) -> tg::Result<Output> {
+		let _destroy = self.0.destroy.lock().await;
+		self.0.stopped.store(true, Ordering::SeqCst);
+		let output = self.stop_inner().await?;
+		Ok(output)
+	}
+
+	/// Stop the sandbox and settle its usage, then remove its storage.
 	#[tracing::instrument(name = "sandbox.destroy_physical", level = "debug", skip_all, fields(sandbox_index = self.index()), err(level = "debug"))]
 	pub async fn destroy(&self) -> tg::Result<Output> {
 		let _destroy = self.0.destroy.lock().await;
-		self.0.destroyed.store(true, Ordering::SeqCst);
-		self.destroy_inner().await?;
+		self.0.stopped.store(true, Ordering::SeqCst);
+		let output = self.stop_inner().await?;
+		#[cfg(target_os = "linux")]
+		if self.0.arg.storage.is_some() {
+			let path = Self::host_filesystem_path_from_root(&self.0.arg.path);
+			tangram_util::fs::remove(&path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove the sandbox storage"))?;
+		}
+		Ok(output)
+	}
+
+	async fn stop_inner(&self) -> tg::Result<Output> {
+		// Stop the sandbox process, then stop any descendants that outlive it.
+		self.stop_process().await?;
+		#[cfg(target_os = "macos")]
+		self.0.cleanup.stop(self.0.arg.shutdown_timeout).await?;
+		self.cleanup_cgroup().await?;
+
+		// Settle the usage.
 		let usage = self
 			.finish_accounting()
 			.await?
@@ -922,17 +962,8 @@ impl Sandbox {
 				storage: tg::sandbox::ResourceUsage::default(),
 			});
 		let output = Output { usage };
+
 		Ok(output)
-	}
-
-	async fn destroy_inner(&self) -> tg::Result<()> {
-		// Stop the sandbox process, then stop any descendants that outlive it.
-		self.stop_process().await?;
-		#[cfg(target_os = "macos")]
-		self.0.cleanup.stop(self.0.arg.shutdown_timeout).await?;
-		self.cleanup_cgroup().await?;
-
-		Ok(())
 	}
 
 	async fn stop_process(&self) -> tg::Result<()> {
@@ -987,12 +1018,6 @@ impl Sandbox {
 
 		if let Some(accounting) = self.0.accounting.lock().await.as_mut() {
 			accounting.usage().await?;
-		}
-		if self.0.arg.storage.is_some() {
-			let path = Self::host_filesystem_path_from_root(&self.0.arg.path);
-			tangram_util::fs::remove(&path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to remove the sandbox storage"))?;
 		}
 
 		let usage = self.finish_accounting().await;
@@ -1081,10 +1106,10 @@ impl Sandbox {
 		Ok(())
 	}
 
-	/// Wait for the sandbox process to exit, and return the error that describes its exit if the sandbox was not destroyed.
+	/// Wait for the sandbox process to exit, and return the error that describes its exit if the sandbox was not stopped or destroyed.
 	pub async fn wait(&self) -> tg::Result<()> {
 		let status = self.wait_exit().await?;
-		if self.0.destroyed.load(Ordering::SeqCst) {
+		if self.0.stopped.load(Ordering::SeqCst) {
 			return Ok(());
 		}
 		let stderr = self.0.stderr.tail().await;
