@@ -29,12 +29,16 @@ pub(crate) use self::graph::Graph;
 pub struct Component(Arc<State>);
 
 pub struct State {
-	pub(crate) client:
-		tangram_server_service::Client<tg::sync::Id, self::service::Protocol, Messenger>,
+	pub(crate) client: tangram_server_service::Client<
+		tg::sync::Id,
+		self::service::Request,
+		self::service::Response,
+		Messenger,
+	>,
 	pub(crate) index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	pub(crate) servers: DashMap<
 		tg::sync::Id,
-		tangram_server_service::Server<self::service::Protocol>,
+		tangram_server_service::Server<self::service::Request, self::service::Response>,
 		fnv::FnvBuildHasher,
 	>,
 	pub(crate) service_tasks: tangram_futures::task::Set<tg::Result<()>>,

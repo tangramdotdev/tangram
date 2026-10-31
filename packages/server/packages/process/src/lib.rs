@@ -51,20 +51,30 @@ pub struct State {
 }
 
 pub(crate) struct Attach {
-	pub client: service::Client<tg::process::Nonce, self::attach::service::Protocol, Messenger>,
+	pub client: service::Client<
+		tg::process::Nonce,
+		self::attach::service::Request,
+		self::attach::service::Response,
+		Messenger,
+	>,
 	pub servers: DashMap<
 		tg::process::Nonce,
-		service::Server<self::attach::service::Protocol>,
+		service::Server<self::attach::service::Request, self::attach::service::Response>,
 		fnv::FnvBuildHasher,
 	>,
 	pub service_tasks: tangram_futures::task::Set<tg::Result<()>>,
 }
 
 pub(crate) struct Control {
-	pub client: service::Client<tg::process::Id, self::control::service::Protocol, Messenger>,
+	pub client: service::Client<
+		tg::process::Id,
+		self::control::service::Request,
+		self::control::service::Response,
+		Messenger,
+	>,
 	pub servers: DashMap<
 		tg::process::Id,
-		service::Server<self::control::service::Protocol>,
+		service::Server<self::control::service::Request, self::control::service::Response>,
 		fnv::FnvBuildHasher,
 	>,
 	pub service_tasks: tangram_futures::task::Set<tg::Result<()>>,

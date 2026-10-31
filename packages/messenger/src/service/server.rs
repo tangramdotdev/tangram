@@ -1,5 +1,5 @@
 use {
-	super::{Error, Event, Message, Observer, Options, Protocol, announce_subject, server_subject},
+	super::{Error, Event, Message, Observer, Options, announce_subject, server_subject},
 	crate::{Messenger, Payload},
 	bytes::Bytes,
 	futures::{StreamExt as _, stream::BoxStream},
@@ -15,17 +15,17 @@ use {
 };
 
 /// The server end of a service, which yields the incoming requests. Stopping it stops answering new requests and drains the responses, and clients recover their requests with the next server that starts on the same subject.
-pub struct Server<P: Protocol> {
-	shared: Arc<Shared<P>>,
+pub struct Server<Req, Res> {
+	shared: Arc<Shared<Req, Res>>,
 }
 
 /// The handle with which the server answers a request.
-pub struct Reply<P: Protocol> {
+pub struct Reply<Res> {
 	attempt: String,
 	cancelled: watch::Receiver<bool>,
 	commands: mpsc::UnboundedSender<Command>,
 	id: String,
-	marker: PhantomData<fn(P::Response)>,
+	marker: PhantomData<fn(Res)>,
 }
 
 /// The server's attempts and responses, which a server that is stopping waits on.
@@ -39,9 +39,9 @@ pub struct Status {
 }
 
 /// The state that the clones of a server share. Dropping it aborts the server's task.
-struct Shared<P: Protocol> {
+struct Shared<Req, Res> {
 	finished: watch::Receiver<bool>,
-	incoming: tokio::sync::Mutex<mpsc::UnboundedReceiver<(P::Request, Reply<P>)>>,
+	incoming: tokio::sync::Mutex<mpsc::UnboundedReceiver<(Req, Reply<Res>)>>,
 	status: watch::Receiver<Status>,
 	stop: watch::Sender<bool>,
 	task: tokio::task::AbortHandle,
@@ -59,11 +59,11 @@ enum Command {
 	},
 }
 
-struct Task<P: Protocol, M> {
+struct Task<Req, Res, M> {
 	commands: mpsc::UnboundedSender<Command>,
-	incoming: Option<mpsc::UnboundedSender<(P::Request, Reply<P>)>>,
+	incoming: Option<mpsc::UnboundedSender<(Req, Reply<Res>)>>,
 	messenger: M,
-	observer: Arc<dyn Observer<P>>,
+	observer: Arc<dyn Observer<Req>>,
 	options: Options,
 	state: State,
 	status: watch::Sender<Status>,
@@ -95,13 +95,17 @@ struct Entry {
 	response: Option<Message>,
 }
 
-impl<P: Protocol> Server<P> {
+impl<Req, Res> Server<Req, Res>
+where
+	Req: Payload,
+	Res: Payload,
+{
 	/// Start answering requests on a subject. The server announces itself, so that clients that arrived before it recover their requests immediately.
 	pub async fn start<M>(
 		messenger: &M,
 		subject: impl Into<String>,
 		options: Options,
-		observer: Arc<dyn Observer<P>>,
+		observer: Arc<dyn Observer<Req>>,
 	) -> Result<Self, Error>
 	where
 		M: Messenger + Clone + Send + Sync + 'static,
@@ -155,7 +159,7 @@ impl<P: Protocol> Server<P> {
 	}
 
 	/// Get the next request, or `None` once the server stops.
-	pub async fn next(&self) -> Option<(P::Request, Reply<P>)> {
+	pub async fn next(&self) -> Option<(Req, Reply<Res>)> {
 		self.shared.incoming.lock().await.recv().await
 	}
 
@@ -177,7 +181,7 @@ impl<P: Protocol> Server<P> {
 	}
 }
 
-impl<P: Protocol> Reply<P> {
+impl<Res: Payload> Reply<Res> {
 	/// Acknowledge the request without responding, so that the client stops resending it and waits for the response.
 	pub fn acknowledge(&self) {
 		let command = Command::Acknowledge {
@@ -194,7 +198,7 @@ impl<P: Protocol> Reply<P> {
 	}
 
 	/// Send the response. The server resends it until the client acknowledges it. Fail if the response cannot be serialized.
-	pub fn send(self, response: &P::Response) -> Result<(), Error> {
+	pub fn send(self, response: &Res) -> Result<(), Error> {
 		let response = response.serialize().map_err(Error::messenger)?;
 		let command = Command::Respond {
 			attempt: self.attempt,
@@ -206,9 +210,10 @@ impl<P: Protocol> Reply<P> {
 	}
 }
 
-impl<P, M> Task<P, M>
+impl<Req, Res, M> Task<Req, Res, M>
 where
-	P: Protocol,
+	Req: Payload,
+	Res: Payload,
 	M: Messenger + Clone + Send + Sync + 'static,
 {
 	async fn run(
@@ -409,7 +414,7 @@ where
 		let Some(incoming) = self.incoming.clone() else {
 			return;
 		};
-		let Ok(request) = P::Request::deserialize(request) else {
+		let Ok(request) = Req::deserialize(request) else {
 			return;
 		};
 		let (cancelled_sender, cancelled) = watch::channel(false);
@@ -595,7 +600,7 @@ where
 	}
 }
 
-impl<P: Protocol> Clone for Server<P> {
+impl<Req, Res> Clone for Server<Req, Res> {
 	fn clone(&self) -> Self {
 		Self {
 			shared: self.shared.clone(),
@@ -603,7 +608,7 @@ impl<P: Protocol> Clone for Server<P> {
 	}
 }
 
-impl<P: Protocol> Drop for Shared<P> {
+impl<Req, Res> Drop for Shared<Req, Res> {
 	fn drop(&mut self) {
 		self.task.abort();
 	}

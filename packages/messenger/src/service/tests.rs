@@ -4,21 +4,14 @@ use {
 	std::sync::Mutex,
 };
 
-struct Test;
-
-impl Protocol for Test {
-	type Request = Bytes;
-	type Response = Bytes;
-}
-
 /// An observer that records the names of the events.
 #[derive(Default)]
 struct Record {
 	events: Mutex<Vec<&'static str>>,
 }
 
-impl Observer<Test> for Record {
-	fn observe<'a>(&'a self, event: Event<'a, Test>) -> BoxFuture<'a, ()> {
+impl Observer<Bytes> for Record {
+	fn observe<'a>(&'a self, event: Event<'a, Bytes>) -> BoxFuture<'a, ()> {
 		let name = match event {
 			Event::Acknowledged { .. } => "acknowledged",
 			Event::Attempt { .. } => "attempt",
@@ -57,25 +50,25 @@ fn options() -> Options {
 	}
 }
 
-async fn server(messenger: &TestMessenger, options: Options) -> Server<Test> {
+async fn server(messenger: &TestMessenger, options: Options) -> Server<Bytes, Bytes> {
 	Server::start(messenger, "test", options, Arc::new(Ignore))
 		.await
 		.unwrap()
 }
 
-fn client(messenger: &TestMessenger, options: Options) -> Arc<Client<Test, TestMessenger>> {
+fn client(messenger: &TestMessenger, options: Options) -> Arc<Client<Bytes, Bytes, TestMessenger>> {
 	Arc::new(Client::new(messenger.clone(), "test.service", options, Arc::new(Ignore)).unwrap())
 }
 
 fn spawn_request(
-	client: &Arc<Client<Test, TestMessenger>>,
+	client: &Arc<Client<Bytes, Bytes, TestMessenger>>,
 	payload: &'static str,
 ) -> tokio::task::JoinHandle<Result<Bytes, Error>> {
 	let client = client.clone();
 	tokio::spawn(async move { client.request("test", Bytes::from(payload)).await })
 }
 
-async fn cancelled(reply: &Reply<Test>) {
+async fn cancelled(reply: &Reply<Bytes>) {
 	while !reply.is_cancelled() {
 		tokio::time::sleep(Duration::from_millis(1)).await;
 	}
@@ -118,9 +111,10 @@ async fn the_connections_of_a_client_share_one_response_subscription() {
 	let messenger = TestMessenger::default();
 	let mut answers = Vec::new();
 	for subject in ["first", "second"] {
-		let server = Server::<Test>::start(&messenger, subject, options(), Arc::new(Ignore))
-			.await
-			.unwrap();
+		let server =
+			Server::<Bytes, Bytes>::start(&messenger, subject, options(), Arc::new(Ignore))
+				.await
+				.unwrap();
 		answers.push(tokio::spawn(async move {
 			while let Some((request, reply)) = server.next().await {
 				reply.send(&request).unwrap();
@@ -409,7 +403,7 @@ async fn invalid_options_are_rejected() {
 		retry_interval: Duration::ZERO,
 		..options()
 	};
-	let result = Server::<Test>::start(&messenger, "test", options, Arc::new(Ignore)).await;
+	let result = Server::<Bytes, Bytes>::start(&messenger, "test", options, Arc::new(Ignore)).await;
 	assert!(matches!(result, Err(Error::Options(_))));
 }
 

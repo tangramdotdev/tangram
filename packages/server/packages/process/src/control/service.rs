@@ -33,9 +33,6 @@ struct State {
 	syncs: bool,
 }
 
-/// The protocol of a control service, which answers for a process whose start its server accepted.
-pub(crate) struct Protocol;
-
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) enum Request {
 	#[tangram_serialize(id = 0)]
@@ -290,7 +287,7 @@ impl Component {
 	async fn process_control_service_task(
 		session: &Session,
 		state: State,
-		server: &service::Server<Protocol>,
+		server: &service::Server<Request, Response>,
 		mut receiver: tokio::sync::mpsc::UnboundedReceiver<()>,
 		stopper: Stopper,
 	) -> tg::Result<()> {
@@ -405,11 +402,6 @@ impl Component {
 
 		Ok(Some(response))
 	}
-}
-
-impl service::Protocol for Protocol {
-	type Request = Request;
-	type Response = Response;
 }
 
 impl tangram_messenger::Payload for Request {

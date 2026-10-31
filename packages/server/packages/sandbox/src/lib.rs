@@ -32,10 +32,15 @@ pub struct State {
 }
 
 pub(crate) struct Control {
-	pub client: service::Client<tg::sandbox::Id, self::control::service::Protocol, Messenger>,
+	pub client: service::Client<
+		tg::sandbox::Id,
+		self::control::service::Request,
+		self::control::service::Response,
+		Messenger,
+	>,
 	pub servers: DashMap<
 		tg::sandbox::Id,
-		service::Server<self::control::service::Protocol>,
+		service::Server<self::control::service::Request, self::control::service::Response>,
 		fnv::FnvBuildHasher,
 	>,
 	pub service_tasks: tangram_futures::task::Set<tg::Result<()>>,

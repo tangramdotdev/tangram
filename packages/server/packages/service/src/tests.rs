@@ -4,21 +4,14 @@ use {
 	std::{sync::Mutex, time::Duration},
 };
 
-struct Test;
-
-impl Protocol for Test {
-	type Request = Bytes;
-	type Response = Bytes;
-}
-
 /// An observer that records the names of the events.
 #[derive(Default)]
 struct Record {
 	events: Mutex<Vec<&'static str>>,
 }
 
-impl Observer<Test> for Record {
-	fn observe<'a>(&'a self, event: Event<'a, Test>) -> BoxFuture<'a, ()> {
+impl Observer<Bytes> for Record {
+	fn observe<'a>(&'a self, event: Event<'a, Bytes>) -> BoxFuture<'a, ()> {
 		let name = match event {
 			Event::Acknowledged { .. } => "acknowledged",
 			Event::Attempt { .. } => "attempt",
@@ -66,17 +59,20 @@ fn options() -> Options {
 	}
 }
 
-fn client(messenger: &Messenger, record: Arc<Record>) -> Arc<Client<String, Test, Messenger>> {
+fn client(
+	messenger: &Messenger,
+	record: Arc<Record>,
+) -> Arc<Client<String, Bytes, Bytes, Messenger>> {
 	let client = Client::new(messenger.clone(), "test", options(), record).unwrap();
 	Arc::new(client)
 }
 
-fn server(messenger: &Messenger, key: &str) -> Server<Test> {
+fn server(messenger: &Messenger, key: &str) -> Server<Bytes, Bytes> {
 	Server::start(messenger, "test", &key, options(), Arc::new(Ignore))
 }
 
 /// Answer every request with the request.
-fn spawn_echo(server: &Server<Test>) -> tokio::task::JoinHandle<()> {
+fn spawn_echo(server: &Server<Bytes, Bytes>) -> tokio::task::JoinHandle<()> {
 	let server = server.clone();
 	tokio::spawn(async move {
 		while let Some((request, reply)) = server.next().await {

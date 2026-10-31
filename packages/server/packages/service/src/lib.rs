@@ -2,82 +2,82 @@ use {
 	futures::{FutureExt as _, future::BoxFuture},
 	std::{fmt::Display, marker::PhantomData, sync::Arc},
 	tangram_client::prelude::*,
-	tangram_messenger::{Messenger, service},
+	tangram_messenger::{Messenger, Payload, service},
 	tokio::sync::{Notify, mpsc, oneshot, watch},
 };
 
 #[cfg(test)]
 mod tests;
 
-pub use tangram_messenger::service::{Error, Event, Ignore, Observer, Options, Protocol, Status};
+pub use tangram_messenger::service::{Error, Event, Ignore, Observer, Options, Status};
 
 /// The attempt that the events of a request to a local server report.
 const LOCAL: &str = "local";
 
 /// The client of a service, which asks a server on this server over a local channel and the other servers over the messenger.
-pub struct Client<K, P: Protocol, M> {
+pub struct Client<K, Req, Res, M> {
 	marker: PhantomData<fn(&K)>,
-	messenger: service::Client<P, M>,
-	observer: Arc<dyn Observer<P>>,
+	messenger: service::Client<Req, Res, M>,
+	observer: Arc<dyn Observer<Req>>,
 	subject: String,
 }
 
 /// The server of a service for one key, which answers the requests from this server over a local channel and the requests from other servers over the messenger.
-pub struct Server<P: Protocol> {
-	shared: Arc<Shared<P>>,
+pub struct Server<Req, Res> {
+	shared: Arc<Shared<Req, Res>>,
 }
 
 /// The handle with which a server answers a request.
-pub struct Reply<P: Protocol> {
-	inner: Inner<P>,
+pub struct Reply<Res> {
+	inner: Inner<Res>,
 }
 
 /// Observes a service's events as checkpoints named after the service.
-pub struct Checkpoints<P: Protocol> {
+pub struct Checkpoints<Req> {
 	name: &'static str,
-	params: fn(&P::Request, &mut tg::checkpoint::Params),
+	params: fn(&Req, &mut tg::checkpoint::Params),
 	state: Option<Arc<tangram_server_checkpoint_core::State>>,
 }
 
 /// The state that the clones of a server share. Dropping it aborts the start of the server on the messenger.
-struct Shared<P: Protocol> {
-	receiver: tokio::sync::Mutex<mpsc::UnboundedReceiver<Local<P>>>,
-	sender: mpsc::UnboundedSender<Local<P>>,
-	startup: watch::Receiver<Startup<P>>,
+struct Shared<Req, Res> {
+	receiver: tokio::sync::Mutex<mpsc::UnboundedReceiver<Local<Req, Res>>>,
+	sender: mpsc::UnboundedSender<Local<Req, Res>>,
+	startup: watch::Receiver<Startup<Req, Res>>,
 	stopped: watch::Sender<bool>,
 	task: tokio::task::AbortHandle,
 }
 
 /// The start of a server on the messenger.
-enum Startup<P: Protocol> {
+enum Startup<Req, Res> {
 	/// The server stopped or failed to start before it started on the messenger.
 	Closed,
 
 	Pending,
 
-	Started(service::Server<P>),
+	Started(service::Server<Req, Res>),
 }
 
 /// A request from this server to a local server.
-struct Local<P: Protocol> {
+struct Local<Req, Res> {
 	acknowledged: Arc<Notify>,
-	request: P::Request,
-	sender: oneshot::Sender<P::Response>,
+	request: Req,
+	sender: oneshot::Sender<Res>,
 }
 
-enum Inner<P: Protocol> {
+enum Inner<Res> {
 	Local {
 		acknowledged: Arc<Notify>,
-		sender: oneshot::Sender<P::Response>,
+		sender: oneshot::Sender<Res>,
 	},
-	Messenger(service::Reply<P>),
+	Messenger(service::Reply<Res>),
 }
 
-impl<K, P, M> Client<K, P, M>
+impl<K, Req, Res, M> Client<K, Req, Res, M>
 where
 	K: Display,
-	P: Protocol,
-	P::Request: Clone,
+	Req: Payload + Clone,
+	Res: Payload,
 	M: Messenger + Clone + Send + Sync + 'static,
 {
 	/// Create the client of a service whose servers serve subjects under the given subject.
@@ -85,7 +85,7 @@ where
 		messenger: M,
 		subject: impl Into<String>,
 		options: Options,
-		observer: Arc<dyn Observer<P>>,
+		observer: Arc<dyn Observer<Req>>,
 	) -> Result<Self, Error> {
 		let subject = subject.into();
 		let messenger = service::Client::new(
@@ -103,17 +103,16 @@ where
 		Ok(client)
 	}
 
-	/// Send a request to the server of a key and wait for its response. Ask the given local server first, and ask over the messenger if it stops before answering or the protocol does not accept its response.
+	/// Send a request to the server of a key and wait for its response. Ask the given local server first, and ask over the messenger if it stops before answering.
 	pub async fn request(
 		&self,
 		key: &K,
-		server: Option<&Server<P>>,
-		request: P::Request,
-	) -> Result<P::Response, Error> {
+		server: Option<&Server<Req, Res>>,
+		request: Req,
+	) -> Result<Res, Error> {
 		// Ask the local server.
 		if let Some(server) = server
 			&& let Some(response) = self.request_local(server, &request).await
-			&& P::accepts(&request, &response)
 		{
 			return Ok(response);
 		}
@@ -131,7 +130,7 @@ where
 	}
 
 	/// Ask a local server, returning `None` if it stops before answering.
-	async fn request_local(&self, server: &Server<P>, request: &P::Request) -> Option<P::Response> {
+	async fn request_local(&self, server: &Server<Req, Res>, request: &Req) -> Option<Res> {
 		// Send the request.
 		if server.is_stopped() {
 			return None;
@@ -181,14 +180,18 @@ where
 	}
 }
 
-impl<P: Protocol> Server<P> {
+impl<Req, Res> Server<Req, Res>
+where
+	Req: Payload,
+	Res: Payload,
+{
 	/// Start answering the requests for a key. The server answers the requests from this server immediately, and starts on the messenger in the background.
 	pub fn start<K, M>(
 		messenger: &M,
 		subject: &str,
 		key: &K,
 		options: Options,
-		observer: Arc<dyn Observer<P>>,
+		observer: Arc<dyn Observer<Req>>,
 	) -> Self
 	where
 		K: Display,
@@ -239,7 +242,7 @@ impl<P: Protocol> Server<P> {
 	}
 
 	/// Get the next request from this server or the messenger, or `None` once the server stops.
-	pub async fn next(&self) -> Option<(P::Request, Reply<P>)> {
+	pub async fn next(&self) -> Option<(Req, Reply<Res>)> {
 		let mut receiver = self.shared.receiver.lock().await;
 		let mut startup = self.shared.startup.clone();
 		loop {
@@ -313,7 +316,7 @@ impl<P: Protocol> Server<P> {
 		server.wait().await;
 	}
 
-	fn local(local: Local<P>) -> (P::Request, Reply<P>) {
+	fn local(local: Local<Req, Res>) -> (Req, Reply<Res>) {
 		let Local {
 			acknowledged,
 			request,
@@ -327,10 +330,9 @@ impl<P: Protocol> Server<P> {
 	}
 }
 
-impl<P> Reply<P>
+impl<Res> Reply<Res>
 where
-	P: Protocol,
-	P::Response: Clone,
+	Res: Payload + Clone,
 {
 	/// Acknowledge the request without responding, so that the client stops resending it and waits for the response.
 	pub fn acknowledge(&self) {
@@ -354,7 +356,7 @@ where
 	}
 
 	/// Send the response, logging a response that cannot be serialized.
-	pub fn send(self, response: &P::Response) {
+	pub fn send(self, response: &Res) {
 		match self.inner {
 			Inner::Local { sender, .. } => {
 				sender.send(response.clone()).ok();
@@ -368,7 +370,7 @@ where
 	}
 }
 
-impl<P: Protocol> Checkpoints<P> {
+impl<Req> Checkpoints<Req> {
 	/// Create an observer whose checkpoints are named after the service, such as `{name}.ack`.
 	#[must_use]
 	pub fn new(
@@ -383,7 +385,7 @@ impl<P: Protocol> Checkpoints<P> {
 	pub fn with_params(
 		checkpoints: Option<Arc<tangram_server_checkpoint_core::State>>,
 		name: &'static str,
-		params: fn(&P::Request, &mut tg::checkpoint::Params),
+		params: fn(&Req, &mut tg::checkpoint::Params),
 	) -> Self {
 		Self {
 			name,
@@ -393,7 +395,7 @@ impl<P: Protocol> Checkpoints<P> {
 	}
 }
 
-impl<P: Protocol> Clone for Server<P> {
+impl<Req, Res> Clone for Server<Req, Res> {
 	fn clone(&self) -> Self {
 		Self {
 			shared: self.shared.clone(),
@@ -401,14 +403,14 @@ impl<P: Protocol> Clone for Server<P> {
 	}
 }
 
-impl<P: Protocol> Drop for Shared<P> {
+impl<Req, Res> Drop for Shared<Req, Res> {
 	fn drop(&mut self) {
 		self.task.abort();
 	}
 }
 
-impl<P: Protocol> Observer<P> for Checkpoints<P> {
-	fn observe<'a>(&'a self, event: Event<'a, P>) -> BoxFuture<'a, ()> {
+impl<Req: Send + Sync + 'static> Observer<Req> for Checkpoints<Req> {
+	fn observe<'a>(&'a self, event: Event<'a, Req>) -> BoxFuture<'a, ()> {
 		async move {
 			let Some(state) = &self.state else {
 				return;

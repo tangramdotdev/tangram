@@ -30,11 +30,8 @@ pub(super) struct Handle {
 /// A request that waits until the sync can answer it.
 struct Retained {
 	arg: tg::sync::service::VerifyArg,
-	reply: service::Reply<Protocol>,
+	reply: service::Reply<Response>,
 }
-
-/// The protocol of a sync's service, which verifies nodes for other servers.
-pub(crate) struct Protocol;
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) enum Request {
@@ -396,24 +393,6 @@ impl Component {
 	}
 }
 
-impl service::Protocol for Protocol {
-	type Request = Request;
-	type Response = Response;
-
-	fn accepts(request: &Self::Request, response: &Self::Response) -> bool {
-		match request {
-			Request::Verify(arg) => {
-				response.0.error.is_some()
-					|| response
-						.0
-						.output
-						.as_ref()
-						.is_none_or(|output| output.satisfies(arg))
-			},
-		}
-	}
-}
-
 impl tangram_messenger::Payload for Request {
 	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
 		tangram_serialize::to_vec(self)
@@ -458,7 +437,7 @@ fn error_is_cancellation(error: &tg::Error) -> bool {
 /// Create the observer of the sync service's events, whose checkpoints carry the node of each request.
 pub(crate) fn observer(
 	checkpoints: Option<Arc<tangram_server_core::checkpoint::State>>,
-) -> service::Checkpoints<Protocol> {
+) -> service::Checkpoints<Request> {
 	service::Checkpoints::with_params(checkpoints, NAME, |request, params| match request {
 		Request::Verify(arg) => {
 			params.insert("node".to_owned(), arg.node.to_string().into());

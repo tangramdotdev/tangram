@@ -59,9 +59,6 @@ struct State {
 	sync: Option<tg::Referent<tg::sync::Id>>,
 }
 
-/// The protocol of an attach service, which answers with the process or the command sync of an attach.
-pub(crate) struct Protocol;
-
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) enum Request {
 	#[tangram_serialize(id = 0)]
@@ -458,7 +455,7 @@ impl Component {
 		&self,
 		server: &Server,
 		principal: tg::Principal,
-		service_server: &service::Server<Protocol>,
+		service_server: &service::Server<Request, Response>,
 		mut events: tokio::sync::mpsc::UnboundedReceiver<Event>,
 		stopper: Stopper,
 	) -> tg::Result<()> {
@@ -466,7 +463,7 @@ impl Component {
 		let options = server.config.process.attach.service;
 		let mut state = State::default();
 		let mut finished_at = None::<Instant>;
-		let mut retained = Vec::<(Request, service::Reply<Protocol>)>::new();
+		let mut retained = Vec::<(Request, service::Reply<Response>)>::new();
 		let mut prune = tokio::time::interval(options.retry_interval);
 		prune.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
@@ -520,8 +517,8 @@ impl Component {
 		principal: &tg::Principal,
 		state: &mut State,
 		request: Request,
-		reply: service::Reply<Protocol>,
-		retained: &mut Vec<(Request, service::Reply<Protocol>)>,
+		reply: service::Reply<Response>,
+		retained: &mut Vec<(Request, service::Reply<Response>)>,
 	) {
 		// Reject a request from another principal.
 		if request.principal() != principal {
@@ -557,7 +554,7 @@ impl Component {
 	/// Answer the retained requests that the attach can now answer.
 	fn process_attach_service_answer(
 		state: &mut State,
-		retained: &mut Vec<(Request, service::Reply<Protocol>)>,
+		retained: &mut Vec<(Request, service::Reply<Response>)>,
 	) {
 		for (request, reply) in std::mem::take(retained) {
 			if reply.is_cancelled() {
@@ -569,11 +566,6 @@ impl Component {
 			}
 		}
 	}
-}
-
-impl service::Protocol for Protocol {
-	type Request = Request;
-	type Response = Response;
 }
 
 impl tangram_messenger::Payload for Request {

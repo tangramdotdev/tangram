@@ -15,29 +15,18 @@ pub use self::{
 	server::{Reply, Server, Status},
 };
 
-/// The message types of a service: the requests that clients send, and the responses that the server sends back.
-pub trait Protocol: Send + Sync + 'static {
-	type Request: Payload;
-	type Response: Payload;
-
-	/// Whether a response answers a request. A client ignores a response that it does not accept and keeps waiting for one that it does.
-	fn accepts(_request: &Self::Request, _response: &Self::Response) -> bool {
-		true
-	}
-}
-
 /// Receives the events of a service's server and clients, which are awaited before the service continues.
-pub trait Observer<P: Protocol>: Send + Sync + 'static {
-	fn observe<'a>(&'a self, event: Event<'a, P>) -> BoxFuture<'a, ()>;
+pub trait Observer<Req>: Send + Sync + 'static {
+	fn observe<'a>(&'a self, event: Event<'a, Req>) -> BoxFuture<'a, ()>;
 }
 
 /// An event of a service's server or clients.
-pub enum Event<'a, P: Protocol> {
+pub enum Event<'a, Req> {
 	/// A client received the server's acknowledgment of a request.
 	Acknowledged {
 		attempt: &'a str,
 		id: &'a str,
-		request: &'a P::Request,
+		request: &'a Req,
 	},
 
 	/// A client established an attempt with a server, from a heartbeat response or from the acknowledgment of a request.
@@ -60,7 +49,7 @@ pub enum Event<'a, P: Protocol> {
 	RequestSent {
 		attempt: Option<&'a str>,
 		id: &'a str,
-		request: &'a P::Request,
+		request: &'a Req,
 	},
 
 	/// A client received the server's response to a request.
@@ -145,8 +134,8 @@ enum Message {
 	},
 }
 
-impl<P: Protocol> Observer<P> for Ignore {
-	fn observe<'a>(&'a self, _event: Event<'a, P>) -> BoxFuture<'a, ()> {
+impl<Req> Observer<Req> for Ignore {
+	fn observe<'a>(&'a self, _event: Event<'a, Req>) -> BoxFuture<'a, ()> {
 		Box::pin(async {})
 	}
 }
