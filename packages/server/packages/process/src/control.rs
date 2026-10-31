@@ -264,8 +264,7 @@ impl Component {
 					Ok(output) => output,
 					Err(error) => {
 						if shortcut {
-							self.spawn_process_control_rejection_task(session, &id, &error)
-								.await;
+							self.spawn_process_control_rejection_task(session, &id, &error);
 						}
 						return Err(error);
 					},
@@ -298,8 +297,7 @@ impl Component {
 					Ok(ControlFlow::Continue(error)) => return Ok(ControlFlow::Continue(error)),
 					Err(error) => {
 						if shortcut {
-							self.spawn_process_control_rejection_task(session, &id, &error)
-								.await;
+							self.spawn_process_control_rejection_task(session, &id, &error);
 						}
 						return Err(error);
 					},
@@ -316,9 +314,7 @@ impl Component {
 			runner,
 			syncs: syncs.is_some(),
 		};
-		let service = self
-			.spawn_process_control_service_task(&process_session, &id, service_arg)
-			.await;
+		let service = self.spawn_process_control_service_task(&process_session, &id, service_arg);
 
 		let forwarded_requests = Arc::new(DashSet::new());
 		let capacity = session.server.config.process.control_channel_capacity;

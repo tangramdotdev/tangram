@@ -165,7 +165,7 @@ impl State {
 
 impl Component {
 	/// Start answering the requests for a process whose start this server accepted, over the messenger and, for requests from this server, over a local channel.
-	pub(crate) async fn spawn_process_control_service_task(
+	pub(crate) fn spawn_process_control_service_task(
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
@@ -180,11 +180,10 @@ impl Component {
 			syncs: arg.syncs,
 		};
 		self.spawn_process_control_service_task_with_state(session, state)
-			.await
 	}
 
 	/// Answer every request for a process whose start this server rejected with the rejection, so that the requests waiting for the start fail.
-	pub(crate) async fn spawn_process_control_rejection_task(
+	pub(crate) fn spawn_process_control_rejection_task(
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
@@ -201,9 +200,7 @@ impl Component {
 			runner: None,
 			syncs: false,
 		};
-		let handle = self
-			.spawn_process_control_service_task_with_state(session, state)
-			.await;
+		let handle = self.spawn_process_control_service_task_with_state(session, state);
 
 		// Keep answering for the service's attempt time to live.
 		let ttl = session.server.config.process.control_service.attempt_ttl;
@@ -214,7 +211,7 @@ impl Component {
 		});
 	}
 
-	async fn spawn_process_control_service_task_with_state(
+	fn spawn_process_control_service_task_with_state(
 		&self,
 		session: &Session,
 		state: State,
@@ -235,7 +232,6 @@ impl Component {
 		self.control
 			.servers
 			.insert(state.id.clone(), server.clone());
-		tangram_server_core::checkpoint!(session.server, "process.control.service.started", process = %state.id).await;
 
 		// Stop and unregister the service when its task ends, even if the task panics or is aborted, unless a reconnect replaced it.
 		let guard = scopeguard::guard((), {
@@ -265,7 +261,6 @@ impl Component {
 						.await;
 					drop(guard);
 					server.wait().await;
-					tangram_server_core::checkpoint!(task_session.server, "process.control.service.stopped", process = %state.id).await;
 					Ok(())
 				}
 			})

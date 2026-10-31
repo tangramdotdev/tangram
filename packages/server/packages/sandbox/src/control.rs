@@ -207,9 +207,7 @@ impl Component {
 			.ok_or_else(|| tg::error!("a sandbox control connection requires a create"))?;
 
 		// Answer the requests for the sandbox for as long as the connection lasts, starting before initialization so that the requests that verify the runner do not wait for it.
-		let service = self
-			.spawn_sandbox_control_service_task(&session, &id, arg.runner.clone())
-			.await;
+		let service = self.spawn_sandbox_control_service_task(&session, &id, arg.runner.clone());
 		if arg.proof.is_some() {
 			tangram_server_core::checkpoint!(session.server, "sandbox.control.shortcut.received", sandbox = %id)
 				.await;

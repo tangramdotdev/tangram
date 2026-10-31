@@ -2,6 +2,7 @@ use {
 	super::*,
 	bytes::Bytes,
 	std::{sync::Mutex, time::Duration},
+	tangram_messenger::service::Ignore,
 };
 
 /// An observer that records the names of the events.

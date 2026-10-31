@@ -9,7 +9,7 @@ use {
 #[cfg(test)]
 mod tests;
 
-pub use tangram_messenger::service::{Error, Event, Ignore, Observer, Options, Status};
+pub use tangram_messenger::service::{Error, Event, Observer, Options, Status};
 
 /// The attempt that the events of a request to a local server report.
 const LOCAL: &str = "local";

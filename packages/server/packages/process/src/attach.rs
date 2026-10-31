@@ -62,10 +62,7 @@ impl Component {
 		async move {
 			// Start answering the requests that locate the process by the attach's nonce.
 			let sender = match &arg.nonce {
-				Some(nonce) => Some(
-					self.spawn_process_attach_service_task(session, nonce)
-						.await?,
-				),
+				Some(nonce) => Some(self.spawn_process_attach_service_task(session, nonce)?),
 				None => None,
 			};
 			if let (Some(sender), tg::Either::Right(id)) = (&sender, &arg.process) {

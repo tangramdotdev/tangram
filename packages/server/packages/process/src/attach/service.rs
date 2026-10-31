@@ -331,7 +331,7 @@ impl Component {
 	}
 
 	/// Start answering the requests that locate this session's attach by its nonce, over the messenger and, for requests from this server, over a local channel.
-	pub(crate) async fn spawn_process_attach_service_task(
+	pub(crate) fn spawn_process_attach_service_task(
 		&self,
 		session: &Session,
 		nonce: &tg::process::Nonce,
@@ -358,7 +358,6 @@ impl Component {
 				service_server
 			},
 		};
-		tangram_server_core::checkpoint!(session.server, "process.attach.service.started", nonce = %nonce).await;
 
 		// Stop and unregister the service when its task ends, even if the task panics or is aborted.
 		let guard = scopeguard::guard((), {
@@ -383,7 +382,6 @@ impl Component {
 			.spawn({
 				let component = self.clone();
 				let server = session.server.clone();
-				let nonce = *nonce;
 				move |stopper| async move {
 					let result = component
 						.process_attach_service_task(
@@ -396,7 +394,6 @@ impl Component {
 						.await;
 					drop(guard);
 					service_server.wait().await;
-					tangram_server_core::checkpoint!(server, "process.attach.service.stopped", nonce = %nonce).await;
 					if let Err(error) = &result {
 						tracing::error!(error = %error.trace(), "the process attach service task failed");
 					}

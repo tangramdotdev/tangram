@@ -82,7 +82,7 @@ impl State {
 
 impl Component {
 	/// Start answering the requests for a sandbox whose control connection this server accepted, over the messenger and, for requests from this server, over a local channel.
-	pub(crate) async fn spawn_sandbox_control_service_task(
+	pub(crate) fn spawn_sandbox_control_service_task(
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
@@ -97,7 +97,6 @@ impl Component {
 		let server =
 			service::Server::start(&session.server.messenger, SUBJECT, id, options, observer);
 		self.control.servers.insert(id.clone(), server.clone());
-		tangram_server_core::checkpoint!(session.server, "sandbox.control.service.started", sandbox = %id).await;
 
 		// Stop and unregister the service when its task ends, even if the task panics or is aborted, unless a reconnect replaced it.
 		let guard = scopeguard::guard((), {
@@ -124,14 +123,10 @@ impl Component {
 		self.control
 			.service_tasks
 			.spawn({
-				let mut session = session.clone();
-				session.context.stopper = None;
-				let id = id.clone();
 				move |stopper| async move {
 					Self::sandbox_control_service_task(&state, &server, stopper).await;
 					drop(guard);
 					server.wait().await;
-					tangram_server_core::checkpoint!(session.server, "sandbox.control.service.stopped", sandbox = %id).await;
 					Ok(())
 				}
 			})
