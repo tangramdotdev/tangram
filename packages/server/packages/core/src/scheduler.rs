@@ -52,4 +52,11 @@ pub trait Component: crate::component::Lifecycle {
 	) -> BoxFuture<'a, tg::Result<tg::Result<tangram_server_scheduler_core::ResponseOutput>>>;
 
 	fn started(&self) -> BoxFuture<'_, ()>;
+
+	fn stop_runner_sandbox<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::sandbox::Id,
+		error: tg::error::Data,
+	) -> BoxFuture<'a, tg::Result<()>>;
 }

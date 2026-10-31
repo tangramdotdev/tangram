@@ -138,6 +138,12 @@ struct RetainSandboxTaskArg {
 	stopper: Stopper,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum Teardown {
+	Destroy,
+	Stop,
+}
+
 impl Component {
 	pub(crate) fn resolve_sandbox_backend(
 		&self,
@@ -262,7 +268,20 @@ impl Component {
 				})
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
 			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => {
-				Err(tg::error!(%id, "the sandbox was destroyed"))
+				if Self::sandbox_status(session, id).is_some_and(|status| !status.is_destroyed()) {
+					Err(tg::error!(%id, "the sandbox is not started"))
+				} else {
+					Err(tg::error!(%id, "the sandbox was destroyed"))
+				}
+			},
+			tg::sandbox::control::ServerRequestArg::Stop(_) => {
+				if Self::sandbox_status(session, id).is_some_and(|status| !status.is_destroyed()) {
+					Ok(tg::sandbox::control::ClientResponseOutput::Stop(
+						tg::sandbox::control::StopClientResponseOutput { stopped: false },
+					))
+				} else {
+					Err(tg::error!(%id, "the sandbox was destroyed"))
+				}
 			},
 		};
 		message
@@ -1122,10 +1141,14 @@ impl Component {
 			state,
 			stopper,
 		};
+		let mut temp = Some(temp);
 		#[cfg(target_os = "linux")]
-		let result = self.run_sandbox_task(session, arg, &mut vfs).boxed().await;
+		let result = self
+			.run_sandbox_task(session, arg, &mut temp, &mut vfs)
+			.boxed()
+			.await;
 		#[cfg(not(target_os = "linux"))]
-		let result = self.run_sandbox_task(session, arg).boxed().await;
+		let result = self.run_sandbox_task(session, arg, &mut temp).boxed().await;
 
 		// Stop the VFS after an early sandbox task failure.
 		#[cfg(target_os = "linux")]
@@ -1145,6 +1168,7 @@ impl Component {
 		&self,
 		session: &Session,
 		arg: RunSandboxTaskArg,
+		temp: &mut Option<Temp>,
 		#[cfg(target_os = "linux")] vfs: &mut Option<Box<dyn tangram_server_vfs_core::Server>>,
 	) -> tg::Result<RetainSandboxTaskArg> {
 		let RunSandboxTaskArg {
@@ -1189,8 +1213,10 @@ impl Component {
 			async move { sandbox.wait().await }.boxed()
 		};
 		let mut failure = None;
+		let mut teardown = Teardown::Destroy;
+		let mut stopping = false;
 
-		// Run the sandbox until it should be destroyed, destroying it with the error if the loop fails.
+		// Run the sandbox until it should be stopped or destroyed, destroying it with the error if the loop fails.
 		let result = async {
 			loop {
 				let current_timer_future = timer_future.as_mut().map_or_else(
@@ -1245,34 +1271,11 @@ impl Component {
 						let Some(message) = message else {
 							break;
 						};
-						let mut destroy = false;
+						let mut end = false;
 						let result = match message.arg {
 							tg::sandbox::control::ServerRequestArg::Destroy(request) => {
-								let error = request.error.unwrap_or_else(|| tg::error::Data {
-									code: Some(tg::error::Code::Cancellation),
-									message: Some("the process was canceled".into()),
-									..Default::default()
-								});
-								let sandbox = session
-									.server
-									.components
-									.runner
-									.state()
-									.sandboxes
-									.get_by_id(&id)
-									.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-								for mut process in sandbox.processes.iter_mut() {
-									if !process.value().data.status.is_finished() {
-										process.value_mut().finish.get_or_insert(
-											tg::process::control::FinishServerRequestArg {
-												error: Some(error.clone()),
-												exit: 1,
-											},
-										);
-										process.stopper.stop();
-									}
-								}
-								destroy = true;
+								Self::cancel_sandbox_processes(session, &id, request.error)?;
+								end = true;
 								Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
 									tg::sandbox::control::DestroyClientResponseOutput {
 										destroyed: true,
@@ -1314,6 +1317,16 @@ impl Component {
 								pending.push(wait_for_process_attachion(task, Some(message.sender)));
 								continue;
 							},
+							tg::sandbox::control::ServerRequestArg::Stop(_) => {
+								Self::cancel_sandbox_processes(session, &id, None)?;
+								end = true;
+								teardown = Teardown::Stop;
+								Ok(tg::sandbox::control::ClientResponseOutput::Stop(
+									tg::sandbox::control::StopClientResponseOutput {
+										stopped: true,
+									},
+								))
+							},
 						};
 						message.sender
 							.send(result)
@@ -1321,7 +1334,16 @@ impl Component {
 							.map_err(|error| {
 								tg::error!(!error, "failed to send the sandbox control response")
 							})?;
-						if destroy {
+						if end {
+							break;
+						}
+					},
+
+					// If the runner is shutting down gracefully, then stop the sandbox once its processes finish.
+					() = stopper.wait(), if !stopping => {
+						stopping = true;
+						teardown = Teardown::Stop;
+						if pending.is_empty() && process_events.is_empty() {
 							break;
 						}
 					},
@@ -1334,6 +1356,9 @@ impl Component {
 						match event? {
 							ProcessEvent::Buffered | ProcessEvent::Released => {
 								process_events.remove(&process);
+								if stopping && process_events.is_empty() && pending.is_empty() {
+									break;
+								}
 								if ready && process_events.is_empty() && pending.is_empty() {
 									if !reusable {
 										break;
@@ -1388,9 +1413,27 @@ impl Component {
 			tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox failed");
 			failure.get_or_insert(error);
 		}
+		if failure.is_some() {
+			teardown = Teardown::Destroy;
+		}
 
 		let destroy = async {
-			tracing::info!(sandbox = %id, "destroying the sandbox");
+			match teardown {
+				Teardown::Destroy => tracing::info!(sandbox = %id, "destroying the sandbox"),
+				Teardown::Stop => {
+					tracing::info!(sandbox = %id, "stopping the sandbox");
+					let mut state = session
+						.server
+						.components
+						.runner
+						.state()
+						.sandboxes
+						.get_mut_by_id(&id)
+						.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+					state.status = tg::sandbox::Status::Stopping;
+					state.changed.send_replace(());
+				},
+			}
 
 			// Stop and await the underlying processes.
 			process_stopper.stop();
@@ -1440,10 +1483,15 @@ impl Component {
 				vfs.wait().await;
 			}
 
-			// Destroy the sandbox while retaining its process and control state.
-			let output = sandbox.destroy().await.map_err(
-				|error| tg::error!(!error, %id, "failed to destroy the sandbox process"),
-			)?;
+			// Stop or destroy the sandbox while retaining its process and control state.
+			let output = match teardown {
+				Teardown::Destroy => sandbox.destroy().await.map_err(
+					|error| tg::error!(!error, %id, "failed to destroy the sandbox process"),
+				)?,
+				Teardown::Stop => sandbox.stop().await.map_err(
+					|error| tg::error!(!error, %id, "failed to stop the sandbox process"),
+				)?,
+			};
 
 			let usage = output.usage;
 
@@ -1482,7 +1530,10 @@ impl Component {
 					.sandboxes
 					.get_mut_by_id(&id)
 					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-				state.status = tg::sandbox::Status::Destroyed;
+				state.status = match teardown {
+					Teardown::Destroy => tg::sandbox::Status::Destroyed,
+					Teardown::Stop => tg::sandbox::Status::Stopped,
+				};
 				state.error = failure
 					.as_ref()
 					.map(|error| Self::sandbox_error_data(session, error));
@@ -1495,7 +1546,25 @@ impl Component {
 			};
 			drop(sandbox);
 
-			// Register the sandbox with its owner before indexing or reporting destruction.
+			// Keep the directory of a stopped sandbox, so that it can start again on its data.
+			if let Teardown::Stop = teardown
+				&& let Some(temp) = temp.take()
+			{
+				let path = Self::sandbox_path(session, &id);
+				let project_id = temp.persist(&path).await.map_err(
+					|error| tg::error!(!error, %id, "failed to keep the sandbox directory"),
+				)?;
+				#[cfg(target_os = "linux")]
+				if let Some(project_id) = project_id {
+					self.state
+						.stopped_project_ids
+						.insert(id.clone(), project_id);
+				}
+				#[cfg(not(target_os = "linux"))]
+				let _ = project_id;
+			}
+
+			// Register the sandbox with its owner before indexing or reporting its stop or destruction.
 			connected.await?;
 			self.index_remote_sandbox(
 				session,
@@ -1507,15 +1576,28 @@ impl Component {
 			)
 			.await?;
 
-			Self::request_sandbox_destroy(&sender, &id, data, processes).await?;
-
-			tangram_server_core::checkpoint!(
-				session.server,
-				"runner.sandbox.destroyed",
-				sandbox = %id,
-			)
-			.await;
-			tracing::info!(sandbox = %id, "destroyed the sandbox");
+			match teardown {
+				Teardown::Destroy => {
+					Self::request_sandbox_destroy(&sender, &id, data, processes).await?;
+					tangram_server_core::checkpoint!(
+						session.server,
+						"runner.sandbox.destroyed",
+						sandbox = %id,
+					)
+					.await;
+					tracing::info!(sandbox = %id, "destroyed the sandbox");
+				},
+				Teardown::Stop => {
+					Self::request_sandbox_stop(&sender, &id, data, processes).await?;
+					tangram_server_core::checkpoint!(
+						session.server,
+						"runner.sandbox.stopped",
+						sandbox = %id,
+					)
+					.await;
+					tracing::info!(sandbox = %id, "stopped the sandbox");
+				},
+			}
 			event_sender.send(Ok(Event::Destroyed)).ok();
 
 			Ok::<_, tg::Error>(())
@@ -1718,6 +1800,92 @@ impl Component {
 			.map_err(|_| tg::error!("expected a destroy sandbox response"))?;
 
 		Ok(())
+	}
+
+	async fn request_sandbox_stop(
+		sender: &SandboxControlSender,
+		id: &tg::sandbox::Id,
+		data: tg::sandbox::get::Output,
+		processes: Vec<tg::process::Id>,
+	) -> tg::Result<()> {
+		let request_id = tangram_server_core::control::id();
+		let request =
+			tg::sandbox::control::ClientMessage::Request(tg::sandbox::control::ClientRequest {
+				arg: tg::sandbox::control::ClientRequestArg::Stop(
+					tg::sandbox::control::StopClientRequestArg { data, processes },
+				),
+				id: request_id,
+			});
+		let response = sender
+			.request(request, tangram_server_core::control::Priority::High)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to send the stop sandbox request"))?;
+		let response = response
+			.await
+			.map_err(|_| tg::error!("the sandbox control response stream ended"))?;
+		let tg::sandbox::control::ServerMessage::Response(response) = response else {
+			return Err(tg::error!("expected a sandbox control response"));
+		};
+		if let Some(error) = response.error {
+			let error = tg::Error::try_from(error)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+			return Err(tg::error!(!error, "the stop sandbox request failed"));
+		}
+		response
+			.output
+			.ok_or_else(|| tg::error!("missing the stop sandbox response output"))?
+			.try_unwrap_stop()
+			.map_err(|_| tg::error!("expected a stop sandbox response"))?;
+
+		Ok(())
+	}
+
+	fn cancel_sandbox_processes(
+		session: &Session,
+		id: &tg::sandbox::Id,
+		error: Option<tg::error::Data>,
+	) -> tg::Result<()> {
+		let error = error.unwrap_or_else(|| tg::error::Data {
+			code: Some(tg::error::Code::Cancellation),
+			message: Some("the process was canceled".into()),
+			..Default::default()
+		});
+		let sandbox = session
+			.server
+			.components
+			.runner
+			.state()
+			.sandboxes
+			.get_by_id(id)
+			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+		for mut process in sandbox.processes.iter_mut() {
+			if !process.value().data.status.is_finished() {
+				process.value_mut().finish.get_or_insert(
+					tg::process::control::FinishServerRequestArg {
+						error: Some(error.clone()),
+						exit: 1,
+					},
+				);
+				process.stopper.stop();
+			}
+		}
+		Ok(())
+	}
+
+	fn sandbox_status(session: &Session, id: &tg::sandbox::Id) -> Option<tg::sandbox::Status> {
+		session
+			.server
+			.components
+			.runner
+			.state()
+			.sandboxes
+			.get_by_id(id)
+			.map(|sandbox| sandbox.status)
+	}
+
+	/// Get the path of the directory that holds a sandbox's data while it is stopped.
+	fn sandbox_path(session: &Session, id: &tg::sandbox::Id) -> std::path::PathBuf {
+		session.server.path.join("sandboxes").join(id.to_string())
 	}
 
 	fn sandbox_error_data(

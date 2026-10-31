@@ -1276,4 +1276,13 @@ impl tangram_server_core::scheduler::Component for Component {
 	fn started(&self) -> BoxFuture<'_, ()> {
 		self.started().boxed()
 	}
+
+	fn stop_runner_sandbox<'a>(
+		&'a self,
+		server: &'a tangram_server_core::Server,
+		id: &'a tg::sandbox::Id,
+		error: tg::error::Data,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.stop_runner_sandbox(server, id, error).boxed()
+	}
 }

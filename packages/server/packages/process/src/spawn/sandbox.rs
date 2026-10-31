@@ -4,6 +4,7 @@ use {
 	futures::{FutureExt as _, TryStreamExt as _},
 	std::pin::pin,
 	tangram_client::prelude::*,
+	tangram_futures::stream::TryExt as _,
 	tangram_server_core::Session,
 };
 
@@ -253,12 +254,42 @@ impl Component {
 		{
 			control_sender.request(request).await
 		} else {
-			session.server.components.sandbox.request_sandbox_control(session, &sandbox, request, options)
+			Self::check_sandbox_started(session, &sandbox).await?;
+			let result = session
+				.server
+				.components
+				.sandbox
+				.request_sandbox_control(session, &sandbox, request, options)
 				.boxed()
-				.await
-				.map_err(|error| {
-					tg::error!(!error, %sandbox, process = %id, "failed to send the spawn process request")
-				})?
+				.await;
+			match result {
+				Ok(response) => response,
+				Err(error) => {
+					// Report a sandbox that is not running rather than the failure to reach it.
+					let status = session
+						.server
+						.components
+						.sandbox
+						.try_get_sandbox_from_index(session, &sandbox)
+						.await
+						.ok()
+						.flatten()
+						.and_then(|sandbox| sandbox.data)
+						.map(|data| data.data.status);
+					return Err(match status {
+						Some(tg::sandbox::Status::Destroyed) => {
+							tg::error!(!error, %sandbox, "the sandbox was destroyed")
+						},
+						Some(tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping) => {
+							tg::error!(!error, %sandbox, "the sandbox is not started")
+						},
+						Some(tg::sandbox::Status::Started | tg::sandbox::Status::Starting)
+						| None => {
+							tg::error!(!error, %sandbox, process = %id, "failed to send the spawn process request")
+						},
+					});
+				},
+			}
 		}
 		.map_err(
 			|error| tg::error!(!error, %sandbox, process = %id, "the spawn process request failed"),
@@ -279,6 +310,42 @@ impl Component {
 		};
 
 		Ok(connected_event)
+	}
+
+	/// Fail at once if the index records that the sandbox is not running, waiting for pending indexing before trusting a stopped status, because a start that just finished may not be indexed yet.
+	async fn check_sandbox_started(session: &Session, sandbox: &tg::sandbox::Id) -> tg::Result<()> {
+		let mut indexed = true;
+		loop {
+			let status = session
+				.server
+				.components
+				.sandbox
+				.try_get_sandbox_from_index(session, sandbox)
+				.await?
+				.and_then(|sandbox| sandbox.data)
+				.map(|data| data.data.status);
+			match status {
+				Some(tg::sandbox::Status::Destroyed) => {
+					return Err(tg::error!(%sandbox, "the sandbox was destroyed"));
+				},
+				Some(tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping) if indexed => {
+					indexed = false;
+					session
+						.index(tg::index::Arg::default())
+						.await
+						.map_err(|error| tg::error!(!error, "failed to index"))?
+						.try_last()
+						.await
+						.map_err(|error| tg::error!(!error, "failed to index"))?;
+				},
+				Some(tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping) => {
+					return Err(tg::error!(%sandbox, "the sandbox is not started"));
+				},
+				Some(tg::sandbox::Status::Started | tg::sandbox::Status::Starting) | None => {
+					return Ok(());
+				},
+			}
+		}
 	}
 
 	#[tracing::instrument(name = "process.spawn_new", level = "debug", skip_all, fields(process = %output.id, sandbox = output.data.sandbox.as_ref().map(ToString::to_string)), err(level = "debug"))]

@@ -57,6 +57,14 @@ impl tg::instance::Sandbox for Instance {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_destroy_sandbox(id, arg)) }
 	}
 
+	fn try_stop_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::stop::Arg,
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_stop_sandbox(id, arg)) }
+	}
+
 	fn try_get_sandbox_status_stream(
 		&self,
 		id: &tg::sandbox::Id,

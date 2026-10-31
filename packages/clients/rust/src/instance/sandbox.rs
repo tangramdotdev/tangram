@@ -82,6 +82,12 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::sandbox::destroy::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
 
+	fn try_stop_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::stop::Arg,
+	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
+
 	fn try_get_sandbox_status_stream(
 		&self,
 		id: &tg::sandbox::Id,
@@ -180,6 +186,14 @@ impl tg::instance::Sandbox for tg::Client {
 		self.session(&self.context)
 			.try_destroy_sandbox(id, arg)
 			.await
+	}
+
+	async fn try_stop_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::stop::Arg,
+	) -> tg::Result<Option<bool>> {
+		self.session(&self.context).try_stop_sandbox(id, arg).await
 	}
 
 	async fn try_get_sandbox_status_stream(
