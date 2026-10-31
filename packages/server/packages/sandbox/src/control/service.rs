@@ -1,6 +1,6 @@
 use {
 	crate::Component, std::sync::Arc, tangram_client::prelude::*, tangram_futures::task::Stopper,
-	tangram_server_core::Session, tangram_server_core_service as service,
+	tangram_server_core::Session, tangram_server_service as service,
 };
 
 /// The name of the control service's checkpoints.

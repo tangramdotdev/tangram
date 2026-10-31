@@ -9,8 +9,8 @@ use {
 		messenger::Messenger,
 		process::{PushProcessObjectsArg, PushProcessObjectsOutput},
 	},
-	tangram_server_core_service as service,
 	tangram_server_process_core::{Child, Processes, put::Options},
+	tangram_server_service as service,
 };
 
 mod notification;

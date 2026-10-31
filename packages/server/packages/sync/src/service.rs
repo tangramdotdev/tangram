@@ -8,7 +8,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::{stream::TryExt as _, task::Stopper},
 	tangram_server_core::{Server, Session},
-	tangram_server_core_service as service,
+	tangram_server_service as service,
 	tokio::time::Instant,
 };
 

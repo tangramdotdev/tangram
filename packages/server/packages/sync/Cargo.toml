@@ -41,11 +41,11 @@ tangram_serialize = { workspace = true }
 tangram_server_authentication_common = { workspace = true }
 tangram_server_authorization_common = { workspace = true }
 tangram_server_core = { workspace = true }
-tangram_server_core_service = { workspace = true }
 tangram_server_grant_common = { workspace = true }
 tangram_server_node_common = { workspace = true }
 tangram_server_object_common = { workspace = true }
 tangram_server_process_common = { workspace = true }
+tangram_server_service = { workspace = true }
 tangram_server_sync_graph = { workspace = true }
 tangram_server_tag_common = { workspace = true }
 tangram_util = { workspace = true }

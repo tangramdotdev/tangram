@@ -30,11 +30,11 @@ pub struct Component(Arc<State>);
 
 pub struct State {
 	pub(crate) client:
-		tangram_server_core_service::Client<tg::sync::Id, self::service::Protocol, Messenger>,
+		tangram_server_service::Client<tg::sync::Id, self::service::Protocol, Messenger>,
 	pub(crate) index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	pub(crate) servers: DashMap<
 		tg::sync::Id,
-		tangram_server_core_service::Server<self::service::Protocol>,
+		tangram_server_service::Server<self::service::Protocol>,
 		fnv::FnvBuildHasher,
 	>,
 	pub(crate) service_tasks: tangram_futures::task::Set<tg::Result<()>>,
@@ -44,7 +44,7 @@ impl Component {
 	pub fn new(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Self> {
 		// Create the sync client, which observes its events as checkpoints.
 		let observer = Arc::new(self::service::observer(arg.checkpoints.cloned()));
-		let client = tangram_server_core_service::Client::new(
+		let client = tangram_server_service::Client::new(
 			arg.messenger.clone(),
 			self::service::SUBJECT,
 			arg.config.sync.service,

@@ -131,7 +131,6 @@ members = [
   "packages/server/packages/config",
   "packages/server/packages/control",
   "packages/server/packages/core",
-  "packages/server/packages/core/packages/service",
   "packages/server/packages/database",
   "packages/server/packages/directory",
   "packages/server/packages/document",
@@ -174,6 +173,7 @@ members = [
   "packages/server/packages/sandbox/packages/core",
   "packages/server/packages/scheduler",
   "packages/server/packages/scheduler/packages/core",
+  "packages/server/packages/service",
   "packages/server/packages/sync",
   "packages/server/packages/sync/packages/graph",
   "packages/server/packages/tag",
@@ -491,7 +491,6 @@ tangram_server_clock_core = { path = "packages/server/packages/clock/packages/co
 tangram_server_config = { path = "packages/server/packages/config" }
 tangram_server_control = { path = "packages/server/packages/control" }
 tangram_server_core = { path = "packages/server/packages/core" }
-tangram_server_core_service = { path = "packages/server/packages/core/packages/service" }
 tangram_server_database = { path = "packages/server/packages/database" }
 tangram_server_directory = { path = "packages/server/packages/directory" }
 tangram_server_document = { path = "packages/server/packages/document" }
@@ -534,6 +533,7 @@ tangram_server_sandbox_common = { path = "packages/server/packages/sandbox/packa
 tangram_server_sandbox_core = { path = "packages/server/packages/sandbox/packages/core" }
 tangram_server_scheduler = { path = "packages/server/packages/scheduler" }
 tangram_server_scheduler_core = { path = "packages/server/packages/scheduler/packages/core" }
+tangram_server_service = { path = "packages/server/packages/service" }
 tangram_server_sync = { path = "packages/server/packages/sync" }
 tangram_server_sync_graph = { path = "packages/server/packages/sync/packages/graph" }
 tangram_server_tag = { path = "packages/server/packages/tag" }

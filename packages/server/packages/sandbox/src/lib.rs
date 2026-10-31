@@ -8,7 +8,7 @@ use {
 	tangram_server_core::{
 		Server, Session, messenger::Messenger, runner::Runner, sandbox::ConnectionFuture,
 	},
-	tangram_server_core_service as service,
+	tangram_server_service as service,
 };
 
 mod notification;
