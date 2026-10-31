@@ -12,28 +12,94 @@ use {
 };
 
 impl Component {
-	pub(crate) async fn destroy_unfinished_sandboxes(&self, server: &Server) -> tg::Result<()> {
+	/// List the sandboxes that the index records as running, with their boots, before this server accepts work.
+	pub(crate) async fn list_unfinished_sandboxes(
+		&self,
+		server: &Server,
+	) -> tg::Result<Vec<(tg::sandbox::Id, u64)>> {
 		let session = server.session(&server.context);
 		let outputs = self
 			.list_sandboxes_local(&session, None, None, None)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
-		outputs
+		let ids = outputs
 			.into_iter()
-			.map(|output| async move {
+			.filter(|output| !output.status.is_settled())
+			.map(|output| output.id)
+			.collect::<Vec<_>>();
+		let sandboxes = server
+			.index
+			.try_get_sandboxes(&ids)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the sandboxes"))?;
+		let sandboxes = ids
+			.into_iter()
+			.zip(sandboxes)
+			.filter_map(|(id, sandbox)| Some((id, sandbox?.data?.data.boot)))
+			.collect();
+		Ok(sandboxes)
+	}
+
+	/// Stop each listed sandbox whose directory survived the restart and destroy each whose directory did not, after the index writes from before the restart are applied.
+	pub(crate) async fn reconcile_unfinished_sandboxes(
+		&self,
+		server: &Server,
+		sandboxes: Vec<(tg::sandbox::Id, u64)>,
+	) -> tg::Result<()> {
+		// Wait for the index writes from before the restart, such as a stop that had not been indexed.
+		let session = server.session(&server.context);
+		Self::wait_for_indexing(&session).await?;
+
+		sandboxes
+			.into_iter()
+			.map(|(id, boot)| async move {
+				// Skip a sandbox that stopped, or that started again after the restart.
+				let indexed = server
+					.index
+					.try_get_sandboxes(std::slice::from_ref(&id))
+					.await;
+				let unfinished = match indexed {
+					Ok(mut indexed) => indexed
+						.pop()
+						.flatten()
+						.and_then(|sandbox| sandbox.data)
+						.is_some_and(|data| {
+							data.data.boot == boot && !data.data.status.is_settled()
+						}),
+					Err(error) => {
+						tracing::error!(sandbox = %id, error = %error.trace(), "failed to get the sandbox");
+						false
+					},
+				};
+				if !unfinished {
+					return;
+				}
+
+				// Stop the sandbox if its directory survived the restart, and destroy it otherwise.
 				let error = tg::error::Data {
 					code: Some(tg::error::Code::Internal),
 					message: Some("server restarted".to_owned()),
 					..Default::default()
 				};
-				let result = server
-					.components
-					.scheduler
-					.destroy_runner_sandbox(server, &output.id, error)
-					.boxed()
-					.await;
+				let path = server.path.join("sandboxes").join(id.to_string());
+				let exists = tokio::fs::try_exists(&path).await.unwrap_or(false);
+				let result = if exists {
+					server
+						.components
+						.scheduler
+						.stop_runner_sandbox(server, &id, error)
+						.boxed()
+						.await
+				} else {
+					server
+						.components
+						.scheduler
+						.destroy_runner_sandbox(server, &id, error)
+						.boxed()
+						.await
+				};
 				if let Err(error) = result {
-					tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
+					tracing::error!(sandbox = %id, error = %error.trace(), "failed to reconcile the sandbox");
 				}
 			})
 			.collect::<FuturesUnordered<_>>()

@@ -54,6 +54,9 @@ pub struct State {
 	pub sandboxes: crate::sandbox::Sandboxes,
 
 	pub scheduler: tokio::sync::watch::Sender<Option<tg::scheduler::Id>>,
+
+	#[cfg(target_os = "linux")]
+	pub stopped_project_ids: dashmap::DashMap<tg::sandbox::Id, crate::project::Id>,
 }
 
 impl State {
@@ -87,6 +90,9 @@ impl State {
 			sandboxes: crate::sandbox::Sandboxes::default(),
 
 			scheduler,
+
+			#[cfg(target_os = "linux")]
+			stopped_project_ids: dashmap::DashMap::new(),
 
 			#[cfg(target_os = "linux")]
 			storage_pool: tangram_sandbox::budget::Pool::new(

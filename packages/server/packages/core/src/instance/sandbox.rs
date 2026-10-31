@@ -56,6 +56,17 @@ impl tg::instance::Sandbox for Server {
 			.await
 	}
 
+	async fn try_stop_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::stop::Arg,
+	) -> tg::Result<Option<bool>> {
+		self.session(&self.context)
+			.try_stop_sandbox(id, arg)
+			.boxed()
+			.await
+	}
+
 	async fn try_get_sandbox_status_stream(
 		&self,
 		id: &tg::sandbox::Id,
