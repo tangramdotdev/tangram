@@ -76,6 +76,8 @@ if TYPE_CHECKING:
     from .sandbox.create import DataArgObject as SandboxCreateArg
     from .sandbox.destroy import ArgObject as SandboxDestroyArg
     from .sandbox.get import ArgObject as SandboxGetArg
+    from .sandbox.start import ArgObject as SandboxStartArg
+    from .sandbox.stop import ArgObject as SandboxStopArg
     from .write import Write
 
 
@@ -618,6 +620,46 @@ class Client:
         from .sandbox.destroy import destroy_sandbox
 
         return await destroy_sandbox(self, id, **_options(arg, options))
+
+    async def try_start_sandbox(
+        self,
+        id: str,
+        arg: SandboxStartArg | None = None,
+        **options: Unpack[SandboxStartArg],
+    ) -> bool | None:
+        from .sandbox.start import try_start_sandbox
+
+        return await try_start_sandbox(self, id, **_options(arg, options))
+
+    async def start_sandbox(
+        self,
+        id: str,
+        arg: SandboxStartArg | None = None,
+        **options: Unpack[SandboxStartArg],
+    ) -> None:
+        from .sandbox.start import start_sandbox
+
+        return await start_sandbox(self, id, **_options(arg, options))
+
+    async def try_stop_sandbox(
+        self,
+        id: str,
+        arg: SandboxStopArg | None = None,
+        **options: Unpack[SandboxStopArg],
+    ) -> bool | None:
+        from .sandbox.stop import try_stop_sandbox
+
+        return await try_stop_sandbox(self, id, **_options(arg, options))
+
+    async def stop_sandbox(
+        self,
+        id: str,
+        arg: SandboxStopArg | None = None,
+        **options: Unpack[SandboxStopArg],
+    ) -> None:
+        from .sandbox.stop import stop_sandbox
+
+        return await stop_sandbox(self, id, **_options(arg, options))
 
 
 def _options(arg, options):
