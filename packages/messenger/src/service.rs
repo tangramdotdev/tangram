@@ -11,8 +11,8 @@ mod server;
 mod tests;
 
 pub use self::{
-	client::{Clients, Request},
-	server::{Incoming, Reply, Server, Status, serve},
+	client::Client,
+	server::{Reply, Server, Status},
 };
 
 /// The message types of a service: the requests that clients send, and the responses that the server sends back.

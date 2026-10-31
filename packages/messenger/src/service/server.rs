@@ -2,13 +2,11 @@ use {
 	super::{Error, Event, Message, Observer, Options, Protocol, announce_subject, server_subject},
 	crate::{Messenger, Payload},
 	bytes::Bytes,
-	futures::{Stream, StreamExt as _, stream::BoxStream},
+	futures::{StreamExt as _, stream::BoxStream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		marker::PhantomData,
-		pin::Pin,
 		sync::Arc,
-		task::{Context, Poll},
 	},
 	tokio::{
 		sync::{mpsc, watch},
@@ -16,17 +14,9 @@ use {
 	},
 };
 
-/// The server end of a service, which is a stream of incoming requests. Dropping it stops answering, and clients recover their requests with the next server that starts on the same subject.
+/// The server end of a service, which yields the incoming requests. Stopping it stops answering new requests and drains the responses, and clients recover their requests with the next server that starts on the same subject.
 pub struct Server<P: Protocol> {
-	incoming: mpsc::UnboundedReceiver<Incoming<P>>,
-	status: watch::Receiver<Status>,
-	task: tokio::task::JoinHandle<()>,
-}
-
-/// A request received by the server.
-pub struct Incoming<P: Protocol> {
-	pub reply: Reply<P>,
-	pub request: P::Request,
+	shared: Arc<Shared<P>>,
 }
 
 /// The handle with which the server answers a request.
@@ -48,6 +38,15 @@ pub struct Status {
 	pub unacknowledged: usize,
 }
 
+/// The state that the clones of a server share. Dropping it aborts the server's task.
+struct Shared<P: Protocol> {
+	finished: watch::Receiver<bool>,
+	incoming: tokio::sync::Mutex<mpsc::UnboundedReceiver<(P::Request, Reply<P>)>>,
+	status: watch::Receiver<Status>,
+	stop: watch::Sender<bool>,
+	task: tokio::task::AbortHandle,
+}
+
 enum Command {
 	Acknowledge {
 		attempt: String,
@@ -62,7 +61,7 @@ enum Command {
 
 struct Task<P: Protocol, M> {
 	commands: mpsc::UnboundedSender<Command>,
-	incoming: mpsc::UnboundedSender<Incoming<P>>,
+	incoming: Option<mpsc::UnboundedSender<(P::Request, Reply<P>)>>,
 	messenger: M,
 	observer: Arc<dyn Observer<P>>,
 	options: Options,
@@ -96,115 +95,114 @@ struct Entry {
 	response: Option<Message>,
 }
 
-/// Start answering requests on a subject. The server announces itself, so that clients that arrived before it recover their requests immediately.
-pub async fn serve<P, M>(
-	messenger: &M,
-	subject: impl Into<String>,
-	options: Options,
-	observer: Arc<dyn Observer<P>>,
-) -> Result<Server<P>, Error>
-where
-	P: Protocol,
-	M: Messenger + Clone + Send + Sync + 'static,
-{
-	// Validate the options.
-	options.validate()?;
-
-	// Subscribe to the clients before announcing, so that no request resent in response to the announcement is missed.
-	let subject = subject.into();
-	let messages = messenger
-		.subscribe::<Message>(server_subject(&subject))
-		.await
-		.map_err(Error::messenger)?
-		.boxed();
-	messenger
-		.publish(announce_subject(&subject), Message::Announce)
-		.await
-		.map_err(Error::messenger)?;
-
-	// Spawn the task that answers heartbeats, deduplicates requests, resends responses, and expires attempts.
-	let (incoming_sender, incoming) = mpsc::unbounded_channel();
-	let (command_sender, commands) = mpsc::unbounded_channel();
-	let (status_sender, status) = watch::channel(Status::default());
-	let task = Task {
-		commands: command_sender,
-		incoming: incoming_sender,
-		messenger: messenger.clone(),
-		observer,
-		options,
-		state: State::default(),
-		status: status_sender,
-	};
-	let task = tokio::spawn(async move {
-		task.run(messages, commands).await;
-	});
-	let server = Server {
-		incoming,
-		status,
-		task,
-	};
-
-	Ok(server)
-}
-
 impl<P: Protocol> Server<P> {
+	/// Start answering requests on a subject. The server announces itself, so that clients that arrived before it recover their requests immediately.
+	pub async fn start<M>(
+		messenger: &M,
+		subject: impl Into<String>,
+		options: Options,
+		observer: Arc<dyn Observer<P>>,
+	) -> Result<Self, Error>
+	where
+		M: Messenger + Clone + Send + Sync + 'static,
+	{
+		// Validate the options.
+		options.validate()?;
+
+		// Subscribe to the clients before announcing, so that no request resent in response to the announcement is missed.
+		let subject = subject.into();
+		let messages = messenger
+			.subscribe::<Message>(server_subject(&subject))
+			.await
+			.map_err(Error::messenger)?
+			.boxed();
+		messenger
+			.publish(announce_subject(&subject), Message::Announce)
+			.await
+			.map_err(Error::messenger)?;
+
+		// Spawn the task that answers heartbeats, deduplicates requests, resends responses, and expires attempts.
+		let (incoming_sender, incoming) = mpsc::unbounded_channel();
+		let (command_sender, commands) = mpsc::unbounded_channel();
+		let (status_sender, status) = watch::channel(Status::default());
+		let (stop, stopped) = watch::channel(false);
+		let (finished_sender, finished) = watch::channel(false);
+		let task = Task {
+			commands: command_sender,
+			incoming: Some(incoming_sender),
+			messenger: messenger.clone(),
+			observer,
+			options,
+			state: State::default(),
+			status: status_sender,
+		};
+		let task = tokio::spawn(async move {
+			task.run(messages, commands, stopped).await;
+			finished_sender.send_replace(true);
+		});
+		let shared = Shared {
+			finished,
+			incoming: tokio::sync::Mutex::new(incoming),
+			status,
+			stop,
+			task: task.abort_handle(),
+		};
+		let server = Self {
+			shared: Arc::new(shared),
+		};
+
+		Ok(server)
+	}
+
+	/// Get the next request, or `None` once the server stops.
+	pub async fn next(&self) -> Option<(P::Request, Reply<P>)> {
+		self.shared.incoming.lock().await.recv().await
+	}
+
 	/// Get the server's attempts and responses.
 	#[must_use]
 	pub fn status(&self) -> Status {
-		*self.status.borrow()
+		*self.shared.status.borrow()
 	}
 
-	/// Wait until the server's attempts or responses change.
-	pub async fn changed(&mut self) -> Result<(), Error> {
-		self.status.changed().await.map_err(|_| Error::Closed)
+	/// Stop answering new requests, and finish once the responses are acknowledged or the attempt time to live elapses.
+	pub fn stop(&self) {
+		self.shared.stop.send_replace(true);
+	}
+
+	/// Wait for the server to finish.
+	pub async fn wait(&self) {
+		let mut finished = self.shared.finished.clone();
+		finished.wait_for(|finished| *finished).await.ok();
 	}
 }
 
 impl<P: Protocol> Reply<P> {
-	/// Get the ID of the request.
-	#[must_use]
-	pub fn id(&self) -> &str {
-		&self.id
-	}
-
-	/// Get the ID of the attempt under which the request was received.
-	#[must_use]
-	pub fn attempt(&self) -> &str {
-		&self.attempt
-	}
-
 	/// Acknowledge the request without responding, so that the client stops resending it and waits for the response.
-	pub fn acknowledge(&self) -> Result<(), Error> {
+	pub fn acknowledge(&self) {
 		let command = Command::Acknowledge {
 			attempt: self.attempt.clone(),
 			id: self.id.clone(),
 		};
-		self.commands.send(command).map_err(|_| Error::Closed)?;
-		Ok(())
-	}
-
-	/// Send the response. The server resends it until the client acknowledges it.
-	pub fn send(&self, response: &P::Response) -> Result<(), Error> {
-		let response = response.serialize().map_err(Error::messenger)?;
-		let command = Command::Respond {
-			attempt: self.attempt.clone(),
-			id: self.id.clone(),
-			response,
-		};
-		self.commands.send(command).map_err(|_| Error::Closed)?;
-		Ok(())
-	}
-
-	/// Wait until the client cancels the request or its attempt expires.
-	pub async fn cancelled(&self) {
-		let mut cancelled = self.cancelled.clone();
-		cancelled.wait_for(|cancelled| *cancelled).await.ok();
+		self.commands.send(command).ok();
 	}
 
 	/// Check whether the client has cancelled the request or its attempt has expired.
 	#[must_use]
 	pub fn is_cancelled(&self) -> bool {
 		*self.cancelled.borrow() || self.cancelled.has_changed().is_err()
+	}
+
+	/// Send the response. The server resends it until the client acknowledges it. Fail if the response cannot be serialized.
+	pub fn send(self, response: &P::Response) -> Result<(), Error> {
+		let response = response.serialize().map_err(Error::messenger)?;
+		let command = Command::Respond {
+			attempt: self.attempt,
+			id: self.id,
+			response,
+		};
+		self.commands.send(command).ok();
+		Ok(())
 	}
 }
 
@@ -217,11 +215,18 @@ where
 		mut self,
 		mut messages: BoxStream<'static, Result<crate::Message<Message>, crate::Error>>,
 		mut commands: mpsc::UnboundedReceiver<Command>,
+		mut stop: watch::Receiver<bool>,
 	) {
 		let mut retry = interval(self.options.retry_interval);
 		retry.set_missed_tick_behavior(MissedTickBehavior::Skip);
+		let mut stopping_at = None;
 		loop {
 			tokio::select! {
+				() = async { stop.wait_for(|stop| *stop).await.ok(); }, if stopping_at.is_none() => {
+					// Stop delivering new requests, and drain the responses for at most the attempt time to live.
+					stopping_at = Some(Instant::now() + self.options.attempt_ttl);
+					self.incoming = None;
+				},
 				message = messages.next() => {
 					let Some(Ok(message)) = message else {
 						break;
@@ -240,6 +245,14 @@ where
 				},
 			}
 			self.update_status();
+
+			// Finish a stopping server once it has handled its pending responses and they are acknowledged, or once its deadline passes.
+			if stopping_at.is_some_and(|deadline| {
+				(commands.is_empty() && self.status.borrow().unacknowledged == 0)
+					|| Instant::now() >= deadline
+			}) {
+				break;
+			}
 		}
 
 		// Cancel the pending requests when the server stops.
@@ -392,7 +405,10 @@ where
 			return;
 		}
 
-		// Deliver a new request to the server, which acknowledges it or responds.
+		// Deliver a new request to the server, which acknowledges it or responds, unless the server is stopping.
+		let Some(incoming) = self.incoming.clone() else {
+			return;
+		};
 		let Ok(request) = P::Request::deserialize(request) else {
 			return;
 		};
@@ -416,8 +432,7 @@ where
 			id: id.clone(),
 			marker: PhantomData,
 		};
-		let incoming = Incoming { reply, request };
-		self.incoming.send(incoming).ok();
+		incoming.send((request, reply)).ok();
 	}
 
 	async fn acknowledge(&mut self, attempt: String, id: String) {
@@ -580,15 +595,15 @@ where
 	}
 }
 
-impl<P: Protocol> Stream for Server<P> {
-	type Item = Incoming<P>;
-
-	fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-		self.get_mut().incoming.poll_recv(cx)
+impl<P: Protocol> Clone for Server<P> {
+	fn clone(&self) -> Self {
+		Self {
+			shared: self.shared.clone(),
+		}
 	}
 }
 
-impl<P: Protocol> Drop for Server<P> {
+impl<P: Protocol> Drop for Shared<P> {
 	fn drop(&mut self) {
 		self.task.abort();
 	}

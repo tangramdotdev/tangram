@@ -33,20 +33,20 @@ let token = $'http://localhost/($referent)' | url parse | get params | where {|p
 let referent = $'($file)?tokens[local][0]=($token | url encode --all)'
 # Hold the sync batch until verification has started contacting its service.
 tg --url $remote_destination.url --token $root_token checkpoint wait index.batch $batch_watch 0 | ignore
-let heartbeat_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.service.heartbeat.start | from json | get watch
+let request_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.service.request | from json | get watch
 let read = job spawn {
 	let job_id = job id
 	let output = tg --url $remote_destination.url --token $bob.token read $referent | complete
 	$output | job send --tag $job_id 0
 }
-tg --url $remote_destination.url --token $root_token checkpoint wait sync.service.heartbeat.start $heartbeat_watch 0 | ignore
+tg --url $remote_destination.url --token $root_token checkpoint wait sync.service.request $request_watch 0 | ignore
 assert equal (try { job recv --tag $read --timeout 0.2sec } catch { null }) null 'verification should still be waiting for a proof'
 tg --url $remote_destination.url --token $root_token checkpoint unwatch index.batch $batch_watch
 success (job recv --tag $push --timeout 10sec) 'the sync should complete after its final index writes'
 tg --url $remote_destination.url --token $root_token checkpoint wait sync.service.stopped $stopped_watch 0 | ignore
 tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.service.stopped $stopped_watch
-# The control task is gone before the verifier can send its first heartbeat.
-tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.service.heartbeat.start $heartbeat_watch
+# The service is gone before the verifier's request reaches it.
+tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.service.request $request_watch
 let output = job recv --tag $read --timeout 10sec
 success $output 'verification should retry the index after the service timeout'
 assert equal $output.stdout 'private'

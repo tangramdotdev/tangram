@@ -11148,6 +11148,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_server_core_service"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "tangram_client",
+ "tangram_messenger",
+ "tangram_messenger_memory",
+ "tangram_server_checkpoint_core",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "tangram_server_database"
 version = "0.0.0"
 dependencies = [
@@ -11560,6 +11575,7 @@ dependencies = [
  "tangram_messenger",
  "tangram_serialize",
  "tangram_server_core",
+ "tangram_server_core_service",
  "tangram_server_process_common",
  "tangram_server_process_core",
  "tangram_server_runner_core",
@@ -11772,6 +11788,7 @@ dependencies = [
  "http",
  "mime",
  "num",
+ "scopeguard",
  "serde",
  "serde_json",
  "tangram_client",
@@ -11781,6 +11798,7 @@ dependencies = [
  "tangram_messenger",
  "tangram_serialize",
  "tangram_server_core",
+ "tangram_server_core_service",
  "tangram_server_remote_common",
  "tangram_server_remote_core",
  "tangram_server_sandbox_common",
@@ -11848,6 +11866,8 @@ version = "0.0.0"
 dependencies = [
  "async-channel",
  "bytes",
+ "dashmap",
+ "fnv",
  "futures",
  "http",
  "indexmap 2.14.2",
@@ -11868,6 +11888,7 @@ dependencies = [
  "tangram_server_authentication_common",
  "tangram_server_authorization_common",
  "tangram_server_core",
+ "tangram_server_core_service",
  "tangram_server_grant_common",
  "tangram_server_node_common",
  "tangram_server_object_common",

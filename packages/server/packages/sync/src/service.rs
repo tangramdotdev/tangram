@@ -1,19 +1,25 @@
 use {
 	crate::{Component, graph::Graph},
-	futures::{FutureExt as _, StreamExt as _, future::BoxFuture},
+	futures::FutureExt as _,
 	std::{
 		collections::BTreeMap,
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::TryExt as _, task::Stopper},
-	tangram_messenger::service,
 	tangram_server_core::{Server, Session},
+	tangram_server_core_service as service,
 	tokio::time::Instant,
 };
 
 #[cfg(test)]
 mod tests;
+
+/// The name of the sync service's checkpoints.
+pub(crate) const NAME: &str = "sync.service";
+
+/// The subject under which the sync services serve the subjects of their syncs.
+pub(crate) const SUBJECT: &str = "syncs.service";
 
 /// The handle with which a sync tells its service that it finished.
 #[derive(Clone)]
@@ -36,23 +42,12 @@ pub(crate) enum Request {
 	Verify(tg::sync::service::VerifyArg),
 }
 
+#[derive(Clone)]
 pub(crate) struct Response(pub tg::sync::service::Response);
-
-/// Observes the sync service's events as checkpoints.
-pub(crate) struct Observer {
-	checkpoints: Option<Arc<tangram_server_core::checkpoint::State>>,
-}
 
 impl Handle {
 	pub fn finish(&self, result: tg::Result<()>) {
 		self.sender.send(result).ok();
-	}
-}
-
-impl Observer {
-	#[must_use]
-	pub fn new(checkpoints: Option<Arc<tangram_server_core::checkpoint::State>>) -> Self {
-		Self { checkpoints }
 	}
 }
 
@@ -91,17 +86,18 @@ impl Component {
 }
 
 impl Component {
-	/// Ask a sync's service to verify a node, waiting until the sync can answer.
+	/// Ask a sync's service to verify a node, over the local channel if it runs on this server, waiting until the sync can answer.
 	pub(crate) async fn request_sync_verification(
 		&self,
 		sync: &tg::sync::Id,
 		arg: tg::sync::service::VerifyArg,
 	) -> tg::Result<Option<tg::sync::service::Output>> {
-		let mut request = self
-			.clients
-			.request(&subject(sync), Request::Verify(arg))
-			.map_err(|source| tg::error!(!source, "failed to send the sync request"))?;
-		let Response(response) = request.wait().await.map_err(|error| match error {
+		let server = self.servers.get(sync).map(|server| server.value().clone());
+		let result = self
+			.client
+			.request(sync, server.as_ref(), Request::Verify(arg))
+			.await;
+		let Response(response) = result.map_err(|error| match error {
 			service::Error::Stopped => {
 				tg::error!(
 					code = tg::error::Code::Cancellation,
@@ -133,15 +129,25 @@ impl Component {
 		mut nodes: tokio::sync::mpsc::UnboundedReceiver<Vec<tg::Id>>,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		// Start answering the sync's verification requests.
+		// Start answering the sync's verification requests, and register the service so that the requests on this server skip the messenger.
 		tangram_server_core::checkpoint!(server, "sync.service.subscribe").await;
-		let subject = subject(id);
 		let options = server.config.sync.service;
-		let observer = Arc::new(Observer::new(server.checkpoints.clone()));
-		let mut service =
-			service::serve::<Protocol, _>(&server.messenger, subject.clone(), options, observer)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to start the sync service"))?;
+		let observer = Arc::new(observer(server.checkpoints.clone()));
+		let service = service::Server::start(&server.messenger, SUBJECT, id, options, observer);
+		self.servers.insert(id.clone(), service.clone());
+
+		// Stop and unregister the service when this task ends, even if it panics or is aborted.
+		let guard = scopeguard::guard((), {
+			let component = self.clone();
+			let id = id.clone();
+			let service = service.clone();
+			move |()| {
+				service.stop();
+				component
+					.servers
+					.remove_if(&id, |_, server| server.is_stopped());
+			}
+		});
 
 		// Answer the requests as the sync's nodes arrive, retaining each until it can be answered.
 		let mut finished = None::<tg::Result<()>>;
@@ -150,15 +156,14 @@ impl Component {
 		let mut retained = BTreeMap::<tg::Id, Vec<Retained>>::new();
 		let mut prune = tokio::time::interval(options.retry_interval);
 		prune.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-		let mut cancelled = false;
 		let mut finish_closed = false;
-		let mut stopping_at = None;
-		loop {
+		let mut cancelled_at = None;
+		let result = loop {
 			tokio::select! {
-				() = stopper.wait(), if stopping_at.is_none() => {
-					stopping_at = Some(Instant::now() + options.attempt_ttl);
+				() = stopper.wait() => {
 					let error = tg::error!(code = tg::error::Code::Cancellation, "the server is stopping");
 					self.sync_service_finish(server, &graph, &mut finished, &mut retained, Err(error)).await;
+					break Ok(());
 				},
 				result = finish.recv(), if !finish_closed => {
 					let result = if let Some(result) = result {
@@ -167,13 +172,12 @@ impl Component {
 						finish_closed = true;
 						Err(tg::error!(code = tg::error::Code::Cancellation, "the sync was cancelled"))
 					};
-					// Reject the requests of a cancelled sync and drain for one attempt TTL, instead of staying subscribed while requesters retry.
+					// Reject the requests of a cancelled sync for one attempt TTL, instead of staying subscribed while requesters retry.
 					if finished.is_none()
-						&& stopping_at.is_none()
+						&& cancelled_at.is_none()
 						&& result.as_ref().err().is_some_and(error_is_cancellation)
 					{
-						cancelled = true;
-						stopping_at = Some(Instant::now() + options.attempt_ttl);
+						cancelled_at = Some(Instant::now());
 					}
 					self.sync_service_finish(server, &graph, &mut finished, &mut retained, result).await;
 					if record.is_none() && !recorded {
@@ -196,18 +200,16 @@ impl Component {
 					}
 				},
 				incoming = service.next() => {
-					let Some(incoming) = incoming else {
-						return Err(tg::error!("the sync service stopped"));
+					let Some((request, reply)) = incoming else {
+						break Err(tg::error!("the sync service stopped"));
 					};
-					let Request::Verify(arg) = incoming.request;
+					let Request::Verify(arg) = request;
 					let node = arg.node.clone();
-					let request = Retained { arg, reply: incoming.reply };
+					let request = Retained { arg, reply };
 					let requests = Self::sync_service_answer(server, &graph, finished.as_ref(), vec![request]);
 					if let Some(request) = requests.into_iter().next() {
-						let id = request.reply.id().to_owned();
-						let attempt = request.reply.attempt().to_owned();
-						tangram_server_core::checkpoint!(server, "sync.service.request.retain", id = %id, attempt = %attempt, node = %node).await;
-						request.reply.acknowledge().ok();
+						tangram_server_core::checkpoint!(server, "sync.service.request.retain", node = %node).await;
+						request.reply.acknowledge();
 						retained.entry(node.clone()).or_default().push(request);
 					}
 				},
@@ -220,20 +222,23 @@ impl Component {
 				},
 			}
 
-			// Stop once a stopping server's responses are acknowledged, or once the index records that the sync finished and the sync has no attempts left.
+			// Stop once a cancelled sync has rejected requests for one attempt TTL, or once the index records that the sync finished and the sync has no attempts left.
 			let now = Instant::now();
 			let status = service.status();
-			let drained = stopping_at.is_some() && !cancelled && status.unacknowledged == 0;
-			if stopping_at.is_some_and(|deadline| drained || now >= deadline)
+			if cancelled_at.is_some_and(|cancelled_at| now >= cancelled_at + options.attempt_ttl)
 				|| (recorded && status.attempts == 0)
 			{
-				break;
+				break Ok(());
 			}
-		}
+		};
 
+		// Stop the service, unregister it, and wait for its responses to be acknowledged.
+		drop(guard);
+		service.wait().await;
+		let subject = format!("{SUBJECT}.{id}");
 		tangram_server_core::checkpoint!(server, "sync.service.stopped", subject = %subject).await;
 
-		Ok(())
+		result
 	}
 
 	/// Record the sync's result and answer every retained request with it.
@@ -317,7 +322,7 @@ impl Component {
 				continue;
 			};
 			let response = Self::sync_service_response(server, &request.arg, result);
-			request.reply.send(&Response(response)).ok();
+			request.reply.send(&Response(response));
 		}
 		remaining
 	}
@@ -409,90 +414,6 @@ impl service::Protocol for Protocol {
 	}
 }
 
-impl service::Observer<Protocol> for Observer {
-	fn observe<'a>(&'a self, event: service::Event<'a, Protocol>) -> BoxFuture<'a, ()> {
-		async move {
-			let Some(checkpoints) = &self.checkpoints else {
-				return;
-			};
-			let mut params = tg::checkpoint::Params::new();
-			let mut insert = |key: &str, value: &str| {
-				params.insert(key.to_owned(), value.to_owned().into());
-			};
-			let name = match event {
-				service::Event::Acknowledged {
-					attempt,
-					id,
-					request,
-				} => {
-					insert("attempt", attempt);
-					insert("id", id);
-					match request {
-						Request::Verify(arg) => insert("node", &arg.node.to_string()),
-					}
-					"sync.service.ack"
-				},
-				service::Event::Attempt { attempt, client } => {
-					insert("attempt", attempt);
-					insert("client", client);
-					"sync.service.attempt"
-				},
-				service::Event::Cancelled { attempt, id } => {
-					insert("attempt", attempt);
-					insert("id", id);
-					"sync.service.cancel"
-				},
-				service::Event::HeartbeatResponded {
-					attempt,
-					client,
-					id,
-				} => {
-					insert("attempt", attempt);
-					insert("client", client);
-					insert("id", id);
-					"sync.service.heartbeat.response"
-				},
-				service::Event::HeartbeatSent { client, id } => {
-					insert("client", client);
-					insert("id", id);
-					"sync.service.heartbeat.request"
-				},
-				service::Event::RequestSent {
-					attempt,
-					id,
-					request,
-				} => {
-					if let Some(attempt) = attempt {
-						insert("attempt", attempt);
-					}
-					insert("id", id);
-					match request {
-						Request::Verify(arg) => insert("node", &arg.node.to_string()),
-					}
-					"sync.service.request"
-				},
-				service::Event::Responded { attempt, id } => {
-					insert("attempt", attempt);
-					insert("id", id);
-					"sync.service.response"
-				},
-				service::Event::ResponseAcknowledged { attempt, id } => {
-					insert("attempt", attempt);
-					insert("id", id);
-					"sync.service.response_ack"
-				},
-				service::Event::Started { client, subject } => {
-					insert("client", client);
-					insert("subject", subject);
-					"sync.service.heartbeat.start"
-				},
-			};
-			checkpoints.hit(name, params).await;
-		}
-		.boxed()
-	}
-}
-
 impl tangram_messenger::Payload for Request {
 	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
 		tangram_serialize::to_vec(self)
@@ -534,6 +455,13 @@ fn error_is_cancellation(error: &tg::Error) -> bool {
 	false
 }
 
-fn subject(id: &tg::sync::Id) -> String {
-	format!("syncs.{id}.service")
+/// Create the observer of the sync service's events, whose checkpoints carry the node of each request.
+pub(crate) fn observer(
+	checkpoints: Option<Arc<tangram_server_core::checkpoint::State>>,
+) -> service::Checkpoints<Protocol> {
+	service::Checkpoints::with_params(checkpoints, NAME, |request, params| match request {
+		Request::Verify(arg) => {
+			params.insert("node".to_owned(), arg.node.to_string().into());
+		},
+	})
 }

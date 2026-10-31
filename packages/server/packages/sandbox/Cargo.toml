@@ -24,6 +24,7 @@ futures = { workspace = true }
 http = { workspace = true }
 mime = { workspace = true }
 num = { workspace = true }
+scopeguard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_client = { workspace = true }
@@ -33,6 +34,7 @@ tangram_index = { workspace = true }
 tangram_messenger = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_server_core = { workspace = true }
+tangram_server_core_service = { workspace = true }
 tangram_server_remote_common = { workspace = true }
 tangram_server_remote_core = { workspace = true }
 tangram_server_sandbox_common = { workspace = true }

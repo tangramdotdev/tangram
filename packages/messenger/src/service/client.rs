@@ -19,26 +19,26 @@ use {
 
 type Messages = BoxStream<'static, Result<crate::Message<Message>, crate::Error>>;
 
-/// The clients of a messenger, with one shared client per subject that stops after it has been idle, and one subscription for the responses to all of them.
-pub struct Clients<P: Protocol, M> {
+/// The client of a messenger's services, with one shared connection per subject that stops after it has been idle, and one subscription for the responses to all of them.
+pub struct Client<P: Protocol, M> {
 	messenger: M,
 	observer: Arc<dyn Observer<P>>,
 	options: Options,
 	pool: Arc<Pool>,
 	stopped: watch::Sender<bool>,
-	subjects: Arc<Mutex<BTreeMap<String, Arc<Client<P>>>>>,
+	subjects: Arc<Mutex<BTreeMap<String, Arc<Connection<P>>>>>,
 }
 
 /// A pending request. Dropping it cancels the request at the server.
-pub struct Request<P: Protocol> {
-	client: Arc<Client<P>>,
+struct Request<P: Protocol> {
+	connection: Arc<Connection<P>>,
 	id: String,
 	marker: PhantomData<fn() -> P::Response>,
 	receiver: watch::Receiver<Output>,
 }
 
-/// The client for one subject, which a task runs. Its ID is the subject that its responses are published to.
-struct Client<P: Protocol> {
+/// The connection for one subject, which a task runs. Its ID is the subject that its responses are published to.
+struct Connection<P: Protocol> {
 	id: String,
 	sender: mpsc::UnboundedSender<Command<P>>,
 }
@@ -84,7 +84,7 @@ struct Task<P: Protocol, M> {
 	options: Options,
 	pool: Arc<Pool>,
 	state: State<P>,
-	subjects: Arc<Mutex<BTreeMap<String, Arc<Client<P>>>>>,
+	subjects: Arc<Mutex<BTreeMap<String, Arc<Connection<P>>>>>,
 }
 
 struct State<P: Protocol> {
@@ -125,12 +125,12 @@ struct Pending<P: Protocol> {
 	sent_without_attempt: bool,
 }
 
-impl<P, M> Clients<P, M>
+impl<P, M> Client<P, M>
 where
 	P: Protocol,
 	M: Messenger + Clone + Send + Sync + 'static,
 {
-	/// Create the clients of a messenger, whose responses are published to subjects under the given subject.
+	/// Create the client of a messenger's services, whose responses are published to subjects under the given subject.
 	pub fn new(
 		messenger: M,
 		subject: impl Into<String>,
@@ -145,7 +145,7 @@ where
 			subject: subject.into(),
 			subscribing: tokio::sync::Mutex::new(()),
 		};
-		let clients = Self {
+		let client = Self {
 			messenger,
 			observer,
 			options,
@@ -153,11 +153,21 @@ where
 			stopped,
 			subjects: Arc::new(Mutex::new(BTreeMap::new())),
 		};
-		Ok(clients)
+		Ok(client)
 	}
 
-	/// Send a request to the server of a subject. The server may start before or after the request is sent.
-	pub fn request(&self, subject: &str, request: P::Request) -> Result<Request<P>, Error> {
+	/// Send a request to the server of a subject and wait for its response. The server may start before or after the request is sent. Dropping the future cancels the request at the server.
+	pub async fn request(&self, subject: &str, request: P::Request) -> Result<P::Response, Error> {
+		let mut request = self.send(subject, request)?;
+		request.wait().await
+	}
+
+	/// Stop every connection, failing their pending requests with `Error::Stopped`.
+	pub fn stop(&self) {
+		self.stopped.send_replace(true);
+	}
+
+	fn send(&self, subject: &str, request: P::Request) -> Result<Request<P>, Error> {
 		let id = id();
 		let (sender, receiver) = watch::channel(Output::Pending);
 		let command = Command::Request {
@@ -166,24 +176,24 @@ where
 			sender,
 		};
 
-		// Send the request while holding the lock, so that an idle client cannot remove itself between being found and receiving the request.
+		// Send the request while holding the lock, so that an idle connection cannot remove itself between being found and receiving the request.
 		let mut subjects = self.subjects.lock().unwrap();
-		let client = if let Some(client) = subjects
+		let connection = if let Some(connection) = subjects
 			.get(subject)
-			.filter(|client| !client.sender.is_closed())
+			.filter(|connection| !connection.sender.is_closed())
 			.cloned()
 		{
-			client
+			connection
 		} else {
-			let client = self.spawn(subject);
-			subjects.insert(subject.to_owned(), client.clone());
-			client
+			let connection = self.spawn(subject);
+			subjects.insert(subject.to_owned(), connection.clone());
+			connection
 		};
-		client.sender.send(command).map_err(|_| Error::Closed)?;
+		connection.sender.send(command).map_err(|_| Error::Closed)?;
 		drop(subjects);
 
 		let request = Request {
-			client,
+			connection,
 			id,
 			marker: PhantomData,
 			receiver,
@@ -191,20 +201,15 @@ where
 		Ok(request)
 	}
 
-	/// Stop every client, failing their pending requests with `Error::Stopped`.
-	pub fn stop(&self) {
-		self.stopped.send_replace(true);
-	}
-
-	fn spawn(&self, subject: &str) -> Arc<Client<P>> {
+	fn spawn(&self, subject: &str) -> Arc<Connection<P>> {
 		let (sender, commands) = mpsc::unbounded_channel();
-		let client = Arc::new(Client {
+		let connection = Arc::new(Connection {
 			id: client_subject(&self.pool.subject, &self.pool.id, &id()),
 			sender,
 		});
 		let state = State {
 			attempt: None,
-			client: client.id.clone(),
+			client: connection.id.clone(),
 			heartbeat_at: Instant::now(),
 			heartbeats: BTreeMap::new(),
 			idle_at: None,
@@ -224,7 +229,7 @@ where
 		tokio::spawn(async move {
 			task.run(commands, stopped).await;
 		});
-		client
+		connection
 	}
 }
 
@@ -302,7 +307,7 @@ impl Pool {
 
 impl<P: Protocol> Request<P> {
 	/// Wait for the response.
-	pub async fn wait(&mut self) -> Result<P::Response, Error> {
+	async fn wait(&mut self) -> Result<P::Response, Error> {
 		loop {
 			let output = self.receiver.borrow_and_update().clone();
 			match output {
@@ -787,7 +792,7 @@ where
 		}
 		if subjects
 			.get(&self.state.subject)
-			.is_some_and(|client| client.id == self.state.client)
+			.is_some_and(|connection| connection.id == self.state.client)
 		{
 			subjects.remove(&self.state.subject);
 		}
@@ -817,7 +822,7 @@ impl Drop for Route {
 
 impl<P: Protocol> Drop for Request<P> {
 	fn drop(&mut self) {
-		self.client
+		self.connection
 			.sender
 			.send(Command::Cancel(self.id.clone()))
 			.ok();

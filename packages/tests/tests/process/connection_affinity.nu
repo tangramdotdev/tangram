@@ -22,8 +22,8 @@ let proxy = job spawn { node $proxy_path $port $ready ...$sockets }
 success (timeout 30s cat $ready | complete) "the proxy should listen"
 let url = $'http://127.0.0.1:($port)'
 
-# Hold every correlated request that either server answers over the messenger.
-let checkpoints = [process.attach.service.messenger process.control.service.messenger sandbox.control.service.messenger]
+# Hold every correlated request that either server sends over the messenger.
+let checkpoints = [process.attach.service.heartbeat.start process.control.service.heartbeat.start sandbox.control.service.heartbeat.start]
 let watches = [$first $second] | each { |server|
 	$checkpoints | each { |name| checkpoint watch $name --url $server.url --token $root_token }
 } | flatten

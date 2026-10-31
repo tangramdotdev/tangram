@@ -1,13 +1,18 @@
 use {
 	crate::Component,
-	futures::{FutureExt as _, StreamExt as _, future::BoxFuture},
 	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
-	tangram_messenger::service,
 	tangram_server_core::{Server, Session},
+	tangram_server_core_service as service,
 	tokio::time::Instant,
 };
+
+/// The name of the attach service's checkpoints.
+pub(crate) const NAME: &str = "process.attach.service";
+
+/// The subject under which the attach services serve the subjects of their nonces.
+pub(crate) const SUBJECT: &str = "processes.attach.service";
 
 /// The sender with which an attach tells its attach service the location of the server that it went to, its command sync, its opens, and its process. Dropping every sender finishes the service.
 #[derive(Clone)]
@@ -44,12 +49,6 @@ pub(crate) struct Output {
 	pub open: Option<String>,
 }
 
-/// The reply to a request that an attach service received over the local channel or the messenger.
-enum Reply {
-	Local(tokio::sync::oneshot::Sender<Response>),
-	Messenger(service::Reply<Protocol>),
-}
-
 /// The state of an attach service.
 #[derive(Default)]
 struct State {
@@ -58,12 +57,6 @@ struct State {
 	open: Vec<Offer>,
 	process: Option<tg::Referent<tg::process::Id>>,
 	sync: Option<tg::Referent<tg::sync::Id>>,
-}
-
-/// A request from this server to one of its own attach services, which the service answers over a local channel without the messenger.
-pub(crate) struct LocalRequest {
-	pub reply: tokio::sync::oneshot::Sender<Response>,
-	pub request: Request,
 }
 
 /// The protocol of an attach service, which answers with the process or the command sync of an attach.
@@ -114,11 +107,6 @@ pub(crate) struct Response {
 
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
 	pub sync: Option<tg::Referent<tg::sync::Id>>,
-}
-
-/// Observes the process attach service's events as checkpoints.
-pub(crate) struct Observer {
-	checkpoints: Option<Arc<tangram_server_core::checkpoint::State>>,
 }
 
 impl Sender {
@@ -212,45 +200,6 @@ impl Open {
 	}
 }
 
-impl Reply {
-	/// Get the ID of the request, which is `local` for a request over the local channel.
-	fn id(&self) -> &str {
-		match self {
-			Self::Local(_) => "local",
-			Self::Messenger(reply) => reply.id(),
-		}
-	}
-
-	/// Acknowledge a request over the messenger, so that the client stops resending it. A request over the local channel needs no acknowledgment.
-	fn acknowledge(&self) {
-		match self {
-			Self::Local(_) => (),
-			Self::Messenger(reply) => {
-				reply.acknowledge().ok();
-			},
-		}
-	}
-
-	/// Check whether the requester stopped waiting for the response.
-	fn is_cancelled(&self) -> bool {
-		match self {
-			Self::Local(reply) => reply.is_closed(),
-			Self::Messenger(reply) => reply.is_cancelled(),
-		}
-	}
-
-	fn send(self, response: &Response) {
-		match self {
-			Self::Local(reply) => {
-				reply.send(response.clone()).ok();
-			},
-			Self::Messenger(reply) => {
-				reply.send(response).ok();
-			},
-		}
-	}
-}
-
 impl State {
 	/// Get the response to a request, claiming the open for its streams, or `None` if the attach cannot answer it yet.
 	fn response(&mut self, request: &Request) -> Option<Response> {
@@ -308,13 +257,6 @@ impl Request {
 	}
 }
 
-impl Observer {
-	#[must_use]
-	pub fn new(checkpoints: Option<Arc<tangram_server_core::checkpoint::State>>) -> Self {
-		Self { checkpoints }
-	}
-}
-
 impl Component {
 	/// Resolve a process named by the nonce of an attach in this instance, replacing the nonce with the process's ID and the location with the process's location, and inheriting the process's tokens. The nonce stays in place when the request's locations exclude this server and no attach on this server has the nonce, when no attach in this instance has the nonce, or when the attach went to another server, whose location replaces the request's. A request that claims the attach's open for the given streams receives the open's ID. Returns `None` if the attach finished without a process.
 	pub(crate) async fn try_resolve_process(
@@ -331,7 +273,7 @@ impl Component {
 		};
 
 		// Leave the nonce in place if the request's locations exclude this server, unless an attach on this server has the nonce.
-		if location.is_some() && !self.attach.services.contains_key(&nonce) {
+		if location.is_some() && !self.attach.servers.contains_key(&nonce) {
 			let locations = session
 				.locations(location.as_ref())
 				.await
@@ -347,10 +289,7 @@ impl Component {
 			streams: streams.to_vec(),
 		};
 		let request = Request::Process(request);
-		let Some(response) = self
-			.request_process_attach_service(&session.server, &nonce, request)
-			.await?
-		else {
+		let Some(response) = self.request_process_attach_service(&nonce, request).await? else {
 			return Ok(Some(Output::default()));
 		};
 
@@ -389,36 +328,59 @@ impl Component {
 			principal: session.context.principal.clone(),
 		};
 		let request = Request::Sync(request);
-		let response = self
-			.request_process_attach_service(&session.server, nonce, request)
-			.await?;
+		let response = self.request_process_attach_service(nonce, request).await?;
 		let sync = response.and_then(|response| response.sync);
 		Ok(sync)
 	}
 
 	/// Start answering the requests that locate this session's attach by its nonce, over the messenger and, for requests from this server, over a local channel.
-	pub(crate) fn spawn_process_attach_service_task(
+	pub(crate) async fn spawn_process_attach_service_task(
 		&self,
 		session: &Session,
 		nonce: &tg::process::Nonce,
 	) -> tg::Result<Sender> {
-		// Register the local channel before the task starts, so that later requests on this server find it.
-		let (local_sender, local_requests) = tokio::sync::mpsc::unbounded_channel();
-		match self.attach.services.entry(*nonce) {
+		// Start the attach service, and register it so that the requests on this server skip the messenger.
+		let options = session.server.config.process.attach.service;
+		let observer = Arc::new(service::Checkpoints::new(
+			session.server.checkpoints.clone(),
+			NAME,
+		));
+		let service_server = match self.attach.servers.entry(*nonce) {
 			dashmap::Entry::Occupied(_) => {
 				return Err(tg::error!(argument, "the nonce is in use"));
 			},
 			dashmap::Entry::Vacant(entry) => {
-				entry.insert(local_sender.clone());
+				let service_server = service::Server::start(
+					&session.server.messenger,
+					SUBJECT,
+					nonce,
+					options,
+					observer,
+				);
+				entry.insert(service_server.clone());
+				service_server
 			},
-		}
-		self.attach.services_changed.notify_waiters();
+		};
+		tangram_server_core::checkpoint!(session.server, "process.attach.service.started", nonce = %nonce).await;
 
-		// Spawn the task, and remove its local channel when it exits.
+		// Stop and unregister the service when its task ends, even if the task panics or is aborted.
+		let guard = scopeguard::guard((), {
+			let component = self.clone();
+			let nonce = *nonce;
+			let service_server = service_server.clone();
+			move |()| {
+				service_server.stop();
+				component
+					.attach
+					.servers
+					.remove_if(&nonce, |_, server| server.is_stopped());
+			}
+		});
+
+		// Spawn the task that answers the requests, and wait for the service's responses to be acknowledged once it ends.
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 		let sender = Sender { sender };
 		let principal = session.context.principal.clone();
-		let subject = subject(nonce);
 		self.attach
 			.service_tasks
 			.spawn({
@@ -429,17 +391,15 @@ impl Component {
 					let result = component
 						.process_attach_service_task(
 							&server,
-							subject,
 							principal,
+							&service_server,
 							receiver,
-							local_requests,
 							stopper,
 						)
 						.await;
-					component
-						.attach
-						.services
-						.remove_if(&nonce, |_, sender| sender.same_channel(&local_sender));
+					drop(guard);
+					service_server.wait().await;
+					tangram_server_core::checkpoint!(server, "process.attach.service.stopped", nonce = %nonce).await;
 					if let Err(error) = &result {
 						tracing::error!(error = %error.trace(), "the process attach service task failed");
 					}
@@ -451,54 +411,33 @@ impl Component {
 		Ok(sender)
 	}
 
-	/// Ask an attach service for its attach's process or command sync, waiting until the attach can answer. A nonce that no attach owns resolves to `None` once the request times out.
+	/// Ask an attach service for its attach's process or command sync, over the local channel if it runs on this server. A nonce that no attach owns resolves to `None` once the request times out.
 	async fn request_process_attach_service(
 		&self,
-		server: &Server,
 		nonce: &tg::process::Nonce,
 		request: Request,
 	) -> tg::Result<Option<Response>> {
-		// Ask this server's own attach service over the local channel. Otherwise, ask over the messenger while watching for the attach service to start on this server, so that a request that arrives before its attach is answered over the local channel once the attach starts.
-		let mut messenger = None;
-		let response = loop {
-			let started = self.attach.services_changed.notified();
-			let mut started = std::pin::pin!(started);
-			started.as_mut().enable();
-			if let Some(response) = self
-				.request_process_attach_service_local(nonce, &request)
-				.await
-			{
-				break response;
-			}
-			if messenger.is_none() {
-				let pending = self
-					.attach
-					.clients
-					.request(&subject(nonce), request.clone())
-					.map_err(|source| {
-						tg::error!(!source, "failed to send the attach service request")
-					})?;
-				messenger = Some(pending);
-			}
-			let pending = messenger.as_mut().unwrap();
-			tokio::select! {
-				result = pending.wait() => {
-					let response = match result {
-						Ok(response) => response,
-						Err(service::Error::Timeout) => return Ok(None),
-						Err(service::Error::Stopped) => {
-							return Err(tg::error!(
-								code = tg::error::Code::Cancellation,
-								"the server is stopping"
-							));
-						},
-						Err(error) => return Err(tg::error!(!error, "the attach service request failed")),
-					};
-					tangram_server_core::checkpoint!(server, "process.attach.service.messenger", nonce = %nonce).await;
-					break response;
-				},
-				() = &mut started => {},
-			}
+		// Ask the attach service.
+		let server = self
+			.attach
+			.servers
+			.get(nonce)
+			.map(|server| server.value().clone());
+		let result = self
+			.attach
+			.client
+			.request(nonce, server.as_ref(), request)
+			.await;
+		let response = match result {
+			Ok(response) => response,
+			Err(service::Error::Timeout) => return Ok(None),
+			Err(service::Error::Stopped) => {
+				return Err(tg::error!(
+					code = tg::error::Code::Cancellation,
+					"the server is stopping"
+				));
+			},
+			Err(error) => return Err(tg::error!(!error, "the attach service request failed")),
 		};
 
 		// Return the response or its error.
@@ -511,56 +450,31 @@ impl Component {
 			});
 			return Err(error);
 		}
-		Ok(Some(response))
-	}
 
-	/// Ask this server's own attach service for a nonce over the local channel, returning `None` if this server has no attach with the nonce or its service stopped before answering.
-	async fn request_process_attach_service_local(
-		&self,
-		nonce: &tg::process::Nonce,
-		request: &Request,
-	) -> Option<Response> {
-		let sender = self.attach.services.get(nonce)?.clone();
-		let (reply, receiver) = tokio::sync::oneshot::channel();
-		let local_request = LocalRequest {
-			reply,
-			request: request.clone(),
-		};
-		sender.send(local_request).ok()?;
-		receiver.await.ok()
+		Ok(Some(response))
 	}
 
 	async fn process_attach_service_task(
 		&self,
 		server: &Server,
-		subject: String,
 		principal: tg::Principal,
+		service_server: &service::Server<Protocol>,
 		mut events: tokio::sync::mpsc::UnboundedReceiver<Event>,
-		mut local_requests: tokio::sync::mpsc::UnboundedReceiver<LocalRequest>,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		// Start answering the requests on the messenger concurrently with the local channel, so that a local request does not wait for the messenger.
-		let options = server.config.process.attach.service;
-		let observer = Arc::new(Observer::new(server.checkpoints.clone()));
-		let serve =
-			service::serve::<Protocol, _>(&server.messenger, subject.clone(), options, observer);
-		let mut serve = std::pin::pin!(serve);
-		let mut service_server = None::<service::Server<Protocol>>;
-
 		// Answer each request once the attach can, retaining it until then.
+		let options = server.config.process.attach.service;
 		let mut state = State::default();
 		let mut finished_at = None::<Instant>;
-		let mut retained = Vec::<(Request, Reply)>::new();
+		let mut retained = Vec::<(Request, service::Reply<Protocol>)>::new();
 		let mut prune = tokio::time::interval(options.retry_interval);
 		prune.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-		let mut stopping_at = None;
 		loop {
 			tokio::select! {
-				() = stopper.wait(), if stopping_at.is_none() => {
-					stopping_at = Some(Instant::now() + options.attempt_ttl);
-					finished_at.get_or_insert_with(Instant::now);
+				() = stopper.wait() => {
 					state.finished = true;
 					Self::process_attach_service_answer(&mut state, &mut retained);
+					break;
 				},
 				event = events.recv(), if !state.finished => {
 					match event {
@@ -575,24 +489,10 @@ impl Component {
 					}
 					Self::process_attach_service_answer(&mut state, &mut retained);
 				},
-				result = &mut serve, if service_server.is_none() => {
-					let started = result.map_err(|source| {
-						tg::error!(!source, "failed to start the process attach service")
-					})?;
-					service_server = Some(started);
-					tangram_server_core::checkpoint!(server, "process.attach.service.started", subject = %subject).await;
-				},
-				incoming = async { service_server.as_mut().unwrap().next().await }, if service_server.is_some() => {
-					let Some(incoming) = incoming else {
+				incoming = service_server.next() => {
+					let Some((request, reply)) = incoming else {
 						return Err(tg::error!("the process attach service stopped"));
 					};
-					let service::Incoming { reply, request } = incoming;
-					let reply = Reply::Messenger(reply);
-					self.process_attach_service_request(server, &principal, &mut state, request, reply, &mut retained).await;
-				},
-				Some(local_request) = local_requests.recv() => {
-					let LocalRequest { reply, request } = local_request;
-					let reply = Reply::Local(reply);
 					self.process_attach_service_request(server, &principal, &mut state, request, reply, &mut retained).await;
 				},
 				_ = prune.tick() => {
@@ -600,22 +500,15 @@ impl Component {
 				},
 			}
 
-			// Stop once a stopping server's responses are acknowledged, or once a finished attach has no attempts left.
+			// Stop once a finished attach has no attempts left.
 			let now = Instant::now();
-			let status = service_server
-				.as_ref()
-				.map(service::Server::status)
-				.unwrap_or_default();
-			let drained = stopping_at.is_some() && status.unacknowledged == 0;
-			if stopping_at.is_some_and(|deadline| drained || now >= deadline)
-				|| finished_at.is_some_and(|finished_at| {
-					now >= finished_at + options.attempt_ttl && status.attempts == 0
-				}) {
+			let status = service_server.status();
+			if finished_at.is_some_and(|finished_at| {
+				now >= finished_at + options.attempt_ttl && status.attempts == 0
+			}) {
 				break;
 			}
 		}
-
-		tangram_server_core::checkpoint!(server, "process.attach.service.stopped", subject = %subject).await;
 
 		Ok(())
 	}
@@ -627,8 +520,8 @@ impl Component {
 		principal: &tg::Principal,
 		state: &mut State,
 		request: Request,
-		reply: Reply,
-		retained: &mut Vec<(Request, Reply)>,
+		reply: service::Reply<Protocol>,
+		retained: &mut Vec<(Request, service::Reply<Protocol>)>,
 	) {
 		// Reject a request from another principal.
 		if request.principal() != principal {
@@ -655,14 +548,17 @@ impl Component {
 
 		// Retain the request until the attach can answer it.
 		let sync = matches!(request, Request::Sync(_));
-		tangram_server_core::checkpoint!(server, "process.attach.service.retain", id = %reply.id(), sync = sync)
+		tangram_server_core::checkpoint!(server, "process.attach.service.retain", sync = sync)
 			.await;
 		reply.acknowledge();
 		retained.push((request, reply));
 	}
 
 	/// Answer the retained requests that the attach can now answer.
-	fn process_attach_service_answer(state: &mut State, retained: &mut Vec<(Request, Reply)>) {
+	fn process_attach_service_answer(
+		state: &mut State,
+		retained: &mut Vec<(Request, service::Reply<Protocol>)>,
+	) {
 		for (request, reply) in std::mem::take(retained) {
 			if reply.is_cancelled() {
 				continue;
@@ -678,76 +574,6 @@ impl Component {
 impl service::Protocol for Protocol {
 	type Request = Request;
 	type Response = Response;
-}
-
-impl service::Observer<Protocol> for Observer {
-	fn observe<'a>(&'a self, event: service::Event<'a, Protocol>) -> BoxFuture<'a, ()> {
-		async move {
-			let Some(checkpoints) = &self.checkpoints else {
-				return;
-			};
-			let mut params = tg::checkpoint::Params::new();
-			let mut insert = |key: &str, value: &str| {
-				params.insert(key.to_owned(), value.to_owned().into());
-			};
-			let name = match event {
-				service::Event::Acknowledged { attempt, id, .. } => {
-					insert("attempt", attempt);
-					insert("id", id);
-					"process.attach.service.ack"
-				},
-				service::Event::Attempt { attempt, client } => {
-					insert("attempt", attempt);
-					insert("client", client);
-					"process.attach.service.attempt"
-				},
-				service::Event::Cancelled { attempt, id } => {
-					insert("attempt", attempt);
-					insert("id", id);
-					"process.attach.service.cancel"
-				},
-				service::Event::HeartbeatResponded {
-					attempt,
-					client,
-					id,
-				} => {
-					insert("attempt", attempt);
-					insert("client", client);
-					insert("id", id);
-					"process.attach.service.heartbeat.response"
-				},
-				service::Event::HeartbeatSent { client, id } => {
-					insert("client", client);
-					insert("id", id);
-					"process.attach.service.heartbeat.request"
-				},
-				service::Event::RequestSent { attempt, id, .. } => {
-					if let Some(attempt) = attempt {
-						insert("attempt", attempt);
-					}
-					insert("id", id);
-					"process.attach.service.request"
-				},
-				service::Event::Responded { attempt, id } => {
-					insert("attempt", attempt);
-					insert("id", id);
-					"process.attach.service.response"
-				},
-				service::Event::ResponseAcknowledged { attempt, id } => {
-					insert("attempt", attempt);
-					insert("id", id);
-					"process.attach.service.response_ack"
-				},
-				service::Event::Started { client, subject } => {
-					insert("client", client);
-					insert("subject", subject);
-					"process.attach.service.heartbeat.start"
-				},
-			};
-			checkpoints.hit(name, params).await;
-		}
-		.boxed()
-	}
 }
 
 impl tangram_messenger::Payload for Request {
@@ -772,8 +598,4 @@ impl tangram_messenger::Payload for Response {
 	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error> {
 		tangram_serialize::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
 	}
-}
-
-fn subject(nonce: &tg::process::Nonce) -> String {
-	format!("processes.{nonce}.service")
 }

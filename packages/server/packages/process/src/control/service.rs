@@ -1,12 +1,13 @@
 use {
-	crate::Component,
-	futures::{FutureExt as _, StreamExt as _, future::BoxFuture},
-	std::sync::Arc,
-	tangram_client::prelude::*,
-	tangram_futures::task::Stopper,
-	tangram_messenger::service,
-	tangram_server_core::{Server, Session},
+	crate::Component, std::sync::Arc, tangram_client::prelude::*, tangram_futures::task::Stopper,
+	tangram_server_core::Session, tangram_server_core_service as service,
 };
+
+/// The name of the control service's checkpoints.
+pub(crate) const NAME: &str = "process.control.service";
+
+/// The subject under which the control services serve the subjects of their processes.
+pub(crate) const SUBJECT: &str = "processes.control.service";
 
 /// The handle with which a process control connection keeps its control service running. Dropping every sender finishes the service.
 #[derive(Clone)]
@@ -22,12 +23,6 @@ pub(crate) struct Arg {
 	pub syncs: bool,
 }
 
-/// The reply to a request that a control service received over the local channel or the messenger.
-enum Reply {
-	Local(tokio::sync::oneshot::Sender<Response>),
-	Messenger(service::Reply<Protocol>),
-}
-
 /// The state of a control service.
 struct State {
 	id: tg::process::Id,
@@ -36,17 +31,6 @@ struct State {
 	rejection: Option<tg::error::Data>,
 	runner: Option<tg::runner::Id>,
 	syncs: bool,
-}
-
-/// The local channel of a control service on this server.
-pub(crate) struct Local {
-	pub sender: tokio::sync::mpsc::UnboundedSender<LocalRequest>,
-}
-
-/// A request from this server to one of its own control services, which the service answers over a local channel without the messenger.
-pub(crate) struct LocalRequest {
-	pub reply: tokio::sync::oneshot::Sender<Response>,
-	pub request: Request,
 }
 
 /// The protocol of a control service, which answers for a process whose start its server accepted.
@@ -95,22 +79,6 @@ pub(crate) struct Response {
 
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
 	pub sync: Option<tg::Referent<tg::sync::Id>>,
-}
-
-/// Observes nothing, because the control service records its own checkpoints.
-pub(crate) struct Observer;
-
-impl Reply {
-	fn send(self, response: &Response) {
-		match self {
-			Self::Local(reply) => {
-				reply.send(response.clone()).ok();
-			},
-			Self::Messenger(reply) => {
-				reply.send(response).ok();
-			},
-		}
-	}
 }
 
 impl State {
@@ -201,7 +169,7 @@ impl State {
 
 impl Component {
 	/// Start answering the requests for a process whose start this server accepted, over the messenger and, for requests from this server, over a local channel.
-	pub(crate) fn spawn_process_control_service_task(
+	pub(crate) async fn spawn_process_control_service_task(
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
@@ -216,10 +184,11 @@ impl Component {
 			syncs: arg.syncs,
 		};
 		self.spawn_process_control_service_task_with_state(session, state)
+			.await
 	}
 
 	/// Answer every request for a process whose start this server rejected with the rejection, so that the requests waiting for the start fail.
-	pub(crate) fn spawn_process_control_rejection_task(
+	pub(crate) async fn spawn_process_control_rejection_task(
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
@@ -236,7 +205,9 @@ impl Component {
 			runner: None,
 			syncs: false,
 		};
-		let sender = self.spawn_process_control_service_task_with_state(session, state);
+		let sender = self
+			.spawn_process_control_service_task_with_state(session, state)
+			.await;
 
 		// Keep answering for the service's attempt time to live.
 		let ttl = session.server.config.process.control_service.attempt_ttl;
@@ -247,43 +218,64 @@ impl Component {
 		});
 	}
 
-	fn spawn_process_control_service_task_with_state(
+	async fn spawn_process_control_service_task_with_state(
 		&self,
 		session: &Session,
 		state: State,
 	) -> Sender {
-		// Register the local channel before the task starts, so that later requests on this server find it. A reconnect replaces the service of the connection that it reconnects.
-		let id = state.id.clone();
-		let (local_sender, local_requests) = tokio::sync::mpsc::unbounded_channel();
-		let local = Local {
-			sender: local_sender.clone(),
-		};
-		self.control.services.insert(id.clone(), local);
-		self.control.services_changed.notify_waiters();
+		// Start the control service, and register it so that the requests on this server skip the messenger. A reconnect replaces the service of the connection that it reconnects.
+		let options = session.server.config.process.control_service;
+		let observer = Arc::new(service::Checkpoints::new(
+			session.server.checkpoints.clone(),
+			NAME,
+		));
+		let server = service::Server::start(
+			&session.server.messenger,
+			SUBJECT,
+			&state.id,
+			options,
+			observer,
+		);
+		self.control
+			.servers
+			.insert(state.id.clone(), server.clone());
+		tangram_server_core::checkpoint!(session.server, "process.control.service.started", process = %state.id).await;
 
-		// Spawn the task, and remove its local channel when it exits.
+		// Stop and unregister the service when its task ends, even if the task panics or is aborted, unless a reconnect replaced it.
+		let guard = scopeguard::guard((), {
+			let component = self.clone();
+			let id = state.id.clone();
+			let server = server.clone();
+			move |()| {
+				server.stop();
+				component
+					.control
+					.servers
+					.remove_if(&id, |_, server| server.is_stopped());
+			}
+		});
+
+		// Spawn the task that answers the requests, and wait for the service's responses to be acknowledged once it ends.
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 		let sender = Sender { _sender: sender };
-		let component = self.clone();
 		let mut task_session = session.clone();
 		task_session.context.stopper = None;
 		self.control
 			.service_tasks
 			.spawn({
 				move |stopper| async move {
-					let result = component
-						.process_control_service_task(
-							&task_session,
-							state,
-							receiver,
-							local_requests,
-							stopper,
-						)
-						.await;
-					component
-						.control
-						.services
-						.remove_if(&id, |_, local| local.sender.same_channel(&local_sender));
+					let id = state.id.clone();
+					let result = Self::process_control_service_task(
+						&task_session,
+						state,
+						&server,
+						receiver,
+						stopper,
+					)
+					.await;
+					drop(guard);
+					server.wait().await;
+					tangram_server_core::checkpoint!(task_session.server, "process.control.service.stopped", process = %id).await;
 					if let Err(error) = &result {
 						tracing::error!(error = %error.trace(), "the process control service task failed");
 					}
@@ -296,26 +288,12 @@ impl Component {
 	}
 
 	async fn process_control_service_task(
-		&self,
 		session: &Session,
 		state: State,
+		server: &service::Server<Protocol>,
 		mut receiver: tokio::sync::mpsc::UnboundedReceiver<()>,
-		mut local_requests: tokio::sync::mpsc::UnboundedReceiver<LocalRequest>,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		// Start answering the requests on the messenger concurrently with the local channel, so that a local request does not wait for the messenger.
-		let subject = subject(&state.id);
-		let options = session.server.config.process.control_service;
-		let observer = Arc::new(Observer);
-		let serve = service::serve::<Protocol, _>(
-			&session.server.messenger,
-			subject.clone(),
-			options,
-			observer,
-		);
-		let mut serve = std::pin::pin!(serve);
-		let mut server = None::<service::Server<Protocol>>;
-
 		// Answer each request until every sender is dropped or the server stops.
 		loop {
 			tokio::select! {
@@ -325,31 +303,15 @@ impl Component {
 						break;
 					}
 				},
-				result = &mut serve, if server.is_none() => {
-					let started = result.map_err(|source| {
-						tg::error!(!source, "failed to start the process control service")
-					})?;
-					server = Some(started);
-					tangram_server_core::checkpoint!(session.server, "process.control.service.started", process = %state.id).await;
-				},
-				incoming = async { server.as_mut().unwrap().next().await }, if server.is_some() => {
-					let Some(incoming) = incoming else {
+				incoming = server.next() => {
+					let Some((request, reply)) = incoming else {
 						return Err(tg::error!("the process control service stopped"));
 					};
-					let service::Incoming { reply, request } = incoming;
 					let response = state.response(session, &request).await;
-					Reply::Messenger(reply).send(&response);
-				},
-				Some(local_request) = local_requests.recv() => {
-					let LocalRequest { reply, request } = local_request;
-					let response = state.response(session, &request).await;
-					Reply::Local(reply).send(&response);
+					reply.send(&response);
 				},
 			}
 		}
-
-		tangram_server_core::checkpoint!(session.server, "process.control.service.stopped", process = %state.id)
-			.await;
 
 		Ok(())
 	}
@@ -365,9 +327,7 @@ impl Component {
 			kind,
 			principal: session.context.principal.clone(),
 		});
-		let response = self
-			.request_process_control_service(&session.server, id, request)
-			.await?;
+		let response = self.request_process_control_service(id, request).await?;
 		let sync = response.and_then(|response| response.sync);
 		Ok(sync)
 	}
@@ -375,14 +335,13 @@ impl Component {
 	/// Verify with a process's control service that a principal may act for the process, waiting until a control connection for the process can answer.
 	pub(crate) async fn authorize_with_process_control_service(
 		&self,
-		session: &Session,
 		id: &tg::process::Id,
 		principal: &tg::Principal,
 	) -> tg::Result<()> {
 		let request = Request::Authorize(AuthorizeRequest {
 			principal: principal.clone(),
 		});
-		self.request_process_control_service(&session.server, id, request)
+		self.request_process_control_service(id, request)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process control service"))?;
 		Ok(())
@@ -391,68 +350,46 @@ impl Component {
 	/// Get the parent of a process from its control service, waiting until a control connection for the process can answer. Returns `None` if no control connection answers before the request times out.
 	pub(crate) async fn try_get_process_parent_from_control_service(
 		&self,
-		session: &Session,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Id>> {
 		let request = Request::Parent(ParentRequest {});
-		let response = self
-			.request_process_control_service(&session.server, id, request)
-			.await?;
+		let response = self.request_process_control_service(id, request).await?;
 		let parent = response.and_then(|response| response.parent);
 		Ok(parent)
 	}
 
-	/// Ask a control service, waiting until it can answer. A process with no control service resolves to `None` once the request times out.
+	/// Ask a control service, over the local channel if it runs on this server. A process with no control service resolves to `None` once the request times out.
 	async fn request_process_control_service(
 		&self,
-		server: &Server,
 		id: &tg::process::Id,
 		request: Request,
 	) -> tg::Result<Option<Response>> {
-		// Ask this server's own control service over the local channel. Otherwise, ask over the messenger while watching for the control service to start on this server, so that a request that arrives before its control connection is answered over the local channel once the control connection starts.
-		let mut messenger = None;
-		let response = loop {
-			let started = self.control.services_changed.notified();
-			let mut started = std::pin::pin!(started);
-			started.as_mut().enable();
-			if let Some(response) = self
-				.request_process_control_service_local(id, &request)
-				.await
-			{
-				break response;
-			}
-			if messenger.is_none() {
-				let pending = self
-					.control
-					.clients
-					.request(&subject(id), request.clone())
-					.map_err(|source| {
-						tg::error!(
-							!source,
-							"failed to send the process control service request"
-						)
-					})?;
-				messenger = Some(pending);
-			}
-			let pending = messenger.as_mut().unwrap();
-			tokio::select! {
-				result = pending.wait() => {
-					let response = match result {
-						Ok(response) => response,
-						Err(service::Error::Timeout) => return Ok(None),
-						Err(service::Error::Stopped) => {
-							return Err(tg::error!(
-								code = tg::error::Code::Cancellation,
-								"the server is stopping"
-							));
-						},
-						Err(error) => return Err(tg::error!(!error, "the process control service request failed")),
-					};
-					tangram_server_core::checkpoint!(server, "process.control.service.messenger", process = %id).await;
-					break response;
-				},
-				() = &mut started => {},
-			}
+		// Ask the control service.
+		let server = self
+			.control
+			.servers
+			.get(id)
+			.map(|server| server.value().clone());
+		let result = self
+			.control
+			.client
+			.request(id, server.as_ref(), request)
+			.await;
+		let response = match result {
+			Ok(response) => response,
+			Err(service::Error::Timeout) => return Ok(None),
+			Err(service::Error::Stopped) => {
+				return Err(tg::error!(
+					code = tg::error::Code::Cancellation,
+					"the server is stopping"
+				));
+			},
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					"the process control service request failed"
+				));
+			},
 		};
 
 		// Return the response or its error.
@@ -465,35 +402,14 @@ impl Component {
 			});
 			return Err(error);
 		}
-		Ok(Some(response))
-	}
 
-	/// Ask this server's own control service over the local channel, returning `None` if this server has no control service for the process or its service stopped before answering.
-	async fn request_process_control_service_local(
-		&self,
-		id: &tg::process::Id,
-		request: &Request,
-	) -> Option<Response> {
-		let sender = self.control.services.get(id)?.sender.clone();
-		let (reply, receiver) = tokio::sync::oneshot::channel();
-		let local_request = LocalRequest {
-			reply,
-			request: request.clone(),
-		};
-		sender.send(local_request).ok()?;
-		receiver.await.ok()
+		Ok(Some(response))
 	}
 }
 
 impl service::Protocol for Protocol {
 	type Request = Request;
 	type Response = Response;
-}
-
-impl service::Observer<Protocol> for Observer {
-	fn observe<'a>(&'a self, _event: service::Event<'a, Protocol>) -> BoxFuture<'a, ()> {
-		async {}.boxed()
-	}
 }
 
 impl tangram_messenger::Payload for Request {
@@ -518,8 +434,4 @@ impl tangram_messenger::Payload for Response {
 	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error> {
 		tangram_serialize::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
 	}
-}
-
-fn subject(id: &tg::process::Id) -> String {
-	format!("processes.{id}.control.service")
 }
