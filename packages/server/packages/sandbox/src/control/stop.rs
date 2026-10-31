@@ -57,6 +57,8 @@ impl Component {
 				|error| tg::error!(!error, %id, "failed to put the stopped sandbox in the index"),
 			)?;
 
-		Ok(tg::sandbox::control::StopServerResponseOutput {})
+		let output = tg::sandbox::control::StopServerResponseOutput {};
+
+		Ok(output)
 	}
 }

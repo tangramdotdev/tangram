@@ -281,14 +281,14 @@ impl Component {
 			location: Some(location.clone().into()),
 			tokens: arg.tokens.for_location(&location),
 		};
-		let Some(stoped) = client
+		let Some(stopped) = client
 			.try_stop_sandbox(id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to stop the sandbox"))?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(stoped))
+		Ok(Some(stopped))
 	}
 
 	async fn try_stop_sandbox_remotes(
@@ -349,13 +349,13 @@ impl Component {
 			])),
 			tokens: arg.tokens.for_location(&location),
 		};
-		let Some(stoped) = client.try_stop_sandbox(id, arg).await.map_err(
+		let Some(stopped) = client.try_stop_sandbox(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to stop the sandbox"),
 		)?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(stoped))
+		Ok(Some(stopped))
 	}
 
 	pub(crate) async fn try_stop_sandbox_request(
@@ -376,7 +376,7 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
-		let Some(stoped) = self
+		let Some(stopped) = self
 			.try_stop_sandbox(session, &id, arg)
 			.boxed()
 			.await
@@ -388,7 +388,7 @@ impl Component {
 				.unwrap()
 				.boxed_body());
 		};
-		if !stoped {
+		if !stopped {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::CONFLICT)
 				.empty()

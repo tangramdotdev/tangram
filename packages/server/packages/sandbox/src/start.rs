@@ -10,6 +10,12 @@ use {
 	tangram_server_core::Session,
 };
 
+/// The failure of a start, which is unassigned when the start never reached the sandbox's runner.
+enum StartError {
+	Assigned(tg::Error),
+	Unassigned(tg::Error),
+}
+
 impl Component {
 	#[tracing::instrument(name = "sandbox.start_request", level = "info", skip_all, fields(sandbox = %id), err(level = "debug"))]
 	pub(crate) async fn try_start_sandbox(
@@ -156,8 +162,7 @@ impl Component {
 			usage: None,
 			..data.clone()
 		};
-		let index_future =
-			self.put_started_sandbox(session, id, starting, runner.clone(), created_at);
+		let index_future = self.put_sandbox(session, id, starting, runner.clone(), created_at);
 		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
 			boot,
@@ -180,10 +185,11 @@ impl Component {
 			tracing::warn!(error = %error.trace(), sandbox = %id, "failed to record the starting sandbox");
 		}
 
-		// Wait for the boot to start, recording the sandbox as stopped with the error if the start fails.
+		// Wait for the boot to start.
 		let result = async {
-			let scheduler = enqueue_result
-				.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
+			let scheduler = enqueue_result.map_err(|error| {
+				StartError::Unassigned(tg::error!(!error, %id, "failed to enqueue the sandbox"))
+			})?;
 			let timeout = session.server.config.scheduler.create_sandbox_timeout;
 			let heartbeat = session
 				.server
@@ -198,38 +204,50 @@ impl Component {
 				future::pending::<tg::Result<()>>().await
 			};
 			tokio::select! {
-				result = discarded_future => result,
+				result = discarded_future => result.map_err(StartError::Unassigned),
 				result = tokio::time::timeout(timeout, boot_future) => {
-					result.map_err(|_| tg::error!(%id, "timed out waiting for the sandbox to start"))?
+					let result = result
+						.map_err(|_| tg::error!(%id, "timed out waiting for the sandbox to start"))
+						.and_then(std::convert::identity);
+					result.map_err(StartError::Assigned)
 				},
 				result = heartbeat => {
-					result?;
-					Err(tg::error!(%id, %scheduler, "the scheduler heartbeat expired"))
+					let error = match result {
+						Ok(()) => tg::error!(%id, %scheduler, "the scheduler heartbeat expired"),
+						Err(error) => error,
+					};
+					Err(StartError::Assigned(error))
 				},
 			}
 		}
 		.await;
-		if let Err(error) = result {
-			let stopped = tg::sandbox::Data {
-				boot,
-				error: Some(error_data(session, &error)),
-				status: tg::sandbox::Status::Stopped,
-				usage: None,
-				..data
-			};
-			if let Err(error) = self
-				.put_started_sandbox(session, id, stopped, runner, created_at)
-				.await
-			{
-				tracing::warn!(error = %error.trace(), sandbox = %id, "failed to record the failed start");
-			}
-			return Err(error);
+
+		// Record the sandbox as stopped with the error if the start never reached its runner. Otherwise the runner reports the outcome, because it is the sandbox's source of truth.
+		match result {
+			Ok(()) => {},
+			Err(StartError::Assigned(error)) => return Err(error),
+			Err(StartError::Unassigned(error)) => {
+				let stopped = tg::sandbox::Data {
+					boot,
+					error: Some(error_data(session, &error)),
+					status: tg::sandbox::Status::Stopped,
+					usage: None,
+					..data
+				};
+				if let Err(error) = self
+					.put_sandbox(session, id, stopped, runner, created_at)
+					.await
+				{
+					tracing::warn!(error = %error.trace(), sandbox = %id, "failed to record the failed start");
+				}
+				return Err(error);
+			},
 		}
 
 		Ok(())
 	}
 
-	async fn put_started_sandbox(
+	async fn put_sandbox(
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
@@ -251,6 +269,7 @@ impl Component {
 			.usage
 			.usage_account(session, &data.data.owner)
 			.await?;
+		let touched_at = session.server.clock.unix_timestamp();
 		let put_sandbox = tangram_index::sandbox::put::Arg {
 			account,
 			created_at,
@@ -261,7 +280,7 @@ impl Component {
 			principal: tg::Principal::Sandbox(id.clone()),
 			processes: None,
 			runner: Some(runner),
-			touched_at: session.server.clock.unix_timestamp(),
+			touched_at,
 		};
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutSandbox(put_sandbox)],
@@ -398,14 +417,14 @@ impl Component {
 			location: Some(location.clone().into()),
 			tokens: arg.tokens.for_location(&location),
 		};
-		let Some(stoped) = client
+		let Some(started) = client
 			.try_start_sandbox(id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to start the sandbox"))?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(stoped))
+		Ok(Some(started))
 	}
 
 	async fn try_start_sandbox_remotes(
@@ -466,13 +485,13 @@ impl Component {
 			])),
 			tokens: arg.tokens.for_location(&location),
 		};
-		let Some(stoped) = client.try_start_sandbox(id, arg).await.map_err(
+		let Some(started) = client.try_start_sandbox(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to start the sandbox"),
 		)?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(stoped))
+		Ok(Some(started))
 	}
 
 	pub(crate) async fn try_start_sandbox_request(
@@ -493,7 +512,7 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
-		let Some(stoped) = self
+		let Some(started) = self
 			.try_start_sandbox(session, &id, arg)
 			.boxed()
 			.await
@@ -505,7 +524,7 @@ impl Component {
 				.unwrap()
 				.boxed_body());
 		};
-		if !stoped {
+		if !started {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::CONFLICT)
 				.empty()

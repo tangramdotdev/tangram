@@ -12,7 +12,7 @@ let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
-	runner: { cpus: 1, overcommit: { cpu: 1 }, id: $created.data.id, remote: "default", token: $created.token.token },
+	runner: { cpus: 1, id: $created.data.id, overcommit: { cpu: 1 }, remote: "default", token: $created.token.token },
 }
 
 # Stop one sandbox, then fill the runner with another, so that a start of the first waits in the queue.

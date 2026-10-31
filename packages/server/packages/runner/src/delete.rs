@@ -85,10 +85,27 @@ impl Component {
 			.invalidate_authentication(
 				&session.server,
 				tangram_server_core::authentication::cache::Invalidation::Principal(
-					tg::Principal::Runner(runner),
+					tg::Principal::Runner(runner.clone()),
 				),
 			)
 			.await;
+
+		// Destroy the runner's sandboxes, because no runner can report them anymore.
+		let sandboxes = session.server.index.get_runner_sandboxes(&runner).await?;
+		for sandbox in sandboxes {
+			let error = tg::error::Data {
+				code: Some(tg::error::Code::Internal),
+				message: Some("the runner was deleted".to_owned()),
+				..Default::default()
+			};
+			session
+				.server
+				.components
+				.scheduler
+				.destroy_runner_sandbox(&session.server, &sandbox, error)
+				.await
+				.map_err(|error| tg::error!(!error, %sandbox, "failed to destroy the sandbox"))?;
+		}
 
 		Ok(Some(()))
 	}

@@ -5,6 +5,14 @@ use {
 	tangram_util::fs::remove,
 };
 
+/// The filesystem project ID that a persisted temp returns, which exists only on Linux.
+#[cfg(target_os = "linux")]
+pub type ProjectId = tangram_server_runner_core::project::Id;
+
+/// The filesystem project ID that a persisted temp returns, which exists only on Linux.
+#[cfg(not(target_os = "linux"))]
+pub type ProjectId = ();
+
 pub struct Temp {
 	#[cfg(target_os = "linux")]
 	filesystem_project_id: Option<tangram_server_runner_core::project::Id>,
@@ -33,17 +41,23 @@ impl Temp {
 		}
 	}
 
-	/// Create a temp at a path that outlives it, so that dropping it does not remove the path.
+	/// Create a temp at a specific path, which dropping the temp removes unless it is preserved.
 	#[must_use]
 	pub fn with_path(server: &Server, path: PathBuf) -> Self {
+		let preserve = server.config.advanced.preserve_temp_directories;
 		let server = server.clone();
 		Self {
 			#[cfg(target_os = "linux")]
 			filesystem_project_id: None,
 			path,
-			preserve: true,
+			preserve,
 			server,
 		}
+	}
+
+	/// Set whether dropping the temp keeps its path.
+	pub fn set_preserve(&mut self, preserve: bool) {
+		self.preserve = preserve;
 	}
 
 	#[must_use]
@@ -60,35 +74,27 @@ impl Temp {
 	}
 
 	/// Move the temp to a path that outlives it, returning its filesystem project ID so that the caller keeps it reserved.
-	#[cfg(target_os = "linux")]
-	pub async fn persist(
-		mut self,
-		path: &Path,
-	) -> std::io::Result<Option<tangram_server_runner_core::project::Id>> {
+	pub async fn persist(mut self, path: &Path) -> std::io::Result<Option<ProjectId>> {
 		if let Some(parent) = path.parent() {
 			tokio::fs::create_dir_all(parent).await?;
 		}
 		if self.path != path {
+			// Replace the link that points a sandbox's path at the temp while it runs.
+			if tokio::fs::symlink_metadata(path)
+				.await
+				.is_ok_and(|metadata| metadata.file_type().is_symlink())
+			{
+				tokio::fs::remove_file(path).await?;
+			}
 			tokio::fs::rename(&self.path, path).await?;
 		}
 		self.preserve = true;
 		self.server.temps.remove(&self.path);
+		#[cfg(target_os = "linux")]
 		let project_id = self.filesystem_project_id.take();
+		#[cfg(not(target_os = "linux"))]
+		let project_id = None;
 		Ok(project_id)
-	}
-
-	/// Move the temp to a path that outlives it.
-	#[cfg(not(target_os = "linux"))]
-	pub async fn persist(mut self, path: &Path) -> std::io::Result<Option<()>> {
-		if let Some(parent) = path.parent() {
-			tokio::fs::create_dir_all(parent).await?;
-		}
-		if self.path != path {
-			tokio::fs::rename(&self.path, path).await?;
-		}
-		self.preserve = true;
-		self.server.temps.remove(&self.path);
-		Ok(None)
 	}
 
 	pub async fn remove(&mut self) -> std::io::Result<()> {

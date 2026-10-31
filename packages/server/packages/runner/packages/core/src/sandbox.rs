@@ -37,8 +37,8 @@ pub struct ReadyEvent {
 #[derive(Default)]
 pub struct Sandboxes {
 	indexes: DashMap<tg::sandbox::Id, u64, tg::id::BuildHasher>,
-	updated: tokio::sync::Notify,
 	states: DashMap<u64, State, fnv::FnvBuildHasher>,
+	updated: tokio::sync::Notify,
 }
 
 pub struct State {
@@ -117,7 +117,12 @@ impl Sandboxes {
 		Some(state)
 	}
 
-	/// Get a future that completes when a sandbox's state is stored or removed. Create it before reading the state, so that a change between the read and the wait is not missed.
+	/// Wake the waiters for a change to the sandboxes, such as the end of a boot that was starting.
+	pub fn notify_updated(&self) {
+		self.updated.notify_waiters();
+	}
+
+	/// Get a future that completes when a sandbox's state is stored or removed, or when a boot that was starting ends. Create it before reading the state, so that a change between the read and the wait is not missed.
 	pub fn updated(&self) -> tokio::sync::futures::Notified<'_> {
 		self.updated.notified()
 	}
@@ -125,7 +130,7 @@ impl Sandboxes {
 	/// Wait until the sandbox's previous boot is stopped or destroyed, so that a new boot of the sandbox can start on its directory.
 	pub async fn wait_stopped_or_destroyed(&self, id: &tg::sandbox::Id) {
 		loop {
-			let removed = self.updated.notified();
+			let updated = self.updated.notified();
 			let Some(sandbox) = self.get_by_id(id) else {
 				return;
 			};
@@ -136,7 +141,7 @@ impl Sandboxes {
 			drop(sandbox);
 			tokio::select! {
 				_ = changed.changed() => {},
-				() = removed => {},
+				() = updated => {},
 			}
 		}
 	}
