@@ -68,16 +68,13 @@ impl Component {
 
 		// Resolve the sandbox owner.
 		let creator = session.context.principal.clone();
-		let owner = arg
-			.owner
-			.clone()
-			.or_else(|| (!matches!(creator, tg::Principal::Root)).then(|| creator.clone()));
-		arg.owner.clone_from(&owner);
+		let owner = arg.owner.clone().unwrap_or_else(|| creator.clone());
+		arg.owner = Some(owner.clone());
 		session
 			.server
 			.components
 			.billing
-			.verify_billing(session, owner.as_ref())
+			.verify_billing(session, Some(&owner))
 			.await?;
 
 		// Validate the backend and resources.
