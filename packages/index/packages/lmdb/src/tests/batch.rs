@@ -82,14 +82,14 @@ fn sandbox_arg(
 	let data = tg::sandbox::get::Output {
 		data: tg::sandbox::Data {
 			cpu: None,
-			creator: None,
+			creator: tg::Principal::Root,
 			error: None,
 			hostname: None,
 			id: id.clone(),
 			memory: None,
 			mounts: Vec::new(),
 			network: None,
-			owner: None,
+			owner: tg::Principal::Root,
 			status,
 			storage: None,
 			ttl: None,
@@ -1100,13 +1100,13 @@ async fn sandbox_put_preserves_existing_contents_and_processes() {
 	put_sandbox(&index, arg.clone()).await.unwrap();
 
 	let mut changed = arg.clone();
-	changed.data.as_mut().unwrap().data.owner = Some(tg::Principal::User(tg::user::Id::new()));
+	changed.data.as_mut().unwrap().data.owner = tg::Principal::User(tg::user::Id::new());
 	assert!(put_sandbox(&index, changed.clone()).await.is_err());
 	let mut reordered = arg.clone();
 	reordered.processes.as_mut().unwrap().reverse();
 	assert!(put_sandbox(&index, reordered).await.is_err());
 	let stored = index.try_get_sandbox(&id).await.unwrap().unwrap();
-	assert!(stored.data.unwrap().data.owner.is_none());
+	assert!(stored.data.unwrap().data.owner.is_root());
 	changed.principal = tg::Principal::Sandbox(id);
 	put_sandbox(&index, changed).await.unwrap();
 }

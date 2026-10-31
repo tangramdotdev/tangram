@@ -18,9 +18,9 @@ pub struct Data {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub cpu: Option<tg::sandbox::Cpu>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub creator: Option<tg::Principal>,
+	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "tg::Principal::is_root")]
+	pub creator: tg::Principal,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 13, skip_serializing_if = "Option::is_none")]
@@ -45,9 +45,9 @@ pub struct Data {
 	#[tangram_serialize(default, id = 7, skip_serializing_if = "Option::is_none")]
 	pub network: Option<tg::sandbox::Network>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 8, skip_serializing_if = "Option::is_none")]
-	pub owner: Option<tg::Principal>,
+	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
+	#[tangram_serialize(default, id = 8, skip_serializing_if = "tg::Principal::is_root")]
+	pub owner: tg::Principal,
 
 	#[tangram_serialize(id = 9)]
 	pub status: tg::sandbox::Status,

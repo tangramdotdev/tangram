@@ -294,7 +294,7 @@ impl SchedulerState {
 			scheduler.send_response(self, response);
 			return;
 		}
-		let owner = request.arg.owner.as_ref().and_then(tg::Principal::to_id);
+		let owner = request.owner.to_id();
 		let Some(owner) = owner else {
 			let ancestors = Arc::new(HashSet::default());
 			let result = self.enqueue_sandbox(scheduler, request, ancestors);
@@ -1037,6 +1037,7 @@ async fn create_sandbox(
 			borrowed,
 			capacity,
 			creator: request.creator.clone(),
+			owner: request.owner.clone(),
 			parent: request.parent.clone(),
 			process: request.process.clone(),
 			sandbox: request.sandbox.clone(),

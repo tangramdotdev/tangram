@@ -130,10 +130,7 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		session: &'a Session,
 		id: &'a tg::sandbox::Id,
-		created_at: i64,
-		create: tg::sandbox::create::Arg,
-		creator: Option<tg::Principal>,
-		runner: Option<tg::runner::Id>,
+		create: tg::process::control::SandboxCreate,
 	) -> BoxFuture<'a, tg::Result<tangram_index::sandbox::put::Arg>>;
 
 	fn publish_sandbox_process_spawned<'a>(

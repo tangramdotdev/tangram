@@ -8,7 +8,7 @@ pub trait Component: crate::component::Lifecycle {
 	fn verify_billing<'a>(
 		&'a self,
 		session: &'a Session,
-		owner: Option<&'a tg::Principal>,
+		owner: &'a tg::Principal,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn configured(&self) -> bool;

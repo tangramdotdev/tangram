@@ -563,14 +563,7 @@ impl Component {
 					.server
 					.components
 					.sandbox
-					.prepare_sandbox_control_index_arg(
-						session,
-						sandbox_id,
-						sandbox.created_at,
-						sandbox.arg,
-						sandbox.creator,
-						sandbox.runner,
-					)
+					.prepare_sandbox_control_index_arg(session, sandbox_id, sandbox)
 					.await?,
 			)
 		} else {

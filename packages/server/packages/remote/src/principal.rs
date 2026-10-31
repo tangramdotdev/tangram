@@ -222,7 +222,7 @@ impl Component {
 			_ => None,
 		};
 		if let Some(owner) = owner {
-			return Ok(Some(owner.unwrap_or(tg::Principal::Root)));
+			return Ok(Some(owner));
 		}
 
 		let owner = match principal {
@@ -268,7 +268,6 @@ impl Component {
 				.map(|sandbox| sandbox.data.owner),
 			_ => return Ok(Some(principal.clone())),
 		};
-		let owner = owner.map(|owner| owner.unwrap_or(tg::Principal::Root));
 
 		Ok(owner)
 	}

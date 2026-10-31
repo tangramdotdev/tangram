@@ -142,7 +142,7 @@ mod tests {
 		let data = tg::sandbox::get::Output {
 			data: tg::sandbox::Data {
 				cpu: Some(2.into()),
-				creator: Some(tg::Principal::User(user.clone())),
+				creator: tg::Principal::User(user.clone()),
 				error: None,
 				hostname: Some("host".into()),
 				id: sandbox.clone(),
@@ -151,7 +151,7 @@ mod tests {
 				network: Some(tg::sandbox::Network::Bridge(tg::sandbox::Bridge {
 					ports: vec!["127.0.0.1:8080:80/udp".parse().unwrap()],
 				})),
-				owner: Some(tg::Principal::Root),
+				owner: tg::Principal::Root,
 				status: tg::sandbox::Status::Destroyed,
 				storage: None,
 				ttl: Some(std::time::Duration::new(60, 123)),

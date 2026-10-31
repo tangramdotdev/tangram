@@ -224,15 +224,15 @@ impl Component {
 		// Prepare and submit initialization before accepting subsequent requests.
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.connect", sandbox = %id)
 			.await;
+		let create = tg::process::control::SandboxCreate {
+			arg: create,
+			created_at,
+			creator: arg.creator,
+			owner: arg.owner,
+			runner: runner.clone(),
+		};
 		let sandbox = self
-			.prepare_sandbox_control_index_arg(
-				&session,
-				&id,
-				created_at,
-				create,
-				arg.creator,
-				runner.clone(),
-			)
+			.prepare_sandbox_control_index_arg(&session, &id, create)
 			.await?;
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutSandbox(sandbox)],
@@ -366,22 +366,21 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
-		created_at: i64,
-		create: tg::sandbox::create::Arg,
-		creator: Option<tg::Principal>,
-		runner: Option<tg::runner::Id>,
+		create: tg::process::control::SandboxCreate,
 	) -> tg::Result<tangram_index::sandbox::put::Arg> {
-		let account = match create.owner.as_ref() {
-			Some(owner) => {
-				session
-					.server
-					.components
-					.usage
-					.usage_account(session, owner)
-					.await?
-			},
-			None => None,
-		};
+		let tg::process::control::SandboxCreate {
+			arg: create,
+			created_at,
+			creator,
+			owner,
+			runner,
+		} = create;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &owner)
+			.await?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: session.server.config.region.clone(),
 		});
@@ -395,7 +394,7 @@ impl Component {
 				memory: create.memory,
 				mounts: create.mounts,
 				network: create.network,
-				owner: create.owner,
+				owner,
 				status: tg::sandbox::Status::Started,
 				storage: create.storage,
 				ttl: create.ttl,

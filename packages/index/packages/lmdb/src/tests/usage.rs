@@ -285,14 +285,14 @@ fn sandbox_data(
 	tg::sandbox::get::Output {
 		data: tg::sandbox::Data {
 			cpu: Some(2.into()),
-			creator: Some(owner.clone()),
+			creator: owner.clone(),
 			error: None,
 			hostname: None,
 			id,
 			memory: Some((1 << 30).into()),
 			mounts: Vec::new(),
 			network: None,
-			owner: Some(owner),
+			owner,
 			status,
 			storage: None,
 			ttl: None,

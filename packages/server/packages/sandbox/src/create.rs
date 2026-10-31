@@ -69,12 +69,11 @@ impl Component {
 		// Resolve the sandbox owner.
 		let creator = session.context.principal.clone();
 		let owner = arg.owner.clone().unwrap_or_else(|| creator.clone());
-		arg.owner = Some(owner.clone());
 		session
 			.server
 			.components
 			.billing
-			.verify_billing(session, Some(&owner))
+			.verify_billing(session, &owner)
 			.await?;
 
 		// Validate the backend and resources.
@@ -107,7 +106,8 @@ impl Component {
 
 		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
-			creator: Some(creator),
+			creator,
+			owner,
 			parent: None,
 			process: None,
 			sandbox: id.clone(),

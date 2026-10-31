@@ -206,7 +206,7 @@ impl Index {
 				.and_then(|sandbox| sandbox.data.as_ref())
 				.filter(|data| data.data.status.is_started())
 			{
-				let creator = data.data.creator.clone().unwrap_or(tg::Principal::Root);
+				let creator = data.data.creator.clone();
 				let key = Key::Sandbox(crate::sandbox::Key::CreatorSandbox {
 					creator,
 					sandbox: arg.id.clone(),
@@ -214,7 +214,7 @@ impl Index {
 				let key = Self::pack(subspace, &key);
 				txn.clear(&key);
 
-				let owner = data.data.owner.clone().unwrap_or(tg::Principal::Root);
+				let owner = data.data.owner.clone();
 				let key = Key::Sandbox(crate::sandbox::Key::OwnerSandbox {
 					owner,
 					sandbox: arg.id.clone(),
@@ -228,7 +228,7 @@ impl Index {
 				.as_ref()
 				.filter(|data| data.data.status.is_started())
 			{
-				let creator = data.data.creator.clone().unwrap_or(tg::Principal::Root);
+				let creator = data.data.creator.clone();
 				let key = Key::Sandbox(crate::sandbox::Key::CreatorSandbox {
 					creator,
 					sandbox: arg.id.clone(),
@@ -236,7 +236,7 @@ impl Index {
 				let key = Self::pack(subspace, &key);
 				txn.set(&key, &[]);
 
-				let owner = data.data.owner.clone().unwrap_or(tg::Principal::Root);
+				let owner = data.data.owner.clone();
 				let key = Key::Sandbox(crate::sandbox::Key::OwnerSandbox {
 					owner,
 					sandbox: arg.id.clone(),

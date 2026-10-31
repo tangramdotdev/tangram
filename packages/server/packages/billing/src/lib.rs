@@ -67,17 +67,10 @@ impl Component {
 		}
 	}
 
-	pub async fn verify_billing(
-		&self,
-		session: &Session,
-		owner: Option<&tg::Principal>,
-	) -> tg::Result<()> {
+	pub async fn verify_billing(&self, session: &Session, owner: &tg::Principal) -> tg::Result<()> {
 		if self.provider.is_none() {
 			return Ok(());
 		}
-		let Some(owner) = owner else {
-			return Ok(());
-		};
 		if matches!(owner, tg::Principal::Root) {
 			return Ok(());
 		}
@@ -184,7 +177,7 @@ impl tangram_server_core::billing::Component for Component {
 	fn verify_billing<'a>(
 		&'a self,
 		session: &'a Session,
-		owner: Option<&'a tg::Principal>,
+		owner: &'a tg::Principal,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.verify_billing(session, owner).boxed()
 	}

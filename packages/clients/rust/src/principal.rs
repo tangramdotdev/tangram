@@ -3,6 +3,7 @@ use crate::prelude::*;
 #[derive(
 	Clone,
 	Debug,
+	Default,
 	Eq,
 	Hash,
 	Ord,
@@ -29,6 +30,7 @@ pub enum Principal {
 	#[display("{_0}")]
 	Process(tg::process::Id),
 
+	#[default]
 	#[display("root")]
 	Root,
 

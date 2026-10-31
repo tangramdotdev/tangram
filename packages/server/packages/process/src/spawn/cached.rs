@@ -372,7 +372,7 @@ impl Component {
 			.sandboxes()
 			.get_by_id(&sandbox)
 		{
-			sandbox.create.owner.clone()
+			sandbox.owner.clone()
 		} else {
 			session
 				.server
@@ -386,7 +386,6 @@ impl Component {
 				.data
 				.owner
 		};
-		let owner = owner.unwrap_or(tg::Principal::Root);
 
 		Ok(owner)
 	}

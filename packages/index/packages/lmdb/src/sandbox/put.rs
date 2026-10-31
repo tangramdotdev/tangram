@@ -191,7 +191,7 @@ impl Index {
 				.and_then(|sandbox| sandbox.data.as_ref())
 				.filter(|data| data.data.status.is_started())
 			{
-				let creator = data.data.creator.clone().unwrap_or(tg::Principal::Root);
+				let creator = data.data.creator.clone();
 				let key = Key::Sandbox(crate::sandbox::Key::CreatorSandbox {
 					creator,
 					sandbox: arg.id.clone(),
@@ -200,7 +200,7 @@ impl Index {
 				db.delete(transaction, &key)
 					.map_err(|error| tg::error!(!error, "failed to delete the creator sandbox"))?;
 
-				let owner = data.data.owner.clone().unwrap_or(tg::Principal::Root);
+				let owner = data.data.owner.clone();
 				let key = Key::Sandbox(crate::sandbox::Key::OwnerSandbox {
 					owner,
 					sandbox: arg.id.clone(),
@@ -215,7 +215,7 @@ impl Index {
 				.as_ref()
 				.filter(|data| data.data.status.is_started())
 			{
-				let creator = data.data.creator.clone().unwrap_or(tg::Principal::Root);
+				let creator = data.data.creator.clone();
 				let key = Key::Sandbox(crate::sandbox::Key::CreatorSandbox {
 					creator,
 					sandbox: arg.id.clone(),
@@ -224,7 +224,7 @@ impl Index {
 				db.put(transaction, &key, &[])
 					.map_err(|error| tg::error!(!error, "failed to put the creator sandbox"))?;
 
-				let owner = data.data.owner.clone().unwrap_or(tg::Principal::Root);
+				let owner = data.data.owner.clone();
 				let key = Key::Sandbox(crate::sandbox::Key::OwnerSandbox {
 					owner,
 					sandbox: arg.id.clone(),

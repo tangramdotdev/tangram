@@ -286,7 +286,7 @@ impl Component {
 			.sandbox
 			.clone()
 			.ok_or_else(|| tg::error!("the scheduled process has no sandbox"))?;
-		let arg = output
+		let super::local::SandboxArg { arg, owner } = output
 			.sandbox_arg
 			.clone()
 			.ok_or_else(|| tg::error!("missing the sandbox arg"))?;
@@ -298,9 +298,10 @@ impl Component {
 			let spawn_sandbox_task_arg = tangram_server_runner_core::sandbox::SpawnSandboxTaskArg {
 				allocation,
 				arg,
-				creator: Some(session.context.principal.clone()),
+				creator: session.context.principal.clone(),
 				id,
 				location,
+				owner,
 				process: Some(process),
 				token,
 			};
@@ -335,7 +336,8 @@ impl Component {
 
 		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
-			creator: Some(session.context.principal.clone()),
+			creator: session.context.principal.clone(),
+			owner,
 			parent: output.parent_sandbox.clone(),
 			process: Some(process),
 			sandbox: sandbox.clone(),

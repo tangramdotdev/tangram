@@ -905,6 +905,7 @@ impl Component {
 					creator: request.creator,
 					id: Some(sandbox.clone()),
 					location: location.clone(),
+					owner: request.owner,
 					process: request.process,
 					token: Some(token),
 				},

@@ -174,7 +174,7 @@ impl Component {
 					memory: data.data.memory,
 					mounts: data.data.mounts,
 					network: data.data.network,
-					owner: Some(data.data.owner.unwrap_or(tg::Principal::Root)),
+					owner: data.data.owner,
 					status: data.data.status,
 					tokens: tg::authorization::Tokens::default(),
 					ttl: data.data.ttl,

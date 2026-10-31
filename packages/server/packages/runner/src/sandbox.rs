@@ -59,10 +59,11 @@ struct SpawnSandboxArg {
 struct SandboxTaskArg {
 	allocation: tangram_server_runner_core::capacity::Allocation,
 	arg: tg::sandbox::create::Arg,
-	creator: Option<tg::Principal>,
+	creator: tg::Principal,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 	id: tg::sandbox::Id,
 	location: tg::Location,
+	owner: tg::Principal,
 	process: Option<tg::runner::control::Process>,
 	proof: Option<tg::sandbox::id::Proof>,
 	stopper: Stopper,
@@ -72,10 +73,11 @@ struct SandboxTaskArg {
 struct GetSandboxControlStreamArg<'a> {
 	create: tg::sandbox::create::Arg,
 	created_at: i64,
-	creator: Option<tg::Principal>,
+	creator: tg::Principal,
 	id: &'a tg::sandbox::Id,
 	input_stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	location: &'a tg::Location,
+	owner: tg::Principal,
 	proof: Option<tg::sandbox::id::Proof>,
 }
 
@@ -89,11 +91,12 @@ struct DestroyFailedSandboxArg<'a> {
 	arg: tg::sandbox::create::Arg,
 	connection: ConnectedSandboxControl,
 	created_at: i64,
-	creator: Option<tg::Principal>,
+	creator: tg::Principal,
 	error: &'a tg::Error,
 	id: &'a tg::sandbox::Id,
 	input: tokio::sync::mpsc::Sender<tg::sandbox::control::ClientMessage>,
 	location: &'a tg::Location,
+	owner: tg::Principal,
 }
 
 struct SandboxTaskInnerArg {
@@ -296,6 +299,7 @@ impl Component {
 			event_sender: event_sender.clone(),
 			id: id.clone(),
 			location: arg.location,
+			owner: arg.owner,
 			process: arg.process,
 			proof,
 			stopper: stopper.clone(),
@@ -364,6 +368,7 @@ impl Component {
 			event_sender,
 			id,
 			location,
+			owner,
 			process,
 			proof,
 			stopper,
@@ -416,6 +421,7 @@ impl Component {
 			let creator = creator.clone();
 			let id = id.clone();
 			let location = location.clone();
+			let owner = owner.clone();
 			move |_| async move {
 				let connect_arg = GetSandboxControlStreamArg {
 					create,
@@ -424,6 +430,7 @@ impl Component {
 					id: &id,
 					input_stream,
 					location: &location,
+					owner,
 					proof,
 				};
 				let connection = component
@@ -472,6 +479,7 @@ impl Component {
 					id: &id,
 					input,
 					location: &location,
+					owner,
 				};
 				if let Err(source) = self.destroy_failed_sandbox(session, arg).boxed().await {
 					tracing::error!(error = %source.trace(), sandbox = %id, "failed to report the failed sandbox");
@@ -494,6 +502,7 @@ impl Component {
 			arg: arg.clone(),
 			created_at,
 			creator: creator.clone(),
+			owner: owner.clone(),
 			runner: self.state.id(),
 		});
 
@@ -538,6 +547,8 @@ impl Component {
 			id: id.clone(),
 
 			location: location.clone(),
+
+			owner,
 
 			process_ids: indexmap::IndexMap::default(),
 
@@ -1599,6 +1610,7 @@ impl Component {
 			id,
 			input,
 			location,
+			owner,
 		} = arg;
 
 		// Create the destroyed sandbox's data.
@@ -1612,7 +1624,7 @@ impl Component {
 			memory: arg.memory,
 			mounts: arg.mounts,
 			network: arg.network,
-			owner: arg.owner,
+			owner,
 			status: tg::sandbox::Status::Destroyed,
 			storage: arg.storage,
 			ttl: arg.ttl,
@@ -1730,6 +1742,7 @@ impl Component {
 			id,
 			input_stream,
 			location,
+			owner,
 			proof,
 		} = arg;
 		let runner = session
@@ -1745,6 +1758,7 @@ impl Component {
 			creator,
 			id: Some(id.clone()),
 			location: Some(location.clone().into()),
+			owner,
 			proof,
 			runner: Some(runner),
 		};

@@ -906,17 +906,12 @@ impl Component {
 		let touched_at = session.server.clock.unix_timestamp();
 		let mut put_sandbox_args = Vec::with_capacity(messages.len());
 		for message in messages {
-			let account = match message.data.data.owner.as_ref() {
-				Some(owner) => {
-					session
-						.server
-						.components
-						.usage
-						.usage_account(session, owner)
-						.await?
-				},
-				None => None,
-			};
+			let account = session
+				.server
+				.components
+				.usage
+				.usage_account(session, &message.data.data.owner)
+				.await?;
 			let permissions = [
 				Self::sync_get_create_permission(session, &message.id.clone().into(), Some(sync))?,
 				Self::sync_get_create_permission(session, &message.id.clone().into(), None)?,

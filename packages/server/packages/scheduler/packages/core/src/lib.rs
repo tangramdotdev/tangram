@@ -118,8 +118,11 @@ pub struct DequeueSandboxResponseOutput {
 pub struct EnqueueSandboxRequestArg {
 	pub arg: tg::sandbox::create::Arg,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub creator: Option<tg::Principal>,
+	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
+	pub creator: tg::Principal,
+
+	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
+	pub owner: tg::Principal,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::sandbox::Id>,

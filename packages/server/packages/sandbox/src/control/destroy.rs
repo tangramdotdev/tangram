@@ -21,17 +21,12 @@ impl Component {
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.destroy", sandbox = %id)
 			.await;
 
-		let account = match arg.data.data.owner.as_ref() {
-			Some(owner) => {
-				session
-					.server
-					.components
-					.usage
-					.usage_account(session, owner)
-					.await?
-			},
-			None => None,
-		};
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &arg.data.data.owner)
+			.await?;
 		let now = session.server.clock.unix_timestamp();
 		let location = tg::Location::Local(tg::location::Local {
 			region: session.server.config.region.clone(),

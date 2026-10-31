@@ -29,13 +29,19 @@ pub(super) struct Output {
 
 	pub process_token: Option<String>,
 
-	pub sandbox_arg: Option<tg::sandbox::create::Arg>,
+	pub sandbox_arg: Option<SandboxArg>,
 
 	pub sandbox_token: Option<String>,
 
 	pub scheduler: Option<tg::scheduler::Id>,
 
 	pub tokens: tg::authorization::Tokens,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct SandboxArg {
+	pub arg: tg::sandbox::create::Arg,
+	pub owner: tg::Principal,
 }
 
 struct SpawnProcessCreateLocalProcessArg<'a> {
@@ -424,9 +430,9 @@ impl Component {
 					.server
 					.try_get_request_origin_sandbox(session.context.origin)?
 					.filter(|origin| origin.id == sandbox.node)
-					.map(|origin| origin.create.owner.clone());
+					.map(|origin| origin.owner.clone());
 				if let Some(owner) = origin_owner {
-					owner
+					Some(owner)
 				} else {
 					let permission = tg::authorization::Permission::Sandbox(
 						tg::authorization::permission::sandbox::Permission::Parent,
@@ -453,7 +459,7 @@ impl Component {
 							.and_then(|sandbox| sandbox.data)
 							.ok_or_else(|| tg::error!("failed to find the sandbox"))?
 					};
-					sandbox.data.owner
+					Some(sandbox.data.owner)
 				}
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
@@ -479,35 +485,22 @@ impl Component {
 					)?,
 			};
 			let parent_owner = parent.data.owner;
-			let owners_match = requested_owner
-				.as_ref()
-				.filter(|owner| !matches!(owner, tg::Principal::Root))
-				== parent_owner
-					.as_ref()
-					.filter(|owner| !matches!(owner, tg::Principal::Root));
-			if requested_owner.is_some() && !owners_match {
+			if requested_owner.is_some_and(|owner| owner != parent_owner) {
 				return Err(tg::error!(
 					%parent_sandbox,
 					"the child sandbox owner must match the parent sandbox owner"
 				));
 			}
 			parent_owner
-		} else if requested_owner.is_some() {
-			requested_owner
-		} else if matches!(
-			session.context.principal,
-			tg::Principal::Anonymous | tg::Principal::Root
-		) {
-			None
 		} else {
-			Some(session.context.principal.clone())
+			requested_owner.unwrap_or_else(|| session.context.principal.clone())
 		};
 		if matches!(spawn_arg.sandbox, Some(tg::Either::Left(_))) {
 			session
 				.server
 				.components
 				.billing
-				.verify_billing(session, owner.as_ref())
+				.verify_billing(session, &owner)
 				.await?;
 		}
 
@@ -529,7 +522,6 @@ impl Component {
 				)?;
 				sandbox_arg.host = Some(host.to_owned());
 				sandbox_arg.location.clone_from(&spawn_arg.location);
-				sandbox_arg.owner.clone_from(&owner);
 				tangram_server_sandbox_common::clear_darwin_sandbox_resources(&mut sandbox_arg);
 				let isolation = session
 					.server
@@ -549,6 +541,10 @@ impl Component {
 					.components
 					.authentication
 					.create_sandbox_authentication_token(&session.server, sandbox.clone())?;
+				let sandbox_arg = SandboxArg {
+					arg: sandbox_arg,
+					owner: owner.clone(),
+				};
 				(sandbox, Some(sandbox_arg), Some(token))
 			},
 			Some(tg::Either::Right(sandbox)) => (sandbox.node.clone(), None, None),

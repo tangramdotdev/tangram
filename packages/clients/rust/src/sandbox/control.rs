@@ -407,9 +407,9 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub created_at: Option<i64>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
-	pub creator: Option<tg::Principal>,
+	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "tg::Principal::is_root")]
+	pub creator: tg::Principal,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
@@ -418,6 +418,10 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
+	#[tangram_serialize(default, id = 7, skip_serializing_if = "tg::Principal::is_root")]
+	pub owner: tg::Principal,
 
 	/// The proof that the runner that opens the connection derived the sandbox's ID.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

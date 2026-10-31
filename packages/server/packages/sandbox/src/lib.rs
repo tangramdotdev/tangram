@@ -211,12 +211,9 @@ impl tangram_server_core::sandbox::Component for Component {
 		&'a self,
 		session: &'a tangram_server_core::Session,
 		id: &'a tg::sandbox::Id,
-		created_at: i64,
-		create: tg::sandbox::create::Arg,
-		creator: Option<tg::Principal>,
-		runner: Option<tg::runner::Id>,
+		create: tg::process::control::SandboxCreate,
 	) -> BoxFuture<'a, tg::Result<tangram_index::sandbox::put::Arg>> {
-		self.prepare_sandbox_control_index_arg(session, id, created_at, create, creator, runner)
+		self.prepare_sandbox_control_index_arg(session, id, create)
 			.boxed()
 	}
 

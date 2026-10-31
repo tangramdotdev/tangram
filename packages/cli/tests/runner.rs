@@ -270,9 +270,10 @@ fn sandbox_control_arg(
 	tg::sandbox::control::Arg {
 		create: Some(tg::sandbox::create::Arg::default()),
 		created_at: None,
-		creator: None,
+		creator: tg::Principal::Root,
 		id: Some(id),
 		location: Some(location.into()),
+		owner: tg::Principal::Root,
 		proof,
 		runner: Some(runner.clone()),
 	}
