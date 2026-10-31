@@ -4,13 +4,13 @@ use {
 	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_http::body::Boxed as BoxBody,
-	tangram_messenger::service,
 	tangram_server_core::{
 		Server, Session,
 		messenger::Messenger,
 		process::{PushProcessObjectsArg, PushProcessObjectsOutput},
 	},
 	tangram_server_process_core::{Child, Processes, put::Options},
+	tangram_server_service as service,
 };
 
 mod notification;
@@ -51,56 +51,71 @@ pub struct State {
 }
 
 pub(crate) struct Attach {
-	pub clients: service::Clients<self::attach::service::Protocol, Messenger>,
-	pub service_tasks: tangram_futures::task::Set<tg::Result<()>>,
-	pub services: DashMap<
+	pub client: service::Client<
 		tg::process::Nonce,
-		tokio::sync::mpsc::UnboundedSender<self::attach::service::LocalRequest>,
+		self::attach::service::Request,
+		self::attach::service::Response,
+		Messenger,
+	>,
+	pub servers: DashMap<
+		tg::process::Nonce,
+		service::Server<self::attach::service::Request, self::attach::service::Response>,
 		fnv::FnvBuildHasher,
 	>,
-	pub services_changed: tokio::sync::Notify,
+	pub service_tasks: tangram_futures::task::Set<tg::Result<()>>,
 }
 
 pub(crate) struct Control {
-	pub clients: service::Clients<self::control::service::Protocol, Messenger>,
+	pub client: service::Client<
+		tg::process::Id,
+		self::control::service::Request,
+		self::control::service::Response,
+		Messenger,
+	>,
+	pub servers: DashMap<
+		tg::process::Id,
+		service::Server<self::control::service::Request, self::control::service::Response>,
+		fnv::FnvBuildHasher,
+	>,
 	pub service_tasks: tangram_futures::task::Set<tg::Result<()>>,
-	pub services: DashMap<tg::process::Id, self::control::service::Local, fnv::FnvBuildHasher>,
-	pub services_changed: tokio::sync::Notify,
 }
 
 impl Component {
 	pub fn new(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Self> {
-		// Create the attach clients, which observe their events as checkpoints.
-		let observer = Arc::new(self::attach::service::Observer::new(
+		// Create the attach client, which observes its events as checkpoints.
+		let observer = Arc::new(service::Checkpoints::new(
 			arg.checkpoints.cloned(),
+			self::attach::service::NAME,
 		));
-		let clients = service::Clients::new(
+		let client = service::Client::new(
 			arg.messenger.clone(),
-			"processes.service",
+			self::attach::service::SUBJECT,
 			arg.config.process.attach.service,
 			observer,
 		)
-		.map_err(|source| tg::error!(!source, "failed to create the process attach clients"))?;
+		.map_err(|source| tg::error!(!source, "failed to create the process attach client"))?;
 		let attach = Attach {
-			clients,
+			client,
+			servers: DashMap::default(),
 			service_tasks: tangram_futures::task::Set::default(),
-			services: DashMap::default(),
-			services_changed: tokio::sync::Notify::new(),
 		};
 
-		// Create the control clients.
-		let clients = service::Clients::new(
+		// Create the control client, which observes its events as checkpoints.
+		let observer = Arc::new(service::Checkpoints::new(
+			arg.checkpoints.cloned(),
+			self::control::service::NAME,
+		));
+		let client = service::Client::new(
 			arg.messenger.clone(),
-			"processes.control.service",
+			self::control::service::SUBJECT,
 			arg.config.process.control_service,
-			Arc::new(self::control::service::Observer),
+			observer,
 		)
-		.map_err(|source| tg::error!(!source, "failed to create the process control clients"))?;
+		.map_err(|source| tg::error!(!source, "failed to create the process control client"))?;
 		let control = Control {
-			clients,
+			client,
+			servers: DashMap::default(),
 			service_tasks: tangram_futures::task::Set::default(),
-			services: DashMap::default(),
-			services_changed: tokio::sync::Notify::new(),
 		};
 
 		// Create the state.
@@ -437,13 +452,13 @@ impl tangram_server_core::component::Lifecycle for Component {
 			self.remote_put_tasks.wait().await;
 			tracing::trace!("remote process put tasks");
 
-			// Stop the attach clients and drain the attach service tasks.
-			self.attach.clients.stop();
+			// Stop the attach client and drain the attach service tasks.
+			self.attach.client.stop();
 			self.attach.service_tasks.stop_all();
 			self.attach.service_tasks.wait().await;
 
-			// Stop the control clients and drain the control service tasks.
-			self.control.clients.stop();
+			// Stop the control client and drain the control service tasks.
+			self.control.client.stop();
 			self.control.service_tasks.stop_all();
 			self.control.service_tasks.wait().await;
 		}
@@ -473,11 +488,11 @@ impl tangram_server_core::process::Component for Component {
 
 	fn authorize_with_process_control_service<'a>(
 		&'a self,
-		session: &'a tangram_server_core::Session,
+		_session: &'a tangram_server_core::Session,
 		id: &'a tg::process::Id,
 		principal: &'a tg::Principal,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.authorize_with_process_control_service(session, id, principal)
+		self.authorize_with_process_control_service(id, principal)
 			.boxed()
 	}
 
@@ -623,11 +638,10 @@ impl tangram_server_core::process::Component for Component {
 
 	fn try_get_process_parent_from_control_service<'a>(
 		&'a self,
-		session: &'a tangram_server_core::Session,
+		_session: &'a tangram_server_core::Session,
 		id: &'a tg::process::Id,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::Id>>> {
-		self.try_get_process_parent_from_control_service(session, id)
-			.boxed()
+		self.try_get_process_parent_from_control_service(id).boxed()
 	}
 
 	fn try_get_process_regions<'a>(

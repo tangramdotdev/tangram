@@ -715,7 +715,6 @@ impl Component {
 						));
 					};
 					self.authorize_with_process_control_service(
-						session,
 						&parent.id,
 						&session.context.principal,
 					)

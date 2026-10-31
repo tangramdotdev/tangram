@@ -41,7 +41,7 @@ let token = $data.command.options.tokens.remote | first
 let graph = $data.command.node | to json --raw | parse --regex '(?<id>gph_[0-9a-z]+)' | get id.0
 
 # Wait for the service of the token's sync to stop.
-let subject = $"syncs.($token | token body | get resource).service"
+let subject = $"syncs.service.($token | token body | get resource)"
 mut hit = 0
 loop {
 	let params = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.service.stopped $stopped_watch $hit | from json | get params

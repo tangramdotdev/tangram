@@ -1,4 +1,5 @@
 use {
+	dashmap::DashMap,
 	futures::{FutureExt as _, future::BoxFuture, prelude::*, stream::BoxStream},
 	std::{
 		ops::ControlFlow,
@@ -28,27 +29,38 @@ pub(crate) use self::graph::Graph;
 pub struct Component(Arc<State>);
 
 pub struct State {
-	pub(crate) clients: tangram_messenger::service::Clients<self::service::Protocol, Messenger>,
+	pub(crate) client: tangram_server_service::Client<
+		tg::sync::Id,
+		self::service::Request,
+		self::service::Response,
+		Messenger,
+	>,
 	pub(crate) index_tasks: tangram_futures::task::Set<tg::Result<()>>,
+	pub(crate) servers: DashMap<
+		tg::sync::Id,
+		tangram_server_service::Server<self::service::Request, self::service::Response>,
+		fnv::FnvBuildHasher,
+	>,
 	pub(crate) service_tasks: tangram_futures::task::Set<tg::Result<()>>,
 }
 
 impl Component {
 	pub fn new(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Self> {
-		// Create the sync clients, which observe their events as checkpoints.
-		let observer = Arc::new(self::service::Observer::new(arg.checkpoints.cloned()));
-		let clients = tangram_messenger::service::Clients::new(
+		// Create the sync client, which observes its events as checkpoints.
+		let observer = Arc::new(self::service::observer(arg.checkpoints.cloned()));
+		let client = tangram_server_service::Client::new(
 			arg.messenger.clone(),
-			"syncs.service",
+			self::service::SUBJECT,
 			arg.config.sync.service,
 			observer,
 		)
-		.map_err(|source| tg::error!(!source, "failed to create the sync clients"))?;
+		.map_err(|source| tg::error!(!source, "failed to create the sync client"))?;
 
 		// Create the state.
 		let state = State {
-			clients,
+			client,
 			index_tasks: tangram_futures::task::Set::default(),
+			servers: DashMap::default(),
 			service_tasks: tangram_futures::task::Set::default(),
 		};
 		let component = Self(Arc::new(state));
@@ -608,8 +620,8 @@ impl tangram_server_core::component::Lifecycle for Component {
 			// Enqueue interrupted transfers before stopping their control tasks.
 			self.index_tasks.wait().await;
 
-			// Stop the sync clients and drain the sync service tasks after the transfers have stopped.
-			self.clients.stop();
+			// Stop the sync client and drain the sync service tasks after the transfers have stopped.
+			self.client.stop();
 			self.service_tasks.stop_all();
 			self.service_tasks.wait().await;
 		}

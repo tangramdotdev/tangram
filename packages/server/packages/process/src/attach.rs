@@ -61,11 +61,10 @@ impl Component {
 	> {
 		async move {
 			// Start answering the requests that locate the process by the attach's nonce.
-			let sender = arg
-				.nonce
-				.as_ref()
-				.map(|nonce| self.spawn_process_attach_service_task(session, nonce))
-				.transpose()?;
+			let sender = match &arg.nonce {
+				Some(nonce) => Some(self.spawn_process_attach_service_task(session, nonce)?),
+				None => None,
+			};
 			if let (Some(sender), tg::Either::Right(id)) = (&sender, &arg.process) {
 				sender.set_process(tg::Referent::with_node(id.clone()));
 			}

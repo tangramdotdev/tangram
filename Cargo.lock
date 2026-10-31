@@ -11565,6 +11565,7 @@ dependencies = [
  "tangram_server_runner_core",
  "tangram_server_sandbox_common",
  "tangram_server_scheduler_core",
+ "tangram_server_service",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -11772,6 +11773,7 @@ dependencies = [
  "http",
  "mime",
  "num",
+ "scopeguard",
  "serde",
  "serde_json",
  "tangram_client",
@@ -11786,6 +11788,7 @@ dependencies = [
  "tangram_server_sandbox_common",
  "tangram_server_sandbox_core",
  "tangram_server_scheduler_core",
+ "tangram_server_service",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -11843,11 +11846,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_server_service"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "tangram_client",
+ "tangram_messenger",
+ "tangram_messenger_memory",
+ "tangram_server_checkpoint_core",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "tangram_server_sync"
 version = "0.0.0"
 dependencies = [
  "async-channel",
  "bytes",
+ "dashmap",
+ "fnv",
  "futures",
  "http",
  "indexmap 2.14.2",
@@ -11872,6 +11892,7 @@ dependencies = [
  "tangram_server_node_common",
  "tangram_server_object_common",
  "tangram_server_process_common",
+ "tangram_server_service",
  "tangram_server_sync_graph",
  "tangram_server_tag_common",
  "tangram_util",

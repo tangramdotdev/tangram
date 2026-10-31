@@ -1,6 +1,6 @@
 use {
 	super::{
-		Error, Event, Message, Observer, Options, Protocol, announce_subject, client_subject, id,
+		Error, Event, Message, Observer, Options, announce_subject, client_subject, id,
 		pool_subject, server_subject,
 	},
 	crate::{Messenger, Payload},
@@ -19,28 +19,29 @@ use {
 
 type Messages = BoxStream<'static, Result<crate::Message<Message>, crate::Error>>;
 
-/// The clients of a messenger, with one shared client per subject that stops after it has been idle, and one subscription for the responses to all of them.
-pub struct Clients<P: Protocol, M> {
+/// The client of a messenger's services, with one shared connection per subject that stops after it has been idle, and one subscription for the responses to all of them.
+pub struct Client<Req, Res, M> {
+	marker: PhantomData<fn() -> Res>,
 	messenger: M,
-	observer: Arc<dyn Observer<P>>,
+	observer: Arc<dyn Observer<Req>>,
 	options: Options,
 	pool: Arc<Pool>,
 	stopped: watch::Sender<bool>,
-	subjects: Arc<Mutex<BTreeMap<String, Arc<Client<P>>>>>,
+	subjects: Arc<Mutex<BTreeMap<String, Arc<Connection<Req>>>>>,
 }
 
 /// A pending request. Dropping it cancels the request at the server.
-pub struct Request<P: Protocol> {
-	client: Arc<Client<P>>,
+struct Request<Req, Res> {
+	connection: Arc<Connection<Req>>,
 	id: String,
-	marker: PhantomData<fn() -> P::Response>,
+	marker: PhantomData<fn() -> Res>,
 	receiver: watch::Receiver<Output>,
 }
 
-/// The client for one subject, which a task runs. Its ID is the subject that its responses are published to.
-struct Client<P: Protocol> {
+/// The connection for one subject, which a task runs. Its ID is the subject that its responses are published to.
+struct Connection<Req> {
 	id: String,
-	sender: mpsc::UnboundedSender<Command<P>>,
+	sender: mpsc::UnboundedSender<Command<Req>>,
 }
 
 /// The subscription of a pool of clients, which routes each response to its client by the subject that it was published to.
@@ -69,32 +70,32 @@ enum Output {
 	Ready(Result<Bytes, Error>),
 }
 
-enum Command<P: Protocol> {
+enum Command<Req> {
 	Cancel(String),
 	Request {
 		id: String,
-		request: P::Request,
+		request: Req,
 		sender: watch::Sender<Output>,
 	},
 }
 
-struct Task<P: Protocol, M> {
+struct Task<Req, M> {
 	messenger: M,
-	observer: Arc<dyn Observer<P>>,
+	observer: Arc<dyn Observer<Req>>,
 	options: Options,
 	pool: Arc<Pool>,
-	state: State<P>,
-	subjects: Arc<Mutex<BTreeMap<String, Arc<Client<P>>>>>,
+	state: State<Req>,
+	subjects: Arc<Mutex<BTreeMap<String, Arc<Connection<Req>>>>>,
 }
 
-struct State<P: Protocol> {
+struct State<Req> {
 	attempt: Option<Attempt>,
 	client: String,
 	heartbeat_at: Instant,
 	heartbeats: BTreeMap<String, Heartbeat>,
 	idle_at: Option<Instant>,
 	last_heartbeat: Option<Instant>,
-	requests: BTreeMap<String, Pending<P>>,
+	requests: BTreeMap<String, Pending<Req>>,
 	subject: String,
 }
 
@@ -109,12 +110,12 @@ struct Heartbeat {
 	sent_at: Instant,
 }
 
-struct Pending<P: Protocol> {
+struct Pending<Req> {
 	acknowledged: bool,
 	attempts: BTreeSet<String>,
 	bytes: Bytes,
 	deadline: Option<Instant>,
-	request: P::Request,
+	request: Req,
 	retry_at: Instant,
 	sender: watch::Sender<Output>,
 
@@ -125,17 +126,18 @@ struct Pending<P: Protocol> {
 	sent_without_attempt: bool,
 }
 
-impl<P, M> Clients<P, M>
+impl<Req, Res, M> Client<Req, Res, M>
 where
-	P: Protocol,
+	Req: Payload,
+	Res: Payload,
 	M: Messenger + Clone + Send + Sync + 'static,
 {
-	/// Create the clients of a messenger, whose responses are published to subjects under the given subject.
+	/// Create the client of a messenger's services, whose responses are published to subjects under the given subject.
 	pub fn new(
 		messenger: M,
 		subject: impl Into<String>,
 		options: Options,
-		observer: Arc<dyn Observer<P>>,
+		observer: Arc<dyn Observer<Req>>,
 	) -> Result<Self, Error> {
 		options.validate()?;
 		let (stopped, _) = watch::channel(false);
@@ -145,7 +147,8 @@ where
 			subject: subject.into(),
 			subscribing: tokio::sync::Mutex::new(()),
 		};
-		let clients = Self {
+		let client = Self {
+			marker: PhantomData,
 			messenger,
 			observer,
 			options,
@@ -153,11 +156,21 @@ where
 			stopped,
 			subjects: Arc::new(Mutex::new(BTreeMap::new())),
 		};
-		Ok(clients)
+		Ok(client)
 	}
 
-	/// Send a request to the server of a subject. The server may start before or after the request is sent.
-	pub fn request(&self, subject: &str, request: P::Request) -> Result<Request<P>, Error> {
+	/// Send a request to the server of a subject and wait for its response. The server may start before or after the request is sent. Dropping the future cancels the request at the server.
+	pub async fn request(&self, subject: &str, request: Req) -> Result<Res, Error> {
+		let mut request = self.send(subject, request)?;
+		request.wait().await
+	}
+
+	/// Stop every connection, failing their pending requests with `Error::Stopped`.
+	pub fn stop(&self) {
+		self.stopped.send_replace(true);
+	}
+
+	fn send(&self, subject: &str, request: Req) -> Result<Request<Req, Res>, Error> {
 		let id = id();
 		let (sender, receiver) = watch::channel(Output::Pending);
 		let command = Command::Request {
@@ -166,24 +179,24 @@ where
 			sender,
 		};
 
-		// Send the request while holding the lock, so that an idle client cannot remove itself between being found and receiving the request.
+		// Send the request while holding the lock, so that an idle connection cannot remove itself between being found and receiving the request.
 		let mut subjects = self.subjects.lock().unwrap();
-		let client = if let Some(client) = subjects
+		let connection = if let Some(connection) = subjects
 			.get(subject)
-			.filter(|client| !client.sender.is_closed())
+			.filter(|connection| !connection.sender.is_closed())
 			.cloned()
 		{
-			client
+			connection
 		} else {
-			let client = self.spawn(subject);
-			subjects.insert(subject.to_owned(), client.clone());
-			client
+			let connection = self.spawn(subject);
+			subjects.insert(subject.to_owned(), connection.clone());
+			connection
 		};
-		client.sender.send(command).map_err(|_| Error::Closed)?;
+		connection.sender.send(command).map_err(|_| Error::Closed)?;
 		drop(subjects);
 
 		let request = Request {
-			client,
+			connection,
 			id,
 			marker: PhantomData,
 			receiver,
@@ -191,20 +204,15 @@ where
 		Ok(request)
 	}
 
-	/// Stop every client, failing their pending requests with `Error::Stopped`.
-	pub fn stop(&self) {
-		self.stopped.send_replace(true);
-	}
-
-	fn spawn(&self, subject: &str) -> Arc<Client<P>> {
+	fn spawn(&self, subject: &str) -> Arc<Connection<Req>> {
 		let (sender, commands) = mpsc::unbounded_channel();
-		let client = Arc::new(Client {
+		let connection = Arc::new(Connection {
 			id: client_subject(&self.pool.subject, &self.pool.id, &id()),
 			sender,
 		});
 		let state = State {
 			attempt: None,
-			client: client.id.clone(),
+			client: connection.id.clone(),
 			heartbeat_at: Instant::now(),
 			heartbeats: BTreeMap::new(),
 			idle_at: None,
@@ -224,7 +232,7 @@ where
 		tokio::spawn(async move {
 			task.run(commands, stopped).await;
 		});
-		client
+		connection
 	}
 }
 
@@ -300,9 +308,9 @@ impl Pool {
 	}
 }
 
-impl<P: Protocol> Request<P> {
+impl<Req, Res: Payload> Request<Req, Res> {
 	/// Wait for the response.
-	pub async fn wait(&mut self) -> Result<P::Response, Error> {
+	async fn wait(&mut self) -> Result<Res, Error> {
 		loop {
 			let output = self.receiver.borrow_and_update().clone();
 			match output {
@@ -310,7 +318,7 @@ impl<P: Protocol> Request<P> {
 					self.receiver.changed().await.map_err(|_| Error::Closed)?;
 				},
 				Output::Ready(result) => {
-					let response = P::Response::deserialize(result?).map_err(Error::messenger)?;
+					let response = Res::deserialize(result?).map_err(Error::messenger)?;
 					return Ok(response);
 				},
 			}
@@ -318,14 +326,14 @@ impl<P: Protocol> Request<P> {
 	}
 }
 
-impl<P, M> Task<P, M>
+impl<Req, M> Task<Req, M>
 where
-	P: Protocol,
+	Req: Payload,
 	M: Messenger + Clone + Send + Sync + 'static,
 {
 	async fn run(
 		mut self,
-		mut commands: mpsc::UnboundedReceiver<Command<P>>,
+		mut commands: mpsc::UnboundedReceiver<Command<Req>>,
 		mut stopped: watch::Receiver<bool>,
 	) {
 		// Register with the pool before sending anything, so that every response to this client is routed to it.
@@ -469,7 +477,7 @@ where
 	}
 
 	/// Run the periodic work, and return whether the client stopped after being idle.
-	async fn tick(&mut self, open: bool, commands: &mpsc::UnboundedReceiver<Command<P>>) -> bool {
+	async fn tick(&mut self, open: bool, commands: &mpsc::UnboundedReceiver<Command<Req>>) -> bool {
 		let now = Instant::now();
 		let options = self.options;
 		self.state
@@ -651,16 +659,8 @@ where
 				id,
 				response,
 			} => {
-				// A response from any attempt satisfies the request if the protocol accepts it. Leave an unaccepted response unacknowledged.
-				if let Some(request) = self.state.requests.get(&id) {
-					let accepted = P::Response::deserialize(response.clone())
-						.map_or(true, |deserialized| {
-							P::accepts(&request.request, &deserialized)
-						});
-					if !accepted {
-						return;
-					}
-					let mut request = self.state.requests.remove(&id).unwrap();
+				// A response from any attempt satisfies the request.
+				if let Some(mut request) = self.state.requests.remove(&id) {
 					request.attempts.remove(&attempt);
 					request.sender.send_replace(Output::Ready(Ok(response)));
 					self.cancel(&id, request.attempts, false).await;
@@ -780,14 +780,14 @@ where
 	}
 
 	/// Remove this client if it is idle, unless a command arrived for it.
-	fn remove_idle(&self, commands: &mpsc::UnboundedReceiver<Command<P>>) -> bool {
+	fn remove_idle(&self, commands: &mpsc::UnboundedReceiver<Command<Req>>) -> bool {
 		let mut subjects = self.subjects.lock().unwrap();
 		if !commands.is_empty() {
 			return false;
 		}
 		if subjects
 			.get(&self.state.subject)
-			.is_some_and(|client| client.id == self.state.client)
+			.is_some_and(|connection| connection.id == self.state.client)
 		{
 			subjects.remove(&self.state.subject);
 		}
@@ -815,9 +815,9 @@ impl Drop for Route {
 	}
 }
 
-impl<P: Protocol> Drop for Request<P> {
+impl<Req, Res> Drop for Request<Req, Res> {
 	fn drop(&mut self) {
-		self.client
+		self.connection
 			.sender
 			.send(Command::Cancel(self.id.clone()))
 			.ok();

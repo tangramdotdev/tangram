@@ -173,6 +173,7 @@ members = [
   "packages/server/packages/sandbox/packages/core",
   "packages/server/packages/scheduler",
   "packages/server/packages/scheduler/packages/core",
+  "packages/server/packages/service",
   "packages/server/packages/sync",
   "packages/server/packages/sync/packages/graph",
   "packages/server/packages/tag",
@@ -532,6 +533,7 @@ tangram_server_sandbox_common = { path = "packages/server/packages/sandbox/packa
 tangram_server_sandbox_core = { path = "packages/server/packages/sandbox/packages/core" }
 tangram_server_scheduler = { path = "packages/server/packages/scheduler" }
 tangram_server_scheduler_core = { path = "packages/server/packages/scheduler/packages/core" }
+tangram_server_service = { path = "packages/server/packages/service" }
 tangram_server_sync = { path = "packages/server/packages/sync" }
 tangram_server_sync_graph = { path = "packages/server/packages/sync/packages/graph" }
 tangram_server_tag = { path = "packages/server/packages/tag" }

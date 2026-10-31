@@ -1,16 +1,8 @@
 use {
 	super::*,
 	crate::{Messenger as _, test::TestMessenger},
-	futures::StreamExt as _,
 	std::sync::Mutex,
 };
-
-struct Test;
-
-impl Protocol for Test {
-	type Request = Bytes;
-	type Response = Bytes;
-}
 
 /// An observer that records the names of the events.
 #[derive(Default)]
@@ -18,8 +10,8 @@ struct Record {
 	events: Mutex<Vec<&'static str>>,
 }
 
-impl Observer<Test> for Record {
-	fn observe<'a>(&'a self, event: Event<'a, Test>) -> BoxFuture<'a, ()> {
+impl Observer<Bytes> for Record {
+	fn observe<'a>(&'a self, event: Event<'a, Bytes>) -> BoxFuture<'a, ()> {
 		let name = match event {
 			Event::Acknowledged { .. } => "acknowledged",
 			Event::Attempt { .. } => "attempt",
@@ -58,33 +50,39 @@ fn options() -> Options {
 	}
 }
 
-async fn server(messenger: &TestMessenger, options: Options) -> Server<Test> {
-	serve::<Test, _>(messenger, "test", options, Arc::new(Ignore))
+async fn server(messenger: &TestMessenger, options: Options) -> Server<Bytes, Bytes> {
+	Server::start(messenger, "test", options, Arc::new(Ignore))
 		.await
 		.unwrap()
 }
 
-fn clients(messenger: &TestMessenger, options: Options) -> Arc<Clients<Test, TestMessenger>> {
-	Arc::new(Clients::new(messenger.clone(), "test.service", options, Arc::new(Ignore)).unwrap())
+fn client(messenger: &TestMessenger, options: Options) -> Arc<Client<Bytes, Bytes, TestMessenger>> {
+	Arc::new(Client::new(messenger.clone(), "test.service", options, Arc::new(Ignore)).unwrap())
 }
 
 fn spawn_request(
-	clients: &Arc<Clients<Test, TestMessenger>>,
+	client: &Arc<Client<Bytes, Bytes, TestMessenger>>,
 	payload: &'static str,
 ) -> tokio::task::JoinHandle<Result<Bytes, Error>> {
-	let mut request = clients.request("test", Bytes::from(payload)).unwrap();
-	tokio::spawn(async move { request.wait().await })
+	let client = client.clone();
+	tokio::spawn(async move { client.request("test", Bytes::from(payload)).await })
+}
+
+async fn cancelled(reply: &Reply<Bytes>) {
+	while !reply.is_cancelled() {
+		tokio::time::sleep(Duration::from_millis(1)).await;
+	}
 }
 
 #[tokio::test]
 async fn a_request_is_answered() {
 	let messenger = TestMessenger::default();
-	let mut server = server(&messenger, options()).await;
-	let clients = clients(&messenger, options());
-	let request = spawn_request(&clients, "hello");
-	let incoming = server.next().await.unwrap();
-	assert_eq!(incoming.request, Bytes::from("hello"));
-	incoming.reply.send(&Bytes::from("world")).unwrap();
+	let server = server(&messenger, options()).await;
+	let client = client(&messenger, options());
+	let request = spawn_request(&client, "hello");
+	let (payload, reply) = server.next().await.unwrap();
+	assert_eq!(payload, Bytes::from("hello"));
+	reply.send(&Bytes::from("world")).unwrap();
 	assert_eq!(request.await.unwrap().unwrap(), Bytes::from("world"));
 }
 
@@ -96,36 +94,37 @@ async fn a_request_is_answered_without_waiting_for_a_heartbeat() {
 		..options()
 	};
 	let messenger = TestMessenger::default();
-	let mut server = server(&messenger, options).await;
+	let server = server(&messenger, options).await;
 	let record = Arc::new(Record::default());
-	let clients =
-		Arc::new(Clients::new(messenger.clone(), "test.service", options, record.clone()).unwrap());
-	let request = spawn_request(&clients, "hello");
-	let incoming = server.next().await.unwrap();
-	incoming.reply.acknowledge().unwrap();
-	incoming.reply.send(&Bytes::from("world")).unwrap();
+	let client =
+		Arc::new(Client::new(messenger.clone(), "test.service", options, record.clone()).unwrap());
+	let request = spawn_request(&client, "hello");
+	let (_, reply) = server.next().await.unwrap();
+	reply.acknowledge();
+	reply.send(&Bytes::from("world")).unwrap();
 	assert_eq!(request.await.unwrap().unwrap(), Bytes::from("world"));
 	assert_eq!(record.count("heartbeat_sent"), 0);
 }
 
 #[tokio::test]
-async fn clients_of_one_pool_share_one_response_subscription() {
+async fn the_connections_of_a_client_share_one_response_subscription() {
 	let messenger = TestMessenger::default();
 	let mut answers = Vec::new();
 	for subject in ["first", "second"] {
-		let mut server = serve::<Test, _>(&messenger, subject, options(), Arc::new(Ignore))
-			.await
-			.unwrap();
+		let server =
+			Server::<Bytes, Bytes>::start(&messenger, subject, options(), Arc::new(Ignore))
+				.await
+				.unwrap();
 		answers.push(tokio::spawn(async move {
-			while let Some(incoming) = server.next().await {
-				incoming.reply.send(&incoming.request).unwrap();
+			while let Some((request, reply)) = server.next().await {
+				reply.send(&request).unwrap();
 			}
 		}));
 	}
-	let clients = clients(&messenger, options());
+	let client = client(&messenger, options());
 	for subject in ["first", "second"] {
-		let mut request = clients.request(subject, Bytes::from(subject)).unwrap();
-		assert_eq!(request.wait().await.unwrap(), Bytes::from(subject));
+		let response = client.request(subject, Bytes::from(subject)).await.unwrap();
+		assert_eq!(response, Bytes::from(subject));
 	}
 	assert_eq!(messenger.subscriptions("test.service."), 1);
 	for answer in answers {
@@ -145,53 +144,52 @@ async fn a_request_sent_before_the_server_starts_is_recovered_when_the_server_an
 		retry_interval: Duration::from_secs(30),
 	};
 	let messenger = TestMessenger::default();
-	let clients = clients(&messenger, options);
-	let request = spawn_request(&clients, "early");
+	let client = client(&messenger, options);
+	let request = spawn_request(&client, "early");
 	tokio::time::sleep(Duration::from_millis(50)).await;
-	let mut server = server(&messenger, options).await;
-	let incoming = tokio::time::timeout(Duration::from_secs(5), server.next())
+	let server = server(&messenger, options).await;
+	let (_, reply) = tokio::time::timeout(Duration::from_secs(5), server.next())
 		.await
 		.expect("the announcement must recover the request")
 		.unwrap();
-	incoming.reply.send(&Bytes::from("late")).unwrap();
+	reply.send(&Bytes::from("late")).unwrap();
 	assert_eq!(request.await.unwrap().unwrap(), Bytes::from("late"));
 }
 
 #[tokio::test]
 async fn heartbeats_keep_a_request_alive_while_the_server_takes_longer_than_the_attempt_ttl() {
 	let messenger = TestMessenger::default();
-	let mut server = server(&messenger, options()).await;
-	let clients = clients(&messenger, options());
-	let request = spawn_request(&clients, "slow");
-	let incoming = server.next().await.unwrap();
-	incoming.reply.acknowledge().unwrap();
+	let server = server(&messenger, options()).await;
+	let client = client(&messenger, options());
+	let request = spawn_request(&client, "slow");
+	let (_, reply) = server.next().await.unwrap();
+	reply.acknowledge();
 	tokio::time::sleep(options().attempt_ttl * 3).await;
-	assert!(!incoming.reply.is_cancelled());
-	incoming.reply.send(&Bytes::from("done")).unwrap();
+	assert!(!reply.is_cancelled());
+	reply.send(&Bytes::from("done")).unwrap();
 	assert_eq!(request.await.unwrap().unwrap(), Bytes::from("done"));
 }
 
 #[tokio::test]
 async fn each_request_is_delivered_once_and_answered_under_loss_duplication_and_reordering() {
 	let messenger = TestMessenger::with_faults(3, 4, 5);
-	let mut server = server(&messenger, options()).await;
-	let clients = clients(&messenger, options());
+	let server = server(&messenger, options()).await;
+	let client = client(&messenger, options());
 	let payloads = (0..16).map(|index| index.to_string()).collect::<Vec<_>>();
 	let requests = payloads
 		.iter()
 		.map(|payload| {
-			let mut request = clients
-				.request("test", Bytes::from(payload.clone()))
-				.unwrap();
-			tokio::spawn(async move { request.wait().await })
+			let client = client.clone();
+			let payload = Bytes::from(payload.clone());
+			tokio::spawn(async move { client.request("test", payload).await })
 		})
 		.collect::<Vec<_>>();
 	let answer = tokio::spawn(async move {
 		let mut delivered = Vec::new();
 		while delivered.len() < 16 {
-			let incoming = server.next().await.unwrap();
-			delivered.push(incoming.request.clone());
-			incoming.reply.send(&incoming.request).unwrap();
+			let (payload, reply) = server.next().await.unwrap();
+			delivered.push(payload.clone());
+			reply.send(&payload).unwrap();
 		}
 		(server, delivered)
 	});
@@ -214,13 +212,13 @@ async fn each_request_is_delivered_once_and_answered_under_loss_duplication_and_
 #[tokio::test]
 async fn a_request_is_resent_until_the_server_acknowledges_it() {
 	let messenger = TestMessenger::default();
-	let mut server = server(&messenger, options()).await;
+	let server = server(&messenger, options()).await;
 	let record = Arc::new(Record::default());
-	let clients = Arc::new(
-		Clients::new(messenger.clone(), "test.service", options(), record.clone()).unwrap(),
+	let client = Arc::new(
+		Client::new(messenger.clone(), "test.service", options(), record.clone()).unwrap(),
 	);
-	let request = spawn_request(&clients, "retained");
-	let incoming = server.next().await.unwrap();
+	let request = spawn_request(&client, "retained");
+	let (_, reply) = server.next().await.unwrap();
 
 	// The server holds the acknowledgment, so the client resends.
 	tokio::time::sleep(options().retry_interval * 5).await;
@@ -228,7 +226,7 @@ async fn a_request_is_resent_until_the_server_acknowledges_it() {
 	assert_eq!(record.count("acknowledged"), 0);
 
 	// Once acknowledged, the client stops resending.
-	incoming.reply.acknowledge().unwrap();
+	reply.acknowledge();
 	tokio::time::timeout(Duration::from_secs(5), async {
 		while record.count("acknowledged") == 0 {
 			tokio::time::sleep(Duration::from_millis(1)).await;
@@ -239,19 +237,19 @@ async fn a_request_is_resent_until_the_server_acknowledges_it() {
 	let sent = record.count("request_sent");
 	tokio::time::sleep(options().retry_interval * 5).await;
 	assert_eq!(record.count("request_sent"), sent);
-	incoming.reply.send(&Bytes::from("done")).unwrap();
+	reply.send(&Bytes::from("done")).unwrap();
 	assert_eq!(request.await.unwrap().unwrap(), Bytes::from("done"));
 }
 
 #[tokio::test]
 async fn dropping_a_request_cancels_it_at_the_server() {
 	let messenger = TestMessenger::default();
-	let mut server = server(&messenger, options()).await;
-	let clients = clients(&messenger, options());
-	let request = spawn_request(&clients, "drop");
-	let incoming = server.next().await.unwrap();
+	let server = server(&messenger, options()).await;
+	let client = client(&messenger, options());
+	let request = spawn_request(&client, "drop");
+	let (_, reply) = server.next().await.unwrap();
 	request.abort();
-	tokio::time::timeout(Duration::from_secs(5), incoming.reply.cancelled())
+	tokio::time::timeout(Duration::from_secs(5), cancelled(&reply))
 		.await
 		.expect("the request must be cancelled");
 }
@@ -259,12 +257,12 @@ async fn dropping_a_request_cancels_it_at_the_server() {
 #[tokio::test]
 async fn the_server_cancels_the_requests_of_an_attempt_whose_heartbeats_stop() {
 	let messenger = TestMessenger::default();
-	let mut server = server(&messenger, options()).await;
-	let clients = clients(&messenger, options());
-	let _request = spawn_request(&clients, "abandoned");
-	let incoming = server.next().await.unwrap();
-	clients.stop();
-	tokio::time::timeout(options().attempt_ttl * 5, incoming.reply.cancelled())
+	let server = server(&messenger, options()).await;
+	let client = client(&messenger, options());
+	let _request = spawn_request(&client, "abandoned");
+	let (_, reply) = server.next().await.unwrap();
+	client.stop();
+	tokio::time::timeout(options().attempt_ttl * 5, cancelled(&reply))
 		.await
 		.expect("the attempt must expire");
 }
@@ -272,61 +270,61 @@ async fn the_server_cancels_the_requests_of_an_attempt_whose_heartbeats_stop() {
 #[tokio::test]
 async fn a_request_times_out_without_an_server() {
 	let messenger = TestMessenger::default();
-	let clients = clients(&messenger, options());
-	let result = spawn_request(&clients, "nobody").await.unwrap();
+	let client = client(&messenger, options());
+	let result = spawn_request(&client, "nobody").await.unwrap();
 	assert!(matches!(result, Err(Error::Timeout)));
 }
 
 #[tokio::test]
 async fn a_request_is_recovered_by_a_new_server_after_the_first_stops() {
 	let messenger = TestMessenger::default();
-	let mut first = server(&messenger, options()).await;
-	let clients = clients(&messenger, options());
-	let request = spawn_request(&clients, "moved");
+	let first = server(&messenger, options()).await;
+	let client = client(&messenger, options());
+	let request = spawn_request(&client, "moved");
 	first.next().await.unwrap();
 	drop(first);
-	let mut second = server(&messenger, options()).await;
-	let incoming = second.next().await.unwrap();
-	incoming.reply.send(&Bytes::from("second")).unwrap();
+	let second = server(&messenger, options()).await;
+	let (_, reply) = second.next().await.unwrap();
+	reply.send(&Bytes::from("second")).unwrap();
 	assert_eq!(request.await.unwrap().unwrap(), Bytes::from("second"));
 }
 
 #[tokio::test]
-async fn stopping_the_clients_fails_their_pending_requests() {
+async fn stopping_the_client_fails_its_pending_requests() {
 	let messenger = TestMessenger::default();
 	let _server = server(&messenger, options()).await;
-	let clients = clients(&messenger, options());
-	let request = spawn_request(&clients, "stop");
+	let client = client(&messenger, options());
+	let request = spawn_request(&client, "stop");
 	tokio::time::sleep(Duration::from_millis(50)).await;
-	clients.stop();
+	client.stop();
 	let result = request.await.unwrap();
 	assert!(matches!(result, Err(Error::Stopped)));
 }
 
 #[tokio::test]
-async fn requests_to_a_subject_share_one_client_until_it_is_idle() {
+async fn requests_to_a_subject_share_one_connection_until_it_is_idle() {
 	let messenger = TestMessenger::default();
-	let mut server = server(&messenger, options()).await;
+	let server = server(&messenger, options()).await;
 	let record = Arc::new(Record::default());
-	let clients = Arc::new(
-		Clients::new(messenger.clone(), "test.service", options(), record.clone()).unwrap(),
+	let client = Arc::new(
+		Client::new(messenger.clone(), "test.service", options(), record.clone()).unwrap(),
 	);
 	let answer = tokio::spawn(async move {
-		while let Some(incoming) = server.next().await {
-			incoming.reply.send(&incoming.request).unwrap();
+		while let Some((request, reply)) = server.next().await {
+			reply.send(&request).unwrap();
 		}
 	});
 
-	// Concurrent requests share one client.
-	let first = spawn_request(&clients, "first");
-	let second = spawn_request(&clients, "second");
+	// Concurrent requests share one connection.
+	let first = spawn_request(&client, "first");
+	let second = spawn_request(&client, "second");
 	first.await.unwrap().unwrap();
 	second.await.unwrap().unwrap();
 	assert_eq!(record.count("started"), 1);
 
-	// A request after the client has been idle starts a new one.
+	// A request after the connection has been idle starts a new one.
 	tokio::time::sleep(options().idle_timeout * 3).await;
-	spawn_request(&clients, "third").await.unwrap().unwrap();
+	spawn_request(&client, "third").await.unwrap().unwrap();
 	assert_eq!(record.count("started"), 2);
 	answer.abort();
 }
@@ -334,16 +332,16 @@ async fn requests_to_a_subject_share_one_client_until_it_is_idle() {
 #[tokio::test]
 async fn the_server_status_counts_unacknowledged_responses_until_they_are_acknowledged() {
 	let messenger = TestMessenger::default();
-	let mut server = server(&messenger, options()).await;
-	let clients = clients(&messenger, options());
-	let request = spawn_request(&clients, "status");
-	let incoming = server.next().await.unwrap();
+	let server = server(&messenger, options()).await;
+	let client = client(&messenger, options());
+	let request = spawn_request(&client, "status");
+	let (_, reply) = server.next().await.unwrap();
 	assert_eq!(server.status().attempts, 1);
-	incoming.reply.send(&Bytes::from("ok")).unwrap();
+	reply.send(&Bytes::from("ok")).unwrap();
 	request.await.unwrap().unwrap();
 	tokio::time::timeout(Duration::from_secs(5), async {
 		while server.status().unacknowledged != 0 {
-			server.changed().await.unwrap();
+			tokio::time::sleep(Duration::from_millis(1)).await;
 		}
 	})
 	.await
@@ -351,12 +349,40 @@ async fn the_server_status_counts_unacknowledged_responses_until_they_are_acknow
 }
 
 #[tokio::test]
+async fn a_stopped_server_finishes_once_its_responses_are_acknowledged() {
+	let messenger = TestMessenger::default();
+	let server = server(&messenger, options()).await;
+	let client = client(&messenger, options());
+	let request = spawn_request(&client, "drain");
+	let (_, reply) = server.next().await.unwrap();
+	reply.send(&Bytes::from("ok")).unwrap();
+	server.stop();
+	tokio::time::timeout(options().attempt_ttl * 5, server.wait())
+		.await
+		.expect("the server must finish");
+	assert_eq!(request.await.unwrap().unwrap(), Bytes::from("ok"));
+	assert!(server.next().await.is_none());
+}
+
+#[tokio::test]
+async fn a_stopped_server_does_not_deliver_new_requests() {
+	let messenger = TestMessenger::default();
+	let server = server(&messenger, options()).await;
+	server.stop();
+	server.wait().await;
+	let client = client(&messenger, options());
+	let result = spawn_request(&client, "late").await.unwrap();
+	assert!(matches!(result, Err(Error::Timeout)));
+	assert!(server.next().await.is_none());
+}
+
+#[tokio::test]
 async fn a_stray_cancellation_does_not_affect_a_request() {
 	let messenger = TestMessenger::default();
-	let mut server = server(&messenger, options()).await;
-	let clients = clients(&messenger, options());
-	let request = spawn_request(&clients, "mine");
-	let incoming = server.next().await.unwrap();
+	let server = server(&messenger, options()).await;
+	let client = client(&messenger, options());
+	let request = spawn_request(&client, "mine");
+	let (_, reply) = server.next().await.unwrap();
 	let message = Message::Cancel {
 		attempt: Some("unknown".to_owned()),
 		client: "unknown".to_owned(),
@@ -366,7 +392,7 @@ async fn a_stray_cancellation_does_not_affect_a_request() {
 		.publish(server_subject("test"), message)
 		.await
 		.unwrap();
-	incoming.reply.send(&Bytes::from("ok")).unwrap();
+	reply.send(&Bytes::from("ok")).unwrap();
 	assert_eq!(request.await.unwrap().unwrap(), Bytes::from("ok"));
 }
 
@@ -377,7 +403,7 @@ async fn invalid_options_are_rejected() {
 		retry_interval: Duration::ZERO,
 		..options()
 	};
-	let result = serve::<Test, _>(&messenger, "test", options, Arc::new(Ignore)).await;
+	let result = Server::<Bytes, Bytes>::start(&messenger, "test", options, Arc::new(Ignore)).await;
 	assert!(matches!(result, Err(Error::Options(_))));
 }
 

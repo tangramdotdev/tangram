@@ -56,7 +56,7 @@ for graph in [false true] {
 	tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | ignore
 	tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
 	let sync = tg --url $runner.url checkpoint wait runner.process.command.sync.started $command_watch 0 | from json | get params.sync
-	let params = { subject: $"syncs.($sync).service" } | to json --raw
+	let params = { subject: $"syncs.service.($sync)" } | to json --raw
 	let stopped_watch = tg --url $remote.url --token $root_token checkpoint watch sync.service.stopped --params $params | from json | get watch
 	tg --url $runner.url checkpoint continue runner.process.command.sync.started $command_watch 0
 	tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $command_watch

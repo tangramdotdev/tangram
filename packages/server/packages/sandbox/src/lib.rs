@@ -5,10 +5,10 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_http::body::Boxed as BoxBody,
-	tangram_messenger::service,
 	tangram_server_core::{
 		Server, Session, messenger::Messenger, runner::Runner, sandbox::ConnectionFuture,
 	},
+	tangram_server_service as service,
 };
 
 mod notification;
@@ -32,27 +32,38 @@ pub struct State {
 }
 
 pub(crate) struct Control {
-	pub clients: service::Clients<self::control::service::Protocol, Messenger>,
+	pub client: service::Client<
+		tg::sandbox::Id,
+		self::control::service::Request,
+		self::control::service::Response,
+		Messenger,
+	>,
+	pub servers: DashMap<
+		tg::sandbox::Id,
+		service::Server<self::control::service::Request, self::control::service::Response>,
+		fnv::FnvBuildHasher,
+	>,
 	pub service_tasks: tangram_futures::task::Set<tg::Result<()>>,
-	pub services: DashMap<tg::sandbox::Id, self::control::service::Local, fnv::FnvBuildHasher>,
-	pub services_changed: tokio::sync::Notify,
 }
 
 impl Component {
 	pub fn new(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Self> {
-		// Create the control clients.
-		let clients = service::Clients::new(
+		// Create the control client, which observes its events as checkpoints.
+		let observer = Arc::new(service::Checkpoints::new(
+			arg.checkpoints.cloned(),
+			self::control::service::NAME,
+		));
+		let client = service::Client::new(
 			arg.messenger.clone(),
-			"sandboxes.control.service",
+			self::control::service::SUBJECT,
 			arg.config.sandbox.control_service,
-			Arc::new(self::control::service::Observer),
+			observer,
 		)
-		.map_err(|source| tg::error!(!source, "failed to create the sandbox control clients"))?;
+		.map_err(|source| tg::error!(!source, "failed to create the sandbox control client"))?;
 		let control = Control {
-			clients,
+			client,
+			servers: DashMap::default(),
 			service_tasks: tangram_futures::task::Set::default(),
-			services: DashMap::default(),
-			services_changed: tokio::sync::Notify::new(),
 		};
 
 		// Create the state.
@@ -131,8 +142,8 @@ impl tangram_server_core::component::Lifecycle for Component {
 
 	fn stop<'a>(&'a self, _server: &'a Server) -> BoxFuture<'a, ()> {
 		async move {
-			// Stop the control clients and drain the control service tasks.
-			self.control.clients.stop();
+			// Stop the control client and drain the control service tasks.
+			self.control.client.stop();
 			self.control.service_tasks.stop_all();
 			self.control.service_tasks.wait().await;
 		}
@@ -147,11 +158,11 @@ impl tangram_server_core::component::Lifecycle for Component {
 impl tangram_server_core::sandbox::Component for Component {
 	fn authorize_with_sandbox_control_service<'a>(
 		&'a self,
-		session: &'a tangram_server_core::Session,
+		_session: &'a tangram_server_core::Session,
 		id: &'a tg::sandbox::Id,
 		principal: &'a tg::Principal,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.authorize_with_sandbox_control_service(session, id, principal)
+		self.authorize_with_sandbox_control_service(id, principal)
 			.boxed()
 	}
 
