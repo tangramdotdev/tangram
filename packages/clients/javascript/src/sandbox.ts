@@ -84,6 +84,24 @@ export class Sandbox {
 		this.detach();
 	}
 
+	/** Start this sandbox if it is stopped. */
+	async start(client = tg.client): Promise<void> {
+		let arg: tg.Sandbox.Start.Arg = {};
+		if (this.#location !== null) {
+			arg.location = this.#location;
+		}
+		await client.startSandbox(this.#id, arg);
+	}
+
+	/** Stop this sandbox, keeping its files so that it can start again. */
+	async stop(client = tg.client): Promise<void> {
+		let arg: tg.Sandbox.Stop.Arg = {};
+		if (this.#location !== null) {
+			arg.location = this.#location;
+		}
+		await client.stopSandbox(this.#id, arg);
+	}
+
 	/** Detach this sandbox from this handle's lifetime. */
 	detach(): void {
 		if (!this.#owned) {
@@ -477,6 +495,18 @@ export namespace Sandbox {
 	}
 
 	export namespace Destroy {
+		export type Arg = {
+			location?: tg.Location.Arg | null;
+		};
+	}
+
+	export namespace Start {
+		export type Arg = {
+			location?: tg.Location.Arg | null;
+		};
+	}
+
+	export namespace Stop {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
 		};
