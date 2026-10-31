@@ -118,6 +118,10 @@ pub struct DequeueSandboxResponseOutput {
 pub struct EnqueueSandboxRequestArg {
 	pub arg: tg::sandbox::create::Arg,
 
+	/// The boot to start, which is zero when the request creates the sandbox.
+	#[serde(default)]
+	pub boot: u64,
+
 	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
 	pub creator: tg::Principal,
 
@@ -129,6 +133,10 @@ pub struct EnqueueSandboxRequestArg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process: Option<tg::runner::control::Process>,
+
+	/// The runner that the sandbox must start on, because its data is on that runner.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub runner: Option<tg::runner::Id>,
 
 	pub sandbox: tg::sandbox::Id,
 

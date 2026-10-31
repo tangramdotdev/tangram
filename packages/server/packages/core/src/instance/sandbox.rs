@@ -67,6 +67,17 @@ impl tg::instance::Sandbox for Server {
 			.await
 	}
 
+	async fn try_start_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::start::Arg,
+	) -> tg::Result<Option<bool>> {
+		self.session(&self.context)
+			.try_start_sandbox(id, arg)
+			.boxed()
+			.await
+	}
+
 	async fn try_get_sandbox_status_stream(
 		&self,
 		id: &tg::sandbox::Id,

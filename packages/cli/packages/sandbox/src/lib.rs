@@ -7,6 +7,7 @@ pub mod init;
 pub mod list;
 pub mod run;
 pub mod serve;
+pub mod start;
 pub mod stop;
 pub mod wait;
 
@@ -37,6 +38,8 @@ pub enum Command {
 
 	#[command(hide = true)]
 	Serve(self::serve::Args),
+
+	Start(self::start::Args),
 
 	Stop(self::stop::Args),
 
@@ -240,6 +243,9 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		},
 		Command::Serve(args) => {
 			crate::serve::run(args).await?;
+		},
+		Command::Start(args) => {
+			crate::start::run(cli, args).await?;
 		},
 		Command::Stop(args) => {
 			crate::stop::run(cli, args).await?;

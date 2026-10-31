@@ -33,6 +33,19 @@ impl Temp {
 		}
 	}
 
+	/// Create a temp at a path that outlives it, so that dropping it does not remove the path.
+	#[must_use]
+	pub fn with_path(server: &Server, path: PathBuf) -> Self {
+		let server = server.clone();
+		Self {
+			#[cfg(target_os = "linux")]
+			filesystem_project_id: None,
+			path,
+			preserve: true,
+			server,
+		}
+	}
+
 	#[must_use]
 	pub fn path(&self) -> &Path {
 		&self.path

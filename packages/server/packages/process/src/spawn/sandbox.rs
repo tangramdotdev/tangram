@@ -371,6 +371,7 @@ impl Component {
 			let spawn_sandbox_task_arg = tangram_server_runner_core::sandbox::SpawnSandboxTaskArg {
 				allocation,
 				arg,
+				boot: 0,
 				creator: session.context.principal.clone(),
 				id,
 				location,
@@ -409,10 +410,12 @@ impl Component {
 
 		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
+			boot: 0,
 			creator: session.context.principal.clone(),
 			owner,
 			parent: output.parent_sandbox.clone(),
 			process: Some(process),
+			runner: None,
 			sandbox: sandbox.clone(),
 			scheduler: output.scheduler.clone(),
 			token: output.sandbox_token.clone(),

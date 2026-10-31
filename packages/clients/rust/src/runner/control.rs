@@ -313,6 +313,15 @@ pub struct CreateSandboxServerRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub arg: tg::sandbox::create::Arg,
 
+	/// The boot to start, which is zero when the request creates the sandbox.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_default")]
+	#[tangram_serialize(
+		default,
+		id = 9,
+		skip_serializing_if = "tangram_util::serde::is_default"
+	)]
+	pub boot: u64,
+
 	#[tangram_serialize(id = 1)]
 	pub borrowed: bool,
 
