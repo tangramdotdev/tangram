@@ -20,6 +20,7 @@ pub mod destroy;
 pub mod get;
 pub mod list;
 pub mod processes;
+pub mod start;
 pub mod status;
 pub mod stop;
 pub mod wait;
@@ -95,6 +96,10 @@ impl Component {
 			},
 			(http::Method::POST, ["sandboxes", sandbox, "destroy"]) => {
 				self.try_destroy_sandbox_request(session, request, sandbox)
+					.await
+			},
+			(http::Method::POST, ["sandboxes", sandbox, "start"]) => {
+				self.try_start_sandbox_request(session, request, sandbox)
 					.await
 			},
 			(http::Method::POST, ["sandboxes", sandbox, "stop"]) => {
@@ -338,6 +343,15 @@ impl tangram_server_core::sandbox::Component for Component {
 		arg: tg::sandbox::stop::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
 		self.try_stop_sandbox(session, id, arg).boxed()
+	}
+
+	fn try_start_sandbox<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::start::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
+		self.try_start_sandbox(session, id, arg).boxed()
 	}
 
 	fn try_get_sandbox_status_stream<'a>(

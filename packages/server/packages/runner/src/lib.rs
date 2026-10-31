@@ -219,12 +219,16 @@ impl Component {
 		{
 			return None;
 		}
-		let id = server
-			.config
-			.runner
-			.id
-			.clone()
-			.unwrap_or_else(tg::runner::Id::new);
+		let id = match server.config.runner.id.clone() {
+			Some(id) => id,
+			None => match Self::local_runner_id(server) {
+				Ok(id) => id,
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to get the local runner id");
+					tg::runner::Id::new()
+				},
+			},
+		};
 		let context = tangram_server_core::context::Context {
 			principal: tg::Principal::Runner(id.clone()),
 			..server.context.clone()
@@ -525,6 +529,26 @@ impl Component {
 				tracing::error!(?error, "a sandbox task panicked");
 			}
 		}
+	}
+
+	/// Get the ID of the local runner, which is stored in the server's directory so that the runner keeps its stopped sandboxes across restarts.
+	fn local_runner_id(server: &Server) -> tg::Result<tg::runner::Id> {
+		let path = server.path.join("runner");
+		match std::fs::read_to_string(&path) {
+			Ok(id) => {
+				let id = id
+					.trim()
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the local runner id"))?;
+				return Ok(id);
+			},
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+			Err(error) => return Err(tg::error!(!error, "failed to read the local runner id")),
+		}
+		let id = tg::runner::Id::new();
+		std::fs::write(&path, id.to_string())
+			.map_err(|error| tg::error!(!error, "failed to write the local runner id"))?;
+		Ok(id)
 	}
 
 	pub fn start_sandbox_pool(&self, session: &Session) {
@@ -863,6 +887,30 @@ impl Component {
 
 			let requested = request.capacity;
 
+			// Join a start of a boot that this runner is already starting or running, because concurrent starts of a sandbox are not deduplicated before they reach its runner.
+			let state = session.server.components.runner.state();
+			let joined = request.boot > 0
+				&& (state
+					.booting
+					.get(&request.sandbox)
+					.is_some_and(|boot| *boot == request.boot)
+					|| state
+						.sandboxes
+						.get_by_id(&request.sandbox)
+						.is_some_and(|sandbox| sandbox.boot == request.boot));
+			if joined {
+				let output =
+					tg::runner::control::CreateSandboxClientResponseOutput { created: true };
+				let message = Self::create_runner_control_response(
+					id.clone(),
+					Ok(tg::runner::control::ClientResponseOutput::CreateSandbox(
+						output,
+					)),
+				);
+				sender.send(message).await?;
+				continue;
+			}
+
 			// Decline work if capacity is unavailable.
 			let allocation = session
 				.server
@@ -897,11 +945,15 @@ impl Component {
 				sender.send(message).await?;
 				continue;
 			};
+			if request.boot > 0 {
+				state.booting.insert(sandbox.clone(), request.boot);
+			}
 			let _ = self.spawn_sandbox_task(
 				&session.server,
 				tangram_server_runner_core::sandbox::SpawnSandboxTaskArg {
 					allocation,
 					arg: request.arg,
+					boot: request.boot,
 					creator: request.creator,
 					id: Some(sandbox.clone()),
 					location: location.clone(),

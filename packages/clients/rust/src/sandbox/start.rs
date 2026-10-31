@@ -1,0 +1,77 @@
+use {
+	crate::prelude::*,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+};
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
+}
+
+impl tg::Sandbox {
+	pub async fn start(&self) -> tg::Result<()> {
+		let instance = tg::instance()?;
+		self.start_with_instance(instance).await
+	}
+
+	pub async fn start_with_instance<I>(&self, instance: &I) -> tg::Result<()>
+	where
+		I: tg::Instance,
+	{
+		let arg = tg::sandbox::start::Arg {
+			location: self.location(),
+			tokens: self.tokens(),
+		};
+		instance
+			.try_start_sandbox(self.id(), arg)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
+
+		Ok(())
+	}
+}
+
+impl tg::Session {
+	pub async fn try_start_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::start::Arg,
+	) -> tg::Result<Option<bool>> {
+		let method = http::Method::POST;
+		let uri = format!("/sandboxes/{id}/start");
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
+			.json(arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.unwrap();
+		let response = self
+			.send_with_retry(request)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
+		if response.status() == http::StatusCode::CONFLICT {
+			return Ok(Some(false));
+		}
+		if !response.status().is_success() {
+			let status = response.status();
+			let error = response
+				.json::<tg::Error>()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the error response"))?;
+			let error = tg::error!(!error, status = %status, "the request failed");
+			return Err(error);
+		}
+		Ok(Some(true))
+	}
+}

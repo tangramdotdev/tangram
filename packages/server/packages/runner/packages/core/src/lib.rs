@@ -25,6 +25,8 @@ pub struct Config {
 }
 
 pub struct State {
+	pub booting: dashmap::DashMap<tg::sandbox::Id, u64>,
+
 	#[cfg(target_os = "linux")]
 	pub cpu_shares: tangram_sandbox::cpu::Shares,
 
@@ -64,6 +66,8 @@ impl State {
 	pub fn new(config: Config) -> Self {
 		let (scheduler, _) = tokio::sync::watch::channel(None);
 		Self {
+			booting: dashmap::DashMap::new(),
+
 			capacity: crate::capacity::Pool::new(config.capacity, config.overcommit),
 
 			#[cfg(target_os = "linux")]

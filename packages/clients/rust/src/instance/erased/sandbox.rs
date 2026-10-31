@@ -42,6 +42,12 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::stop::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
 
+	fn try_start_sandbox<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::start::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
+
 	fn try_get_sandbox_status_stream<'a>(
 		&'a self,
 		id: &'a tg::sandbox::Id,
@@ -145,6 +151,14 @@ where
 		arg: tg::sandbox::stop::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
 		self.try_stop_sandbox(id, arg).boxed()
+	}
+
+	fn try_start_sandbox<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::start::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
+		self.try_start_sandbox(id, arg).boxed()
 	}
 
 	fn try_get_sandbox_status_stream<'a>(

@@ -9,6 +9,7 @@ use {
 pub struct SpawnSandboxTaskArg {
 	pub allocation: crate::capacity::Allocation,
 	pub arg: tg::sandbox::create::Arg,
+	pub boot: u64,
 	pub creator: tg::Principal,
 	pub id: Option<tg::sandbox::Id>,
 	pub location: tg::Location,
@@ -36,7 +37,8 @@ pub struct ReadyEvent {
 #[derive(Default)]
 pub struct Sandboxes {
 	indexes: DashMap<tg::sandbox::Id, u64, tg::id::BuildHasher>,
-	sandboxes: DashMap<u64, State, fnv::FnvBuildHasher>,
+	updated: tokio::sync::Notify,
+	states: DashMap<u64, State, fnv::FnvBuildHasher>,
 }
 
 pub struct State {
@@ -65,7 +67,7 @@ pub struct State {
 impl Sandboxes {
 	#[must_use]
 	pub fn get(&self, index: u64) -> Option<dashmap::mapref::one::Ref<'_, u64, State>> {
-		self.sandboxes.get(&index)
+		self.states.get(&index)
 	}
 
 	#[must_use]
@@ -75,7 +77,7 @@ impl Sandboxes {
 	) -> Option<dashmap::mapref::one::Ref<'_, u64, State>> {
 		let index = *self.indexes.get(id)?;
 
-		self.sandboxes.get(&index)
+		self.states.get(&index)
 	}
 
 	#[must_use]
@@ -85,36 +87,58 @@ impl Sandboxes {
 	) -> Option<dashmap::mapref::one::RefMut<'_, u64, State>> {
 		let index = *self.indexes.get(id)?;
 
-		self.sandboxes.get_mut(&index)
+		self.states.get_mut(&index)
 	}
 
 	pub fn insert(&self, index: u64, state: State) {
 		let id = state.id.clone();
-		match self.sandboxes.entry(index) {
+		match self.states.entry(index) {
 			dashmap::Entry::Occupied(_) => panic!("the sandbox index is already in use"),
 			dashmap::Entry::Vacant(entry) => {
 				entry.insert(state);
 			},
 		}
-		match self.indexes.entry(id) {
-			dashmap::Entry::Occupied(_) => panic!("the sandbox ID is already in use"),
-			dashmap::Entry::Vacant(entry) => {
-				entry.insert(index);
-			},
-		}
+		self.indexes.insert(id, index);
+		self.updated.notify_waiters();
 	}
 
 	#[must_use]
 	pub fn iter(&self) -> dashmap::iter::Iter<'_, u64, State, fnv::FnvBuildHasher> {
-		self.sandboxes.iter()
+		self.states.iter()
 	}
 
 	#[must_use]
 	pub fn remove(&self, index: u64) -> Option<State> {
-		let (_, state) = self.sandboxes.remove(&index)?;
-		self.indexes.remove(&state.id);
+		let (_, state) = self.states.remove(&index)?;
+		self.indexes
+			.remove_if(&state.id, |_, current| *current == index);
+		self.updated.notify_waiters();
 
 		Some(state)
+	}
+
+	/// Get a future that completes when a sandbox's state is stored or removed. Create it before reading the state, so that a change between the read and the wait is not missed.
+	pub fn updated(&self) -> tokio::sync::futures::Notified<'_> {
+		self.updated.notified()
+	}
+
+	/// Wait until the sandbox's previous boot is stopped or destroyed, so that a new boot of the sandbox can start on its directory.
+	pub async fn wait_settled(&self, id: &tg::sandbox::Id) {
+		loop {
+			let removed = self.updated.notified();
+			let Some(sandbox) = self.get_by_id(id) else {
+				return;
+			};
+			if sandbox.status.is_settled() {
+				return;
+			}
+			let mut changed = sandbox.changed.subscribe();
+			drop(sandbox);
+			tokio::select! {
+				_ = changed.changed() => {},
+				() = removed => {},
+			}
+		}
 	}
 }
 
