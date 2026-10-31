@@ -1090,6 +1090,15 @@ impl std::ops::Deref for Component {
 impl tangram_server_core::component::Lifecycle for Component {
 	fn start<'a>(&'a self, server: &'a Server) -> BoxFuture<'a, tg::Result<()>> {
 		async move {
+			// Reclaim the directories of stopped sandboxes before accepting work.
+			if server
+				.config
+				.roles
+				.contains(&tangram_server_core::config::Role::Runner)
+			{
+				self.reclaim_sandbox_directories(server).await;
+			}
+
 			// Spawn the runner task.
 			let task = self.spawn_runner_task(server);
 			*self.task.lock().unwrap() = task;
