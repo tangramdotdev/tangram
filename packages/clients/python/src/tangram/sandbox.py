@@ -91,7 +91,8 @@ class SandboxUsage(TypedDict):
 
 class SandboxData(TypedDict, total=False):
     id: Required[str]
-    status: Required[Literal["created", "started", "destroyed"]]
+    status: Required[Literal["destroyed", "started", "starting", "stopped", "stopping"]]
+    boot: int
     cpu: Cpu | None
     creator: str | None
     error: ErrorData | str | None
@@ -134,7 +135,7 @@ class Sandbox:
     Port: ClassVar[type[Port]]
     ConstructorArg = SandboxConstructorArg
     Source = dict
-    Status = Literal["created", "started", "destroyed"]
+    Status = Literal["destroyed", "started", "starting", "stopped", "stopping"]
     Usage = SandboxUsage
     __tangram_atomic__ = True
 

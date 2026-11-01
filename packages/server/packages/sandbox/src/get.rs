@@ -76,7 +76,7 @@ impl Component {
 				.try_get_sandbox_local(session, id, arg.tokens.local_authorization(), arg.source)
 				.await?
 		{
-			let output = if output.data.status.is_destroyed() {
+			let output = if output.data.status.is_settled() {
 				output
 			} else {
 				runner.unwrap_or(output)
@@ -91,7 +91,7 @@ impl Component {
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to get the sandbox from another region"),
 				)? {
-			let output = if output.data.status.is_destroyed() {
+			let output = if output.data.status.is_settled() {
 				output
 			} else {
 				runner.unwrap_or(output)
@@ -112,7 +112,7 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox from a remote"))?
 		{
-			let output = if output.data.status.is_destroyed() {
+			let output = if output.data.status.is_settled() {
 				output
 			} else {
 				runner.unwrap_or(output)
@@ -279,7 +279,7 @@ impl Component {
 				|| sandbox
 					.data
 					.as_ref()
-					.is_some_and(|data| data.data.status.is_destroyed())
+					.is_some_and(|data| data.data.status.is_settled())
 		};
 		let get_index = || async {
 			let indexed = self.try_get_sandbox_from_index(session, id).await?;

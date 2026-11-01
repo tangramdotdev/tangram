@@ -421,7 +421,7 @@ impl Component {
 				&& indexed
 					.data
 					.as_ref()
-					.is_some_and(|data| data.data.status.is_started())
+					.is_some_and(|data| !data.data.status.is_settled())
 		}) {
 			tangram_server_core::checkpoint!(session.server, "runner.control.destroy_sandbox", %runner, %sandbox)
 				.await;

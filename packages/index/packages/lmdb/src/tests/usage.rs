@@ -284,6 +284,7 @@ fn sandbox_data(
 ) -> tg::sandbox::get::Output {
 	tg::sandbox::get::Output {
 		data: tg::sandbox::Data {
+			boot: 0,
 			cpu: Some(2.into()),
 			creator: owner.clone(),
 			error: None,

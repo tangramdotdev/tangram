@@ -25,10 +25,19 @@ use {
 #[display(rename_all = "snake_case")]
 pub enum Status {
 	#[tangram_serialize(id = 0)]
-	Started,
+	Destroyed,
 
 	#[tangram_serialize(id = 1)]
-	Destroyed,
+	Started,
+
+	#[tangram_serialize(id = 2)]
+	Starting,
+
+	#[tangram_serialize(id = 3)]
+	Stopped,
+
+	#[tangram_serialize(id = 4)]
+	Stopping,
 }
 
 #[serde_as]
@@ -52,6 +61,32 @@ pub struct Arg {
 pub enum Event {
 	End,
 	Status(Status),
+}
+
+impl Status {
+	/// Whether the sandbox is running and accepts processes.
+	#[must_use]
+	pub fn is_running(self) -> bool {
+		matches!(self, Self::Started)
+	}
+
+	/// Whether the sandbox is starting or stopping.
+	#[must_use]
+	pub fn is_transitioning(self) -> bool {
+		matches!(self, Self::Starting | Self::Stopping)
+	}
+
+	/// Whether the sandbox can never run again.
+	#[must_use]
+	pub fn is_terminal(self) -> bool {
+		matches!(self, Self::Destroyed)
+	}
+
+	/// Whether the sandbox has no runner state, so that the index holds its complete state.
+	#[must_use]
+	pub fn is_settled(self) -> bool {
+		matches!(self, Self::Destroyed | Self::Stopped)
+	}
 }
 
 impl tg::Session {
@@ -122,8 +157,11 @@ impl std::str::FromStr for Status {
 
 	fn from_str(value: &str) -> Result<Self, Self::Err> {
 		match value {
-			"started" => Ok(Self::Started),
 			"destroyed" => Ok(Self::Destroyed),
+			"started" => Ok(Self::Started),
+			"starting" => Ok(Self::Starting),
+			"stopped" => Ok(Self::Stopped),
+			"stopping" => Ok(Self::Stopping),
 			_ => Err(tg::error!(%value, "invalid sandbox status")),
 		}
 	}

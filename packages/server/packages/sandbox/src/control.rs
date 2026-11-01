@@ -386,6 +386,7 @@ impl Component {
 		});
 		let data = tg::sandbox::get::Output {
 			data: tg::sandbox::Data {
+				boot: 0,
 				cpu: create.cpu,
 				creator,
 				error: None,
