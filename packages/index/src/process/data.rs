@@ -32,6 +32,7 @@ mod tests {
 			children: None,
 			command: tg::Referent::with_node(tg::Either::Right(tg::command::Id::new(b"command"))),
 			created_at: 1,
+			creator: tg::Principal::Root,
 			debug: None,
 			error: None,
 			exit: Some(0),
@@ -41,6 +42,7 @@ mod tests {
 			output: Some(tg::Referent::with_node(tg::value::Data::String(
 				"output".repeat(10_000),
 			))),
+			owner: tg::Principal::Root,
 			retry: false,
 			sandbox: Some(tg::sandbox::Id::new()),
 			started_at: Some(2),

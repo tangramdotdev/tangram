@@ -29,4 +29,36 @@ pub enum Key {
 		process: tg::process::Id,
 		sandbox: tg::sandbox::Id,
 	},
+	CreatorProcess {
+		creator: tg::Principal,
+		process: tg::process::Id,
+		status: tg::process::Status,
+	},
+	OwnerProcess {
+		owner: tg::Principal,
+		process: tg::process::Id,
+		status: tg::process::Status,
+	},
+}
+
+impl Key {
+	#[must_use]
+	pub fn principals(
+		creator: &tg::Principal,
+		owner: &tg::Principal,
+		status: tg::process::Status,
+		process: &tg::process::Id,
+	) -> [Self; 2] {
+		let creator = Self::CreatorProcess {
+			creator: creator.clone(),
+			process: process.clone(),
+			status,
+		};
+		let owner = Self::OwnerProcess {
+			owner: owner.clone(),
+			process: process.clone(),
+			status,
+		};
+		[creator, owner]
+	}
 }

@@ -26,6 +26,24 @@ impl Index {
 	) -> tg::Result<()> {
 		for id in ids {
 			Self::delete_sandbox_processes_with_transaction(db, subspace, transaction, id)?;
+
+			// Delete the creator and owner keys.
+			let sandbox = Self::try_get_sandbox_with_transaction(db, subspace, transaction, id)?;
+			if let Some(data) = sandbox.and_then(|sandbox| sandbox.data) {
+				for key in crate::sandbox::Key::principals(
+					&data.data.creator,
+					&data.data.owner,
+					data.data.status,
+					id,
+				) {
+					let key = Self::pack(subspace, &Key::Sandbox(key));
+					db.delete(transaction, &key).map_err(|error| {
+						tg::error!(!error, "failed to delete a sandbox principal key")
+					})?;
+				}
+			}
+
+			// Delete the sandbox.
 			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(id.clone()));
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)

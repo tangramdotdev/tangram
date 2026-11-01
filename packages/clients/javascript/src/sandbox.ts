@@ -164,7 +164,7 @@ export namespace Sandbox {
 
 	export type Data = {
 		cpu?: tg.Sandbox.Cpu | null;
-		creator?: string | null;
+		creator?: string;
 		error?: tg.Error.Data | tg.Error.Id | null;
 		hostname?: string | null;
 		id: tg.Sandbox.Id;
@@ -172,7 +172,7 @@ export namespace Sandbox {
 		storage?: number | tg.Sandbox.Resource | null;
 		mounts?: Array<tg.Sandbox.Mount.Data>;
 		network?: tg.Sandbox.Network.Data | null;
-		owner?: string | null;
+		owner?: string;
 		status: tg.Sandbox.Status;
 		ttl?: number | null;
 		usage?: tg.Sandbox.Usage | null;

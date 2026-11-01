@@ -29,6 +29,23 @@ impl Index {
 				Self::delete_sandbox_processes_with_transaction(txn, subspace, id, partition_total)
 					.await
 			);
+
+			// Delete the creator and owner keys.
+			let sandbox =
+				crate::propagate!(Self::try_get_sandbox_with_transaction(txn, subspace, id).await);
+			if let Some(data) = sandbox.and_then(|sandbox| sandbox.data) {
+				for key in crate::sandbox::Key::principals(
+					&data.data.creator,
+					&data.data.owner,
+					data.data.status,
+					id,
+				) {
+					let key = Self::pack(subspace, &Key::Sandbox(key));
+					txn.clear(&key);
+				}
+			}
+
+			// Delete the sandbox.
 			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(id.clone()));
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);

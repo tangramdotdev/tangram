@@ -410,27 +410,55 @@ impl Index {
 				let output = crate::retry!(result).cast_unsigned();
 				tangram_index::read::Response::GetTransactionId(output)
 			},
-			tangram_index::read::Request::ListSandboxes => {
-				let result = Self::list_sandboxes_with_transaction(transaction, subspace).await;
+			tangram_index::read::Request::ListProcessesForCreator { arg } => {
+				let result = Self::list_processes_for_principal_with_transaction(
+					transaction,
+					subspace,
+					arg,
+					super::Kind::CreatorProcess,
+				)
+				.await;
 				let output = crate::propagate!(result);
-				tangram_index::read::Response::ListSandboxes(output)
+				tangram_index::read::Response::ListProcesses(output)
 			},
-			tangram_index::read::Request::ListSandboxesForCreator { creator } => {
+			tangram_index::read::Request::ListProcessesForOwner { arg } => {
+				let result = Self::list_processes_for_principal_with_transaction(
+					transaction,
+					subspace,
+					arg,
+					super::Kind::OwnerProcess,
+				)
+				.await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::ListProcesses(output)
+			},
+			tangram_index::read::Request::ListSandboxIds { after, limit } => {
+				let result = Self::list_sandbox_ids_with_transaction(
+					transaction,
+					subspace,
+					after.as_ref(),
+					*limit,
+				)
+				.await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::ListSandboxIds(output)
+			},
+			tangram_index::read::Request::ListSandboxesForCreator { arg } => {
 				let result = Self::list_sandboxes_for_principal_with_transaction(
 					transaction,
 					subspace,
-					creator,
+					arg,
 					super::Kind::CreatorSandbox,
 				)
 				.await;
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::ListSandboxes(output)
 			},
-			tangram_index::read::Request::ListSandboxesForOwner { owner } => {
+			tangram_index::read::Request::ListSandboxesForOwner { arg } => {
 				let result = Self::list_sandboxes_for_principal_with_transaction(
 					transaction,
 					subspace,
-					owner,
+					arg,
 					super::Kind::OwnerSandbox,
 				)
 				.await;

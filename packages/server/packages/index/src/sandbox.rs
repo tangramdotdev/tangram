@@ -3,25 +3,25 @@ use {super::Index, tangram_client::prelude::*, tangram_index as index};
 impl Index {
 	pub async fn list_sandboxes_for_creator(
 		&self,
-		creator: &tg::Principal,
-	) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
+		arg: index::sandbox::list::Arg,
+	) -> tg::Result<index::sandbox::list::Output> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.list_sandboxes_for_creator(creator).await,
+			Self::Fdb(index) => index.list_sandboxes_for_creator(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.list_sandboxes_for_creator(creator).await,
+			Self::Lmdb(index) => index.list_sandboxes_for_creator(arg).await,
 		}
 	}
 
 	pub async fn list_sandboxes_for_owner(
 		&self,
-		owner: &tg::Principal,
-	) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
+		arg: index::sandbox::list::Arg,
+	) -> tg::Result<index::sandbox::list::Output> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.list_sandboxes_for_owner(owner).await,
+			Self::Fdb(index) => index.list_sandboxes_for_owner(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.list_sandboxes_for_owner(owner).await,
+			Self::Lmdb(index) => index.list_sandboxes_for_owner(arg).await,
 		}
 	}
 
@@ -63,14 +63,16 @@ impl Index {
 		}
 	}
 
-	pub async fn list_sandboxes(
+	pub async fn list_sandbox_ids(
 		&self,
-	) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
+		after: Option<tg::sandbox::Id>,
+		limit: usize,
+	) -> tg::Result<Vec<tg::sandbox::Id>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.list_sandboxes().await,
+			Self::Fdb(index) => index.list_sandbox_ids(after, limit).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.list_sandboxes().await,
+			Self::Lmdb(index) => index.list_sandbox_ids(after, limit).await,
 		}
 	}
 
@@ -90,16 +92,16 @@ impl Index {
 impl index::sandbox::Index for Index {
 	async fn list_sandboxes_for_creator(
 		&self,
-		creator: &tg::Principal,
-	) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
-		self.list_sandboxes_for_creator(creator).await
+		arg: index::sandbox::list::Arg,
+	) -> tg::Result<index::sandbox::list::Output> {
+		self.list_sandboxes_for_creator(arg).await
 	}
 
 	async fn list_sandboxes_for_owner(
 		&self,
-		owner: &tg::Principal,
-	) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
-		self.list_sandboxes_for_owner(owner).await
+		arg: index::sandbox::list::Arg,
+	) -> tg::Result<index::sandbox::list::Output> {
+		self.list_sandboxes_for_owner(arg).await
 	}
 
 	async fn get_runner_sandboxes(
@@ -125,8 +127,12 @@ impl index::sandbox::Index for Index {
 		self.try_get_sandbox_processes(id, position, length).await
 	}
 
-	async fn list_sandboxes(&self) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
-		self.list_sandboxes().await
+	async fn list_sandbox_ids(
+		&self,
+		after: Option<tg::sandbox::Id>,
+		limit: usize,
+	) -> tg::Result<Vec<tg::sandbox::Id>> {
+		self.list_sandbox_ids(after, limit).await
 	}
 
 	async fn try_get_sandboxes(

@@ -116,6 +116,7 @@ class ProcessDataObject(TypedDict):
     children: NotRequired[list[ProcessChildData] | None]
     command: ReferentData[ProcessCommandData | str] | str
     created_at: int | float
+    creator: NotRequired[str]
     debug: NotRequired[DebugObject | None]
     error: NotRequired[ReferentData[ErrorData | str] | str | None]
     exit: NotRequired[int | None]
@@ -123,6 +124,7 @@ class ProcessDataObject(TypedDict):
     host: str
     log: NotRequired[str | None]
     output: NotRequired[ReferentData[ValueData]]
+    owner: NotRequired[str]
     retry: NotRequired[bool]
     sandbox: NotRequired[str | None]
     started_at: NotRequired[int | float | None]

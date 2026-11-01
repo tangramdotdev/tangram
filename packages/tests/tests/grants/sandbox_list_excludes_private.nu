@@ -10,9 +10,9 @@ let eve = tg login --verbose --name eve | from json
 let sandbox = tg --token $alice.token sandbox create --no-tokens --no-network | referent node
 
 let alice_list = tg --token $alice.token sandbox list | from json
-assert (($alice_list | where id == $sandbox | is-empty) == false) "Alice should see her own sandbox"
+assert (($alice_list | where node == $sandbox | is-empty) == false) "Alice should see her own sandbox"
 
 let eve_list = tg --token $eve.token sandbox list | from json
-assert ($eve_list | where id == $sandbox | is-empty) "Eve must not see a sandbox she cannot access"
+assert ($eve_list | where node == $sandbox | is-empty) "Eve must not see a sandbox she cannot access"
 
 tg --token $alice.token sandbox destroy $sandbox

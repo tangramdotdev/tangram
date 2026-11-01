@@ -201,48 +201,37 @@ impl Index {
 				txn.set(&key, &[]);
 			}
 
-			if let Some(data) = existing
+			// Move the creator and owner keys when the creator, owner, or status changes.
+			let previous = existing
 				.as_ref()
 				.and_then(|sandbox| sandbox.data.as_ref())
-				.filter(|data| data.data.status.is_started())
-			{
-				let creator = data.data.creator.clone();
-				let key = Key::Sandbox(crate::sandbox::Key::CreatorSandbox {
-					creator,
-					sandbox: arg.id.clone(),
+				.map(|data| {
+					(
+						data.data.creator.clone(),
+						data.data.owner.clone(),
+						data.data.status,
+					)
 				});
-				let key = Self::pack(subspace, &key);
-				txn.clear(&key);
-
-				let owner = data.data.owner.clone();
-				let key = Key::Sandbox(crate::sandbox::Key::OwnerSandbox {
-					owner,
-					sandbox: arg.id.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				txn.clear(&key);
-			}
-
-			if let Some(data) = sandbox
-				.data
-				.as_ref()
-				.filter(|data| data.data.status.is_started())
-			{
-				let creator = data.data.creator.clone();
-				let key = Key::Sandbox(crate::sandbox::Key::CreatorSandbox {
-					creator,
-					sandbox: arg.id.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				txn.set(&key, &[]);
-
-				let owner = data.data.owner.clone();
-				let key = Key::Sandbox(crate::sandbox::Key::OwnerSandbox {
-					owner,
-					sandbox: arg.id.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				txn.set(&key, &[]);
+			let current = sandbox.data.as_ref().map(|data| {
+				(
+					data.data.creator.clone(),
+					data.data.owner.clone(),
+					data.data.status,
+				)
+			});
+			if previous != current {
+				if let Some((creator, owner, status)) = &previous {
+					for key in crate::sandbox::Key::principals(creator, owner, *status, &arg.id) {
+						let key = Self::pack(subspace, &Key::Sandbox(key));
+						txn.clear(&key);
+					}
+				}
+				if let Some((creator, owner, status)) = &current {
+					for key in crate::sandbox::Key::principals(creator, owner, *status, &arg.id) {
+						let key = Self::pack(subspace, &Key::Sandbox(key));
+						txn.set(&key, &[]);
+					}
+				}
 			}
 
 			if let Some(runner) = existing

@@ -13,12 +13,15 @@ let create = $create | str trim
 assert ($create | str starts-with "sbx_")
 
 let list = tg sandbox list | from json
-let sandbox = ($list | where id == $create | first)
+let referent = ($list | where node == $create | first)
+assert (($referent | get --optional options.tokens.local) != null) "sandbox list should return a token"
+let list = tg sandbox list --expand | from json
+let sandbox = ($list | where data.id == $create | first)
 if $nu.os-info.name == 'linux' {
-	assert ($sandbox.hostname == "sandbox-test")
+	assert ($sandbox.data.hostname == "sandbox-test")
 }
-assert (($sandbox.mounts | first) == "/tmp:/sandbox,ro")
-assert (($sandbox.network? | is-empty))
+assert (($sandbox.data.mounts | first) == "/tmp:/sandbox,ro")
+assert (($sandbox.data.network? | is-empty))
 assert (($sandbox | get --optional tokens.local) != null) "sandbox list should return a token"
 
 tg sandbox destroy $create
@@ -26,7 +29,7 @@ tg wait $create
 tg index
 
 let list = tg sandbox list | from json
-assert ($list | where id == $create | is-empty) "the destroyed sandbox should leave the list"
+assert ($list | where node == $create | is-empty) "the destroyed sandbox should leave the list"
 
 tg clean
 let output = tg sandbox get $create | complete
