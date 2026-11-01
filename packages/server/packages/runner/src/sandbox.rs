@@ -1980,6 +1980,54 @@ impl Component {
 			.map(|sandbox| sandbox.status)
 	}
 
+	/// Reserve the filesystem project IDs of the stopped sandboxes' directories.
+	pub(crate) async fn reclaim_sandbox_directories(&self, server: &Server) {
+		let path = server.path.join("sandboxes");
+		let mut entries = match tokio::fs::read_dir(&path).await {
+			Ok(entries) => entries,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+			Err(error) => {
+				tracing::error!(%error, "failed to read the sandbox directories");
+				return;
+			},
+		};
+		loop {
+			let entry = match entries.next_entry().await {
+				Ok(Some(entry)) => entry,
+				Ok(None) => break,
+				Err(error) => {
+					tracing::error!(%error, "failed to read a sandbox directory");
+					break;
+				},
+			};
+			let Some(id) = entry
+				.file_name()
+				.to_str()
+				.and_then(|name| name.parse::<tg::sandbox::Id>().ok())
+			else {
+				continue;
+			};
+			let path = entry.path();
+
+			// Reserve the directory's filesystem project ID.
+			#[cfg(target_os = "linux")]
+			match tangram_sandbox::filesystem_project_id(&path) {
+				Ok(Some(value)) => {
+					if let Some(project_id) = self.state.filesystem_project_ids.acquire_value(value)
+					{
+						self.state.stopped_project_ids.insert(id, project_id);
+					}
+				},
+				Ok(None) => {},
+				Err(error) => {
+					tracing::error!(error = %error.trace(), sandbox = %id, "failed to read the sandbox filesystem project");
+				},
+			}
+			#[cfg(not(target_os = "linux"))]
+			let _ = (id, path);
+		}
+	}
+
 	/// Get the path of the directory that holds a sandbox's data while it is stopped.
 	fn sandbox_path(session: &Session, id: &tg::sandbox::Id) -> std::path::PathBuf {
 		session.server.path.join("sandboxes").join(id.to_string())
