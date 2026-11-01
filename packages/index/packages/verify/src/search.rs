@@ -73,11 +73,12 @@ pub(crate) enum DescendantFallback {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AncestorNodeFacts {
+	pub creator: Option<tg::Principal>,
 	pub delegations: Vec<tangram_index::delegation::put::Arg>,
 	pub permissions: Vec<Permission>,
 	pub object_processes: Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
 	pub parent: Option<tg::Id>,
-	pub sandbox_owner: Option<tg::Principal>,
+	pub owner: Option<tg::Principal>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -102,12 +103,15 @@ pub(crate) enum AncestorNodeRead {
 		limit: usize,
 		object: tg::object::Id,
 	},
+	ProcessPrincipals {
+		process: tg::process::Id,
+	},
 	ResourcePermissions {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		resource: tg::Id,
 	},
-	SandboxOwner {
+	SandboxPrincipals {
 		sandbox: tg::sandbox::Id,
 	},
 	Tag {
@@ -136,6 +140,18 @@ pub(crate) enum Read {
 		depth: usize,
 		key: Key,
 		read: AncestorNodeRead,
+	},
+	CreatorProcesses {
+		after: Option<Vec<u8>>,
+		creator: tg::Principal,
+		depth: usize,
+		limit: usize,
+	},
+	CreatorSandboxes {
+		after: Option<Vec<u8>>,
+		creator: tg::Principal,
+		depth: usize,
+		limit: usize,
 	},
 	Delegation {
 		after: Option<Vec<u8>>,
@@ -178,6 +194,12 @@ pub(crate) enum Read {
 		depth: usize,
 		limit: usize,
 		organization: tg::organization::Id,
+	},
+	OwnerProcesses {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		limit: usize,
+		owner: tg::Principal,
 	},
 	OwnerSandboxes {
 		after: Option<Vec<u8>>,
@@ -282,7 +304,7 @@ pub(crate) enum ReadOutput {
 		objects: Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 	},
 	Resolved(Option<(tg::Id, bool)>),
-	SandboxOwner(Option<tg::Principal>),
+	Principals(Option<(tg::Principal, tg::Principal)>),
 	Tag(Option<tangram_index::tag::Tag>),
 }
 
@@ -443,6 +465,16 @@ impl ReadOutput {
 		Ok(values)
 	}
 
+	fn into_principals(self) -> tg::Result<Option<(tg::Principal, tg::Principal)>> {
+		let Self::Principals(principals) = self else {
+			return Err(tg::error!(
+				"received a non-principals result for a principals read"
+			));
+		};
+
+		Ok(principals)
+	}
+
 	fn into_permissions(self) -> tg::Result<(Option<Vec<u8>>, Vec<Permission>)> {
 		let Self::Permissions { after, permissions } = self else {
 			return Err(tg::error!(
@@ -543,16 +575,6 @@ impl ReadOutput {
 		};
 
 		Ok(resource)
-	}
-
-	fn into_sandbox_owner(self) -> tg::Result<Option<tg::Principal>> {
-		let Self::SandboxOwner(owner) = self else {
-			return Err(tg::error!(
-				"received a non-owner result for a sandbox owner read"
-			));
-		};
-
-		Ok(owner)
 	}
 
 	fn into_tag(self) -> tg::Result<Option<tangram_index::tag::Tag>> {
@@ -806,6 +828,9 @@ impl AncestorOrDescendantSearch {
 			read @ (Read::DescendantChecks(_)
 			| Read::Member { .. }
 			| Read::ObjectChildren { .. }
+			| Read::CreatorProcesses { .. }
+			| Read::CreatorSandboxes { .. }
+			| Read::OwnerProcesses { .. }
 			| Read::OwnerSandboxes { .. }
 			| Read::ProcessChildren { .. }
 			| Read::ProcessObjectChildren { .. }
@@ -1606,7 +1631,10 @@ mod tests {
 				after: None,
 				organizations: Vec::new(),
 			},
-			Read::OwnerSandboxes { .. } => ReadOutput::Ids {
+			Read::CreatorProcesses { .. }
+			| Read::CreatorSandboxes { .. }
+			| Read::OwnerProcesses { .. }
+			| Read::OwnerSandboxes { .. } => ReadOutput::Ids {
 				after: None,
 				ids: Vec::new(),
 			},

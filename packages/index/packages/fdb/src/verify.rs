@@ -372,6 +372,105 @@ impl Index {
 
 				Output::Ids { after, ids }
 			},
+			Request::CreatorProcesses {
+				after,
+				limit,
+				creator,
+			} => {
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::CreatorProcess.to_i32().unwrap(), creator.to_string()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_verification_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Process(crate::process::Key::CreatorProcess { process, .. }) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(process))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
+			},
+			Request::CreatorSandboxes {
+				after,
+				limit,
+				creator,
+			} => {
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::CreatorSandbox.to_i32().unwrap(), creator.to_string()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_verification_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Sandbox(crate::sandbox::Key::CreatorSandbox { sandbox, .. }) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(sandbox))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
+			},
+			Request::OwnerProcesses {
+				after,
+				limit,
+				owner,
+			} => {
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::OwnerProcess.to_i32().unwrap(), owner.to_string()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_verification_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Process(crate::process::Key::OwnerProcess { process, .. }) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(process))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
+			},
 			Request::OwnerSandboxes {
 				after,
 				limit,
@@ -657,14 +756,14 @@ impl Index {
 
 				Output::Permissions { after, permissions }
 			},
-			Request::SandboxOwner { sandbox } => {
-				let owner = crate::propagate!(
+			Request::SandboxPrincipals { sandbox } => {
+				let principals = crate::propagate!(
 					Self::try_get_sandbox_with_transaction(txn, subspace, sandbox).await
 				)
 				.and_then(|sandbox| sandbox.data)
-				.map(|data| data.data.owner);
+				.map(|data| (data.data.creator, data.data.owner));
 
-				Output::SandboxOwner(owner)
+				Output::SandboxPrincipals(principals)
 			},
 			Request::Specifier { specifier } => {
 				let id = crate::propagate!(

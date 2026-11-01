@@ -574,6 +574,9 @@ impl Search {
 			Read::DescendantChecks(_)
 			| Read::Member { .. }
 			| Read::ObjectChildren { .. }
+			| Read::CreatorProcesses { .. }
+			| Read::CreatorSandboxes { .. }
+			| Read::OwnerProcesses { .. }
 			| Read::OwnerSandboxes { .. }
 			| Read::Process { .. }
 			| Read::ProcessChildren { .. }
@@ -857,8 +860,12 @@ impl Search {
 					});
 				}
 			},
-			AncestorNodeRead::SandboxOwner { .. } => {
-				pending.facts.sandbox_owner = output.into_sandbox_owner()?;
+			AncestorNodeRead::ProcessPrincipals { .. }
+			| AncestorNodeRead::SandboxPrincipals { .. } => {
+				if let Some((creator, owner)) = output.into_principals()? {
+					pending.facts.creator = Some(creator);
+					pending.facts.owner = Some(owner);
+				}
 			},
 			AncestorNodeRead::Tag { .. } => {
 				pending.facts.parent = output.into_tag()?.and_then(|tag| tag.parent);
@@ -925,14 +932,15 @@ impl Search {
 				limit,
 				object,
 			});
-		} else if resource.kind() == tg::id::Kind::Process {
+		} else if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
 			reads.push(AncestorNodeRead::Delegations {
 				after: None,
 				limit,
 				resource: resource.clone(),
 			});
+			reads.push(AncestorNodeRead::ProcessPrincipals { process });
 		} else if let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone()) {
-			reads.push(AncestorNodeRead::SandboxOwner { sandbox });
+			reads.push(AncestorNodeRead::SandboxPrincipals { sandbox });
 		} else if let Ok(tag) = tg::tag::Id::try_from(resource.clone()) {
 			reads.push(AncestorNodeRead::Tag { tag });
 		}
@@ -1026,15 +1034,19 @@ impl Search {
 				.any(|body| &body.resource == resource && body.authorizes(*permission));
 		if matches!(
 			permission,
-			tg::authorization::Permission::Sandbox(
-				tg::authorization::permission::sandbox::Permission::Node
-					| tg::authorization::permission::sandbox::Permission::Parent
-			)
-		) && let Some(owner) = &facts.sandbox_owner
-			&& let Ok(subject) = owner.try_to_subject()
-			&& !self.add_subject_dependency(state, key, key.clone(), subject, depth)
-		{
-			return Ok(());
+			tg::authorization::Permission::Process(_)
+				| tg::authorization::Permission::Sandbox(
+					tg::authorization::permission::sandbox::Permission::Node
+						| tg::authorization::permission::sandbox::Permission::Parent
+				)
+		) {
+			for principal in facts.creator.iter().chain(&facts.owner) {
+				if let Ok(subject) = principal.try_to_subject()
+					&& !self.add_subject_dependency(state, key, key.clone(), subject, depth)
+				{
+					return Ok(());
+				}
+			}
 		}
 		if (key.2.is_none() && matches!(self.principal, tg::Principal::Root))
 			|| principal_is_resource
@@ -1086,29 +1098,16 @@ impl Search {
 					}
 				}
 			},
-			tg::authorization::Permission::Process(_) => {},
+			tg::authorization::Permission::Process(_) => {
+				Self::add_principal_dependencies(facts, &mut dependencies)?;
+			},
 			tg::authorization::Permission::Group(_)
 			| tg::authorization::Permission::Organization(_)
 			| tg::authorization::Permission::Sandbox(_)
 			| tg::authorization::Permission::Sync(_)
 			| tg::authorization::Permission::Tag(_)
 			| tg::authorization::Permission::User(_) => {
-				if let Some(owner) = &facts.sandbox_owner {
-					let owner = match owner {
-						tg::Principal::Group(id) => Some(tg::Id::from(id.clone())),
-						tg::Principal::Organization(id) => Some(tg::Id::from(id.clone())),
-						tg::Principal::Process(id) => Some(tg::Id::from(id.clone())),
-						tg::Principal::Sandbox(id) => Some(tg::Id::from(id.clone())),
-						tg::Principal::User(id) => Some(tg::Id::from(id.clone())),
-						tg::Principal::Anonymous
-						| tg::Principal::Root
-						| tg::Principal::Runner(_) => None,
-					};
-					if let Some(owner) = owner {
-						let permission = crate::write_permission_for_resource(&owner)?;
-						dependencies.push((owner, permission, None));
-					}
-				}
+				Self::add_principal_dependencies(facts, &mut dependencies)?;
 				if let Some(parent) = &facts.parent {
 					let permission = crate::permission_for_named_parent(parent, *permission)?;
 					dependencies.push((parent.clone(), permission, None));
@@ -1134,6 +1133,27 @@ impl Search {
 		Ok(())
 	}
 
+	fn add_principal_dependencies(
+		facts: &AncestorNodeFacts,
+		dependencies: &mut Vec<Key>,
+	) -> tg::Result<()> {
+		for principal in facts.creator.iter().chain(&facts.owner) {
+			let resource = match principal {
+				tg::Principal::Group(id) => tg::Id::from(id.clone()),
+				tg::Principal::Organization(id) => tg::Id::from(id.clone()),
+				tg::Principal::Process(id) => tg::Id::from(id.clone()),
+				tg::Principal::Sandbox(id) => tg::Id::from(id.clone()),
+				tg::Principal::User(id) => tg::Id::from(id.clone()),
+				tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner(_) => {
+					continue;
+				},
+			};
+			let permission = crate::write_permission_for_resource(&resource)?;
+			dependencies.push((resource, permission, None));
+		}
+
+		Ok(())
+	}
 	fn apply_delegations(
 		&mut self,
 		state: &mut State,
