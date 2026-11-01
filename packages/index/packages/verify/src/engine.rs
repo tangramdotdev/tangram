@@ -1308,6 +1308,16 @@ where
 
 				ReadOutput::ObjectProcesses { after, processes }
 			},
+			super::search::AncestorNodeRead::ProcessPrincipals { process } => {
+				let output = read!(facts::Request::Process {
+					process: process.clone(),
+				});
+				let principals = output
+					.into_process()?
+					.map(|process| (process.creator, process.owner));
+
+				ReadOutput::Principals(principals)
+			},
 			super::search::AncestorNodeRead::ResourcePermissions {
 				after,
 				limit,
@@ -1322,13 +1332,13 @@ where
 
 				ReadOutput::Permissions { after, permissions }
 			},
-			super::search::AncestorNodeRead::SandboxOwner { sandbox } => {
-				let output = read!(facts::Request::SandboxOwner {
+			super::search::AncestorNodeRead::SandboxPrincipals { sandbox } => {
+				let output = read!(facts::Request::SandboxPrincipals {
 					sandbox: sandbox.clone(),
 				});
-				let owner = output.into_sandbox_owner()?;
+				let principals = output.into_sandbox_principals()?;
 
-				ReadOutput::SandboxOwner(owner)
+				ReadOutput::Principals(principals)
 			},
 			super::search::AncestorNodeRead::Tag { tag } => {
 				let output = read!(facts::Request::Tag { tag: tag.clone() });
@@ -1522,6 +1532,51 @@ where
 				after: after.clone(),
 				limit: *limit,
 				organization: organization.clone(),
+			});
+			let (after, ids) = output.into_ids()?;
+
+			ReadOutput::Ids { after, ids }
+		},
+		Read::CreatorProcesses {
+			after,
+			limit,
+			creator,
+			..
+		} => {
+			let output = read!(facts::Request::CreatorProcesses {
+				after: after.clone(),
+				limit: *limit,
+				creator: creator.clone(),
+			});
+			let (after, ids) = output.into_ids()?;
+
+			ReadOutput::Ids { after, ids }
+		},
+		Read::CreatorSandboxes {
+			after,
+			limit,
+			creator,
+			..
+		} => {
+			let output = read!(facts::Request::CreatorSandboxes {
+				after: after.clone(),
+				limit: *limit,
+				creator: creator.clone(),
+			});
+			let (after, ids) = output.into_ids()?;
+
+			ReadOutput::Ids { after, ids }
+		},
+		Read::OwnerProcesses {
+			after,
+			limit,
+			owner,
+			..
+		} => {
+			let output = read!(facts::Request::OwnerProcesses {
+				after: after.clone(),
+				limit: *limit,
+				owner: owner.clone(),
 			});
 			let (after, ids) = output.into_ids()?;
 
@@ -2312,7 +2367,8 @@ mod tests {
 					after: None,
 					permissions: Vec::new(),
 				},
-				AncestorNodeRead::SandboxOwner { .. } => ReadOutput::SandboxOwner(None),
+				AncestorNodeRead::ProcessPrincipals { .. }
+				| AncestorNodeRead::SandboxPrincipals { .. } => ReadOutput::Principals(None),
 				AncestorNodeRead::Tag { .. } => ReadOutput::Tag(None),
 			},
 			Read::Member { read, .. } => match read {
@@ -2333,6 +2389,9 @@ mod tests {
 			| Read::ProcessObjectDescendants { .. }
 			| Read::Delegation { .. }
 			| Read::ObjectParents { .. }
+			| Read::CreatorProcesses { .. }
+			| Read::CreatorSandboxes { .. }
+			| Read::OwnerProcesses { .. }
 			| Read::OwnerSandboxes { .. }
 			| Read::ProcessChildren { .. }
 			| Read::ProcessParents { .. }
