@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A process may use its owner's remote, but it must not receive the owner's remote authentication token.
+# A process may use its owner's remote, but no client receives a remote's authentication token.
 
 let remote = server spawn --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 let local = server spawn --name local --config { authentication: { users: { providers: { insecure: true } } } }
@@ -31,9 +31,10 @@ assert equal $output.url $remote.url
 
 # The process does not receive credentials that would let it impersonate its owner.
 failure (tg --url $remote.url --token $process_token get --bytes $secret | complete) "the local process token must not authorize a private remote object"
-let owner_remote = tg --url $local.url --token $local_alice.token remote get default | from json
-success (tg --url $remote.url --token $owner_remote.token get --bytes $secret | complete) "the owner retains access to the remote credential"
 assert (($output | get --optional token) == null) "a process must not receive its owner's remote authentication token"
+let owner_remote = tg --url $local.url --token $local_alice.token remote get default | from json
+assert (($owner_remote | get --optional token) == null) "the owner must not receive the remote authentication token either"
+success (tg --url $remote.url --token $login.token get --bytes $secret | complete) "the owner retains access with its remote credential"
 
 # Internal forwarding still uses the stored credential.
 success (tg --url $local.url --token $process_token get --remote=default --bytes $secret | complete) "the server can still authenticate remote operations"
@@ -42,9 +43,9 @@ success (tg --url $local.url --token $process_token get --remote=default --bytes
 let output = tg --url $local.url --token $process_token logout --remote | complete
 failure $output
 assert ($output.stderr | str contains "unauthorized")
-success (tg --url $remote.url --token $owner_remote.token whoami | complete) "the owner's remote session must remain valid"
-let owner_remote_after = tg --url $local.url --token $local_alice.token remote get default | from json
-assert equal $owner_remote_after.token $owner_remote.token
+success (tg --url $remote.url --token $login.token whoami | complete) "the owner's remote session must remain valid"
+let remote_user = tg --url $local.url --token $local_alice.token whoami --remote=default | from json
+assert equal $remote_user.id $remote_alice.user.id "the server should still use the owner's stored credential"
 
 tg --url $local.url --token $local_alice.token cancel $process.process $process.lease
 tg --url $local.url --token $local_alice.token wait $process.process

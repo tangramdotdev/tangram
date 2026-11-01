@@ -10,25 +10,25 @@ impl tg::instance::Remote for tg::Session {
 
 	fn try_get_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::remote::get::Output>>> {
-		self.try_get_remote(name, arg)
+		self.try_get_remote(remote, arg)
 	}
 
 	fn put_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.put_remote(name, arg)
+		self.put_remote(remote, arg)
 	}
 
 	fn try_delete_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::delete::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
-		self.try_delete_remote(name, arg)
+		self.try_delete_remote(remote, arg)
 	}
 }

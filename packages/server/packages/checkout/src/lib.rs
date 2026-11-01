@@ -442,8 +442,9 @@ impl Component {
 	}
 
 	async fn checkout_pull_source(&self, session: &Session) -> tg::Result<Option<tg::Location>> {
+		let remote = tg::remote::Selector::Name("default".to_owned());
 		let remote = session
-			.try_get_remote("default", tg::remote::get::Arg::default())
+			.try_get_remote(&remote, tg::remote::get::Arg::default())
 			.await?;
 		let source = remote.map(|_| {
 			tg::Location::Remote(tg::location::Remote {

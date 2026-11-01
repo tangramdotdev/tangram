@@ -111,14 +111,17 @@ impl Session {
 					remotes: Vec::new(),
 				});
 			}
-			let output = self
-				.list_all_remotes(tg::remote::list::Arg::default())
-				.await?;
+			let arg = tg::remote::list::Arg {
+				expand: true,
+				..Default::default()
+			};
+			let output = self.list_all_remotes(arg).await?;
 			let remotes = output
 				.data
 				.into_iter()
-				.map(|row| Remote {
-					name: row.name,
+				.filter_map(tg::Either::left)
+				.map(|output| Remote {
+					name: output.data.name,
 					regions: None,
 				})
 				.collect();

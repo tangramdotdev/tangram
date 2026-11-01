@@ -27,7 +27,7 @@ let local = server spawn --config {
 
 let bob = tg login -r=staging --name bob | from json
 let staging = tg remote get staging | from json
-assert (($staging | get --optional token) != null) "login -r=staging should save the token"
+assert (($staging | get --optional token) == null) "remote get should not return the saved token"
 
 let remote_user = tg whoami -r=staging | from json
 assert ($remote_user.id == $bob.id) "whoami -r=staging should return the remote user"

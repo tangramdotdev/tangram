@@ -25,23 +25,23 @@ pub trait Remote: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_get_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::remote::get::Output>>> + Send;
 
 	fn put_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn delete_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::delete::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
-			self.try_delete_remote(name, arg)
+			self.try_delete_remote(remote, arg)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the remote"))
 		}
@@ -49,7 +49,7 @@ pub trait Remote: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_delete_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::delete::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 }
@@ -64,23 +64,29 @@ impl tg::instance::Remote for tg::Client {
 
 	async fn try_get_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::get::Arg,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
-		self.session(&self.context).try_get_remote(name, arg).await
+		self.session(&self.context)
+			.try_get_remote(remote, arg)
+			.await
 	}
 
-	async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
-		self.session(&self.context).put_remote(name, arg).await
+	async fn put_remote(
+		&self,
+		remote: &tg::remote::Selector,
+		arg: tg::remote::put::Arg,
+	) -> tg::Result<()> {
+		self.session(&self.context).put_remote(remote, arg).await
 	}
 
 	async fn try_delete_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::delete::Arg,
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
-			.try_delete_remote(name, arg)
+			.try_delete_remote(remote, arg)
 			.await
 	}
 }

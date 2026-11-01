@@ -5,7 +5,7 @@ use ../../util/test.nu *
 let local = server spawn --name local
 
 tg remote put mine "http://localhost:6666"
-assert equal (tg remote list | from json | get name) ["mine"] "the remote should be listed before the restart"
+assert equal (tg remote list --expand | from json | get data.name) ["mine"] "the remote should be listed before the restart"
 
 # Restart the server.
 let server = server restart $local

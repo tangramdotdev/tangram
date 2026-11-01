@@ -19,6 +19,9 @@ impl Component {
 		let Some(remotes) = &server.config.remotes else {
 			return Ok(());
 		};
+		for name in remotes.keys() {
+			crate::validate_name(name)?;
+		}
 		let remotes = remotes.clone();
 		server
 			.database
@@ -36,24 +39,28 @@ impl Component {
 		remotes: &BTreeMap<String, tangram_server_core::config::Remote>,
 	) -> tg::Result<ControlFlow<(), Error>> {
 		#[derive(db::row::Deserialize)]
-		struct RemoteTokenRow {
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::remote::Id,
+
 			name: String,
+
 			token: Option<String>,
 		}
 		let statement = indoc!(
 			r"
-				select name, token
+				select id, name, token
 				from remotes
 				where principal is null;
 			",
 		);
 		let result = transaction
-			.query_all_into::<RemoteTokenRow>(statement.into(), db::params![])
+			.query_all_into::<Row>(statement.into(), db::params![])
 			.await;
-		let tokens =
+		let previous =
 			tangram_server_core::database::retry!(result, "failed to execute the statement")
 				.into_iter()
-				.map(|row| (row.name, row.token))
+				.map(|row| (row.name, (row.id, row.token)))
 				.collect::<BTreeMap<_, _>>();
 		let statement = indoc!(
 			r"
@@ -67,15 +74,23 @@ impl Component {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				r"
-					insert into remotes (name, principal, token, trusted, url)
-					values ({p}1, null, {p}2, {p}3, {p}4);
+					insert into remotes (id, name, principal, token, trusted, url)
+					values ({p}1, {p}2, null, {p}3, {p}4, {p}5);
 				",
 			);
+			let existing = previous.get(name);
+			let id = existing.map_or_else(tg::remote::Id::new, |(id, _)| id.clone());
 			let token = remote
 				.token
 				.clone()
-				.or_else(|| tokens.get(name).cloned().flatten());
-			let params = db::params![name.clone(), token, remote.trusted, remote.url.to_string()];
+				.or_else(|| existing.and_then(|(_, token)| token.clone()));
+			let params = db::params![
+				id.to_string(),
+				name.clone(),
+				token,
+				remote.trusted,
+				remote.url.to_string()
+			];
 			let result = transaction.execute(statement.into(), params).await;
 			tangram_server_core::database::retry!(result, "failed to insert the remote");
 		}

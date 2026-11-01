@@ -3,13 +3,20 @@ use {
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
+	tangram_util::serde::is_false,
 };
+
+pub type Item = tg::Either<tg::remote::get::Output, tg::Referent<tg::remote::Id>>;
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cursor: Option<String>,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub expand: bool,
 
 	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -24,7 +31,7 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cursor: Option<String>,
 
-	pub data: Vec<tg::remote::Data>,
+	pub data: Vec<Item>,
 }
 
 impl tg::Session {
