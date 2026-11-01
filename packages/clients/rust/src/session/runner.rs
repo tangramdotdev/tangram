@@ -28,6 +28,14 @@ impl tg::instance::Runner for tg::Session {
 		self.try_delete_runner(runner, arg)
 	}
 
+	fn try_get_runner(
+		&self,
+		runner: &tg::runner::Id,
+		arg: tg::runner::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::runner::get::Output>>> {
+		self.try_get_runner(runner, arg)
+	}
+
 	fn try_delete_runner_token(
 		&self,
 		runner: &tg::runner::Id,
@@ -35,6 +43,15 @@ impl tg::instance::Runner for tg::Session {
 		arg: tg::runner::token::delete::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
 		self.try_delete_runner_token(runner, token, arg)
+	}
+
+	fn try_get_runner_token(
+		&self,
+		runner: &tg::runner::Id,
+		token: &tg::token::Id,
+		arg: tg::runner::token::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::runner::token::get::Output>>> {
+		self.try_get_runner_token(runner, token, arg)
 	}
 
 	fn list_runners(

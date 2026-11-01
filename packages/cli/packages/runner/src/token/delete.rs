@@ -11,23 +11,21 @@ pub struct Args {
 	pub runner: tg::runner::Id,
 
 	#[arg(index = 2)]
-	pub token: tg::token::Id,
+	pub token: tg::Referent<tg::token::Id>,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::runner::token::delete::Arg {
-		location: args.location.get(),
+		location: args.location.get_for_options(&args.token),
 	};
+	let runner = args.runner;
+	let token = args.token.node;
 	client
-		.try_delete_runner_token(
-			&args.runner,
-			&args.token,
-			arg,
-		)
+		.try_delete_runner_token(&runner, &token, arg)
 		.await
-		.map_err(|error| tg::error!(!error, runner = %args.runner, token = %args.token, "failed to delete the runner token"))?
-		.ok_or_else(|| tg::error!(runner = %args.runner, token = %args.token, "failed to find the runner token"))?;
+		.map_err(|error| tg::error!(!error, %runner, %token, "failed to delete the runner token"))?
+		.ok_or_else(|| tg::error!(%runner, %token, "failed to find the runner token"))?;
 
 	Ok(())
 }

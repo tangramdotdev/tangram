@@ -54,11 +54,37 @@ impl Component {
 					.await?;
 				arg.location = Some(
 					tg::Location::Local(tg::location::Local {
-						region: remote.region,
+						region: remote.region.clone(),
 					})
 					.into(),
 				);
-				client.list_runners(arg).await
+				let mut output = client.list_runners(arg).await?;
+				let location = tg::Location::Remote(tg::location::Remote {
+					name: remote.name.clone(),
+					region: remote.region,
+				});
+				let trusted = client.trusted();
+				for item in &mut output.data {
+					match item {
+						tg::Either::Left(output) => {
+							output.location = Some(location.clone());
+						},
+						tg::Either::Right(referent) => {
+							session
+								.server
+								.components
+								.authorization
+								.update_tokens_and_location(
+									session,
+									&mut referent.options.tokens,
+									Some(&mut referent.options.location),
+									&location,
+									trusted,
+								)?;
+						},
+					}
+				}
+				Ok(output)
 			},
 		}
 	}
@@ -137,15 +163,23 @@ impl Component {
 		};
 
 		// Create the output.
+		let location = tg::Location::Local(tg::location::Local {
+			region: session.server.config.region.clone(),
+		});
 		let data = rows
 			.into_iter()
 			.map(|row| {
 				let owner = row.owner.map(Self::runner_owner_from_id).transpose()?;
-				Ok(tg::runner::Data {
+				let data = tg::runner::Data {
 					created_at: row.created_at,
 					id: row.id,
 					owner,
-				})
+				};
+				let output = tg::runner::get::Output {
+					data,
+					location: Some(location.clone()),
+				};
+				Ok(item(output, arg.expand))
 			})
 			.collect::<tg::Result<_>>()?;
 
@@ -209,4 +243,16 @@ impl Component {
 
 		Ok(response)
 	}
+}
+
+fn item(output: tg::runner::get::Output, expand: bool) -> tg::runner::list::Item {
+	if expand {
+		return tg::Either::Left(output);
+	}
+	let options = tg::referent::Options {
+		location: output.location,
+		..Default::default()
+	};
+	let referent = tg::Referent::new(output.data.id, options);
+	tg::Either::Right(referent)
 }

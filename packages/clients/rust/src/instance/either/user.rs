@@ -26,6 +26,17 @@ where
 		}
 	}
 
+	fn try_get_user_token(
+		&self,
+		token: &tg::token::Id,
+		arg: tg::user::token::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::user::token::get::Output>>> {
+		match self {
+			tg::Either::Left(s) => s.try_get_user_token(token, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_user_token(token, arg).right_future(),
+		}
+	}
+
 	fn list_user_tokens(
 		&self,
 		arg: tg::user::token::list::Arg,

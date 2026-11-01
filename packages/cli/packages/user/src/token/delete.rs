@@ -8,21 +8,20 @@ pub struct Args {
 	pub location: tangram_cli_core::location::Args,
 
 	#[arg(index = 1)]
-	pub token: tg::token::Id,
+	pub token: tg::Referent<tg::token::Id>,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::user::token::delete::Arg {
-		location: args.location.get(),
+		location: args.location.get_for_options(&args.token),
 	};
+	let token = args.token.node;
 	client
-		.try_delete_user_token(&args.token, arg)
+		.try_delete_user_token(&token, arg)
 		.await
-		.map_err(
-			|error| tg::error!(!error, token = %args.token, "failed to delete the user token"),
-		)?
-		.ok_or_else(|| tg::error!(token = %args.token, "failed to find the user token"))?;
+		.map_err(|error| tg::error!(!error, %token, "failed to delete the user token"))?
+		.ok_or_else(|| tg::error!(%token, "failed to find the user token"))?;
 
 	Ok(())
 }

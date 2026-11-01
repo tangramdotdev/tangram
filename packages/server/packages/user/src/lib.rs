@@ -70,6 +70,10 @@ impl Component {
 				self.try_delete_user_token_request(session, request, token)
 					.await
 			},
+			(http::Method::GET, ["user", "tokens", token]) => {
+				self.try_get_user_token_request(session, request, token)
+					.await
+			},
 			(_, _) => Ok(tangram_server_core::http::not_found()),
 		}
 	}
@@ -93,6 +97,15 @@ impl tangram_server_core::user::Component for Component {
 		arg: tg::user::token::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
 		self.try_delete_user_token(session, token, arg).boxed()
+	}
+
+	fn try_get_user_token<'a>(
+		&'a self,
+		session: &'a Session,
+		token: &'a tg::token::Id,
+		arg: tg::user::token::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::user::token::get::Output>>> {
+		self.try_get_user_token(session, token, arg).boxed()
 	}
 
 	fn list_user_tokens<'a>(

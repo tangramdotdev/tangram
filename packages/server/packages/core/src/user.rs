@@ -18,6 +18,13 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::user::token::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
+	fn try_get_user_token<'a>(
+		&'a self,
+		session: &'a Session,
+		token: &'a tg::token::Id,
+		arg: tg::user::token::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::user::token::get::Output>>>;
+
 	fn list_user_tokens<'a>(
 		&'a self,
 		session: &'a Session,

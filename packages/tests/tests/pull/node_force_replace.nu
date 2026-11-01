@@ -46,9 +46,9 @@ assert not ($old_root.id in $group_members) "the replaced group should be remove
 let organization_members = tg --url $remote_destination.url organization members list company | from json
 assert not ($old_root.id in $organization_members) "the replaced group should be removed from organization memberships"
 let runner = (
-	tg --url $remote_destination.url runner list --all-owners
+	tg --url $remote_destination.url runner list --all-owners --expand
 	| from json
-	| where id == $runner.data.id
+	| where data.id == $runner.data.id
 	| first
 )
-assert (($runner | get --optional owner) == null) "the replaced group should be cleared as the runner owner"
+assert (($runner.data | get --optional owner) == null) "the replaced group should be cleared as the runner owner"

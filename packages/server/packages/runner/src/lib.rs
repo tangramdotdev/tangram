@@ -21,6 +21,7 @@ mod assets;
 pub mod control;
 pub mod create;
 pub mod delete;
+pub mod get;
 pub mod list;
 pub mod process;
 pub mod sandbox;
@@ -257,12 +258,22 @@ impl Component {
 		session: &Session,
 		owner: Option<&tg::Id>,
 	) -> tg::Result<()> {
+		let authorized = self.is_runner_owner_authorized(session, owner).await?;
+		if !authorized {
+			return Err(tg::error!("unauthorized"));
+		}
+		Ok(())
+	}
+
+	pub(crate) async fn is_runner_owner_authorized(
+		&self,
+		session: &Session,
+		owner: Option<&tg::Id>,
+	) -> tg::Result<bool> {
 		session.verify_request_from_host()?;
 		let Some(owner) = owner else {
-			if matches!(session.context.principal, tg::Principal::Root) {
-				return Ok(());
-			}
-			return Err(tg::error!("unauthorized"));
+			let authorized = matches!(session.context.principal, tg::Principal::Root);
+			return Ok(authorized);
 		};
 		let permission = tangram_server_grant_common::admin_permission_for_resource(owner)?;
 		let authorized = session
@@ -271,11 +282,8 @@ impl Component {
 			.check_exhaustion()?
 			.permissions
 			.contains(permission);
-		if !authorized {
-			return Err(tg::error!("unauthorized"));
-		}
 
-		Ok(())
+		Ok(authorized)
 	}
 
 	pub(crate) async fn resolve_runner_owner(
@@ -348,7 +356,7 @@ impl Component {
 			.await
 	}
 
-	async fn try_get_runner_data_with_transaction(
+	pub(crate) async fn try_get_runner_data_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		runner: &tg::runner::Id,
 	) -> tg::Result<ControlFlow<Option<tg::runner::Data>, tangram_server_core::database::Error>> {
@@ -1006,6 +1014,9 @@ impl Component {
 				self.try_delete_runner_request(session, request, runner)
 					.await
 			},
+			(http::Method::GET, ["runners", runner]) => {
+				self.try_get_runner_request(session, request, runner).await
+			},
 			(http::Method::POST, ["runners", runner, "tokens"]) => {
 				self.create_runner_token_request(session, request, runner)
 					.await
@@ -1016,6 +1027,10 @@ impl Component {
 			},
 			(http::Method::DELETE, ["runners", runner, "tokens", token]) => {
 				self.try_delete_runner_token_request(session, request, runner, token)
+					.await
+			},
+			(http::Method::GET, ["runners", runner, "tokens", token]) => {
+				self.try_get_runner_token_request(session, request, runner, token)
 					.await
 			},
 			(http::Method::POST, ["runners", "control"]) => {
@@ -1210,6 +1225,15 @@ impl tangram_server_core::runner::Component for Component {
 		self.try_delete_runner(session, runner, arg).boxed()
 	}
 
+	fn try_get_runner<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		runner: &'a tg::runner::Id,
+		arg: tg::runner::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::runner::get::Output>>> {
+		self.try_get_runner(session, runner, arg).boxed()
+	}
+
 	fn try_delete_runner_token<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
@@ -1218,6 +1242,17 @@ impl tangram_server_core::runner::Component for Component {
 		arg: tg::runner::token::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
 		self.try_delete_runner_token(session, runner, token, arg)
+			.boxed()
+	}
+
+	fn try_get_runner_token<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		runner: &'a tg::runner::Id,
+		token: &'a tg::token::Id,
+		arg: tg::runner::token::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::runner::token::get::Output>>> {
+		self.try_get_runner_token(session, runner, token, arg)
 			.boxed()
 	}
 
