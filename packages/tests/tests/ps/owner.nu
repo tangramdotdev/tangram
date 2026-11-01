@@ -1,11 +1,12 @@
 use ../../util/test.nu *
 
-# A process spawned for an organization records the organization as its owner, and listing by owner returns only the processes the caller may read.
+# A process spawned for an organization records the organization as its owner, and members of the organization see it when listing by owner, while outsiders do not.
 
 let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
+let eve = tg login --verbose --name eve | from json
 
 tg --token $alice.token organization create acme
 tg --token $alice.token organization members add acme $bob.user.id
@@ -29,11 +30,13 @@ assert (($alice_list | where node == $process | is-empty) == false) "Alice shoul
 let bob_list = tg --token $bob.token ps --any-status | from json
 assert ($bob_list | where node == $process | is-empty) "Bob must not see Alice's process by creator"
 
-# Listing by the organization includes the process for Alice, who may read it, but not for Bob, because owning a sandbox does not confer authority over its processes.
+# Listing by the organization includes the process for its members, and not for Eve, who is not a member.
 let alice_owned = tg --token $alice.token ps --any-status --owner $acme.id | from json
 assert (($alice_owned | where node == $process | is-empty) == false) "Alice should see her process when listing by the organization"
 let bob_owned = tg --token $bob.token ps --any-status --owner $acme.id | from json
-assert ($bob_owned | where node == $process | is-empty) "Bob must not see a process he may not read"
+assert (($bob_owned | where node == $process | is-empty) == false) "Bob should see a process owned by his organization"
+let eve_owned = tg --token $eve.token ps --any-status --owner $acme.id | from json
+assert ($eve_owned | where node == $process | is-empty) "Eve must not see a process owned by an organization she is not in"
 
 # Listing by owner and creator together narrows to the creator.
 let alice_created = tg --token $alice.token ps --any-status --owner $acme.id --creator $bob.user.id | from json

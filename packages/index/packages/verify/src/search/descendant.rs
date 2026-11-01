@@ -9,6 +9,16 @@ use {
 
 enum DescendantTask {
 	Checks(DescendantChecks),
+	CreatorProcesses {
+		after: Option<Vec<u8>>,
+		creator: tg::Principal,
+		depth: usize,
+	},
+	CreatorSandboxes {
+		after: Option<Vec<u8>>,
+		creator: tg::Principal,
+		depth: usize,
+	},
 	Member {
 		depth: usize,
 		member: tg::Id,
@@ -26,6 +36,11 @@ enum DescendantTask {
 		after: Option<Vec<u8>>,
 		depth: usize,
 		object: tg::object::Id,
+	},
+	OwnerProcesses {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		owner: tg::Principal,
 	},
 	OwnerSandboxes {
 		after: Option<Vec<u8>>,
@@ -223,6 +238,45 @@ impl Search {
 						object,
 					});
 				},
+				DescendantTask::CreatorProcesses {
+					after,
+					creator,
+					depth,
+				} => {
+					let limit = self.budget.config.page_size;
+					reads.push(Read::CreatorProcesses {
+						after,
+						creator,
+						depth,
+						limit,
+					});
+				},
+				DescendantTask::CreatorSandboxes {
+					after,
+					creator,
+					depth,
+				} => {
+					let limit = self.budget.config.page_size;
+					reads.push(Read::CreatorSandboxes {
+						after,
+						creator,
+						depth,
+						limit,
+					});
+				},
+				DescendantTask::OwnerProcesses {
+					after,
+					depth,
+					owner,
+				} => {
+					let limit = self.budget.config.page_size;
+					reads.push(Read::OwnerProcesses {
+						after,
+						depth,
+						limit,
+						owner,
+					});
+				},
 				DescendantTask::OwnerSandboxes {
 					after,
 					depth,
@@ -335,7 +389,18 @@ impl Search {
 				tg::authorization::Permission::Process(*permission),
 				None,
 			)),
-			Read::OwnerSandboxes { owner, .. } => owner.to_id().and_then(|resource| {
+			Read::CreatorProcesses {
+				creator: principal, ..
+			}
+			| Read::CreatorSandboxes {
+				creator: principal, ..
+			}
+			| Read::OwnerProcesses {
+				owner: principal, ..
+			}
+			| Read::OwnerSandboxes {
+				owner: principal, ..
+			} => principal.to_id().and_then(|resource| {
 				crate::write_permission_for_resource(&resource)
 					.ok()
 					.map(|permission| (resource, permission, None))
@@ -388,6 +453,63 @@ impl Search {
 				let neighbors = children
 					.into_iter()
 					.map(|child| (child, permission, None))
+					.collect();
+
+				(depth, depth + 1, continuation, neighbors)
+			},
+			Read::CreatorProcesses { creator, depth, .. } => {
+				let (after, processes) = output.into_ids()?;
+				let continuation = after.map(|after| DescendantTask::CreatorProcesses {
+					after: Some(after),
+					creator,
+					depth,
+				});
+				let permission = tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::Parent,
+				);
+				let neighbors = processes
+					.into_iter()
+					.map(|process| (process, permission, None))
+					.collect();
+
+				(depth, depth + 1, continuation, neighbors)
+			},
+			Read::CreatorSandboxes { creator, depth, .. } => {
+				let (after, sandboxes) = output.into_ids()?;
+				let continuation = after.map(|after| DescendantTask::CreatorSandboxes {
+					after: Some(after),
+					creator,
+					depth,
+				});
+				let mut neighbors = Vec::with_capacity(2 * sandboxes.len());
+				for sandbox in sandboxes {
+					for permission in [
+						tg::authorization::permission::sandbox::Permission::Node,
+						tg::authorization::permission::sandbox::Permission::Parent,
+					] {
+						neighbors.push((
+							sandbox.clone(),
+							tg::authorization::Permission::Sandbox(permission),
+							None,
+						));
+					}
+				}
+
+				(depth, depth + 1, continuation, neighbors)
+			},
+			Read::OwnerProcesses { depth, owner, .. } => {
+				let (after, processes) = output.into_ids()?;
+				let continuation = after.map(|after| DescendantTask::OwnerProcesses {
+					after: Some(after),
+					depth,
+					owner,
+				});
+				let permission = tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::Parent,
+				);
+				let neighbors = processes
+					.into_iter()
+					.map(|process| (process, permission, None))
 					.collect();
 
 				(depth, depth + 1, continuation, neighbors)
@@ -901,14 +1023,27 @@ impl Search {
 		if crate::write_permission_for_resource(&resource).ok() == Some(permission)
 			&& let Some(owner) = principal_for_resource(&resource)
 		{
-			self.queues
-				.entry(depth)
-				.or_default()
-				.push_back(DescendantTask::OwnerSandboxes {
-					after: None,
-					depth,
-					owner,
-				});
+			let queue = self.queues.entry(depth).or_default();
+			queue.push_back(DescendantTask::CreatorProcesses {
+				after: None,
+				creator: owner.clone(),
+				depth,
+			});
+			queue.push_back(DescendantTask::CreatorSandboxes {
+				after: None,
+				creator: owner.clone(),
+				depth,
+			});
+			queue.push_back(DescendantTask::OwnerProcesses {
+				after: None,
+				depth,
+				owner: owner.clone(),
+			});
+			queue.push_back(DescendantTask::OwnerSandboxes {
+				after: None,
+				depth,
+				owner,
+			});
 		}
 
 		match permission {
@@ -1308,6 +1443,45 @@ impl Search {
 					after,
 					depth,
 					object,
+				},
+			),
+			Read::CreatorProcesses {
+				after,
+				creator,
+				depth,
+				..
+			} => (
+				depth,
+				DescendantTask::CreatorProcesses {
+					after,
+					creator,
+					depth,
+				},
+			),
+			Read::CreatorSandboxes {
+				after,
+				creator,
+				depth,
+				..
+			} => (
+				depth,
+				DescendantTask::CreatorSandboxes {
+					after,
+					creator,
+					depth,
+				},
+			),
+			Read::OwnerProcesses {
+				after,
+				depth,
+				owner,
+				..
+			} => (
+				depth,
+				DescendantTask::OwnerProcesses {
+					after,
+					depth,
+					owner,
 				},
 			),
 			Read::OwnerSandboxes {

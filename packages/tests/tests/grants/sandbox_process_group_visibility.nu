@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Sandbox access does not confer process access; a process grant is required.
+# Group members can read processes owned by their group, and an explicit process grant confers access to others.
 
 let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
@@ -22,8 +22,8 @@ let team_path = artifact { tangram.ts: 'export default function () { return tg.f
 let process = tg --token $bob.token build --no-tokens --detach --group team $team_path | referent node
 tg --token $bob.token wait $process | complete | ignore
 
-# Carol cannot read either process through her group membership.
-failure (tg --token $carol.token get $process | complete) "sandbox access must not confer process access"
+# Carol can read the team-owned process through her group membership, but not Bob's private process.
+success (tg --token $carol.token get $process | complete) "a group member should read a process owned by the group"
 failure (tg --token $carol.token get $private | complete) "a group member must not read another member's private process"
 let denied = tg --token $eve.token get $process | complete
 failure $denied "an outsider must not read a process owned by a group"
@@ -35,6 +35,6 @@ snapshot --normalize-ids $denied.stderr '
 
 '
 
-# An explicit process grant provides access independently of the sandbox.
-tg --token $bob.token grant $carol.user.id process_subtree $process
-success (tg --token $carol.token get $process | complete) "a process grant should allow reading the process"
+# An explicit process grant provides access to someone outside the group.
+tg --token $bob.token grant $eve.user.id process_subtree $process
+success (tg --token $eve.token get $process | complete) "a process grant should allow reading the process"
