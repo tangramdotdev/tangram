@@ -11550,6 +11550,7 @@ dependencies = [
  "mime",
  "num",
  "scopeguard",
+ "serde",
  "serde_json",
  "tangram_cache",
  "tangram_client",

@@ -6,6 +6,7 @@ use {
 
 mod get;
 mod key;
+mod list;
 mod put;
 mod touch;
 
@@ -88,6 +89,32 @@ impl Index {
 		let response = self.send_read_request(request).await?;
 		let tangram_index::read::Response::TryGetProcessChildrenAndObjects(output) = response
 		else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub async fn list_processes_for_creator(
+		&self,
+		arg: tangram_index::process::list::Arg,
+	) -> tg::Result<tangram_index::process::list::Output> {
+		let request = tangram_index::read::Request::ListProcessesForCreator { arg };
+		let response = self.send_read_request(request).await?;
+		let tangram_index::read::Response::ListProcesses(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub async fn list_processes_for_owner(
+		&self,
+		arg: tangram_index::process::list::Arg,
+	) -> tg::Result<tangram_index::process::list::Output> {
+		let request = tangram_index::read::Request::ListProcessesForOwner { arg };
+		let response = self.send_read_request(request).await?;
+		let tangram_index::read::Response::ListProcesses(output) = response else {
 			return Err(tg::error!("unexpected read response"));
 		};
 
@@ -263,6 +290,20 @@ impl tangram_index::process::Index for Index {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tangram_index::process::NodeChildren>> {
 		self.try_get_process_children_and_objects(id).await
+	}
+
+	async fn list_processes_for_creator(
+		&self,
+		arg: tangram_index::process::list::Arg,
+	) -> tg::Result<tangram_index::process::list::Output> {
+		self.list_processes_for_creator(arg).await
+	}
+
+	async fn list_processes_for_owner(
+		&self,
+		arg: tangram_index::process::list::Arg,
+	) -> tg::Result<tangram_index::process::list::Output> {
+		self.list_processes_for_owner(arg).await
 	}
 
 	async fn try_get_cached_processes(

@@ -44,6 +44,11 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::availability::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::Availability>>>;
 
+	fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::process::list::Output>>;
+
 	fn try_get_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
@@ -203,6 +208,13 @@ where
 		arg: tg::process::availability::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::Availability>>> {
 		self.try_get_process_availability(id, arg).boxed()
+	}
+
+	fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::process::list::Output>> {
+		self.list_processes(arg).boxed()
 	}
 
 	fn try_get_process<'a>(

@@ -96,6 +96,8 @@ pub enum Kind {
 	DelegationSubject = 76,
 	Sync = 77,
 	SyncExpiresAt = 78,
+	CreatorProcess = 79,
+	OwnerProcess = 80,
 	PermissionCapture = 90,
 }
 
@@ -299,16 +301,50 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
-			Key::Sandbox(crate::sandbox::Key::CreatorSandbox { creator, sandbox }) => (
+			Key::Process(crate::process::Key::CreatorProcess {
+				creator,
+				process,
+				status,
+			}) => (
+				Kind::CreatorProcess.to_i32().unwrap(),
+				creator.to_string(),
+				status.to_string(),
+				process.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Process(crate::process::Key::OwnerProcess {
+				owner,
+				process,
+				status,
+			}) => (
+				Kind::OwnerProcess.to_i32().unwrap(),
+				owner.to_string(),
+				status.to_string(),
+				process.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Sandbox(crate::sandbox::Key::CreatorSandbox {
+				creator,
+				sandbox,
+				status,
+			}) => (
 				Kind::CreatorSandbox.to_i32().unwrap(),
 				creator.to_string(),
+				status.to_string(),
 				sandbox.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
-			Key::Sandbox(crate::sandbox::Key::OwnerSandbox { owner, sandbox }) => (
+			Key::Sandbox(crate::sandbox::Key::OwnerSandbox {
+				owner,
+				sandbox,
+				status,
+			}) => (
 				Kind::OwnerSandbox.to_i32().unwrap(),
 				owner.to_string(),
+				status.to_string(),
 				sandbox.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
@@ -1062,31 +1098,91 @@ impl fdbt::TupleUnpack<'_> for Key {
 				))
 			},
 
+			Kind::CreatorProcess => {
+				let (input, creator): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, status): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let creator = creator
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid process creator".into()))?;
+				let status = status
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid process status".into()))?;
+				let process = tg::process::Id::from_slice(&process)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((
+					input,
+					Key::Process(crate::process::Key::CreatorProcess {
+						creator,
+						process,
+						status,
+					}),
+				))
+			},
+
+			Kind::OwnerProcess => {
+				let (input, owner): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, status): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let owner = owner
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid process owner".into()))?;
+				let status = status
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid process status".into()))?;
+				let process = tg::process::Id::from_slice(&process)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((
+					input,
+					Key::Process(crate::process::Key::OwnerProcess {
+						owner,
+						process,
+						status,
+					}),
+				))
+			},
+
 			Kind::CreatorSandbox => {
 				let (input, creator): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, status): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let creator = creator
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid sandbox creator".into()))?;
+				let status = status
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox status".into()))?;
 				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
 					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
 				Ok((
 					input,
-					Key::Sandbox(crate::sandbox::Key::CreatorSandbox { creator, sandbox }),
+					Key::Sandbox(crate::sandbox::Key::CreatorSandbox {
+						creator,
+						sandbox,
+						status,
+					}),
 				))
 			},
 
 			Kind::OwnerSandbox => {
 				let (input, owner): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, status): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let owner = owner
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid sandbox owner".into()))?;
+				let status = status
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox status".into()))?;
 				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
 					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
 				Ok((
 					input,
-					Key::Sandbox(crate::sandbox::Key::OwnerSandbox { owner, sandbox }),
+					Key::Sandbox(crate::sandbox::Key::OwnerSandbox {
+						owner,
+						sandbox,
+						status,
+					}),
 				))
 			},
 

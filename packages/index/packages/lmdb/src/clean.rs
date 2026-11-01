@@ -823,6 +823,18 @@ impl Index {
 			db.delete(transaction, &key).map_err(|error| {
 				tg::error!(!error, "failed to delete the command cacheable process key")
 			})?;
+
+			// Delete the creator and owner keys.
+			if let Some(status) = process.status {
+				for key in
+					crate::process::Key::principals(&process.creator, &process.owner, status, id)
+				{
+					let key = Self::pack(subspace, &crate::Key::Process(key));
+					db.delete(transaction, &key).map_err(|error| {
+						tg::error!(!error, "failed to delete a process principal key")
+					})?;
+				}
+			}
 		}
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete process"))?;

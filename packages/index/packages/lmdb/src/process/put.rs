@@ -150,6 +150,24 @@ impl Index {
 			.as_ref()
 			.map(|data| data.status)
 			.or_else(|| existing.as_ref().and_then(|existing| existing.status));
+		let creator = data.as_ref().map_or_else(
+			|| {
+				existing
+					.as_ref()
+					.map(|existing| existing.creator.clone())
+					.unwrap_or_default()
+			},
+			|data| data.creator.clone(),
+		);
+		let owner = data.as_ref().map_or_else(
+			|| {
+				existing
+					.as_ref()
+					.map(|existing| existing.owner.clone())
+					.unwrap_or_default()
+			},
+			|data| data.owner.clone(),
+		);
 
 		let location = arg.location.clone().or_else(|| {
 			existing
@@ -182,8 +200,10 @@ impl Index {
 
 		let value = tangram_index::process::Process {
 			command_id: arg.command_id.clone(),
+			creator: creator.clone(),
 			location,
 			metadata,
+			owner: owner.clone(),
 			reference_count: existing
 				.as_ref()
 				.map_or(0, |existing| existing.reference_count),
@@ -196,6 +216,33 @@ impl Index {
 		.serialize()?;
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
+
+		// Move the creator and owner keys when the creator, owner, or status changes.
+		if let Some(status) = status {
+			let previous = existing.as_ref().and_then(|existing| {
+				existing
+					.status
+					.map(|status| (existing.creator.clone(), existing.owner.clone(), status))
+			});
+			let current = (creator, owner, status);
+			if previous.as_ref() != Some(&current) {
+				if let Some((creator, owner, status)) = &previous {
+					for key in crate::process::Key::principals(creator, owner, *status, id) {
+						let key = Self::pack(subspace, &Key::Process(key));
+						db.delete(transaction, &key).map_err(
+							|error| tg::error!(!error, %id, "failed to delete a process principal key"),
+						)?;
+					}
+				}
+				let (creator, owner, status) = &current;
+				for key in crate::process::Key::principals(creator, owner, *status, id) {
+					let key = Self::pack(subspace, &Key::Process(key));
+					db.put(transaction, &key, &[]).map_err(
+						|error| tg::error!(!error, %id, "failed to put a process principal key"),
+					)?;
+				}
+			}
+		}
 
 		// Replace the stored data with the written data.
 		if let Some(data) = &data {

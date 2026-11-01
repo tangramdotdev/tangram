@@ -19,8 +19,8 @@ assert equal $data.owner $team.id "the sandbox should be owned by the team"
 
 # While Bob is a member, he can get, list, and (later) destroy the team-owned sandbox, and Eve cannot.
 success (tg --token $bob.token sandbox get $sandbox | complete) "Bob should get a sandbox owned by his group"
-let bob_list = tg --token $bob.token sandbox list | from json
-assert (($bob_list | where id == $sandbox | is-empty) == false) "Bob should see the team-owned sandbox while a member"
+let bob_list = tg --token $bob.token sandbox list --owner $team.id | from json
+assert (($bob_list | where node == $sandbox | is-empty) == false) "Bob should see the team-owned sandbox while a member"
 failure (tg --token $eve.token sandbox get $sandbox | complete) "Eve must not get a sandbox owned by a group she is not in"
 
 # Revoking Bob's membership removes both his membership and the auto-granted write on the team.
@@ -28,8 +28,8 @@ tg --token $alice.token group members remove team $bob.user.id
 tg index
 
 failure (tg --token $bob.token sandbox get $sandbox | complete) "Bob must not get the sandbox after his membership is revoked"
-let bob_list_after = tg --token $bob.token sandbox list | from json
-assert ($bob_list_after | where id == $sandbox | is-empty) "Bob must not see the sandbox after his membership is revoked"
+let bob_list_after = tg --token $bob.token sandbox list --owner $team.id | from json
+assert ($bob_list_after | where node == $sandbox | is-empty) "Bob must not see the sandbox after his membership is revoked"
 failure (tg --token $bob.token sandbox destroy $sandbox | complete) "Bob must not destroy the sandbox after his membership is revoked"
 
 # Alice administers the team, so her access is independent of Bob's membership.

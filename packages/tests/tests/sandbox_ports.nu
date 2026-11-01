@@ -16,9 +16,9 @@ assert ($get.network.kind == "bridge")
 assert (($get.network.ports | where { |port| $port =~ '^[0-9]+:80$' } | length) == 1)
 assert (($get.network.ports | where { |port| $port =~ '^127\.0\.0\.1:[0-9]+:53/udp$' } | length) == 1)
 
-let list = tg sandbox list | from json
-let listed = ($list | where id == $sandbox | first)
-assert equal $listed.network.ports $get.network.ports
+let list = tg sandbox list --expand | from json
+let listed = ($list | where data.id == $sandbox | first)
+assert equal $listed.data.network.ports $get.network.ports
 
 let output = tg sandbox create --no-tokens --no-network --port 8080:80 | complete
 failure $output

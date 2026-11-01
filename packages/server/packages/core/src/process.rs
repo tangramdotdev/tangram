@@ -89,6 +89,12 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::process::availability::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::Availability>>>;
 
+	fn list_processes<'a>(
+		&'a self,
+		session: &'a Session,
+		arg: tg::process::list::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::process::list::Output>>;
+
 	fn try_get_process<'a>(
 		&'a self,
 		session: &'a Session,

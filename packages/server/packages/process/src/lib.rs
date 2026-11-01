@@ -26,6 +26,7 @@ pub mod cancel;
 pub mod children;
 pub mod control;
 pub mod get;
+pub mod list;
 pub mod metadata;
 pub mod put;
 pub mod signal;
@@ -369,6 +370,9 @@ impl Component {
 		let path = request.uri().path().to_owned();
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		match (method, path_components.as_slice()) {
+			(http::Method::GET, ["processes"]) => {
+				self.list_processes_request(session, request).await
+			},
 			(http::Method::POST, ["processes", "attach"]) => {
 				self.try_get_process_attach_stream_request(session, request)
 					.await
@@ -737,6 +741,14 @@ impl tangram_server_core::process::Component for Component {
 		arg: tg::process::availability::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::Availability>>> {
 		self.try_get_process_availability(session, id, arg).boxed()
+	}
+
+	fn list_processes<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		arg: tg::process::list::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::process::list::Output>> {
+		self.list_processes(session, arg).boxed()
 	}
 
 	fn try_get_process<'a>(

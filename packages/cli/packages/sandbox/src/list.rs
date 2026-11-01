@@ -8,9 +8,21 @@ pub struct Args {
 	#[arg(long)]
 	pub all: bool,
 
+	/// List sandboxes with any status.
+	#[arg(conflicts_with = "status", long)]
+	pub any_status: bool,
+
+	/// List the sandboxes created by this principal. This defaults to the current principal when no owner is given.
+	#[arg(conflicts_with_all = ["sandbox.owner.value", "sandbox.owner.user", "sandbox.owner.group", "sandbox.owner.organization"], long)]
+	pub creator: Option<tg::principal::Selector>,
+
 	/// Continue from this cursor.
 	#[arg(long)]
 	pub cursor: Option<String>,
+
+	/// Return each of the sandboxes with its data instead of a reference.
+	#[arg(long)]
+	pub expand: bool,
 
 	/// The maximum number of entries per page (default: 100, maximum: 1000).
 	#[arg(long)]
@@ -28,20 +40,24 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	/// List only the sandboxes with this status.
-	#[arg(long)]
-	pub status: Option<tg::sandbox::Status>,
+	/// List sandboxes with this status.
+	#[arg(default_value = "started", long)]
+	pub status: tg::sandbox::Status,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
+	let creator = crate::resolve_creator(&client, args.creator).await?;
 	let owner = crate::resolve_owner(&client, &args.owner).await?;
+	let status = (!args.any_status).then_some(args.status);
 	let arg = tg::sandbox::list::Arg {
+		creator,
 		cursor: args.cursor,
+		expand: args.expand,
 		limit: args.limit,
 		location: args.locations.get(),
 		owner,
-		status: args.status,
+		status,
 	};
 	let output = if args.all {
 		client.list_all_sandboxes(arg).await
