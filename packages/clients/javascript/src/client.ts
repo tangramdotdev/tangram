@@ -40,6 +40,8 @@ import { read, tryRead, tryReadStream } from "./client/read.ts";
 import { createSandbox } from "./client/sandbox/create.ts";
 import { destroySandbox, tryDestroySandbox } from "./client/sandbox/destroy.ts";
 import { getSandbox, tryGetSandbox } from "./client/sandbox/get.ts";
+import { startSandbox, tryStartSandbox } from "./client/sandbox/start.ts";
+import { stopSandbox, tryStopSandbox } from "./client/sandbox/stop.ts";
 import { write } from "./client/write.ts";
 
 class RequestError {
@@ -279,6 +281,34 @@ export class Client {
 		arg?: tg.Sandbox.Destroy.Arg | null,
 	): Promise<boolean | null> {
 		return tryDestroySandbox(this, id, arg);
+	}
+
+	startSandbox(
+		id: tg.Sandbox.Id,
+		arg?: tg.Sandbox.Start.Arg | null,
+	): Promise<void> {
+		return startSandbox(this, id, arg);
+	}
+
+	tryStartSandbox(
+		id: tg.Sandbox.Id,
+		arg?: tg.Sandbox.Start.Arg | null,
+	): Promise<boolean | null> {
+		return tryStartSandbox(this, id, arg);
+	}
+
+	stopSandbox(
+		id: tg.Sandbox.Id,
+		arg?: tg.Sandbox.Stop.Arg | null,
+	): Promise<void> {
+		return stopSandbox(this, id, arg);
+	}
+
+	tryStopSandbox(
+		id: tg.Sandbox.Id,
+		arg?: tg.Sandbox.Stop.Arg | null,
+	): Promise<boolean | null> {
+		return tryStopSandbox(this, id, arg);
 	}
 
 	getSandbox(

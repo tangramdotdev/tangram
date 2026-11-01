@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from .client import Client
     from .client.sandbox.destroy import ArgObject as SandboxDestroyArg
     from .client.sandbox.get import ArgObject as SandboxGetArg
+    from .client.sandbox.start import ArgObject as SandboxStartArg
+    from .client.sandbox.stop import ArgObject as SandboxStopArg
     from .error import ErrorData
     from .process import Builder as ProcessBuilder
 
@@ -133,6 +135,8 @@ class Sandbox:
     Mount: ClassVar[type[Mount]]
     Network: ClassVar[type[Network]]
     Port: ClassVar[type[Port]]
+    Start: ClassVar[type[Start]]
+    Stop: ClassVar[type[Stop]]
     ConstructorArg = SandboxConstructorArg
     Source = dict
     Status = Literal["destroyed", "started", "starting", "stopped", "stopping"]
@@ -225,6 +229,22 @@ class Sandbox:
             arg["location"] = self.location
         await client.destroy_sandbox(self.id, **arg)
         self.detach()
+
+    async def start(self, client: Client | None = None) -> None:
+        """Start this sandbox if it is stopped."""
+        client = client or self.client
+        arg: SandboxStartArg = {}
+        if self.location is not None:
+            arg["location"] = self.location
+        await client.start_sandbox(self.id, **arg)
+
+    async def stop(self, client: Client | None = None) -> None:
+        """Stop this sandbox, keeping its files so that it can start again."""
+        client = client or self.client
+        arg: SandboxStopArg = {}
+        if self.location is not None:
+            arg["location"] = self.location
+        await client.stop_sandbox(self.id, **arg)
 
     def detach(self) -> None:
         self.owned = False
@@ -466,6 +486,14 @@ class Destroy:
     Arg = dict
 
 
+class Start:
+    Arg = dict
+
+
+class Stop:
+    Arg = dict
+
+
 class Network:
     Bridge = dict
     Data = dict
@@ -499,6 +527,8 @@ Sandbox.Destroy = Destroy
 Sandbox.Get = Get
 Sandbox.Id = Id
 Sandbox.Network = Network
+Sandbox.Start = Start
+Sandbox.Stop = Stop
 
 
 def normalize_resource(value, *, cpu: bool = False) -> Resource:
