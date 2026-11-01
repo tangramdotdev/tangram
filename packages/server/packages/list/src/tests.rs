@@ -62,13 +62,13 @@ async fn request_arg_preserves_list_and_node_options() {
 }
 
 #[test]
-fn sort_entries_breaks_version_ties() {
+fn sort_items_breaks_version_ties() {
 	for reverse in [false, true] {
-		let entries = vec![entry("10"), entry("1"), entry("2"), entry("01")];
-		let entries = sort_entries(entries, reverse);
-		let specifiers = entries
+		let items = vec![item("10"), item("1"), item("2"), item("01")];
+		let items = sort_items(items, reverse);
+		let specifiers = items
 			.into_iter()
-			.map(|entry| entry.specifier().to_string())
+			.map(|item| item.specifier().to_string())
 			.collect::<Vec<_>>();
 		let mut expected = vec!["01", "1", "2", "10"];
 		if reverse {
@@ -78,13 +78,13 @@ fn sort_entries_breaks_version_ties() {
 	}
 }
 
-fn entry(specifier: &str) -> tg::list::Entry {
+fn item(specifier: &str) -> tg::list::Item {
 	let id = tg::tag::Id::new();
 	let name = specifier.to_owned();
 	let specifier = specifier.parse().unwrap();
 	let target = tg::Either::Left(tg::file::Id::new(name.as_bytes()).into());
 	let target = Some(tg::Referent::with_node(target));
-	tg::list::Entry {
+	tg::list::Item {
 		node: tg::Referent::with_node(id.into()),
 		parent: None,
 		specifier,

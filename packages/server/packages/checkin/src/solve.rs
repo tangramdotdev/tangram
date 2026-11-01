@@ -829,7 +829,7 @@ impl Component {
 		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<im::Vector<Candidate>> {
 		let output = self
-			.checkin_solve_list_tag_entries(session, &state.prefetch, pattern)
+			.checkin_solve_list_tag_items(session, &state.prefetch, pattern)
 			.await?;
 
 		let candidates = output

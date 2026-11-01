@@ -6,7 +6,7 @@ use {
 
 pub(crate) type Tasks = tangram_futures::task::Map<
 	Key,
-	tg::Result<Vec<tg::list::Entry>>,
+	tg::Result<Vec<tg::list::Item>>,
 	tg::Session,
 	fnv::FnvBuildHasher,
 >;
@@ -26,7 +26,7 @@ impl Component {
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 		query: Query,
-	) -> tg::Result<Vec<tg::list::Entry>> {
+	) -> tg::Result<Vec<tg::list::Item>> {
 		self.list_remote_inner(session, remote, cached, ttl, query)
 			.await
 	}
@@ -38,7 +38,7 @@ impl Component {
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 		query: Query,
-	) -> tg::Result<Vec<tg::list::Entry>> {
+	) -> tg::Result<Vec<tg::list::Item>> {
 		let client = session
 			.server
 			.components
@@ -77,42 +77,42 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
-			let mut entries = match response {
+			let mut items = match response {
 				tangram_server_remote_core::cache::Response::List(response) => response.output.data,
 				tangram_server_remote_core::cache::Response::Match(response) => {
 					response.output.data
 				},
 				_ => unreachable!(),
 			};
-			let valid = entries.iter().all(|entry| {
-				let entry_valid = tangram_server_remote_common::tokens_valid(
-					entry.tokens().local_authorization(),
+			let valid = items.iter().all(|item| {
+				let item_valid = tangram_server_remote_common::tokens_valid(
+					item.tokens().local_authorization(),
 					&session.server.clock,
 				);
-				let target_valid = entry.target.as_ref().is_none_or(|target| {
+				let target_valid = item.target.as_ref().is_none_or(|target| {
 					tangram_server_remote_common::tokens_valid(
 						target.options.tokens.local_authorization(),
 						&session.server.clock,
 					)
 				});
-				entry_valid && target_valid
+				item_valid && target_valid
 			});
 			if valid || cached {
-				for entry in &mut entries {
+				for item in &mut items {
 					tangram_server_remote_common::remove_expired_tokens(
-						&mut entry.node.options.tokens,
+						&mut item.node.options.tokens,
 						&session.server.clock,
 					);
-					if let Some(target) = &mut entry.target {
+					if let Some(target) = &mut item.target {
 						tangram_server_remote_common::remove_expired_tokens(
 							&mut target.options.tokens,
 							&session.server.clock,
 						);
 					}
-					Self::set_remote_entry_location(session, entry, &remote.name, trusted)?;
+					Self::set_remote_item_location(session, item, &remote.name, trusted)?;
 				}
 
-				return Ok(entries);
+				return Ok(items);
 			}
 		}
 		if cached {
@@ -124,7 +124,7 @@ impl Component {
 			move |client, _stop| async move { Self::list_remote_task(key, client).await },
 		);
 		let trusted = task.context().trusted();
-		let entries = task
+		let items = task
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "the remote list task panicked"))??;
@@ -132,7 +132,7 @@ impl Component {
 			tangram_server_remote_core::cache::Request::List(_) => {
 				let output = tg::list::Output {
 					cursor: None,
-					data: entries.clone(),
+					data: items.clone(),
 				};
 				let response = tangram_server_remote_core::cache::ListResponse { output };
 				tangram_server_remote_core::cache::Response::List(response)
@@ -140,7 +140,7 @@ impl Component {
 			tangram_server_remote_core::cache::Request::Match(_) => {
 				let output = tg::match_::Output {
 					cursor: None,
-					data: entries.clone(),
+					data: items.clone(),
 				};
 				let response = tangram_server_remote_core::cache::MatchResponse { output };
 				tangram_server_remote_core::cache::Response::Match(response)
@@ -154,24 +154,24 @@ impl Component {
 			.put_cached_remote_response(session, &remote.name, &request, &response)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
-		let entries = entries
+		let items = items
 			.into_iter()
-			.map(|mut entry| {
-				Self::set_remote_entry_location(session, &mut entry, &remote.name, trusted)?;
-				Ok(entry)
+			.map(|mut item| {
+				Self::set_remote_item_location(session, &mut item, &remote.name, trusted)?;
+				Ok(item)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(entries)
+		Ok(items)
 	}
 
-	fn set_remote_entry_location(
+	fn set_remote_item_location(
 		session: &Session,
-		entry: &mut tg::list::Entry,
+		item: &mut tg::list::Item,
 		remote: &str,
 		trusted: bool,
 	) -> tg::Result<()> {
-		let region = match entry.location() {
+		let region = match item.location() {
 			Some(tg::Location::Local(local)) => local.region.clone(),
 			_ => None,
 		};
@@ -185,12 +185,12 @@ impl Component {
 			.authorization
 			.update_tokens_and_location(
 				session,
-				&mut entry.node.options.tokens,
-				Some(&mut entry.node.options.location),
+				&mut item.node.options.tokens,
+				Some(&mut item.node.options.location),
 				&location,
 				trusted,
 			)?;
-		if let Some(target) = &mut entry.target {
+		if let Some(target) = &mut item.target {
 			session
 				.server
 				.components
@@ -206,7 +206,7 @@ impl Component {
 		Ok(())
 	}
 
-	async fn list_remote_task(key: Key, client: tg::Session) -> tg::Result<Vec<tg::list::Entry>> {
+	async fn list_remote_task(key: Key, client: tg::Session) -> tg::Result<Vec<tg::list::Item>> {
 		let Key {
 			principal: _,
 			query,
@@ -217,14 +217,14 @@ impl Component {
 				client
 					.list_all(arg)
 					.await
-					.map_err(|error| tg::error!(!error, %remote, "failed to list entries"))?
+					.map_err(|error| tg::error!(!error, %remote, "failed to list the items"))?
 					.data
 			},
 			Query::Match(arg) => {
 				client
 					.match_all(arg)
 					.await
-					.map_err(|error| tg::error!(!error, %remote, "failed to match entries"))?
+					.map_err(|error| tg::error!(!error, %remote, "failed to match the items"))?
 					.data
 			},
 		};

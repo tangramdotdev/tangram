@@ -8,8 +8,8 @@ pub struct Kinds {
 }
 
 #[must_use]
-pub fn entry_kind_enabled(entry: &tg::list::Entry, kinds: &Kinds) -> bool {
-	match entry.kind() {
+pub fn item_kind_enabled(item: &tg::list::Item, kinds: &Kinds) -> bool {
+	match item.kind() {
 		tg::id::Kind::Group => kinds.groups,
 		tg::id::Kind::Organization => kinds.organizations,
 		tg::id::Kind::Tag => kinds.tags,
@@ -19,21 +19,17 @@ pub fn entry_kind_enabled(entry: &tg::list::Entry, kinds: &Kinds) -> bool {
 }
 
 #[must_use]
-pub fn sort_entries(mut data: Vec<tg::list::Entry>, reverse: bool) -> Vec<tg::list::Entry> {
-	data.sort_by(|a, b| compare_entries(a, b, reverse));
+pub fn sort_items(mut data: Vec<tg::list::Item>, reverse: bool) -> Vec<tg::list::Item> {
+	data.sort_by(|a, b| compare_items(a, b, reverse));
 	data
 }
 
 #[must_use]
-pub fn compare_entries(
-	a: &tg::list::Entry,
-	b: &tg::list::Entry,
-	reverse: bool,
-) -> std::cmp::Ordering {
+pub fn compare_items(a: &tg::list::Item, b: &tg::list::Item, reverse: bool) -> std::cmp::Ordering {
 	let order = tg::list::compare(&a.specifier().to_string(), &b.specifier().to_string());
 	let order = if reverse { order.reverse() } else { order };
 	order
-		.then_with(|| entry_kind(a).cmp(&entry_kind(b)))
+		.then_with(|| item_kind(a).cmp(&item_kind(b)))
 		.then_with(|| {
 			let order = a.specifier().to_string().cmp(&b.specifier().to_string());
 			if reverse { order.reverse() } else { order }
@@ -41,6 +37,6 @@ pub fn compare_entries(
 }
 
 #[must_use]
-pub fn entry_kind(entry: &tg::list::Entry) -> tg::id::Kind {
-	entry.kind()
+pub fn item_kind(item: &tg::list::Item) -> tg::id::Kind {
+	item.kind()
 }

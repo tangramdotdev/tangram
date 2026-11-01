@@ -1433,19 +1433,19 @@ impl Tree {
 		let output = client
 			.list_all(arg)
 			.await
-			.map_err(|error| tg::error!(!error, %parent, "failed to list entries"))?;
+			.map_err(|error| tg::error!(!error, %parent, "failed to list the items"))?;
 
 		// Get the children of this group.
 		let mut children = output
 			.data
 			.into_iter()
-			.filter_map(|entry| {
-				let tg::list::Entry {
+			.filter_map(|item| {
+				let tg::list::Item {
 					node,
 					parent,
 					specifier,
 					target,
-				} = entry;
+				} = item;
 				let referent_options = node.options;
 				let location = referent_options.location.clone();
 				let name = specifier.name().to_owned();
