@@ -180,6 +180,7 @@ _id_prefixes = {
     16: "idx",
     17: "syn",
     18: "rmt",
+    19: "grt",
 }
 
 _resource_kinds = {

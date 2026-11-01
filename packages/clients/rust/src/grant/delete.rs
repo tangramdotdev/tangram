@@ -1,28 +1,24 @@
 use {
 	crate::prelude::*,
-	serde_with::{DisplayFromStr, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub permissions: tg::Either<tg::authorization::permission::Set, String>,
-	#[serde_as(as = "DisplayFromStr")]
-	pub resource: tg::Referent<tg::Selector<tg::Id>>,
-	pub subject: tg::authorization::subject::Selector,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 }
 
 impl tg::Session {
-	pub async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
+	pub async fn try_delete_grant(
+		&self,
+		grant: &tg::grant::Id,
+		arg: tg::grant::delete::Arg,
+	) -> tg::Result<Option<()>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::DELETE)
-			.uri("/grants")
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
-			.json(arg)
+			.uri(format!("/grants/{grant}"))
+			.arg(&arg, tangram_http::body::Empty::new())
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
@@ -38,8 +34,9 @@ impl tg::Session {
 				.json::<tg::Error>()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to deserialize the error response"))?;
-			return Err(tg::error!(!error, status = %status, "the request failed"));
+			return Err(tg::error!(!error, %status, "the request failed"));
 		}
+
 		Ok(Some(()))
 	}
 }

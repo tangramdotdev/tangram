@@ -327,7 +327,7 @@ impl Component {
 			tg::Principal::Anonymous | tg::Principal::Root
 		) {
 			let principal = &session.context.principal;
-			let arg = tg::grant::create::Arg {
+			let arg = tg::grant::grant::Arg {
 				subject: principal.try_to_subject()?.into(),
 				permissions: tg::Either::Left(
 					tg::authorization::Permission::Organization(
@@ -341,7 +341,7 @@ impl Component {
 				.server
 				.components
 				.grant
-				.create_grant_with_transaction(session, transaction, arg, batch)
+				.grant_with_transaction(session, transaction, arg, batch)
 				.await?
 			{
 				ControlFlow::Break(_) => (),

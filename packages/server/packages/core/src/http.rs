@@ -674,7 +674,9 @@ impl Server {
 				.document
 				.request(&session, request),
 			(_, ["format", ..]) => session.server.components.format.request(&session, request),
-			(_, ["grants", ..]) => session.server.components.grant.request(&session, request),
+			(_, ["grant" | "revoke"] | ["grants", ..]) => {
+				session.server.components.grant.request(&session, request)
+			},
 			(_, ["groups", ..]) => session.server.components.group.request(&session, request),
 			(_, ["health", ..]) => session.server.components.health.request(&session, request),
 			(_, ["index"]) => session.server.components.indexer.request(&session, request),

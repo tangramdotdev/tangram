@@ -19,13 +19,10 @@ pub struct Output {
 }
 
 impl tg::Session {
-	pub async fn create_grant(
-		&self,
-		arg: tg::grant::create::Arg,
-	) -> tg::Result<tg::grant::create::Output> {
+	pub async fn grant(&self, arg: tg::grant::grant::Arg) -> tg::Result<tg::grant::grant::Output> {
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri("/grants")
+			.uri("/grant")
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.header(
 				http::header::CONTENT_TYPE,

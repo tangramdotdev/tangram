@@ -15,11 +15,16 @@ let output = tg --token $alice.token revoke $bob.user.id write team | complete
 failure $output "revoking a permission that was never granted should fail"
 snapshot --normalize $output.stderr '
 	error an error occurred
+	-> failed to revoke the grant
+	   resource = team
+	   subject = usr_0000000000000000000000000000
+	-> the request failed
+	   status = 404 Not Found
 	-> failed to find the grant
 
 '
 
 # The read grant is untouched, so bob can still read the group.
-let grants = tg --token $alice.token grants list --resource team | from json
+let grants = tg --token $alice.token grants list --resource team --expand | from json | each {|item| $item.data }
 assert ($grants | any {|g| $g.subject == $bob.user.id and $g.permissions == { kind: group, value: [read] } }) "the read grant should survive the failed revoke"
 tg --token $bob.token group get team
