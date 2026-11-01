@@ -8,7 +8,10 @@ use {
 	},
 	std::{collections::BTreeMap, pin::pin, sync::Arc},
 	tangram_client::prelude::*,
-	tangram_futures::task::{Stopper, Task},
+	tangram_futures::{
+		stream::TryExt as _,
+		task::{Stopper, Task},
+	},
 	tangram_server_runner_core::{
 		process::ConnectedEvent,
 		sandbox::{Event, ReadyEvent, SpawnSandboxTaskArg, SpawnSandboxTaskOutput},
@@ -141,14 +144,20 @@ struct RetainSandboxTaskArg {
 	stopper: Stopper,
 }
 
-struct Restart {
-	#[cfg(target_os = "linux")]
-	filesystem_project_id: Option<tangram_server_runner_core::project::Id>,
-	path: std::path::PathBuf,
+enum Directory {
+	/// The directory of a stopped sandbox, which starts again on its files.
+	Existing {
+		#[cfg(target_os = "linux")]
+		filesystem_project_id: Option<tangram_server_runner_core::project::Id>,
+		path: std::path::PathBuf,
+	},
+
+	/// A new directory for a sandbox's first boot.
+	New { path: std::path::PathBuf },
 }
 
 #[derive(Clone, Copy, Debug)]
-enum Teardown {
+pub(crate) enum Teardown {
 	Destroy,
 	Stop,
 }
@@ -459,22 +468,27 @@ impl Component {
 					.sandboxes
 					.wait_settled(&id)
 					.await;
-				let restart = Restart {
+				let path = Self::sandbox_path(&session, &id);
+				if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
+					return Err(tg::error!(%id, "the sandbox was destroyed"));
+				}
+				let directory = Directory::Existing {
 					#[cfg(target_os = "linux")]
 					filesystem_project_id: component
 						.state
 						.stopped_project_ids
 						.remove(&id)
 						.map(|(_, project_id)| project_id),
-					path: Self::sandbox_path(&session, &id),
+					path,
 				};
 				component
-					.create_sandbox_inner(&session, arg, Some(restart))
+					.create_sandbox_inner(&session, arg, Some(directory))
 					.await
 			}
 			.boxed()
 		} else {
-			self.create_sandbox_with_pool(session, arg.clone()).boxed()
+			self.create_sandbox_with_pool(session, arg.clone(), &id)
+				.boxed()
 		};
 		let created_at = session.server.clock.unix_timestamp();
 		let capacity = session.server.config.runner.sandbox_channel_capacity;
@@ -762,10 +776,25 @@ impl Component {
 		&self,
 		session: &Session,
 		arg: tg::sandbox::create::Arg,
+		id: &tg::sandbox::Id,
 	) -> tg::Result<CreateSandboxOutput> {
 		if let Some(task) = self.sandbox_pool.take(&arg, self, session) {
 			match task.wait().await {
-				Ok(Ok(output)) => {
+				Ok(Ok(mut output)) => {
+					// Link the sandbox's path to the pooled sandbox's temp and keep the temp, so that a crash or termination leaves the sandbox's files where its next boot finds them.
+					let path = Self::sandbox_path(session, id);
+					let result = async {
+						tokio::fs::create_dir_all(path.parent().unwrap()).await?;
+						tokio::fs::symlink(output.temp.path(), &path).await
+					}
+					.await;
+					match result {
+						Ok(()) => output.temp.set_preserve(true),
+						Err(error) => {
+							tracing::warn!(%error, sandbox = %id, "failed to link the sandbox directory");
+						},
+					}
+
 					tangram_server_core::checkpoint!(
 						session.server,
 						"runner.sandbox.pool.take",
@@ -798,7 +827,11 @@ impl Component {
 
 		tracing::debug!("creating a sandbox after a pool miss");
 
-		self.create_sandbox_inner(session, arg, None).await
+		let directory = Directory::New {
+			path: Self::sandbox_path(session, id),
+		};
+		self.create_sandbox_inner(session, arg, Some(directory))
+			.await
 	}
 
 	#[tracing::instrument(
@@ -811,7 +844,7 @@ impl Component {
 		&self,
 		session: &Session,
 		mut arg: tg::sandbox::create::Arg,
-		mut restart: Option<Restart>,
+		mut directory: Option<Directory>,
 	) -> tg::Result<CreateSandboxOutput> {
 		let isolation = self.resolve_sandbox_backend(&session.server)?;
 		let mut resources = session
@@ -870,10 +903,15 @@ impl Component {
 					&& (resources.max_filesystem_inodes.is_some()
 						|| resources.max_filesystem_size.is_some()) =>
 			{
-				let project_id = match restart
-					.as_mut()
-					.and_then(|restart| restart.filesystem_project_id.take())
-				{
+				let reused = match directory.as_mut() {
+					#[cfg(target_os = "linux")]
+					Some(Directory::Existing {
+						filesystem_project_id,
+						..
+					}) => filesystem_project_id.take(),
+					Some(Directory::New { .. }) | None => None,
+				};
+				let project_id = match reused {
 					Some(project_id) => project_id,
 					None => self.state.create_filesystem_project_id()?,
 				};
@@ -883,10 +921,14 @@ impl Component {
 			_ => None,
 		};
 
-		// Create the temp, or use the directory of a restarted sandbox.
-		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
-		let mut temp = match &restart {
-			Some(restart) => Temp::with_path(&session.server, restart.path.clone()),
+		// Create the temp at the sandbox's directory, keeping an existing directory even if the start fails.
+		let mut temp = match &directory {
+			Some(Directory::Existing { path, .. }) => {
+				let mut temp = Temp::with_path(&session.server, path.clone());
+				temp.set_preserve(true);
+				temp
+			},
+			Some(Directory::New { path }) => Temp::with_path(&session.server, path.clone()),
 			None => Temp::new(&session.server),
 		};
 		#[cfg(target_os = "linux")]
@@ -1143,6 +1185,11 @@ impl Component {
 				.in_current_span()
 			}
 		});
+		// Keep a new directory once the sandbox is created, so that a crash or termination leaves its files where its next boot finds them.
+		if let Some(Directory::New { .. }) = directory {
+			temp.set_preserve(true);
+		}
+
 		let output = CreateSandboxOutput {
 			guest_url,
 
@@ -1218,7 +1265,11 @@ impl Component {
 			vfs.stop();
 			vfs.wait().await;
 		}
-		drop(temp);
+
+		// Remove the directory after an early sandbox task failure, which ends the sandbox without a stop or destroy.
+		if let Some(temp) = temp {
+			Self::remove_sandbox_directory(session, &id, temp);
+		}
 
 		let arg = result?;
 
@@ -1258,7 +1309,7 @@ impl Component {
 
 		// Create the timer.
 		let mut timer_future: Option<BoxFuture<'static, ()>> = None;
-		let reusable = process_task_output.is_none();
+		let initial_process = process_task_output.is_some();
 		let ttl = state.data.ttl;
 
 		// Observe process initialization without blocking either control transport.
@@ -1287,7 +1338,7 @@ impl Component {
 				);
 
 				tokio::select! {
-					result = &mut ready_connection, if reusable && !ready => {
+					result = &mut ready_connection, if !initial_process && !ready => {
 						result?;
 						if pending.is_empty() && process_events.is_empty() && let Some(ttl) = ttl {
 							timer_future.replace(session.server.clock.sleep(ttl).boxed());
@@ -1401,10 +1452,10 @@ impl Component {
 						}
 					},
 
-					// If the runner is shutting down gracefully, then stop the sandbox once its processes finish.
+					// If the runner is shutting down gracefully, then stop the sandbox, or destroy it if its ttl is zero, once its processes finish.
 					() = stopper.wait(), if !stopping => {
 						stopping = true;
-						teardown = Teardown::Stop;
+						teardown = Teardown::with_ttl(ttl);
 						if pending.is_empty() && process_events.is_empty() {
 							break;
 						}
@@ -1421,13 +1472,8 @@ impl Component {
 								if stopping && process_events.is_empty() && pending.is_empty() {
 									break;
 								}
-								if ready && process_events.is_empty() && pending.is_empty() {
-									if !reusable {
-										break;
-									}
-									if let Some(ttl) = ttl {
-										timer_future.replace(session.server.clock.sleep(ttl).boxed());
-									}
+								if ready && process_events.is_empty() && pending.is_empty() && let Some(ttl) = ttl {
+									timer_future.replace(session.server.clock.sleep(ttl).boxed());
 								}
 							},
 							ProcessEvent::Connected(_) => {
@@ -1585,14 +1631,9 @@ impl Component {
 
 			// Remove the directory of a destroyed sandbox in the background.
 			if let Teardown::Destroy = teardown
-				&& let Some(mut temp) = temp.take()
+				&& let Some(temp) = temp.take()
 			{
-				let id = id.clone();
-				tokio::spawn(async move {
-					if let Err(error) = temp.remove().await {
-						tracing::error!(%error, sandbox = %id, "failed to remove the sandbox directory");
-					}
-				});
+				Self::remove_sandbox_directory(session, &id, temp);
 			}
 
 			// Keep the directory of a stopped sandbox, so that it can start again on its data.
@@ -1969,6 +2010,80 @@ impl Component {
 		Ok(())
 	}
 
+	/// Destroy a stopped sandbox on this runner by removing its directory, releasing its filesystem project ID, and reporting its destruction, or destroy a boot of it that is running.
+	pub(crate) async fn destroy_stopped_sandbox(
+		&self,
+		session: &Session,
+		arg: tg::runner::control::DestroySandboxServerRequestArg,
+		sender: &crate::RunnerSender,
+	) -> tg::Result<tg::runner::control::DestroySandboxClientResponseOutput> {
+		let tg::runner::control::DestroySandboxServerRequestArg { error, sandbox: id } = arg;
+
+		// Destroy a boot that is running through its control, which reports its destruction.
+		let control_sender = self
+			.state
+			.sandboxes
+			.get_by_id(&id)
+			.filter(|sandbox| !sandbox.status.is_settled())
+			.map(|sandbox| sandbox.control_sender.clone());
+		if let Some(control_sender) = control_sender {
+			let request = tg::sandbox::control::ServerRequestArg::Destroy(
+				tg::sandbox::control::DestroyServerRequestArg { error },
+			);
+			let response = control_sender.send_request(request).await?;
+			let destroyed = response
+				.await??
+				.try_unwrap_destroy()
+				.map_err(|_| tg::error!("expected a destroy sandbox response"))?
+				.destroyed;
+			let output = tg::runner::control::DestroySandboxClientResponseOutput { destroyed };
+			return Ok(output);
+		}
+
+		// Remove the directory and release the filesystem project ID.
+		let path = Self::sandbox_path(session, &id);
+		let mut temp = Temp::with_path(&session.server, path);
+		if let Err(error) = temp.remove().await {
+			return Err(tg::error!(!error, %id, "failed to remove the sandbox directory"));
+		}
+		#[cfg(target_os = "linux")]
+		if let Some((_, project_id)) = self.state.stopped_project_ids.remove(&id) {
+			project_id.release();
+		}
+
+		// Report the destruction, which marks the sandbox destroyed.
+		let arg = tg::runner::control::DestroySandboxClientRequestArg {
+			error: error.map(tg::Either::Left),
+			sandbox: id.clone(),
+		};
+		match Self::request_runner_sandbox_destroy(sender, arg).await? {
+			std::ops::ControlFlow::Break(()) => {},
+			std::ops::ControlFlow::Continue(error) => {
+				return Err(tg::error!(!error, %id, "failed to report the sandbox's destruction"));
+			},
+		}
+		let output = tg::runner::control::DestroySandboxClientResponseOutput { destroyed: true };
+
+		Ok(output)
+	}
+
+	/// Remove a sandbox's directory in the background, along with the link at the sandbox's path to a pooled sandbox's temp.
+	fn remove_sandbox_directory(session: &Session, id: &tg::sandbox::Id, mut temp: Temp) {
+		let link = Self::sandbox_path(session, id);
+		let id = id.clone();
+		tokio::spawn(async move {
+			if let Err(error) = temp.remove().await {
+				tracing::error!(%error, sandbox = %id, "failed to remove the sandbox directory");
+			}
+			if tokio::fs::symlink_metadata(&link)
+				.await
+				.is_ok_and(|metadata| metadata.file_type().is_symlink())
+			{
+				tokio::fs::remove_file(&link).await.ok();
+			}
+		});
+	}
+
 	fn sandbox_status(session: &Session, id: &tg::sandbox::Id) -> Option<tg::sandbox::Status> {
 		session
 			.server
@@ -1980,7 +2095,7 @@ impl Component {
 			.map(|sandbox| sandbox.status)
 	}
 
-	/// Reserve the filesystem project IDs of the stopped sandboxes' directories.
+	/// Move pooled sandboxes' temps to their sandboxes' paths, and reserve the filesystem project IDs of the sandboxes' directories.
 	pub(crate) async fn reclaim_sandbox_directories(&self, server: &Server) {
 		let path = server.path.join("sandboxes");
 		let mut entries = match tokio::fs::read_dir(&path).await {
@@ -2009,6 +2124,36 @@ impl Component {
 			};
 			let path = entry.path();
 
+			// Move a pooled sandbox's temp to the sandbox's path, replacing the link that pointed at it, or remove a link whose temp is gone.
+			let metadata = match tokio::fs::symlink_metadata(&path).await {
+				Ok(metadata) => metadata,
+				Err(error) => {
+					tracing::error!(%error, sandbox = %id, "failed to read the sandbox directory");
+					continue;
+				},
+			};
+			if metadata.file_type().is_symlink() {
+				let result = async {
+					let target = tokio::fs::read_link(&path).await?;
+					tokio::fs::remove_file(&path).await?;
+					if tokio::fs::try_exists(&target).await? {
+						tokio::fs::rename(&target, &path).await?;
+						Ok::<_, std::io::Error>(true)
+					} else {
+						Ok(false)
+					}
+				}
+				.await;
+				match result {
+					Ok(true) => {},
+					Ok(false) => continue,
+					Err(error) => {
+						tracing::error!(%error, sandbox = %id, "failed to move the sandbox directory");
+						continue;
+					},
+				}
+			}
+
 			// Reserve the directory's filesystem project ID.
 			#[cfg(target_os = "linux")]
 			match tangram_sandbox::filesystem_project_id(&path) {
@@ -2023,9 +2168,89 @@ impl Component {
 					tracing::error!(error = %error.trace(), sandbox = %id, "failed to read the sandbox filesystem project");
 				},
 			}
-			#[cfg(not(target_os = "linux"))]
-			let _ = (id, path);
 		}
+	}
+
+	/// Decide what happens to each sandbox that the previous run left a directory for, using the local index, and remove the directories of the sandboxes to destroy.
+	pub(crate) async fn finish_previous_sandboxes(
+		&self,
+		session: &Session,
+	) -> tg::Result<Vec<(tg::sandbox::Id, Teardown)>> {
+		// Get the sandboxes with directories.
+		let path = session.server.path.join("sandboxes");
+		let mut ids = Vec::new();
+		let mut entries = match tokio::fs::read_dir(&path).await {
+			Ok(entries) => entries,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to read the sandbox directories"));
+			},
+		};
+		while let Some(entry) = entries
+			.next_entry()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read a sandbox directory"))?
+		{
+			if let Some(id) = entry
+				.file_name()
+				.to_str()
+				.and_then(|name| name.parse::<tg::sandbox::Id>().ok())
+			{
+				ids.push(id);
+			}
+		}
+		if ids.is_empty() {
+			return Ok(Vec::new());
+		}
+
+		// Get the sandboxes' local records after pending indexing, so that a record is not stale.
+		session
+			.index(tg::index::Arg::default())
+			.await?
+			.try_last()
+			.await?;
+		let indexed = session.server.index.try_get_sandboxes(&ids).await?;
+
+		// Stop a sandbox that was running with a nonzero ttl, keep a stopped sandbox, and destroy the others. Remove the directory of a sandbox that is not recorded or is destroyed now, and remove the directory of a sandbox to destroy after its destruction is reported, so that a restart reports a destruction that was not.
+		let mut sandboxes = Vec::new();
+		for (id, indexed) in std::iter::zip(ids, indexed) {
+			let teardown = match indexed.map(|indexed| indexed.data) {
+				None => None,
+				Some(None) => Some(Teardown::Destroy),
+				Some(Some(data)) => match data.data.status {
+					tg::sandbox::Status::Destroyed => None,
+					tg::sandbox::Status::Started
+					| tg::sandbox::Status::Starting
+					| tg::sandbox::Status::Stopping => Some(Teardown::with_ttl(data.data.ttl)),
+					tg::sandbox::Status::Stopped => continue,
+				},
+			};
+			let Some(teardown) = teardown else {
+				self.remove_previous_sandbox_directory(session, &id).await?;
+				continue;
+			};
+			sandboxes.push((id, teardown));
+		}
+
+		Ok(sandboxes)
+	}
+
+	/// Remove a previous sandbox's directory and release its filesystem project ID.
+	pub(crate) async fn remove_previous_sandbox_directory(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<()> {
+		let mut temp = Temp::with_path(&session.server, Self::sandbox_path(session, id));
+		temp.remove()
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to remove the sandbox directory"))?;
+		#[cfg(target_os = "linux")]
+		if let Some((_, project_id)) = self.state.stopped_project_ids.remove(id) {
+			project_id.release();
+		}
+
+		Ok(())
 	}
 
 	/// Get the path of the directory that holds a sandbox's data while it is stopped.
@@ -2069,6 +2294,26 @@ impl Component {
 			.state()
 			.id()
 			.ok_or_else(|| tg::error!("missing the runner id"))?;
+		let data = tg::sandbox::get::Output {
+			data: tg::sandbox::Data {
+				boot,
+				cpu: create.cpu,
+				creator: creator.clone(),
+				error: None,
+				hostname: create.hostname.clone(),
+				id: id.clone(),
+				memory: create.memory,
+				mounts: create.mounts.clone(),
+				network: create.network.clone(),
+				owner: owner.clone(),
+				status: tg::sandbox::Status::Started,
+				storage: create.storage,
+				ttl: create.ttl,
+				usage: None,
+			},
+			location: Some(location.clone()),
+			tokens: tg::authorization::Tokens::default(),
+		};
 		let arg = tg::sandbox::control::Arg {
 			boot,
 			create: Some(create),
@@ -2094,7 +2339,7 @@ impl Component {
 			.ok_or_else(
 				|| tg::error!(id = %header.id, "missing the sandbox authentication token"),
 			)?;
-		self.index_remote_sandbox(session, &header.id, location, created_at, None, None)
+		self.index_remote_sandbox(session, &header.id, location, created_at, Some(&data), None)
 			.await?;
 		let connection = ConnectedSandboxControl {
 			requests: control,
@@ -2202,6 +2447,16 @@ impl Component {
 			));
 		}
 		Ok(arg)
+	}
+}
+
+impl Teardown {
+	pub(crate) fn with_ttl(ttl: Option<std::time::Duration>) -> Self {
+		if ttl.is_some_and(|ttl| ttl.is_zero()) {
+			Self::Destroy
+		} else {
+			Self::Stop
+		}
 	}
 }
 

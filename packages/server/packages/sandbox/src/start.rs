@@ -10,6 +10,12 @@ use {
 	tangram_server_core::Session,
 };
 
+/// The failure of a start, which is unassigned when the start never reached the sandbox's runner.
+enum StartError {
+	Assigned(tg::Error),
+	Unassigned(tg::Error),
+}
+
 impl Component {
 	#[tracing::instrument(name = "sandbox.start_request", level = "info", skip_all, fields(sandbox = %id), err(level = "debug"))]
 	pub(crate) async fn try_start_sandbox(
@@ -180,10 +186,11 @@ impl Component {
 			tracing::warn!(error = %error.trace(), sandbox = %id, "failed to record the starting sandbox");
 		}
 
-		// Wait for the boot to start, recording the sandbox as stopped with the error if the start fails.
+		// Wait for the boot to start.
 		let result = async {
-			let scheduler = enqueue_result
-				.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
+			let scheduler = enqueue_result.map_err(|error| {
+				StartError::Unassigned(tg::error!(!error, %id, "failed to enqueue the sandbox"))
+			})?;
 			let timeout = session.server.config.scheduler.create_sandbox_timeout;
 			let heartbeat = session
 				.server
@@ -198,32 +205,44 @@ impl Component {
 				future::pending::<tg::Result<()>>().await
 			};
 			tokio::select! {
-				result = discarded_future => result,
+				result = discarded_future => result.map_err(StartError::Unassigned),
 				result = tokio::time::timeout(timeout, boot_future) => {
-					result.map_err(|_| tg::error!(%id, "timed out waiting for the sandbox to start"))?
+					let result = result
+						.map_err(|_| tg::error!(%id, "timed out waiting for the sandbox to start"))
+						.and_then(std::convert::identity);
+					result.map_err(StartError::Assigned)
 				},
 				result = heartbeat => {
-					result?;
-					Err(tg::error!(%id, %scheduler, "the scheduler heartbeat expired"))
+					let error = match result {
+						Ok(()) => tg::error!(%id, %scheduler, "the scheduler heartbeat expired"),
+						Err(error) => error,
+					};
+					Err(StartError::Assigned(error))
 				},
 			}
 		}
 		.await;
-		if let Err(error) = result {
-			let stopped = tg::sandbox::Data {
-				boot,
-				error: Some(error_data(session, &error)),
-				status: tg::sandbox::Status::Stopped,
-				usage: None,
-				..data
-			};
-			if let Err(error) = self
-				.put_started_sandbox(session, id, stopped, runner, created_at)
-				.await
-			{
-				tracing::warn!(error = %error.trace(), sandbox = %id, "failed to record the failed start");
-			}
-			return Err(error);
+
+		// Record the sandbox as stopped with the error if the start never reached its runner. Otherwise the runner reports the outcome, because it is the sandbox's source of truth.
+		match result {
+			Ok(()) => {},
+			Err(StartError::Assigned(error)) => return Err(error),
+			Err(StartError::Unassigned(error)) => {
+				let stopped = tg::sandbox::Data {
+					boot,
+					error: Some(error_data(session, &error)),
+					status: tg::sandbox::Status::Stopped,
+					usage: None,
+					..data
+				};
+				if let Err(error) = self
+					.put_started_sandbox(session, id, stopped, runner, created_at)
+					.await
+				{
+					tracing::warn!(error = %error.trace(), sandbox = %id, "failed to record the failed start");
+				}
+				return Err(error);
+			},
 		}
 
 		Ok(())

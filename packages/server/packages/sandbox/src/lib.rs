@@ -136,31 +136,8 @@ impl std::ops::Deref for Component {
 }
 
 impl tangram_server_core::component::Lifecycle for Component {
-	fn start<'a>(&'a self, server: &'a Server) -> BoxFuture<'a, tg::Result<()>> {
-		async move {
-			// Reconcile the sandboxes that were running before the restart if multi-server mode is disabled.
-			if !server.config.advanced.multi_server {
-				match self.list_unfinished_sandboxes(server).await {
-					Ok(sandboxes) => {
-						let component = self.clone();
-						let server = server.clone();
-						tokio::spawn(async move {
-							let result = component
-								.reconcile_unfinished_sandboxes(&server, sandboxes)
-								.await;
-							if let Err(error) = result {
-								tracing::error!(error = %error.trace(), "failed to reconcile unfinished sandboxes");
-							}
-						});
-					},
-					Err(error) => {
-						tracing::error!(error = %error.trace(), "failed to list unfinished sandboxes");
-					},
-				}
-			}
-			Ok(())
-		}
-		.boxed()
+	fn start<'a>(&'a self, _server: &'a Server) -> BoxFuture<'a, tg::Result<()>> {
+		async move { Ok(()) }.boxed()
 	}
 
 	fn stop<'a>(&'a self, _server: &'a Server) -> BoxFuture<'a, ()> {

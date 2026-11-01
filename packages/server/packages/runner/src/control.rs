@@ -11,7 +11,10 @@ use {
 		},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext as _, task::Task},
+	tangram_futures::{
+		stream::{Ext as _, TryExt as _},
+		task::Task,
+	},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
@@ -91,7 +94,45 @@ impl Component {
 	)> {
 		let id = arg.id.clone();
 		let scheduler_ttl = arg.scheduler_ttl;
-		let sandboxes = session.server.index.get_runner_sandboxes(&id).await?;
+		// Get the sandboxes that the runner is running and that the index records as stopped, destroyed, or at another boot, after pending indexing so that a start that is not indexed yet is not mistaken for a sandbox that the server stopped.
+		let sandboxes = if arg.sandboxes.is_empty() {
+			Vec::new()
+		} else {
+			let result = async {
+				session
+					.index(tg::index::Arg::default())
+					.await?
+					.try_last()
+					.await?;
+				Ok::<_, tg::Error>(())
+			}
+			.await;
+			if let Err(error) = result {
+				tracing::warn!(error = %error.trace(), runner = %id, "failed to wait for indexing");
+			}
+			let ids = arg
+				.sandboxes
+				.iter()
+				.map(|sandbox| sandbox.id.clone())
+				.collect::<Vec<_>>();
+			session
+				.server
+				.index
+				.try_get_sandboxes(&ids)
+				.await?
+				.into_iter()
+				.zip(arg.sandboxes)
+				.filter(|(indexed, sandbox)| {
+					indexed
+						.as_ref()
+						.and_then(|indexed| indexed.data.as_ref())
+						.is_some_and(|data| {
+							data.data.status.is_settled() || data.data.boot != sandbox.boot
+						})
+				})
+				.map(|(_, sandbox)| sandbox.id)
+				.collect()
+		};
 		let server_messages = session
 			.server
 			.messenger
@@ -389,6 +430,10 @@ impl Component {
 				.destroy_runner_sandbox(session, runner, arg)
 				.await
 				.map(tg::runner::control::ServerResponseOutput::DestroySandbox),
+			tg::runner::control::ClientRequestArg::StopSandbox(arg) => self
+				.stop_runner_sandbox(session, runner, arg)
+				.await
+				.map(tg::runner::control::ServerResponseOutput::StopSandbox),
 		};
 		let (error, output) = match result {
 			Ok(output) => (None, Some(output)),
@@ -421,7 +466,7 @@ impl Component {
 				&& indexed
 					.data
 					.as_ref()
-					.is_some_and(|data| !data.data.status.is_settled())
+					.is_some_and(|data| !data.data.status.is_destroyed())
 		}) {
 			tangram_server_core::checkpoint!(session.server, "runner.control.destroy_sandbox", %runner, %sandbox)
 				.await;
@@ -448,6 +493,49 @@ impl Component {
 			false
 		};
 		let output = tg::runner::control::DestroySandboxServerResponseOutput { destroyed };
+		Ok(output)
+	}
+
+	async fn stop_runner_sandbox(
+		&self,
+		session: &Session,
+		runner: &tg::runner::Id,
+		arg: tg::runner::control::StopSandboxClientRequestArg,
+	) -> tg::Result<tg::runner::control::StopSandboxServerResponseOutput> {
+		let sandbox = &arg.sandbox;
+		let indexed = session.server.index.try_get_sandbox(sandbox).await?;
+		let stopped = if indexed.as_ref().is_some_and(|indexed| {
+			indexed.runner.as_ref() == Some(runner)
+				&& indexed
+					.data
+					.as_ref()
+					.is_some_and(|data| !data.data.status.is_settled())
+		}) {
+			let error = match arg.error {
+				Some(tg::Either::Left(data)) => data,
+				Some(tg::Either::Right(id)) => tg::Error::with_id(id)
+					.data_with_instance(session)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
+				None => tg::error::Data {
+					code: Some(tg::error::Code::Internal),
+					message: Some("runner restarted".to_owned()),
+					..Default::default()
+				},
+			};
+			session
+				.server
+				.components
+				.scheduler
+				.stop_runner_sandbox(&session.server, sandbox, error)
+				.await?;
+			tangram_server_core::checkpoint!(session.server, "runner.control.stop_sandbox", %runner, %sandbox)
+				.await;
+			true
+		} else {
+			false
+		};
+		let output = tg::runner::control::StopSandboxServerResponseOutput { stopped };
 		Ok(output)
 	}
 

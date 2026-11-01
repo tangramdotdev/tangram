@@ -65,6 +65,7 @@ pub struct HeartbeatNotification {
 pub enum RequestArg {
 	AddRunner(AddRunnerRequestArg),
 	DequeueSandbox(DequeueSandboxRequestArg),
+	DestroyRunnerSandbox(DestroyRunnerSandboxRequestArg),
 	EnqueueSandbox(EnqueueSandboxRequestArg),
 	RemoveRunner(RemoveRunnerRequestArg),
 }
@@ -75,8 +76,23 @@ pub enum ResponseOutput {
 	AddRunner(AddRunnerResponseOutput),
 	Busy,
 	DequeueSandbox(DequeueSandboxResponseOutput),
+	DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput),
 	EnqueueSandbox(EnqueueSandboxResponseOutput),
 	RemoveRunner(RemoveRunnerResponseOutput),
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct DestroyRunnerSandboxRequestArg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::error::Data>,
+
+	pub runner: tg::runner::Id,
+	pub sandbox: tg::sandbox::Id,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct DestroyRunnerSandboxResponseOutput {
+	pub destroyed: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

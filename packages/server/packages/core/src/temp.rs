@@ -33,17 +33,23 @@ impl Temp {
 		}
 	}
 
-	/// Create a temp at a path that outlives it, so that dropping it does not remove the path.
+	/// Create a temp at a specific path, which dropping the temp removes unless it is preserved.
 	#[must_use]
 	pub fn with_path(server: &Server, path: PathBuf) -> Self {
+		let preserve = server.config.advanced.preserve_temp_directories;
 		let server = server.clone();
 		Self {
 			#[cfg(target_os = "linux")]
 			filesystem_project_id: None,
 			path,
-			preserve: true,
+			preserve,
 			server,
 		}
+	}
+
+	/// Set whether dropping the temp keeps its path.
+	pub fn set_preserve(&mut self, preserve: bool) {
+		self.preserve = preserve;
 	}
 
 	#[must_use]
@@ -69,6 +75,13 @@ impl Temp {
 			tokio::fs::create_dir_all(parent).await?;
 		}
 		if self.path != path {
+			// Replace the link that points a sandbox's path at the temp while it runs.
+			if tokio::fs::symlink_metadata(path)
+				.await
+				.is_ok_and(|metadata| metadata.file_type().is_symlink())
+			{
+				tokio::fs::remove_file(path).await?;
+			}
 			tokio::fs::rename(&self.path, path).await?;
 		}
 		self.preserve = true;
@@ -84,6 +97,13 @@ impl Temp {
 			tokio::fs::create_dir_all(parent).await?;
 		}
 		if self.path != path {
+			// Replace the link that points a sandbox's path at the temp while it runs.
+			if tokio::fs::symlink_metadata(path)
+				.await
+				.is_ok_and(|metadata| metadata.file_type().is_symlink())
+			{
+				tokio::fs::remove_file(path).await?;
+			}
 			tokio::fs::rename(&self.path, path).await?;
 		}
 		self.preserve = true;

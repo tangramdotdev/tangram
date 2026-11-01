@@ -108,6 +108,9 @@ pub struct ClientRequest {
 pub enum ClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxClientRequestArg),
+
+	#[tangram_serialize(id = 1)]
+	StopSandbox(StopSandboxClientRequestArg),
 }
 
 #[derive(
@@ -142,6 +145,9 @@ pub struct ClientResponse {
 pub enum ClientResponseOutput {
 	#[tangram_serialize(id = 0)]
 	CreateSandbox(CreateSandboxClientResponseOutput),
+
+	#[tangram_serialize(id = 1)]
+	DestroySandbox(DestroySandboxClientResponseOutput),
 }
 
 #[derive(
@@ -186,6 +192,9 @@ pub struct ServerRequest {
 pub enum ServerRequestArg {
 	#[tangram_serialize(id = 0)]
 	CreateSandbox(CreateSandboxServerRequestArg),
+
+	#[tangram_serialize(id = 1)]
+	DestroySandbox(DestroySandboxServerRequestArg),
 }
 
 #[derive(
@@ -219,6 +228,9 @@ pub struct ServerResponse {
 pub enum ServerResponseOutput {
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxServerResponseOutput),
+
+	#[tangram_serialize(id = 1)]
+	StopSandbox(StopSandboxServerResponseOutput),
 }
 
 #[derive(
@@ -395,6 +407,66 @@ pub struct DestroySandboxServerResponseOutput {
 	pub destroyed: bool,
 }
 
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct DestroySandboxServerRequestArg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::error::Data>,
+
+	#[tangram_serialize(id = 0)]
+	pub sandbox: tg::sandbox::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct DestroySandboxClientResponseOutput {
+	#[tangram_serialize(id = 0)]
+	pub destroyed: bool,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StopSandboxClientRequestArg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+
+	#[tangram_serialize(id = 0)]
+	pub sandbox: tg::sandbox::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StopSandboxServerResponseOutput {
+	#[tangram_serialize(id = 0)]
+	pub stopped: bool,
+}
+
 #[serde_as]
 #[derive(
 	Clone,
@@ -418,6 +490,11 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
+	/// The sandboxes that the runner is running.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Vec::is_empty")]
+	pub sandboxes: Vec<ArgSandbox>,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	#[tangram_serialize(id = 4)]
 	pub scheduler_ttl: Duration,
@@ -431,8 +508,26 @@ pub struct Arg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Header {
+pub struct ArgSandbox {
 	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub id: tg::sandbox::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Header {
+	/// The sandboxes in the arg that the server stopped, destroyed, or started at another boot while the runner's heartbeat was expired.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
 	pub sandboxes: Vec<tg::sandbox::Id>,
 
 	#[tangram_serialize(id = 1)]

@@ -569,8 +569,14 @@ impl Component {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),
 			)?;
-		let context = client.context().clone();
+		let mut context = client.context().clone();
 		context.set_token(session.context.token.clone());
+
+		// Remove the claim to act for a process or sandbox, which only a runner's token may make, when the connection uses its own token.
+		if session.context.token.is_some() {
+			context.set_process(None);
+			context.set_sandbox(None);
+		}
 		let client = client.client().session(&context);
 		let arg = tg::sandbox::control::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
