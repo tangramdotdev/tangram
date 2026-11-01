@@ -7,6 +7,7 @@ pub mod init;
 pub mod list;
 pub mod run;
 pub mod serve;
+pub mod stop;
 pub mod wait;
 
 /// Manage sandboxes.
@@ -36,6 +37,8 @@ pub enum Command {
 
 	#[command(hide = true)]
 	Serve(self::serve::Args),
+
+	Stop(self::stop::Args),
 
 	Wait(self::wait::Args),
 }
@@ -237,6 +240,9 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		},
 		Command::Serve(args) => {
 			crate::serve::run(args).await?;
+		},
+		Command::Stop(args) => {
+			crate::stop::run(cli, args).await?;
 		},
 		Command::Wait(args) => {
 			crate::wait::run(cli, args).await?;

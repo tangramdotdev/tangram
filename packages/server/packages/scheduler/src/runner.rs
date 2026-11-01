@@ -223,7 +223,7 @@ impl Component {
 			server.index.get_runner_sandboxes(runner).await.map_err(
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
 			)?;
-		tracing::warn!(%runner, sandboxes = sandboxes.len(), "finishing the expired runner sandboxes");
+		tracing::warn!(%runner, sandboxes = sandboxes.len(), "stopping the expired runner sandboxes");
 		tangram_server_core::checkpoint!(server, "scheduler.runner.expired", %runner).await;
 		for sandbox in sandboxes {
 			let error = tg::error::Data {
@@ -231,7 +231,7 @@ impl Component {
 				message: Some("heartbeat expired".to_owned()),
 				..Default::default()
 			};
-			self.destroy_runner_sandbox(server, &sandbox, error).await?;
+			self.stop_runner_sandbox(server, &sandbox, error).await?;
 		}
 
 		Ok(())
@@ -243,7 +243,45 @@ impl Component {
 		id: &tg::sandbox::Id,
 		error: tg::error::Data,
 	) -> tg::Result<()> {
-		tracing::warn!(sandbox = %id, reason = error.message.as_deref(), "finishing the runner sandbox");
+		self.finish_runner_sandbox(server, id, error, tg::sandbox::Status::Destroyed)
+			.await
+	}
+
+	pub(crate) async fn stop_runner_sandbox(
+		&self,
+		server: &Server,
+		id: &tg::sandbox::Id,
+		error: tg::error::Data,
+	) -> tg::Result<()> {
+		self.finish_runner_sandbox(server, id, error, tg::sandbox::Status::Stopped)
+			.await
+	}
+
+	async fn finish_runner_sandbox(
+		&self,
+		server: &Server,
+		id: &tg::sandbox::Id,
+		error: tg::error::Data,
+		status: tg::sandbox::Status,
+	) -> tg::Result<()> {
+		// Leave a sandbox that is already stopped or destroyed alone.
+		let settled = server
+			.index
+			.try_get_sandbox(id)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox from the index"))?
+			.and_then(|sandbox| sandbox.data)
+			.is_some_and(|data| match status {
+				tg::sandbox::Status::Destroyed => data.data.status.is_destroyed(),
+				tg::sandbox::Status::Started
+				| tg::sandbox::Status::Starting
+				| tg::sandbox::Status::Stopped
+				| tg::sandbox::Status::Stopping => data.data.status.is_settled(),
+			});
+		if settled {
+			return Ok(());
+		}
+		tracing::warn!(sandbox = %id, reason = error.message.as_deref(), %status, "finishing the runner sandbox");
 		let now = server.clock.unix_timestamp();
 		let length = server
 			.index
@@ -398,7 +436,7 @@ impl Component {
 			.as_mut()
 			.ok_or_else(|| tg::error!(%id, "missing the sandbox data"))?;
 		data.data.error = Some(tg::Either::Left(error));
-		data.data.status = tg::sandbox::Status::Destroyed;
+		data.data.status = status;
 		let account = if server.config.usage.enabled {
 			indexed.account
 		} else {
@@ -425,7 +463,7 @@ impl Component {
 			.await
 			.and_then(std::convert::identity)
 			.map_err(
-				|source| tg::error!(!source, %id, "failed to update the destroyed sandbox in the index"),
+				|source| tg::error!(!source, %id, "failed to update the finished sandbox in the index"),
 			)?;
 		server
 			.components

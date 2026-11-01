@@ -49,6 +49,14 @@ impl tg::instance::Sandbox for tg::Session {
 		self.try_destroy_sandbox(id, arg)
 	}
 
+	fn try_stop_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::stop::Arg,
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
+		self.try_stop_sandbox(id, arg)
+	}
+
 	fn try_get_sandbox_status_stream(
 		&self,
 		id: &tg::sandbox::Id,

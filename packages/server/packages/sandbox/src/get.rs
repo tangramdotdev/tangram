@@ -384,6 +384,18 @@ impl Component {
 			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox in the index"))
 	}
 
+	/// Wait for the pending index writes, so that a status read from the index afterward reflects every reported transition.
+	pub(crate) async fn wait_for_indexing(session: &Session) -> tg::Result<()> {
+		session
+			.index(tg::index::Arg::default())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?
+			.try_last()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?;
+		Ok(())
+	}
+
 	pub async fn try_get_sandbox_from_index(
 		&self,
 		session: &Session,

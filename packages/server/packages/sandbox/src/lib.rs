@@ -21,6 +21,7 @@ pub mod get;
 pub mod list;
 pub mod processes;
 pub mod status;
+pub mod stop;
 pub mod wait;
 
 /// The component.
@@ -96,6 +97,10 @@ impl Component {
 				self.try_destroy_sandbox_request(session, request, sandbox)
 					.await
 			},
+			(http::Method::POST, ["sandboxes", sandbox, "stop"]) => {
+				self.try_stop_sandbox_request(session, request, sandbox)
+					.await
+			},
 			(http::Method::POST, ["sandboxes", "control"]) => {
 				self.get_sandbox_control_stream_request(session, request)
 					.await
@@ -128,11 +133,24 @@ impl std::ops::Deref for Component {
 impl tangram_server_core::component::Lifecycle for Component {
 	fn start<'a>(&'a self, server: &'a Server) -> BoxFuture<'a, tg::Result<()>> {
 		async move {
-			// Destroy unfinished sandboxes if multi-server mode is disabled.
+			// Reconcile the sandboxes that were running before the restart if multi-server mode is disabled.
 			if !server.config.advanced.multi_server {
-				let result = self.destroy_unfinished_sandboxes(server).await;
-				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), "failed to destroy unfinished sandboxes");
+				match self.list_unfinished_sandboxes(server).await {
+					Ok(sandboxes) => {
+						let component = self.clone();
+						let server = server.clone();
+						tokio::spawn(async move {
+							let result = component
+								.reconcile_unfinished_sandboxes(&server, sandboxes)
+								.await;
+							if let Err(error) = result {
+								tracing::error!(error = %error.trace(), "failed to reconcile unfinished sandboxes");
+							}
+						});
+					},
+					Err(error) => {
+						tracing::error!(error = %error.trace(), "failed to list unfinished sandboxes");
+					},
 				}
 			}
 			Ok(())
@@ -311,6 +329,15 @@ impl tangram_server_core::sandbox::Component for Component {
 		arg: tg::sandbox::destroy::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
 		self.try_destroy_sandbox(session, id, arg).boxed()
+	}
+
+	fn try_stop_sandbox<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::stop::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
+		self.try_stop_sandbox(session, id, arg).boxed()
 	}
 
 	fn try_get_sandbox_status_stream<'a>(

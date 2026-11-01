@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A spawn whose runner dies after the sandbox connects but before the process connects must observe destruction without waiting for the control read timeout.
+# A spawn whose runner dies after the sandbox connects but before the process connects must observe that the sandbox stopped without waiting for the control read timeout.
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true, multi_server: true },
@@ -44,4 +44,4 @@ advance_time $remote 4sec
 let output = try { job recv --tag $build --timeout 15sec } catch { null }
 assert ($output != null) "the spawn must return after the runner dies before the process connects"
 failure $output
-assert ($output.stderr | ansi strip | str contains "the sandbox was destroyed") "the spawn must report sandbox destruction"
+assert ($output.stderr | ansi strip | str contains "the sandbox is not started") "the spawn must report that the sandbox stopped"
