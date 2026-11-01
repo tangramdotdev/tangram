@@ -105,7 +105,7 @@ impl Component {
 		}
 		if !missing.is_empty() {
 			session
-				.create_grant(tg::grant::create::Arg {
+				.grant(tg::grant::grant::Arg {
 					subject: tg::authorization::subject::Selector::Subject(
 						tg::authorization::Subject::Public,
 					),

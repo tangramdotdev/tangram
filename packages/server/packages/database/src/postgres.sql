@@ -139,17 +139,19 @@ create table organization_members (
 create index organization_members_member_index on organization_members (member);
 
 create table grants (
+	id text primary key,
 	resource text not null,
 	subject text not null,
 	permissions text not null,
 	created_at int8 not null,
-	creator text not null,
-	unique (resource, subject, creator)
+	creator text
 );
 
-create index grants_resource_index on grants (resource);
+create unique index grants_resource_subject_creator_index on grants (resource, subject, coalesce(creator, ''));
 
-create index grants_subject_index on grants (subject, resource, creator);
+create index grants_resource_index on grants (resource, id);
+
+create index grants_subject_index on grants (subject, id);
 
 create table tags (
 	id text primary key,

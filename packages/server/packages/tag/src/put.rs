@@ -501,7 +501,7 @@ impl Component {
 				.await;
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
 			if arg.public {
-				let arg = tg::grant::create::Arg {
+				let arg = tg::grant::grant::Arg {
 					subject: tg::authorization::Subject::Public.into(),
 					permissions: tg::Either::Left(
 						tg::authorization::Permission::Tag(
@@ -515,7 +515,7 @@ impl Component {
 					.server
 					.components
 					.grant
-					.create_grant_with_transaction(session, transaction, arg, batch)
+					.grant_with_transaction(session, transaction, arg, batch)
 					.await?
 				{
 					ControlFlow::Break(_) => (),
@@ -523,7 +523,7 @@ impl Component {
 				}
 			}
 			if let Some(subject) = Self::write_user_grant_subject(session) {
-				let arg = tg::grant::create::Arg {
+				let arg = tg::grant::grant::Arg {
 					subject: subject.into(),
 					permissions: tg::Either::Left(
 						tg::authorization::Permission::Tag(
@@ -537,7 +537,7 @@ impl Component {
 					.server
 					.components
 					.grant
-					.create_grant_with_transaction(session, transaction, arg, batch)
+					.grant_with_transaction(session, transaction, arg, batch)
 					.await?
 				{
 					ControlFlow::Break(_) => (),

@@ -41,6 +41,7 @@ pub enum Kind {
 	Scheduler,
 	Sync,
 	Remote,
+	Grant,
 }
 
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -133,6 +134,7 @@ impl Id {
 			Kind::Scheduler => 14,
 			Kind::Token => 15,
 			Kind::Remote => 18,
+			Kind::Grant => 19,
 		};
 		writer
 			.write_u8(kind)
@@ -193,6 +195,7 @@ impl Id {
 			14 => Kind::Scheduler,
 			15 => Kind::Token,
 			18 => Kind::Remote,
+			19 => Kind::Grant,
 			_ => {
 				return Err(tg::error!(%kind, "invalid kind"));
 			},
@@ -355,6 +358,7 @@ impl std::fmt::Display for Kind {
 			Self::Scheduler => "sch",
 			Self::Token => "tok",
 			Self::Remote => "rmt",
+			Self::Grant => "grt",
 		};
 		write!(f, "{kind}")?;
 		Ok(())
@@ -385,6 +389,7 @@ impl std::str::FromStr for Kind {
 			"sch" | "scheduler" => Self::Scheduler,
 			"tok" | "token" => Self::Token,
 			"rmt" | "remote" => Self::Remote,
+			"grt" | "grant" => Self::Grant,
 			_ => {
 				return Err(tg::error!(%s, "invalid kind"));
 			},

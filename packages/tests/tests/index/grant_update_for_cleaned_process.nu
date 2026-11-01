@@ -19,7 +19,7 @@ tg wait $process
 tg clean
 
 # Revoking the grant enqueues a grant update for the deleted process.
-tg grants delete public subtree $process
+tg revoke public subtree $process
 
 # The update queue must drain.
 let index = timeout 15 tg index | complete

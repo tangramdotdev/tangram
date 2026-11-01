@@ -17,7 +17,7 @@ pub struct Component {}
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "version")]
 enum Cursor {
-	V0 { after: (String, String) },
+	V0 { after: tg::grant::Id },
 }
 
 impl Component {
@@ -29,38 +29,43 @@ impl Component {
 	pub(crate) async fn list_resource_grants_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		resource: &tg::Id,
-		after: Option<&(String, String)>,
+		after: Option<&tg::grant::Id>,
 		limit: Option<u64>,
 	) -> tg::Result<ControlFlow<Vec<tg::grant::Data>, tangram_server_core::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			created_at: i64,
+
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			creator: Option<tg::Principal>,
+
 			#[tangram_database(as = "db::value::FromStr")]
-			creator: tg::Principal,
+			id: tg::grant::Id,
+
 			#[tangram_database(as = "db::value::FromStr")]
 			permissions: tg::authorization::permission::Set,
+
 			#[tangram_database(as = "db::value::FromStr")]
 			subject: tg::authorization::Subject,
 		}
 		let p = transaction.p();
-		let (after, creator) = after
-			.map(|(after, creator)| (after.as_str(), creator.as_str()))
-			.unwrap_or_default();
+
+		// The empty string sorts before every grant ID for the first page.
+		let after = after.map(ToString::to_string).unwrap_or_default();
 		let limit = limit.map_or(i64::MAX, |limit| i64::try_from(limit).unwrap());
 		let statement = formatdoc!(
 			"
-				select created_at, creator, permissions, subject
+				select created_at, creator, id, permissions, subject
 				from grants
-				where resource = {p}1
-				and (subject, creator) > ({p}2, {p}3)
-				order by subject, creator
-				limit {p}4;
+				where resource = {p}1 and id > {p}2
+				order by id
+				limit {p}3;
 			"
 		);
 		let result = transaction
 			.query_all_into::<Row>(
 				statement.into(),
-				db::params![resource.to_string(), after, creator, limit],
+				db::params![resource.to_string(), after, limit],
 			)
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
@@ -68,7 +73,8 @@ impl Component {
 			.into_iter()
 			.map(|row| tg::grant::Data {
 				created_at: row.created_at,
-				creator: Some(row.creator),
+				creator: row.creator.unwrap_or_default(),
+				id: row.id,
 				permissions: row.permissions,
 				resource: resource.clone(),
 				subject: row.subject,
@@ -180,13 +186,13 @@ impl Component {
 }
 
 impl Component {
-	pub(crate) async fn create_grant(
+	pub(crate) async fn grant(
 		&self,
 		session: &Session,
-		arg: tg::grant::create::Arg,
-	) -> tg::Result<tg::grant::create::Output> {
+		arg: tg::grant::grant::Arg,
+	) -> tg::Result<tg::grant::grant::Output> {
 		if !session.server.is_primary_region() {
-			return self.create_grant_primary_region(session, arg).await;
+			return self.grant_primary_region(session, arg).await;
 		}
 		let resource = self.resolve_resource(session, &arg.resource.node).await?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
@@ -251,12 +257,7 @@ impl Component {
 				let session = session.clone();
 				async move {
 					component
-						.create_grant_local_with_transaction(
-							&session,
-							transaction,
-							arg,
-							permissions,
-						)
+						.grant_local_with_transaction(&session, transaction, arg, permissions)
 						.await
 				}
 				.boxed()
@@ -267,36 +268,36 @@ impl Component {
 			.components
 			.indexer
 			.spawn_publish_database_index_queue_notification_task(&session.server);
-		Ok(tg::grant::create::Output { data: grant })
+		Ok(tg::grant::grant::Output { data: grant })
 	}
 
-	async fn create_grant_primary_region(
+	async fn grant_primary_region(
 		&self,
 		session: &Session,
-		arg: tg::grant::create::Arg,
-	) -> tg::Result<tg::grant::create::Output> {
+		arg: tg::grant::grant::Arg,
+	) -> tg::Result<tg::grant::grant::Output> {
 		let client = session
 			.get_primary_region_session()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
-		let grant = client.create_grant(arg).await.map_err(|error| {
+		let grant = client.grant(arg).await.map_err(|error| {
 			tg::error!(!error, "failed to create the grant in the primary region")
 		})?;
 
 		Ok(grant)
 	}
 
-	async fn create_grant_local_with_transaction(
+	async fn grant_local_with_transaction(
 		&self,
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
-		mut arg: tg::grant::create::Arg,
+		mut arg: tg::grant::grant::Arg,
 		permissions: tg::authorization::permission::Set,
 	) -> tg::Result<ControlFlow<tg::grant::Data, tangram_server_core::database::Error>> {
 		arg.permissions = tg::Either::Left(permissions);
 		let mut batch = tangram_index::batch::Arg::default();
 		let (grant, inserted) = match self
-			.create_grant_with_transaction(session, transaction, arg, &mut batch)
+			.grant_with_transaction(session, transaction, arg, &mut batch)
 			.await?
 		{
 			ControlFlow::Break(output) => output,
@@ -319,13 +320,13 @@ impl Component {
 		Ok(ControlFlow::Break(grant))
 	}
 
-	pub(crate) async fn delete_grant(
+	pub(crate) async fn revoke(
 		&self,
 		session: &Session,
-		arg: tg::grant::delete::Arg,
-	) -> tg::Result<Option<()>> {
+		arg: tg::grant::revoke::Arg,
+	) -> tg::Result<()> {
 		if !session.server.is_primary_region() {
-			return self.delete_grant_primary_region(session, arg).await;
+			return self.revoke_primary_region(session, arg).await;
 		}
 		let resource = self.resolve_resource(session, &arg.resource.node).await?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
@@ -363,12 +364,7 @@ impl Component {
 				let session = session.clone();
 				async move {
 					component
-						.delete_grant_local_with_transaction(
-							&session,
-							transaction,
-							arg,
-							permissions,
-						)
+						.revoke_local_with_transaction(&session, transaction, arg, permissions)
 						.await
 				}
 				.boxed()
@@ -379,36 +375,38 @@ impl Component {
 			.components
 			.indexer
 			.spawn_publish_database_index_queue_notification_task(&session.server);
-		Ok(output)
+		output.ok_or_else(|| tg::error!(missing, "failed to find the grant"))?;
+
+		Ok(())
 	}
 
-	async fn delete_grant_primary_region(
+	async fn revoke_primary_region(
 		&self,
 		session: &Session,
-		arg: tg::grant::delete::Arg,
-	) -> tg::Result<Option<()>> {
+		arg: tg::grant::revoke::Arg,
+	) -> tg::Result<()> {
 		let client = session
 			.get_primary_region_session()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
-		let output = client.delete_grant(arg).await.map_err(|error| {
-			tg::error!(!error, "failed to delete the grant in the primary region")
+		client.revoke(arg).await.map_err(|error| {
+			tg::error!(!error, "failed to revoke the grant in the primary region")
 		})?;
 
-		Ok(output)
+		Ok(())
 	}
 
-	async fn delete_grant_local_with_transaction(
+	async fn revoke_local_with_transaction(
 		&self,
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
-		mut arg: tg::grant::delete::Arg,
+		mut arg: tg::grant::revoke::Arg,
 		permissions: tg::authorization::permission::Set,
 	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
 		arg.permissions = tg::Either::Left(permissions);
 		let mut batch = tangram_index::batch::Arg::default();
 		let output = match self
-			.delete_grant_with_transaction(session, transaction, arg, &mut batch)
+			.revoke_with_transaction(session, transaction, arg, &mut batch)
 			.await?
 		{
 			ControlFlow::Break(output) => output,
@@ -428,11 +426,11 @@ impl Component {
 		Ok(ControlFlow::Break(output))
 	}
 
-	pub async fn create_grant_with_transaction(
+	pub async fn grant_with_transaction(
 		&self,
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
-		arg: tg::grant::create::Arg,
+		arg: tg::grant::grant::Arg,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<ControlFlow<(tg::grant::Data, bool), tangram_server_core::database::Error>> {
 		let resource =
@@ -456,22 +454,29 @@ impl Component {
 		if matches!(session.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
+
+		// Store the root creator as null, and compare creators with the null creator as the empty string.
 		let creator = session.context.principal.clone();
-		let creator_string = creator.to_string();
+		let creator_value = (!creator.is_root()).then(|| creator.to_string());
+		let creator_key = creator_key(&creator);
+
+		// Get the existing grant.
 		let p = transaction.p();
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			created_at: i64,
+
 			#[tangram_database(as = "db::value::FromStr")]
-			creator: tg::Principal,
+			id: tg::grant::Id,
+
 			#[tangram_database(as = "db::value::FromStr")]
 			permissions: tg::authorization::permission::Set,
 		}
 		let statement = formatdoc!(
 			"
-				select created_at, creator, permissions
+				select created_at, id, permissions
 				from grants
-				where resource = {p}1 and subject = {p}2 and creator = {p}3;
+				where resource = {p}1 and subject = {p}2 and coalesce(creator, '') = {p}3;
 			"
 		);
 		let result = transaction
@@ -480,72 +485,72 @@ impl Component {
 				db::params![
 					resource.to_string(),
 					subject.to_string(),
-					creator_string.clone()
+					creator_key.clone()
 				],
 			)
 			.await;
 		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
-		let (created_at, output_creator, permissions, changed) = if let Some(row) = row {
+
+		// Update the existing grant, keeping its ID, or insert a new grant.
+		let (created_at, id, permissions, changed) = if let Some(row) = row {
 			let mut updated_permissions = row.permissions;
 			updated_permissions.insert(permissions);
 			if updated_permissions == row.permissions {
-				return Ok(ControlFlow::Break((
-					tg::grant::Data {
-						created_at: row.created_at,
-						creator: Some(row.creator),
-						permissions: updated_permissions,
-						subject,
-						resource,
-					},
-					false,
-				)));
+				let data = tg::grant::Data {
+					created_at: row.created_at,
+					creator,
+					id: row.id,
+					permissions: updated_permissions,
+					resource,
+					subject,
+				};
+				return Ok(ControlFlow::Break((data, false)));
 			}
 			let statement = formatdoc!(
 				"
 					update grants
-					set permissions = {p}3
-					where resource = {p}1 and subject = {p}2 and creator = {p}4;
+					set permissions = {p}2
+					where id = {p}1;
 				"
 			);
 			let result = transaction
 				.execute(
 					statement.into(),
-					db::params![
-						resource.to_string(),
-						subject.to_string(),
-						updated_permissions.to_string(),
-						creator_string.clone()
-					],
+					db::params![row.id.to_string(), updated_permissions.to_string()],
 				)
 				.await;
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
-			(row.created_at, Some(row.creator), updated_permissions, true)
+			(row.created_at, row.id, updated_permissions, true)
 		} else {
+			let id = tg::grant::Id::new();
 			let statement = formatdoc!(
 				"
-					insert into grants (resource, subject, permissions, created_at, creator)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5);
+					insert into grants (id, resource, subject, permissions, created_at, creator)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6);
 				"
 			);
 			let result = transaction
 				.execute(
 					statement.into(),
 					db::params![
+						id.to_string(),
 						resource.to_string(),
 						subject.to_string(),
 						permissions.to_string(),
 						created_at,
-						creator_string
+						creator_value
 					],
 				)
 				.await;
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
-			(created_at, Some(creator.clone()), permissions, true)
+			(created_at, id, permissions, true)
 		};
+
+		// Put the permission in the index.
 		batch.items.push(tangram_index::batch::Item::PutPermission(
 			tangram_index::permission::put::Arg {
 				created_at,
-				creator: output_creator.clone(),
+				creator: Some(creator.clone()),
 				permissions,
 				resource: resource.clone(),
 				source: tangram_index::permission::Source::Grant,
@@ -554,23 +559,23 @@ impl Component {
 				version: None,
 			},
 		));
-		Ok(ControlFlow::Break((
-			tg::grant::Data {
-				created_at,
-				creator: output_creator,
-				permissions,
-				subject,
-				resource,
-			},
-			changed,
-		)))
+		let data = tg::grant::Data {
+			created_at,
+			creator,
+			id,
+			permissions,
+			resource,
+			subject,
+		};
+
+		Ok(ControlFlow::Break((data, changed)))
 	}
 
-	pub(crate) async fn delete_grant_with_transaction(
+	pub(crate) async fn revoke_with_transaction(
 		&self,
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
-		arg: tg::grant::delete::Arg,
+		arg: tg::grant::revoke::Arg,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
 		let resource =
@@ -595,28 +600,27 @@ impl Component {
 			return Err(tg::error!("unauthorized"));
 		}
 		let creator = session.context.principal.clone();
-		let creator_string = creator.to_string();
+		let creator_key = creator_key(&creator);
 		let p = transaction.p();
 		#[derive(db::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::grant::Id,
+
 			#[tangram_database(as = "db::value::FromStr")]
 			permissions: tg::authorization::permission::Set,
 		}
 		let statement = formatdoc!(
 			"
-				select permissions
+				select id, permissions
 				from grants
-				where resource = {p}1 and subject = {p}2 and creator = {p}3;
+				where resource = {p}1 and subject = {p}2 and coalesce(creator, '') = {p}3;
 			"
 		);
 		let result = transaction
 			.query_optional_into::<Row>(
 				statement.into(),
-				db::params![
-					resource.to_string(),
-					subject.to_string(),
-					creator_string.clone()
-				],
+				db::params![resource.to_string(), subject.to_string(), creator_key],
 			)
 			.await;
 		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
@@ -632,37 +636,25 @@ impl Component {
 			let statement = formatdoc!(
 				"
 					delete from grants
-					where resource = {p}1 and subject = {p}2 and creator = {p}3;
+					where id = {p}1;
 				"
 			);
 			let result = transaction
-				.execute(
-					statement.into(),
-					db::params![
-						resource.to_string(),
-						subject.to_string(),
-						creator_string.clone()
-					],
-				)
+				.execute(statement.into(), db::params![row.id.to_string()])
 				.await;
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
 		} else {
 			let statement = formatdoc!(
 				"
 					update grants
-					set permissions = {p}3
-					where resource = {p}1 and subject = {p}2 and creator = {p}4;
+					set permissions = {p}2
+					where id = {p}1;
 				"
 			);
 			let result = transaction
 				.execute(
 					statement.into(),
-					db::params![
-						resource.to_string(),
-						subject.to_string(),
-						remaining.to_string(),
-						creator_string.clone()
-					],
+					db::params![row.id.to_string(), remaining.to_string()],
 				)
 				.await;
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
@@ -687,6 +679,363 @@ impl Component {
 				));
 		}
 		Ok(ControlFlow::Break(Some(())))
+	}
+
+	pub(crate) async fn try_get_grant(
+		&self,
+		session: &Session,
+		grant: &tg::grant::Id,
+		mut arg: tg::grant::get::Arg,
+	) -> tg::Result<Option<tg::grant::get::Output>> {
+		let location = session
+			.server
+			.location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != session.server.config.region.as_deref() => {
+				let client = session.get_region_session(&region).await.map_err(
+					|error| tg::error!(!error, region = %region, "failed to get the region client"),
+				)?;
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				client.try_get_grant(grant, arg).await
+			},
+			tg::Location::Local(_) => self.try_get_grant_local(session, grant).await,
+			tg::Location::Remote(remote) => {
+				let client = session
+					.server
+					.components
+					.remote
+					.get_remote_session(session, &remote.name)
+					.await
+					.map_err(
+						|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+					)?;
+				arg.location = Some(
+					tg::Location::Local(tg::location::Local {
+						region: remote.region.clone(),
+					})
+					.into(),
+				);
+				let location = tg::Location::Remote(remote);
+				let output = client.try_get_grant(grant, arg).await?.map(|mut output| {
+					output.location = Some(location);
+					output
+				});
+				Ok(output)
+			},
+		}
+	}
+
+	async fn try_get_grant_local(
+		&self,
+		session: &Session,
+		grant: &tg::grant::Id,
+	) -> tg::Result<Option<tg::grant::get::Output>> {
+		// Get the grant.
+		let Some(data) = self.try_get_grant_data(session, grant).await? else {
+			return Ok(None);
+		};
+
+		// Return the grant only to a session that may list it, or to its creator.
+		let authorized = data.creator == session.context.principal
+			|| self.is_grant_listable(session, &data).await?;
+		if !authorized {
+			return Ok(None);
+		}
+
+		// Create the output.
+		let location = tg::Location::Local(tg::location::Local {
+			region: session.server.config.region.clone(),
+		});
+		let output = tg::grant::get::Output {
+			data,
+			location: Some(location),
+		};
+
+		Ok(Some(output))
+	}
+
+	async fn is_grant_listable(
+		&self,
+		session: &Session,
+		data: &tg::grant::Data,
+	) -> tg::Result<bool> {
+		// The root principal may list every grant.
+		if matches!(session.context.principal, tg::Principal::Root) {
+			return Ok(true);
+		}
+
+		// An admin of a user, group, organization, or tag resource may list the grants on it.
+		let node = !(tg::object::Id::try_from(data.resource.clone()).is_ok()
+			|| matches!(
+				data.resource.kind(),
+				tg::id::Kind::Process | tg::id::Kind::Sandbox | tg::id::Kind::Sync
+			));
+		if node {
+			let permission =
+				tangram_server_grant_common::admin_permission_for_resource(&data.resource)?;
+			let authorized = session
+				.authorize(tg::Selector::Id(data.resource.clone()), permission)
+				.await?
+				.check_exhaustion()?
+				.permissions
+				.contains(permission);
+			if authorized {
+				return Ok(true);
+			}
+		}
+
+		// An admin of a user, group, or organization subject may list the grants it holds.
+		let subject: tg::Id = match &data.subject {
+			tg::authorization::Subject::Group(id) => id.clone().into(),
+			tg::authorization::Subject::Organization(id) => id.clone().into(),
+			tg::authorization::Subject::User(id) => id.clone().into(),
+			tg::authorization::Subject::Process(_)
+			| tg::authorization::Subject::Public
+			| tg::authorization::Subject::Root
+			| tg::authorization::Subject::Runner(_)
+			| tg::authorization::Subject::Sandbox(_)
+			| tg::authorization::Subject::Sync(_)
+			| tg::authorization::Subject::Tag(_) => return Ok(false),
+		};
+		let permission = tangram_server_grant_common::admin_permission_for_resource(&subject)?;
+		let authorized = session
+			.authorize(tg::Selector::Id(subject), permission)
+			.await?
+			.check_exhaustion()?
+			.permissions
+			.contains(permission);
+
+		Ok(authorized)
+	}
+
+	async fn try_get_grant_data(
+		&self,
+		session: &Session,
+		grant: &tg::grant::Id,
+	) -> tg::Result<Option<tg::grant::Data>> {
+		let grant = grant.clone();
+		session
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let grant = grant.clone();
+				async move { Self::try_get_grant_data_with_transaction(transaction, &grant).await }
+					.boxed()
+			})
+			.await
+	}
+
+	async fn try_get_grant_data_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		grant: &tg::grant::Id,
+	) -> tg::Result<ControlFlow<Option<tg::grant::Data>, tangram_server_core::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			created_at: i64,
+
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			creator: Option<tg::Principal>,
+
+			#[tangram_database(as = "db::value::FromStr")]
+			permissions: tg::authorization::permission::Set,
+
+			#[tangram_database(as = "db::value::FromStr")]
+			resource: tg::Id,
+
+			#[tangram_database(as = "db::value::FromStr")]
+			subject: tg::authorization::Subject,
+		}
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select created_at, creator, permissions, resource, subject
+				from grants
+				where id = {p}1;
+			"
+		);
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![grant.to_string()])
+			.await;
+		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let data = row.map(|row| tg::grant::Data {
+			created_at: row.created_at,
+			creator: row.creator.unwrap_or_default(),
+			id: grant.clone(),
+			permissions: row.permissions,
+			resource: row.resource,
+			subject: row.subject,
+		});
+
+		Ok(ControlFlow::Break(data))
+	}
+
+	pub(crate) async fn try_delete_grant(
+		&self,
+		session: &Session,
+		grant: &tg::grant::Id,
+		mut arg: tg::grant::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		let location = session
+			.server
+			.location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != session.server.config.region.as_deref() => {
+				let client = session.get_region_session(&region).await.map_err(
+					|error| tg::error!(!error, region = %region, "failed to get the region client"),
+				)?;
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				client.try_delete_grant(grant, arg).await
+			},
+			tg::Location::Local(_) => {
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				self.try_delete_grant_local(session, grant, arg).await
+			},
+			tg::Location::Remote(remote) => {
+				let client = session
+					.server
+					.components
+					.remote
+					.get_remote_session(session, &remote.name)
+					.await
+					.map_err(
+						|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+					)?;
+				arg.location = Some(
+					tg::Location::Local(tg::location::Local {
+						region: remote.region,
+					})
+					.into(),
+				);
+				client.try_delete_grant(grant, arg).await
+			},
+		}
+	}
+
+	async fn try_delete_grant_local(
+		&self,
+		session: &Session,
+		grant: &tg::grant::Id,
+		arg: tg::grant::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		if !session.server.is_primary_region() {
+			return self
+				.try_delete_grant_primary_region(session, grant, arg)
+				.await;
+		}
+
+		// Delete the grant, which only its creator may delete.
+		if matches!(session.context.principal, tg::Principal::Anonymous) {
+			return Err(tg::error!("unauthorized"));
+		}
+		let creator = session.context.principal.clone();
+		let output = session
+			.server
+			.database
+			.run(|transaction| {
+				let creator = creator.clone();
+				let grant = grant.clone();
+				let server = session.server.clone();
+				async move {
+					Self::try_delete_grant_with_transaction(&server, transaction, &grant, &creator)
+						.await
+				}
+				.boxed()
+			})
+			.await?;
+		session
+			.server
+			.components
+			.indexer
+			.spawn_publish_database_index_queue_notification_task(&session.server);
+
+		Ok(output)
+	}
+
+	async fn try_delete_grant_with_transaction(
+		server: &tangram_server_core::Server,
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		grant: &tg::grant::Id,
+		creator: &tg::Principal,
+	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			permissions: tg::authorization::permission::Set,
+
+			#[tangram_database(as = "db::value::FromStr")]
+			resource: tg::Id,
+
+			#[tangram_database(as = "db::value::FromStr")]
+			subject: tg::authorization::Subject,
+		}
+
+		// Delete the grant.
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				delete from grants
+				where id = {p}1 and coalesce(creator, '') = {p}2
+				returning permissions, resource, subject;
+			"
+		);
+		let result = transaction
+			.query_optional_into::<Row>(
+				statement.into(),
+				db::params![grant.to_string(), creator_key(creator)],
+			)
+			.await;
+		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let Some(row) = row else {
+			return Ok(ControlFlow::Break(None));
+		};
+
+		// Delete the permissions from the index.
+		let mut batch = tangram_index::batch::Arg::default();
+		batch
+			.items
+			.push(tangram_index::batch::Item::DeletePermission(
+				tangram_index::permission::delete::Arg {
+					creator: Some(creator.clone()),
+					permissions: row.permissions,
+					resource: row.resource,
+					source: tangram_index::permission::Source::Grant,
+					subject: row.subject,
+				},
+			));
+		match server
+			.components
+			.indexer
+			.enqueue_database_index_queue_with_transaction(server, transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(Some(())))
+	}
+
+	async fn try_delete_grant_primary_region(
+		&self,
+		session: &Session,
+		grant: &tg::grant::Id,
+		arg: tg::grant::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		let client = session
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		let output = client.try_delete_grant(grant, arg).await.map_err(|error| {
+			tg::error!(!error, "failed to delete the grant in the primary region")
+		})?;
+
+		Ok(output)
 	}
 
 	pub(crate) async fn resolve_resource(
@@ -790,14 +1139,17 @@ impl Component {
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			#[tangram_database(as = "db::value::FromStr")]
-			creator: tg::Principal,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			creator: Option<tg::Principal>,
+
 			#[tangram_database(as = "db::value::FromStr")]
 			permissions: tg::authorization::permission::Set,
-			#[tangram_database(as = "db::value::FromStr")]
-			subject: tg::authorization::Subject,
+
 			#[tangram_database(as = "db::value::FromStr")]
 			resource: tg::Id,
+
+			#[tangram_database(as = "db::value::FromStr")]
+			subject: tg::authorization::Subject,
 		}
 		let p = transaction.p();
 		let placeholders = (1..=ids.len())
@@ -827,7 +1179,7 @@ impl Component {
 				.items
 				.push(tangram_index::batch::Item::DeletePermission(
 					tangram_index::permission::delete::Arg {
-						creator: Some(row.creator),
+						creator: Some(row.creator.unwrap_or_default()),
 						permissions: row.permissions,
 						resource: row.resource,
 						source: tangram_index::permission::Source::Grant,
@@ -886,13 +1238,14 @@ impl Component {
 		});
 
 		// List the grants for the requested scope.
+		let expand = arg.expand;
 		match (arg.resource, arg.subject) {
 			(Some(resource), None) => {
-				self.list_resource_grants_local(session, resource, after.as_ref(), limit)
+				self.list_resource_grants_local(session, resource, after.as_ref(), limit, expand)
 					.await
 			},
 			(None, Some(subject)) => {
-				self.list_subject_grants_local(session, subject, after.as_ref(), limit)
+				self.list_subject_grants_local(session, subject, after.as_ref(), limit, expand)
 					.await
 			},
 			_ => Err(tg::error!(
@@ -905,8 +1258,9 @@ impl Component {
 		&self,
 		session: &Session,
 		resource: tg::Referent<tg::Selector<tg::Id>>,
-		after: Option<&(String, String)>,
+		after: Option<&tg::grant::Id>,
 		limit: u64,
+		expand: bool,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
 		// Listing the grants on an object, process, sandbox, or sync requires the root principal.
 		if let tg::Selector::Id(id) = &resource.node
@@ -918,7 +1272,9 @@ impl Component {
 			if !matches!(session.context.principal, tg::Principal::Root) {
 				return Err(tg::error!("unauthorized"));
 			}
-			let output = self.list_resource_grants(session, id, after, limit).await?;
+			let output = self
+				.list_resource_grants(session, id, after, limit, expand)
+				.await?;
 			return Ok(Some(output));
 		}
 		// Listing the grants on a node requires admin permission, and the node is not found without read permission.
@@ -944,7 +1300,7 @@ impl Component {
 			return Err(tg::error!("unauthorized"));
 		}
 		let output = self
-			.list_resource_grants(session, &id, after, limit)
+			.list_resource_grants(session, &id, after, limit, expand)
 			.await?;
 		Ok(Some(output))
 	}
@@ -953,8 +1309,9 @@ impl Component {
 		&self,
 		session: &Session,
 		resource: &tg::Id,
-		after: Option<&(String, String)>,
+		after: Option<&tg::grant::Id>,
 		limit: u64,
+		expand: bool,
 	) -> tg::Result<tg::grant::list::Output> {
 		// Read an extra row to determine whether another page exists.
 		let mut data = session
@@ -979,17 +1336,26 @@ impl Component {
 		// Create the continuation cursor.
 		let cursor = if u64::try_from(data.len()).unwrap() > limit {
 			data.pop();
-			let grant = data.last().unwrap();
 			let cursor = Cursor::V0 {
-				after: (
-					grant.subject.to_string(),
-					grant.creator.as_ref().unwrap().to_string(),
-				),
+				after: data.last().unwrap().id.clone(),
 			};
 			Some(tangram_server_core::cursor::serialize(&cursor)?)
 		} else {
 			None
 		};
+		let location = tg::Location::Local(tg::location::Local {
+			region: session.server.config.region.clone(),
+		});
+		let data = data
+			.into_iter()
+			.map(|data| {
+				let output = tg::grant::get::Output {
+					data,
+					location: Some(location.clone()),
+				};
+				item(output, expand)
+			})
+			.collect();
 		let output = tg::grant::list::Output { cursor, data };
 
 		Ok(output)
@@ -999,8 +1365,9 @@ impl Component {
 		&self,
 		session: &Session,
 		subject: tg::authorization::subject::Selector,
-		after: Option<&(String, String)>,
+		after: Option<&tg::grant::Id>,
 		limit: u64,
+		expand: bool,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
 		// Resolve the subject.
 		let subject = self.try_resolve_subject(session, &subject).await?;
@@ -1057,7 +1424,7 @@ impl Component {
 
 		// List the grants.
 		let output = self
-			.list_subject_grants(session, &subject, after, limit)
+			.list_subject_grants(session, &subject, after, limit, expand)
 			.await?;
 
 		Ok(Some(output))
@@ -1084,8 +1451,9 @@ impl Component {
 		&self,
 		session: &Session,
 		subject: &tg::authorization::Subject,
-		after: Option<&(String, String)>,
+		after: Option<&tg::grant::Id>,
 		limit: u64,
+		expand: bool,
 	) -> tg::Result<tg::grant::list::Output> {
 		// Read an extra row to determine whether another page exists.
 		let mut data = session
@@ -1110,17 +1478,26 @@ impl Component {
 		// Create the continuation cursor.
 		let cursor = if u64::try_from(data.len()).unwrap() > limit {
 			data.pop();
-			let grant = data.last().unwrap();
 			let cursor = Cursor::V0 {
-				after: (
-					grant.resource.to_string(),
-					grant.creator.as_ref().unwrap().to_string(),
-				),
+				after: data.last().unwrap().id.clone(),
 			};
 			Some(tangram_server_core::cursor::serialize(&cursor)?)
 		} else {
 			None
 		};
+		let location = tg::Location::Local(tg::location::Local {
+			region: session.server.config.region.clone(),
+		});
+		let data = data
+			.into_iter()
+			.map(|data| {
+				let output = tg::grant::get::Output {
+					data,
+					location: Some(location.clone()),
+				};
+				item(output, expand)
+			})
+			.collect();
 		let output = tg::grant::list::Output { cursor, data };
 
 		Ok(output)
@@ -1129,38 +1506,43 @@ impl Component {
 	async fn list_subject_grants_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		subject: &tg::authorization::Subject,
-		after: Option<&(String, String)>,
+		after: Option<&tg::grant::Id>,
 		limit: Option<u64>,
 	) -> tg::Result<ControlFlow<Vec<tg::grant::Data>, tangram_server_core::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			created_at: i64,
+
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			creator: Option<tg::Principal>,
+
 			#[tangram_database(as = "db::value::FromStr")]
-			creator: tg::Principal,
+			id: tg::grant::Id,
+
 			#[tangram_database(as = "db::value::FromStr")]
 			permissions: tg::authorization::permission::Set,
+
 			#[tangram_database(as = "db::value::FromStr")]
 			resource: tg::Id,
 		}
 		let p = transaction.p();
-		let (after, creator) = after
-			.map(|(after, creator)| (after.as_str(), creator.as_str()))
-			.unwrap_or_default();
+
+		// The empty string sorts before every grant ID for the first page.
+		let after = after.map(ToString::to_string).unwrap_or_default();
 		let limit = limit.map_or(i64::MAX, |limit| i64::try_from(limit).unwrap());
 		let statement = formatdoc!(
 			"
-				select created_at, creator, permissions, resource
+				select created_at, creator, id, permissions, resource
 				from grants
-				where subject = {p}1
-				and (resource, creator) > ({p}2, {p}3)
-				order by resource, creator
-				limit {p}4;
+				where subject = {p}1 and id > {p}2
+				order by id
+				limit {p}3;
 			"
 		);
 		let result = transaction
 			.query_all_into::<Row>(
 				statement.into(),
-				db::params![subject.to_string(), after, creator, limit],
+				db::params![subject.to_string(), after, limit],
 			)
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
@@ -1168,7 +1550,8 @@ impl Component {
 			.into_iter()
 			.map(|row| tg::grant::Data {
 				created_at: row.created_at,
-				creator: Some(row.creator),
+				creator: row.creator.unwrap_or_default(),
+				id: row.id,
 				permissions: row.permissions,
 				resource: row.resource,
 				subject: subject.clone(),
@@ -1227,10 +1610,38 @@ impl Component {
 			})
 			.into(),
 		);
-		client
-			.list_grants(arg)
-			.await
-			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to list the grants"))
+		let output = client.list_grants(arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to list the grants"),
+		)?;
+
+		// Set the location of each listed grant to the remote.
+		let Some(mut output) = output else {
+			return Ok(None);
+		};
+		let location = tg::Location::Remote(remote.clone());
+		let trusted = client.trusted();
+		for item in &mut output.data {
+			match item {
+				tg::Either::Left(output) => {
+					output.location = Some(location.clone());
+				},
+				tg::Either::Right(referent) => {
+					session
+						.server
+						.components
+						.authorization
+						.update_tokens_and_location(
+							session,
+							&mut referent.options.tokens,
+							Some(&mut referent.options.location),
+							&location,
+							trusted,
+						)?;
+				},
+			}
+		}
+
+		Ok(Some(output))
 	}
 
 	pub(crate) async fn list_grants_request(
@@ -1276,7 +1687,7 @@ impl Component {
 		Ok(response)
 	}
 
-	pub(crate) async fn create_grant_request(
+	pub(crate) async fn grant_request(
 		&self,
 		session: &Session,
 		request: http::Request<BoxBody>,
@@ -1289,7 +1700,7 @@ impl Component {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		let output = self.create_grant(session, arg).await?;
+		let output = self.grant(session, arg).await?;
 		let (content_type, body) = match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
@@ -1311,7 +1722,7 @@ impl Component {
 		Ok(response)
 	}
 
-	pub(crate) async fn delete_grant_request(
+	pub(crate) async fn revoke_request(
 		&self,
 		session: &Session,
 		request: http::Request<BoxBody>,
@@ -1320,7 +1731,74 @@ impl Component {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		let Some(()) = self.delete_grant(session, arg).await? else {
+		self.revoke(session, arg).await?;
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+
+		Ok(response)
+	}
+
+	pub(crate) async fn try_get_grant_request(
+		&self,
+		session: &Session,
+		request: http::Request<BoxBody>,
+		grant: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
+		let grant = grant
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the grant ID"))?;
+		let Some(output) = self.try_get_grant(session, &grant, arg).await? else {
+			let response = http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body();
+			return Ok(response);
+		};
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
+				let content_type = mime::APPLICATION_JSON;
+				let body = serde_json::to_vec(&output).unwrap();
+				(Some(content_type), BoxBody::with_bytes(body))
+			},
+			Some((type_, subtype)) => {
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
+			},
+		};
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap().boxed_body();
+		Ok(response)
+	}
+
+	pub(crate) async fn try_delete_grant_request(
+		&self,
+		session: &Session,
+		request: http::Request<BoxBody>,
+		grant: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
+		let grant = grant
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the grant ID"))?;
+		let Some(()) = self.try_delete_grant(session, &grant, arg).await? else {
 			let response = http::Response::builder()
 				.not_found()
 				.empty()
@@ -1341,9 +1819,15 @@ impl Component {
 		let path = request.uri().path().to_owned();
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		match (method, path_components.as_slice()) {
+			(http::Method::POST, ["grant"]) => self.grant_request(session, request).await,
 			(http::Method::GET, ["grants"]) => self.list_grants_request(session, request).await,
-			(http::Method::POST, ["grants"]) => self.create_grant_request(session, request).await,
-			(http::Method::DELETE, ["grants"]) => self.delete_grant_request(session, request).await,
+			(http::Method::DELETE, ["grants", grant]) => {
+				self.try_delete_grant_request(session, request, grant).await
+			},
+			(http::Method::GET, ["grants", grant]) => {
+				self.try_get_grant_request(session, request, grant).await
+			},
+			(http::Method::POST, ["revoke"]) => self.revoke_request(session, request).await,
 			(_, _) => Ok(tangram_server_core::http::not_found()),
 		}
 	}
@@ -1352,28 +1836,28 @@ impl Component {
 impl tangram_server_core::component::Lifecycle for Component {}
 
 impl tangram_server_core::grant::Component for Component {
-	fn create_grant_with_transaction<'a>(
+	fn grant_with_transaction<'a>(
 		&'a self,
 		session: &'a Session,
 		transaction: &'a tangram_server_core::database::Transaction<'_>,
-		arg: tg::grant::create::Arg,
+		arg: tg::grant::grant::Arg,
 		batch: &'a mut tangram_index::batch::Arg,
 	) -> BoxFuture<
 		'a,
 		tg::Result<ControlFlow<(tg::grant::Data, bool), tangram_server_core::database::Error>>,
 	> {
-		self.create_grant_with_transaction(session, transaction, arg, batch)
+		self.grant_with_transaction(session, transaction, arg, batch)
 			.boxed()
 	}
 
-	fn delete_grant_with_transaction<'a>(
+	fn revoke_with_transaction<'a>(
 		&'a self,
 		session: &'a Session,
 		transaction: &'a tangram_server_core::database::Transaction<'_>,
-		arg: tg::grant::delete::Arg,
+		arg: tg::grant::revoke::Arg,
 		batch: &'a mut tangram_index::batch::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>>> {
-		self.delete_grant_with_transaction(session, transaction, arg, batch)
+		self.revoke_with_transaction(session, transaction, arg, batch)
 			.boxed()
 	}
 
@@ -1399,20 +1883,20 @@ impl tangram_server_core::grant::Component for Component {
 			.boxed()
 	}
 
-	fn create_grant<'a>(
+	fn grant<'a>(
 		&'a self,
 		session: &'a Session,
-		arg: tg::grant::create::Arg,
-	) -> BoxFuture<'a, tg::Result<tg::grant::create::Output>> {
-		self.create_grant(session, arg).boxed()
+		arg: tg::grant::grant::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::grant::grant::Output>> {
+		self.grant(session, arg).boxed()
 	}
 
-	fn delete_grant<'a>(
+	fn revoke<'a>(
 		&'a self,
 		session: &'a Session,
-		arg: tg::grant::delete::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<()>>> {
-		self.delete_grant(session, arg).boxed()
+		arg: tg::grant::revoke::Arg,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.revoke(session, arg).boxed()
 	}
 
 	fn list_grants<'a>(
@@ -1421,6 +1905,24 @@ impl tangram_server_core::grant::Component for Component {
 		arg: tg::grant::list::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::grant::list::Output>>> {
 		self.list_grants(session, arg).boxed()
+	}
+
+	fn try_delete_grant<'a>(
+		&'a self,
+		session: &'a Session,
+		grant: &'a tg::grant::Id,
+		arg: tg::grant::delete::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_delete_grant(session, grant, arg).boxed()
+	}
+
+	fn try_get_grant<'a>(
+		&'a self,
+		session: &'a Session,
+		grant: &'a tg::grant::Id,
+		arg: tg::grant::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::grant::get::Output>>> {
+		self.try_get_grant(session, grant, arg).boxed()
 	}
 
 	fn request<'a>(
@@ -1435,7 +1937,7 @@ impl tangram_server_core::grant::Component for Component {
 		&'a self,
 		transaction: &'a tangram_server_core::database::Transaction<'_>,
 		resource: &'a tg::Id,
-		after: Option<&'a (String, String)>,
+		after: Option<&'a tg::grant::Id>,
 		limit: Option<u64>,
 	) -> BoxFuture<
 		'a,
@@ -1455,5 +1957,25 @@ impl tangram_server_core::grant::Component for Component {
 		>,
 	> {
 		Self::resolve_subject_with_transaction(transaction, subject).boxed()
+	}
+}
+
+fn item(output: tg::grant::get::Output, expand: bool) -> tg::grant::list::Item {
+	if expand {
+		return tg::Either::Left(output);
+	}
+	let options = tg::referent::Options {
+		location: output.location,
+		..Default::default()
+	};
+	let referent = tg::Referent::new(output.data.id, options);
+	tg::Either::Right(referent)
+}
+
+fn creator_key(creator: &tg::Principal) -> String {
+	if creator.is_root() {
+		String::new()
+	} else {
+		creator.to_string()
 	}
 }
