@@ -558,8 +558,8 @@ mod tests {
 			object: root,
 		};
 		let output = ReadOutput::Ids {
-			after: None,
 			ids: vec![child_key.0],
+			next: None,
 		};
 
 		search.apply(&mut state, read, output).unwrap();
