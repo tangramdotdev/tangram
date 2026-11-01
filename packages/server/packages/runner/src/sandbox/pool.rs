@@ -123,7 +123,7 @@ fn spawn(component: &Component, session: &Session) -> Task<tg::Result<CreateSand
 		move |_| async move {
 			let arg = warm_arg(&session);
 			component
-				.create_sandbox_inner(&session, arg)
+				.create_sandbox_inner(&session, arg, None)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to warm a sandbox"))
 		}

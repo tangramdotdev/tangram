@@ -462,6 +462,15 @@ pub struct StopServerResponseOutput {}
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
+	/// The boot of the sandbox that opens the connection.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_default")]
+	#[tangram_serialize(
+		default,
+		id = 8,
+		skip_serializing_if = "tangram_util::serde::is_default"
+	)]
+	pub boot: u64,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub create: Option<tg::sandbox::create::Arg>,

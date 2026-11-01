@@ -737,6 +737,33 @@ impl SchedulerState {
 		completions
 	}
 
+	pub(super) fn discard_pinned_sandboxes(
+		&mut self,
+		runner: &tg::runner::Id,
+	) -> Vec<DiscardedSandbox> {
+		let ids = self
+			.sandboxes
+			.entries
+			.iter()
+			.filter(|(_, sandbox)| {
+				matches!(sandbox.state, SandboxState::Pending)
+					&& sandbox.request.runner.as_ref() == Some(runner)
+			})
+			.map(|(id, _)| id.clone())
+			.collect::<Vec<_>>();
+		let mut discarded = Vec::new();
+		for id in ids {
+			self.remove_queued_sandbox(&id);
+			self.sandboxes.entries.remove(&id);
+			let error = tg::error!(sandbox = %id, %runner, "the sandbox's runner is unavailable");
+			discarded.push(DiscardedSandbox {
+				error: error.to_data_or_id(),
+				sandbox: id,
+			});
+		}
+		discarded
+	}
+
 	pub(super) fn schedule_one(&mut self, scheduler: &Scheduler) {
 		let Some(sandbox) = self.queue.next() else {
 			return;
@@ -776,6 +803,7 @@ impl SchedulerState {
 			if !owner_matches
 				|| !runner.ready
 				|| blocked || !matches_host(runner, &sandbox.request)
+				|| !matches_runner(id, &sandbox.request)
 				|| runner.requests >= scheduler.config.max_create_sandbox_requests_per_runner
 			{
 				continue;
@@ -807,6 +835,9 @@ impl SchedulerState {
 
 	fn borrowed_placement(&self, sandbox: &Sandbox, request_limit: usize) -> Option<Placement> {
 		let (borrowable, runner) = self.borrowable(sandbox)?;
+		if !matches_runner(&borrowable.runner, &sandbox.request) {
+			return None;
+		}
 		if !borrowable.available || runner.requests >= request_limit {
 			return None;
 		}
@@ -843,8 +874,8 @@ impl SchedulerState {
 			|| self
 				.runners
 				.entries
-				.values()
-				.any(|runner| runner.ready && placeable(runner, sandbox))
+				.iter()
+				.any(|(id, runner)| runner.ready && placeable(id, runner, sandbox))
 	}
 
 	fn requeue_sandbox(&mut self, id: &tg::sandbox::Id) {
@@ -1034,6 +1065,7 @@ async fn create_sandbox(
 	let arg = tg::runner::control::ServerRequestArg::CreateSandbox(
 		tg::runner::control::CreateSandboxServerRequestArg {
 			arg: request.arg.clone(),
+			boot: request.boot,
 			borrowed,
 			capacity,
 			creator: request.creator.clone(),
@@ -1126,13 +1158,18 @@ fn matches_host(runner: &Runner, request: &EnqueueSandboxRequestArg) -> bool {
 		.is_none_or(|host| host == &runner.host)
 }
 
-fn placeable(runner: &Runner, sandbox: &Sandbox) -> bool {
+fn matches_runner(id: &tg::runner::Id, request: &EnqueueSandboxRequestArg) -> bool {
+	request.runner.as_ref().is_none_or(|runner| runner == id)
+}
+
+fn placeable(id: &tg::runner::Id, runner: &Runner, sandbox: &Sandbox) -> bool {
 	let owner_matches = runner
 		.owner
 		.as_ref()
 		.is_none_or(|owner| sandbox.owner_ancestors.contains(owner));
 	owner_matches
 		&& matches_host(runner, &sandbox.request)
+		&& matches_runner(id, &sandbox.request)
 		&& runner
 			.capacity
 			.total

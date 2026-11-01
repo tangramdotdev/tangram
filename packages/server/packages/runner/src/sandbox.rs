@@ -59,6 +59,7 @@ struct SpawnSandboxArg {
 struct SandboxTaskArg {
 	allocation: tangram_server_runner_core::capacity::Allocation,
 	arg: tg::sandbox::create::Arg,
+	boot: u64,
 	creator: tg::Principal,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 	id: tg::sandbox::Id,
@@ -71,6 +72,7 @@ struct SandboxTaskArg {
 }
 
 struct GetSandboxControlStreamArg<'a> {
+	boot: u64,
 	create: tg::sandbox::create::Arg,
 	created_at: i64,
 	creator: tg::Principal,
@@ -89,6 +91,7 @@ struct ConnectedSandboxControl {
 
 struct DestroyFailedSandboxArg<'a> {
 	arg: tg::sandbox::create::Arg,
+	boot: u64,
 	connection: ConnectedSandboxControl,
 	created_at: i64,
 	creator: tg::Principal,
@@ -132,10 +135,16 @@ struct RunSandboxTaskArg {
 }
 
 struct RetainSandboxTaskArg {
-	control: control::Control,
+	control: Option<control::Control>,
 	id: tg::sandbox::Id,
 	process_tasks: JoinSet<tg::Result<()>>,
 	stopper: Stopper,
+}
+
+struct Restart {
+	#[cfg(target_os = "linux")]
+	filesystem_project_id: Option<tangram_server_runner_core::project::Id>,
+	path: std::path::PathBuf,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -314,6 +323,7 @@ impl Component {
 		let task_arg = SandboxTaskArg {
 			allocation: arg.allocation,
 			arg: arg.arg,
+			boot: arg.boot,
 			creator: arg.creator,
 			event_sender: event_sender.clone(),
 			id: id.clone(),
@@ -324,6 +334,7 @@ impl Component {
 			stopper: stopper.clone(),
 			token,
 		};
+		let boot = task_arg.boot;
 		let result = if session.server.shutdown.borrow().is_some() {
 			Err(tg::error!("the server is shutting down"))
 		} else {
@@ -332,11 +343,19 @@ impl Component {
 				.await
 				.unwrap_or_else(|_| Err(tg::error!("the sandbox task panicked")))
 		};
+		self.state
+			.booting
+			.remove_if(&id, |_, booting| *booting == boot);
 		let Err(error) = result else {
 			return;
 		};
 		tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox task failed");
 		event_sender.send(Err(error.clone())).ok();
+
+		// Leave a restarted sandbox for its start to report as stopped, because its directory is intact.
+		if boot > 0 {
+			return;
+		}
 
 		// Report the sandbox's destruction through the runner control stream, so that a sandbox that failed without reporting its destruction does not remain started.
 		let arg = tg::runner::control::DestroySandboxClientRequestArg {
@@ -383,6 +402,7 @@ impl Component {
 		let SandboxTaskArg {
 			allocation,
 			arg,
+			boot,
 			creator,
 			event_sender,
 			id,
@@ -424,8 +444,38 @@ impl Component {
 		};
 		let connection_session = session.server.session(&context);
 
-		// Create the sandbox concurrently with its control stream.
-		let create_future = self.create_sandbox_with_pool(session, arg.clone());
+		// Create the sandbox concurrently with its control stream, starting a restarted sandbox on its directory after the previous boot's state is gone.
+		let create_future = if boot > 0 {
+			let component = self.clone();
+			let session = session.clone();
+			let arg = arg.clone();
+			let id = id.clone();
+			async move {
+				session
+					.server
+					.components
+					.runner
+					.state()
+					.sandboxes
+					.wait_settled(&id)
+					.await;
+				let restart = Restart {
+					#[cfg(target_os = "linux")]
+					filesystem_project_id: component
+						.state
+						.stopped_project_ids
+						.remove(&id)
+						.map(|(_, project_id)| project_id),
+					path: Self::sandbox_path(&session, &id),
+				};
+				component
+					.create_sandbox_inner(&session, arg, Some(restart))
+					.await
+			}
+			.boxed()
+		} else {
+			self.create_sandbox_with_pool(session, arg.clone()).boxed()
+		};
 		let created_at = session.server.clock.unix_timestamp();
 		let capacity = session.server.config.runner.sandbox_channel_capacity;
 		let (input, input_receiver) = tokio::sync::mpsc::channel(capacity);
@@ -443,6 +493,7 @@ impl Component {
 			let owner = owner.clone();
 			move |_| async move {
 				let connect_arg = GetSandboxControlStreamArg {
+					boot,
 					create,
 					created_at,
 					creator,
@@ -491,6 +542,7 @@ impl Component {
 				};
 				let arg = DestroyFailedSandboxArg {
 					arg,
+					boot,
 					connection,
 					created_at,
 					creator,
@@ -551,7 +603,7 @@ impl Component {
 
 			authorization_tokens: tg::authorization::Tokens::default(),
 
-			boot: 0,
+			boot,
 
 			capacity,
 
@@ -746,7 +798,7 @@ impl Component {
 
 		tracing::debug!("creating a sandbox after a pool miss");
 
-		self.create_sandbox_inner(session, arg).await
+		self.create_sandbox_inner(session, arg, None).await
 	}
 
 	#[tracing::instrument(
@@ -759,6 +811,7 @@ impl Component {
 		&self,
 		session: &Session,
 		mut arg: tg::sandbox::create::Arg,
+		mut restart: Option<Restart>,
 	) -> tg::Result<CreateSandboxOutput> {
 		let isolation = self.resolve_sandbox_backend(&session.server)?;
 		let mut resources = session
@@ -809,7 +862,7 @@ impl Component {
 			}
 		}
 
-		// Allocate the filesystem project ID.
+		// Allocate the filesystem project ID, reusing the one that a restarted sandbox's directory already has.
 		#[cfg(target_os = "linux")]
 		let filesystem_project_id = match &isolation {
 			backend
@@ -817,16 +870,25 @@ impl Component {
 					&& (resources.max_filesystem_inodes.is_some()
 						|| resources.max_filesystem_size.is_some()) =>
 			{
-				let project_id = self.state.create_filesystem_project_id()?;
+				let project_id = match restart
+					.as_mut()
+					.and_then(|restart| restart.filesystem_project_id.take())
+				{
+					Some(project_id) => project_id,
+					None => self.state.create_filesystem_project_id()?,
+				};
 				resources.filesystem_project_id = Some(project_id.value());
 				Some(project_id)
 			},
 			_ => None,
 		};
 
-		// Create the temp.
+		// Create the temp, or use the directory of a restarted sandbox.
 		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
-		let mut temp = Temp::new(&session.server);
+		let mut temp = match &restart {
+			Some(restart) => Temp::with_path(&session.server, restart.path.clone()),
+			None => Temp::new(&session.server),
+		};
 		#[cfg(target_os = "linux")]
 		if let Some(project_id) = filesystem_project_id {
 			temp.set_filesystem_project_id(project_id);
@@ -1521,6 +1583,36 @@ impl Component {
 				.await
 				.map_err(|error| tg::error!(!error, "the serve task panicked"))?;
 
+			// Remove the directory of a destroyed sandbox in the background.
+			if let Teardown::Destroy = teardown
+				&& let Some(mut temp) = temp.take()
+			{
+				let id = id.clone();
+				tokio::spawn(async move {
+					if let Err(error) = temp.remove().await {
+						tracing::error!(%error, sandbox = %id, "failed to remove the sandbox directory");
+					}
+				});
+			}
+
+			// Keep the directory of a stopped sandbox, so that it can start again on its data.
+			if let Teardown::Stop = teardown
+				&& let Some(temp) = temp.take()
+			{
+				let path = Self::sandbox_path(session, &id);
+				let project_id = temp.persist(&path).await.map_err(
+					|error| tg::error!(!error, %id, "failed to keep the sandbox directory"),
+				)?;
+				#[cfg(target_os = "linux")]
+				if let Some(project_id) = project_id {
+					self.state
+						.stopped_project_ids
+						.insert(id.clone(), project_id);
+				}
+				#[cfg(not(target_os = "linux"))]
+				let _ = project_id;
+			}
+
 			let (data, processes) = {
 				let mut state = session
 					.server
@@ -1545,24 +1637,6 @@ impl Component {
 				)
 			};
 			drop(sandbox);
-
-			// Keep the directory of a stopped sandbox, so that it can start again on its data.
-			if let Teardown::Stop = teardown
-				&& let Some(temp) = temp.take()
-			{
-				let path = Self::sandbox_path(session, &id);
-				let project_id = temp.persist(&path).await.map_err(
-					|error| tg::error!(!error, %id, "failed to keep the sandbox directory"),
-				)?;
-				#[cfg(target_os = "linux")]
-				if let Some(project_id) = project_id {
-					self.state
-						.stopped_project_ids
-						.insert(id.clone(), project_id);
-				}
-				#[cfg(not(target_os = "linux"))]
-				let _ = project_id;
-			}
 
 			// Register the sandbox with its owner before indexing or reporting its stop or destruction.
 			connected.await?;
@@ -1620,6 +1694,11 @@ impl Component {
 		}
 		drop(destroy);
 
+		// Close the control stream of a stopped sandbox, so that the index serves it and its next boot's control stream is the only one.
+		let control = match teardown {
+			Teardown::Destroy => Some(control),
+			Teardown::Stop => None,
+		};
 		let output = RetainSandboxTaskArg {
 			control,
 			id,
@@ -1637,13 +1716,21 @@ impl Component {
 		arg: RetainSandboxTaskArg,
 	) -> tg::Result<()> {
 		let RetainSandboxTaskArg {
-			mut control,
+			control,
 			id,
 			mut process_tasks,
 			stopper,
 		} = arg;
 
 		// Await the process tasks while they retain their state and control streams.
+		let Some(mut control) = control else {
+			while let Some(result) = process_tasks.join_next().await {
+				result
+					.map_err(|error| tg::error!(!error, "a process task panicked"))?
+					.map_err(|error| tg::error!(!error, "a process task failed"))?;
+			}
+			return Ok(());
+		};
 		while !process_tasks.is_empty() {
 			tokio::select! {
 				result = process_tasks.join_next() => {
@@ -1687,6 +1774,7 @@ impl Component {
 	) -> tg::Result<()> {
 		let DestroyFailedSandboxArg {
 			arg,
+			boot,
 			connection,
 			created_at,
 			creator,
@@ -1697,10 +1785,15 @@ impl Component {
 			owner,
 		} = arg;
 
-		// Create the destroyed sandbox's data.
+		// Create the failed sandbox's data, which is stopped rather than destroyed when a restart fails, because its directory is intact.
 		let error = Self::sandbox_error_data(session, error);
+		let status = if boot > 0 {
+			tg::sandbox::Status::Stopped
+		} else {
+			tg::sandbox::Status::Destroyed
+		};
 		let data = tg::sandbox::Data {
-			boot: 0,
+			boot,
 			cpu: arg.cpu,
 			creator,
 			error: Some(error),
@@ -1710,7 +1803,7 @@ impl Component {
 			mounts: arg.mounts,
 			network: arg.network,
 			owner,
-			status: tg::sandbox::Status::Destroyed,
+			status,
 			storage: arg.storage,
 			ttl: arg.ttl,
 			usage: None,
@@ -1737,11 +1830,15 @@ impl Component {
 		let mut control = control::Control::new(control, local);
 		let sender = control.sender();
 
-		// Index and report the destruction while answering the server's requests.
+		// Index and report the failure while answering the server's requests.
 		let destroy = async {
 			self.index_remote_sandbox(&session, id, location, created_at, Some(&data), Some(&[]))
 				.await?;
-			Self::request_sandbox_destroy(&sender, id, data.clone(), Vec::new()).await?;
+			if status.is_stopped() {
+				Self::request_sandbox_stop(&sender, id, data.clone(), Vec::new()).await?;
+			} else {
+				Self::request_sandbox_destroy(&sender, id, data.clone(), Vec::new()).await?;
+			}
 			Ok::<_, tg::Error>(())
 		};
 		let mut destroy = pin!(destroy);
@@ -1907,6 +2004,7 @@ impl Component {
 		arg: GetSandboxControlStreamArg<'_>,
 	) -> tg::Result<ConnectedSandboxControl> {
 		let GetSandboxControlStreamArg {
+			boot,
 			create,
 			created_at,
 			creator,
@@ -1924,6 +2022,7 @@ impl Component {
 			.id()
 			.ok_or_else(|| tg::error!("missing the runner id"))?;
 		let arg = tg::sandbox::control::Arg {
+			boot,
 			create: Some(create),
 			created_at: Some(created_at),
 			creator,

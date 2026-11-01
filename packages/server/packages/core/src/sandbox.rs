@@ -54,6 +54,13 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::sandbox::stop::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
 
+	fn try_start_sandbox<'a>(
+		&'a self,
+		session: &'a Session,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::start::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
+
 	fn try_get_sandbox_status_stream<'a>(
 		&'a self,
 		session: &'a Session,
