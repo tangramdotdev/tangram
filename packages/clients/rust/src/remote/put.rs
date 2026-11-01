@@ -16,9 +16,13 @@ pub struct Arg {
 }
 
 impl tg::Session {
-	pub async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
+	pub async fn put_remote(
+		&self,
+		remote: &tg::remote::Selector,
+		arg: tg::remote::put::Arg,
+	) -> tg::Result<()> {
 		let method = http::Method::PUT;
-		let uri = format!("/remotes/{name}");
+		let uri = format!("/remotes/{remote}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

@@ -15,11 +15,11 @@ failure $output "An unauthenticated request should not be able to manage remotes
 snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to put the remote
-	   name = default
+	   remote = default
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to put the remote
-	   name = default
+	   remote = default
 	-> unauthenticated
 
 '

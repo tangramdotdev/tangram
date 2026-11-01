@@ -9,7 +9,7 @@ failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to delete the remote
-	   name = nonexistent
+	   remote = nonexistent
 	-> failed to find the remote
 
 '

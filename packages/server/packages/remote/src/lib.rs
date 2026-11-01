@@ -45,15 +45,15 @@ impl Component {
 		let path = request.uri().path().to_owned();
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		match (method, path_components.as_slice()) {
-			(http::Method::DELETE, ["remotes", name]) => {
-				self.delete_remote_request(session, request, name).await
+			(http::Method::DELETE, ["remotes", remote]) => {
+				self.delete_remote_request(session, request, remote).await
 			},
 			(http::Method::GET, ["remotes"]) => self.list_remotes_request(session, request).await,
-			(http::Method::GET, ["remotes", name]) => {
-				self.try_get_remote_request(session, request, name).await
+			(http::Method::GET, ["remotes", remote]) => {
+				self.try_get_remote_request(session, request, remote).await
 			},
-			(http::Method::PUT, ["remotes", name]) => {
-				self.put_remote_request(session, request, name).await
+			(http::Method::PUT, ["remotes", remote]) => {
+				self.put_remote_request(session, request, remote).await
 			},
 			(_, _) => Ok(tangram_server_core::http::not_found()),
 		}
@@ -95,28 +95,28 @@ impl tangram_server_core::remote::Component for Component {
 	fn put_remote<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::put::Arg,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.put_remote(session, name, arg).boxed()
+		self.put_remote(session, remote, arg).boxed()
 	}
 
 	fn try_get_remote<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::remote::get::Output>>> {
-		self.try_get_remote(session, name, arg).boxed()
+		self.try_get_remote(session, remote, arg).boxed()
 	}
 
 	fn try_delete_remote<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
-		self.try_delete_remote(session, name, arg).boxed()
+		self.try_delete_remote(session, remote, arg).boxed()
 	}
 
 	fn verify_request_can_mutate_remotes(
@@ -197,4 +197,21 @@ impl tangram_server_core::remote::Component for Component {
 	) -> BoxFuture<'a, tg::Result<http::Response<BoxBody>>> {
 		self.request(session, request).boxed()
 	}
+}
+
+fn selector_column(remote: &tg::remote::Selector) -> &'static str {
+	match remote {
+		tg::remote::Selector::Id(_) => "id",
+		tg::remote::Selector::Name(_) => "name",
+	}
+}
+
+fn validate_name(name: &str) -> tg::Result<()> {
+	if name.is_empty() {
+		return Err(tg::error!(argument, "the remote name must not be empty"));
+	}
+	if name.parse::<tg::remote::Id>().is_ok() {
+		return Err(tg::error!(argument, %name, "the remote name must not be a remote ID"));
+	}
+	Ok(())
 }

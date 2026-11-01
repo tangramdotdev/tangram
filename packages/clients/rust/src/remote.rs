@@ -1,6 +1,8 @@
 mod data;
+mod id;
+mod selector;
 
-pub use self::data::Data;
+pub use self::{data::Data, id::Id, selector::Selector};
 
 pub mod cache;
 pub mod delete;

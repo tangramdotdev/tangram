@@ -10,25 +10,25 @@ impl tg::instance::Remote for Instance {
 
 	fn try_get_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::remote::get::Output>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_remote(name, arg)) }
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_remote(remote, arg)) }
 	}
 
 	fn put_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_remote(name, arg)) }
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_remote(remote, arg)) }
 	}
 
 	fn try_delete_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::delete::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_delete_remote(name, arg)) }
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_delete_remote(remote, arg)) }
 	}
 }
