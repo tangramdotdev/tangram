@@ -79,7 +79,7 @@ enum Command {
 
 	Get(tangram_cli_get::Args),
 
-	Grant(tangram_cli_grants::create::Args),
+	Grant(tangram_cli_grants::grant::Args),
 
 	Grants(tangram_cli_grants::Args),
 
@@ -143,7 +143,7 @@ enum Command {
 
 	Remote(tangram_cli_remote::Args),
 
-	Revoke(tangram_cli_grants::delete::Args),
+	Revoke(tangram_cli_grants::revoke::Args),
 
 	#[cfg(any(feature = "quickjs", feature = "v8"))]
 	Repl(tangram_cli_repl::Args),
@@ -477,7 +477,7 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 		Command::Get(args) => tangram_cli_get::run(cli, args).boxed_local().await,
 
 		Command::Grant(args) => {
-			tangram_cli_grants::create::run(cli, args)
+			tangram_cli_grants::grant::run(cli, args)
 				.boxed_local()
 				.await
 		},
@@ -549,7 +549,7 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 		Command::Remote(args) => tangram_cli_remote::run(cli, args).boxed_local().await,
 
 		Command::Revoke(args) => {
-			tangram_cli_grants::delete::run(cli, args)
+			tangram_cli_grants::revoke::run(cli, args)
 				.boxed_local()
 				.await
 		},

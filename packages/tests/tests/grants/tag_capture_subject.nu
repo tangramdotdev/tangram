@@ -18,7 +18,7 @@ failure (tg --token $bob.token tag get private | complete) "Bob must not read th
 tg --token $alice.token grant $bob.user.id tag_read $tag.id
 tg --token $root_token index
 success (tg --token $bob.token tag get private | complete) "a grant on a tag must still authorize reading it."
-let grants = tg --token $alice.token grants list --resource $tag.id | from json
+let grants = tg --token $alice.token grants list --resource $tag.id --expand | from json | each {|item| $item.data }
 assert ($grants | any {|grant| $grant.subject == $bob.user.id }) "the grant on the tag must be stored."
 
 # Even root cannot create a grant with the tag as its recipient.
@@ -28,7 +28,7 @@ assert ($denied.stderr | str contains 'a tag cannot be a grant subject') "the re
 tg --token $root_token index
 
 # These lists read primary grant records, rather than captured index permissions.
-let received = tg --token $root_token grants list --subject $tag.id | from json
+let received = tg --token $root_token grants list --subject $tag.id --expand | from json | each {|item| $item.data }
 assert equal ($received | length) 0
-let grants = tg --token $root_token grants list --resource $target | from json
+let grants = tg --token $root_token grants list --resource $target --expand | from json | each {|item| $item.data }
 assert (not ($grants | any {|grant| $grant.subject == $tag.id })) "the rejected grant must leave no primary record."

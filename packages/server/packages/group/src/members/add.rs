@@ -301,7 +301,8 @@ impl Component {
 			tg::group::Member::Group(id) => tg::authorization::Subject::Group(id.clone()),
 			tg::group::Member::User(id) => tg::authorization::Subject::User(id.clone()),
 		};
-		let arg = tg::grant::create::Arg {
+		let arg = tg::grant::grant::Arg {
+			create: false,
 			permissions: tg::Either::Left(
 				tg::authorization::Permission::Group(
 					tg::authorization::permission::group::Permission::Write,
@@ -315,7 +316,7 @@ impl Component {
 			.server
 			.components
 			.grant
-			.create_grant_with_transaction(session, transaction, arg, batch)
+			.grant_with_transaction(session, transaction, arg, batch)
 			.await?
 		{
 			ControlFlow::Break(_) => (),

@@ -2,14 +2,20 @@ use {
 	crate::prelude::*,
 	serde_with::{DisplayFromStr, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_util::serde::is_false,
 };
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub create: bool,
+
 	pub permissions: tg::Either<tg::authorization::permission::Set, String>,
+
 	#[serde_as(as = "DisplayFromStr")]
 	pub resource: tg::Referent<tg::Selector<tg::Id>>,
+
 	pub subject: tg::authorization::subject::Selector,
 }
 
@@ -19,13 +25,10 @@ pub struct Output {
 }
 
 impl tg::Session {
-	pub async fn create_grant(
-		&self,
-		arg: tg::grant::create::Arg,
-	) -> tg::Result<tg::grant::create::Output> {
+	pub async fn grant(&self, arg: tg::grant::grant::Arg) -> tg::Result<tg::grant::grant::Output> {
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
-			.uri("/grants")
+			.uri("/grant")
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.header(
 				http::header::CONTENT_TYPE,

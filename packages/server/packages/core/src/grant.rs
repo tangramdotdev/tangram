@@ -5,17 +5,31 @@ use {
 
 /// The grant component.
 pub trait Component: crate::component::Lifecycle {
-	fn create_grant<'a>(
+	fn grant<'a>(
 		&'a self,
 		session: &'a Session,
-		arg: tg::grant::create::Arg,
-	) -> BoxFuture<'a, tg::Result<tg::grant::create::Output>>;
+		arg: tg::grant::grant::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::grant::grant::Output>>;
 
-	fn delete_grant<'a>(
+	fn revoke<'a>(
 		&'a self,
 		session: &'a Session,
+		arg: tg::grant::revoke::Arg,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
+	fn try_delete_grant<'a>(
+		&'a self,
+		session: &'a Session,
+		grant: &'a tg::grant::Id,
 		arg: tg::grant::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+
+	fn try_get_grant<'a>(
+		&'a self,
+		session: &'a Session,
+		grant: &'a tg::grant::Id,
+		arg: tg::grant::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::grant::get::Output>>>;
 
 	fn list_grants<'a>(
 		&'a self,
@@ -29,19 +43,19 @@ pub trait Component: crate::component::Lifecycle {
 		request: http::Request<BoxBody>,
 	) -> BoxFuture<'a, tg::Result<http::Response<BoxBody>>>;
 
-	fn create_grant_with_transaction<'a>(
+	fn grant_with_transaction<'a>(
 		&'a self,
 		session: &'a Session,
 		transaction: &'a crate::database::Transaction<'_>,
-		arg: tg::grant::create::Arg,
+		arg: tg::grant::grant::Arg,
 		batch: &'a mut tangram_index::batch::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<(tg::grant::Data, bool), crate::database::Error>>>;
 
-	fn delete_grant_with_transaction<'a>(
+	fn revoke_with_transaction<'a>(
 		&'a self,
 		session: &'a Session,
 		transaction: &'a crate::database::Transaction<'_>,
-		arg: tg::grant::delete::Arg,
+		arg: tg::grant::revoke::Arg,
 		batch: &'a mut tangram_index::batch::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<Option<()>, crate::database::Error>>>;
 
@@ -65,7 +79,7 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		transaction: &'a crate::database::Transaction<'_>,
 		resource: &'a tg::Id,
-		after: Option<&'a (String, String)>,
+		after: Option<&'a tg::grant::Id>,
 		limit: Option<u64>,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<Vec<tg::grant::Data>, crate::database::Error>>>;
 
