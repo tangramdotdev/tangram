@@ -8,7 +8,7 @@ pub struct Kinds {
 }
 
 #[must_use]
-pub fn entry_kind_enabled(entry: &tg::list::Entry, kinds: &Kinds) -> bool {
+pub fn entry_kind_enabled(entry: &tg::list::Item, kinds: &Kinds) -> bool {
 	match entry.kind() {
 		tg::id::Kind::Group => kinds.groups,
 		tg::id::Kind::Organization => kinds.organizations,
@@ -19,15 +19,15 @@ pub fn entry_kind_enabled(entry: &tg::list::Entry, kinds: &Kinds) -> bool {
 }
 
 #[must_use]
-pub fn sort_entries(mut data: Vec<tg::list::Entry>, reverse: bool) -> Vec<tg::list::Entry> {
+pub fn sort_entries(mut data: Vec<tg::list::Item>, reverse: bool) -> Vec<tg::list::Item> {
 	data.sort_by(|a, b| compare_entries(a, b, reverse));
 	data
 }
 
 #[must_use]
 pub fn compare_entries(
-	a: &tg::list::Entry,
-	b: &tg::list::Entry,
+	a: &tg::list::Item,
+	b: &tg::list::Item,
 	reverse: bool,
 ) -> std::cmp::Ordering {
 	let order = tg::list::compare(&a.specifier().to_string(), &b.specifier().to_string());
@@ -41,6 +41,6 @@ pub fn compare_entries(
 }
 
 #[must_use]
-pub fn entry_kind(entry: &tg::list::Entry) -> tg::id::Kind {
+pub fn entry_kind(entry: &tg::list::Item) -> tg::id::Kind {
 	entry.kind()
 }

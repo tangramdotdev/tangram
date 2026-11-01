@@ -1440,7 +1440,7 @@ impl Tree {
 			.data
 			.into_iter()
 			.filter_map(|entry| {
-				let tg::list::Entry {
+				let tg::list::Item {
 					node,
 					parent,
 					specifier,

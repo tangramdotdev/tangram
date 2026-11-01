@@ -547,7 +547,7 @@ impl Component {
 		};
 
 		// Prefetch the first candidate's object.
-		if let Some(target) = output.data.first().and_then(tg::list::Entry::target)
+		if let Some(target) = output.data.first().and_then(tg::list::Item::target)
 			&& let Some(id) = target.node.as_ref().left()
 		{
 			let options = ObjectOptions::from_referent_options(&target.options);
