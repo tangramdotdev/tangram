@@ -6,7 +6,7 @@ use {
 
 pub(crate) type Tasks = tangram_futures::task::Map<
 	Key,
-	tg::Result<Vec<tg::list::Entry>>,
+	tg::Result<Vec<tg::list::Item>>,
 	tg::Session,
 	fnv::FnvBuildHasher,
 >;
@@ -26,7 +26,7 @@ impl Component {
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 		query: Query,
-	) -> tg::Result<Vec<tg::list::Entry>> {
+	) -> tg::Result<Vec<tg::list::Item>> {
 		self.list_remote_inner(session, remote, cached, ttl, query)
 			.await
 	}
@@ -38,7 +38,7 @@ impl Component {
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 		query: Query,
-	) -> tg::Result<Vec<tg::list::Entry>> {
+	) -> tg::Result<Vec<tg::list::Item>> {
 		let client = session
 			.server
 			.components
@@ -167,7 +167,7 @@ impl Component {
 
 	fn set_remote_entry_location(
 		session: &Session,
-		entry: &mut tg::list::Entry,
+		entry: &mut tg::list::Item,
 		remote: &str,
 		trusted: bool,
 	) -> tg::Result<()> {
@@ -206,7 +206,7 @@ impl Component {
 		Ok(())
 	}
 
-	async fn list_remote_task(key: Key, client: tg::Session) -> tg::Result<Vec<tg::list::Entry>> {
+	async fn list_remote_task(key: Key, client: tg::Session) -> tg::Result<Vec<tg::list::Item>> {
 		let Key {
 			principal: _,
 			query,

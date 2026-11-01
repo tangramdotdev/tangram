@@ -78,13 +78,13 @@ fn sort_entries_breaks_version_ties() {
 	}
 }
 
-fn entry(specifier: &str) -> tg::list::Entry {
+fn entry(specifier: &str) -> tg::list::Item {
 	let id = tg::tag::Id::new();
 	let name = specifier.to_owned();
 	let specifier = specifier.parse().unwrap();
 	let target = tg::Either::Left(tg::file::Id::new(name.as_bytes()).into());
 	let target = Some(tg::Referent::with_node(target));
-	tg::list::Entry {
+	tg::list::Item {
 		node: tg::Referent::with_node(id.into()),
 		parent: None,
 		specifier,

@@ -7,7 +7,7 @@ pub mod remote;
 
 pub struct QuerySpecifierEntriesArg<
 	'a,
-	F = Box<dyn FnOnce(Vec<tg::list::Entry>) -> Vec<tg::list::Entry> + Send + 'a>,
+	F = Box<dyn FnOnce(Vec<tg::list::Item>) -> Vec<tg::list::Item> + Send + 'a>,
 > {
 	pub cached: bool,
 	pub filter_local: F,
@@ -23,7 +23,7 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		session: &'a Session,
 		arg: QuerySpecifierEntriesArg<'a>,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Entry>>>;
+	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Item>>>;
 
 	fn list<'a>(
 		&'a self,
@@ -41,10 +41,10 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		session: &'a Session,
 		arg: tg::list::Arg,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Entry>>>;
+	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Item>>>;
 
 	fn list_local_entries<'a>(
 		&'a self,
 		session: &'a Session,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Entry>>>;
+	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Item>>>;
 }

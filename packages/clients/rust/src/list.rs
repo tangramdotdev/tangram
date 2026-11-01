@@ -60,11 +60,11 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cursor: Option<String>,
 
-	pub data: Vec<Entry>,
+	pub data: Vec<Item>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Entry {
+pub struct Item {
 	pub node: tg::Referent<tg::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -95,7 +95,7 @@ impl Default for Arg {
 	}
 }
 
-impl Entry {
+impl Item {
 	#[must_use]
 	pub fn id(&self) -> &tg::Id {
 		&self.node.node

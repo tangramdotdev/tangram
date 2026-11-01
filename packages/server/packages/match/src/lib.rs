@@ -159,10 +159,7 @@ impl tangram_server_core::match_::Component for Component {
 	}
 }
 
-fn filter_entries(
-	entries: Vec<tg::match_::Entry>,
-	arg: &tg::match_::Arg,
-) -> Vec<tg::match_::Entry> {
+fn filter_entries(entries: Vec<tg::match_::Item>, arg: &tg::match_::Arg) -> Vec<tg::match_::Item> {
 	let kinds = tangram_server_list_common::Kinds {
 		groups: arg.groups,
 		organizations: arg.organizations,

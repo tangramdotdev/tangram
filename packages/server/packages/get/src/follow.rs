@@ -1053,7 +1053,7 @@ impl Component {
 							..Default::default()
 						};
 						let node = tg::Referent::new(data.id.into(), options);
-						let entry = tg::list::Entry {
+						let entry = tg::list::Item {
 							node,
 							parent: data.parent,
 							specifier: data.specifier,
@@ -1109,8 +1109,8 @@ fn list_target_to_id(target: tg::Either<tg::object::Id, tg::process::Id>) -> tg:
 	}
 }
 
-fn named_node_from_entry(entry: tg::list::Entry) -> NamedNode {
-	let tg::list::Entry {
+fn named_node_from_entry(entry: tg::list::Item) -> NamedNode {
+	let tg::list::Item {
 		node,
 		parent: _,
 		specifier,
