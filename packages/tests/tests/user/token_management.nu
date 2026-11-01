@@ -9,14 +9,22 @@ let created = tg --token $alice.token user token create | from json
 assert ($created.id | str starts-with "tok_") "a token should have a token ID"
 assert (($created.token | str length) > 0) "the token secret should be returned on creation"
 
+# Getting a token returns its ID without its secret, and only to its user.
+let got = tg --token $alice.token user token get $created.id | from json
+assert equal $got.id $created.id
+assert not ("token" in ($got | columns)) "getting a token should not return its secret"
+let bob = tg login --verbose --name bob | from json
+failure (tg --token $bob.token user token get $created.id | complete) "another user must not get the token"
+
 let me = tg --token $created.token user whoami | from json
 assert equal $me.id $alice.user.id
 
 let tokens = tg --token $alice.token user token list | from json
-assert ($created.id in $tokens.id) "the created token should be listed"
-assert not ("token" in ($tokens | columns)) "token secrets should not be listed"
+assert ($created.id in $tokens.node) "the created token should be listed"
+let tokens = tg --token $alice.token user token list --expand | from json
+assert not ("token" in ($tokens.data | columns)) "token secrets should not be listed"
 
 tg --token $alice.token user token delete $created.id
 let tokens = tg --token $alice.token user token list | from json
-assert not ($created.id in $tokens.id) "the deleted token should not be listed"
+assert not ($created.id in $tokens.node) "the deleted token should not be listed"
 failure (tg --token $created.token user whoami | complete) "the deleted token should be revoked"

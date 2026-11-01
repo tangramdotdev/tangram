@@ -17,8 +17,9 @@ assert equal ($second.data | length) 2
 assert equal ($third.data | length) 2
 assert equal ($third | get --optional cursor) null
 let expected = $first.data | append $second.data | append $third.data
-assert equal $expected.id ($expected.id | sort | uniq)
-assert not ("token" in ($expected | columns)) "listing should not expose token secrets"
+assert equal $expected.node ($expected.node | sort | uniq)
+let expanded = tg --token $alice.token user token list --all --expand | from json
+assert not ("token" in ($expanded.data | columns)) "listing should not expose token secrets"
 
 let all_output = tg --no-quiet --token $alice.token user token list --all --limit 2 --verbose | complete
 success $all_output
@@ -56,10 +57,10 @@ for cursor in ["!" "bm90IGpzb24" "eyJ2ZXJzaW9uIjoiVjEifQ"] {
 # A cursor cannot bypass the authenticated user's scope.
 let bob = tg login --verbose --name bob | from json
 let bob_tokens = tg --token $bob.token user token list --cursor $first.cursor --all --limit 1 | from json
-assert ($bob_tokens | all {|token| $token.id not-in $expected.id }) "the cursor should not expose another user's tokens"
+assert ($bob_tokens | all {|token| $token.node not-in $expected.node }) "the cursor should not expose another user's tokens"
 
 # Continuation survives deletion of the row that established its position.
-let boundary = $first.data.1.id
+let boundary = $first.data.1.node
 let authentication = $created | where id != $boundary | first | get token
 tg --token $authentication user token delete $boundary
 let remaining = tg --token $authentication user token list --cursor $first.cursor --all --limit 1 --verbose | from json

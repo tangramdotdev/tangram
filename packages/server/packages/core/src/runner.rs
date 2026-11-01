@@ -44,6 +44,13 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::runner::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
+	fn try_get_runner<'a>(
+		&'a self,
+		session: &'a Session,
+		runner: &'a tg::runner::Id,
+		arg: tg::runner::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::runner::get::Output>>>;
+
 	fn try_delete_runner_token<'a>(
 		&'a self,
 		session: &'a Session,
@@ -51,6 +58,14 @@ pub trait Component: crate::component::Lifecycle {
 		token: &'a tg::token::Id,
 		arg: tg::runner::token::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+
+	fn try_get_runner_token<'a>(
+		&'a self,
+		session: &'a Session,
+		runner: &'a tg::runner::Id,
+		token: &'a tg::token::Id,
+		arg: tg::runner::token::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::runner::token::get::Output>>>;
 
 	fn list_runners<'a>(
 		&'a self,
