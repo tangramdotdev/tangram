@@ -107,8 +107,8 @@ async fn bounded(kind: Kind) {
 							.collect();
 						(
 							facts::Output::Delegations {
-								after: Some(vec![next]),
 								delegations,
+								next: Some(vec![next]),
 							},
 							limit,
 						)
@@ -135,7 +135,7 @@ async fn bounded(kind: Kind) {
 							.collect();
 						(
 							facts::Output::Permissions {
-								after: Some(vec![next]),
+								next: Some(vec![next]),
 								permissions,
 							},
 							limit,
@@ -143,15 +143,15 @@ async fn bounded(kind: Kind) {
 					},
 					facts::Request::Delegations { .. } => (
 						facts::Output::Delegations {
-							after: None,
 							delegations: Vec::new(),
+							next: None,
 						},
 						0,
 					),
 					facts::Request::ResourcePermissions { .. }
 					| facts::Request::SubjectPermissions { .. } => (
 						facts::Output::Permissions {
-							after: None,
+							next: None,
 							permissions: Vec::new(),
 						},
 						0,
@@ -160,7 +160,7 @@ async fn bounded(kind: Kind) {
 					facts::Request::Tag { .. } => (facts::Output::Tag(None), 1),
 					facts::Request::TargetTags { .. } => (
 						facts::Output::Tags {
-							after: None,
+							next: None,
 							tags: Vec::new(),
 						},
 						0,
@@ -170,14 +170,14 @@ async fn bounded(kind: Kind) {
 					| facts::Request::ObjectChildren { .. }
 					| facts::Request::ProcessChildren { .. } => (
 						facts::Output::Ids {
-							after: None,
 							ids: Vec::new(),
+							next: None,
 						},
 						0,
 					),
 					facts::Request::ObjectProcesses { .. } => (
 						facts::Output::ObjectProcesses {
-							after: None,
+							next: None,
 							processes: Vec::new(),
 						},
 						0,

@@ -229,26 +229,26 @@ async fn run(batch: &mut Batch, concurrency: usize, interrupt_at: Option<usize>)
 fn answer(request: facts::Request) -> facts::Output {
 	match request {
 		facts::Request::Delegations { .. } => facts::Output::Delegations {
-			after: None,
 			delegations: Vec::new(),
+			next: None,
 		},
 		facts::Request::Id { id } => facts::Output::Id(Some(id)),
 		facts::Request::ObjectParents { .. } => facts::Output::Ids {
-			after: None,
 			ids: Vec::new(),
+			next: None,
 		},
 		facts::Request::ObjectProcesses { .. } => facts::Output::ObjectProcesses {
-			after: None,
+			next: None,
 			processes: Vec::new(),
 		},
 		facts::Request::ResourcePermissions { .. } | facts::Request::SubjectPermissions { .. } => {
 			facts::Output::Permissions {
-				after: None,
+				next: None,
 				permissions: Vec::new(),
 			}
 		},
 		facts::Request::TargetTags { .. } => facts::Output::Tags {
-			after: None,
+			next: None,
 			tags: Vec::new(),
 		},
 		request => panic!("received an unexpected fact request: {request:?}"),

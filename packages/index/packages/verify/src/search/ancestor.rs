@@ -377,7 +377,11 @@ impl Search {
 			} => {
 				let after = match read {
 					DelegationRead::Delegations => {
-						let ReadOutput::Delegations { after, delegations } = output else {
+						let ReadOutput::Delegations {
+							delegations,
+							next: after,
+						} = output
+						else {
 							return Err(tg::error!("expected delegation facts"));
 						};
 						self.fact_budget = self
@@ -820,7 +824,11 @@ impl Search {
 		let mut next = Vec::new();
 		match read {
 			AncestorNodeRead::Delegations { resource, .. } => {
-				let ReadOutput::Delegations { after, delegations } = output else {
+				let ReadOutput::Delegations {
+					delegations,
+					next: after,
+				} = output
+				else {
 					return Err(tg::error!("expected delegation facts"));
 				};
 				pending.facts.delegations.extend(delegations);
