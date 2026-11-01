@@ -36,6 +36,7 @@ fn process_arg(
 		children: None,
 		command: tg::Referent::with_node(tg::Either::Right(command.clone())),
 		created_at: 0,
+		creator: tg::Principal::Root,
 		debug: None,
 		error: None,
 		exit: finished.then_some(0),
@@ -43,6 +44,7 @@ fn process_arg(
 		host: String::new(),
 		log: None,
 		output: None,
+		owner: tg::Principal::Root,
 		retry: false,
 		sandbox: Some(tg::sandbox::Id::new()),
 		started_at: Some(0),
@@ -198,6 +200,7 @@ async fn process_children_are_stored_separately_from_data() {
 		children: Some(expected.clone()),
 		command: tg::Referent::with_node(tg::Either::Right(command.clone())),
 		created_at: 0,
+		creator: tg::Principal::Root,
 		debug: None,
 		error: None,
 		exit: Some(0),
@@ -205,6 +208,7 @@ async fn process_children_are_stored_separately_from_data() {
 		host: String::new(),
 		log: None,
 		output: None,
+		owner: tg::Principal::Root,
 		retry: false,
 		sandbox: Some(tg::sandbox::Id::new()),
 		started_at: Some(0),
@@ -1470,4 +1474,85 @@ async fn sandbox_rejection_preserves_permissions_and_unrelated_writes() {
 		.await
 		.unwrap();
 	assert!(!output[0].permissions.contains(permission));
+}
+
+#[tokio::test]
+async fn sandboxes_are_listed_by_page() {
+	let (_dir, index) = new_index();
+	let creator = tg::Principal::User(tg::user::Id::new());
+
+	// Put three started sandboxes.
+	let mut ids = Vec::new();
+	for _ in 0..3 {
+		let id = tg::sandbox::Id::new();
+		let mut arg = sandbox_arg(id.clone(), tg::sandbox::Status::Started);
+		arg.data.as_mut().unwrap().data.creator = creator.clone();
+		put_sandbox(&index, arg).await.unwrap();
+		ids.push(id);
+	}
+
+	// Verify that the first page lists the first two sandboxes and continues after the second.
+	let arg = tangram_index::sandbox::list::Arg {
+		after: None,
+		limit: 2,
+		principal: creator.clone(),
+		status: Some(tg::sandbox::Status::Started),
+	};
+	let output = index.list_sandboxes_for_creator(arg).await.unwrap();
+	let page = output
+		.data
+		.into_iter()
+		.map(|(id, _)| id)
+		.collect::<Vec<_>>();
+	assert_eq!(page, ids[..2]);
+	let next = output.next.unwrap();
+	assert_eq!(next.sandbox, ids[1]);
+
+	// Verify that the second page lists the last sandbox and does not continue.
+	let arg = tangram_index::sandbox::list::Arg {
+		after: Some(next),
+		limit: 2,
+		principal: creator.clone(),
+		status: Some(tg::sandbox::Status::Started),
+	};
+	let output = index.list_sandboxes_for_creator(arg).await.unwrap();
+	let page = output
+		.data
+		.into_iter()
+		.map(|(id, _)| id)
+		.collect::<Vec<_>>();
+	assert_eq!(page, ids[2..]);
+	assert!(output.next.is_none());
+
+	// Destroy the first sandbox.
+	let mut arg = sandbox_arg(ids[0].clone(), tg::sandbox::Status::Destroyed);
+	arg.data.as_mut().unwrap().data.creator = creator.clone();
+	put_sandbox(&index, arg).await.unwrap();
+
+	// Verify that the destroyed sandbox moved from the started keys to the destroyed keys.
+	let list = |status| tangram_index::sandbox::list::Arg {
+		after: None,
+		limit: 10,
+		principal: creator.clone(),
+		status,
+	};
+	let ids_of = |output: tangram_index::sandbox::list::Output| {
+		output
+			.data
+			.into_iter()
+			.map(|(id, _)| id)
+			.collect::<Vec<_>>()
+	};
+	let output = index
+		.list_sandboxes_for_creator(list(Some(tg::sandbox::Status::Started)))
+		.await
+		.unwrap();
+	assert_eq!(ids_of(output), ids[1..]);
+	let output = index
+		.list_sandboxes_for_creator(list(Some(tg::sandbox::Status::Destroyed)))
+		.await
+		.unwrap();
+	assert_eq!(ids_of(output), ids[..1]);
+	let output = index.list_sandboxes_for_creator(list(None)).await.unwrap();
+	assert_eq!(ids_of(output).len(), 3);
 }

@@ -127,7 +127,7 @@ enum Command {
 	#[command(alias = "pcs")]
 	Process(tangram_cli_process::Args),
 
-	Ps(tangram_cli_sandbox::list::Args),
+	Ps(tangram_cli_process::list::Args),
 
 	Publish(tangram_cli_publish::Args),
 
@@ -531,7 +531,7 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 		Command::Process(args) => tangram_cli_process::run(cli, args).boxed_local().await,
 
 		Command::Ps(args) => {
-			tangram_cli_sandbox::list::run(cli, args)
+			tangram_cli_process::list::run(cli, args)
 				.boxed_local()
 				.await
 		},

@@ -63,6 +63,30 @@ impl Index {
 		}
 	}
 
+	pub async fn list_processes_for_creator(
+		&self,
+		arg: index::process::list::Arg,
+	) -> tg::Result<index::process::list::Output> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.list_processes_for_creator(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.list_processes_for_creator(arg).await,
+		}
+	}
+
+	pub async fn list_processes_for_owner(
+		&self,
+		arg: index::process::list::Arg,
+	) -> tg::Result<index::process::list::Output> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.list_processes_for_owner(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.list_processes_for_owner(arg).await,
+		}
+	}
+
 	pub async fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,
@@ -208,6 +232,20 @@ impl index::process::Index for Index {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tangram_index::process::NodeChildren>> {
 		self.try_get_process_children_and_objects(id).await
+	}
+
+	async fn list_processes_for_creator(
+		&self,
+		arg: index::process::list::Arg,
+	) -> tg::Result<index::process::list::Output> {
+		self.list_processes_for_creator(arg).await
+	}
+
+	async fn list_processes_for_owner(
+		&self,
+		arg: index::process::list::Arg,
+	) -> tg::Result<index::process::list::Output> {
+		self.list_processes_for_owner(arg).await
 	}
 
 	async fn try_get_cached_processes(

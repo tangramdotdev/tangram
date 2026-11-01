@@ -251,26 +251,52 @@ impl Index {
 			tangram_index::read::Request::GetTransactionId => {
 				tangram_index::read::Response::GetTransactionId(transaction.id() as u64)
 			},
-			tangram_index::read::Request::ListSandboxes => {
-				let output = Self::list_sandboxes_with_transaction(db, subspace, transaction)?;
-				tangram_index::read::Response::ListSandboxes(output)
+			tangram_index::read::Request::ListProcessesForCreator { arg } => {
+				let output = Self::list_processes_for_principal_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&arg,
+					super::Kind::CreatorProcess,
+				)?;
+				tangram_index::read::Response::ListProcesses(output)
 			},
-			tangram_index::read::Request::ListSandboxesForCreator { creator } => {
+			tangram_index::read::Request::ListProcessesForOwner { arg } => {
+				let output = Self::list_processes_for_principal_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&arg,
+					super::Kind::OwnerProcess,
+				)?;
+				tangram_index::read::Response::ListProcesses(output)
+			},
+			tangram_index::read::Request::ListSandboxIds { after, limit } => {
+				let output = Self::list_sandbox_ids_with_transaction(
+					db,
+					subspace,
+					transaction,
+					after.as_ref(),
+					limit,
+				)?;
+				tangram_index::read::Response::ListSandboxIds(output)
+			},
+			tangram_index::read::Request::ListSandboxesForCreator { arg } => {
 				let output = Self::list_sandboxes_for_principal_with_transaction(
 					db,
 					subspace,
 					transaction,
-					&creator,
+					&arg,
 					super::Kind::CreatorSandbox,
 				)?;
 				tangram_index::read::Response::ListSandboxes(output)
 			},
-			tangram_index::read::Request::ListSandboxesForOwner { owner } => {
+			tangram_index::read::Request::ListSandboxesForOwner { arg } => {
 				let output = Self::list_sandboxes_for_principal_with_transaction(
 					db,
 					subspace,
 					transaction,
-					&owner,
+					&arg,
 					super::Kind::OwnerSandbox,
 				)?;
 				tangram_index::read::Response::ListSandboxes(output)

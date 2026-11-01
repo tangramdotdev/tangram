@@ -108,6 +108,28 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		}
 	}
 
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn list_all_processes(
+		&self,
+		mut arg: tg::process::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::list::Output>> + Send {
+		async move {
+			let mut output = self.list_processes(arg.clone()).await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self.list_processes(arg.clone()).await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
+
+	fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::list::Output>> + Send;
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
@@ -361,6 +383,13 @@ impl tg::instance::Process for tg::Client {
 		self.session(&self.context)
 			.try_get_process_availability(id, arg)
 			.await
+	}
+
+	async fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> tg::Result<tg::process::list::Output> {
+		self.session(&self.context).list_processes(arg).await
 	}
 
 	async fn try_get_process(

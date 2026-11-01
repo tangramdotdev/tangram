@@ -45,6 +45,7 @@ pub mod get;
 pub mod handle;
 pub mod id;
 pub mod lease;
+pub mod list;
 pub mod log;
 pub mod metadata;
 pub mod nonce;

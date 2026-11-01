@@ -948,6 +948,16 @@ impl Index {
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
+
+			// Clear the creator and owner keys.
+			if let Some(status) = process.status {
+				for key in
+					crate::process::Key::principals(&process.creator, &process.owner, status, id)
+				{
+					let key = Self::pack(subspace, &crate::Key::Process(key));
+					txn.clear(&key);
+				}
+			}
 		}
 		txn.clear(&key);
 		Self::delete_process_data(txn, subspace, id);

@@ -13,32 +13,60 @@ use {
 
 impl Component {
 	pub(crate) async fn destroy_unfinished_sandboxes(&self, server: &Server) -> tg::Result<()> {
-		let session = server.session(&server.context);
-		let outputs = self
-			.list_sandboxes_local(&session, None, None)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
-		outputs
-			.into_iter()
-			.map(|output| async move {
-				let error = tg::error::Data {
-					code: Some(tg::error::Code::Internal),
-					message: Some("server restarted".to_owned()),
-					..Default::default()
-				};
-				let result = server
-					.components
-					.scheduler
-					.destroy_runner_sandbox(server, &output.id, error)
-					.boxed()
-					.await;
-				if let Err(error) = result {
-					tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<()>()
-			.await;
+		let location = tg::Location::Local(tg::location::Local {
+			region: server.config.region.clone(),
+		});
+		let limit = 1024;
+		let mut after = None;
+		loop {
+			// Get the next page of sandboxes.
+			let ids = server
+				.index
+				.list_sandbox_ids(after.take(), limit)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
+			let sandboxes = server
+				.index
+				.try_get_sandboxes(&ids)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get sandboxes"))?;
+
+			// Destroy the started sandboxes in this location.
+			std::iter::zip(&ids, sandboxes)
+				.filter_map(|(id, sandbox)| {
+					let data = sandbox?.data?;
+					let local = data
+						.location
+						.as_ref()
+						.is_none_or(|sandbox_location| sandbox_location == &location);
+					(data.data.status.is_started() && local).then_some(id.clone())
+				})
+				.map(|id| async move {
+					let error = tg::error::Data {
+						code: Some(tg::error::Code::Internal),
+						message: Some("server restarted".to_owned()),
+						..Default::default()
+					};
+					let result = server
+						.components
+						.scheduler
+						.destroy_runner_sandbox(server, &id, error)
+						.boxed()
+						.await;
+					if let Err(error) = result {
+						tracing::error!(sandbox = %id, error = %error.trace(), "failed to destroy the sandbox");
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.collect::<()>()
+				.await;
+
+			if ids.len() < limit {
+				break;
+			}
+			after = ids.last().cloned();
+		}
+
 		Ok(())
 	}
 

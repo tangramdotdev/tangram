@@ -21,12 +21,21 @@ pub enum Request {
 	},
 
 	GetTransactionId,
-	ListSandboxes,
+	ListProcessesForCreator {
+		arg: crate::process::list::Arg,
+	},
+	ListProcessesForOwner {
+		arg: crate::process::list::Arg,
+	},
+	ListSandboxIds {
+		after: Option<tg::sandbox::Id>,
+		limit: usize,
+	},
 	ListSandboxesForCreator {
-		creator: tg::Principal,
+		arg: crate::sandbox::list::Arg,
 	},
 	ListSandboxesForOwner {
-		owner: tg::Principal,
+		arg: crate::sandbox::list::Arg,
 	},
 	ProcessHasAncestor {
 		ancestor: tg::process::Id,
@@ -123,7 +132,9 @@ pub enum Response {
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSubjectsForPrincipal(Vec<tg::authorization::Subject>),
 	GetTransactionId(u64),
-	ListSandboxes(Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>),
+	ListProcesses(crate::process::list::Output),
+	ListSandboxIds(Vec<tg::sandbox::Id>),
+	ListSandboxes(crate::sandbox::list::Output),
 	ProcessHasAncestor(bool),
 	PermissionCaptureBatch(Vec<crate::permission::capture::Entry>),
 	TryGetAncestors(Option<Vec<tg::Id>>),

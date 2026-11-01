@@ -1,5 +1,6 @@
 use {futures::FutureExt as _, tangram_client::prelude::*};
 
+pub mod list;
 pub mod put;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -22,13 +23,13 @@ pub struct Set {
 pub trait Index {
 	fn list_sandboxes_for_creator(
 		&self,
-		creator: &tg::Principal,
-	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+		arg: crate::sandbox::list::Arg,
+	) -> impl Future<Output = tg::Result<crate::sandbox::list::Output>> + Send;
 
 	fn list_sandboxes_for_owner(
 		&self,
-		owner: &tg::Principal,
-	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+		arg: crate::sandbox::list::Arg,
+	) -> impl Future<Output = tg::Result<crate::sandbox::list::Output>> + Send;
 
 	fn get_runner_sandboxes(
 		&self,
@@ -61,9 +62,11 @@ pub trait Index {
 			})
 	}
 
-	fn list_sandboxes(
+	fn list_sandbox_ids(
 		&self,
-	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+		after: Option<tg::sandbox::Id>,
+		limit: usize,
+	) -> impl Future<Output = tg::Result<Vec<tg::sandbox::Id>>> + Send;
 
 	fn try_get_sandboxes(
 		&self,

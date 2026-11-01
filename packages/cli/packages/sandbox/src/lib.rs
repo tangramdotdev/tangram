@@ -196,6 +196,17 @@ pub fn resource(min: Option<u64>, max: Option<u64>) -> Option<tg::sandbox::Resou
 	Some(tg::sandbox::Resource { max, min })
 }
 
+pub async fn resolve_creator(
+	client: &tg::Client,
+	creator: Option<tg::principal::Selector>,
+) -> tg::Result<Option<tg::Principal>> {
+	let Some(creator) = creator else {
+		return Ok(None);
+	};
+	let creator = resolve_any_owner(client, creator).await?;
+	Ok(Some(creator))
+}
+
 pub async fn resolve_owner(
 	client: &tg::Client,
 	owner: &Owner,

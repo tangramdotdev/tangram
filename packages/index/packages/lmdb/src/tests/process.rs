@@ -38,6 +38,7 @@ fn process_data(status: tg::process::Status, host: String) -> tg::process::Data 
 		children: None,
 		command: tg::Referent::with_node(tg::Either::Right(tg::command::Id::new(b"command"))),
 		created_at: 0,
+		creator: tg::Principal::Root,
 		debug: None,
 		error: None,
 		exit: finished.then_some(0),
@@ -45,6 +46,7 @@ fn process_data(status: tg::process::Status, host: String) -> tg::process::Data 
 		host,
 		log: None,
 		output: None,
+		owner: tg::Principal::Root,
 		retry: false,
 		sandbox: None,
 		started_at: Some(0),
@@ -62,6 +64,20 @@ fn count_process_data_fragments(index: &Index, id: &tg::process::Id) -> usize {
 	let prefix = Index::pack(
 		&index.subspace,
 		&(Kind::ProcessData.to_i32().unwrap(), id_bytes.as_ref()),
+	);
+	index
+		.db
+		.prefix_iter(&transaction, &prefix)
+		.unwrap()
+		.map(Result::unwrap)
+		.count()
+}
+
+fn count_principal_keys(index: &Index, kind: Kind, principal: &tg::Principal) -> usize {
+	let transaction = index.env.read_txn().unwrap();
+	let prefix = Index::pack(
+		&index.subspace,
+		&(kind.to_i32().unwrap(), principal.to_string()),
 	);
 	index
 		.db
@@ -284,4 +300,146 @@ async fn a_finished_process_accepts_only_the_children_that_it_lists() {
 	let subject = tg::authorization::Subject::Process(unlisted.clone());
 	assert_eq!(count_delegations(&index, &subject), 0);
 	assert!(index.try_get_process(&unlisted).await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn processes_are_listed_by_creator_and_owner_and_status() {
+	let (_dir, index) = super::new_index();
+	let id = tg::process::Id::new();
+	let creator = tg::Principal::User(tg::user::Id::new());
+	let owner = tg::Principal::Organization(tg::organization::Id::new());
+	let started = Some(tg::process::Status::Started);
+	let finished = Some(tg::process::Status::Finished);
+
+	// Put a started process.
+	let mut data = process_data(tg::process::Status::Started, String::new());
+	data.creator = creator.clone();
+	data.owner = owner.clone();
+	put_process(&index, process_arg(&id, data.clone())).await;
+
+	// Verify that the process is listed as started by its creator and its owner.
+	let arg = |principal: &tg::Principal, status| tangram_index::process::list::Arg {
+		after: None,
+		limit: 10,
+		principal: principal.clone(),
+		status,
+	};
+	let ids = |output: tangram_index::process::list::Output| {
+		output
+			.data
+			.into_iter()
+			.map(|(id, _, _)| id)
+			.collect::<Vec<_>>()
+	};
+	let output = index
+		.list_processes_for_creator(arg(&creator, started))
+		.await
+		.unwrap();
+	assert_eq!(ids(output), vec![id.clone()]);
+	let output = index
+		.list_processes_for_owner(arg(&owner, started))
+		.await
+		.unwrap();
+	assert_eq!(ids(output), vec![id.clone()]);
+	let output = index
+		.list_processes_for_owner(arg(&owner, finished))
+		.await
+		.unwrap();
+	assert!(output.data.is_empty());
+
+	// Finish the process.
+	let mut data = process_data(tg::process::Status::Finished, String::new());
+	data.creator = creator.clone();
+	data.owner = owner.clone();
+	put_process(&index, process_arg(&id, data)).await;
+
+	// Verify that the process moved from started to finished.
+	let output = index
+		.list_processes_for_creator(arg(&creator, started))
+		.await
+		.unwrap();
+	assert!(output.data.is_empty());
+	let output = index
+		.list_processes_for_creator(arg(&creator, finished))
+		.await
+		.unwrap();
+	assert_eq!(ids(output), vec![id.clone()]);
+	let output = index
+		.list_processes_for_owner(arg(&owner, None))
+		.await
+		.unwrap();
+	assert_eq!(ids(output), vec![id.clone()]);
+	assert_eq!(
+		count_principal_keys(&index, Kind::CreatorProcess, &creator),
+		1
+	);
+	assert_eq!(count_principal_keys(&index, Kind::OwnerProcess, &owner), 1);
+
+	// Clean every process.
+	let arg = tangram_index::clean::Arg {
+		batch_size: 100,
+		max_object_touched_at: i64::MAX,
+		max_process_touched_at: i64::MAX,
+		max_sandbox_touched_at: i64::MAX,
+		now: i64::MAX,
+		partition_end: 1,
+		partition_start: 0,
+	};
+	index.clean(arg).await.unwrap();
+
+	// Verify that the cleaned process has no creator or owner keys.
+	assert_eq!(
+		count_principal_keys(&index, Kind::CreatorProcess, &creator),
+		0
+	);
+	assert_eq!(count_principal_keys(&index, Kind::OwnerProcess, &owner), 0);
+}
+
+#[tokio::test]
+async fn processes_are_listed_by_page() {
+	let (_dir, index) = super::new_index();
+	let creator = tg::Principal::User(tg::user::Id::new());
+
+	// Put three started processes.
+	let mut ids = Vec::new();
+	for _ in 0..3 {
+		let id = tg::process::Id::new();
+		let mut data = process_data(tg::process::Status::Started, String::new());
+		data.creator = creator.clone();
+		put_process(&index, process_arg(&id, data)).await;
+		ids.push(id);
+	}
+
+	// Verify that the first page lists the first two processes and continues after the second.
+	let arg = tangram_index::process::list::Arg {
+		after: None,
+		limit: 2,
+		principal: creator.clone(),
+		status: Some(tg::process::Status::Started),
+	};
+	let output = index.list_processes_for_creator(arg).await.unwrap();
+	let page = output
+		.data
+		.into_iter()
+		.map(|(id, _, _)| id)
+		.collect::<Vec<_>>();
+	assert_eq!(page, ids[..2]);
+	let next = output.next.unwrap();
+	assert_eq!(next.process, ids[1]);
+
+	// Verify that the second page lists the last process and does not continue.
+	let arg = tangram_index::process::list::Arg {
+		after: Some(next),
+		limit: 2,
+		principal: creator.clone(),
+		status: Some(tg::process::Status::Started),
+	};
+	let output = index.list_processes_for_creator(arg).await.unwrap();
+	let page = output
+		.data
+		.into_iter()
+		.map(|(id, _, _)| id)
+		.collect::<Vec<_>>();
+	assert_eq!(page, ids[2..]);
+	assert!(output.next.is_none());
 }

@@ -93,14 +93,14 @@ class SandboxData(TypedDict, total=False):
     id: Required[str]
     status: Required[Literal["created", "started", "destroyed"]]
     cpu: Cpu | None
-    creator: str | None
+    creator: str
     error: ErrorData | str | None
     hostname: str | None
     memory: Resource | None
     storage: Resource | None
     mounts: list[str]
     network: SandboxNetworkData | None
-    owner: str | None
+    owner: str
     ttl: int | float | None
     usage: SandboxUsage | None
 

@@ -1,17 +1,23 @@
 use {
 	crate::Component,
 	futures::future::try_join_all,
-	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_index::prelude::*,
 	tangram_server_core::Session,
 };
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "version")]
 enum Cursor {
-	V0 { position: u64 },
+	V0 {
+		sandbox: tg::sandbox::Id,
+		status: tg::sandbox::Status,
+	},
+}
+
+struct Page {
+	data: Vec<tg::sandbox::get::Output>,
+	next: Option<Cursor>,
 }
 
 impl Component {
@@ -22,173 +28,171 @@ impl Component {
 	) -> tg::Result<tg::sandbox::list::Output> {
 		// Parse the pagination arguments.
 		let limit = session.parse_page_limit(arg.limit)?;
-		let cursor = arg
+		let limit = usize::try_from(limit).unwrap();
+		let after = arg
 			.cursor
 			.as_deref()
 			.map(tangram_server_core::cursor::deserialize::<Cursor>)
 			.transpose()?;
-		let position = cursor.map_or(0, |cursor| match cursor {
-			Cursor::V0 { position } => position,
-		});
 
-		let creator = session.context.principal.clone();
-
-		let mut output = tg::sandbox::list::Output {
-			cursor: None,
-			data: Vec::new(),
-		};
-
+		// List a page of the sandboxes in each location.
+		let mut pages = Vec::new();
 		let locations = session
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-
 		if let Some(local) = &locations.local {
 			if local.current {
-				output.data.extend(
-					self.list_sandboxes_local(session, Some(&creator), arg.owner.as_ref())
-						.await?,
-				);
+				let page = self
+					.list_sandboxes_local(
+						session,
+						arg.creator.as_ref(),
+						arg.owner.as_ref(),
+						arg.status,
+						after.clone(),
+						limit,
+					)
+					.await?;
+				pages.push(page);
 			}
-
-			let region_outputs = self
-				.list_sandboxes_regions(session, &local.regions, arg.owner.as_ref())
+			let region_pages = self
+				.list_sandboxes_regions(session, &local.regions, &arg, limit)
 				.await?;
-			output
-				.data
-				.extend(region_outputs.into_iter().flat_map(|output| output.data));
+			pages.extend(region_pages);
 		}
-
-		let remote_outputs = self
-			.list_sandboxes_remotes(session, &locations.remotes, arg.owner.as_ref())
+		let remote_pages = self
+			.list_sandboxes_remotes(session, &locations.remotes, &arg, limit)
 			.await?;
-		output
-			.data
-			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
+		pages.extend(remote_pages);
 
-		let mut data = output.data;
-		data.sort_by(|a, b| a.id.cmp(&b.id));
+		// Merge the pages up to the earliest position that any location has not listed beyond.
+		let bound = pages
+			.iter()
+			.filter_map(|page| page.next.clone())
+			.min_by_key(Cursor::key);
+		let mut data = pages
+			.into_iter()
+			.flat_map(|page| page.data)
+			.filter(|output| {
+				bound
+					.as_ref()
+					.is_none_or(|bound| output_key(output) <= bound.key())
+			})
+			.collect::<Vec<_>>();
+		data.sort_by_key(output_key);
 
 		// Select the page and create the continuation cursor.
-		let position = usize::try_from(position)
-			.unwrap_or(usize::MAX)
-			.min(data.len());
-		let end = position
-			.saturating_add(usize::try_from(limit).unwrap())
-			.min(data.len());
-		let cursor = if end < data.len() {
-			let cursor = Cursor::V0 {
-				position: u64::try_from(end).unwrap(),
-			};
-			Some(tangram_server_core::cursor::serialize(&cursor)?)
+		let next = if data.len() > limit {
+			data.truncate(limit);
+			data.last().map(|output| Cursor::V0 {
+				sandbox: output.data.id.clone(),
+				status: output.data.status,
+			})
 		} else {
-			None
+			bound
 		};
-		let data = data.drain(position..end).collect();
+		let cursor = next
+			.as_ref()
+			.map(tangram_server_core::cursor::serialize)
+			.transpose()?;
+		let data = data
+			.into_iter()
+			.map(|output| item(output, arg.expand))
+			.collect();
 		let output = tg::sandbox::list::Output { cursor, data };
 
 		Ok(output)
 	}
 
-	pub(crate) async fn list_sandboxes_local(
+	async fn list_sandboxes_local(
 		&self,
 		session: &Session,
 		creator: Option<&tg::Principal>,
 		owner: Option<&tg::Principal>,
-	) -> tg::Result<Vec<tg::sandbox::list::Item>> {
-		let mut sandboxes = if let Some(owner) = owner {
+		status: Option<tg::sandbox::Status>,
+		after: Option<Cursor>,
+		limit: usize,
+	) -> tg::Result<Page> {
+		// List a page of the sandboxes from the index by owner when one is given, and by creator otherwise, where the creator defaults to the session's principal.
+		let after = after.map(|cursor| match cursor {
+			Cursor::V0 { sandbox, status } => {
+				tangram_index::sandbox::list::Position { sandbox, status }
+			},
+		});
+		let output = if let Some(owner) = owner {
+			let arg = tangram_index::sandbox::list::Arg {
+				after,
+				limit,
+				principal: owner.clone(),
+				status,
+			};
 			session
 				.server
 				.index
-				.list_sandboxes_for_owner(owner)
+				.list_sandboxes_for_owner(arg)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %owner, "failed to list the sandboxes for the owner"),
 				)?
-		} else if let Some(creator) = creator {
-			let creator_sandboxes = session
-				.server
-				.index
-				.list_sandboxes_for_creator(creator)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %creator, "failed to list the sandboxes for the creator"),
-				)?;
-			let mut sandboxes = creator_sandboxes.into_iter().collect::<BTreeMap<_, _>>();
-			let subjects = session
-				.server
-				.index
-				.get_subjects_for_principal(creator)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %creator, "failed to get the subjects for the creator"),
-				)?;
-			for owner in subjects
-				.into_iter()
-				.filter_map(|subject| subject.try_to_principal().ok())
-			{
-				let owner_sandboxes = session
-					.server
-					.index
-					.list_sandboxes_for_owner(&owner)
-					.await
-					.map_err(
-						|error| tg::error!(!error, %owner, "failed to list the sandboxes for the owner"),
-					)?;
-				sandboxes.extend(owner_sandboxes);
-			}
-			sandboxes.into_iter().collect()
 		} else {
+			let creator = creator.unwrap_or(&session.context.principal);
+			let arg = tangram_index::sandbox::list::Arg {
+				after,
+				limit,
+				principal: creator.clone(),
+				status,
+			};
 			session
 				.server
 				.index
-				.list_sandboxes()
+				.list_sandboxes_for_creator(arg)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to list the sandboxes"))?
+				.map_err(
+					|error| tg::error!(!error, %creator, "failed to list the sandboxes for the creator"),
+				)?
 		};
-		sandboxes.sort_by(|(id_a, sandbox_a), (id_b, sandbox_b)| {
-			sandbox_a
-				.created_at
-				.cmp(&sandbox_b.created_at)
-				.then_with(|| id_a.cmp(id_b))
+		let next = output.next.map(|position| Cursor::V0 {
+			sandbox: position.sandbox,
+			status: position.status,
 		});
+
+		// Create the outputs for the sandboxes in this location, keeping only the given creator's sandboxes when listing by owner.
 		let location = tg::Location::Local(tg::location::Local {
 			region: session.server.config.region.clone(),
 		});
-		let data = sandboxes
+		let data = output
+			.data
 			.into_iter()
-			.filter_map(|(id, sandbox)| {
+			.filter_map(|(_, sandbox)| {
 				let data = sandbox.data?;
-				if !data.data.status.is_started()
-					|| data
-						.location
-						.as_ref()
-						.is_some_and(|sandbox_location| sandbox_location != &location)
+				if owner.is_some() && creator.is_some_and(|creator| data.data.creator != *creator) {
+					return None;
+				}
+				if data
+					.location
+					.as_ref()
+					.is_some_and(|sandbox_location| sandbox_location != &location)
 				{
 					return None;
 				}
-				Some(tg::sandbox::list::Item {
-					cpu: data.data.cpu,
-					hostname: data.data.hostname,
-					id,
-					memory: data.data.memory,
-					mounts: data.data.mounts,
-					network: data.data.network,
-					owner: data.data.owner,
-					status: data.data.status,
+				let output = tg::sandbox::get::Output {
+					data: data.data,
+					location: Some(location.clone()),
 					tokens: tg::authorization::Tokens::default(),
-					ttl: data.data.ttl,
-				})
+				};
+				Some(output)
 			})
 			.collect::<Vec<_>>();
+
+		// Keep the sandboxes the session may read, and add a read token to each.
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Node,
 		);
 		let authorizations = data
 			.iter()
-			.map(|item| {
+			.map(|output| {
 				(
-					tg::Selector::Id(tg::Id::from(item.id.clone())),
+					tg::Selector::Id(tg::Id::from(output.data.id.clone())),
 					permission.into(),
 				)
 			})
@@ -199,7 +203,7 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to authorize the sandboxes"))?;
 		tangram_server_core::authorization::check_exhaustion(&authorizations)?;
 		let mut authorized = Vec::new();
-		for (mut item, permissions) in std::iter::zip(data, authorizations) {
+		for (mut output, permissions) in std::iter::zip(data, authorizations) {
 			if !permissions.permissions.contains(permission) {
 				continue;
 			}
@@ -207,36 +211,43 @@ impl Component {
 				.server
 				.components
 				.authorization
-				.create_read_token(session, &item.id.clone().into())?
+				.create_read_token(session, &output.data.id.clone().into())?
 			{
-				item.tokens.insert_local_authorization(token);
+				output.tokens.insert_local_authorization(token);
 			}
-			authorized.push(item);
+			authorized.push(output);
 		}
-		Ok(authorized)
+		let page = Page {
+			data: authorized,
+			next,
+		};
+
+		Ok(page)
 	}
 
 	async fn list_sandboxes_regions(
 		&self,
 		session: &Session,
 		regions: &[String],
-		owner: Option<&tg::Principal>,
-	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
-		let outputs = try_join_all(
+		arg: &tg::sandbox::list::Arg,
+		limit: usize,
+	) -> tg::Result<Vec<Page>> {
+		let pages = try_join_all(
 			regions
 				.iter()
-				.map(|region| self.list_sandboxes_region(session, region, owner)),
+				.map(|region| self.list_sandboxes_region(session, region, arg, limit)),
 		)
 		.await?;
-		Ok(outputs)
+		Ok(pages)
 	}
 
 	async fn list_sandboxes_region(
 		&self,
 		session: &Session,
 		region: &str,
-		owner: Option<&tg::Principal>,
-	) -> tg::Result<tg::sandbox::list::Output> {
+		arg: &tg::sandbox::list::Arg,
+		limit: usize,
+	) -> tg::Result<Page> {
 		let client = session.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
@@ -244,45 +255,57 @@ impl Component {
 			region: Some(region.to_owned()),
 		});
 		let arg = tg::sandbox::list::Arg {
-			cursor: None,
-			limit: None,
+			creator: arg.creator.clone(),
+			cursor: arg.cursor.clone(),
+			expand: true,
+			limit: Some(u64::try_from(limit).unwrap()),
 			location: Some(location.clone().into()),
-			owner: owner.cloned(),
+			owner: arg.owner.clone(),
+			status: arg.status,
 		};
-		let mut output = client.list_all_sandboxes(arg).await.map_err(
+		let output = client.list_sandboxes(arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to list the sandboxes"),
 		)?;
-		for item in &mut output.data {
+		let mut page = Page::try_from(output)?;
+		for output in &mut page.data {
 			session
 				.server
 				.components
 				.authorization
-				.update_tokens_and_location(session, &mut item.tokens, None, &location, false)?;
+				.update_tokens_and_location(
+					session,
+					&mut output.tokens,
+					Some(&mut output.location),
+					&location,
+					false,
+				)?;
 		}
-		Ok(output)
+		Ok(page)
 	}
 
 	async fn list_sandboxes_remotes(
 		&self,
 		session: &Session,
 		remotes: &[tangram_server_core::location::Remote],
-		owner: Option<&tg::Principal>,
-	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
-		let outputs = try_join_all(
+		arg: &tg::sandbox::list::Arg,
+		limit: usize,
+	) -> tg::Result<Vec<Page>> {
+		let pages = try_join_all(
 			remotes
 				.iter()
-				.map(|remote| self.list_sandboxes_remote(session, remote, owner)),
+				.map(|remote| self.list_sandboxes_remote(session, remote, arg, limit)),
 		)
 		.await?;
-		Ok(outputs)
+		Ok(pages)
 	}
 
 	async fn list_sandboxes_remote(
 		&self,
 		session: &Session,
 		remote: &tangram_server_core::location::Remote,
-		owner: Option<&tg::Principal>,
-	) -> tg::Result<tg::sandbox::list::Output> {
+		arg: &tg::sandbox::list::Arg,
+		limit: usize,
+	) -> tg::Result<Page> {
 		let client = session
 			.server
 			.components
@@ -294,30 +317,41 @@ impl Component {
 			)?;
 		let trusted = client.trusted();
 		let arg = tg::sandbox::list::Arg {
-			cursor: None,
-			limit: None,
+			creator: arg.creator.clone(),
+			cursor: arg.cursor.clone(),
+			expand: true,
+			limit: Some(u64::try_from(limit).unwrap()),
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			owner: owner.cloned(),
+			owner: arg.owner.clone(),
+			status: arg.status,
 		};
-		let mut output = client.list_all_sandboxes(arg).await.map_err(
+		let output = client.list_sandboxes(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to list the sandboxes"),
 		)?;
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
 			region: None,
 		});
-		for item in &mut output.data {
+		let mut page = Page::try_from(output)?;
+		for output in &mut page.data {
 			session
 				.server
 				.components
 				.authorization
-				.update_tokens_and_location(session, &mut item.tokens, None, &location, trusted)?;
+				.update_tokens_and_location(
+					session,
+					&mut output.tokens,
+					Some(&mut output.location),
+					&location,
+					trusted,
+				)?;
 		}
-		Ok(output)
+
+		Ok(page)
 	}
 
 	pub(crate) async fn list_sandboxes_request(
@@ -362,4 +396,54 @@ impl Component {
 		let response = response.body(body).unwrap();
 		Ok(response)
 	}
+}
+
+impl Cursor {
+	fn key(&self) -> (String, tg::sandbox::Id) {
+		match self {
+			Self::V0 { sandbox, status } => (status.to_string(), sandbox.clone()),
+		}
+	}
+}
+
+impl TryFrom<tg::sandbox::list::Output> for Page {
+	type Error = tg::Error;
+
+	fn try_from(output: tg::sandbox::list::Output) -> tg::Result<Self> {
+		let next = output
+			.cursor
+			.as_deref()
+			.map(tangram_server_core::cursor::deserialize::<Cursor>)
+			.transpose()?;
+		let data = output
+			.data
+			.into_iter()
+			.map(|item| match item {
+				tg::Either::Left(output) => Ok(output),
+				tg::Either::Right(_) => Err(tg::error!("expected an expanded sandbox")),
+			})
+			.collect::<tg::Result<_>>()?;
+		let page = Self { data, next };
+		Ok(page)
+	}
+}
+
+fn output_key(output: &tg::sandbox::get::Output) -> (String, tg::sandbox::Id) {
+	(output.data.status.to_string(), output.data.id.clone())
+}
+
+fn item(output: tg::sandbox::get::Output, expand: bool) -> tg::sandbox::list::Item {
+	if expand {
+		return tg::Either::Left(output);
+	}
+	let options = tg::referent::Options {
+		location: output.location,
+		tokens: output.tokens,
+		..Default::default()
+	};
+	let referent = tg::Referent {
+		node: output.data.id,
+		options,
+	};
+	tg::Either::Right(referent)
 }

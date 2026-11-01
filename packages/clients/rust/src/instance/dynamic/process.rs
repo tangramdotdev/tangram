@@ -167,6 +167,13 @@ impl tg::instance::Process for Instance {
 		}
 	}
 
+	fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::list::Output>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.list_processes(arg)) }
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,

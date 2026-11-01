@@ -7,6 +7,7 @@ pub struct State {
 	pub children: Option<Vec<Child>>,
 	pub command: tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 	pub created_at: i64,
+	pub creator: tg::Principal,
 	pub debug: Option<tg::process::Debug>,
 	pub error: Option<tg::Error>,
 	pub exit: Option<u8>,
@@ -14,6 +15,7 @@ pub struct State {
 	pub host: String,
 	pub log: Option<tg::Blob>,
 	pub output: Option<tg::Value>,
+	pub owner: tg::Principal,
 	pub retry: bool,
 	pub sandbox: Option<tg::sandbox::Id>,
 	pub started_at: Option<i64>,
@@ -88,6 +90,7 @@ impl State {
 			.map(|children| children.iter().map(Child::to_data).collect());
 		let command = self.command.clone();
 		let created_at = self.created_at;
+		let creator = self.creator.clone();
 		let debug = self.debug.clone();
 		let error = self
 			.error
@@ -104,6 +107,7 @@ impl State {
 			.output
 			.as_ref()
 			.map(|output| tg::Referent::with_node(output.to_data()));
+		let owner = self.owner.clone();
 		let retry = self.retry;
 		let sandbox = self.sandbox.clone();
 		let started_at = self.started_at;
@@ -118,6 +122,7 @@ impl State {
 			children,
 			command,
 			created_at,
+			creator,
 			debug,
 			error,
 			exit,
@@ -125,6 +130,7 @@ impl State {
 			host,
 			log,
 			output,
+			owner,
 			retry,
 			sandbox,
 			started_at,
@@ -150,6 +156,7 @@ impl State {
 			.transpose()?;
 		let command = value.command;
 		let created_at = value.created_at;
+		let creator = value.creator;
 		let debug = value.debug;
 		let error = value
 			.error
@@ -182,6 +189,7 @@ impl State {
 				Ok::<_, tg::Error>(value)
 			})
 			.transpose()?;
+		let owner = value.owner;
 		let retry = value.retry;
 		let sandbox = value.sandbox;
 		let started_at = value.started_at;
@@ -196,6 +204,7 @@ impl State {
 			children,
 			command,
 			created_at,
+			creator,
 			debug,
 			error,
 			exit,
@@ -203,6 +212,7 @@ impl State {
 			host,
 			log,
 			output,
+			owner,
 			retry,
 			sandbox,
 			started_at,

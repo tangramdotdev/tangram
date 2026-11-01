@@ -9,6 +9,7 @@ let bob = tg login --verbose --name bob | from json
 let carol = tg login --verbose --name carol | from json
 
 tg --token $alice.token group create team
+let team = tg --token $alice.token group get team | from json
 tg --token $alice.token grant $bob.user.id write team
 let sandbox = tg --token $bob.token sandbox create --no-tokens --group team --no-network | referent node
 
@@ -19,7 +20,7 @@ success (tg --token $carol.token sandbox get $sandbox | complete) "Carol should 
 tg --token $alice.token revoke $carol.user.id write team
 tg --token $alice.token index
 failure (tg --token $carol.token sandbox get $sandbox | complete) "Carol must not get the sandbox after her write grant is revoked"
-let carol_list = tg --token $carol.token sandbox list | from json
-assert ($carol_list | where id == $sandbox | is-empty) "Carol must not see the sandbox after her write grant is revoked"
+let carol_list = tg --token $carol.token sandbox list --owner $team.id | from json
+assert ($carol_list | where node == $sandbox | is-empty) "Carol must not see the sandbox after her write grant is revoked"
 
 tg --token $bob.token sandbox destroy $sandbox
