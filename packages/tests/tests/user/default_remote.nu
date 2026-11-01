@@ -25,9 +25,9 @@ assert equal (tg user usage | from json) $expected_usage
 assert equal (tg usage alice | from json) $expected_usage
 
 let token = tg user token create | from json
-assert ((tg user token list --all | from json | get id) | any { $in == $token.id })
+assert ((tg user token list --all | from json | get node) | any { $in == $token.id })
 tg user token delete $token.id
-assert not ((tg user token list --all | from json | get id) | any { $in == $token.id })
+assert not ((tg user token list --all | from json | get node) | any { $in == $token.id })
 
 let group = tg group create foo | from json
 let organization = tg organization create acme | from json

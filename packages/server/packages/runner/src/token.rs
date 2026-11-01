@@ -2,6 +2,7 @@ use {crate::Component, tangram_client::prelude::*, tangram_server_core::Session}
 
 pub mod create;
 pub mod delete;
+pub mod get;
 pub mod list;
 
 impl Component {

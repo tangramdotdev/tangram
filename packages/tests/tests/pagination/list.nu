@@ -52,8 +52,8 @@ tg --token "root-token" runner create
 check_pages [--token $alice.token runner list]
 check_pages [--token "root-token" runner list --all-owners]
 let first = tg --token "root-token" runner list --all-owners --limit 1 --verbose | from json
-let scoped = tg --token $alice.token runner list --cursor $first.cursor --all | from json
-assert ($scoped | all { $in.owner == $alice.user.id }) "a cursor should preserve owner scoping"
+let scoped = tg --token $alice.token runner list --cursor $first.cursor --all --expand | from json
+assert ($scoped | all { $in.data.owner == $alice.user.id }) "a cursor should preserve owner scoping"
 
 let runner = $runners.0.data.id
 1..3 | each { tg --token $alice.token runner token create $runner } | ignore
