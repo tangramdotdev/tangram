@@ -1716,8 +1716,8 @@ mod tests {
 			object: object(&deep_parent),
 		};
 		let output = ReadOutput::Ids {
-			after: None,
 			ids: vec![deep_child.0],
+			next: None,
 		};
 		search.apply(&mut state, read, output).unwrap();
 		assert!(!search.exhausted);
@@ -1733,8 +1733,8 @@ mod tests {
 			object: object(&shallow_parent),
 		};
 		let output = ReadOutput::Ids {
-			after: None,
 			ids: vec![shallow_child.0],
+			next: None,
 		};
 		search.apply(&mut state, read, output).unwrap();
 		let reads = search.take_reads(&mut state, 1);
@@ -1786,13 +1786,13 @@ mod tests {
 				},
 				Read::ObjectChildren { object, .. } if *object == self::object(&source) => {
 					ReadOutput::Ids {
-						after: None,
 						ids: vec![first.0.clone(), second.0.clone()],
+						next: None,
 					}
 				},
 				Read::ObjectChildren { .. } => ReadOutput::Ids {
-					after: None,
 					ids: Vec::new(),
+					next: None,
 				},
 				_ => panic!("unexpected read"),
 			};

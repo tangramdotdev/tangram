@@ -271,36 +271,36 @@ pub(crate) enum Read {
 
 pub(crate) enum ReadOutput {
 	Delegations {
-		after: Option<Vec<u8>>,
 		delegations: Vec<tangram_index::delegation::put::Arg>,
+		next: Option<Vec<u8>>,
 	},
 
 	Bools(Vec<bool>),
 	Permissions {
-		after: Option<Vec<u8>>,
+		next: Option<Vec<u8>>,
 		permissions: Vec<Permission>,
 	},
 	Group(Option<tangram_index::group::Group>),
 	Ids {
-		after: Option<Vec<u8>>,
 		ids: Vec<tg::Id>,
+		next: Option<Vec<u8>>,
 	},
 	MemberGroups {
-		after: Option<Vec<u8>>,
 		groups: Vec<tg::group::Id>,
+		next: Option<Vec<u8>>,
 	},
 	MemberOrganizations {
-		after: Option<Vec<u8>>,
+		next: Option<Vec<u8>>,
 		organizations: Vec<tg::organization::Id>,
 	},
 	Missing,
 	ObjectProcesses {
-		after: Option<Vec<u8>>,
+		next: Option<Vec<u8>>,
 		processes: Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
 	},
 	Process(Option<tangram_index::process::Process>),
 	ProcessObjects {
-		after: Option<Vec<u8>>,
+		next: Option<Vec<u8>>,
 		objects: Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 	},
 	Resolved(Option<(tg::Id, bool)>),
@@ -476,13 +476,13 @@ impl ReadOutput {
 	}
 
 	fn into_permissions(self) -> tg::Result<(Option<Vec<u8>>, Vec<Permission>)> {
-		let Self::Permissions { after, permissions } = self else {
+		let Self::Permissions { next, permissions } = self else {
 			return Err(tg::error!(
 				"received a non-permission result for a permission read"
 			));
 		};
 
-		Ok((after, permissions))
+		Ok((next, permissions))
 	}
 
 	fn into_group(self) -> tg::Result<Option<tangram_index::group::Group>> {
@@ -494,28 +494,28 @@ impl ReadOutput {
 	}
 
 	fn into_ids(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::Id>)> {
-		let Self::Ids { after, ids } = self else {
+		let Self::Ids { ids, next } = self else {
 			return Err(tg::error!("received a non-ID result for an ID read"));
 		};
 
-		Ok((after, ids))
+		Ok((next, ids))
 	}
 
 	pub(crate) fn into_member_groups(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::group::Id>)> {
-		let Self::MemberGroups { after, groups } = self else {
+		let Self::MemberGroups { groups, next } = self else {
 			return Err(tg::error!(
 				"received a non-group result for a member group read"
 			));
 		};
 
-		Ok((after, groups))
+		Ok((next, groups))
 	}
 
 	pub(crate) fn into_member_organizations(
 		self,
 	) -> tg::Result<(Option<Vec<u8>>, Vec<tg::organization::Id>)> {
 		let Self::MemberOrganizations {
-			after,
+			next,
 			organizations,
 		} = self
 		else {
@@ -524,7 +524,7 @@ impl ReadOutput {
 			));
 		};
 
-		Ok((after, organizations))
+		Ok((next, organizations))
 	}
 
 	fn into_object_processes(
@@ -533,13 +533,13 @@ impl ReadOutput {
 		Option<Vec<u8>>,
 		Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
 	)> {
-		let Self::ObjectProcesses { after, processes } = self else {
+		let Self::ObjectProcesses { next, processes } = self else {
 			return Err(tg::error!(
 				"received a non-process result for an object process read"
 			));
 		};
 
-		Ok((after, processes))
+		Ok((next, processes))
 	}
 
 	pub(crate) fn into_process(self) -> tg::Result<Option<tangram_index::process::Process>> {
@@ -558,13 +558,13 @@ impl ReadOutput {
 		Option<Vec<u8>>,
 		Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 	)> {
-		let Self::ProcessObjects { after, objects } = self else {
+		let Self::ProcessObjects { next, objects } = self else {
 			return Err(tg::error!(
 				"received a non-object result for a process object read"
 			));
 		};
 
-		Ok((after, objects))
+		Ok((next, objects))
 	}
 
 	pub(crate) fn into_resolved(self) -> tg::Result<Option<(tg::Id, bool)>> {
@@ -1621,25 +1621,25 @@ mod tests {
 				read: MemberRead::Groups { .. },
 				..
 			} => ReadOutput::MemberGroups {
-				after: None,
 				groups: Vec::new(),
+				next: None,
 			},
 			Read::Member {
 				read: MemberRead::Organizations { .. },
 				..
 			} => ReadOutput::MemberOrganizations {
-				after: None,
+				next: None,
 				organizations: Vec::new(),
 			},
 			Read::CreatorProcesses { .. }
 			| Read::CreatorSandboxes { .. }
 			| Read::OwnerProcesses { .. }
 			| Read::OwnerSandboxes { .. } => ReadOutput::Ids {
-				after: None,
 				ids: Vec::new(),
+				next: None,
 			},
 			Read::SubjectPermissions { .. } => ReadOutput::Permissions {
-				after: None,
+				next: None,
 				permissions: Vec::new(),
 			},
 			_ => panic!("expected a descendant read"),
@@ -1679,7 +1679,7 @@ mod tests {
 			subject: tg::authorization::Subject::Public,
 		};
 		let output = ReadOutput::Permissions {
-			after: None,
+			next: None,
 			permissions: vec![permission],
 		};
 		search.apply(&mut state, read, output).unwrap();

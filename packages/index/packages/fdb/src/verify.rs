@@ -73,7 +73,7 @@ impl Index {
 					subspace,
 					&(Kind::GroupMember.to_i32().unwrap(), group.as_ref()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -94,7 +94,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::Id { id } => {
 				let mut resolved = crate::propagate!(
@@ -148,7 +148,7 @@ impl Index {
 					subspace,
 					&(Kind::MemberGroup.to_i32().unwrap(), member.as_ref()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -169,7 +169,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::MemberGroups { after, groups }
+				Output::MemberGroups { groups, next }
 			},
 			Request::MemberOrganizations {
 				after,
@@ -181,7 +181,7 @@ impl Index {
 					subspace,
 					&(Kind::MemberOrganization.to_i32().unwrap(), member.as_ref()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -207,7 +207,7 @@ impl Index {
 					.collect::<tg::Result<Vec<_>>>()?;
 
 				Output::MemberOrganizations {
-					after,
+					next,
 					organizations,
 				}
 			},
@@ -239,7 +239,7 @@ impl Index {
 					subspace,
 					&(Kind::ObjectChild.to_i32().unwrap(), object.as_ref()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -260,7 +260,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::ObjectParents {
 				after,
@@ -272,7 +272,7 @@ impl Index {
 					subspace,
 					&(Kind::ChildObject.to_i32().unwrap(), object.as_ref()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -294,7 +294,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::ObjectProcesses {
 				after,
@@ -306,7 +306,7 @@ impl Index {
 					subspace,
 					&(Kind::ObjectProcess.to_i32().unwrap(), object.as_ref()),
 				);
-				let (entries, after) = crate::propagate!(
+				let (entries, next) = crate::propagate!(
 					Self::get_verification_entry_page_with_transaction(
 						txn,
 						subspace,
@@ -330,7 +330,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::ObjectProcesses { after, processes }
+				Output::ObjectProcesses { next, processes }
 			},
 			Request::OrganizationMembers {
 				after,
@@ -345,7 +345,7 @@ impl Index {
 						organization.as_ref(),
 					),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -370,7 +370,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::CreatorProcesses {
 				after,
@@ -381,7 +381,7 @@ impl Index {
 					subspace,
 					&(Kind::CreatorProcess.to_i32().unwrap(), creator.to_string()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -403,7 +403,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::CreatorSandboxes {
 				after,
@@ -414,7 +414,7 @@ impl Index {
 					subspace,
 					&(Kind::CreatorSandbox.to_i32().unwrap(), creator.to_string()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -436,7 +436,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::OwnerProcesses {
 				after,
@@ -447,7 +447,7 @@ impl Index {
 					subspace,
 					&(Kind::OwnerProcess.to_i32().unwrap(), owner.to_string()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -469,7 +469,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::OwnerSandboxes {
 				after,
@@ -480,7 +480,7 @@ impl Index {
 					subspace,
 					&(Kind::OwnerSandbox.to_i32().unwrap(), owner.to_string()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -502,7 +502,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::Process { process } => {
 				let process = crate::propagate!(
@@ -532,7 +532,7 @@ impl Index {
 					subspace,
 					&(Kind::ProcessChild.to_i32().unwrap(), process.as_ref()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -554,7 +554,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::ProcessObject { object, process } => {
 				let mut kinds = Vec::new();
@@ -614,7 +614,7 @@ impl Index {
 					subspace,
 					&(Kind::ProcessObject.to_i32().unwrap(), process.as_ref()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -638,7 +638,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::ProcessObjects { after, objects }
+				Output::ProcessObjects { next, objects }
 			},
 			Request::ProcessParents {
 				after,
@@ -650,7 +650,7 @@ impl Index {
 					subspace,
 					&(Kind::ChildProcess.to_i32().unwrap(), process.as_ref()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -672,7 +672,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::Delegations {
 				after,
@@ -686,7 +686,7 @@ impl Index {
 						resource.to_bytes().as_ref(),
 					),
 				);
-				let (entries, after) = crate::propagate!(
+				let (entries, next) = crate::propagate!(
 					Self::get_verification_entry_page_with_transaction(
 						txn,
 						subspace,
@@ -704,7 +704,7 @@ impl Index {
 						})
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
-				Output::Delegations { after, delegations }
+				Output::Delegations { delegations, next }
 			},
 			Request::ResourcePermissions {
 				after,
@@ -719,7 +719,7 @@ impl Index {
 						resource_bytes.as_ref(),
 					),
 				);
-				let (entries, after) = crate::propagate!(
+				let (entries, next) = crate::propagate!(
 					Self::get_verification_entry_page_with_transaction(
 						txn,
 						subspace,
@@ -754,7 +754,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Permissions { after, permissions }
+				Output::Permissions { next, permissions }
 			},
 			Request::SandboxPrincipals { sandbox } => {
 				let principals = crate::propagate!(
@@ -777,7 +777,7 @@ impl Index {
 				limit,
 				subject,
 			} => {
-				let (after, permissions) = crate::propagate!(
+				let (next, permissions) = crate::propagate!(
 					Self::get_verification_subject_permissions_with_transaction(
 						txn,
 						subspace,
@@ -788,7 +788,7 @@ impl Index {
 					.await
 				);
 
-				Output::Permissions { after, permissions }
+				Output::Permissions { next, permissions }
 			},
 
 			Request::Tag { tag } => {
@@ -807,7 +807,7 @@ impl Index {
 					subspace,
 					&(Kind::TargetTag.to_i32().unwrap(), target.as_ref()),
 				);
-				let (keys, after) = crate::propagate!(
+				let (keys, next) = crate::propagate!(
 					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
@@ -828,7 +828,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Tags { after, tags }
+				Output::Tags { next, tags }
 			},
 		};
 
@@ -878,7 +878,7 @@ impl Index {
 		after: Option<&[u8]>,
 		limit: usize,
 	) -> tg::Result<ControlFlow<(Vec<crate::Key>, Option<Vec<u8>>), fdb::FdbError>> {
-		let (entries, after) = crate::propagate!(
+		let (entries, next) = crate::propagate!(
 			Self::get_verification_entry_page_with_transaction(
 				txn, subspace, prefix, after, limit,
 			)
@@ -886,7 +886,7 @@ impl Index {
 		);
 		let keys = entries.into_iter().map(|(key, _)| key).collect();
 
-		Ok(ControlFlow::Break((keys, after)))
+		Ok(ControlFlow::Break((keys, next)))
 	}
 
 	async fn get_verification_entry_page_with_transaction(
@@ -944,7 +944,7 @@ impl Index {
 				subject.to_string(),
 			),
 		);
-		let (entries, after) = crate::propagate!(
+		let (entries, next) = crate::propagate!(
 			Self::get_verification_entry_page_with_transaction(
 				txn, subspace, &prefix, after, limit,
 			)
@@ -975,6 +975,6 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break((after, permissions)))
+		Ok(ControlFlow::Break((next, permissions)))
 	}
 }
