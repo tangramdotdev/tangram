@@ -4,11 +4,12 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*, tangram_uri::Uri};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1)]
-	pub name: String,
-
 	#[arg(long)]
 	pub principal: Option<tg::principal::Selector>,
+
+	/// The remote's ID or name.
+	#[arg(index = 1)]
+	pub remote: tg::remote::Selector,
 
 	#[arg(long)]
 	pub trusted: bool,
@@ -19,7 +20,7 @@ pub struct Args {
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
-	let name = args.name;
+	let remote = args.remote;
 	let trusted = args.trusted;
 	let url = args.url;
 	let arg = tg::remote::put::Arg {
@@ -28,8 +29,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		url,
 	};
 	client
-		.put_remote(&name, arg)
+		.put_remote(&remote, arg)
 		.await
-		.map_err(|error| tg::error!(!error, %name, "failed to put the remote"))?;
+		.map_err(|error| tg::error!(!error, %remote, "failed to put the remote"))?;
 	Ok(())
 }

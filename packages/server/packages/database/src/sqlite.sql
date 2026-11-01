@@ -173,6 +173,7 @@ create table remote_cache (
 );
 
 create table remotes (
+	id text primary key,
 	principal text,
 	name text not null,
 	trusted integer not null default 0,
@@ -181,6 +182,8 @@ create table remotes (
 );
 
 create unique index remotes_principal_name_index on remotes (coalesce(principal, ''), name);
+
+create index remotes_principal_id_index on remotes (coalesce(principal, ''), id);
 
 create table index_queue_batch (
 	next integer not null

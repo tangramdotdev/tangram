@@ -14,21 +14,21 @@ pub trait Component: crate::component::Lifecycle {
 	fn put_remote<'a>(
 		&'a self,
 		session: &'a Session,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::put::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn try_get_remote<'a>(
 		&'a self,
 		session: &'a Session,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::remote::get::Output>>>;
 
 	fn try_delete_remote<'a>(
 		&'a self,
 		session: &'a Session,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 

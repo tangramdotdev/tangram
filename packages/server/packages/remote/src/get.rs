@@ -13,182 +13,148 @@ use {
 };
 
 #[derive(db::row::Deserialize)]
-struct Row {
-	name: String,
-	token: Option<String>,
-	trusted: bool,
+pub(crate) struct Row {
 	#[tangram_database(as = "db::value::FromStr")]
-	url: Uri,
+	pub id: tg::remote::Id,
+
+	pub name: String,
+
+	#[tangram_database(as = "Option<db::value::FromStr>")]
+	pub principal: Option<tg::Principal>,
+
+	pub token: Option<String>,
+
+	pub trusted: bool,
+
+	#[tangram_database(as = "db::value::FromStr")]
+	pub url: Uri,
 }
 
 impl Component {
 	pub(crate) async fn try_get_remote(
 		&self,
 		session: &Session,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::get::Arg,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let mut output = self
-			.try_get_remote_for_principal(session, name, arg.principal)
-			.await?;
-		if matches!(
-			session.context.principal,
-			tg::Principal::Process(_) | tg::Principal::Sandbox(_)
-		) && let Some(output) = &mut output
-		{
-			output.data.token = None;
-		}
+		let output = self
+			.try_get_remote_inner(session, remote, arg.principal)
+			.await?
+			.map(|row| {
+				let data = row.into();
+				tg::remote::get::Output { data }
+			});
 		Ok(output)
 	}
 
-	pub(crate) async fn try_get_remote_for_principal(
+	pub(crate) async fn try_get_remote_inner(
 		&self,
 		session: &Session,
-		name: &str,
+		remote: &tg::remote::Selector,
 		principal: Option<tg::principal::Selector>,
-	) -> tg::Result<Option<tg::remote::get::Output>> {
-		if principal.is_none() && matches!(session.context.principal, tg::Principal::Runner(_)) {
-			return self.try_get_remote_runner(session, name).await;
+	) -> tg::Result<Option<Row>> {
+		// Get only the runner's remote for a caller restricted to it.
+		if principal.is_none() && Self::is_runner_remote_caller(session) {
+			let row = self
+				.try_get_runner_remote(session)
+				.await?
+				.filter(|row| match remote {
+					tg::remote::Selector::Id(id) => row.id == *id,
+					tg::remote::Selector::Name(name) => row.name == *name,
+				});
+			return Ok(row);
 		}
-		if principal.is_none()
-			&& matches!(
-				session.context.principal,
-				tg::Principal::Process(_) | tg::Principal::Sandbox(_)
-			) && session
+
+		// Resolve the principal and get the remote.
+		let Some(principal) = self
+			.try_resolve_remote_selector_principal(session, remote, principal)
+			.await?
+		else {
+			return Ok(None);
+		};
+		let row = self.try_get_remote_row(session, remote, principal).await?;
+
+		Ok(row)
+	}
+
+	pub(crate) fn is_runner_remote_caller(session: &Session) -> bool {
+		// A runner, or a process or sandbox on a runner, may use only the runner's configured remote.
+		match &session.context.principal {
+			tg::Principal::Runner(_) => true,
+			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
+				session
+					.server
+					.config
+					.roles
+					.contains(&tangram_server_core::config::Role::Runner)
+					&& session.server.config.runner.remote.is_some()
+			},
+			_ => false,
+		}
+	}
+
+	pub(crate) async fn try_get_runner_remote(&self, session: &Session) -> tg::Result<Option<Row>> {
+		let runner = session
 			.server
 			.config
 			.roles
-			.contains(&tangram_server_core::config::Role::Runner)
-			.then(|| session.server.config.runner.remote.as_deref())
+			.contains(&tangram_server_core::config::Role::Runner);
+		let Some(name) = runner
+			.then(|| session.server.config.runner.remote.clone())
 			.flatten()
-			.is_some_and(|remote| remote == name)
-		{
-			return self.try_get_remote_runner(session, name).await;
-		}
-		let principal = self
-			.resolve_remote_arg_principal(session, principal.clone())
-			.await?;
-		self.try_get_remote_data_for_principal(session, name, principal.as_ref())
-			.await
+		else {
+			return Ok(None);
+		};
+		let remote = tg::remote::Selector::Name(name);
+		let row = self.try_get_remote_row(session, &remote, None).await?;
+
+		Ok(row)
 	}
 
-	async fn try_get_remote_data_for_principal(
+	async fn try_get_remote_row(
 		&self,
 		session: &Session,
-		name: &str,
-		principal: Option<&tg::Principal>,
-	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let name = name.to_owned();
-		let principal = principal.map(ToString::to_string);
-		let row = session
+		remote: &tg::remote::Selector,
+		principal: Option<tg::Principal>,
+	) -> tg::Result<Option<Row>> {
+		let principal = principal.as_ref().map(ToString::to_string);
+		let remote = remote.clone();
+		session
 			.server
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
-				let name = name.clone();
 				let principal = principal.clone();
+				let remote = remote.clone();
 				async move {
-					Self::try_get_remote_for_principal_with_transaction(
+					Self::try_get_remote_row_with_transaction(
 						transaction,
-						&name,
+						&remote,
 						principal.as_deref(),
 					)
 					.await
 				}
 				.boxed()
 			})
-			.await?;
-		let output = row.map(|row| {
-			let data = tg::remote::Data {
-				name: row.name,
-				token: row.token,
-				trusted: row.trusted,
-				url: row.url,
-			};
-			tg::remote::get::Output { data }
-		});
-		Ok(output)
+			.await
 	}
 
-	async fn try_get_remote_for_principal_with_transaction(
+	async fn try_get_remote_row_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
-		name: &str,
+		remote: &tg::remote::Selector,
 		principal: Option<&str>,
 	) -> tg::Result<ControlFlow<Option<Row>, tangram_server_core::database::Error>> {
 		let p = transaction.p();
+		let column = crate::selector_column(remote);
 		let statement = formatdoc!(
 			r"
-				select name, token, trusted, url
+				select id, name, principal, token, trusted, url
 				from remotes
-				where name = {p}1 and (
-					(principal is null and cast({p}2 as text) is null) or
-					principal = {p}2
-				);
+				where coalesce(principal, '') = {p}1 and {column} = {p}2;
 			",
 		);
+		let params = db::params![principal.unwrap_or_default(), remote.to_string()];
 		let result = transaction
-			.query_optional_into::<Row>(statement.into(), db::params![name, principal])
-			.await;
-		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
-
-		Ok(ControlFlow::Break(row))
-	}
-
-	async fn try_get_remote_runner(
-		&self,
-		session: &Session,
-		name: &str,
-	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let Some(remote) = session
-			.server
-			.config
-			.roles
-			.contains(&tangram_server_core::config::Role::Runner)
-			.then(|| session.server.config.runner.remote.as_deref())
-			.flatten()
-		else {
-			return Ok(None);
-		};
-		let name = name.to_owned();
-		let remote = remote.to_owned();
-		let row = session
-			.server
-			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
-				let name = name.clone();
-				let remote = remote.clone();
-				async move {
-					Self::try_get_remote_runner_with_transaction(transaction, &name, &remote).await
-				}
-				.boxed()
-			})
-			.await?;
-		let output = row.map(|row| {
-			let data = tg::remote::Data {
-				name: row.name,
-				token: row.token,
-				trusted: row.trusted,
-				url: row.url,
-			};
-			tg::remote::get::Output { data }
-		});
-		Ok(output)
-	}
-
-	async fn try_get_remote_runner_with_transaction(
-		transaction: &tangram_server_core::database::Transaction<'_>,
-		name: &str,
-		remote: &str,
-	) -> tg::Result<ControlFlow<Option<Row>, tangram_server_core::database::Error>> {
-		let p = transaction.p();
-		let statement = formatdoc!(
-			r"
-				select name, token, trusted, url
-				from remotes
-				where name = {p}1 and name = {p}2 and principal is null;
-			",
-		);
-		let result = transaction
-			.query_optional_into::<Row>(statement.into(), db::params![name, remote])
+			.query_optional_into::<Row>(statement.into(), params)
 			.await;
 		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
 
@@ -199,7 +165,7 @@ impl Component {
 		&self,
 		session: &Session,
 		request: http::Request<BoxBody>,
-		name: &str,
+		remote: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		session.verify_request_from_host()?;
 
@@ -213,12 +179,15 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
+		let remote = remote
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the remote"))?;
 
 		// Get the remote.
 		let Some(output) = self
-			.try_get_remote(session, name, arg)
+			.try_get_remote(session, &remote, arg)
 			.await
-			.map_err(|error| tg::error!(!error, %name, "failed to get the remote"))?
+			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote"))?
 		else {
 			let response = http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
@@ -250,5 +219,17 @@ impl Component {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+impl From<Row> for tg::remote::Data {
+	fn from(value: Row) -> Self {
+		Self {
+			id: value.id,
+			name: value.name,
+			principal: value.principal.unwrap_or_default(),
+			trusted: value.trusted,
+			url: value.url,
+		}
 	}
 }

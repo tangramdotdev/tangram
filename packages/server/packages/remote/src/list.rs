@@ -7,21 +7,12 @@ use {
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_server_core::Session,
-	tangram_uri::Uri,
 };
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(tag = "version")]
 enum Cursor {
-	V0 { after: String },
-}
-
-#[derive(db::row::Deserialize)]
-struct Row {
-	name: String,
-	trusted: bool,
-	#[tangram_database(as = "db::value::FromStr")]
-	url: Uri,
+	V0 { after: tg::remote::Id },
 }
 
 impl Component {
@@ -41,35 +32,28 @@ impl Component {
 			Cursor::V0 { after } => after,
 		});
 
-		// Resolve the principal and any runner-specific restriction.
-		let remote = session
-			.server
-			.config
-			.roles
-			.contains(&tangram_server_core::config::Role::Runner)
-			.then(|| session.server.config.runner.remote.as_deref())
-			.flatten();
-		let restricted = arg.principal.is_none()
-			&& (matches!(session.context.principal, tg::Principal::Runner(_))
-				|| (matches!(
-					session.context.principal,
-					tg::Principal::Process(_) | tg::Principal::Sandbox(_)
-				) && remote.is_some()));
-		let (principal, name) = if restricted {
-			let Some(remote) = remote else {
-				let output = tg::remote::list::Output {
-					cursor: None,
-					data: Vec::new(),
-				};
-				return Ok(output);
-			};
-			(None, Some(remote.to_owned()))
-		} else {
-			let principal = self
-				.resolve_remote_arg_principal(session, arg.principal)
-				.await?;
-			(principal.map(|principal| principal.to_string()), None)
-		};
+		// List only the runner's configured remote for a caller restricted to it.
+		if arg.principal.is_none() && Self::is_runner_remote_caller(session) {
+			let data = self
+				.try_get_runner_remote(session)
+				.await?
+				.filter(|row| after.as_ref().is_none_or(|after| row.id > *after))
+				.map(|row| {
+					let data = row.into();
+					let output = tg::remote::get::Output { data };
+					item(output, arg.expand)
+				})
+				.into_iter()
+				.collect();
+			let output = tg::remote::list::Output { cursor: None, data };
+			return Ok(output);
+		}
+
+		// Resolve the principal.
+		let principal = self
+			.resolve_remote_arg_principal(session, arg.principal)
+			.await?
+			.map(|principal| principal.to_string());
 
 		// Read an extra row to determine whether another page exists.
 		let mut rows = session
@@ -77,14 +61,12 @@ impl Component {
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let after = after.clone();
-				let name = name.clone();
 				let principal = principal.clone();
 				async move {
 					Self::list_remotes_with_transaction(
 						transaction,
 						principal.as_deref(),
-						name.as_deref(),
-						after.as_deref(),
+						after.as_ref(),
 						limit + 1,
 					)
 					.await
@@ -97,7 +79,7 @@ impl Component {
 		let cursor = if u64::try_from(rows.len()).unwrap() > limit {
 			rows.pop();
 			let cursor = Cursor::V0 {
-				after: rows.last().unwrap().name.clone(),
+				after: rows.last().unwrap().id.clone(),
 			};
 			Some(tangram_server_core::cursor::serialize(&cursor)?)
 		} else {
@@ -107,11 +89,10 @@ impl Component {
 		// Create the output.
 		let data = rows
 			.into_iter()
-			.map(|row| tg::remote::Data {
-				name: row.name,
-				token: None,
-				trusted: row.trusted,
-				url: row.url,
+			.map(|row| {
+				let data = row.into();
+				let output = tg::remote::get::Output { data };
+				item(output, arg.expand)
 			})
 			.collect();
 		let output = tg::remote::list::Output { cursor, data };
@@ -122,29 +103,27 @@ impl Component {
 	async fn list_remotes_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		principal: Option<&str>,
-		name: Option<&str>,
-		after: Option<&str>,
+		after: Option<&tg::remote::Id>,
 		limit: u64,
-	) -> tg::Result<ControlFlow<Vec<Row>, tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<Vec<crate::get::Row>, tangram_server_core::database::Error>> {
 		let p = transaction.p();
-		let comparison = if after.is_some() { ">" } else { ">=" };
+		// The empty string sorts before every remote ID for the first page.
+		let after = after.map(ToString::to_string).unwrap_or_default();
 		let statement = formatdoc!(
 			"
-			select name, trusted, url from remotes
+			select id, name, principal, cast(null as text) as token, trusted, url from remotes
 			where coalesce(principal, '') = {p}1
-				and name {comparison} {p}2
-				and (cast({p}4 as text) is null or name = {p}4)
-			order by name limit {p}3;
+				and id > {p}2
+			order by id limit {p}3;
 		"
 		);
 		let result = transaction
-			.query_all_into::<Row>(
+			.query_all_into::<crate::get::Row>(
 				statement.into(),
 				db::params![
 					principal.unwrap_or_default(),
-					after.unwrap_or_default(),
-					i64::try_from(limit).unwrap(),
-					name
+					after,
+					i64::try_from(limit).unwrap()
 				],
 			)
 			.await;
@@ -202,4 +181,12 @@ impl Component {
 
 		Ok(response)
 	}
+}
+
+fn item(output: tg::remote::get::Output, expand: bool) -> tg::remote::list::Item {
+	if expand {
+		return tg::Either::Left(output);
+	}
+	let referent = tg::Referent::with_node(output.data.id);
+	tg::Either::Right(referent)
 }

@@ -9,6 +9,6 @@ failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the remote
-	   name = nonexistent
+	   remote = nonexistent
 
 '

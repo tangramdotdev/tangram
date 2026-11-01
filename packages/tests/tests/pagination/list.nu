@@ -41,7 +41,7 @@ def check_pages [args: list<string>] {
 
 let local = server spawn --config {
 	authentication: { root: { token: "root-token" }, users: { providers: { insecure: true } } },
-	remotes: { "": { url: "http://localhost:9999" } },
+	remotes: { configured: { url: "http://localhost:9999" } },
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
@@ -78,8 +78,8 @@ for name in [zeta alpha beta] {
 	tg --token "root-token" remote put $name http://localhost:9999
 }
 check_pages [--token "root-token" remote list]
-let remotes = tg --token "root-token" remote list --all | from json
-assert equal $remotes.name ["" alpha beta zeta]
+let remotes = tg --token "root-token" remote list --all --expand | from json
+assert equal $remotes.data.name [configured zeta alpha beta] "remotes should be listed in the order they were created"
 
 let paths = 1..3 | each {
 	let path = artifact { tangram.ts: 'export default () => 42;' }

@@ -186,8 +186,9 @@ impl Component {
 		referent: &tg::Referent<tg::artifact::Id>,
 	) -> tg::Result<Option<i64>> {
 		// Get the configured remote.
+		let remote = tg::remote::Selector::Name("default".to_owned());
 		let remote = session
-			.try_get_remote("default", tg::remote::get::Arg::default())
+			.try_get_remote(&remote, tg::remote::get::Arg::default())
 			.await?;
 		if remote.is_none() {
 			return Ok(None);

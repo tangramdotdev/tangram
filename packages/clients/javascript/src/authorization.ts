@@ -214,6 +214,7 @@ export namespace Authorization {
 			15: "tok",
 			16: "idx",
 			17: "syn",
+			18: "rmt",
 		};
 
 		const resourceKinds: Record<string, string> = {

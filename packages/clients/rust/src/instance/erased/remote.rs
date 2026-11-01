@@ -11,19 +11,19 @@ pub trait Remote: Send + Sync + 'static {
 
 	fn try_get_remote<'a>(
 		&'a self,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::remote::get::Output>>>;
 
 	fn put_remote<'a>(
 		&'a self,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::put::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn try_delete_remote<'a>(
 		&'a self,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 }
@@ -41,25 +41,25 @@ where
 
 	fn try_get_remote<'a>(
 		&'a self,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::remote::get::Output>>> {
-		self.try_get_remote(name, arg).boxed()
+		self.try_get_remote(remote, arg).boxed()
 	}
 
 	fn put_remote<'a>(
 		&'a self,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::put::Arg,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.put_remote(name, arg).boxed()
+		self.put_remote(remote, arg).boxed()
 	}
 
 	fn try_delete_remote<'a>(
 		&'a self,
-		name: &'a str,
+		remote: &'a tg::remote::Selector,
 		arg: tg::remote::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
-		self.try_delete_remote(name, arg).boxed()
+		self.try_delete_remote(remote, arg).boxed()
 	}
 }

@@ -1,11 +1,13 @@
-use tangram_uri::Uri;
+use {crate::prelude::*, tangram_uri::Uri};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
+	pub id: tg::remote::Id,
+
 	pub name: String,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<String>,
+	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
+	pub principal: tg::Principal,
 
 	#[serde(default)]
 	pub trusted: bool,
