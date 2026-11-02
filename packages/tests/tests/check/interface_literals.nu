@@ -4,11 +4,7 @@ use ../../util/test.nu *
 
 let local = server spawn
 let escaped = "single' double\" slash\\ newline\n tab\t unicode λ"
-let cases = [
-	{ type: '"world"', values: [world] }
-	{ type: '"world" | "moon"', values: [world moon] }
-	{ type: ($escaped | to json -r), values: [$escaped] }
-]
+let cases = [[world] [world $escaped]]
 let caller = '
 	# /// script
 	# [tool.tangram.dependencies.echo]
@@ -24,18 +20,19 @@ let caller = '
 	    return [await record(), await scalar()]
 '
 
-for case in $cases {
+for values in $cases {
+	let type = $values | each { to json -r } | str join ' | '
 	let modules = {
-		args.tg.ts: ('export type Arg = { name: TYPE };' | str replace TYPE $case.type)
+		args.tg.ts: ('export type Arg = { name: TYPE };' | str replace TYPE $type)
 		echo.tg.ts: ('
 			import type { Arg } from "./args.tg.ts";
 			export function echo(arg: Arg): Arg { return arg; }
 			export function literal(value: TYPE): TYPE { return value; }
-		' | str replace -a TYPE $case.type)
+		' | str replace -a TYPE $type)
 	}
 
 	# Every allowed literal passes checking and survives a build, including strings that need escaping.
-	for value in $case.values {
+	for value in $values {
 		let source = $caller | str replace -a VALUE ($value | to json -r)
 		let path = artifact ($modules | merge { tangram.py: $source })
 		success (tg check $path | complete)
@@ -54,7 +51,7 @@ for case in $cases {
 
 	# The returned literals retain their types instead of becoming unchecked values.
 	let source = $caller
-		| str replace -a VALUE ($case.values.0 | to json -r)
+		| str replace -a VALUE ($values.0 | to json -r)
 		| str replace -a '-> str:' '-> int:'
 		| str replace 'list[str]' 'list[int]'
 	let path = artifact ($modules | merge { tangram.py: $source })
