@@ -418,6 +418,13 @@ impl Converter<'_> {
 		}
 		let name = qualified_name(declaration, symbol);
 		let output = match name.as_str() {
+			"Args" if self.checker.is_array_type_exported(type_) => {
+				let item = self.checker.get_type_arguments_exported(type_)[0];
+				let item = self.type_(item)?;
+				tg::interface::Type::Array {
+					item: Box::new(item),
+				}
+			},
 			"Artifact" => tg::interface::Type::Artifact,
 			"Blob" => tg::interface::Type::Blob,
 			"Command" => {
@@ -447,6 +454,14 @@ impl Converter<'_> {
 			"Error" => tg::interface::Type::Error,
 			"File" => tg::interface::Type::File,
 			"Graph" => tg::interface::Type::Graph,
+			"MaybeMutation" => self.union(type_.types().to_vec())?,
+			"MaybePromise" | "Unresolved" | "UnresolvedWithoutCommand" => {
+				let argument = type_
+					.alias()
+					.and_then(|alias| alias.type_arguments().first().copied())
+					.ok_or_else(|| self.error(type_))?;
+				self.type_(argument)?
+			},
 			"Module" => tg::interface::Type::Module,
 			"Mutation" => tg::interface::Type::Mutation,
 			"Object" => tg::interface::Type::Object,
@@ -454,6 +469,16 @@ impl Converter<'_> {
 			"Symlink" => tg::interface::Type::Symlink,
 			"Template" => tg::interface::Type::Template,
 			"Value" => tg::interface::Type::Value,
+			_ if type_.flags.get().intersects(TypeFlags::Object)
+				&& self.checker.get_call_signatures(type_).is_empty()
+				&& (type_.object_flags().intersects(ObjectFlags::Mapped)
+					|| !self
+						.checker
+						.get_index_infos_of_type_exported(type_)
+						.is_empty()) =>
+			{
+				self.record(type_)?
+			},
 			_ => return Err(self.error(type_)),
 		};
 		Ok(Some(output))
