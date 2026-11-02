@@ -230,7 +230,7 @@ impl Converter<'_> {
 	}
 
 	fn type_inner(&mut self, type_: P<tsrs_checker::Type>) -> tg::Result<tg::interface::Type> {
-		// Convert the primitive types.
+		// Convert the primitive types, widening open-ended template literal types to strings.
 		let flags = type_.flags.get();
 		if flags.intersects(TypeFlags::Any | TypeFlags::Unknown) {
 			return Ok(tg::interface::Type::Value);
@@ -244,7 +244,7 @@ impl Converter<'_> {
 		if flags.intersects(TypeFlags::Number) {
 			return Ok(tg::interface::Type::Number);
 		}
-		if flags.intersects(TypeFlags::String) {
+		if flags.intersects(TypeFlags::String | TypeFlags::TemplateLiteral) {
 			return Ok(tg::interface::Type::String);
 		}
 		if flags.intersects(
