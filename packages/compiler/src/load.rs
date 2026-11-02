@@ -332,6 +332,7 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		client: client.clone(),
 		definitions,
 		imports,
+		literals: std::cell::RefCell::default(),
 		prefix: prefix.clone(),
 		records: std::cell::RefCell::default(),
 		typing: typing.clone(),
@@ -347,6 +348,9 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		.values()
 		.map(|(_, export)| python::export(export, &names))
 		.collect::<Vec<_>>();
+	for literal in names.literals.borrow().iter() {
+		writeln!(output, "{literal}").unwrap();
+	}
 	for record in names.records.borrow().iter() {
 		writeln!(output, "{record}").unwrap();
 	}
