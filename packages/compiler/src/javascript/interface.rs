@@ -395,6 +395,19 @@ impl Converter<'_> {
 
 	/// Convert a type that the Tangram library declares, or the byte array type.
 	fn library(&mut self, type_: P<tsrs_checker::Type>) -> tg::Result<Option<tg::interface::Type>> {
+		// Preserve a library value when it satisfies the entire intersection.
+		if type_.flags.get().intersects(TypeFlags::Intersection) {
+			let members = type_.types().to_vec();
+			for member in members {
+				if self.checker.is_type_assignable_to_exported(member, type_)
+					&& let Some(output) = self.library(member)?
+				{
+					return Ok(Some(output));
+				}
+			}
+			return Ok(None);
+		}
+
 		let symbol = type_
 			.alias()
 			.and_then(|alias| alias.symbol())
