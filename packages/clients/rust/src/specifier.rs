@@ -4,10 +4,10 @@ pub mod pattern;
 
 pub use self::pattern::Pattern;
 
-/// The byte that separates a specifier's components from the specifier in its key, and that ends a run of letters in a component's key.
+/// The byte that ends a run of letters and a component's text in a component's key.
 const KEY_TERMINATOR: u8 = 0x00;
 
-/// The byte that ends a component's key.
+/// The byte that ends the version encoding of a component's key.
 const KEY_END: u8 = 0x01;
 
 /// The byte that starts a run of letters, which sorts after the end of a component.
@@ -76,18 +76,9 @@ impl Specifier {
 			.as_str()
 	}
 
-	/// Get the key that sorts specifiers component by component, comparing each component as a version, so that a specifier sorts before its descendants and the descendants of each specifier are contiguous.
+	/// Get the key that sorts specifiers component by component, comparing each component as a version, so that a specifier's key is a prefix of its descendants' keys and the descendants of each specifier are contiguous.
 	#[must_use]
 	pub fn key(&self) -> Vec<u8> {
-		let mut key = self.prefix_key();
-		key.push(KEY_TERMINATOR);
-		key.extend_from_slice(self.to_string().as_bytes());
-		key
-	}
-
-	/// Get the key of the specifier's components, which every key of the specifier and its descendants starts with.
-	#[must_use]
-	pub fn prefix_key(&self) -> Vec<u8> {
 		let mut key = Vec::new();
 		for component in &self.0 {
 			component.write_key(&mut key);
@@ -98,10 +89,10 @@ impl Specifier {
 	/// Get the range of the keys of the specifier's descendants, from the inclusive start to the exclusive end.
 	#[must_use]
 	pub fn descendants_key_range(&self) -> (Vec<u8>, Vec<u8>) {
-		let prefix = self.prefix_key();
-		let mut start = prefix.clone();
+		let key = self.key();
+		let mut start = key.clone();
 		start.push(KEY_END);
-		let mut end = prefix;
+		let mut end = key;
 		end.push(KEY_DIGITS + 1);
 		(start, end)
 	}
@@ -121,13 +112,15 @@ impl Component {
 		&self.0
 	}
 
-	/// Write the component's key, which skips punctuation, sorts the end before letters and letters before digits, and sorts runs of digits by their value.
+	/// Write the component's key, which skips punctuation, sorts the end before letters and letters before digits, sorts runs of digits by their value, and ends with the component's text so that components that compare equal as versions have distinct keys.
 	fn write_key(&self, key: &mut Vec<u8>) {
 		let mut chars = self.0.chars().peekable();
 		loop {
 			while chars.next_if(|c| !c.is_ascii_alphanumeric()).is_some() {}
 			let Some(c) = chars.peek().copied() else {
 				key.push(KEY_END);
+				key.extend_from_slice(self.0.as_bytes());
+				key.push(KEY_TERMINATOR);
 				return;
 			};
 			if c.is_ascii_digit() {
@@ -231,8 +224,8 @@ mod tests {
 	// A specifier sorts before its descendants, and the descendants of each specifier are contiguous.
 	#[test]
 	fn key_sorts_specifiers_by_component() {
-		assert_key_order(&["a", "a/c", "a/c/d", "a/d", "ab"]);
-		let a = Specifier::from_str("a").unwrap().prefix_key();
+		assert_key_order(&["a", "a/c", "a/c/d", "a/d", "a-", "a-/c", "ab"]);
+		let a = Specifier::from_str("a").unwrap().key();
 		for descendant in ["a/c", "a/c/d", "a/d"] {
 			let key = Specifier::from_str(descendant).unwrap().key();
 			assert!(
@@ -240,17 +233,21 @@ mod tests {
 				"expected {descendant} to start with the key of a"
 			);
 		}
-		let key = Specifier::from_str("ab").unwrap().key();
-		assert!(
-			!key.starts_with(&a),
-			"expected ab not to start with the key of a"
-		);
+		for other in ["ab", "a-", "a-/c"] {
+			let key = Specifier::from_str(other).unwrap().key();
+			assert!(
+				!key.starts_with(&a),
+				"expected {other} not to start with the key of a"
+			);
+		}
 		let (start, end) = Specifier::from_str("a").unwrap().descendants_key_range();
 		for (specifier, expected) in [
 			("a", false),
 			("a/c", true),
 			("a/c/d", true),
 			("a/d", true),
+			("a-", false),
+			("a-/c", false),
 			("ab", false),
 		] {
 			let key = Specifier::from_str(specifier).unwrap().key();
@@ -268,9 +265,9 @@ mod tests {
 		];
 		for a in components {
 			for b in components {
-				let order = crate::list::compare(a, b);
-				let a_key = Specifier::from_str(a).unwrap().prefix_key();
-				let b_key = Specifier::from_str(b).unwrap().prefix_key();
+				let order = crate::list::compare(a, b).then_with(|| a.cmp(b));
+				let a_key = Specifier::from_str(a).unwrap().key();
+				let b_key = Specifier::from_str(b).unwrap().key();
 				assert_eq!(a_key.cmp(&b_key), order, "{a} and {b}");
 			}
 		}

@@ -33,6 +33,12 @@ tg --url $local.url tag put ab $local_file
 let specifiers = tg --url $local.url list --local --all --recursive | from json | get specifier | where { |specifier| $specifier in [a a/c ab] }
 assert equal $specifiers [a a/c ab]
 
+# A recursive list of a node returns only its subtree, even for a sibling that compares equal as a version.
+tg --url $local.url group create a-
+tg --url $local.url tag put a-/d $local_file
+let specifiers = tg --url $local.url list --local --all --recursive a | from json | get specifier
+assert equal $specifiers [a/c]
+
 # A list across locations pages through each specifier once.
 tg --url $local.url tag put shared $local_file
 tg --url $remote.url tag put shared $remote_file

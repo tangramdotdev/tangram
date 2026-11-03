@@ -973,8 +973,6 @@ pub struct ScyllaCacheSimpleSpeculativeExecution {
 
 #[derive(Clone, Debug)]
 pub struct Pagination {
-	pub database_page_length: u64,
-
 	pub default_limit: u64,
 
 	pub max_limit: u64,
@@ -2910,7 +2908,6 @@ impl Default for Process {
 impl Default for Pagination {
 	fn default() -> Self {
 		Self {
-			database_page_length: 256,
 			default_limit: 100,
 			max_limit: 1000,
 		}

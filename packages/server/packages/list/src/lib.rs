@@ -179,12 +179,7 @@ impl Component {
 		}
 
 		// Read the scope's items in batches, after the key, until one more item than the limit passes the filters or the scope is exhausted.
-		let batch_size = session
-			.server
-			.config
-			.pagination
-			.database_page_length
-			.max(u64::try_from(arg.limit).unwrap() + 1);
+		let batch_size = u64::try_from(arg.limit).unwrap() + 1;
 		let reverse = arg.reverse;
 		let mut after = arg.after.clone();
 		let mut data = Vec::new();
@@ -269,7 +264,7 @@ impl Component {
 		match scope {
 			Scope::All | Scope::Empty => (),
 			Scope::Children(None) => {
-				conditions.push("specifiers.parent is null".to_owned());
+				conditions.push("coalesce(specifiers.parent, '') = ''".to_owned());
 			},
 			Scope::Children(Some(tg::Selector::Id(parent))) => {
 				params.extend(db::params![parent.to_string()]);

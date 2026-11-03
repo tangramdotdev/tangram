@@ -1776,9 +1776,6 @@ fn resolve_spawn(source: Spawn) -> server::Spawn {
 
 fn resolve_pagination(source: Pagination) -> server::Pagination {
 	let mut target = server::Pagination::default();
-	if let Some(value) = source.database_page_length {
-		target.database_page_length = value;
-	}
 	if let Some(value) = source.default_limit {
 		target.default_limit = value;
 	}

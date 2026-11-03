@@ -1732,9 +1732,6 @@ pub struct StdioRelay {
 #[serde(deny_unknown_fields)]
 pub struct Pagination {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub database_page_length: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_limit: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

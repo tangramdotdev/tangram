@@ -263,10 +263,6 @@ impl Config {
 				self.object.queue_recovery_batch_size,
 			),
 			(
-				"pagination database page length",
-				self.pagination.database_page_length,
-			),
-			(
 				"process default children page size",
 				self.process.default_children_page_size,
 			),
