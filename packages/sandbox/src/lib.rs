@@ -73,9 +73,6 @@ pub struct Sandbox(Arc<State>);
 
 pub struct State {
 	#[cfg(target_os = "linux")]
-	_storage: Option<budget::Allocation>,
-
-	#[cfg(target_os = "linux")]
 	accounting: tokio::sync::Mutex<Option<usage::Accounting>>,
 
 	activated: AtomicBool,
@@ -110,6 +107,10 @@ pub struct State {
 	stderr: self::stderr::Stderr,
 
 	stopped: AtomicBool,
+
+	/// The sandbox's share of the runner's storage budget, which a stop releases, because a stopped sandbox does not write to its storage.
+	#[cfg(target_os = "linux")]
+	storage: std::sync::Mutex<Option<budget::Allocation>>,
 }
 
 #[derive(Clone, Debug)]
@@ -320,6 +321,25 @@ pub fn filesystem_project_usage(path: &Path, project: u32) -> tg::Result<u64> {
 	let directory = std::fs::File::open(path)
 		.map_err(|error| tg::error!(!error, "failed to open the filesystem project meter"))?;
 	filesystem::usage(&directory, project)
+}
+
+/// Count the storage of a stopped sandbox's directory at a root path in a storage budget, so that the budget does not grant its space to other sandboxes, and a sandbox that starts again on the directory reuses the count.
+#[cfg(target_os = "linux")]
+pub fn adopt_stopped_storage(
+	pool: &budget::Pool,
+	root_path: &Path,
+	resource: tg::sandbox::Resource<u64>,
+	project: u32,
+) -> tg::Result<()> {
+	let path = Sandbox::host_filesystem_path_from_root(root_path);
+	let control = filesystem::control(&path, project)?;
+	pool.adopt(resource, project, control)
+}
+
+/// Stop counting a stopped sandbox's directory in a storage budget once its data is removed.
+#[cfg(target_os = "linux")]
+pub fn forget_stopped_storage(pool: &budget::Pool, project: u32) {
+	pool.forget(project);
 }
 
 /// Read the filesystem project ID of the sandbox directory at a root path, or `None` when the directory has no project.
@@ -582,9 +602,6 @@ impl Sandbox {
 		// Create the sandbox state.
 		let sandbox = Self(Arc::new(State {
 			#[cfg(target_os = "linux")]
-			_storage: storage,
-
-			#[cfg(target_os = "linux")]
 			accounting: tokio::sync::Mutex::new(None),
 
 			activated: AtomicBool::new(false),
@@ -618,6 +635,9 @@ impl Sandbox {
 			stderr,
 
 			stopped: AtomicBool::new(false),
+
+			#[cfg(target_os = "linux")]
+			storage: std::sync::Mutex::new(storage),
 		}));
 
 		Ok(sandbox)
@@ -926,6 +946,11 @@ impl Sandbox {
 		let _destroy = self.0.destroy.lock().await;
 		self.0.stopped.store(true, Ordering::SeqCst);
 		let output = self.stop_inner().await?;
+
+		// Release the sandbox's share of the storage budget, which keeps counting the directory's data and minimum, so that a sandbox that starts again on the directory reuses it.
+		#[cfg(target_os = "linux")]
+		drop(self.0.storage.lock().unwrap().take());
+
 		Ok(output)
 	}
 
@@ -935,6 +960,13 @@ impl Sandbox {
 		let _destroy = self.0.destroy.lock().await;
 		self.0.stopped.store(true, Ordering::SeqCst);
 		let output = self.stop_inner().await?;
+
+		// Release the sandbox's share of the storage budget without its minimum, so that the budget counts only the data that remains while the storage is removed.
+		#[cfg(target_os = "linux")]
+		if let Some(storage) = self.0.storage.lock().unwrap().take() {
+			storage.discard();
+		}
+
 		#[cfg(target_os = "linux")]
 		if self.0.arg.storage.is_some() {
 			let path = Self::host_filesystem_path_from_root(&self.0.arg.path);
@@ -961,6 +993,7 @@ impl Sandbox {
 				memory: tg::sandbox::ResourceUsage::default(),
 				storage: tg::sandbox::ResourceUsage::default(),
 			});
+
 		let output = Output { usage };
 
 		Ok(output)

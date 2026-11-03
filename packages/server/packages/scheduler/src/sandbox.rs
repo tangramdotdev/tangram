@@ -392,7 +392,14 @@ impl SchedulerState {
 			&scheduler.config.default_capacity,
 			&mut request.arg,
 		);
-		let capacity = tangram_server_sandbox_common::sandbox_capacity(&request.arg);
+
+		// Place a start of a stopped sandbox without its storage, because its runner keeps the storage reserved for the sandbox's directory and acquires it again when the sandbox starts.
+		let mut capacity = tangram_server_sandbox_common::sandbox_capacity(&request.arg);
+		if request.boot > 0 && request.runner.is_some() {
+			capacity.storage = tg::sandbox::Resource::default();
+		}
+
+		// Validate the sandbox's resources.
 		if capacity.cpu.max.is_some_and(|max| max.millis() == 0) {
 			return Err(tg::error!("the sandbox CPU must be greater than zero"));
 		}

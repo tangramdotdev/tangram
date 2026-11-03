@@ -1130,7 +1130,11 @@ impl Component {
 				},
 			};
 
-			let requested = request.capacity;
+			// Acquire the storage of a stopped sandbox that starts again, which the scheduler places without it because this runner keeps it reserved.
+			let mut requested = request.capacity;
+			if request.boot > 0 {
+				requested.storage = request.arg.storage.unwrap_or_default();
+			}
 
 			// Join a start of a boot that this runner is already starting or running, because concurrent starts of a sandbox are not deduplicated before they reach its runner.
 			let state = session.server.components.runner.state();
@@ -1156,7 +1160,22 @@ impl Component {
 				continue;
 			}
 
-			// Decline work if capacity is unavailable.
+			// Reject a request without the sandbox's authentication token.
+			let sandbox = request.sandbox.clone();
+			let Some(token) = request.token else {
+				let message = Self::create_runner_control_response(
+					id.clone(),
+					Err(tg::error!(%sandbox, "missing the sandbox authentication token")),
+				);
+				sender.send(message).await?;
+				continue;
+			};
+
+			// Decline work if capacity is unavailable. A start of a stopped sandbox releases the storage that its directory keeps reserved before it acquires its capacity, and reserves the storage again if the capacity is unavailable.
+			let stopped_storage = (request.boot > 0)
+				.then(|| self.state.stopped_storage.remove(&request.sandbox))
+				.flatten()
+				.map(|(_, storage)| storage.capacity());
 			let allocation = session
 				.server
 				.components
@@ -1167,6 +1186,20 @@ impl Component {
 					request.parent.as_ref(),
 					requested,
 				);
+			if allocation.is_none()
+				&& let Some(capacity) = stopped_storage
+			{
+				match self.state.capacity.try_acquire(capacity) {
+					Some(storage) => {
+						self.state
+							.stopped_storage
+							.insert(request.sandbox.clone(), storage);
+					},
+					None => {
+						tracing::warn!(%sandbox, "failed to reserve the stopped sandbox's storage again");
+					},
+				}
+			}
 			let Some(allocation) = allocation else {
 				let output =
 					tg::runner::control::CreateSandboxClientResponseOutput { created: false };
@@ -1181,15 +1214,6 @@ impl Component {
 			};
 
 			// Spawn the sandbox task.
-			let sandbox = request.sandbox.clone();
-			let Some(token) = request.token else {
-				let message = Self::create_runner_control_response(
-					id.clone(),
-					Err(tg::error!(%sandbox, "missing the sandbox authentication token")),
-				);
-				sender.send(message).await?;
-				continue;
-			};
 			if request.boot > 0 {
 				state.booting.insert(sandbox.clone(), request.boot);
 			}

@@ -152,6 +152,16 @@ impl Pool {
 		self.state.allocations.lock().unwrap().remove(&index);
 		self.state.changed.notify_one();
 	}
+
+	/// Replace an acquisition's capacity with a smaller one in place, so that the rest is available at once and the kept capacity is never available to another sandbox in between.
+	fn shrink(&self, index: u64, capacity: tg::runner::Capacity) {
+		self.state
+			.allocations
+			.lock()
+			.unwrap()
+			.insert(index, capacity);
+		self.state.changed.notify_one();
+	}
 }
 
 impl Reservations {
@@ -231,6 +241,34 @@ impl Allocation {
 	#[must_use]
 	pub fn capacity(&self) -> tg::runner::Capacity {
 		self.capacity
+	}
+
+	/// Keep only this allocation's storage, releasing the rest, for a stopped sandbox whose directory still holds its data. An allocation borrowed from a parent has no capacity of its own to keep, so this acquires the storage from the pool instead, which returns `None` if it does not fit.
+	#[must_use]
+	pub fn into_storage(self, pool: &Pool) -> Option<Self> {
+		let capacity = tg::runner::Capacity {
+			storage: self.capacity.storage,
+			..Default::default()
+		};
+		match self.source {
+			AllocationSource::Pool(acquisition) => {
+				acquisition.pool.shrink(acquisition.index, capacity);
+				let allocation = Self {
+					capacity,
+					#[cfg(target_os = "linux")]
+					cpu_lender: None,
+					#[cfg(target_os = "linux")]
+					cpu_share: None,
+					source: AllocationSource::Pool(acquisition),
+				};
+				Some(allocation)
+			},
+			source @ AllocationSource::Parent { .. } => {
+				// Release the borrowed capacity and the parent before acquiring the storage, so that the storage fits whenever it would once they are released.
+				drop(source);
+				pool.try_acquire(capacity)
+			},
+		}
 	}
 
 	/// Borrow the requested capacity from a waiting parent's allocation, acquiring from the pool the minima that the parent keeps.
@@ -345,6 +383,29 @@ mod tests {
 		let second = pool.try_acquire(capacity(0, 1000)).unwrap();
 		drop(first);
 		drop(second);
+		assert_eq!(pool.get().available, total);
+	}
+
+	#[test]
+	fn a_stopped_allocation_keeps_only_its_storage() {
+		let total = tg::runner::Capacity {
+			sandboxes: 4,
+			..capacity(2000, 8000)
+		};
+		let pool = Pool::new(total, tg::runner::Overcommit::default());
+		let allocation = pool.try_acquire(capacity(1000, 2000)).unwrap();
+
+		// Keeping the storage releases the CPU, memory, and sandbox, and keeps the storage unavailable.
+		let storage = allocation.into_storage(&pool).unwrap();
+		let available = pool.get().available;
+		assert_eq!(available.cpu, total.cpu);
+		assert_eq!(available.memory, total.memory);
+		assert_eq!(available.sandboxes, total.sandboxes);
+		assert_eq!(available.storage, tg::sandbox::Resource::new(1000, 6000));
+		assert!(pool.try_acquire(capacity(1500, 7000)).is_none());
+
+		// Dropping the storage releases it.
+		drop(storage);
 		assert_eq!(pool.get().available, total);
 	}
 

@@ -341,6 +341,7 @@ impl Component {
 
 		// Run the sandbox task.
 		let kept = Arc::new(AtomicBool::new(false));
+		let storage = arg.allocation.capacity().storage;
 		let task_arg = SandboxTaskArg {
 			allocation: arg.allocation,
 			arg: arg.arg,
@@ -381,6 +382,17 @@ impl Component {
 		} else {
 			Teardown::Destroy
 		};
+
+		// Reserve the storage of a kept directory again, which the failed boot's allocation released, unless a destroy removed the directory meanwhile.
+		if let Teardown::Stop = teardown
+			&& tokio::fs::try_exists(Self::sandbox_path(session, &id))
+				.await
+				.unwrap_or(false)
+		{
+			self.reserve_stopped_sandbox_storage(&id, storage);
+		}
+
+		// Report the failed sandbox.
 		let error = Self::sandbox_error_data(session, &error);
 		if let Err(error) = self
 			.report_sandbox_with_runner_control(&id, error, teardown, &stopper)
@@ -1388,6 +1400,7 @@ impl Component {
 		// Create the idle timer, which stops or destroys the sandbox once it has no processes for its time to stop or time to live.
 		let mut timer_future: Option<BoxFuture<'static, Teardown>> = None;
 		let initial_process = process_task_output.is_some();
+		let boot = state.data.boot;
 		let time_to_live = state.data.time_to_live;
 		let time_to_stop = state.data.time_to_stop;
 
@@ -1699,14 +1712,24 @@ impl Component {
 
 			let usage = output.usage;
 
-			// Release the sandbox's capacity after its cgroup is stopped and accounted.
+			// Release the sandbox's capacity after its cgroup is stopped and accounted, keeping a stopped sandbox's storage reserved for its directory.
 			tangram_server_core::checkpoint!(
 				session.server,
 				"runner.sandbox.capacity.release",
 				sandbox = %id,
 			)
 			.await;
-			drop(allocation.lock().await.take());
+			let released = allocation.lock().await.take();
+			let stopped_storage = match (teardown, released) {
+				(Teardown::Stop, Some(released)) => {
+					let storage = released.into_storage(&self.state.capacity);
+					if storage.is_none() {
+						tracing::warn!(sandbox = %id, "failed to reserve the stopped sandbox's storage");
+					}
+					storage
+				},
+				(Teardown::Destroy | Teardown::Stop, _) => None,
+			};
 			let mut state = session
 				.server
 				.components
@@ -1754,6 +1777,18 @@ impl Component {
 						}
 						#[cfg(not(target_os = "linux"))]
 						let _ = project_id;
+
+						// Keep the storage reserved for the kept directory, unless a newer boot of the sandbox already acquired it.
+						let newer = self
+							.state
+							.booting
+							.get(&id)
+							.is_some_and(|booting| *booting > boot);
+						if let Some(storage) = stopped_storage
+							&& !newer
+						{
+							self.state.stopped_storage.insert(id.clone(), storage);
+						}
 					},
 				}
 			}
@@ -2335,12 +2370,33 @@ impl Component {
 			let teardown = match indexed.map(|indexed| indexed.data) {
 				None => None,
 				Some(None) => Some(Teardown::Destroy),
-				Some(Some(data)) => match data.data.status {
-					tg::sandbox::Status::Destroyed => None,
-					tg::sandbox::Status::Started
-					| tg::sandbox::Status::Starting
-					| tg::sandbox::Status::Stopping => Some(Teardown::with_time_to_live(data.data.time_to_live)),
-					tg::sandbox::Status::Stopped => continue,
+				Some(Some(data)) => {
+					let teardown = match data.data.status {
+						tg::sandbox::Status::Destroyed => None,
+						tg::sandbox::Status::Started
+						| tg::sandbox::Status::Starting
+						| tg::sandbox::Status::Stopping => Some(Teardown::with_time_to_live(data.data.time_to_live)),
+						tg::sandbox::Status::Stopped => Some(Teardown::Stop),
+					};
+
+					// Keep the storage of each sandbox that stays or becomes stopped reserved, and count its directory in the storage budget.
+					if let Some(Teardown::Stop) = teardown {
+						self.reserve_stopped_sandbox_storage(
+							&id,
+							data.data.storage.unwrap_or_default(),
+						);
+						#[cfg(target_os = "linux")]
+						if let Some(storage) = data.data.storage {
+							self.adopt_stopped_sandbox_storage(session, &id, storage);
+						}
+					}
+
+					// Keep a sandbox that was already stopped without reporting it.
+					if data.data.status.is_stopped() {
+						continue;
+					}
+
+					teardown
 				},
 			};
 			let Some(teardown) = teardown else {
@@ -2598,7 +2654,51 @@ impl Component {
 		Ok(ids)
 	}
 
-	/// Remove a stopped sandbox's directory and release its filesystem project ID.
+	/// Count a stopped sandbox's directory in the runner's storage budget, logging a failure, because the budget would otherwise grant the directory's space to other sandboxes.
+	#[cfg(target_os = "linux")]
+	fn adopt_stopped_sandbox_storage(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		storage: tg::sandbox::Resource<u64>,
+	) {
+		let Some(project) = self
+			.state
+			.stopped_project_ids
+			.get(id)
+			.map(|entry| entry.value().value())
+		else {
+			return;
+		};
+		let path = Self::sandbox_path(session, id);
+		if let Err(error) = tangram_sandbox::adopt_stopped_storage(
+			&self.state.storage_pool,
+			&path,
+			storage,
+			project,
+		) {
+			tracing::warn!(error = %error.trace(), sandbox = %id, "failed to count the stopped sandbox's storage");
+		}
+	}
+
+	/// Reserve storage for a stopped sandbox's directory, logging a reservation that no longer fits, such as after the runner's storage capacity shrank.
+	fn reserve_stopped_sandbox_storage(
+		&self,
+		id: &tg::sandbox::Id,
+		storage: tg::sandbox::Resource<u64>,
+	) {
+		let capacity = tg::runner::Capacity {
+			storage,
+			..Default::default()
+		};
+		let Some(allocation) = self.state.capacity.try_acquire(capacity) else {
+			tracing::warn!(sandbox = %id, "failed to reserve the stopped sandbox's storage");
+			return;
+		};
+		self.state.stopped_storage.insert(id.clone(), allocation);
+	}
+
+	/// Remove a stopped sandbox's directory, and release its filesystem project ID and its storage reservation.
 	pub(crate) async fn remove_stopped_sandbox_directory(
 		&self,
 		session: &Session,
@@ -2610,8 +2710,10 @@ impl Component {
 			.map_err(|error| tg::error!(!error, %id, "failed to remove the sandbox directory"))?;
 		#[cfg(target_os = "linux")]
 		if let Some((_, project_id)) = self.state.stopped_project_ids.remove(id) {
+			tangram_sandbox::forget_stopped_storage(&self.state.storage_pool, project_id.value());
 			project_id.release();
 		}
+		self.state.stopped_storage.remove(id);
 
 		Ok(())
 	}
