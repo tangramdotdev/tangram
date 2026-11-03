@@ -12,6 +12,8 @@ use {
 };
 
 const AT_RECURSIVE: libc::c_uint = 0x8000;
+const CAP_SYS_ADMIN: u32 = 21;
+const CAP_SYS_RESOURCE: u32 = 24;
 const MOUNT_ATTR_NODEV: u64 = 0x0000_0004;
 
 #[derive(Clone, Copy, Debug)]
@@ -119,137 +121,42 @@ fn validate_id_mapped_mount(path: &Path) -> tg::Result<()> {
 }
 
 fn validate_filesystem(root: &Path) -> tg::Result<()> {
-	const PROJECT: u32 = i32::MAX.cast_unsigned();
-
-	// Create the quota probe.
-	let name = format!("tangram-quota-probe-{:016x}", rand::random::<u64>());
-	let path = root.join(name);
-	let result = crate::filesystem::create(&path, PROJECT, Some(64 * 1024), Some(4));
-
-	// Check the quota enforcement.
-	let enforcement_result = if result.is_ok() {
-		probe_filesystem_enforcement(&path)
-	} else {
-		Ok(())
-	};
-
-	// Remove the probe files and quota.
-	let mut file_remove_result = Ok(());
-	for name in ["bytes", "inode-0", "inode-1", "inode-2", "inode-3"] {
-		if let Err(error) = remove_probe_file(&path.join(name))
-			&& file_remove_result.is_ok()
-		{
-			file_remove_result = Err(error);
-		}
-	}
-	let clear_result = if result.is_ok() {
-		crate::filesystem::clear(&path, PROJECT)
-	} else {
-		Ok(())
-	};
-	let directory_remove_result = match std::fs::remove_dir(&path) {
-		Ok(()) => Ok(()),
-		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-		Err(error) => Err(error),
-	};
-
-	// Report the probe and cleanup errors.
-	result.map_err(|error| {
+	// Check that the filesystem enforces project quotas.
+	crate::filesystem::check_project_quotas(root).map_err(|error| {
 		tg::error!(
 			!error,
 			path = %root.display(),
-			"the hardened container filesystem requires a disk-backed ext4 or XFS filesystem with project quotas"
-		)
-	})?;
-	enforcement_result.map_err(|error| {
-		tg::error!(
-			!error,
-			path = %root.display(),
-			"the hardened container filesystem project quota is not enforced"
-		)
-	})?;
-	file_remove_result.map_err(|error| {
-		tg::error!(
-			!error,
-			path = %path.display(),
-			"failed to remove a hardened container filesystem prerequisite probe file"
-		)
-	})?;
-	clear_result.map_err(|error| {
-		tg::error!(
-			!error,
-			path = %path.display(),
-			"failed to clear the hardened container filesystem prerequisite probe"
-		)
-	})?;
-	directory_remove_result.map_err(|error| {
-		tg::error!(
-			!error,
-			path = %path.display(),
-			"failed to remove the hardened container filesystem prerequisite probe"
+			"the hardened container filesystem requires a disk-backed ext4 or XFS filesystem with enforced project quotas"
 		)
 	})?;
 
-	Ok(())
-}
-
-fn probe_filesystem_enforcement(path: &Path) -> tg::Result<()> {
-	// Probe the byte quota enforcement.
-	let byte_path = path.join("bytes");
-	let file = std::fs::File::create(&byte_path).map_err(|error| {
-		tg::error!(!error, path = %byte_path.display(), "failed to create the project byte quota probe")
-	})?;
-
-	// SAFETY: The descriptor is valid and the offset and length are nonnegative.
-	let result = unsafe { libc::fallocate(file.as_raw_fd(), 0, 0, 128 * 1024) };
-	if result == 0 {
+	// Check that the server can set project quotas and cannot exceed them, because the kernel does not enforce quotas for a process with CAP_SYS_RESOURCE.
+	let capabilities = effective_capabilities()?;
+	if capabilities & (1 << CAP_SYS_ADMIN) == 0 {
 		return Err(tg::error!(
-			"the project byte quota was accepted but is not enforced"
+			"the hardened container filesystem requires CAP_SYS_ADMIN to set project quotas"
 		));
 	}
-	let error = std::io::Error::last_os_error();
-	if error.raw_os_error() != Some(libc::EDQUOT) {
+	if capabilities & (1 << CAP_SYS_RESOURCE) != 0 {
 		return Err(tg::error!(
-			!error,
-			"the project byte quota probe failed with an unexpected error"
+			"the hardened container filesystem project quotas are not enforced for a server with CAP_SYS_RESOURCE"
 		));
-	}
-
-	// Remove the byte quota probe file.
-	drop(file);
-	remove_probe_file(&byte_path).map_err(|error| {
-		tg::error!(!error, path = %byte_path.display(), "failed to remove the project byte quota probe")
-	})?;
-
-	// Probe the inode quota enforcement.
-	for index in 0..4 {
-		let path = path.join(format!("inode-{index}"));
-		match std::fs::File::create(&path) {
-			Ok(_) if index < 3 => {},
-			Ok(_) => {
-				return Err(tg::error!(
-					"the project inode quota was accepted but is not enforced"
-				));
-			},
-			Err(error) if index == 3 && error.raw_os_error() == Some(libc::EDQUOT) => {},
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					"the project inode quota probe failed with an unexpected error"
-				));
-			},
-		}
 	}
 
 	Ok(())
 }
 
-fn remove_probe_file(path: &Path) -> std::io::Result<()> {
-	match std::fs::remove_file(path) {
-		Ok(()) => Ok(()),
-		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-		Err(error) => Err(error),
-	}
+/// Read this process's effective capabilities.
+fn effective_capabilities() -> tg::Result<u64> {
+	let status = std::fs::read_to_string("/proc/self/status")
+		.map_err(|error| tg::error!(!error, "failed to read the process status"))?;
+	let value = status
+		.lines()
+		.find_map(|line| line.strip_prefix("CapEff:"))
+		.ok_or_else(|| tg::error!("the process status has no effective capabilities"))?;
+	let capabilities = u64::from_str_radix(value.trim(), 16)
+		.map_err(|error| tg::error!(!error, "invalid effective capabilities"))?;
+	Ok(capabilities)
 }
 
 fn validate_user_namespaces() -> tg::Result<()> {

@@ -1870,8 +1870,8 @@ impl FilesystemProjectIds {
 			tg::error!("the container filesystem project ID range exceeds the valid range")
 		})?;
 
-		// Reserve the highest supported project ID for the quota prerequisite probe.
-		if end > i32::MAX.cast_unsigned() {
+		// Keep the project IDs within the range that the filesystems support.
+		if end > i32::MAX.cast_unsigned() + 1 {
 			return Err(tg::error!(
 				"the container filesystem project ID range exceeds the valid range"
 			));
@@ -2166,7 +2166,7 @@ impl Default for TokenSecret {
 impl Default for FilesystemProjectIds {
 	fn default() -> Self {
 		Self {
-			count: i32::MAX.cast_unsigned() - 1,
+			count: i32::MAX.cast_unsigned(),
 			start: 1,
 		}
 	}

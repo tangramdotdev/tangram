@@ -6,16 +6,9 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
-if (id -u | into int) != 0 {
-	skip_test 'hardened containers require the tests to run as root'
-}
-let directory = project_quota_directory
-
-let cgroup_parent = container_cgroup_parent [cpu memory pids]
-
-let local = server spawn --busybox --directory $directory --config {
+let local = server spawn --root --config {
 	runner: {
-		backend: ({ kind: builtin, harden: true } | merge (container_id_maps)),
+		backend: ({ kind: builtin, harden: true } | merge (container_id_maps --root)),
 	},
 }
 
@@ -32,15 +25,8 @@ let script = r#'
 	/opt/tangram/bin/tangram checkin /tmp/private > /dev/null
 	echo ok
 '#
-let command = artifact {
-	tangram.ts: '
-		import busybox from "busybox";
-		export default (script: string) => tg.run({
-			executable: "/bin/sh",
-			args: ["-c", script],
-		}).env(tg.build(busybox)).sandbox();
-	',
-}
-let output = tg run $command --arg-string $script | complete
+# Bind the host's programs into the sandbox read-only, because the server running as root cannot download busybox.
+let mounts = [/usr /lib /lib64 /bin] | where { path exists } | each {|path| [--mount $'($path | path expand):($path),ro'] } | flatten
+let output = tg run --sandbox ...$mounts --executable /bin/sh -- -c $'export PATH=/usr/bin:/bin; ($script)' | complete
 success $output 'a plain sandboxed run should succeed with hardened defaults'
 assert equal ($output.stdout | str trim) 'ok'

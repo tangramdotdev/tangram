@@ -27,8 +27,10 @@ export def container_cgroup_parent [controllers: list<string>] {
 	skip_test $'this test requires a delegated cgroup parent with ($controllers | str join ", ") enabled'
 }
 
-export def container_id_maps [] {
-	if (id -u | into int) == 0 {
+export def container_id_maps [
+	--root # Get the ID maps for a server that runs as root.
+] {
+	if $root or (id -u | into int) == 0 {
 		return {
 			gid_map: { count: 65_536, host: 100_000 },
 			uid_map: { count: 65_536, host: 100_000 },
@@ -720,7 +722,7 @@ export def --env "server restart" [server: record] {
 	$server
 }
 
-# Create a command that runs a server as root with passwordless sudo. Sudo closes the readiness file descriptor, so the server writes its readiness byte to a FIFO, which a process outside sudo copies to the descriptor. The server creates its socket with an empty umask so that the client can connect, keeps its temporary files in its directory so that the runner removes them, and is killed by the parent death signal if sudo is killed.
+# Create a command that runs a server as root with passwordless sudo, without the capability to exceed resource limits, so that the kernel enforces its quotas. Sudo closes the readiness file descriptor, so the server writes its readiness byte to a FIFO, which a process outside sudo copies to the descriptor. The server creates its socket with an empty umask so that the client can connect, keeps its temporary files in its directory so that the runner removes them, and is killed by the parent death signal if sudo is killed.
 def root_command [supervisor: string, directory: string, command: list<string>] {
 	let fifo = $supervisor | path join 'ready'
 	rm -f $fifo
@@ -731,7 +733,7 @@ def root_command [supervisor: string, directory: string, command: list<string>] 
 	let relay = 'cat "$0" >&3 & exec "$@"'
 	let server = 'umask 000 && exec "$@" 3>"$0"'
 
-	[sh -c $relay $fifo sudo -n env $'TMPDIR=($temp)' setpriv --pdeathsig KILL -- sh -c $server $fifo ...$command]
+	[sh -c $relay $fifo sudo -n env $'TMPDIR=($temp)' setpriv --pdeathsig KILL --bounding-set=-sys_resource -- sh -c $server $fifo ...$command]
 }
 
 def server_is_running [server: record] {

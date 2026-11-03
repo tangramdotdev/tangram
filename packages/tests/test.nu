@@ -9,7 +9,9 @@ const repository_path = path self '../../'
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
 	--clean # Clean up leftover test resources from FoundationDB, PostgreSQL, and ScyllaDB.
+	--cpus: int # Limit the build and the tests to this many CPUs, which also sets the default number of jobs. This requires Linux.
 	--jobs (-j): int # The number of concurrent tests to run.
+	--memory: filesize # Limit the memory of the build and the tests, without swap. This requires Linux.
 	--preserve-failing-temps # Keep the temporary directories for failed tests.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
@@ -33,6 +35,13 @@ def main [
 	if $tangram_path != null and not ($tangram_path | path exists) {
 		error make { msg: $'--tangram-path does not exist: ($tangram_path)' }
 	}
+
+	# Run the build and the tests in a scope with the requested limits, which every server and sandbox that the tests start inherits.
+	let limit = limit_command $cpus $memory
+	if $cpus != null {
+		$env.CARGO_BUILD_JOBS = $cpus | into string
+	}
+	let jobs = $jobs | default $cpus
 
 	# Determine which language clients the selected tests require.
 	let filter = if ($filters | is-empty) {
@@ -61,7 +70,7 @@ def main [
 	let packages = if $node { $packages | append ['--package' 'tangram_javascript_native'] } else { $packages }
 	let target_path = $env.CARGO_TARGET_DIR? | default ($repository_path | path join 'target') | path join $profile
 	if $tangram_path != null {
-		cargo build ...$profile_args ...$packages
+		run_limited $limit [cargo build ...$profile_args ...$packages]
 		let tangram_path = $tangram_path | path expand
 		let bin_path = $repository_path | path join 'target/test-bin'
 		mkdir $bin_path
@@ -70,7 +79,7 @@ def main [
 		path add $target_path
 		path add $bin_path
 	} else {
-		cargo build ...$profile_args --all-features --package tangram_cli ...$packages
+		run_limited $limit [cargo build ...$profile_args --all-features --package tangram_cli ...$packages]
 		ln -sf tangram ($target_path | path join 'tg')
 		path add $target_path
 	}
@@ -116,7 +125,33 @@ def main [
 		['--']
 		$filters
 	] | flatten
-	exec tangram_tests_runner run ...$args
+	let command = [...$limit tangram_tests_runner run ...$args]
+	exec ($command | first) ...($command | skip 1)
+}
+
+# Run a command with a limit command prefix.
+def run_limited [limit: list<string>, command: list<string>] {
+	let command = [...$limit ...$command]
+	run-external ($command | first) ...($command | skip 1)
+}
+
+# Get the command prefix that runs a command in a systemd user scope limited to a number of CPUs and an amount of memory without swap, or an empty prefix without limits.
+def limit_command [cpus?: int, memory?: filesize] {
+	if $cpus == null and $memory == null {
+		return []
+	}
+	if $nu.os-info.name != 'linux' {
+		error make { msg: '--cpus and --memory require Linux' }
+	}
+	if $cpus != null and $cpus < 1 {
+		error make { msg: '--cpus must be at least one' }
+	}
+	let properties = [
+		['-p' 'Delegate=yes']
+		(if $cpus != null { ['-p' $'CPUQuota=($cpus * 100)%'] } else { [] })
+		(if $memory != null { ['-p' $'MemoryMax=($memory | into int)' '-p' 'MemorySwapMax=0'] } else { [] })
+	] | flatten
+	[systemd-run --user --scope --quiet ...$properties --]
 }
 
 # Determine whether pluginkit reports the file system extension as enabled, which it marks with a leading '+'.

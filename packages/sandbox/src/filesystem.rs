@@ -80,17 +80,23 @@ pub fn create_directory(path: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-pub(crate) fn project_id(path: &Path) -> tg::Result<u32> {
-	project::id(path)
+/// Check that the filesystem at a path is ext4 or XFS and accounts and enforces project quotas.
+pub(crate) fn check_project_quotas(path: &Path) -> tg::Result<()> {
+	let directory = std::fs::File::open(path).map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to open the filesystem"),
+	)?;
+	let filesystem = kind(&directory)?;
+	if !matches!(filesystem, EXT4_SUPER_MAGIC | XFS_SUPER_MAGIC) {
+		return Err(tg::error!(%filesystem, "the filesystem is not ext4 or XFS"));
+	}
+	if !project::enforced(&directory)? {
+		return Err(tg::error!("the filesystem does not enforce project quotas"));
+	}
+	Ok(())
 }
 
-pub(crate) fn clear(path: &Path, project: u32) -> tg::Result<()> {
-	let directory = std::fs::File::open(path).map_err(|error| {
-		tg::error!(!error, path = %path.display(), "failed to open the sandbox filesystem directory")
-	})?;
-	let filesystem = kind(&directory)?;
-	set_quota(&directory, filesystem, project, Some(0), Some(0))?;
-	Ok(())
+pub(crate) fn project_id(path: &Path) -> tg::Result<u32> {
+	project::id(path)
 }
 
 pub fn open(path: &Path) -> tg::Result<OwnedFd> {
