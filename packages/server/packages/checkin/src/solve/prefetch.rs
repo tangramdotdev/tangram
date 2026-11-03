@@ -465,7 +465,7 @@ impl Component {
 		}
 	}
 
-	pub(super) async fn checkin_solve_list_tag_entries(
+	pub(super) async fn checkin_solve_list_tag_items(
 		&self,
 		session: &Session,
 		prefetch: &Prefetch,
@@ -543,11 +543,11 @@ impl Component {
 					prefetch.arg.options.tag_ttl,
 				)
 				.await
-				.map_err(|error| tg::error!(!error, %pattern, "failed to list entries"))?
+				.map_err(|error| tg::error!(!error, %pattern, "failed to list the items"))?
 		};
 
 		// Prefetch the first candidate's object.
-		if let Some(target) = output.data.first().and_then(tg::list::Entry::target)
+		if let Some(target) = output.data.first().and_then(tg::list::Item::target)
 			&& let Some(id) = target.node.as_ref().left()
 		{
 			let options = ObjectOptions::from_referent_options(&target.options);

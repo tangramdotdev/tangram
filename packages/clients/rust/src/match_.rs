@@ -46,7 +46,7 @@ pub struct Arg {
 	pub users: bool,
 }
 
-pub type Entry = tg::list::Entry;
+pub type Item = tg::list::Item;
 pub type Output = tg::list::Output;
 
 impl Default for Arg {

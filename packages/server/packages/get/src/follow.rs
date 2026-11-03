@@ -471,9 +471,9 @@ impl Component {
 			users: true,
 		};
 		let output = session.match_(arg).await.map_err(
-			|error| tg::error!(!error, pattern = %pattern_for_error, "failed to match entries"),
+			|error| tg::error!(!error, pattern = %pattern_for_error, "failed to match the items"),
 		)?;
-		let node = output.data.into_iter().next().map(named_node_from_entry);
+		let node = output.data.into_iter().next().map(named_node_from_item);
 
 		Ok(node)
 	}
@@ -528,11 +528,11 @@ impl Component {
 			ttl,
 			users: false,
 		};
-		let entries = session.list(arg).await?.data;
-		let tag = entries
+		let items = session.list(arg).await?.data;
+		let tag = items
 			.into_iter()
 			.next()
-			.map(named_node_from_entry)
+			.map(named_node_from_item)
 			.map(|mut tag| {
 				tag.location = Some(location.clone());
 				Ok::<_, tg::Error>(tag)
@@ -1053,7 +1053,7 @@ impl Component {
 							..Default::default()
 						};
 						let node = tg::Referent::new(data.id.into(), options);
-						let entry = tg::list::Entry {
+						let item = tg::list::Item {
 							node,
 							parent: data.parent,
 							specifier: data.specifier,
@@ -1061,7 +1061,7 @@ impl Component {
 						};
 						return Ok(tg::match_::Output {
 							cursor: None,
-							data: vec![entry],
+							data: vec![item],
 						});
 					},
 					_ => {
@@ -1089,7 +1089,7 @@ impl Component {
 			users: false,
 		};
 		let mut output = session.match_all(arg).await.map_err(
-			|error| tg::error!(!error, pattern = %pattern_for_error, "failed to match entries"),
+			|error| tg::error!(!error, pattern = %pattern_for_error, "failed to match the items"),
 		)?;
 
 		if let Some(length) = length {
@@ -1109,13 +1109,13 @@ fn list_target_to_id(target: tg::Either<tg::object::Id, tg::process::Id>) -> tg:
 	}
 }
 
-fn named_node_from_entry(entry: tg::list::Entry) -> NamedNode {
-	let tg::list::Entry {
+fn named_node_from_item(item: tg::list::Item) -> NamedNode {
+	let tg::list::Item {
 		node,
 		parent: _,
 		specifier,
 		target,
-	} = entry;
+	} = item;
 	NamedNode {
 		id: node.node,
 		location: node.options.location,

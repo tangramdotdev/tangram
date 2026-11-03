@@ -6,8 +6,8 @@ use {
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
-	tangram_server_core::{Session, list::QuerySpecifierEntriesArg},
-	tangram_server_list_common::{Kinds, entry_kind_enabled, sort_entries},
+	tangram_server_core::{Session, list::QuerySpecifierItemsArg},
+	tangram_server_list_common::{Kinds, item_kind_enabled, sort_items},
 };
 
 #[cfg(test)]
@@ -101,7 +101,7 @@ impl Component {
 		&self,
 		session: &Session,
 		mut arg: tg::list::Arg,
-	) -> tg::Result<Vec<tg::list::Entry>> {
+	) -> tg::Result<Vec<tg::list::Item>> {
 		session.verify_request_with_network_access()?;
 		if let Some(location) = arg
 			.node
@@ -121,9 +121,9 @@ impl Component {
 					tg::Location::Remote(_) => false,
 				});
 		if local_only && !arg.recursive {
-			let data = self.list_local_entries_for_list(session, &arg).await?;
+			let data = self.list_local_items_for_list(session, &arg).await?;
 
-			return Ok(sort_entries(data, arg.reverse));
+			return Ok(sort_items(data, arg.reverse));
 		}
 		let local_arg = arg.clone();
 		let tokens = arg
@@ -132,65 +132,63 @@ impl Component {
 			.map(tg::Referent::options)
 			.map(|options| options.tokens.clone())
 			.unwrap_or_default();
-		let query_arg = QuerySpecifierEntriesArg {
+		let query_arg = QuerySpecifierItemsArg {
 			cached: arg.cached,
-			filter_local: move |entries| {
-				let data = filter_list_entries(entries, &local_arg);
-				sort_entries(data, local_arg.reverse)
+			filter_local: move |items| {
+				let data = filter_list_items(items, &local_arg);
+				sort_items(data, local_arg.reverse)
 			},
 			location: arg.location.as_ref(),
 			query: tangram_server_core::list::remote::Query::List(arg.clone()),
 			tokens: &tokens,
 			ttl: arg.ttl,
 		};
-		let entries = self.query_specifier_entries(session, query_arg).await?;
-		let data = sort_entries(entries, arg.reverse);
+		let items = self.query_specifier_items(session, query_arg).await?;
+		let data = sort_items(items, arg.reverse);
 
 		Ok(data)
 	}
 
-	pub(crate) async fn list_local_entries(
+	pub(crate) async fn list_local_items(
 		&self,
 		session: &Session,
-	) -> tg::Result<Vec<tg::list::Entry>> {
-		self.list_local_entries_with_tokens(session, &tg::authorization::Tokens::default())
+	) -> tg::Result<Vec<tg::list::Item>> {
+		self.list_local_items_with_tokens(session, &tg::authorization::Tokens::default())
 			.await
 	}
 
-	async fn list_local_entries_with_tokens(
+	async fn list_local_items_with_tokens(
 		&self,
 		session: &Session,
 		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<Vec<tg::list::Entry>> {
-		// List the entries.
-		let entries = session
+	) -> tg::Result<Vec<tg::list::Item>> {
+		// List the items.
+		let items = session
 			.server
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
-				async move { Self::list_local_entries_with_transaction(transaction).await }.boxed()
+				async move { Self::list_local_items_with_transaction(transaction).await }.boxed()
 			})
 			.await?;
 
-		// Filter the visible entries.
-		let entries = self
-			.filter_visible_entries(session, entries, tokens)
-			.await?;
+		// Filter the visible items.
+		let items = self.filter_visible_items(session, items, tokens).await?;
 
-		Ok(entries)
+		Ok(items)
 	}
 
-	pub(crate) async fn list_local_entries_for_list(
+	pub(crate) async fn list_local_items_for_list(
 		&self,
 		session: &Session,
 		arg: &tg::list::Arg,
-	) -> tg::Result<Vec<tg::list::Entry>> {
+	) -> tg::Result<Vec<tg::list::Item>> {
 		// Resolve the parent.
 		let parent = match &arg.node {
 			None => Parent::Root,
 			Some(node) => Parent::Id(node.node.clone()),
 		};
 
-		// Page through the database entries.
+		// Page through the database items.
 		let mut database_position = 0;
 		let mut output = Vec::new();
 		let tokens = arg
@@ -203,14 +201,14 @@ impl Component {
 			let database_length = session.server.config.pagination.database_page_length;
 			let arg = arg.clone();
 			let parent = parent.clone();
-			let entries = session
+			let items = session
 				.server
 				.database
 				.run_with_options(db::ConnectionOptions::default(), |transaction| {
 					let arg = arg.clone();
 					let parent = parent.clone();
 					async move {
-						Self::list_local_entries_for_list_with_transaction(
+						Self::list_local_items_for_list_with_transaction(
 							transaction,
 							&arg,
 							&parent,
@@ -222,11 +220,9 @@ impl Component {
 					.boxed()
 				})
 				.await?;
-			let input_length = entries.len().to_u64().unwrap();
-			let entries = self
-				.filter_visible_entries(session, entries, &tokens)
-				.await?;
-			output.extend(entries);
+			let input_length = items.len().to_u64().unwrap();
+			let items = self.filter_visible_items(session, items, &tokens).await?;
+			output.extend(items);
 			if input_length < database_length {
 				break;
 			}
@@ -236,42 +232,42 @@ impl Component {
 		Ok(output)
 	}
 
-	async fn list_local_entries_with_transaction(
+	async fn list_local_items_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
-	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Entry)>, tangram_server_core::database::Error>>
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Item)>, tangram_server_core::database::Error>>
 	{
-		let mut entries = Vec::new();
+		let mut items = Vec::new();
 		let groups = match Self::list_local_groups(transaction, &Parent::Any).await? {
 			ControlFlow::Break(groups) => groups,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
-		entries.extend(groups);
+		items.extend(groups);
 		let organizations = match Self::list_local_organizations(transaction).await? {
 			ControlFlow::Break(organizations) => organizations,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
-		entries.extend(organizations);
+		items.extend(organizations);
 		let tags = match Self::list_local_tags(transaction, &Parent::Any).await? {
 			ControlFlow::Break(tags) => tags,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
-		entries.extend(tags);
+		items.extend(tags);
 		let users = match Self::list_local_users(transaction).await? {
 			ControlFlow::Break(users) => users,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
-		entries.extend(users);
+		items.extend(users);
 
-		Ok(ControlFlow::Break(entries))
+		Ok(ControlFlow::Break(items))
 	}
 
-	async fn list_local_entries_for_list_with_transaction(
+	async fn list_local_items_for_list_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		arg: &tg::list::Arg,
 		parent: &Parent,
 		position: u64,
 		length: u64,
-	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Entry)>, tangram_server_core::database::Error>>
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Item)>, tangram_server_core::database::Error>>
 	{
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -354,7 +350,7 @@ impl Component {
 		let statement = format!(
 			"
 				select id, parent, specifier, target
-				from ({}) as entries
+				from ({}) as items
 				order by specifier {direction}
 				limit {p}{length_parameter}
 				offset {p}{position_parameter};
@@ -368,9 +364,9 @@ impl Component {
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
 
-		// Create the entries.
+		// Create the items.
 		let location = tg::Location::Local(tg::location::Local::default());
-		let mut entries = Vec::with_capacity(rows.len());
+		let mut items = Vec::with_capacity(rows.len());
 		for row in rows {
 			let id = row.id;
 			let target = match id.kind() {
@@ -383,34 +379,34 @@ impl Component {
 					let target = Self::tag_target_referent(target, Some(location.clone()));
 					Some(target)
 				},
-				_ => return Err(tg::error!(%id, "invalid list entry")),
+				_ => return Err(tg::error!(%id, "invalid list item")),
 			};
 			let options = tg::referent::Options {
 				location: Some(location.clone()),
 				..Default::default()
 			};
 			let node = tg::Referent::new(id.clone(), options);
-			let entry = tg::list::Entry {
+			let item = tg::list::Item {
 				node,
 				parent: row.parent,
 				specifier: row.specifier,
 				target,
 			};
-			entries.push((id, entry));
+			items.push((id, item));
 		}
 
-		Ok(ControlFlow::Break(entries))
+		Ok(ControlFlow::Break(items))
 	}
 
-	pub async fn query_specifier_entries<F>(
+	pub async fn query_specifier_items<F>(
 		&self,
 		session: &Session,
-		arg: QuerySpecifierEntriesArg<'_, F>,
-	) -> tg::Result<Vec<tg::list::Entry>>
+		arg: QuerySpecifierItemsArg<'_, F>,
+	) -> tg::Result<Vec<tg::list::Item>>
 	where
-		F: FnOnce(Vec<tg::list::Entry>) -> Vec<tg::list::Entry> + Send,
+		F: FnOnce(Vec<tg::list::Item>) -> Vec<tg::list::Item> + Send,
 	{
-		let QuerySpecifierEntriesArg {
+		let QuerySpecifierItemsArg {
 			cached,
 			filter_local,
 			location,
@@ -424,12 +420,12 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 		let mut sources = Vec::new();
 		if locations.local.is_some() {
-			let entries = self
-				.list_local_entries_with_tokens(session, tokens)
+			let items = self
+				.list_local_items_with_tokens(session, tokens)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to list local entries"))?;
-			let entries = filter_local(entries);
-			sources.push(entries);
+				.map_err(|error| tg::error!(!error, "failed to list the local items"))?;
+			let items = filter_local(items);
+			sources.push(items);
 		}
 		let mut remotes = locations.remotes;
 		remotes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -443,7 +439,7 @@ impl Component {
 						.list_remote(session, remote.clone(), cached, ttl, query)
 						.await
 						.map_err(
-							|error| tg::error!(!error, remote = %name, "failed to query remote entries"),
+							|error| tg::error!(!error, remote = %name, "failed to query the remote items"),
 						)?;
 					Ok::<_, tg::Error>((name, data))
 				}
@@ -453,29 +449,29 @@ impl Component {
 			.await?;
 		let mut remote_results = remote_results;
 		remote_results.sort_by(|a, b| a.0.cmp(&b.0));
-		sources.extend(remote_results.into_iter().map(|(_, entries)| entries));
-		let entries = merge_entries(sources);
+		sources.extend(remote_results.into_iter().map(|(_, items)| items));
+		let items = merge_items(sources);
 
-		Ok(entries)
+		Ok(items)
 	}
 
-	async fn filter_visible_entries(
+	async fn filter_visible_items(
 		&self,
 		session: &Session,
-		entries: Vec<(tg::Id, tg::list::Entry)>,
+		items: Vec<(tg::Id, tg::list::Item)>,
 		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<Vec<tg::list::Entry>> {
-		if entries.is_empty() {
+	) -> tg::Result<Vec<tg::list::Item>> {
+		if items.is_empty() {
 			return Ok(Vec::new());
 		}
-		let ids = entries.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+		let ids = items.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
 		let visible = session
 			.server
 			.index
 			.visible(&ids, &session.context.principal)
 			.await?;
 		let mut output = Vec::new();
-		for ((id, mut entry), visible) in std::iter::zip(entries, visible) {
+		for ((id, mut item), visible) in std::iter::zip(items, visible) {
 			let authorized = if visible {
 				true
 			} else {
@@ -499,11 +495,11 @@ impl Component {
 						.authorization
 						.create_read_token(session, &id)?,
 				);
-				if let Some(target) = &mut entry.target {
+				if let Some(target) = &mut item.target {
 					target.options.tokens = tokens.clone();
 				}
-				entry.set_tokens(tokens);
-				output.push(entry);
+				item.set_tokens(tokens);
+				output.push(item);
 			}
 		}
 
@@ -513,7 +509,7 @@ impl Component {
 	async fn list_local_groups(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		parent: &Parent,
-	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Entry)>, tangram_server_core::database::Error>>
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Item)>, tangram_server_core::database::Error>>
 	{
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -564,7 +560,7 @@ impl Component {
 			.query_all_into::<Row>(statement.into(), params)
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
-		let entries = rows
+		let items = rows
 			.into_iter()
 			.map(|row| {
 				let id: tg::Id = row.id.clone().into();
@@ -574,22 +570,22 @@ impl Component {
 					..Default::default()
 				};
 				let node = tg::Referent::new(id.clone(), options);
-				let entry = tg::list::Entry {
+				let item = tg::list::Item {
 					node,
 					parent: row.parent,
 					specifier: row.specifier,
 					target: None,
 				};
-				(id, entry)
+				(id, item)
 			})
 			.collect();
 
-		Ok(ControlFlow::Break(entries))
+		Ok(ControlFlow::Break(items))
 	}
 
 	async fn list_local_organizations(
 		transaction: &tangram_server_core::database::Transaction<'_>,
-	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Entry)>, tangram_server_core::database::Error>>
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Item)>, tangram_server_core::database::Error>>
 	{
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -611,7 +607,7 @@ impl Component {
 			)
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
-		let entries = rows
+		let items = rows
 			.into_iter()
 			.map(|row| {
 				let id: tg::Id = row.id.clone().into();
@@ -621,23 +617,23 @@ impl Component {
 					..Default::default()
 				};
 				let node = tg::Referent::new(id.clone(), options);
-				let entry = tg::list::Entry {
+				let item = tg::list::Item {
 					node,
 					parent: None,
 					specifier: row.specifier,
 					target: None,
 				};
-				(id, entry)
+				(id, item)
 			})
 			.collect();
 
-		Ok(ControlFlow::Break(entries))
+		Ok(ControlFlow::Break(items))
 	}
 
 	async fn list_local_tags(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		parent: &Parent,
-	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Entry)>, tangram_server_core::database::Error>>
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Item)>, tangram_server_core::database::Error>>
 	{
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -689,7 +685,7 @@ impl Component {
 			.query_all_into::<Row>(statement.into(), params)
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
-		let mut entries = Vec::new();
+		let mut items = Vec::new();
 		for row in rows {
 			let target = tangram_server_tag_common::parse_tag_target(&row.target)?;
 			let location = tg::Location::Local(tg::location::Local::default());
@@ -700,16 +696,16 @@ impl Component {
 			};
 			let node = tg::Referent::new(id.clone(), options);
 			let target = Some(Self::tag_target_referent(target, Some(location)));
-			let entry = tg::list::Entry {
+			let item = tg::list::Item {
 				node,
 				parent: row.parent,
 				specifier: row.specifier,
 				target,
 			};
-			entries.push((id, entry));
+			items.push((id, item));
 		}
 
-		Ok(ControlFlow::Break(entries))
+		Ok(ControlFlow::Break(items))
 	}
 
 	#[must_use]
@@ -731,7 +727,7 @@ impl Component {
 
 	async fn list_local_users(
 		transaction: &tangram_server_core::database::Transaction<'_>,
-	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Entry)>, tangram_server_core::database::Error>>
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Item)>, tangram_server_core::database::Error>>
 	{
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -753,7 +749,7 @@ impl Component {
 			)
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
-		let entries = rows
+		let items = rows
 			.into_iter()
 			.map(|row| {
 				let id: tg::Id = row.id.clone().into();
@@ -763,17 +759,17 @@ impl Component {
 					..Default::default()
 				};
 				let node = tg::Referent::new(id.clone(), options);
-				let entry = tg::list::Entry {
+				let item = tg::list::Item {
 					node,
 					parent: None,
 					specifier: row.specifier,
 					target: None,
 				};
-				(id, entry)
+				(id, item)
 			})
 			.collect();
 
-		Ok(ControlFlow::Break(entries))
+		Ok(ControlFlow::Break(items))
 	}
 
 	pub(crate) async fn list_request(
@@ -889,12 +885,12 @@ impl tangram_server_core::component::Lifecycle for Component {
 }
 
 impl tangram_server_core::list::Component for Component {
-	fn query_specifier_entries<'a>(
+	fn query_specifier_items<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
-		arg: QuerySpecifierEntriesArg<'a>,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Entry>>> {
-		self.query_specifier_entries(session, arg).boxed()
+		arg: QuerySpecifierItemsArg<'a>,
+	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Item>>> {
+		self.query_specifier_items(session, arg).boxed()
 	}
 
 	fn list<'a>(
@@ -909,15 +905,15 @@ impl tangram_server_core::list::Component for Component {
 		&'a self,
 		session: &'a tangram_server_core::Session,
 		arg: tg::list::Arg,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Entry>>> {
+	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Item>>> {
 		self.list_inner(session, arg).boxed()
 	}
 
-	fn list_local_entries<'a>(
+	fn list_local_items<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Entry>>> {
-		self.list_local_entries(session).boxed()
+	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Item>>> {
+		self.list_local_items(session).boxed()
 	}
 
 	fn request<'a>(
@@ -929,7 +925,7 @@ impl tangram_server_core::list::Component for Component {
 	}
 }
 
-fn filter_list_entries(entries: Vec<tg::list::Entry>, arg: &tg::list::Arg) -> Vec<tg::list::Entry> {
+fn filter_list_items(items: Vec<tg::list::Item>, arg: &tg::list::Arg) -> Vec<tg::list::Item> {
 	let kinds = Kinds {
 		groups: arg.groups,
 		organizations: arg.organizations,
@@ -944,14 +940,14 @@ fn filter_list_entries(entries: Vec<tg::list::Entry>, arg: &tg::list::Arg) -> Ve
 		}
 		loop {
 			let length = descendants.len();
-			for entry in &entries {
-				let include = match (parent.as_ref(), entry.parent()) {
+			for item in &items {
+				let include = match (parent.as_ref(), item.parent()) {
 					(None, _) => true,
 					(Some(_), Some(parent)) => descendants.contains(parent),
 					(Some(_), None) => false,
 				};
 				if include {
-					descendants.insert(entry.id().clone());
+					descendants.insert(item.id().clone());
 				}
 			}
 			if descendants.len() == length {
@@ -962,28 +958,28 @@ fn filter_list_entries(entries: Vec<tg::list::Entry>, arg: &tg::list::Arg) -> Ve
 	} else {
 		None
 	};
-	entries
+	items
 		.into_iter()
-		.filter(|entry| {
+		.filter(|item| {
 			let matches_parent = if let Some(descendants) = &descendants {
-				(parent.is_none() || descendants.contains(entry.id()))
-					&& parent.as_ref() != Some(entry.id())
+				(parent.is_none() || descendants.contains(item.id()))
+					&& parent.as_ref() != Some(item.id())
 			} else {
-				entry.parent() == parent.as_ref()
+				item.parent() == parent.as_ref()
 			};
-			matches_parent && entry_kind_enabled(entry, &kinds)
+			matches_parent && item_kind_enabled(item, &kinds)
 		})
 		.collect()
 }
 
-fn merge_entries(sources: Vec<Vec<tg::list::Entry>>) -> Vec<tg::list::Entry> {
+fn merge_items(sources: Vec<Vec<tg::list::Item>>) -> Vec<tg::list::Item> {
 	let mut emitted = BTreeSet::new();
 	let mut output = Vec::new();
-	for entries in sources {
+	for items in sources {
 		output.extend(
-			entries
+			items
 				.into_iter()
-				.filter(|entry| emitted.insert(entry.specifier().clone())),
+				.filter(|item| emitted.insert(item.specifier().clone())),
 		);
 	}
 

@@ -222,20 +222,20 @@ impl Component {
 		let specifiers = if !recursive && !pattern.contains_operators() {
 			vec![pattern.clone().try_into()?]
 		} else {
-			let entries = session
+			let items = session
 				.server
 				.components
 				.list
-				.list_local_entries(session)
+				.list_local_items(session)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to list the tags"))?;
-			entries
+			items
 				.into_iter()
-				.filter_map(|entry| {
-					if entry.kind() != tg::id::Kind::Tag {
+				.filter_map(|item| {
+					if item.kind() != tg::id::Kind::Tag {
 						return None;
 					}
-					let specifier = entry.specifier;
+					let specifier = item.specifier;
 					let matches = if recursive {
 						specifier
 							.prefixes()
