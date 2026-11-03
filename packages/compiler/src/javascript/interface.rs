@@ -16,8 +16,21 @@ struct Converter<'a> {
 	depth: usize,
 	host: &'a super::host::Host,
 	imports: BTreeMap<String, tg::module::Data>,
-	names: HashMap<P<Symbol>, String>,
+	names: HashMap<(P<tsrs_checker::Type>, Mode), String>,
 	path: String,
+}
+
+/// The value boundary represented by a converted type.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+enum Mode {
+	/// Values that a parameter accepts without resolving them in the callee.
+	Input,
+
+	/// Values produced by deeply resolving an export or a function result.
+	Output,
+
+	/// Types that already describe values, including shared named definitions.
+	Value,
 }
 
 impl Project {
@@ -107,7 +120,6 @@ impl Converter<'_> {
 		if !symbol
 			.flags()
 			.intersects(SymbolFlags::Interface | SymbolFlags::TypeAlias)
-			|| self.names.contains_key(&symbol)
 			|| self.definitions.contains_key(name)
 		{
 			return;
@@ -119,8 +131,8 @@ impl Converter<'_> {
 		let definitions = self.definitions.clone();
 		let imports = self.imports.clone();
 		let names = self.names.clone();
-		self.names.insert(symbol, name.to_owned());
-		if let Ok(definition) = self.record(type_) {
+		self.names.insert((type_, Mode::Value), name.to_owned());
+		if let Ok(definition) = self.record(type_, Mode::Value) {
 			self.definitions.insert(name.to_owned(), definition);
 		} else {
 			self.definitions = definitions;
@@ -141,7 +153,7 @@ impl Converter<'_> {
 		// Get the type of a command that returns a value.
 		let signatures = self.checker.get_call_signatures(type_).to_vec();
 		if signatures.is_empty() {
-			let output = self.type_(type_)?;
+			let output = self.type_(type_, Mode::Output)?;
 			let args = tg::interface::Type::Tuple {
 				elements: Vec::new(),
 				rest: None,
@@ -172,7 +184,7 @@ impl Converter<'_> {
 		for (index, parameter) in parameters.iter().take(count).enumerate() {
 			let optional = index >= minimum;
 			let type_ = self.checker.get_type_of_symbol(*parameter);
-			let type_ = self.optional(type_, optional).map_err(
+			let type_ = self.optional(type_, optional, Mode::Input).map_err(
 				|error| tg::error!(!error, name = %parameter.name(), "failed to get the type of the parameter"),
 			)?;
 			let element = tg::interface::Element { optional, type_ };
@@ -188,7 +200,7 @@ impl Converter<'_> {
 				));
 			}
 			let item = self.checker.get_type_arguments_exported(type_)[0];
-			let item = self.type_(item).map_err(
+			let item = self.type_(item, Mode::Input).map_err(
 				|error| tg::error!(!error, name = %parameter.name(), "failed to get the type of the parameter"),
 			)?;
 			Some(Box::new(item))
@@ -208,7 +220,7 @@ impl Converter<'_> {
 		{
 			tg::interface::Type::Null
 		} else {
-			self.type_(output)
+			self.type_(output, Mode::Output)
 				.map_err(|error| tg::error!(!error, "failed to get the type of the output"))?
 		};
 		let type_ = tg::interface::Type::Command {
@@ -219,17 +231,36 @@ impl Converter<'_> {
 		Ok(type_)
 	}
 
-	fn type_(&mut self, type_: P<tsrs_checker::Type>) -> tg::Result<tg::interface::Type> {
+	fn type_(
+		&mut self,
+		type_: P<tsrs_checker::Type>,
+		mode: Mode,
+	) -> tg::Result<tg::interface::Type> {
 		if self.depth >= DEPTH {
 			return Err(tg::error!("the type is too deeply nested"));
 		}
 		self.depth += 1;
-		let output = self.type_inner(type_);
+		let output = self.type_inner(type_, mode);
 		self.depth -= 1;
 		output
 	}
 
-	fn type_inner(&mut self, type_: P<tsrs_checker::Type>) -> tg::Result<tg::interface::Type> {
+	fn type_inner(
+		&mut self,
+		type_: P<tsrs_checker::Type>,
+		mode: Mode,
+	) -> tg::Result<tg::interface::Type> {
+		// Resolve output promises, while requiring inputs and shared definitions to be values.
+		if mode == Mode::Output {
+			if let Some(awaited) = self.checker.get_awaited_type_exported(type_)
+				&& awaited != type_
+			{
+				return self.type_(awaited, mode);
+			}
+		} else if self.checker.get_promised_type_of_promise(type_).is_some() {
+			return Err(self.error(type_));
+		}
+
 		// Convert the primitive types, widening open-ended template literal types to strings.
 		let flags = type_.flags.get();
 		if flags.intersects(TypeFlags::Any | TypeFlags::Unknown) {
@@ -268,7 +299,7 @@ impl Converter<'_> {
 			if constraint == type_ {
 				return Ok(tg::interface::Type::Value);
 			}
-			return self.type_(constraint);
+			return self.type_(constraint, mode);
 		}
 
 		// Convert a type that the Tangram library declares.
@@ -279,7 +310,7 @@ impl Converter<'_> {
 		// Convert a union, merging the literals true and false into a boolean.
 		if flags.intersects(TypeFlags::Union) {
 			let members = type_.types().to_vec();
-			return self.union(members);
+			return self.union(members, mode);
 		}
 
 		// Convert the object types.
@@ -288,13 +319,13 @@ impl Converter<'_> {
 		}
 		if self.checker.is_array_type_exported(type_) {
 			let item = self.checker.get_type_arguments_exported(type_)[0];
-			let item = self.type_(item)?;
+			let item = self.type_(item, mode)?;
 			return Ok(tg::interface::Type::Array {
 				item: Box::new(item),
 			});
 		}
 		if tsrs_checker::is_tuple_type_exported(type_) {
-			return self.tuple(type_);
+			return self.tuple(type_, mode);
 		}
 		if !self.checker.get_call_signatures(type_).is_empty() {
 			return Err(tg::error!(
@@ -303,9 +334,9 @@ impl Converter<'_> {
 			));
 		}
 		if let Some(symbol) = named(type_) {
-			return self.definition(symbol, type_);
+			return self.definition(symbol, type_, mode);
 		}
-		self.record(type_)
+		self.record(type_, mode)
 	}
 
 	/// Convert the type of an optional parameter or field, which may be absent but is never undefined.
@@ -313,10 +344,11 @@ impl Converter<'_> {
 		&mut self,
 		type_: P<tsrs_checker::Type>,
 		optional: bool,
+		mode: Mode,
 	) -> tg::Result<tg::interface::Type> {
 		let flags = type_.flags.get();
 		if !optional || !flags.intersects(TypeFlags::Union) {
-			return self.type_(type_);
+			return self.type_(type_, mode);
 		}
 		let members = type_
 			.types()
@@ -325,22 +357,38 @@ impl Converter<'_> {
 			.filter(|member| !member.flags.get().intersects(TypeFlags::Undefined))
 			.collect::<Vec<_>>();
 		if let [member] = members.as_slice() {
-			return self.type_(*member);
+			return self.type_(*member, mode);
 		}
 		self.depth += 1;
-		let output = self.union(members);
+		let output = self.union(members, mode);
 		self.depth -= 1;
 		output
 	}
 
-	fn union(&mut self, members: Vec<P<tsrs_checker::Type>>) -> tg::Result<tg::interface::Type> {
+	fn union(
+		&mut self,
+		members: Vec<P<tsrs_checker::Type>>,
+		mode: Mode,
+	) -> tg::Result<tg::interface::Type> {
 		let mut types = Vec::new();
 		let mut booleans = 0;
 		for member in members {
+			// Omit known non-value input alternatives without hiding conversion failures.
+			if mode == Mode::Input
+				&& (member.flags.get().intersects(
+					TypeFlags::BigIntLike
+						| TypeFlags::ESSymbolLike
+						| TypeFlags::Never | TypeFlags::Undefined
+						| TypeFlags::Void,
+				) || self.checker.get_promised_type_of_promise(member).is_some()
+					|| !self.checker.get_call_signatures(member).is_empty())
+			{
+				continue;
+			}
 			if member.flags.get().intersects(TypeFlags::BooleanLiteral) {
 				booleans += 1;
 			}
-			let member = self.type_(member)?;
+			let member = self.type_(member, mode)?;
 			if !types.contains(&member) {
 				types.push(member);
 			}
@@ -359,10 +407,20 @@ impl Converter<'_> {
 		if types.contains(&tg::interface::Type::Value) {
 			return Ok(tg::interface::Type::Value);
 		}
+		if types.is_empty() {
+			return Err(tg::error!("the union has no value alternatives"));
+		}
+		if types.len() == 1 {
+			return Ok(types.pop().unwrap());
+		}
 		Ok(tg::interface::Type::Union { types })
 	}
 
-	fn tuple(&mut self, type_: P<tsrs_checker::Type>) -> tg::Result<tg::interface::Type> {
+	fn tuple(
+		&mut self,
+		type_: P<tsrs_checker::Type>,
+		mode: Mode,
+	) -> tg::Result<tg::interface::Type> {
 		let flags = type_
 			.target()
 			.filter(|target| target.object_flags().intersects(ObjectFlags::Tuple))
@@ -373,7 +431,7 @@ impl Converter<'_> {
 		let mut rest = None;
 		for (index, argument) in arguments.into_iter().enumerate() {
 			let flags = flags.get(index).copied().unwrap_or_default();
-			let type_ = self.type_(argument)?;
+			let type_ = self.type_(argument, mode)?;
 			if flags.intersects(ElementFlags::Variadic) {
 				return Err(self.error(argument));
 			}
@@ -396,9 +454,8 @@ impl Converter<'_> {
 	/// Convert a type that the Tangram library declares, or the byte array type.
 	fn library(&mut self, type_: P<tsrs_checker::Type>) -> tg::Result<Option<tg::interface::Type>> {
 		let symbol = type_
-			.alias()
-			.and_then(|alias| alias.symbol())
-			.or_else(|| type_.symbol());
+			.symbol()
+			.or_else(|| type_.alias().and_then(|alias| alias.symbol()));
 		let Some(symbol) = symbol else {
 			return Ok(None);
 		};
@@ -429,13 +486,13 @@ impl Converter<'_> {
 					self.checker.get_type_arguments_exported(type_).to_vec()
 				};
 				let args = match arguments.first() {
-					Some(args) => self.type_(*args)?,
+					Some(args) => self.type_(*args, Mode::Value)?,
 					None => tg::interface::Type::Array {
 						item: Box::new(tg::interface::Type::Value),
 					},
 				};
 				let output = match arguments.get(1) {
-					Some(output) => self.type_(*output)?,
+					Some(output) => self.type_(*output, Mode::Value)?,
 					None => tg::interface::Type::Value,
 				};
 				tg::interface::Type::Command {
@@ -454,36 +511,59 @@ impl Converter<'_> {
 			"Symlink" => tg::interface::Type::Symlink,
 			"Template" => tg::interface::Type::Template,
 			"Value" => tg::interface::Type::Value,
-			_ => return Err(self.error(type_)),
+			_ => return Ok(None),
 		};
 		Ok(Some(output))
 	}
 
-	/// Convert a named object type to a reference to a definition, so that a recursive type refers to itself.
+	/// Convert a named object type, sharing a definition only for the same instantiated type and value boundary.
 	fn definition(
 		&mut self,
 		symbol: P<Symbol>,
 		type_: P<tsrs_checker::Type>,
+		mode: Mode,
 	) -> tg::Result<tg::interface::Type> {
-		if let Some(name) = self.names.get(&symbol) {
+		if let Some(name) = self.names.get(&(type_, mode)) {
 			return Ok(tg::interface::Type::Reference {
 				import: None,
 				name: name.clone(),
 			});
 		}
-		if let Some(reference) = self.try_import(symbol) {
-			return Ok(reference);
+
+		// Reuse an unchanged value definition before creating a boundary-specific definition.
+		if mode != Mode::Value {
+			let definitions = self.definitions.clone();
+			let imports = self.imports.clone();
+			let names = self.names.clone();
+			if let Ok(output) = self.type_(type_, Mode::Value) {
+				return Ok(output);
+			}
+			self.definitions = definitions;
+			self.imports = imports;
+			self.names = names;
 		}
+		let definitions = self.definitions.clone();
+		let imports = self.imports.clone();
+		let names = self.names.clone();
 		let mut name = symbol.name().to_owned();
 		let mut suffix = 1;
 		while self.definitions.contains_key(&name)
 			|| self.names.values().any(|other| *other == name)
 		{
 			suffix += 1;
-			name = format!("{}{suffix}", symbol.name());
+			name = format!("{}{suffix}", symbol.name().to_owned());
 		}
-		self.names.insert(symbol, name.clone());
-		let definition = self.record(type_)?;
+		self.names.insert((type_, mode), name.clone());
+		let definition = self.record(type_, mode)?;
+		if mode == Mode::Value
+			&& type_ == self.checker.get_declared_type_of_symbol_exported(symbol)
+			&& self.try_import(symbol).is_some()
+		{
+			self.definitions = definitions;
+			self.imports = imports;
+			self.names = names;
+			return Ok(self.try_import(symbol).unwrap());
+		}
 		self.definitions.insert(name.clone(), definition);
 		Ok(tg::interface::Type::Reference { import: None, name })
 	}
@@ -517,7 +597,11 @@ impl Converter<'_> {
 	}
 
 	/// Convert an object type to a record, or to a map when it only has a string index signature.
-	fn record(&mut self, type_: P<tsrs_checker::Type>) -> tg::Result<tg::interface::Type> {
+	fn record(
+		&mut self,
+		type_: P<tsrs_checker::Type>,
+		mode: Mode,
+	) -> tg::Result<tg::interface::Type> {
 		let properties = self.checker.get_properties_of_type(type_).to_vec();
 		let infos = self
 			.checker
@@ -525,7 +609,7 @@ impl Converter<'_> {
 			.to_vec();
 		match (properties.is_empty(), infos.as_slice()) {
 			(true, [info]) if info.key_type().flags.get().intersects(TypeFlags::String) => {
-				let value = self.type_(info.value_type())?;
+				let value = self.type_(info.value_type(), mode)?;
 				Ok(tg::interface::Type::Map {
 					value: Box::new(value),
 				})
@@ -535,7 +619,7 @@ impl Converter<'_> {
 				for property in properties {
 					let optional = property.flags().intersects(SymbolFlags::Optional);
 					let type_ = self.checker.get_type_of_symbol(property);
-					let type_ = self.optional(type_, optional).map_err(
+					let type_ = self.optional(type_, optional, mode).map_err(
 						|error| tg::error!(!error, name = %property.name(), "failed to get the type of the field"),
 					)?;
 					let field = tg::interface::Field { optional, type_ };
