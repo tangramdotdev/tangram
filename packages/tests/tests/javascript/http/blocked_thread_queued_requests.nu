@@ -16,7 +16,11 @@ let path = artifact {
 			});
 			let start = Date.now();
 			while (Date.now() - start < 1000) {}
-			await Promise.all(writes);
+			let ids = await Promise.all(writes);
+			for (let [index, id] of ids.entries()) {
+				let text = await tg.Blob.withId(id).text;
+				tg.assert(text === `write ${index}`);
+			}
 			return "done";
 		}
 	'

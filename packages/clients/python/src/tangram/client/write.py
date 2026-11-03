@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from tangram.client import Client
 
-from collections.abc import AsyncIterable, AsyncIterator
+from collections.abc import AsyncIterable
 from typing import TypedDict, cast, overload
 
 from tangram.assert_ import assert_
@@ -38,29 +38,31 @@ async def write(
     input: AsyncIterable[bytes] | None = None,
 ) -> Write.Output | str:
     if isinstance(arg_or_bytes, (str, bytes)):
-        bytes_ = (
-            arg_or_bytes.encode("utf-8")
+        body = (
+            Body.text(arg_or_bytes)
             if isinstance(arg_or_bytes, str)
-            else arg_or_bytes
+            else Body.bytes(arg_or_bytes)
         )
-        output = await write(client, {}, single_bytes(bytes_))
+        output = await write_with_body(client, {}, body)
         return output["blob"].node
+    assert_(input is not None)
+    body = Body(cast(AsyncIterable[bytes], input))
+    return await write_with_body(client, arg_or_bytes, body)
+
+
+async def write_with_body(client: "Client", arg: Write.Arg, body: Body) -> Write.Output:
     method = "POST"
     uri = "/write"
     headers = {
         "accept": "application/json",
         "content-type": "application/octet-stream",
     }
-    assert_(input is not None)
-    body = Body(cast(AsyncIterable[bytes], input))
     request = Request(method, uri, headers, body).arg(
-        {"checkout_pointers": arg_or_bytes.get("checkoutPointers")}
+        {"checkout_pointers": arg.get("checkoutPointers")}
     )
-    response = await client.send(request)
+    response = await (
+        client.send_with_retry(request) if body.replayable else client.send(request)
+    )
     await check_response(response)
     output = cast(dict[str, str], await response.json())
     return {"blob": Referent.from_data_string(output["blob"])}
-
-
-async def single_bytes(bytes_: bytes) -> AsyncIterator[bytes]:
-    yield bytes_
