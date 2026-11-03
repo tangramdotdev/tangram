@@ -105,6 +105,31 @@ pub(crate) fn permissions_for_specifier_prefix(
 	Ok(Some(permissions))
 }
 
+pub(crate) fn principal_read_permission_for_resource(
+	resource: &tg::Id,
+) -> Option<tg::authorization::Permission> {
+	match resource.kind() {
+		tg::id::Kind::Group => Some(tg::authorization::Permission::Group(
+			tg::authorization::permission::group::Permission::Read,
+		)),
+		tg::id::Kind::Organization => Some(tg::authorization::Permission::Organization(
+			tg::authorization::permission::organization::Permission::Read,
+		)),
+		_ => None,
+	}
+}
+
+pub(crate) fn is_principal_read_permission(permission: tg::authorization::Permission) -> bool {
+	matches!(
+		permission,
+		tg::authorization::Permission::Group(
+			tg::authorization::permission::group::Permission::Read
+		) | tg::authorization::Permission::Organization(
+			tg::authorization::permission::organization::Permission::Read
+		)
+	)
+}
+
 pub(crate) fn write_permission_for_resource(
 	resource: &tg::Id,
 ) -> tg::Result<tg::authorization::Permission> {

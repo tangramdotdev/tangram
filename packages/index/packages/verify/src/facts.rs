@@ -17,6 +17,16 @@ pub type Response<E> = Result<ControlFlow<Output, E>, tg::Error>;
 
 #[derive(Clone, Debug)]
 pub enum Request {
+	CreatorProcesses {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		creator: tg::Principal,
+	},
+	CreatorSandboxes {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		creator: tg::Principal,
+	},
 	Delegations {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -71,6 +81,11 @@ pub enum Request {
 		limit: usize,
 		organization: tg::organization::Id,
 	},
+	OwnerProcesses {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		owner: tg::Principal,
+	},
 	OwnerSandboxes {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -112,7 +127,7 @@ pub enum Request {
 		limit: usize,
 		resource: tg::Id,
 	},
-	SandboxOwner {
+	SandboxPrincipals {
 		sandbox: tg::sandbox::Id,
 	},
 	Specifier {
@@ -169,7 +184,7 @@ pub enum Output {
 		after: Option<Vec<u8>>,
 		objects: Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 	},
-	SandboxOwner(Option<tg::Principal>),
+	SandboxPrincipals(Option<(tg::Principal, tg::Principal)>),
 	Tag(Option<tangram_index::tag::Tag>),
 	Tags {
 		after: Option<Vec<u8>>,
@@ -240,7 +255,7 @@ enum CacheKey {
 		limit: usize,
 		resource: tg::Id,
 	},
-	SandboxOwner(tg::sandbox::Id),
+	SandboxPrincipals(tg::sandbox::Id),
 	Specifier(tg::Specifier),
 	Tag(tg::tag::Id),
 	TargetTags {
@@ -400,7 +415,7 @@ impl Request {
 				limit: *limit,
 				resource: resource.clone(),
 			},
-			Self::SandboxOwner { sandbox } => CacheKey::SandboxOwner(sandbox.clone()),
+			Self::SandboxPrincipals { sandbox } => CacheKey::SandboxPrincipals(sandbox.clone()),
 			Self::Specifier { specifier } => CacheKey::Specifier(specifier.clone()),
 			Self::Tag { tag } => CacheKey::Tag(tag.clone()),
 			Self::TargetTags {
@@ -415,6 +430,9 @@ impl Request {
 			Self::Delegations { .. }
 			| Self::GroupMembers { .. }
 			| Self::ObjectChildren { .. }
+			| Self::CreatorProcesses { .. }
+			| Self::CreatorSandboxes { .. }
+			| Self::OwnerProcesses { .. }
 			| Self::OwnerSandboxes { .. }
 			| Self::OrganizationMembers { .. }
 			| Self::ProcessChildren { .. }
@@ -542,12 +560,16 @@ impl Output {
 		Ok((after, objects))
 	}
 
-	pub(crate) fn into_sandbox_owner(self) -> tg::Result<Option<tg::Principal>> {
-		let Self::SandboxOwner(owner) = self else {
-			return Err(tg::error!("received a non-sandbox-owner verification fact"));
+	pub(crate) fn into_sandbox_principals(
+		self,
+	) -> tg::Result<Option<(tg::Principal, tg::Principal)>> {
+		let Self::SandboxPrincipals(principals) = self else {
+			return Err(tg::error!(
+				"received a non-sandbox-principals verification fact"
+			));
 		};
 
-		Ok(owner)
+		Ok(principals)
 	}
 
 	pub(crate) fn into_tag(self) -> tg::Result<Option<tangram_index::tag::Tag>> {

@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A write grant on the owning group confers sandbox access, but a read-only grant on the owner does not.
+# A write grant on the owning group confers control of the sandbox, and a read grant confers only read access.
 
 let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
@@ -17,8 +17,9 @@ let sandbox = tg --token $bob.token sandbox create --no-tokens --group team --no
 tg --token $alice.token grant $carol.user.id write team
 success (tg --token $carol.token sandbox get $sandbox | complete) "a write grant on the owner should confer sandbox access"
 
-# A read grant on the owner does not confer access; the owner dependency requires write.
+# A read grant on the owner confers read access but not control.
 tg --token $alice.token grant $dave.user.id read team
-failure (tg --token $dave.token sandbox get $sandbox | complete) "a read-only grant on the owner must not confer sandbox access"
+success (tg --token $dave.token sandbox get $sandbox | complete) "a read grant on the owner should confer read access to the sandbox"
+failure (tg --token $dave.token sandbox destroy $sandbox | complete) "a read grant on the owner must not allow destroying the sandbox"
 
 tg --token $bob.token sandbox destroy $sandbox
