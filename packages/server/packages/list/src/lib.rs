@@ -125,23 +125,6 @@ impl Component {
 		Ok(output)
 	}
 
-	pub async fn list_inner(
-		&self,
-		session: &Session,
-		mut arg: tg::list::Arg,
-	) -> tg::Result<Vec<tg::list::Item>> {
-		let mut data = Vec::new();
-		loop {
-			let output = self.list(session, arg.clone()).await?;
-			data.extend(output.data);
-			let Some(cursor) = output.cursor else {
-				break;
-			};
-			arg.cursor = Some(cursor);
-		}
-		Ok(data)
-	}
-
 	pub async fn list_page(&self, session: &Session, arg: PageArg<'_>) -> tg::Result<Page> {
 		let locations = session
 			.locations(arg.location)
@@ -851,14 +834,6 @@ impl tangram_server_core::list::Component for Component {
 		arg: tg::list::Arg,
 	) -> BoxFuture<'a, tg::Result<tg::list::Output>> {
 		self.list(session, arg).boxed()
-	}
-
-	fn list_inner<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		arg: tg::list::Arg,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Item>>> {
-		self.list_inner(session, arg).boxed()
 	}
 
 	fn list_local_items<'a>(

@@ -65,6 +65,11 @@ pub enum Request {
 	TryGetObjectChildren {
 		id: tg::object::Id,
 	},
+	TryGetObjectChildrenPage {
+		after: Option<Vec<u8>>,
+		id: tg::object::Id,
+		limit: usize,
+	},
 	TryGetObjects {
 		ids: Vec<tg::object::Id>,
 	},
@@ -84,6 +89,11 @@ pub enum Request {
 	},
 	TryGetProcessChildrenAndObjects {
 		id: tg::process::Id,
+	},
+	TryGetProcessChildrenAndObjectsPage {
+		id: tg::process::Id,
+		limit: usize,
+		position: Option<crate::process::NodeChildrenPosition>,
 	},
 	TryGetProcesses {
 		ids: Vec<tg::process::Id>,
@@ -144,12 +154,14 @@ pub enum Response {
 	TryGetIdsForSpecifiers(Vec<Option<tg::Id>>),
 	TryGetIndexer(Option<crate::indexer::Indexer>),
 	TryGetObjectChildren(Option<Vec<tg::object::Id>>),
+	TryGetObjectChildrenPage(Option<crate::object::ChildrenPage>),
 	TryGetObjects(Vec<Option<crate::object::Object>>),
 	TryGetOldestUpdateTransactionId(Option<u64>),
 	TryGetOrganizations(Vec<Option<crate::organization::Organization>>),
 	TryGetProcessChildren(Option<Vec<tg::process::data::Child>>),
 	TryGetProcessChildrenCount(Option<u64>),
 	TryGetProcessChildrenAndObjects(Option<crate::process::NodeChildren>),
+	TryGetProcessChildrenAndObjectsPage(Option<crate::process::NodeChildrenPage>),
 	TryGetProcesses(Vec<Option<crate::process::Process>>),
 	TryGetProcessesWithData(Vec<Option<(crate::process::Process, Option<tg::process::Data>)>>),
 	TryGetSandboxProcesses(Option<Vec<tg::process::Id>>),

@@ -25,6 +25,25 @@ impl Index {
 		Ok(output)
 	}
 
+	pub async fn try_get_object_children_page(
+		&self,
+		id: &tg::object::Id,
+		after: Option<Vec<u8>>,
+		limit: usize,
+	) -> tg::Result<Option<tangram_index::object::ChildrenPage>> {
+		let request = tangram_index::read::Request::TryGetObjectChildrenPage {
+			after,
+			id: id.clone(),
+			limit,
+		};
+		let response = self.send_read_request(request).await?;
+		let tangram_index::read::Response::TryGetObjectChildrenPage(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
 	pub async fn try_get_objects(
 		&self,
 		ids: &[tg::object::Id],
@@ -83,6 +102,15 @@ impl tangram_index::object::Index for Index {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<Vec<tg::object::Id>>> {
 		self.try_get_object_children(id).await
+	}
+
+	async fn try_get_object_children_page(
+		&self,
+		id: &tg::object::Id,
+		after: Option<Vec<u8>>,
+		limit: usize,
+	) -> tg::Result<Option<tangram_index::object::ChildrenPage>> {
+		self.try_get_object_children_page(id, after, limit).await
 	}
 
 	async fn try_get_objects(

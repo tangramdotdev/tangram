@@ -26,4 +26,5 @@ serde_with = { workspace = true }
 tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
+tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }

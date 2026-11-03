@@ -95,6 +95,26 @@ impl Index {
 		Ok(output)
 	}
 
+	pub async fn try_get_process_children_and_objects_page(
+		&self,
+		id: &tg::process::Id,
+		position: Option<tangram_index::process::NodeChildrenPosition>,
+		limit: usize,
+	) -> tg::Result<Option<tangram_index::process::NodeChildrenPage>> {
+		let request = tangram_index::read::Request::TryGetProcessChildrenAndObjectsPage {
+			id: id.clone(),
+			limit,
+			position,
+		};
+		let response = self.send_read_request(request).await?;
+		let tangram_index::read::Response::TryGetProcessChildrenAndObjectsPage(output) = response
+		else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
 	pub async fn list_processes_for_creator(
 		&self,
 		arg: tangram_index::process::list::Arg,
@@ -290,6 +310,16 @@ impl tangram_index::process::Index for Index {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tangram_index::process::NodeChildren>> {
 		self.try_get_process_children_and_objects(id).await
+	}
+
+	async fn try_get_process_children_and_objects_page(
+		&self,
+		id: &tg::process::Id,
+		position: Option<tangram_index::process::NodeChildrenPosition>,
+		limit: usize,
+	) -> tg::Result<Option<tangram_index::process::NodeChildrenPage>> {
+		self.try_get_process_children_and_objects_page(id, position, limit)
+			.await
 	}
 
 	async fn list_processes_for_creator(

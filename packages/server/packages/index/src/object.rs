@@ -13,6 +13,20 @@ impl Index {
 		}
 	}
 
+	pub async fn try_get_object_children_page(
+		&self,
+		id: &tg::object::Id,
+		after: Option<Vec<u8>>,
+		limit: usize,
+	) -> tg::Result<Option<index::object::ChildrenPage>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_object_children_page(id, after, limit).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_object_children_page(id, after, limit).await,
+		}
+	}
+
 	pub async fn try_get_objects(
 		&self,
 		ids: &[tg::object::Id],
@@ -69,6 +83,15 @@ impl index::object::Index for Index {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<Vec<tg::object::Id>>> {
 		self.try_get_object_children(id).await
+	}
+
+	async fn try_get_object_children_page(
+		&self,
+		id: &tg::object::Id,
+		after: Option<Vec<u8>>,
+		limit: usize,
+	) -> tg::Result<Option<index::object::ChildrenPage>> {
+		self.try_get_object_children_page(id, after, limit).await
 	}
 
 	async fn try_get_objects(

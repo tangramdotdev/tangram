@@ -56,6 +56,22 @@ pub struct NodeChildren {
 	pub nodes: Vec<tg::Referent<tg::Id>>,
 }
 
+/// A page of a process's child processes followed by its objects.
+#[derive(Clone, Debug)]
+pub struct NodeChildrenPage {
+	pub complete: bool,
+	pub next: Option<NodeChildrenPosition>,
+	pub nodes: Vec<tg::Referent<tg::Id>>,
+}
+
+/// The position in a process's child processes followed by its objects.
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeChildrenPosition {
+	Children { after: Vec<u8> },
+	Objects { after: Option<Vec<u8>> },
+}
+
 /// The set status of a process in the index.
 #[derive(
 	Clone,
@@ -117,6 +133,13 @@ pub trait Index {
 		&self,
 		id: &tg::process::Id,
 	) -> impl Future<Output = tg::Result<Option<crate::process::NodeChildren>>> + Send;
+
+	fn try_get_process_children_and_objects_page(
+		&self,
+		id: &tg::process::Id,
+		position: Option<crate::process::NodeChildrenPosition>,
+		limit: usize,
+	) -> impl Future<Output = tg::Result<Option<crate::process::NodeChildrenPage>>> + Send;
 
 	fn try_get_processes_with_data(
 		&self,

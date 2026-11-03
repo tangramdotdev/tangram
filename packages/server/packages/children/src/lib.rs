@@ -14,7 +14,21 @@ pub struct Component {}
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(tag = "version")]
 enum Cursor {
-	V0 { position: u64 },
+	V0 { position: Position },
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Position {
+	List {
+		cursor: String,
+	},
+	Object {
+		after: Vec<u8>,
+	},
+	Process {
+		position: tangram_index::process::NodeChildrenPosition,
+	},
 }
 
 #[serde_with::serde_as]
@@ -59,14 +73,15 @@ impl Component {
 	) -> tg::Result<tg::children::Output> {
 		// Parse the pagination arguments.
 		let limit = session.parse_page_limit(arg.limit)?;
-		let cursor = arg
+		let limit = usize::try_from(limit).unwrap();
+		let position = arg
 			.cursor
 			.as_deref()
 			.map(tangram_server_core::cursor::deserialize::<Cursor>)
-			.transpose()?;
-		let position = cursor.map_or(0, |cursor| match cursor {
-			Cursor::V0 { position } => position,
-		});
+			.transpose()?
+			.map(|cursor| match cursor {
+				Cursor::V0 { position } => position,
+			});
 
 		// Revalidate the node and obtain a fresh token.
 		let id = arg.node.node;
@@ -75,14 +90,19 @@ impl Component {
 			.revalidate_children_node_local(session, &id, arg.node.options)
 			.await?;
 
-		// Get the children.
-		let nodes = match id.kind() {
+		// Get a page of the children.
+		let (nodes, next) = match id.kind() {
 			tg::id::Kind::Group | tg::id::Kind::Organization | tg::id::Kind::User => {
+				let cursor = match position {
+					None => None,
+					Some(Position::List { cursor }) => Some(cursor),
+					Some(_) => return Err(tg::error!(argument, "invalid cursor")),
+				};
 				let arg = tg::list::Arg {
 					cached: false,
-					cursor: None,
+					cursor,
 					groups: true,
-					limit: None,
+					limit: Some(u64::try_from(limit).unwrap()),
 					location: Some(location.into()),
 					node: Some(tg::Referent::new(id, parent_options)),
 					organizations: false,
@@ -92,22 +112,26 @@ impl Component {
 					ttl: tg::remote::cache::Ttl::default(),
 					users: false,
 				};
-				session
-					.server
-					.components
-					.list
-					.list_inner(session, arg)
-					.await?
-					.into_iter()
-					.map(|entry| entry.node)
-					.collect()
+				let output = session.server.components.list.list(session, arg).await?;
+				let nodes = output.data.into_iter().map(|item| item.node).collect();
+				let next = output.cursor.map(|cursor| Position::List { cursor });
+				(nodes, next)
 			},
 			tg::id::Kind::Process => {
+				let position = match position {
+					None => None,
+					Some(Position::Process { position }) => Some(position),
+					Some(_) => return Err(tg::error!(argument, "invalid cursor")),
+				};
 				let id = id.try_into()?;
-				let nodes = self
-					.try_get_process_children_and_objects_from_index(session, &id)
+				let page = self
+					.try_get_process_children_and_objects_page_from_index(
+						session, &id, position, limit,
+					)
 					.await?;
-				inherit_child_options(nodes, &parent_options)
+				let nodes = inherit_child_options(page.nodes, &parent_options);
+				let next = page.next.map(|position| Position::Process { position });
+				(nodes, next)
 			},
 			tg::id::Kind::Tag => {
 				let id = id.try_into()?;
@@ -133,17 +157,25 @@ impl Component {
 					tokens: tg::authorization::Tokens::with_authorization(token),
 					..Default::default()
 				};
-				vec![tg::Referent::new(target, options)]
+				(vec![tg::Referent::new(target, options)], None)
 			},
 			kind if kind.is_object() => {
+				let after = match position {
+					None => None,
+					Some(Position::Object { after }) => Some(after),
+					Some(_) => return Err(tg::error!(argument, "invalid cursor")),
+				};
 				let id = tg::object::Id::try_from(id)?;
-				let nodes = self
-					.try_get_object_children_from_index(session, &id)
+				let page = self
+					.try_get_object_children_page_from_index(session, &id, after, limit)
 					.await?;
-				nodes
+				let nodes = page
+					.data
 					.into_iter()
 					.map(|id| tg::Referent::new(id.into(), parent_options.clone()))
-					.collect()
+					.collect();
+				let next = page.next.map(|after| Position::Object { after });
+				(nodes, next)
 			},
 			kind => {
 				return Err(
@@ -151,24 +183,14 @@ impl Component {
 				);
 			},
 		};
-		let mut data = merge_children(nodes);
 
-		// Select the page and create the continuation cursor.
-		let position = usize::try_from(position)
-			.unwrap_or(usize::MAX)
-			.min(data.len());
-		let end = position
-			.saturating_add(usize::try_from(limit).unwrap())
-			.min(data.len());
-		let cursor = if end < data.len() {
-			let cursor = Cursor::V0 {
-				position: u64::try_from(end).unwrap(),
-			};
-			Some(tangram_server_core::cursor::serialize(&cursor)?)
-		} else {
-			None
-		};
-		let data = data.drain(position..end).collect();
+		// Create the output.
+		let data = merge_children(nodes);
+		let cursor = next
+			.map(|position| Cursor::V0 { position })
+			.as_ref()
+			.map(tangram_server_core::cursor::serialize)
+			.transpose()?;
 		let output = tg::children::Output { cursor, data };
 
 		Ok(output)
@@ -276,13 +298,20 @@ impl Component {
 		Ok(options)
 	}
 
-	async fn try_get_object_children_from_index(
+	async fn try_get_object_children_page_from_index(
 		&self,
 		session: &Session,
 		id: &tg::object::Id,
-	) -> tg::Result<Vec<tg::object::Id>> {
-		if let Some(children) = session.server.index.try_get_object_children(id).await? {
-			return Ok(children);
+		after: Option<Vec<u8>>,
+		limit: usize,
+	) -> tg::Result<tangram_index::object::ChildrenPage> {
+		if let Some(page) = session
+			.server
+			.index
+			.try_get_object_children_page(id, after.clone(), limit)
+			.await?
+		{
+			return Ok(page);
 		}
 		session
 			.server
@@ -297,23 +326,25 @@ impl Component {
 		session
 			.server
 			.index
-			.try_get_object_children(id)
+			.try_get_object_children_page(id, after, limit)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the object"))
 	}
 
-	async fn try_get_process_children_and_objects_from_index(
+	async fn try_get_process_children_and_objects_page_from_index(
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
-	) -> tg::Result<Vec<tg::Referent<tg::Id>>> {
-		let output = session
+		position: Option<tangram_index::process::NodeChildrenPosition>,
+		limit: usize,
+	) -> tg::Result<tangram_index::process::NodeChildrenPage> {
+		let page = session
 			.server
 			.index
-			.try_get_process_children_and_objects(id)
+			.try_get_process_children_and_objects_page(id, position.clone(), limit)
 			.await?;
-		if output.as_ref().is_some_and(|output| output.complete) {
-			return Ok(output.unwrap().nodes);
+		if let Some(page) = page.filter(|page| page.complete) {
+			return Ok(page);
 		}
 		session
 			.server
@@ -328,9 +359,8 @@ impl Component {
 		session
 			.server
 			.index
-			.try_get_process_children_and_objects(id)
+			.try_get_process_children_and_objects_page(id, position, limit)
 			.await?
-			.map(|output| output.nodes)
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))
 	}
 
@@ -504,7 +534,8 @@ fn inherit_child_options(
 }
 
 fn merge_children(children: Vec<tg::Referent<tg::Id>>) -> Vec<tg::Referent<tg::Id>> {
-	let mut output = BTreeMap::new();
+	let mut indexes = BTreeMap::new();
+	let mut output: Vec<tg::Referent<tg::Id>> = Vec::with_capacity(children.len());
 	for child in children {
 		let options = tg::referent::Options {
 			location: child.options.location,
@@ -512,19 +543,20 @@ fn merge_children(children: Vec<tg::Referent<tg::Id>>) -> Vec<tg::Referent<tg::I
 			..Default::default()
 		};
 		let child = tg::Referent::new(child.node, options);
-		output
-			.entry(child.node.clone())
-			.and_modify(|existing: &mut tg::Referent<tg::Id>| {
-				existing.options.tokens.inherit(&child.options.tokens);
-				if existing.options.location.is_none() {
-					existing
-						.options
-						.location
-						.clone_from(&child.options.location);
-				}
-			})
-			.or_insert(child);
+		let Some(index) = indexes.get(&child.node).copied() else {
+			indexes.insert(child.node.clone(), output.len());
+			output.push(child);
+			continue;
+		};
+		let existing = &mut output[index];
+		existing.options.tokens.inherit(&child.options.tokens);
+		if existing.options.location.is_none() {
+			existing
+				.options
+				.location
+				.clone_from(&child.options.location);
+		}
 	}
 
-	output.into_values().collect()
+	output
 }

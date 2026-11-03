@@ -14,6 +14,8 @@ Force pushing branches other than `main` is allowed. Never force push `main`.
 
 Run `bun run check` to check changes for errors. Never use `cargo clippy --package` or `cargo check --package` as they do not check all crates. Always use `bun run check` which runs clippy on the entire workspace. Clear clippy warnings when you complete tasks.
 
+Tangram supports Linux and macOS. When writing or changing code, account for conditional compilation so the code remains correct and warning-free on both platforms. When fixing warnings, inspect platform-specific code and preserve behavior on both platforms. Conditional compilation can make necessary code appear redundant on one platform, such as a `continue` before a Linux-only loop body. When appropriate, use a narrowly scoped, platform-specific lint allowance with a reason.
+
 ## Formatting
 
 Run `bun run format` to format all code when you complete changes.

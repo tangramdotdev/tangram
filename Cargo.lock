@@ -10997,6 +10997,7 @@ dependencies = [
  "tangram_client",
  "tangram_futures",
  "tangram_http",
+ "tangram_index",
  "tangram_server_core",
 ]
 

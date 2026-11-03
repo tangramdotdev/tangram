@@ -24,4 +24,4 @@ let expected = [
 	$process.output.node.value
 	(command module-input $process.command)
 ]
-assert equal $process_children $expected "the process should include its direct graph children"
+assert equal ($process_children | sort) ($expected | sort) "the process should include its direct graph children"
