@@ -596,7 +596,7 @@ impl Component {
 		}
 
 		// Begin accounting before starting any workload processes.
-		create_output.sandbox.start().await?;
+		create_output.sandbox.activate().await?;
 
 		// Spawn the process before waiting for the control stream.
 		let mut process_tasks = JoinSet::new();
@@ -1026,7 +1026,7 @@ impl Component {
 			tangram_socket_path,
 		};
 		tracing::debug!(sandbox_index = index, "creating the physical sandbox");
-		let sandbox = tangram_sandbox::Sandbox::new(arg)
+		let sandbox = tangram_sandbox::Sandbox::start(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %index, "failed to create the sandbox"))?;
 

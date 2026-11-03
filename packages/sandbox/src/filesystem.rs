@@ -67,11 +67,21 @@ pub fn create(path: &Path, project: u32, size: Option<u64>, inodes: Option<u64>)
 }
 
 pub fn create_directory(path: &Path) -> tg::Result<()> {
-	std::fs::create_dir(path).map_err(|error| {
-		tg::error!(!error, path = %path.display(), "failed to create the sandbox filesystem directory")
-	})?;
+	match std::fs::create_dir(path) {
+		Ok(()) => {},
+		Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {},
+		Err(error) => {
+			return Err(
+				tg::error!(!error, path = %path.display(), "failed to create the sandbox filesystem directory"),
+			);
+		},
+	}
 
 	Ok(())
+}
+
+pub(crate) fn project_id(path: &Path) -> tg::Result<u32> {
+	project::id(path)
 }
 
 pub(crate) fn clear(path: &Path, project: u32) -> tg::Result<()> {
