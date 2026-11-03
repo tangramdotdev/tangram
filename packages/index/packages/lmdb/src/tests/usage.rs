@@ -288,6 +288,7 @@ fn sandbox_data(
 			cpu: Some(2.into()),
 			creator: owner.clone(),
 			error: None,
+			expires_at: None,
 			hostname: None,
 			id,
 			memory: Some((1 << 30).into()),

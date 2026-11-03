@@ -32,6 +32,11 @@ pub struct Data {
 	#[tangram_serialize(default, id = 13, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 
+	/// The time, in seconds since the epoch, after which the stopped sandbox is destroyed, which is its last use plus its time to live.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 16, skip_serializing_if = "Option::is_none")]
+	pub expires_at: Option<i64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub hostname: Option<String>,

@@ -65,6 +65,7 @@ fn data(
 		cpu: None,
 		creator: tg::Principal::Root,
 		error: None,
+		expires_at: None,
 		hostname: None,
 		id: tg::sandbox::Id::new(),
 		memory: None,

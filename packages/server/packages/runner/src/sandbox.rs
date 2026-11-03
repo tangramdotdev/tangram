@@ -648,6 +648,8 @@ impl Component {
 
 			error: None,
 
+			expires_at: None,
+
 			id: id.clone(),
 
 			location: location.clone(),
@@ -1373,6 +1375,9 @@ impl Component {
 		let mut teardown = Teardown::Destroy;
 		let mut stopping = false;
 
+		// Track the sandbox's last use, which is its start and then each time it is left without processes, so that a stop records when its time to live expires.
+		let mut last_used_at = session.server.clock.unix_timestamp();
+
 		// Run the sandbox until it should be stopped or destroyed, destroying it with the error if the loop fails.
 		let result = async {
 			loop {
@@ -1517,6 +1522,7 @@ impl Component {
 									break;
 								}
 								if ready && process_events.is_empty() && pending.is_empty() {
+									last_used_at = session.server.clock.unix_timestamp();
 									timer_future = idle_timer(&session.server, time_to_live, time_to_stop);
 								}
 							},
@@ -1583,6 +1589,14 @@ impl Component {
 						.sandboxes
 						.get_mut_by_id(&id)
 						.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+					// Record when the stopped sandbox expires, counting a stop with running processes as a use.
+					if !process_events.is_empty() || !pending.is_empty() {
+						last_used_at = session.server.clock.unix_timestamp();
+					}
+					state.expires_at = time_to_live.map(|time_to_live| {
+						last_used_at
+							.saturating_add(time_to_live.as_secs().try_into().unwrap_or(i64::MAX))
+					});
 					state.status = tg::sandbox::Status::Stopping;
 					state.changed.send_replace(());
 				},
@@ -1891,6 +1905,7 @@ impl Component {
 			cpu: arg.cpu,
 			creator,
 			error: Some(error),
+			expires_at: None,
 			hostname: arg.hostname,
 			id: id.clone(),
 			memory: arg.memory,
@@ -2234,28 +2249,7 @@ impl Component {
 		session: &Session,
 	) -> tg::Result<Vec<(tg::sandbox::Id, Teardown)>> {
 		// Get the sandboxes with directories.
-		let path = session.server.path.join("sandboxes");
-		let mut ids = Vec::new();
-		let mut entries = match tokio::fs::read_dir(&path).await {
-			Ok(entries) => entries,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to read the sandbox directories"));
-			},
-		};
-		while let Some(entry) = entries
-			.next_entry()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to read a sandbox directory"))?
-		{
-			if let Some(id) = entry
-				.file_name()
-				.to_str()
-				.and_then(|name| name.parse::<tg::sandbox::Id>().ok())
-			{
-				ids.push(id);
-			}
-		}
+		let ids = Self::sandbox_directory_ids(session).await?;
 		if ids.is_empty() {
 			return Ok(Vec::new());
 		}
@@ -2290,6 +2284,114 @@ impl Component {
 		}
 
 		Ok(sandboxes)
+	}
+
+	/// Destroy this runner's stopped sandboxes whose time to live has expired, at each interval, until the stopper stops.
+	pub(crate) async fn expire_stopped_sandboxes_task(&self, session: &Session, stopper: Stopper) {
+		let interval = session.server.config.runner.stopped_sandbox_interval;
+		let mut first_seen = BTreeMap::new();
+		loop {
+			tokio::select! {
+				() = session.server.clock.sleep(interval) => {},
+				() = stopper.wait() => return,
+			}
+			if let Err(error) = self
+				.expire_stopped_sandboxes(session, &mut first_seen)
+				.await
+			{
+				tracing::error!(error = %error.trace(), "failed to expire the stopped sandboxes");
+			}
+		}
+	}
+
+	async fn expire_stopped_sandboxes(
+		&self,
+		session: &Session,
+		first_seen: &mut BTreeMap<tg::sandbox::Id, i64>,
+	) -> tg::Result<()> {
+		// Get the runner control sender, waiting for the next interval while the runner is not connected.
+		let Some(sender) = self.control.borrow().clone() else {
+			return Ok(());
+		};
+
+		// Get the sandboxes with directories and their local records.
+		let ids = Self::sandbox_directory_ids(session).await?;
+		let indexed = session.server.index.try_get_sandboxes(&ids).await?;
+		let now = session.server.clock.unix_timestamp();
+		first_seen.retain(|id, _| ids.contains(id));
+
+		for (id, indexed) in std::iter::zip(ids, indexed) {
+			// Skip a sandbox that is not stopped, or that has a boot starting or running.
+			let Some(data) = indexed.and_then(|indexed| indexed.data) else {
+				continue;
+			};
+			if data.data.status != tg::sandbox::Status::Stopped {
+				continue;
+			}
+			let sandbox = self.state.sandboxes.get_by_id(&id);
+			let starting =
+				self.state.booting.get(&id).is_some_and(|boot| {
+					sandbox.as_ref().is_none_or(|sandbox| sandbox.boot != *boot)
+				});
+			let running = sandbox.is_some_and(|sandbox| !sandbox.status.is_stopped_or_destroyed());
+			if starting || running {
+				continue;
+			}
+
+			// Get the expiration, which the stop recorded, or which counts from when this runner first saw the sandbox stopped if the stop did not record one, such as after a crash.
+			let Some(time_to_live) = data.data.time_to_live else {
+				continue;
+			};
+			let time_to_live = i64::try_from(time_to_live.as_secs()).unwrap_or(i64::MAX);
+			let expires_at = data.data.expires_at.unwrap_or_else(|| {
+				first_seen
+					.entry(id.clone())
+					.or_insert(now)
+					.saturating_add(time_to_live)
+			});
+			if now < expires_at {
+				continue;
+			}
+
+			// Destroy the sandbox.
+			let arg = tg::runner::control::DestroySandboxServerRequestArg {
+				error: None,
+				sandbox: id.clone(),
+			};
+			if let Err(error) = self.destroy_stopped_sandbox(session, arg, &sender).await {
+				tracing::error!(error = %error.trace(), sandbox = %id, "failed to destroy the expired sandbox");
+			}
+		}
+
+		Ok(())
+	}
+
+	/// Get the IDs of the sandboxes with directories on this runner.
+	async fn sandbox_directory_ids(session: &Session) -> tg::Result<Vec<tg::sandbox::Id>> {
+		let path = session.server.path.join("sandboxes");
+		let mut ids = Vec::new();
+		let mut entries = match tokio::fs::read_dir(&path).await {
+			Ok(entries) => entries,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(ids),
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to read the sandbox directories"));
+			},
+		};
+		while let Some(entry) = entries
+			.next_entry()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read a sandbox directory"))?
+		{
+			if let Some(id) = entry
+				.file_name()
+				.to_str()
+				.and_then(|name| name.parse::<tg::sandbox::Id>().ok())
+			{
+				ids.push(id);
+			}
+		}
+
+		Ok(ids)
 	}
 
 	/// Remove a stopped sandbox's directory and release its filesystem project ID.
@@ -2357,6 +2459,7 @@ impl Component {
 				cpu: create.cpu,
 				creator: creator.clone(),
 				error: None,
+				expires_at: None,
 				hostname: create.hostname.clone(),
 				id: id.clone(),
 				memory: create.memory,
