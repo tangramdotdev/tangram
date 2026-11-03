@@ -268,6 +268,7 @@ foundationdb-tuple = "0.11"
 futures = "0.3"
 glob = "0.3"
 globset = "0.4"
+h2 = "0.4"
 heed = { git = "https://github.com/tangramdotdev/heed.git", features = ["posix-sem"] }
 http = "1"
 http-body = "1"

@@ -2285,9 +2285,13 @@ impl Component {
 				.await;
 				match result {
 					Ok(true) => {},
-					Ok(false) => continue,
+					Ok(false) => {
+						#[cfg(target_os = "linux")]
+						continue;
+					},
 					Err(error) => {
 						tracing::error!(%error, sandbox = %id, "failed to move the sandbox directory");
+						#[cfg(target_os = "linux")]
 						continue;
 					},
 				}

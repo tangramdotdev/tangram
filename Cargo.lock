@@ -10344,6 +10344,7 @@ dependencies = [
  "derive_more",
  "flate2",
  "futures",
+ "h2",
  "http",
  "http-body",
  "http-body-util",

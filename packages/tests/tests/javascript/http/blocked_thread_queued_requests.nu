@@ -6,8 +6,14 @@ let local = server spawn --config { http: { idle_timeout: 0.25 } }
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
+			// Establish the connection that will become idle while JavaScript blocks.
 			await tg.client.write("warm");
-			let writes = Array.from({ length: 100 }, (_, index) => tg.client.write(`write ${index}`));
+
+			// Queue enough string and byte writes to expose the race with the idle connection closing.
+			let writes = Array.from({ length: 100 }, (_, index) => {
+				let value = `write ${index}`;
+				return tg.client.write(index % 2 === 0 ? value : tg.encoding.utf8.encode(value));
+			});
 			let start = Date.now();
 			while (Date.now() - start < 1000) {}
 			await Promise.all(writes);
