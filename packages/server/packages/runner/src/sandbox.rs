@@ -2318,6 +2318,13 @@ impl Component {
 					}
 				}
 				.await;
+				#[cfg_attr(
+					not(target_os = "linux"),
+					allow(
+						clippy::needless_continue,
+						reason = "the remaining loop body is Linux-only"
+					)
+				)]
 				match result {
 					Ok(true) => {},
 					Ok(false) => {

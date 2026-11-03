@@ -520,4 +520,106 @@ impl Index {
 
 		Ok(Some(output))
 	}
+
+	pub(crate) fn try_get_process_children_and_objects_page_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::process::Id,
+		position: Option<&tangram_index::process::NodeChildrenPosition>,
+		limit: usize,
+	) -> tg::Result<Option<tangram_index::process::NodeChildrenPage>> {
+		let Some(process) = Self::try_get_process_with_transaction(db, subspace, transaction, id)?
+		else {
+			return Ok(None);
+		};
+		let complete = process.set.complete();
+
+		// Read the child processes, unless the position is past them.
+		let mut nodes = Vec::new();
+		let after = match position {
+			Some(tangram_index::process::NodeChildrenPosition::Objects { after }) => after.clone(),
+			position => {
+				let after = match position {
+					Some(tangram_index::process::NodeChildrenPosition::Children { after }) => {
+						Some(after.as_slice())
+					},
+					_ => None,
+				};
+				let id_bytes = id.to_bytes();
+				let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
+				let prefix = Self::pack(subspace, prefix);
+				let (entries, next) = Self::get_entry_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&prefix,
+					after,
+					limit,
+				)?;
+				for (key, value) in entries {
+					let Key::Process(crate::process::Key::ProcessChild {
+						child: child_id, ..
+					}) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					let child: tg::process::data::Child = tangram_serialize::from_slice(&value)
+						.map_err(|error| {
+							tg::error!(!error, "failed to deserialize the process child")
+						})?;
+					if child.process.node != child_id {
+						return Err(tg::error!("the process child value does not match its key"));
+					}
+					nodes.push(child.process.map(Into::into));
+				}
+				if let Some(after) = next {
+					let next = tangram_index::process::NodeChildrenPosition::Children { after };
+					let page = tangram_index::process::NodeChildrenPage {
+						complete,
+						next: Some(next),
+						nodes,
+					};
+					return Ok(Some(page));
+				}
+				None
+			},
+		};
+
+		// Fill the rest of the page with the objects.
+		let remaining = limit - nodes.len();
+		if remaining == 0 {
+			let next = tangram_index::process::NodeChildrenPosition::Objects { after: None };
+			let page = tangram_index::process::NodeChildrenPage {
+				complete,
+				next: Some(next),
+				nodes,
+			};
+			return Ok(Some(page));
+		}
+		let (objects, next) = Self::get_process_objects_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			id,
+			None,
+			after.as_deref(),
+			remaining,
+		)?;
+		nodes.extend(
+			objects
+				.into_iter()
+				.map(|(object, _)| tg::Referent::with_node(object.into())),
+		);
+		let next = next.map(
+			|after| tangram_index::process::NodeChildrenPosition::Objects { after: Some(after) },
+		);
+		let page = tangram_index::process::NodeChildrenPage {
+			complete,
+			next,
+			nodes,
+		};
+
+		Ok(Some(page))
+	}
 }

@@ -30,11 +30,24 @@ pub struct Object {
 	pub touched_at: i64,
 }
 
+#[derive(Clone, Debug)]
+pub struct ChildrenPage {
+	pub data: Vec<tg::object::Id>,
+	pub next: Option<Vec<u8>>,
+}
+
 pub trait Index {
 	fn try_get_object_children(
 		&self,
 		id: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<Option<Vec<tg::object::Id>>>> + Send;
+
+	fn try_get_object_children_page(
+		&self,
+		id: &tg::object::Id,
+		after: Option<Vec<u8>>,
+		limit: usize,
+	) -> impl Future<Output = tg::Result<Option<crate::object::ChildrenPage>>> + Send;
 
 	fn try_get_objects(
 		&self,

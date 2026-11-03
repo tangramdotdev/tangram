@@ -80,12 +80,6 @@ pub trait Component: crate::component::Lifecycle {
 		request: http::Request<BoxBody>,
 	) -> BoxFuture<'a, tg::Result<http::Response<BoxBody>>>;
 
-	fn list_inner<'a>(
-		&'a self,
-		session: &'a Session,
-		arg: tg::list::Arg,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Item>>>;
-
 	fn list_local_items<'a>(
 		&'a self,
 		session: &'a Session,
