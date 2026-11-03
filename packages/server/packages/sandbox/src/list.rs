@@ -46,13 +46,18 @@ impl Component {
 		if let Some(local) = &locations.local {
 			if local.current {
 				output.data.extend(
-					self.list_sandboxes_local(session, Some(&creator), arg.owner.as_ref())
-						.await?,
+					self.list_sandboxes_local(
+						session,
+						Some(&creator),
+						arg.owner.as_ref(),
+						arg.status,
+					)
+					.await?,
 				);
 			}
 
 			let region_outputs = self
-				.list_sandboxes_regions(session, &local.regions, arg.owner.as_ref())
+				.list_sandboxes_regions(session, &local.regions, arg.owner.as_ref(), arg.status)
 				.await?;
 			output
 				.data
@@ -60,7 +65,7 @@ impl Component {
 		}
 
 		let remote_outputs = self
-			.list_sandboxes_remotes(session, &locations.remotes, arg.owner.as_ref())
+			.list_sandboxes_remotes(session, &locations.remotes, arg.owner.as_ref(), arg.status)
 			.await?;
 		output
 			.data
@@ -95,6 +100,7 @@ impl Component {
 		session: &Session,
 		creator: Option<&tg::Principal>,
 		owner: Option<&tg::Principal>,
+		status: Option<tg::sandbox::Status>,
 	) -> tg::Result<Vec<tg::sandbox::list::Item>> {
 		let mut sandboxes = if let Some(owner) = owner {
 			session
@@ -159,7 +165,11 @@ impl Component {
 			.into_iter()
 			.filter_map(|(id, sandbox)| {
 				let data = sandbox.data?;
-				if !data.data.status.is_started()
+				let matches = match status {
+					Some(status) => data.data.status == status,
+					None => !data.data.status.is_destroyed(),
+				};
+				if !matches
 					|| data
 						.location
 						.as_ref()
@@ -221,11 +231,12 @@ impl Component {
 		session: &Session,
 		regions: &[String],
 		owner: Option<&tg::Principal>,
+		status: Option<tg::sandbox::Status>,
 	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
 		let outputs = try_join_all(
 			regions
 				.iter()
-				.map(|region| self.list_sandboxes_region(session, region, owner)),
+				.map(|region| self.list_sandboxes_region(session, region, owner, status)),
 		)
 		.await?;
 		Ok(outputs)
@@ -236,6 +247,7 @@ impl Component {
 		session: &Session,
 		region: &str,
 		owner: Option<&tg::Principal>,
+		status: Option<tg::sandbox::Status>,
 	) -> tg::Result<tg::sandbox::list::Output> {
 		let client = session.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -248,6 +260,7 @@ impl Component {
 			limit: None,
 			location: Some(location.clone().into()),
 			owner: owner.cloned(),
+			status,
 		};
 		let mut output = client.list_all_sandboxes(arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to list the sandboxes"),
@@ -267,11 +280,12 @@ impl Component {
 		session: &Session,
 		remotes: &[tangram_server_core::location::Remote],
 		owner: Option<&tg::Principal>,
+		status: Option<tg::sandbox::Status>,
 	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
 		let outputs = try_join_all(
 			remotes
 				.iter()
-				.map(|remote| self.list_sandboxes_remote(session, remote, owner)),
+				.map(|remote| self.list_sandboxes_remote(session, remote, owner, status)),
 		)
 		.await?;
 		Ok(outputs)
@@ -282,6 +296,7 @@ impl Component {
 		session: &Session,
 		remote: &tangram_server_core::location::Remote,
 		owner: Option<&tg::Principal>,
+		status: Option<tg::sandbox::Status>,
 	) -> tg::Result<tg::sandbox::list::Output> {
 		let client = session
 			.server
@@ -302,6 +317,7 @@ impl Component {
 				}),
 			])),
 			owner: owner.cloned(),
+			status,
 		};
 		let mut output = client.list_all_sandboxes(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to list the sandboxes"),

@@ -27,6 +27,10 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub print: tangram_cli_core::print::Options,
+
+	/// List only the sandboxes with this status.
+	#[arg(long)]
+	pub status: Option<tg::sandbox::Status>,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -37,6 +41,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		limit: args.limit,
 		location: args.locations.get(),
 		owner,
+		status: args.status,
 	};
 	let output = if args.all {
 		client.list_all_sandboxes(arg).await

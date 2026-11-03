@@ -82,27 +82,9 @@ impl Index {
 			}
 			let arg = arg.as_ref();
 
-			let processes_changed = arg.processes.is_some()
-				&& existing
-					.as_ref()
-					.is_none_or(|existing| !existing.set.processes);
-
-			// A delayed or replayed start must not overwrite a destroyed sandbox.
-			if arg
-				.data
-				.as_ref()
-				.is_some_and(|data| data.data.status.is_started())
-				&& existing
-					.as_ref()
-					.and_then(|sandbox| sandbox.data.as_ref())
-					.is_some_and(|data| data.data.status.is_destroyed())
-			{
-				continue;
-			}
-			let mut data = arg
-				.data
-				.clone()
-				.or_else(|| existing.as_ref().and_then(|sandbox| sandbox.data.clone()));
+			// Keep the data that is latest in the sandbox lifecycle, because writes may be applied out of order.
+			let tangram_index::sandbox::put::Merge { mut data, usages } =
+				arg.merge(existing.as_ref());
 			let location = arg.location.clone().or_else(|| {
 				existing
 					.as_ref()
@@ -137,17 +119,12 @@ impl Index {
 							.is_some_and(|sandbox| sandbox.set.processes),
 				},
 				touched_at,
+				usages,
 			};
-			if processes_changed && let Some(processes) = &arg.processes {
+			if let Some(processes) = &arg.processes {
 				crate::propagate!(
-					Self::put_sandbox_processes_with_transaction(
-						txn,
-						subspace,
-						&arg.id,
-						processes,
-						partition_total
-					)
-					.await
+					Self::put_sandbox_processes_with_transaction(txn, subspace, &arg.id, processes)
+						.await
 				);
 			}
 			let value = sandbox.serialize()?;
@@ -204,7 +181,7 @@ impl Index {
 			if let Some(data) = existing
 				.as_ref()
 				.and_then(|sandbox| sandbox.data.as_ref())
-				.filter(|data| data.data.status.is_started())
+				.filter(|data| !data.data.status.is_destroyed())
 			{
 				let creator = data.data.creator.clone();
 				let key = Key::Sandbox(crate::sandbox::Key::CreatorSandbox {
@@ -226,7 +203,7 @@ impl Index {
 			if let Some(data) = sandbox
 				.data
 				.as_ref()
-				.filter(|data| data.data.status.is_started())
+				.filter(|data| !data.data.status.is_destroyed())
 			{
 				let creator = data.data.creator.clone();
 				let key = Key::Sandbox(crate::sandbox::Key::CreatorSandbox {
@@ -267,7 +244,7 @@ impl Index {
 			if sandbox
 				.data
 				.as_ref()
-				.is_some_and(|data| data.data.status.is_started())
+				.is_some_and(|data| !data.data.status.is_destroyed())
 				&& let Some(runner) = &sandbox.runner
 			{
 				let key = Key::Runner(crate::runner::Key::RunnerSandbox {

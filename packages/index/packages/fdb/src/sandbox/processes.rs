@@ -14,13 +14,30 @@ impl Index {
 		sandbox: &tg::sandbox::Id,
 		process: &tg::process::Id,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		// A replay must not recreate a deleted sandbox or change its finalized list.
+		// A replay must not recreate a deleted sandbox or change the list of a destroyed sandbox.
 		let indexed =
 			crate::propagate!(Self::try_get_sandbox_with_transaction(txn, subspace, sandbox).await);
-		if indexed.is_none_or(|sandbox| sandbox.set.processes) {
+		if indexed.is_none_or(|sandbox| {
+			sandbox
+				.data
+				.as_ref()
+				.is_some_and(|data| data.data.status.is_destroyed())
+		}) {
 			return Ok(ControlFlow::Break(()));
 		}
+		crate::propagate!(
+			Self::append_sandbox_process_with_transaction(txn, subspace, sandbox, process).await
+		);
 
+		Ok(ControlFlow::Break(()))
+	}
+
+	async fn append_sandbox_process_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		sandbox: &tg::sandbox::Id,
+		process: &tg::process::Id,
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		// Preserve the first indexed position when initialization is replayed.
 		let key = Key::Process(crate::process::Key::ProcessSandbox {
 			process: process.clone(),
@@ -77,33 +94,13 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		sandbox: &tg::sandbox::Id,
 		processes: &[tg::process::Id],
-		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		crate::propagate!(
-			Self::delete_sandbox_processes_with_transaction(
-				txn,
-				subspace,
-				sandbox,
-				partition_total
-			)
-			.await
-		);
-		for (position, process) in processes.iter().enumerate() {
-			let position = i64::try_from(position)
-				.map_err(|error| tg::error!(!error, "the sandbox has too many processes"))?;
-			let key = Key::Sandbox(super::Key::SandboxProcess {
-				position,
-				process: process.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
-			let key = Key::Process(crate::process::Key::ProcessSandbox {
-				process: process.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			txn.set(&key, &position.to_be_bytes());
+		// Append the processes that are not indexed, so that the lists reported by each boot merge.
+		for process in processes {
+			crate::propagate!(
+				Self::append_sandbox_process_with_transaction(txn, subspace, sandbox, process)
+					.await
+			);
 		}
 
 		Ok(ControlFlow::Break(()))

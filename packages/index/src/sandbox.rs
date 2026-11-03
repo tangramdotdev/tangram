@@ -1,4 +1,4 @@
-use {futures::FutureExt as _, tangram_client::prelude::*};
+use {futures::FutureExt as _, std::collections::BTreeMap, tangram_client::prelude::*};
 
 pub mod put;
 
@@ -12,6 +12,10 @@ pub struct Sandbox {
 	pub runner: Option<tg::runner::Id>,
 	pub set: Set,
 	pub touched_at: i64,
+
+	/// The usage reported for each boot, which sums to the usage in `data`.
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub usages: BTreeMap<u64, tg::sandbox::Usage>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]

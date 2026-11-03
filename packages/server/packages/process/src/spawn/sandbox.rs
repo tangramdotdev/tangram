@@ -135,10 +135,16 @@ impl Component {
 			);
 		let destroyed_future = async {
 			while let Some(event) = status_stream.try_next().await? {
-				if let tg::sandbox::status::Event::Status(status) = event
-					&& status.is_destroyed()
-				{
-					return Err(tg::error!(%sandbox, "the sandbox was destroyed"));
+				if let tg::sandbox::status::Event::Status(status) = event {
+					match status {
+						tg::sandbox::Status::Destroyed => {
+							return Err(tg::error!(%sandbox, "the sandbox was destroyed"));
+						},
+						tg::sandbox::Status::Starting | tg::sandbox::Status::Stopped => {
+							return Err(tg::error!(%sandbox, "the sandbox is not started"));
+						},
+						tg::sandbox::Status::Started | tg::sandbox::Status::Stopping => {},
+					}
 				}
 			}
 			Err(tg::error!(%sandbox, "the sandbox status stream ended"))
