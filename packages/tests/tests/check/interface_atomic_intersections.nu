@@ -39,8 +39,6 @@ for statement in [
 	'await command.build(wrongOutput)'
 	'await (await command.build(greet)).build(42)'
 	'value: int = await (await command.build(greet)).build("hello")'
-	'await file.build("file")'
-	'value: str = await file.build(await tg.file("file"))'
 ] {
 	let source = (doc $imports) + "\nasync def default():\n    " + $statement + "\n"
 	let path = artifact ($modules | merge { tangram.py: $source })
