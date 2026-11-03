@@ -15,21 +15,17 @@ export let start = async (): Promise<tg.Value.Data> => {
 		return null;
 	}
 
-	// Call the export.
-	let output: tg.Value;
+	// Get the export and call it if it is a function.
 	if (!(export_ in namespace)) {
 		throw new Error(`failed to find the export named ${export_}`);
 	}
 	let value = await namespace[export_];
-	if (tg.Value.is(value)) {
-		output = value;
-	} else if (typeof value === "function") {
+	if (typeof value === "function") {
 		// A function that returns nothing produces the null value.
 		let result = await value(...tg.process.args);
-		output = result === undefined ? null : await tg.resolve(result);
-	} else {
-		throw new Error("the export must be a tg.Value or a function");
+		value = result === undefined ? null : result;
 	}
+	let output = await tg.resolve(value);
 
 	// Store the output and get its data.
 	await tg.Value.store(output);
