@@ -4,12 +4,24 @@ use {
 };
 
 pub trait Grant: Send + Sync + 'static {
-	fn create_grant(
+	fn grant(
 		&self,
-		arg: tg::grant::create::Arg,
-	) -> BoxFuture<'_, tg::Result<tg::grant::create::Output>>;
+		arg: tg::grant::grant::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::grant::grant::Output>>;
 
-	fn delete_grant(&self, arg: tg::grant::delete::Arg) -> BoxFuture<'_, tg::Result<Option<()>>>;
+	fn revoke(&self, arg: tg::grant::revoke::Arg) -> BoxFuture<'_, tg::Result<()>>;
+
+	fn try_delete_grant<'a>(
+		&'a self,
+		grant: &'a tg::grant::Id,
+		arg: tg::grant::delete::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+
+	fn try_get_grant<'a>(
+		&'a self,
+		grant: &'a tg::grant::Id,
+		arg: tg::grant::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::grant::get::Output>>>;
 
 	fn list_grants(
 		&self,
@@ -21,15 +33,31 @@ impl<T> Grant for T
 where
 	T: tg::instance::Grant,
 {
-	fn create_grant(
+	fn grant(
 		&self,
-		arg: tg::grant::create::Arg,
-	) -> BoxFuture<'_, tg::Result<tg::grant::create::Output>> {
-		self.create_grant(arg).boxed()
+		arg: tg::grant::grant::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::grant::grant::Output>> {
+		self.grant(arg).boxed()
 	}
 
-	fn delete_grant(&self, arg: tg::grant::delete::Arg) -> BoxFuture<'_, tg::Result<Option<()>>> {
-		self.delete_grant(arg).boxed()
+	fn revoke(&self, arg: tg::grant::revoke::Arg) -> BoxFuture<'_, tg::Result<()>> {
+		self.revoke(arg).boxed()
+	}
+
+	fn try_delete_grant<'a>(
+		&'a self,
+		grant: &'a tg::grant::Id,
+		arg: tg::grant::delete::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_delete_grant(grant, arg).boxed()
+	}
+
+	fn try_get_grant<'a>(
+		&'a self,
+		grant: &'a tg::grant::Id,
+		arg: tg::grant::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::grant::get::Output>>> {
+		self.try_get_grant(grant, arg).boxed()
 	}
 
 	fn list_grants(

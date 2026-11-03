@@ -8,7 +8,7 @@ let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 
 # Eve can list her own grants through inherent self-admin.
-let own = tg --token $eve.token grants list --subject $eve.user.id | from json
+let own = tg --token $eve.token grants list --subject $eve.user.id --expand | from json | each {|item| $item.data }
 assert (($own | length) == 0) "a user should be able to list their own grants"
 
 # Eve cannot list Alice's grants without admin on Alice.

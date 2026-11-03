@@ -19,11 +19,16 @@ let output = tg --token $alice.token revoke $bob.user.id write team | complete
 failure $output "an admin should not be able to revoke a grant another grantor created"
 snapshot --normalize $output.stderr '
 	error an error occurred
+	-> failed to revoke the grant
+	   resource = team
+	   subject = usr_0000000000000000000000000000
+	-> the request failed
+	   status = 404 Not Found
 	-> failed to find the grant
 
 '
 
 # Carol's grant survives, so Bob retains the write access she conferred.
-let grants = tg --token $alice.token grants list --resource team | from json
+let grants = tg --token $alice.token grants list --resource team --expand | from json | each {|item| $item.data }
 assert ($grants | any {|g| $g.subject == $bob.user.id and $g.permissions == { kind: group, value: [write] } }) "Carol's grant should survive Alice's failed revoke"
 tg --token $bob.token group create team/bob-sub

@@ -326,9 +326,9 @@ impl Component {
 			session.context.principal,
 			tg::Principal::Anonymous | tg::Principal::Root
 		) {
-			let principal = &session.context.principal;
-			let arg = tg::grant::create::Arg {
-				subject: principal.try_to_subject()?.into(),
+			let subject = session.context.principal.try_to_subject()?;
+			let arg = tg::grant::grant::Arg {
+				create: false,
 				permissions: tg::Either::Left(
 					tg::authorization::Permission::Organization(
 						tg::authorization::permission::organization::Permission::Admin,
@@ -336,12 +336,13 @@ impl Component {
 					.into(),
 				),
 				resource: tg::Referent::with_node(tg::Selector::Id(id.clone().into())),
+				subject: subject.into(),
 			};
 			match session
 				.server
 				.components
 				.grant
-				.create_grant_with_transaction(session, transaction, arg, batch)
+				.grant_with_transaction(session, transaction, arg, batch)
 				.await?
 			{
 				ControlFlow::Break(_) => (),

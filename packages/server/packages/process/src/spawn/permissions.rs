@@ -104,17 +104,15 @@ impl Component {
 			}
 		}
 		if !missing.is_empty() {
-			session
-				.create_grant(tg::grant::create::Arg {
-					subject: tg::authorization::subject::Selector::Subject(
-						tg::authorization::Subject::Public,
-					),
-					permissions: tg::Either::Left(tg::authorization::permission::Set::Process(
-						missing,
-					)),
-					resource: tg::Referent::with_node(tg::Selector::Id(resource)),
-				})
-				.await?;
+			let arg = tg::grant::grant::Arg {
+				create: false,
+				permissions: tg::Either::Left(tg::authorization::permission::Set::Process(missing)),
+				resource: tg::Referent::with_node(tg::Selector::Id(resource)),
+				subject: tg::authorization::subject::Selector::Subject(
+					tg::authorization::Subject::Public,
+				),
+			};
+			session.grant(arg).await?;
 		}
 		Ok(())
 	}

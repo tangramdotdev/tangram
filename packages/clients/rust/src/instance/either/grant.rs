@@ -5,23 +5,42 @@ where
 	L: tg::instance::Grant,
 	R: tg::instance::Grant,
 {
-	fn create_grant(
+	fn grant(
 		&self,
-		arg: tg::grant::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::grant::create::Output>> {
+		arg: tg::grant::grant::Arg,
+	) -> impl Future<Output = tg::Result<tg::grant::grant::Output>> {
 		match self {
-			tg::Either::Left(s) => s.create_grant(arg).left_future(),
-			tg::Either::Right(s) => s.create_grant(arg).right_future(),
+			tg::Either::Left(s) => s.grant(arg).left_future(),
+			tg::Either::Right(s) => s.grant(arg).right_future(),
 		}
 	}
 
-	fn delete_grant(
+	fn revoke(&self, arg: tg::grant::revoke::Arg) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			tg::Either::Left(s) => s.revoke(arg).left_future(),
+			tg::Either::Right(s) => s.revoke(arg).right_future(),
+		}
+	}
+
+	fn try_delete_grant(
 		&self,
+		grant: &tg::grant::Id,
 		arg: tg::grant::delete::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.delete_grant(arg).left_future(),
-			tg::Either::Right(s) => s.delete_grant(arg).right_future(),
+			tg::Either::Left(s) => s.try_delete_grant(grant, arg).left_future(),
+			tg::Either::Right(s) => s.try_delete_grant(grant, arg).right_future(),
+		}
+	}
+
+	fn try_get_grant(
+		&self,
+		grant: &tg::grant::Id,
+		arg: tg::grant::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::grant::get::Output>>> {
+		match self {
+			tg::Either::Left(s) => s.try_get_grant(grant, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_grant(grant, arg).right_future(),
 		}
 	}
 

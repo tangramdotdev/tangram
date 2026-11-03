@@ -296,7 +296,7 @@ impl Component {
 			tg::organization::Member::Group(id) => tg::authorization::Subject::Group(id.clone()),
 			tg::organization::Member::User(id) => tg::authorization::Subject::User(id.clone()),
 		};
-		let arg = tg::grant::delete::Arg {
+		let arg = tg::grant::revoke::Arg {
 			permissions: tg::Either::Left(
 				tg::authorization::Permission::Organization(
 					tg::authorization::permission::organization::Permission::Write,
@@ -310,7 +310,7 @@ impl Component {
 			.server
 			.components
 			.grant
-			.delete_grant_with_transaction(session, transaction, arg, batch)
+			.revoke_with_transaction(session, transaction, arg, batch)
 			.await?
 		{
 			ControlFlow::Break(_) => (),

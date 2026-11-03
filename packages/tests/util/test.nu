@@ -1095,9 +1095,9 @@ export def normalize [value?: string, --normalize-ids] {
 	}
 
 	let prefixes = if $normalize_ids {
-		[blb cmd dir err fil gph grp org pcs sbx sym tag usr]
+		[blb cmd dir err fil gph grp grt org pcs rmt sbx sym tag usr]
 	} else {
-		[err grp org pcs sbx tag usr]
+		[err grp grt org pcs rmt sbx tag usr]
 	}
 	let prefixes_pattern = $prefixes | str join '|'
 	let pattern = '(?<id>(' + $prefixes_pattern + ')_[a-z0-9]{20,})'

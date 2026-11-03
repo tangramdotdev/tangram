@@ -17,7 +17,7 @@ tg --token $root_token tag put --force alice $target
 tg index
 
 failure (tg --token $bob.token group get team | complete) "the grant created by the replaced user should be deleted"
-let grants = tg --token $root_token grants list --resource team | from json
+let grants = tg --token $root_token grants list --resource team --expand | from json | each {|item| $item.data }
 assert not (
 	$grants | any {|grant|
 		$grant.creator == $alice.user.id and $grant.subject == $bob.user.id
