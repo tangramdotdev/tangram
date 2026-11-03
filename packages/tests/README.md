@@ -11,6 +11,12 @@ directories for failed tests, or `--preserve-temps` to keep them for every
 test. Pass `--no-progress-details` to show only the aggregate progress bar
 during highly concurrent runs.
 
+On Linux, pass `--cpus` and `--memory` to run the build and the tests in a
+systemd user scope limited to that many CPUs and that much memory without swap,
+for example `nu packages/tests/test.nu --cpus 8 --memory 20GiB sandbox`. Every
+server and sandbox that the tests start inherits the limits, and `--cpus` also
+sets the default number of jobs.
+
 ## Cloud databases
 
 Cloud database tests are supported on Linux and macOS. On Linux, install native
