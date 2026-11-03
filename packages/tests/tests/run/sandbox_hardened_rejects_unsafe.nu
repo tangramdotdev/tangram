@@ -6,16 +6,9 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
-if (id -u | into int) != 0 {
-	skip_test 'hardened containers require the tests to run as root'
-}
-let directory = project_quota_directory
-
-let cgroup_parent = container_cgroup_parent [cpu memory pids]
-
-let local = server spawn --directory $directory --config {
+let local = server spawn --root --config {
 	runner: {
-		backend: ({ kind: builtin, harden: true } | merge (container_id_maps)),
+		backend: ({ kind: builtin, harden: true } | merge (container_id_maps --root)),
 	},
 }
 

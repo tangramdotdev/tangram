@@ -119,12 +119,13 @@ fn validate_id_mapped_mount(path: &Path) -> tg::Result<()> {
 }
 
 fn validate_filesystem(root: &Path) -> tg::Result<()> {
-	const PROJECT: u32 = i32::MAX.cast_unsigned();
+	// Choose a project for the quota probe at the top of the project ID space, at random, so that servers that probe the same filesystem at once do not share a quota.
+	let project = i32::MAX.cast_unsigned() - rand::random::<u32>() % 65_536;
 
 	// Create the quota probe.
 	let name = format!("tangram-quota-probe-{:016x}", rand::random::<u64>());
 	let path = root.join(name);
-	let result = crate::filesystem::create(&path, PROJECT, Some(64 * 1024), Some(4));
+	let result = crate::filesystem::create(&path, project, Some(64 * 1024), Some(4));
 
 	// Check the quota enforcement.
 	let enforcement_result = if result.is_ok() {
@@ -143,7 +144,7 @@ fn validate_filesystem(root: &Path) -> tg::Result<()> {
 		}
 	}
 	let clear_result = if result.is_ok() {
-		crate::filesystem::clear(&path, PROJECT)
+		crate::filesystem::clear(&path, project)
 	} else {
 		Ok(())
 	};
