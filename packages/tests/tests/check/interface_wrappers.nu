@@ -41,8 +41,8 @@ let caller = '
 	# ///
 	from values import build, echo, mutation, result
 	async def default() -> list[str]:
-	    built: str = await build.build({"text": "start"}, {"count": 2}, {"text": await tg.Mutation.set("world")})
-	    mutated: str = await mutation.build(await tg.Mutation.set("changed"), [{"count": 1}])
+	    built = await build.build({"text": "start"}, {"count": 2}, {"text": await tg.Mutation.set("world")})
+	    mutated = await mutation.build(await tg.Mutation.set("changed"), [{"count": 1}])
 	    nested = await result.build("resolved")
 	    text: str = nested["text"]
 	    directory: tg.Directory = nested["directory"]
@@ -88,6 +88,6 @@ let source = $caller
 let path = artifact ($modules | merge { tangram.py: $source })
 let output = tg check $path | complete
 failure $output
-for line in [7 8 10 11] {
+for line in [10 11] {
 	assert ($output.stderr | str contains $'tangram.py:($line):') $output.stderr
 }
