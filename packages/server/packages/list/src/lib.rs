@@ -1,13 +1,16 @@
 use {
-	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture, stream::FuturesUnordered},
+	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture, stream::FuturesOrdered},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, ops::ControlFlow, sync::Arc},
+	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
-	tangram_server_core::{Session, list::QuerySpecifierItemsArg},
-	tangram_server_list_common::{Kinds, item_kind_enabled, sort_items},
+	tangram_server_core::{
+		Session,
+		list::{Cursor, Page, PageArg, Scope},
+	},
+	tangram_server_list_common::{Kinds, item_kind_enabled},
 };
 
 #[cfg(test)]
@@ -32,19 +35,6 @@ struct Arg {
 	options: tg::referent::Options,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(tag = "version")]
-enum Cursor {
-	V0 { position: u64 },
-}
-
-#[derive(Clone)]
-enum Parent {
-	Any,
-	Id(tg::Id),
-	Root,
-}
-
 impl Component {
 	#[must_use]
 	pub fn new() -> Self {
@@ -60,39 +50,77 @@ impl Component {
 		session: &Session,
 		mut arg: tg::list::Arg,
 	) -> tg::Result<tg::list::Output> {
+		session.verify_request_with_network_access()?;
+
+		// List from the node's location.
+		if let Some(location) = arg
+			.node
+			.as_ref()
+			.and_then(|node| node.options.location.clone())
+		{
+			arg.location = Some(location.into());
+		}
+
 		// Parse the pagination arguments.
 		let limit = session.parse_page_limit(arg.limit)?;
-		let cursor = arg
+		let limit = usize::try_from(limit).unwrap();
+		let after = arg
 			.cursor
 			.as_deref()
 			.map(tangram_server_core::cursor::deserialize::<Cursor>)
-			.transpose()?;
-		let position = cursor.map_or(0, |cursor| match cursor {
-			Cursor::V0 { position } => position,
-		});
+			.transpose()?
+			.map(|cursor| match cursor {
+				Cursor::V0 { after } => after,
+			});
 
-		// Collect the complete result before selecting the page.
-		arg.cursor = None;
-		arg.limit = None;
-		let mut data = self.list_inner(session, arg).await?;
-
-		// Select the page and create the continuation cursor.
-		let position = usize::try_from(position)
-			.unwrap_or(usize::MAX)
-			.min(data.len());
-		let end = position
-			.saturating_add(usize::try_from(limit).unwrap())
-			.min(data.len());
-		let cursor = if end < data.len() {
-			let cursor = Cursor::V0 {
-				position: u64::try_from(end).unwrap(),
-			};
-			Some(tangram_server_core::cursor::serialize(&cursor)?)
-		} else {
-			None
+		// Resolve the scope, which is the node's children, or its descendants when the list is recursive.
+		let scope = match (&arg.node, arg.recursive) {
+			(None, false) => Scope::Children(None),
+			(None, true) => Scope::All,
+			(Some(node), false) => Scope::Children(Some(tg::Selector::Id(node.node.clone()))),
+			(Some(node), true) => match self.try_get_local_specifier(session, &node.node).await? {
+				Some(specifier) => Scope::Descendants(specifier),
+				None => Scope::Empty,
+			},
 		};
-		let data = data.drain(position..end).collect();
-		let output = tg::list::Output { cursor, data };
+
+		// List the page.
+		let kinds = Kinds {
+			groups: arg.groups,
+			organizations: arg.organizations,
+			tags: arg.tags,
+			users: arg.users,
+		};
+		let tokens = arg
+			.node
+			.as_ref()
+			.map(|node| node.options.tokens.clone())
+			.unwrap_or_default();
+		let page_arg = PageArg {
+			after,
+			cached: arg.cached,
+			filter: Box::new(move |item| item_kind_enabled(item, &kinds)),
+			limit,
+			location: arg.location.as_ref(),
+			query: tangram_server_core::list::remote::Query::List(arg.clone()),
+			reverse: arg.reverse,
+			scope,
+			tokens: &tokens,
+			ttl: arg.ttl,
+		};
+		let page = self.list_page(session, page_arg).await?;
+
+		// Create the output.
+		let cursor = page
+			.next
+			.map(|after| Cursor::V0 { after })
+			.as_ref()
+			.map(tangram_server_core::cursor::serialize)
+			.transpose()?;
+		let output = tg::list::Output {
+			cursor,
+			data: page.data,
+		};
 
 		Ok(output)
 	}
@@ -102,260 +130,208 @@ impl Component {
 		session: &Session,
 		mut arg: tg::list::Arg,
 	) -> tg::Result<Vec<tg::list::Item>> {
-		session.verify_request_with_network_access()?;
-		if let Some(location) = arg
-			.node
-			.as_ref()
-			.and_then(|node| node.options.location.clone())
-		{
-			arg.location = Some(location.into());
+		let mut data = Vec::new();
+		loop {
+			let output = self.list(session, arg.clone()).await?;
+			data.extend(output.data);
+			let Some(cursor) = output.cursor else {
+				break;
+			};
+			arg.cursor = Some(cursor);
 		}
-		let local_only =
-			arg.location
-				.as_ref()
-				.and_then(tg::location::Arg::to_location)
-				.is_some_and(|location| match location {
-					tg::Location::Local(local) => local.region.as_deref().is_none_or(|region| {
-						Some(region) == session.server.config.region.as_deref()
-					}),
-					tg::Location::Remote(_) => false,
-				});
-		if local_only && !arg.recursive {
-			let data = self.list_local_items_for_list(session, &arg).await?;
-
-			return Ok(sort_items(data, arg.reverse));
-		}
-		let local_arg = arg.clone();
-		let tokens = arg
-			.node
-			.as_ref()
-			.map(tg::Referent::options)
-			.map(|options| options.tokens.clone())
-			.unwrap_or_default();
-		let query_arg = QuerySpecifierItemsArg {
-			cached: arg.cached,
-			filter_local: move |items| {
-				let data = filter_list_items(items, &local_arg);
-				sort_items(data, local_arg.reverse)
-			},
-			location: arg.location.as_ref(),
-			query: tangram_server_core::list::remote::Query::List(arg.clone()),
-			tokens: &tokens,
-			ttl: arg.ttl,
-		};
-		let items = self.query_specifier_items(session, query_arg).await?;
-		let data = sort_items(items, arg.reverse);
-
 		Ok(data)
 	}
 
-	pub(crate) async fn list_local_items(
-		&self,
-		session: &Session,
-	) -> tg::Result<Vec<tg::list::Item>> {
-		self.list_local_items_with_tokens(session, &tg::authorization::Tokens::default())
+	pub async fn list_page(&self, session: &Session, arg: PageArg<'_>) -> tg::Result<Page> {
+		let locations = session
+			.locations(arg.location)
 			.await
-	}
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-	async fn list_local_items_with_tokens(
-		&self,
-		session: &Session,
-		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<Vec<tg::list::Item>> {
-		// List the items.
-		let items = session
-			.server
-			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
-				async move { Self::list_local_items_with_transaction(transaction).await }.boxed()
+		// List a page of the local items.
+		let mut pages = Vec::new();
+		if locations.local.is_some() {
+			let page = self
+				.list_local_page(session, &arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to list the local items"))?;
+			pages.push(page);
+		}
+
+		// List a page of each remote's items, in the order of the remotes' names.
+		let mut remotes = locations.remotes;
+		remotes.sort_by(|a, b| a.name.cmp(&b.name));
+		let query = query_with_page(arg.query.clone(), arg.after.clone(), arg.limit)?;
+		let remote_pages = remotes
+			.into_iter()
+			.map(|remote| {
+				let query = query.clone();
+				async move {
+					let name = remote.name.clone();
+					self.list_remote(session, remote, arg.cached, arg.ttl, query)
+						.await
+						.map_err(
+							|error| tg::error!(!error, remote = %name, "failed to query the remote items"),
+						)
+				}
 			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect::<Vec<_>>()
 			.await?;
+		pages.extend(remote_pages);
 
-		// Filter the visible items.
-		let items = self.filter_visible_items(session, items, tokens).await?;
+		// Merge the pages.
+		let page = merge_pages(pages, arg.limit, arg.reverse);
 
-		Ok(items)
+		Ok(page)
 	}
 
-	pub(crate) async fn list_local_items_for_list(
-		&self,
-		session: &Session,
-		arg: &tg::list::Arg,
-	) -> tg::Result<Vec<tg::list::Item>> {
-		// Resolve the parent.
-		let parent = match &arg.node {
-			None => Parent::Root,
-			Some(node) => Parent::Id(node.node.clone()),
-		};
+	async fn list_local_page(&self, session: &Session, arg: &PageArg<'_>) -> tg::Result<Page> {
+		if matches!(arg.scope, Scope::Empty) {
+			let page = Page {
+				data: Vec::new(),
+				next: None,
+			};
+			return Ok(page);
+		}
 
-		// Page through the database items.
-		let mut database_position = 0;
-		let mut output = Vec::new();
-		let tokens = arg
-			.node
-			.as_ref()
-			.map(tg::Referent::options)
-			.map(|options| options.tokens.clone())
-			.unwrap_or_default();
+		// Read the scope's items in batches, after the key, until one more item than the limit passes the filters or the scope is exhausted.
+		let batch_size = session
+			.server
+			.config
+			.pagination
+			.database_page_length
+			.max(u64::try_from(arg.limit).unwrap() + 1);
+		let reverse = arg.reverse;
+		let mut after = arg.after.clone();
+		let mut data = Vec::new();
 		loop {
-			let database_length = session.server.config.pagination.database_page_length;
-			let arg = arg.clone();
-			let parent = parent.clone();
-			let items = session
+			let rows = session
 				.server
 				.database
 				.run_with_options(db::ConnectionOptions::default(), |transaction| {
-					let arg = arg.clone();
-					let parent = parent.clone();
+					let after = after.clone();
+					let scope = arg.scope.clone();
 					async move {
-						Self::list_local_items_for_list_with_transaction(
+						Self::list_local_page_with_transaction(
 							transaction,
-							&arg,
-							&parent,
-							database_position,
-							database_length,
+							&scope,
+							after.as_deref(),
+							reverse,
+							batch_size,
 						)
 						.await
 					}
 					.boxed()
 				})
 				.await?;
-			let input_length = items.len().to_u64().unwrap();
-			let items = self.filter_visible_items(session, items, &tokens).await?;
-			output.extend(items);
-			if input_length < database_length {
+			let exhausted = rows.len().to_u64().unwrap() < batch_size;
+			if let Some((key, _, _)) = rows.last() {
+				after = Some(key.clone());
+			}
+			let items = rows
+				.into_iter()
+				.map(|(_, id, item)| (id, item))
+				.filter(|(_, item)| (arg.filter)(item))
+				.collect();
+			let items = self
+				.filter_visible_items(session, items, arg.tokens)
+				.await?;
+			data.extend(items);
+			if data.len() > arg.limit || exhausted {
 				break;
 			}
-			database_position = database_position.saturating_add(input_length);
 		}
 
-		Ok(output)
+		// Create the page, which continues after its last item when more items passed the filters.
+		let more = data.len() > arg.limit;
+		data.truncate(arg.limit);
+		let next = more
+			.then(|| data.last().map(|item| item.specifier().key()))
+			.flatten();
+		let page = Page { data, next };
+
+		Ok(page)
 	}
 
-	async fn list_local_items_with_transaction(
+	async fn list_local_page_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
-	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Item)>, tangram_server_core::database::Error>>
-	{
-		let mut items = Vec::new();
-		let groups = match Self::list_local_groups(transaction, &Parent::Any).await? {
-			ControlFlow::Break(groups) => groups,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		items.extend(groups);
-		let organizations = match Self::list_local_organizations(transaction).await? {
-			ControlFlow::Break(organizations) => organizations,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		items.extend(organizations);
-		let tags = match Self::list_local_tags(transaction, &Parent::Any).await? {
-			ControlFlow::Break(tags) => tags,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		items.extend(tags);
-		let users = match Self::list_local_users(transaction).await? {
-			ControlFlow::Break(users) => users,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		items.extend(users);
-
-		Ok(ControlFlow::Break(items))
-	}
-
-	async fn list_local_items_for_list_with_transaction(
-		transaction: &tangram_server_core::database::Transaction<'_>,
-		arg: &tg::list::Arg,
-		parent: &Parent,
-		position: u64,
+		scope: &Scope,
+		after: Option<&[u8]>,
+		reverse: bool,
 		length: u64,
-	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Item)>, tangram_server_core::database::Error>>
-	{
+	) -> tg::Result<
+		ControlFlow<Vec<(Vec<u8>, tg::Id, tg::list::Item)>, tangram_server_core::database::Error>,
+	> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::Id,
+
+			key: bytes::Bytes,
+
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			parent: Option<tg::Id>,
+
 			#[tangram_database(as = "db::value::FromStr")]
 			specifier: tg::Specifier,
+
 			target: Option<String>,
 		}
 
-		// Build the query.
+		// Build the condition for the scope and the key.
 		let p = transaction.p();
-		let condition = |table: &str| match parent {
-			Parent::Any => "true".to_owned(),
-			Parent::Id(_) => format!("{table}.parent = {p}1"),
-			Parent::Root => format!("{table}.parent is null"),
+		let mut conditions = Vec::new();
+		let mut params = Vec::new();
+		match scope {
+			Scope::All | Scope::Empty => (),
+			Scope::Children(None) => {
+				conditions.push("specifiers.parent is null".to_owned());
+			},
+			Scope::Children(Some(tg::Selector::Id(parent))) => {
+				params.extend(db::params![parent.to_string()]);
+				conditions.push(format!(
+					"coalesce(specifiers.parent, '') = {p}{}",
+					params.len()
+				));
+			},
+			Scope::Children(Some(tg::Selector::Specifier(parent))) => {
+				params.extend(db::params![parent.to_string()]);
+				conditions.push(format!(
+					"coalesce(specifiers.parent, '') = (select id from specifiers where specifier = {p}{})",
+					params.len()
+				));
+			},
+			Scope::Descendants(specifier) => {
+				let (start, end) = specifier.descendants_key_range();
+				params.extend(db::params![bytes::Bytes::from(start)]);
+				conditions.push(format!("specifiers.key >= {p}{}", params.len()));
+				params.extend(db::params![bytes::Bytes::from(end)]);
+				conditions.push(format!("specifiers.key < {p}{}", params.len()));
+			},
+		}
+		if let Some(after) = after {
+			let operator = if reverse { "<" } else { ">" };
+			params.extend(db::params![bytes::Bytes::copy_from_slice(after)]);
+			conditions.push(format!("specifiers.key {operator} {p}{}", params.len()));
+		}
+		let condition = if conditions.is_empty() {
+			"true".to_owned()
+		} else {
+			conditions.join(" and ")
 		};
-		let mut queries = Vec::new();
-		if arg.groups {
-			let condition = condition("groups");
-			queries.push(format!(
-				"
-					select groups.id, groups.parent, specifiers.specifier,
-						cast(null as text) as target
-					from groups
-					join specifiers on specifiers.id = groups.id
-					where {condition}
-				"
-			));
-		}
-		if arg.organizations && matches!(parent, Parent::Root) {
-			queries.push(
-				"
-					select organizations.id, cast(null as text) as parent,
-						specifiers.specifier, cast(null as text) as target
-					from organizations
-					join specifiers on specifiers.id = organizations.id
-				"
-				.to_owned(),
-			);
-		}
-		if arg.tags {
-			let condition = condition("tags");
-			queries.push(format!(
-				"
-					select tags.id, tags.parent, specifiers.specifier, tags.target
-					from tags
-					join specifiers on specifiers.id = tags.id
-					where {condition}
-				"
-			));
-		}
-		if arg.users && matches!(parent, Parent::Root) {
-			queries.push(
-				"
-					select users.id, cast(null as text) as parent,
-						specifiers.specifier, cast(null as text) as target
-					from users
-					join specifiers on specifiers.id = users.id
-				"
-				.to_owned(),
-			);
-		}
-		if queries.is_empty() {
-			return Ok(ControlFlow::Break(Vec::new()));
-		}
-		let direction = if arg.reverse { "desc" } else { "asc" };
-		let mut params = match parent {
-			Parent::Id(parent) => db::params![parent.to_string()],
-			Parent::Any | Parent::Root => db::params![],
-		};
-		let length_parameter = params.len() + 1;
-		let position_parameter = params.len() + 2;
-		params.extend(db::params![
-			length.to_i64().unwrap_or(i64::MAX),
-			position.to_i64().unwrap_or(i64::MAX)
-		]);
+		let direction = if reverse { "desc" } else { "asc" };
+		params.extend(db::params![length.to_i64().unwrap_or(i64::MAX)]);
 		let statement = format!(
 			"
-				select id, parent, specifier, target
-				from ({}) as items
-				order by specifier {direction}
-				limit {p}{length_parameter}
-				offset {p}{position_parameter};
+				select specifiers.id, specifiers.key, specifiers.parent, specifiers.specifier, tags.target
+				from specifiers
+				left join tags on tags.id = specifiers.id
+				where {condition}
+				order by specifiers.key {direction}
+				limit {p}{};
 			",
-			queries.join(" union all ")
+			params.len()
 		);
 
 		// Execute the query.
@@ -392,67 +368,105 @@ impl Component {
 				specifier: row.specifier,
 				target,
 			};
-			items.push((id, item));
+			items.push((row.key.to_vec(), id, item));
 		}
 
 		Ok(ControlFlow::Break(items))
 	}
 
-	pub async fn query_specifier_items<F>(
+	async fn try_get_local_specifier(
 		&self,
 		session: &Session,
-		arg: QuerySpecifierItemsArg<'_, F>,
-	) -> tg::Result<Vec<tg::list::Item>>
-	where
-		F: FnOnce(Vec<tg::list::Item>) -> Vec<tg::list::Item> + Send,
-	{
-		let QuerySpecifierItemsArg {
-			cached,
-			filter_local,
-			location,
-			query,
-			tokens,
-			ttl,
-		} = arg;
-		let locations = session
-			.locations(location)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		let mut sources = Vec::new();
-		if locations.local.is_some() {
-			let items = self
-				.list_local_items_with_tokens(session, tokens)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to list the local items"))?;
-			let items = filter_local(items);
-			sources.push(items);
-		}
-		let mut remotes = locations.remotes;
-		remotes.sort_by(|a, b| a.name.cmp(&b.name));
-		let remote_results = remotes
-			.into_iter()
-			.map(|remote| {
-				let query = query.clone();
-				async move {
-					let name = remote.name.clone();
-					let data = self
-						.list_remote(session, remote.clone(), cached, ttl, query)
-						.await
-						.map_err(
-							|error| tg::error!(!error, remote = %name, "failed to query the remote items"),
-						)?;
-					Ok::<_, tg::Error>((name, data))
-				}
+		id: &tg::Id,
+	) -> tg::Result<Option<tg::Specifier>> {
+		let id = id.clone();
+		session
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let id = id.clone();
+				async move { Self::try_get_local_specifier_with_transaction(transaction, &id).await }
+					.boxed()
 			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
+			.await
+	}
+
+	async fn try_get_local_specifier_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		id: &tg::Id,
+	) -> tg::Result<ControlFlow<Option<tg::Specifier>, tangram_server_core::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			specifier: tg::Specifier,
+		}
+
+		let p = transaction.p();
+		let statement = format!("select specifier from specifiers where id = {p}1;");
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
+			.await;
+		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let specifier = row.map(|row| row.specifier);
+
+		Ok(ControlFlow::Break(specifier))
+	}
+
+	pub(crate) async fn list_local_items(
+		&self,
+		session: &Session,
+	) -> tg::Result<Vec<tg::list::Item>> {
+		self.list_local_items_with_tokens(session, &tg::authorization::Tokens::default())
+			.await
+	}
+
+	async fn list_local_items_with_tokens(
+		&self,
+		session: &Session,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Vec<tg::list::Item>> {
+		// List the items.
+		let items = session
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				async move { Self::list_local_items_with_transaction(transaction).await }.boxed()
+			})
 			.await?;
-		let mut remote_results = remote_results;
-		remote_results.sort_by(|a, b| a.0.cmp(&b.0));
-		sources.extend(remote_results.into_iter().map(|(_, items)| items));
-		let items = merge_items(sources);
+
+		// Filter the visible items.
+		let items = self.filter_visible_items(session, items, tokens).await?;
 
 		Ok(items)
+	}
+
+	async fn list_local_items_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Item)>, tangram_server_core::database::Error>>
+	{
+		let mut items = Vec::new();
+		let groups = match Self::list_local_groups(transaction).await? {
+			ControlFlow::Break(groups) => groups,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		items.extend(groups);
+		let organizations = match Self::list_local_organizations(transaction).await? {
+			ControlFlow::Break(organizations) => organizations,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		items.extend(organizations);
+		let tags = match Self::list_local_tags(transaction).await? {
+			ControlFlow::Break(tags) => tags,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		items.extend(tags);
+		let users = match Self::list_local_users(transaction).await? {
+			ControlFlow::Break(users) => users,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		items.extend(users);
+
+		Ok(ControlFlow::Break(items))
 	}
 
 	async fn filter_visible_items(
@@ -508,7 +522,6 @@ impl Component {
 
 	async fn list_local_groups(
 		transaction: &tangram_server_core::database::Transaction<'_>,
-		parent: &Parent,
 	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Item)>, tangram_server_core::database::Error>>
 	{
 		#[derive(db::row::Deserialize)]
@@ -520,44 +533,14 @@ impl Component {
 			#[tangram_database(as = "db::value::FromStr")]
 			specifier: tg::Specifier,
 		}
-		let p = transaction.p();
-		let (statement, params) = match parent {
-			Parent::Any => (
-				"
-					select groups.id, groups.parent, specifiers.specifier
-					from groups
-					join specifiers on specifiers.id = groups.id
-					order by specifiers.specifier;
-				"
-				.to_owned(),
-				db::params![],
-			),
-			Parent::Id(parent) => (
-				format!(
-					"
-						select groups.id, groups.parent, specifiers.specifier
-						from groups
-						join specifiers on specifiers.id = groups.id
-						where groups.parent = {p}1
-						order by specifiers.specifier;
-					"
-				),
-				db::params![parent.to_string()],
-			),
-			Parent::Root => (
-				"
-					select groups.id, groups.parent, specifiers.specifier
-					from groups
-					join specifiers on specifiers.id = groups.id
-					where groups.parent is null
-					order by specifiers.specifier;
-				"
-				.to_owned(),
-				db::params![],
-			),
-		};
+		let statement = "
+			select groups.id, groups.parent, specifiers.specifier
+			from groups
+			join specifiers on specifiers.id = groups.id
+			order by specifiers.specifier;
+		";
 		let result = transaction
-			.query_all_into::<Row>(statement.into(), params)
+			.query_all_into::<Row>(statement.into(), db::params![])
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
 		let items = rows
@@ -632,7 +615,6 @@ impl Component {
 
 	async fn list_local_tags(
 		transaction: &tangram_server_core::database::Transaction<'_>,
-		parent: &Parent,
 	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Item)>, tangram_server_core::database::Error>>
 	{
 		#[derive(db::row::Deserialize)]
@@ -645,44 +627,14 @@ impl Component {
 			specifier: tg::Specifier,
 			target: String,
 		}
-		let p = transaction.p();
-		let (statement, params) = match parent {
-			Parent::Any => (
-				"
-					select tags.id, tags.parent, specifiers.specifier, tags.target
-					from tags
-					join specifiers on specifiers.id = tags.id
-					order by specifiers.specifier;
-				"
-				.to_owned(),
-				db::params![],
-			),
-			Parent::Id(parent) => (
-				format!(
-					"
-						select tags.id, tags.parent, specifiers.specifier, tags.target
-						from tags
-						join specifiers on specifiers.id = tags.id
-						where tags.parent = {p}1
-						order by specifiers.specifier;
-					"
-				),
-				db::params![parent.to_string()],
-			),
-			Parent::Root => (
-				"
-					select tags.id, tags.parent, specifiers.specifier, tags.target
-					from tags
-					join specifiers on specifiers.id = tags.id
-					where tags.parent is null
-					order by specifiers.specifier;
-				"
-				.to_owned(),
-				db::params![],
-			),
-		};
+		let statement = "
+			select tags.id, tags.parent, specifiers.specifier, tags.target
+			from tags
+			join specifiers on specifiers.id = tags.id
+			order by specifiers.specifier;
+		";
 		let result = transaction
-			.query_all_into::<Row>(statement.into(), params)
+			.query_all_into::<Row>(statement.into(), db::params![])
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
 		let mut items = Vec::new();
@@ -885,12 +837,12 @@ impl tangram_server_core::component::Lifecycle for Component {
 }
 
 impl tangram_server_core::list::Component for Component {
-	fn query_specifier_items<'a>(
+	fn list_page<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
-		arg: QuerySpecifierItemsArg<'a>,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Item>>> {
-		self.query_specifier_items(session, arg).boxed()
+		arg: PageArg<'a>,
+	) -> BoxFuture<'a, tg::Result<Page>> {
+		self.list_page(session, arg).boxed()
 	}
 
 	fn list<'a>(
@@ -925,63 +877,59 @@ impl tangram_server_core::list::Component for Component {
 	}
 }
 
-fn filter_list_items(items: Vec<tg::list::Item>, arg: &tg::list::Arg) -> Vec<tg::list::Item> {
-	let kinds = Kinds {
-		groups: arg.groups,
-		organizations: arg.organizations,
-		tags: arg.tags,
-		users: arg.users,
+fn query_with_page(
+	query: tangram_server_core::list::remote::Query,
+	after: Option<Vec<u8>>,
+	limit: usize,
+) -> tg::Result<tangram_server_core::list::remote::Query> {
+	let cursor = after
+		.map(|after| Cursor::V0 { after })
+		.as_ref()
+		.map(tangram_server_core::cursor::serialize)
+		.transpose()?;
+	let limit = Some(u64::try_from(limit).unwrap());
+	let query = match query {
+		tangram_server_core::list::remote::Query::List(arg) => {
+			tangram_server_core::list::remote::Query::List(tg::list::Arg {
+				cursor,
+				limit,
+				..arg
+			})
+		},
+		tangram_server_core::list::remote::Query::Match(arg) => {
+			tangram_server_core::list::remote::Query::Match(tg::match_::Arg {
+				cursor,
+				limit,
+				..arg
+			})
+		},
 	};
-	let parent = arg.node.as_ref().map(|node| node.node.clone());
-	let descendants = if arg.recursive {
-		let mut descendants = BTreeSet::new();
-		if let Some(parent) = &parent {
-			descendants.insert(parent.clone());
-		}
-		loop {
-			let length = descendants.len();
-			for item in &items {
-				let include = match (parent.as_ref(), item.parent()) {
-					(None, _) => true,
-					(Some(_), Some(parent)) => descendants.contains(parent),
-					(Some(_), None) => false,
-				};
-				if include {
-					descendants.insert(item.id().clone());
-				}
-			}
-			if descendants.len() == length {
-				break;
-			}
-		}
-		Some(descendants)
-	} else {
-		None
-	};
-	items
-		.into_iter()
-		.filter(|item| {
-			let matches_parent = if let Some(descendants) = &descendants {
-				(parent.is_none() || descendants.contains(item.id()))
-					&& parent.as_ref() != Some(item.id())
-			} else {
-				item.parent() == parent.as_ref()
-			};
-			matches_parent && item_kind_enabled(item, &kinds)
-		})
-		.collect()
+	Ok(query)
 }
 
-fn merge_items(sources: Vec<Vec<tg::list::Item>>) -> Vec<tg::list::Item> {
-	let mut emitted = BTreeSet::new();
-	let mut output = Vec::new();
-	for items in sources {
-		output.extend(
-			items
-				.into_iter()
-				.filter(|item| emitted.insert(item.specifier().clone())),
-		);
+/// Merge the pages, which are in order of precedence, into a page of at most `limit` items, keeping the first of the items that share a specifier.
+fn merge_pages(pages: Vec<Page>, limit: usize, reverse: bool) -> Page {
+	// Sort the items by key, keeping the order of the pages among the items with equal keys, and keep the first item with each specifier.
+	let more = pages.iter().any(|page| page.next.is_some());
+	let mut entries = pages
+		.into_iter()
+		.flat_map(|page| page.data)
+		.map(|item| (item.specifier().key(), item))
+		.collect::<Vec<_>>();
+	if reverse {
+		entries.sort_by(|a, b| b.0.cmp(&a.0));
+	} else {
+		entries.sort_by(|a, b| a.0.cmp(&b.0));
 	}
+	entries.dedup_by(|a, b| a.0 == b.0);
 
-	output
+	// Select the page, which continues after its last item when any page has more items or items remain.
+	let more = more || entries.len() > limit;
+	entries.truncate(limit);
+	let next = more
+		.then(|| entries.last().map(|(key, _)| key.clone()))
+		.flatten();
+	let data = entries.into_iter().map(|(_, item)| item).collect();
+
+	Page { data, next }
 }

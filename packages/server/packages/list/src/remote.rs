@@ -1,15 +1,15 @@
 use {
 	crate::Component,
 	tangram_client::prelude::*,
-	tangram_server_core::{Session, list::remote::Query, location::Remote},
+	tangram_server_core::{
+		Session,
+		list::{Cursor, Page, remote::Query},
+		location::Remote,
+	},
 };
 
-pub(crate) type Tasks = tangram_futures::task::Map<
-	Key,
-	tg::Result<Vec<tg::list::Item>>,
-	tg::Session,
-	fnv::FnvBuildHasher,
->;
+pub(crate) type Tasks =
+	tangram_futures::task::Map<Key, tg::Result<tg::list::Output>, tg::Session, fnv::FnvBuildHasher>;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct Key {
@@ -26,7 +26,7 @@ impl Component {
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 		query: Query,
-	) -> tg::Result<Vec<tg::list::Item>> {
+	) -> tg::Result<Page> {
 		self.list_remote_inner(session, remote, cached, ttl, query)
 			.await
 	}
@@ -38,7 +38,7 @@ impl Component {
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 		query: Query,
-	) -> tg::Result<Vec<tg::list::Item>> {
+	) -> tg::Result<Page> {
 		let client = session
 			.server
 			.components
@@ -77,13 +77,13 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
-			let mut items = match response {
-				tangram_server_remote_core::cache::Response::List(response) => response.output.data,
-				tangram_server_remote_core::cache::Response::Match(response) => {
-					response.output.data
-				},
+			let output = match response {
+				tangram_server_remote_core::cache::Response::List(response) => response.output,
+				tangram_server_remote_core::cache::Response::Match(response) => response.output,
 				_ => unreachable!(),
 			};
+			let next = next_key(output.cursor.as_deref())?;
+			let mut items = output.data;
 			let valid = items.iter().all(|item| {
 				let item_valid = tangram_server_remote_common::tokens_valid(
 					item.tokens().local_authorization(),
@@ -111,12 +111,17 @@ impl Component {
 					}
 					Self::set_remote_item_location(session, item, &remote.name, trusted)?;
 				}
+				let page = Page { data: items, next };
 
-				return Ok(items);
+				return Ok(page);
 			}
 		}
 		if cached {
-			return Ok(Vec::new());
+			let page = Page {
+				data: Vec::new(),
+				next: None,
+			};
+			return Ok(page);
 		}
 		let task = self.remote_tasks.get_or_spawn_detached_with_context(
 			key.clone(),
@@ -124,24 +129,18 @@ impl Component {
 			move |client, _stop| async move { Self::list_remote_task(key, client).await },
 		);
 		let trusted = task.context().trusted();
-		let items = task
+		let output = task
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "the remote list task panicked"))??;
 		let response = match &request {
 			tangram_server_remote_core::cache::Request::List(_) => {
-				let output = tg::list::Output {
-					cursor: None,
-					data: items.clone(),
-				};
+				let output = output.clone();
 				let response = tangram_server_remote_core::cache::ListResponse { output };
 				tangram_server_remote_core::cache::Response::List(response)
 			},
 			tangram_server_remote_core::cache::Request::Match(_) => {
-				let output = tg::match_::Output {
-					cursor: None,
-					data: items.clone(),
-				};
+				let output = output.clone();
 				let response = tangram_server_remote_core::cache::MatchResponse { output };
 				tangram_server_remote_core::cache::Response::Match(response)
 			},
@@ -154,15 +153,18 @@ impl Component {
 			.put_cached_remote_response(session, &remote.name, &request, &response)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
-		let items = items
+		let next = next_key(output.cursor.as_deref())?;
+		let data = output
+			.data
 			.into_iter()
 			.map(|mut item| {
 				Self::set_remote_item_location(session, &mut item, &remote.name, trusted)?;
 				Ok(item)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
+		let page = Page { data, next };
 
-		Ok(items)
+		Ok(page)
 	}
 
 	fn set_remote_item_location(
@@ -206,30 +208,24 @@ impl Component {
 		Ok(())
 	}
 
-	async fn list_remote_task(key: Key, client: tg::Session) -> tg::Result<Vec<tg::list::Item>> {
+	async fn list_remote_task(key: Key, client: tg::Session) -> tg::Result<tg::list::Output> {
 		let Key {
 			principal: _,
 			query,
 			remote,
 		} = key;
-		let data = match query {
-			Query::List(arg) => {
-				client
-					.list_all(arg)
-					.await
-					.map_err(|error| tg::error!(!error, %remote, "failed to list the items"))?
-					.data
-			},
-			Query::Match(arg) => {
-				client
-					.match_all(arg)
-					.await
-					.map_err(|error| tg::error!(!error, %remote, "failed to match the items"))?
-					.data
-			},
+		let output = match query {
+			Query::List(arg) => client
+				.list(arg)
+				.await
+				.map_err(|error| tg::error!(!error, %remote, "failed to list the items"))?,
+			Query::Match(arg) => client
+				.match_(arg)
+				.await
+				.map_err(|error| tg::error!(!error, %remote, "failed to match the items"))?,
 		};
 
-		Ok(data)
+		Ok(output)
 	}
 }
 
@@ -287,4 +283,14 @@ fn tokens_for_remote(
 	}
 
 	output
+}
+
+fn next_key(cursor: Option<&str>) -> tg::Result<Option<Vec<u8>>> {
+	let next = cursor
+		.map(tangram_server_core::cursor::deserialize::<Cursor>)
+		.transpose()?
+		.map(|cursor| match cursor {
+			Cursor::V0 { after } => after,
+		});
+	Ok(next)
 }

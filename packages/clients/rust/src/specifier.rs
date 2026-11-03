@@ -95,6 +95,17 @@ impl Specifier {
 		key
 	}
 
+	/// Get the range of the keys of the specifier's descendants, from the inclusive start to the exclusive end.
+	#[must_use]
+	pub fn descendants_key_range(&self) -> (Vec<u8>, Vec<u8>) {
+		let prefix = self.prefix_key();
+		let mut start = prefix.clone();
+		start.push(KEY_END);
+		let mut end = prefix;
+		end.push(KEY_DIGITS + 1);
+		(start, end)
+	}
+
 	pub fn ancestors(&self) -> impl Iterator<Item = Self> + '_ {
 		(1..self.0.len()).map(|length| Self(self.0[..length].to_vec()))
 	}
@@ -234,6 +245,18 @@ mod tests {
 			!key.starts_with(&a),
 			"expected ab not to start with the key of a"
 		);
+		let (start, end) = Specifier::from_str("a").unwrap().descendants_key_range();
+		for (specifier, expected) in [
+			("a", false),
+			("a/c", true),
+			("a/c/d", true),
+			("a/d", true),
+			("ab", false),
+		] {
+			let key = Specifier::from_str(specifier).unwrap().key();
+			let contained = start <= key && key < end;
+			assert_eq!(contained, expected, "{specifier}");
+		}
 	}
 
 	// The key agrees with the list comparison within a component.

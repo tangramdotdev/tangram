@@ -17,6 +17,7 @@ doctest = false
 workspace = true
 
 [dependencies]
+bytes = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }

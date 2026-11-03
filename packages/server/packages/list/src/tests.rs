@@ -61,13 +61,24 @@ async fn request_arg_preserves_list_and_node_options() {
 	}
 }
 
+// The merged page orders the items by version, keeps the first page's item for each specifier, and continues when a page has more items.
 #[test]
-fn sort_items_breaks_version_ties() {
+fn merge_pages_orders_by_version_and_keeps_the_first_item() {
 	for reverse in [false, true] {
-		let items = vec![item("10"), item("1"), item("2"), item("01")];
-		let items = sort_items(items, reverse);
-		let specifiers = items
-			.into_iter()
+		let local = item("1");
+		let local_id = local.id().clone();
+		let local = Page {
+			data: vec![item("10"), local],
+			next: None,
+		};
+		let remote = Page {
+			data: vec![item("2"), item("1"), item("01")],
+			next: None,
+		};
+		let page = merge_pages(vec![local, remote], 10, reverse);
+		let specifiers = page
+			.data
+			.iter()
 			.map(|item| item.specifier().to_string())
 			.collect::<Vec<_>>();
 		let mut expected = vec!["01", "1", "2", "10"];
@@ -75,7 +86,21 @@ fn sort_items_breaks_version_ties() {
 			expected.reverse();
 		}
 		assert_eq!(specifiers, expected);
+		let one = page
+			.data
+			.iter()
+			.find(|item| item.specifier().to_string() == "1")
+			.unwrap();
+		assert_eq!(one.id(), &local_id);
+		assert!(page.next.is_none());
 	}
+	let more = Page {
+		data: vec![item("1"), item("2")],
+		next: Some(Vec::new()),
+	};
+	let page = merge_pages(vec![more], 1, false);
+	assert_eq!(page.data.len(), 1);
+	assert_eq!(page.next, Some(page.data[0].specifier().key()));
 }
 
 fn item(specifier: &str) -> tg::list::Item {
