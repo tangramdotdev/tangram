@@ -47,7 +47,6 @@ pub mod checkin;
 pub mod checkout;
 pub mod checkpoint;
 pub mod checksum;
-pub mod children;
 pub mod clean;
 pub mod clock;
 pub mod component;
@@ -135,7 +134,6 @@ pub struct Components {
 	pub checkout: Box<dyn self::checkout::Component>,
 	pub checkpoint: Box<dyn self::checkpoint::Component>,
 	pub checksum: Box<dyn self::checksum::Component>,
-	pub children: Box<dyn self::children::Component>,
 	pub clean: Box<dyn self::clean::Component>,
 	pub clock: Box<dyn self::clock::Component>,
 	pub document: Box<dyn self::document::Component>,

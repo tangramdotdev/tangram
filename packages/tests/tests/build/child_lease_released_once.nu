@@ -27,6 +27,6 @@ success $output
 assert equal ($output.stdout | str trim) '"done"'
 
 # The child is finished with an error after the parent releases its remaining lease.
-let child = tg children $id | from json | where $it starts-with pcs_ | get 0
+let child = tg process children $id | from json | get 0.process | split row '?' | first
 let output = timeout 10s tg wait $child | from json
 assert equal $output.exit 1

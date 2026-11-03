@@ -85,7 +85,7 @@ def test [...args] {
 
 
 	# Get output blob.
-	let output_d_children = tg --url $local_source.url children $output_d_id | from json
+	let output_d_children = tg --url $local_source.url object children $output_d_id | from json
 	let blob_d_id = $output_d_children | get 0
 
 	# Put process A to the local server (local has A).

@@ -60,7 +60,7 @@ def test [...args] {
 	while ($to_visit | length) > 0 {
 		let current = $to_visit | first
 		$to_visit = ($to_visit | skip 1)
-		let cmd_children = tg --url $local_source.url children $current | from json
+		let cmd_children = tg --url $local_source.url object children $current | from json
 		for child in $cmd_children {
 			if $child not-in $main_cmd_descendants {
 				$main_cmd_descendants = ($main_cmd_descendants | append $child)
@@ -81,7 +81,7 @@ def test [...args] {
 	tg --url $local_source.url get --bytes $main_output_id | tg --url $local.url put --no-tokens --bytes --kind dir | referent node
 
 	# Get all file children from the output directory.
-	let output_files = tg --url $local_source.url children $main_output_id | from json
+	let output_files = tg --url $local_source.url object children $main_output_id | from json
 
 	# Put output files to the local server.
 	for fil_id in $output_files {
@@ -90,7 +90,7 @@ def test [...args] {
 
 	# Get blobs from the output files.
 	let output_blobs = $output_files | each { |fil_id|
-		tg --url $local_source.url children $fil_id | from json
+		tg --url $local_source.url object children $fil_id | from json
 	} | flatten | uniq
 
 	# Put half of the output blobs to local, half to remote (leaf missing).
@@ -133,7 +133,7 @@ def test [...args] {
 		while ($child_to_visit | length) > 0 {
 			let current = $child_to_visit | first
 			$child_to_visit = ($child_to_visit | skip 1)
-			let cmd_children = tg --url $local_source.url children $current | from json
+			let cmd_children = tg --url $local_source.url object children $current | from json
 			for child in $cmd_children {
 				if $child not-in $child_cmd_descendants {
 					$child_cmd_descendants = ($child_cmd_descendants | append $child)
@@ -153,7 +153,7 @@ def test [...args] {
 			tg --url $local_source.url get --bytes $child_output_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 
 			# Put the blob for this output to local.
-			let child_blob_ids = tg --url $local_source.url children $child_output_id | from json
+			let child_blob_ids = tg --url $local_source.url object children $child_output_id | from json
 			for blb_id in $child_blob_ids {
 				tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 			}
@@ -167,7 +167,7 @@ def test [...args] {
 			tg --url $local_source.url get --bytes $child_output_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
 
 			# Put the blob for this output to remote.
-			let child_blob_ids = tg --url $local_source.url children $child_output_id | from json
+			let child_blob_ids = tg --url $local_source.url object children $child_output_id | from json
 			for blb_id in $child_blob_ids {
 				tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
 			}
@@ -181,7 +181,7 @@ def test [...args] {
 			tg --url $local_source.url get --bytes $child_output_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 
 			# Put the blob for this output to local.
-			let child_blob_ids = tg --url $local_source.url children $child_output_id | from json
+			let child_blob_ids = tg --url $local_source.url object children $child_output_id | from json
 			for blb_id in $child_blob_ids {
 				tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 			}

@@ -61,7 +61,6 @@ tangram_cli_checkin = { workspace = true }
 tangram_cli_checkout = { workspace = true }
 tangram_cli_checkpoint = { workspace = true }
 tangram_cli_checksum = { workspace = true }
-tangram_cli_children = { workspace = true }
 tangram_cli_clean = { workspace = true }
 tangram_cli_clock = { workspace = true }
 tangram_cli_compress = { workspace = true }

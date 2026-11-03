@@ -108,7 +108,7 @@ success $output "the push should complete after the blob is released"
 # The pull completes with the whole directory.
 let output = job recv --tag $pull --timeout 30sec
 success $output "the pull should complete after the push finishes"
-let file = tg --url $bob_local.url children $directory | from json | get 0
+let file = tg --url $bob_local.url object children $directory | from json | get 0
 let output = tg --url $bob_local.url read $file | complete
 success $output "Bob should read the pulled file"
 snapshot ($output.stdout | str trim) 'hello'

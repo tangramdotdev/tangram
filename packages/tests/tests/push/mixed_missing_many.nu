@@ -30,11 +30,11 @@ def test [...args] {
 	let dir_id = $id
 
 	# Get immediate children (files) from the directory.
-	let files = tg --url $local_source.url children $id | from json
+	let files = tg --url $local_source.url object children $id | from json
 
 	# Get the blob children from each file.
 	let blobs = $files | each { |fil_id|
-		tg --url $local_source.url children $fil_id | from json
+		tg --url $local_source.url object children $fil_id | from json
 	} | flatten | uniq
 
 	# Put the directory to the local server.

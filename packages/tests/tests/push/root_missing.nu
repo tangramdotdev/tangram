@@ -27,11 +27,11 @@ def test [...args] {
 	let dir_id = $id
 
 	# Get the file id.
-	let output = tg --url $local_source.url children $id
+	let output = tg --url $local_source.url object children $id
 	let fil_id = $output | from json | get 0
 
 	# Get the blob id.
-	let output = tg --url $local_source.url children $fil_id
+	let output = tg --url $local_source.url object children $fil_id
 	let blb_id = $output | from json | get 0
 
 	# Put the directory to the remote server.

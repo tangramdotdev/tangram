@@ -37,11 +37,11 @@ let id = tg --url $local.url checkin --no-tokens $path | referent node
 let dir_id = $id
 
 # Get the file id.
-let output = tg --url $local.url children $id
+let output = tg --url $local.url object children $id
 let fil_id = $output | from json | get 0
 
 # Get the blob id.
-let output = tg --url $local.url children $fil_id
+let output = tg --url $local.url object children $fil_id
 let blb_id = $output | from json | get 0
 
 # Index the local server to get the expected metadata.

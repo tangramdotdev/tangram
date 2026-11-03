@@ -10,7 +10,7 @@ let eve = tg login --verbose --name eve | from json
 let value = 'tg.directory({ "hello.txt": tg.file("hello") })'
 let directory = tg --token $alice.token put --no-tokens $value | referent node
 tg --token $alice.token index
-let child = tg --token $alice.token children $directory | from json | get 0
+let child = tg --token $alice.token object children $directory | from json | get 0
 
 # These explicit grants prove object_subtree access to the directory.
 tg --token $alice.token grant $eve.user.id object_node $directory | ignore

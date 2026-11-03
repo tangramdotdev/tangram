@@ -49,7 +49,6 @@ tangram_server_checkin = { workspace = true }
 tangram_server_checkout = { workspace = true }
 tangram_server_checkpoint = { workspace = true }
 tangram_server_checksum = { workspace = true }
-tangram_server_children = { workspace = true }
 tangram_server_clean = { workspace = true }
 tangram_server_clock = { workspace = true }
 tangram_server_core = { workspace = true }

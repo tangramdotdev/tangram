@@ -14,7 +14,6 @@ default-members = [
   "packages/cli/packages/checkout",
   "packages/cli/packages/checkpoint",
   "packages/cli/packages/checksum",
-  "packages/cli/packages/children",
   "packages/cli/packages/clean",
   "packages/cli/packages/clock",
   "packages/cli/packages/compress",
@@ -124,7 +123,6 @@ members = [
   "packages/server/packages/checkpoint",
   "packages/server/packages/checkpoint/packages/core",
   "packages/server/packages/checksum",
-  "packages/server/packages/children",
   "packages/server/packages/clean",
   "packages/server/packages/clock",
   "packages/server/packages/clock/packages/core",
@@ -390,7 +388,6 @@ tangram_cli_checkin = { path = "packages/cli/packages/checkin" }
 tangram_cli_checkout = { path = "packages/cli/packages/checkout" }
 tangram_cli_checkpoint = { path = "packages/cli/packages/checkpoint" }
 tangram_cli_checksum = { path = "packages/cli/packages/checksum" }
-tangram_cli_children = { path = "packages/cli/packages/children" }
 tangram_cli_clean = { path = "packages/cli/packages/clean" }
 tangram_cli_clock = { path = "packages/cli/packages/clock" }
 tangram_cli_compress = { path = "packages/cli/packages/compress" }
@@ -485,7 +482,6 @@ tangram_server_checkout = { path = "packages/server/packages/checkout" }
 tangram_server_checkpoint = { path = "packages/server/packages/checkpoint" }
 tangram_server_checkpoint_core = { path = "packages/server/packages/checkpoint/packages/core" }
 tangram_server_checksum = { path = "packages/server/packages/checksum" }
-tangram_server_children = { path = "packages/server/packages/children" }
 tangram_server_clean = { path = "packages/server/packages/clean" }
 tangram_server_clock = { path = "packages/server/packages/clock" }
 tangram_server_clock_core = { path = "packages/server/packages/clock/packages/core" }

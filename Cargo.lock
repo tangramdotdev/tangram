@@ -9221,7 +9221,6 @@ dependencies = [
  "tangram_cli_checkout",
  "tangram_cli_checkpoint",
  "tangram_cli_checksum",
- "tangram_cli_children",
  "tangram_cli_clean",
  "tangram_cli_clock",
  "tangram_cli_compress",
@@ -9438,16 +9437,6 @@ dependencies = [
  "clap",
  "tangram_cli_core",
  "tangram_cli_process",
- "tangram_cli_reference",
- "tangram_client",
-]
-
-[[package]]
-name = "tangram_cli_children"
-version = "0.0.0"
-dependencies = [
- "clap",
- "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
 ]
@@ -10705,7 +10694,6 @@ dependencies = [
  "tangram_server_checkout",
  "tangram_server_checkpoint",
  "tangram_server_checksum",
- "tangram_server_children",
  "tangram_server_clean",
  "tangram_server_clock",
  "tangram_server_core",
@@ -10982,23 +10970,6 @@ dependencies = [
  "tangram_futures",
  "tangram_server_core",
  "tokio",
-]
-
-[[package]]
-name = "tangram_server_children"
-version = "0.0.0"
-dependencies = [
- "futures",
- "http",
- "mime",
- "serde",
- "serde_json",
- "serde_with",
- "tangram_client",
- "tangram_futures",
- "tangram_http",
- "tangram_index",
- "tangram_server_core",
 ]
 
 [[package]]

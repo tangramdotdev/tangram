@@ -18,7 +18,7 @@ let missing = 'fil_010000000000000000000000000000000000000000000000000000'
 let expression = 'tg.directory({"file":tg.file({"contents":"best","dependencies":{"missing":{"node":MISSING}}})})'
 	| str replace MISSING $missing
 let directory = tg --token $alice.token put --no-tokens $expression | referent node
-let file = tg --token $alice.token children $directory | from json | get 0 | split row '?' | first
+let file = tg --token $alice.token object children $directory | from json | get 0 | split row '?' | first
 tg --token $root_token index
 let object = http get --headers { Accept: application/json, Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($file)'
 let node_token = $object.tokens.local.0

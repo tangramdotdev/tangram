@@ -23,7 +23,6 @@ fn components(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Compo
 	let checkout = Box::new(tangram_server_checkout::Component::new());
 	let checkpoint = Box::new(tangram_server_checkpoint::Component::new());
 	let checksum = Box::new(tangram_server_checksum::Component::new());
-	let children = Box::new(tangram_server_children::Component::new());
 	let clean = Box::new(tangram_server_clean::Component::new());
 	let clock = Box::new(tangram_server_clock::Component::new());
 	let document = Box::new(tangram_server_document::Component::new());
@@ -66,7 +65,6 @@ fn components(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Compo
 		checkout,
 		checkpoint,
 		checksum,
-		children,
 		clean,
 		clock,
 		document,

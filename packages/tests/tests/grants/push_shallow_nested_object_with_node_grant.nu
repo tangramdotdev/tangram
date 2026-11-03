@@ -16,8 +16,8 @@ let bob_local = server spawn --name bob-local --config {
 
 # Bob creates the three objects and pushes the middle directory.
 let outer = tg --url $bob_local.url put --no-tokens 'tg.directory({ "b": tg.directory({ "c.txt": tg.file("c") }) })' | referent node
-let middle = tg --url $bob_local.url children $outer | from json | get 0
-let leaf = tg --url $bob_local.url children $middle | from json | get 0
+let middle = tg --url $bob_local.url object children $outer | from json | get 0
+let leaf = tg --url $bob_local.url object children $middle | from json | get 0
 tg --url $bob_local.url index
 tg --url $bob_local.url push $middle
 tg --url $remote.url index

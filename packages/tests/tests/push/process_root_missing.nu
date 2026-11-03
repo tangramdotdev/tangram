@@ -41,7 +41,7 @@ def test [...args] {
 	let output_id = $process_data.output.node.value
 
 	# Get the output's children (the blob).
-	let output_children = tg --url $local_source.url children $output_id | from json
+	let output_children = tg --url $local_source.url object children $output_id | from json
 	let blb_id = $output_children | get 0
 
 	# Get all the module's descendants recursively by manually traversing the tree.
@@ -50,7 +50,7 @@ def test [...args] {
 	while ($to_visit | length) > 0 {
 		let current = $to_visit | first
 		$to_visit = ($to_visit | skip 1)
-		let children = tg --url $local_source.url children $current | from json
+		let children = tg --url $local_source.url object children $current | from json
 		for child in $children {
 			if $child not-in $all_descendants {
 				$all_descendants = ($all_descendants | append $child)

@@ -14,7 +14,7 @@ let local_directory_source = server spawn --name local-directory-source --config
 # An anonymous push stores a public file and blob on the remote.
 let directory = tg --url $local_source.url put --no-tokens 'tg.directory({ "public.txt": tg.file("public") })' | referent node
 tg --url $local_source.url index
-let file = tg --url $local_source.url children $directory | from json | get 0
+let file = tg --url $local_source.url object children $directory | from json | get 0
 
 let output = tg --url $local_source.url --no-quiet push --lazy $file | complete
 success $output "An anonymous push should succeed."

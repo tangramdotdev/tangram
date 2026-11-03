@@ -17,7 +17,7 @@ let bob_local = server spawn --name bob-local --config {
 # Alice stores a private file and blob on the remote.
 let directory = tg --url $alice_local.url put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' | referent node
 tg --url $alice_local.url index
-let file = tg --url $alice_local.url children $directory | from json | get 0
+let file = tg --url $alice_local.url object children $directory | from json | get 0
 tg --url $alice_local.url push --lazy $file
 tg --url $remote.url index
 

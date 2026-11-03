@@ -75,8 +75,8 @@ success (job recv --tag $pull)
 let primary_tag = tg --url $remote_primary.url tag get routed/process | from json
 assert equal $primary_tag.id $tag.id
 assert equal $primary_tag.target.id $process
-let target = tg --url $remote_primary.url children --verbose $tag.id | from json | get data.0
-let permissions = $target.options?.tokens?.local? | default [] | each {|token|
+let target = tg --no-quiet --url $remote_primary.url get $"($tag.id)?follow=true" | complete
+let permissions = $target.stderr | parse --regex 'tokens\[local\]\[\d+\]=(?<token>[^&\s]+)' | get token | each {|token|
 	$token | token body | get permissions
 } | flatten
 assert (

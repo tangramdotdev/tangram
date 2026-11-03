@@ -81,13 +81,6 @@ impl tg::Instance for Instance {
 		self.0.checkout(arg)
 	}
 
-	fn children(
-		&self,
-		arg: tg::children::Arg,
-	) -> impl Future<Output = tg::Result<tg::children::Output>> {
-		self.0.children(arg)
-	}
-
 	fn clean(
 		&self,
 	) -> impl Future<
