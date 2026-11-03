@@ -13,6 +13,14 @@ pub trait Component: crate::component::Lifecycle {
 		error: tg::error::Data,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
+	fn destroy_stopped_runner_sandbox<'a>(
+		&'a self,
+		session: &'a Session,
+		runner: &'a tg::runner::Id,
+		sandbox: &'a tg::sandbox::Id,
+		error: Option<tg::error::Data>,
+	) -> BoxFuture<'a, tg::Result<bool>>;
+
 	fn dequeue_sandbox<'a>(
 		&'a self,
 		session: &'a Session,

@@ -92,8 +92,6 @@ pub struct State {
 
 	destroy: tokio::sync::Mutex<()>,
 
-	stopped: AtomicBool,
-
 	exit: tokio::sync::watch::Receiver<Option<tg::Result<std::process::ExitStatus>>>,
 
 	#[cfg(target_os = "linux")]
@@ -110,6 +108,8 @@ pub struct State {
 	pid: u32,
 
 	stderr: self::stderr::Stderr,
+
+	stopped: AtomicBool,
 }
 
 #[derive(Clone, Debug)]
@@ -322,7 +322,7 @@ pub fn filesystem_project_usage(path: &Path, project: u32) -> tg::Result<u64> {
 	filesystem::usage(&directory, project)
 }
 
-/// Read the filesystem project ID of the sandbox directory at a root path, which is zero when the directory has no project.
+/// Read the filesystem project ID of the sandbox directory at a root path, or `None` when the directory has no project.
 #[cfg(target_os = "linux")]
 pub fn filesystem_project_id(root_path: &Path) -> tg::Result<Option<u32>> {
 	let path = Sandbox::host_filesystem_path_from_root(root_path);

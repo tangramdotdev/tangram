@@ -100,6 +100,9 @@ pub trait Component: crate::component::Lifecycle {
 		store_path: &Path,
 	) -> tg::Result<PathBuf>;
 
+	/// Get the ID of this server's runner, if the server has the runner role.
+	fn local_runner_id(&self, server: &Server) -> Option<tg::runner::Id>;
+
 	fn resolve_sandbox_backend(&self, server: &Server) -> tg::Result<tangram_sandbox::Backend>;
 
 	fn send_runner_control_request<'a>(

@@ -779,6 +779,7 @@ fn mount_overlay(lowerdirs: &[PathBuf], overlay: &Overlay, target: &Path) -> tg:
 			"failed to create the overlay upperdir"
 		)
 	})?;
+
 	// Replace the workdir from an earlier mount, because overlayfs requires an empty workdir.
 	match std::fs::remove_dir_all(&overlay.workdir) {
 		Ok(()) => {},

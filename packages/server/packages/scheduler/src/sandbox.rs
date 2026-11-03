@@ -756,10 +756,11 @@ impl SchedulerState {
 			self.remove_queued_sandbox(&id);
 			self.sandboxes.entries.remove(&id);
 			let error = tg::error!(sandbox = %id, %runner, "the sandbox's runner is unavailable");
-			discarded.push(DiscardedSandbox {
+			let sandbox = DiscardedSandbox {
 				error: error.to_data_or_id(),
 				sandbox: id,
-			});
+			};
+			discarded.push(sandbox);
 		}
 		discarded
 	}

@@ -40,19 +40,6 @@ pub struct Merge {
 	pub usages: BTreeMap<u64, tg::sandbox::Usage>,
 }
 
-/// The position of the sandbox data in its lifecycle, which orders writes that may be applied out of order. A destroyed sandbox is after every boot.
-#[must_use]
-pub fn position(data: &tg::sandbox::Data) -> (bool, u64, u8) {
-	let rank = match data.status {
-		tg::sandbox::Status::Starting => 0,
-		tg::sandbox::Status::Started => 1,
-		tg::sandbox::Status::Stopping => 2,
-		tg::sandbox::Status::Stopped => 3,
-		tg::sandbox::Status::Destroyed => 4,
-	};
-	(data.status.is_destroyed(), data.boot, rank)
-}
-
 impl Arg {
 	pub fn validate(&self) -> tg::Result<()> {
 		if !self.principal.is_root()
@@ -138,6 +125,19 @@ impl Arg {
 
 		Merge { data, usages }
 	}
+}
+
+/// The position of the sandbox data in its lifecycle, which orders writes that may be applied out of order. A destroyed sandbox is after every boot.
+#[must_use]
+fn position(data: &tg::sandbox::Data) -> (bool, u64, u8) {
+	let rank = match data.status {
+		tg::sandbox::Status::Starting => 0,
+		tg::sandbox::Status::Started => 1,
+		tg::sandbox::Status::Stopping => 2,
+		tg::sandbox::Status::Stopped => 3,
+		tg::sandbox::Status::Destroyed => 4,
+	};
+	(data.status.is_destroyed(), data.boot, rank)
 }
 
 fn max(a: &tg::sandbox::Usage, b: &tg::sandbox::Usage) -> tg::sandbox::Usage {

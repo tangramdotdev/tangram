@@ -53,9 +53,9 @@ async fn destroy_sandbox_requires_ownership() -> tg::Result<()> {
 		.unwrap_or(&sandbox)
 		.parse::<tg::sandbox::Id>()?;
 
-	// Another runner neither hosts the sandbox nor can destroy it.
+	// Another runner cannot destroy the sandbox.
 	let other = remote.create_runner(root_token, None).await?;
-	let destroyed = destroy_sandbox(&remote, &other, &sandbox, false).await?;
+	let destroyed = destroy_sandbox(&remote, &other, &sandbox).await?;
 	assert!(
 		!destroyed.0,
 		"another runner should not destroy the sandbox"
@@ -69,7 +69,7 @@ async fn destroy_sandbox_requires_ownership() -> tg::Result<()> {
 
 	// The runner that hosts the sandbox destroys it once, after it crashes.
 	runner.kill().await?;
-	let destroyed = destroy_sandbox(&remote, &created, &sandbox, true).await?;
+	let destroyed = destroy_sandbox(&remote, &created, &sandbox).await?;
 	assert!(
 		destroyed.0,
 		"the sandbox's runner should destroy the sandbox"
@@ -146,13 +146,12 @@ async fn sandbox_control_requires_proof() -> tg::Result<()> {
 	Ok(())
 }
 
-/// Open a runner control connection as the runner, check whether the server says that the runner hosts the sandbox, and request that the sandbox be destroyed twice. Return whether each request destroyed it.
+/// Open a runner control connection as the runner, and request that the sandbox be destroyed twice. Return whether each request destroyed it.
 #[cfg(target_os = "linux")]
 async fn destroy_sandbox(
 	server: &Server,
 	runner: &tg::runner::create::Output,
 	sandbox: &tg::sandbox::Id,
-	hosts: bool,
 ) -> tg::Result<(bool, bool)> {
 	use futures::SinkExt as _;
 
@@ -170,20 +169,16 @@ async fn destroy_sandbox(
 		host: "test".to_owned(),
 		id: runner.data.id.clone(),
 		location: None,
+		sandboxes: Vec::new(),
 		scheduler_ttl: std::time::Duration::from_secs(300),
 	};
-	let (header, stream) = match session
+	let (_, stream) = match session
 		.get_runner_control_stream(arg, receiver.boxed())
 		.await?
 	{
 		ControlFlow::Break(output) => output,
 		ControlFlow::Continue(error) => return Err(error),
 	};
-	assert_eq!(
-		header.sandboxes.contains(sandbox),
-		hosts,
-		"the header should list the sandbox only for its runner"
-	);
 	let mut stream = std::pin::pin!(stream);
 
 	// Request that the sandbox be destroyed twice.

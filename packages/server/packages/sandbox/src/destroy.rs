@@ -13,103 +13,51 @@ use {
 };
 
 impl Component {
-	/// List the sandboxes that the index records as running, with their boots, before this server accepts work.
-	pub(crate) async fn list_unfinished_sandboxes(
-		&self,
-		server: &Server,
-	) -> tg::Result<Vec<(tg::sandbox::Id, u64)>> {
-		let session = server.session(&server.context);
-		let outputs = self
-			.list_sandboxes_local(&session, None, None, None)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
-		let ids = outputs
-			.into_iter()
-			.filter(|output| !output.status.is_stopped_or_destroyed())
-			.map(|output| output.id)
-			.collect::<Vec<_>>();
+	/// Stop or destroy the sandboxes that the index records as running on a runner other than this server's, because a single server's restart loses the runners' registrations, so that their heartbeats can no longer expire. Apply the same rule as heartbeat expiration: destroy a sandbox whose ttl is zero, and stop the others.
+	pub(crate) async fn expire_unfinished_sandboxes(&self, server: &Server) -> tg::Result<()> {
+		// Get the running sandboxes that are not on this server's runner.
+		let local_runner = server.components.runner.local_runner_id(server);
 		let sandboxes = server
 			.index
-			.try_get_sandboxes(&ids)
+			.list_sandboxes()
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the sandboxes"))?;
-		let sandboxes = ids
+			.map_err(|error| tg::error!(!error, "failed to list the sandboxes"))?
 			.into_iter()
-			.zip(sandboxes)
-			.filter_map(|(id, sandbox)| Some((id, sandbox?.data?.data.boot)))
-			.collect();
-		Ok(sandboxes)
-	}
+			.filter_map(|(id, sandbox)| {
+				let data = sandbox.data?.data;
+				let running = !data.status.is_stopped_or_destroyed();
+				let remote = sandbox
+					.location
+					.as_ref()
+					.is_some_and(tg::Location::is_remote);
+				let local = sandbox.runner.is_some() && sandbox.runner == local_runner;
+				(running && !remote && !local).then_some((id, data.ttl))
+			})
+			.collect::<Vec<_>>();
 
-	/// Stop each listed sandbox whose directory survived the restart and destroy each whose directory did not, after the index writes from before the restart are applied.
-	pub(crate) async fn reconcile_unfinished_sandboxes(
-		&self,
-		server: &Server,
-		sandboxes: Vec<(tg::sandbox::Id, u64)>,
-	) -> tg::Result<()> {
-		// Wait for the index writes from before the restart, such as a stop that had not been indexed.
-		let session = server.session(&server.context);
-		session
-			.index(tg::index::Arg::default())
-			.await?
-			.try_last()
-			.await?;
-
+		// Stop or destroy each sandbox.
 		sandboxes
 			.into_iter()
-			.map(|(id, boot)| async move {
-				// Skip a sandbox that stopped, or that started again after the restart.
-				let indexed = server
-					.index
-					.try_get_sandboxes(std::slice::from_ref(&id))
-					.await;
-				let unfinished = match indexed {
-					Ok(mut indexed) => indexed
-						.pop()
-						.flatten()
-						.and_then(|sandbox| sandbox.data)
-						.is_some_and(|data| {
-							data.data.boot == boot && !data.data.status.is_stopped_or_destroyed()
-						}),
-					Err(error) => {
-						tracing::error!(sandbox = %id, error = %error.trace(), "failed to get the sandbox");
-						false
-					},
-				};
-				if !unfinished {
-					return;
-				}
-
-				// Stop the sandbox if its directory survived the restart, and destroy it otherwise.
+			.map(|(id, ttl)| async move {
 				let error = tg::error::Data {
 					code: Some(tg::error::Code::Internal),
 					message: Some("server restarted".to_owned()),
 					..Default::default()
 				};
-				let path = server.path.join("sandboxes").join(id.to_string());
-				let exists = tokio::fs::try_exists(&path).await.unwrap_or(false);
-				let result = if exists {
-					server
-						.components
-						.scheduler
-						.stop_runner_sandbox(server, &id, error)
-						.boxed()
-						.await
+				let scheduler = &server.components.scheduler;
+				let result = if ttl.is_some_and(|ttl| ttl.is_zero()) {
+					scheduler.destroy_runner_sandbox(server, &id, error).await
 				} else {
-					server
-						.components
-						.scheduler
-						.destroy_runner_sandbox(server, &id, error)
-						.boxed()
-						.await
+					scheduler.stop_runner_sandbox(server, &id, error).await
 				};
 				if let Err(error) = result {
-					tracing::error!(sandbox = %id, error = %error.trace(), "failed to reconcile the sandbox");
+					tracing::error!(sandbox = %id, error = %error.trace(), "failed to expire the sandbox");
 				}
 			})
 			.collect::<FuturesUnordered<_>>()
 			.collect::<()>()
 			.await;
+
 		Ok(())
 	}
 
@@ -275,38 +223,26 @@ impl Component {
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 		runner: Option<&tg::runner::Id>,
 	) -> tg::Result<()> {
-		// Record the destruction in the index.
+		// Ask the sandbox's runner to destroy it. The runner's report marks the sandbox destroyed, because the runner is the sandbox's source of truth.
 		let error = match error {
-			Some(tg::Either::Left(data)) => data,
-			Some(tg::Either::Right(id)) => tg::Error::with_id(id)
-				.data_with_instance(session)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
-			None => tg::error::Data {
-				code: Some(tg::error::Code::Cancellation),
-				message: Some("the sandbox was destroyed".into()),
-				..Default::default()
-			},
+			Some(tg::Either::Left(data)) => Some(data),
+			Some(tg::Either::Right(id)) => Some(
+				tg::Error::with_id(id)
+					.data_with_instance(session)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
+			),
+			None => None,
 		};
-		session
+		let runner = runner.ok_or_else(|| tg::error!(%id, "the sandbox has no runner"))?;
+		let destroyed = session
 			.server
 			.components
 			.scheduler
-			.destroy_runner_sandbox(&session.server, id, error)
+			.destroy_stopped_runner_sandbox(session, runner, id, error)
 			.await?;
-
-		// Remove the directory and release the filesystem project ID if this server's runner holds them. Another runner removes them when it next starts.
-		let state = session.server.components.runner.state();
-		if runner.is_some_and(|runner| state.id().as_ref() == Some(runner)) {
-			let path = session.server.path.join("sandboxes").join(id.to_string());
-			let mut temp = tangram_server_core::temp::Temp::with_path(&session.server, path);
-			if let Err(error) = temp.remove().await {
-				tracing::error!(%error, sandbox = %id, "failed to remove the sandbox directory");
-			}
-			#[cfg(target_os = "linux")]
-			if let Some((_, project_id)) = state.stopped_project_ids.remove(id) {
-				project_id.release();
-			}
+		if !destroyed {
+			return Err(tg::error!(%id, "the sandbox's runner did not destroy the sandbox"));
 		}
 
 		Ok(())

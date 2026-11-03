@@ -64,25 +64,7 @@ pub enum Event {
 }
 
 impl Status {
-	/// Whether the sandbox is running and accepts processes.
-	#[must_use]
-	pub fn is_running(self) -> bool {
-		matches!(self, Self::Started)
-	}
-
-	/// Whether the sandbox is starting or stopping.
-	#[must_use]
-	pub fn is_transitioning(self) -> bool {
-		matches!(self, Self::Starting | Self::Stopping)
-	}
-
-	/// Whether the sandbox can never run again.
-	#[must_use]
-	pub fn is_terminal(self) -> bool {
-		matches!(self, Self::Destroyed)
-	}
-
-	/// Whether the sandbox has no runner state, so that the index holds its complete state.
+	/// Whether the sandbox is stopped or destroyed, so that it has no runner state and the index holds its complete state.
 	#[must_use]
 	pub fn is_stopped_or_destroyed(self) -> bool {
 		matches!(self, Self::Destroyed | Self::Stopped)
