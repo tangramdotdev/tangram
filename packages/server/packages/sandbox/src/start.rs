@@ -142,7 +142,7 @@ impl Component {
 			network: data.network.clone(),
 			owner: Some(data.owner.clone()),
 			storage: data.storage,
-			ttl: data.ttl,
+			time_to_live: data.time_to_live,
 		};
 		let token = session
 			.server

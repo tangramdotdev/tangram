@@ -224,20 +224,23 @@ pub struct Sandbox {
 	pub arg: tangram_cli_sandbox::Options,
 
 	#[command(flatten)]
-	pub ttl: Ttl,
+	pub time_to_live: TimeToLive,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct Ttl {
+pub struct TimeToLive {
+	/// Keep the sandbox until it is destroyed.
 	#[arg(
-		id = "spawn.sandbox.ttl.no_ttl",
-		long = "no-ttl",
-		overrides_with = "spawn.sandbox.ttl.ttl"
+		alias = "no-ttl",
+		id = "spawn.sandbox.time_to_live.no_time_to_live",
+		long = "no-time-to-live",
+		overrides_with = "spawn.sandbox.time_to_live.time_to_live"
 	)]
-	pub no_ttl: bool,
+	pub no_time_to_live: bool,
 
-	#[arg(id = "spawn.sandbox.ttl.ttl", long = "ttl", overrides_with = "spawn.sandbox.ttl.no_ttl", value_parser = humantime::parse_duration)]
-	pub ttl: Option<Duration>,
+	/// The time that the sandbox may go unused before it is destroyed.
+	#[arg(alias = "ttl", id = "spawn.sandbox.time_to_live.time_to_live", long = "time-to-live", overrides_with = "spawn.sandbox.time_to_live.no_time_to_live", value_parser = humantime::parse_duration)]
+	pub time_to_live: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -793,8 +796,8 @@ pub(crate) async fn spawn_inner(
 
 	// Determine if the network is enabled.
 	let has_sandbox_arg = !options.sandbox.arg.is_empty()
-		|| options.sandbox.ttl.ttl.is_some()
-		|| options.sandbox.ttl.no_ttl;
+		|| options.sandbox.time_to_live.time_to_live.is_some()
+		|| options.sandbox.time_to_live.no_time_to_live;
 	let ports = options.sandbox.arg.ports.clone();
 	let network = tangram_cli_sandbox::normalize_network(&options.sandbox.arg.network, ports)?;
 
@@ -837,7 +840,7 @@ pub(crate) async fn spawn_inner(
 						options.sandbox.arg.storage_min,
 						options.sandbox.arg.storage,
 					),
-					ttl: Some(options.sandbox.ttl.get()),
+					time_to_live: Some(options.sandbox.time_to_live.get()),
 				},
 			))
 		}
@@ -934,7 +937,7 @@ impl Sandbox {
 		Self {
 			arg: tangram_cli_sandbox::Options::default(),
 			disabled: None,
-			ttl: Ttl::default(),
+			time_to_live: TimeToLive::default(),
 			value: sandbox,
 		}
 	}
@@ -952,12 +955,12 @@ impl Sandbox {
 	}
 }
 
-impl Ttl {
+impl TimeToLive {
 	fn get(&self) -> Option<Duration> {
-		if self.no_ttl {
+		if self.no_time_to_live {
 			None
 		} else {
-			self.ttl.or(Some(Duration::ZERO))
+			self.time_to_live.or(Some(Duration::ZERO))
 		}
 	}
 }

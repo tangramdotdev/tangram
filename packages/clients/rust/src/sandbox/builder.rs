@@ -7,7 +7,7 @@ use {
 #[derive(Clone, Debug)]
 pub struct Builder {
 	arg: tg::sandbox::create::Arg,
-	default_ttl: bool,
+	default_time_to_live: bool,
 }
 
 impl Builder {
@@ -16,7 +16,7 @@ impl Builder {
 		let arg = tg::sandbox::create::Arg::default();
 		Self {
 			arg,
-			default_ttl: true,
+			default_time_to_live: true,
 		}
 	}
 
@@ -24,7 +24,7 @@ impl Builder {
 	pub fn with_arg(arg: tg::sandbox::create::Arg) -> Self {
 		Self {
 			arg,
-			default_ttl: false,
+			default_time_to_live: false,
 		}
 	}
 
@@ -89,9 +89,9 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn ttl(mut self, ttl: impl Into<Option<Duration>>) -> Self {
-		self.arg.ttl = ttl.into();
-		self.default_ttl = false;
+	pub fn time_to_live(mut self, time_to_live: impl Into<Option<Duration>>) -> Self {
+		self.arg.time_to_live = time_to_live.into();
+		self.default_time_to_live = false;
 		self
 	}
 
@@ -105,8 +105,8 @@ impl Builder {
 		I: tg::Instance,
 	{
 		let mut arg = self.arg;
-		if self.default_ttl {
-			arg.ttl = Some(instance.arg().sandbox.ttl);
+		if self.default_time_to_live {
+			arg.time_to_live = Some(instance.arg().sandbox.time_to_live);
 		}
 		tg::Sandbox::create_with_arg_with_instance(instance, arg).await
 	}

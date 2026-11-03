@@ -1,6 +1,6 @@
 import * as tg from "./index.ts";
 
-const defaultTtl = 5 * 60;
+const defaultTimeToLive = 5 * 60;
 
 export class Sandbox {
 	#id: tg.Sandbox.Id;
@@ -177,7 +177,7 @@ export namespace Sandbox {
 		mounts?: Array<tg.Sandbox.Mount.Data>;
 		network?: tg.Sandbox.Network.Data | null;
 		owner?: string | null;
-		ttl?: number | null;
+		time_to_live?: number | null;
 	};
 
 	export type Data = {
@@ -193,7 +193,7 @@ export namespace Sandbox {
 		network?: tg.Sandbox.Network.Data | null;
 		owner?: string;
 		status: tg.Sandbox.Status;
-		ttl?: number | null;
+		time_to_live?: number | null;
 		usage?: tg.Sandbox.Usage | null;
 	};
 
@@ -277,6 +277,9 @@ export namespace Sandbox {
 		network?: boolean | tg.Sandbox.Network | null;
 		owner?: string | null;
 		ports?: Array<tg.Sandbox.Port> | null;
+		timeToLive?: number | null;
+
+		/** An alias for `timeToLive`. */
 		ttl?: number | null;
 	};
 
@@ -323,11 +326,28 @@ export namespace Sandbox {
 			if (arg.owner !== undefined) {
 				output.owner = arg.owner;
 			}
-			if (arg.ttl !== undefined) {
-				output.ttl = arg.ttl;
+			let timeToLive = tg.Sandbox.Arg.normalizeTimeToLive(arg).timeToLive;
+			if (timeToLive !== undefined) {
+				output.time_to_live = timeToLive;
 			}
 
 			return output;
+		};
+
+		/** Replace the `ttl` alias with `timeToLive`, throwing if an arg sets both. */
+		export let normalizeTimeToLive = <
+			T extends { timeToLive?: unknown; ttl?: unknown },
+		>(
+			arg: T,
+		): Omit<T, "ttl"> => {
+			if (arg.ttl === undefined) {
+				return arg;
+			}
+			if (arg.timeToLive !== undefined) {
+				throw new Error("ttl and timeToLive may not both be set");
+			}
+			let { ttl, ...rest } = arg;
+			return { ...rest, timeToLive: ttl };
 		};
 	}
 
@@ -428,9 +448,16 @@ export namespace Sandbox {
 			return this;
 		}
 
-		ttl(ttl: tg.Unresolved<tg.MaybeMutation<number> | null>): this {
-			this.#args.push({ ttl });
+		timeToLive(
+			timeToLive: tg.Unresolved<tg.MaybeMutation<number> | null>,
+		): this {
+			this.#args.push({ timeToLive });
 			return this;
+		}
+
+		/** An alias for `timeToLive`. */
+		ttl(ttl: tg.Unresolved<tg.MaybeMutation<number> | null>): this {
+			return this.timeToLive(ttl);
 		}
 
 		then<TResult1 = tg.Sandbox, TResult2 = never>(
@@ -452,8 +479,11 @@ export namespace Sandbox {
 				tg.ValueOrMaybeMutationMap<tg.Sandbox.Arg>,
 				tg.Sandbox.Arg
 			>({
-				args: [{ host: tg.host.current, ttl: defaultTtl }, ...this.#args],
-				map: async (arg) => arg,
+				args: [
+					{ host: tg.host.current, timeToLive: defaultTimeToLive },
+					...this.#args,
+				],
+				map: async (arg) => tg.Sandbox.Arg.normalizeTimeToLive(arg),
 				reduce: {
 					mounts: "append",
 					ports: "append",

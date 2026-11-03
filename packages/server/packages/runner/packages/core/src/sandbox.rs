@@ -165,7 +165,7 @@ impl State {
 			owner: self.owner.clone(),
 			status: self.status,
 			storage: arg.storage,
-			ttl: arg.ttl,
+			time_to_live: arg.time_to_live,
 			usage: self.usage.clone(),
 		};
 		tg::sandbox::get::Output {

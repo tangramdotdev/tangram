@@ -6,12 +6,12 @@ let local = server spawn --name local --now '2026-01-01T00:00:00Z' --config { ad
 
 let default = tg sandbox create --no-tokens | referent node
 let sandbox = tg sandbox get $default | from json | get data
-assert equal $sandbox.ttl 300 "the default ttl should be five minutes"
+assert equal $sandbox.time_to_live 300 "the default time to live should be five minutes"
 tg sandbox destroy $default
 
 let infinite = tg sandbox create --no-tokens --no-ttl | referent node
 let sandbox = tg sandbox get $infinite | from json | get data
-assert ($sandbox.ttl? | is-empty) "an explicitly infinite ttl should be preserved"
+assert ($sandbox.time_to_live? | is-empty) "an explicitly infinite time to live should be preserved"
 tg sandbox destroy $infinite
 
 let id = tg sandbox create --no-tokens --ttl 1s | referent node

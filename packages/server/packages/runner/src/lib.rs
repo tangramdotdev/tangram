@@ -741,7 +741,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// Stop or destroy each running sandbox that the server stopped, destroyed, or started at another boot when the runner's heartbeat expired, applying the same rule as the server: destroy a sandbox whose ttl is zero, and stop the others.
+	/// Stop or destroy each running sandbox that the server stopped, destroyed, or started at another boot when the runner's heartbeat expired, applying the same rule as the server: destroy a sandbox whose time to live is zero, and stop the others.
 	fn yield_runner_sandboxes(&self, sandboxes: &[tg::sandbox::Id]) {
 		let sandboxes = sandboxes
 			.iter()
@@ -750,7 +750,9 @@ impl Component {
 				if sandbox.status.is_stopped_or_destroyed() {
 					return None;
 				}
-				let request = match crate::sandbox::Teardown::with_ttl(sandbox.create.ttl) {
+				let request = match crate::sandbox::Teardown::with_time_to_live(
+					sandbox.create.time_to_live,
+				) {
 					crate::sandbox::Teardown::Destroy => {
 						tg::sandbox::control::ServerRequestArg::Destroy(
 							tg::sandbox::control::DestroyServerRequestArg { error: None },

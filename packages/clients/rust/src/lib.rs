@@ -388,9 +388,9 @@ impl Client {
 				"expected the progress interval to be greater than zero"
 			));
 		}
-		if sandbox.ttl.is_zero() {
+		if sandbox.time_to_live.is_zero() {
 			return Err(tg::error!(
-				"expected the sandbox TTL to be greater than zero"
+				"expected the sandbox time to live to be greater than zero"
 			));
 		}
 		if value.load_concurrency == 0 {

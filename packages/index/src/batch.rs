@@ -155,7 +155,7 @@ mod tests {
 				owner: tg::Principal::Root,
 				status: tg::sandbox::Status::Destroyed,
 				storage: None,
-				ttl: Some(std::time::Duration::new(60, 123)),
+				time_to_live: Some(std::time::Duration::new(60, 123)),
 				usage: Some(tg::sandbox::Usage {
 					cpu: tg::sandbox::ResourceUsage {
 						consumption: 123,
@@ -242,7 +242,10 @@ mod tests {
 		};
 		let data = sandbox_arg.data.as_ref().unwrap();
 		assert_eq!(data.data.cpu, Some(2.into()));
-		assert_eq!(data.data.ttl, Some(std::time::Duration::new(60, 123)));
+		assert_eq!(
+			data.data.time_to_live,
+			Some(std::time::Duration::new(60, 123))
+		);
 		assert_eq!(data.data.usage.as_ref().unwrap().cpu.consumption, 123);
 		assert_eq!(data.data.usage.as_ref().unwrap().memory.consumption, 456);
 		assert_eq!(data.data.network.as_ref().unwrap().ports().len(), 1);

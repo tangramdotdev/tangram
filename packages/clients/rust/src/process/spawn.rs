@@ -1391,7 +1391,7 @@ fn normalize_sandbox(
 				network,
 				owner: arg.owner.clone(),
 				storage: None,
-				ttl: Some(Duration::ZERO),
+				time_to_live: Some(Duration::ZERO),
 			};
 			Ok(Some(tg::Either::Left(sandbox)))
 		},
@@ -1411,7 +1411,7 @@ fn normalize_sandbox_create_arg(
 		network: sandbox.network,
 		owner: sandbox.owner,
 		storage: sandbox.storage,
-		ttl: sandbox.ttl.unwrap_or(Some(Duration::ZERO)),
+		time_to_live: sandbox.time_to_live.unwrap_or(Some(Duration::ZERO)),
 	}
 }
 

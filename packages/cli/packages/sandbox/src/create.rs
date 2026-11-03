@@ -17,20 +17,23 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 
 	#[command(flatten)]
-	pub ttl: Ttl,
+	pub time_to_live: TimeToLive,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct Ttl {
+pub struct TimeToLive {
+	/// Keep the sandbox until it is destroyed.
 	#[arg(
-		id = "create.ttl.no_ttl",
-		long = "no-ttl",
-		overrides_with = "create.ttl.ttl"
+		alias = "no-ttl",
+		id = "create.time_to_live.no_time_to_live",
+		long = "no-time-to-live",
+		overrides_with = "create.time_to_live.time_to_live"
 	)]
-	pub no_ttl: bool,
+	pub no_time_to_live: bool,
 
-	#[arg(id = "create.ttl.ttl", long = "ttl", overrides_with = "create.ttl.no_ttl", value_parser = humantime::parse_duration)]
-	pub ttl: Option<Duration>,
+	/// The time that the sandbox may go unused before it is destroyed.
+	#[arg(alias = "ttl", id = "create.time_to_live.time_to_live", long = "time-to-live", overrides_with = "create.time_to_live.no_time_to_live", value_parser = humantime::parse_duration)]
+	pub time_to_live: Option<Duration>,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -40,7 +43,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let ports = args.arg.ports;
 	let network = crate::normalize_network(&args.arg.network, ports)?;
 	let owner = crate::resolve_owner(&client, &args.arg.owner).await?;
-	let ttl = args.ttl.get(client.arg().sandbox.ttl);
+	let time_to_live = args.time_to_live.get(client.arg().sandbox.time_to_live);
 
 	// Create the sandbox.
 	let sandbox = tg::Sandbox::builder()
@@ -53,7 +56,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.mounts(args.arg.mounts)
 		.network(network)
 		.owner(owner)
-		.ttl(ttl)
+		.time_to_live(time_to_live)
 		.build_with_instance(&client)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
@@ -64,12 +67,12 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	Ok(())
 }
 
-impl Ttl {
+impl TimeToLive {
 	fn get(&self, default: Duration) -> Option<Duration> {
-		if self.no_ttl {
+		if self.no_time_to_live {
 			None
 		} else {
-			Some(self.ttl.unwrap_or(default))
+			Some(self.time_to_live.unwrap_or(default))
 		}
 	}
 }

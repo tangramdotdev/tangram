@@ -771,7 +771,7 @@ def is_network_enabled(value=None):
 
 
 def normalize_sandbox(arg):
-    from ..sandbox import Mount, arg_to_data, normalize_network
+    from ..sandbox import Mount, arg_to_data, normalize_network, normalize_time_to_live
 
     fields = {
         key: arg[key]
@@ -794,7 +794,7 @@ def normalize_sandbox(arg):
         sandbox = {}
     if sandbox is True:
         sandbox = {}
-    output = arg_to_data({**sandbox, "ttl": sandbox.get("ttl", 0)})
+    output = arg_to_data({"time_to_live": 0, **normalize_time_to_live(sandbox)})
     output.pop("host", None)
     for key in ("cpu", "memory", "owner"):
         if key in fields:

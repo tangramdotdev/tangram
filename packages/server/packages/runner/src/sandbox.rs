@@ -1353,7 +1353,7 @@ impl Component {
 		// Create the timer.
 		let mut timer_future: Option<BoxFuture<'static, ()>> = None;
 		let initial_process = process_task_output.is_some();
-		let ttl = state.data.ttl;
+		let time_to_live = state.data.time_to_live;
 
 		// Observe process initialization without blocking either control transport.
 		let mut pending = FuturesUnordered::new();
@@ -1383,8 +1383,8 @@ impl Component {
 				tokio::select! {
 					result = &mut ready_connection, if !initial_process && !ready => {
 						result?;
-						if pending.is_empty() && process_events.is_empty() && let Some(ttl) = ttl {
-							timer_future.replace(session.server.clock.sleep(ttl).boxed());
+						if pending.is_empty() && process_events.is_empty() && let Some(time_to_live) = time_to_live {
+							timer_future.replace(session.server.clock.sleep(time_to_live).boxed());
 						}
 						let event = ReadyEvent { connected_event: None, sandbox: id.clone() };
 						event_sender.send(Ok(Event::Ready(event))).ok();
@@ -1495,10 +1495,10 @@ impl Component {
 						}
 					},
 
-					// If the runner is shutting down gracefully, then stop the sandbox, or destroy it if its ttl is zero, once its processes finish.
+					// If the runner is shutting down gracefully, then stop the sandbox, or destroy it if its time to live is zero, once its processes finish.
 					() = stopper.wait(), if !stopping => {
 						stopping = true;
-						teardown = Teardown::with_ttl(ttl);
+						teardown = Teardown::with_time_to_live(time_to_live);
 						if pending.is_empty() && process_events.is_empty() {
 							break;
 						}
@@ -1515,8 +1515,8 @@ impl Component {
 								if stopping && process_events.is_empty() && pending.is_empty() {
 									break;
 								}
-								if ready && process_events.is_empty() && pending.is_empty() && let Some(ttl) = ttl {
-									timer_future.replace(session.server.clock.sleep(ttl).boxed());
+								if ready && process_events.is_empty() && pending.is_empty() && let Some(time_to_live) = time_to_live {
+									timer_future.replace(session.server.clock.sleep(time_to_live).boxed());
 								}
 							},
 							ProcessEvent::Connected(_) => {
@@ -1897,7 +1897,7 @@ impl Component {
 			owner,
 			status,
 			storage: arg.storage,
-			ttl: arg.ttl,
+			time_to_live: arg.time_to_live,
 			usage: None,
 		};
 		let data = tg::sandbox::get::Output {
@@ -2265,7 +2265,7 @@ impl Component {
 			.await?;
 		let indexed = session.server.index.try_get_sandboxes(&ids).await?;
 
-		// Stop each sandbox that was running with a nonzero ttl, keep each stopped sandbox, destroy the others once their destruction is reported, and remove now the directories of sandboxes that are destroyed or not recorded.
+		// Stop each sandbox that was running with a nonzero time to live, keep each stopped sandbox, destroy the others once their destruction is reported, and remove now the directories of sandboxes that are destroyed or not recorded.
 		let mut sandboxes = Vec::new();
 		for (id, indexed) in std::iter::zip(ids, indexed) {
 			let teardown = match indexed.map(|indexed| indexed.data) {
@@ -2275,7 +2275,7 @@ impl Component {
 					tg::sandbox::Status::Destroyed => None,
 					tg::sandbox::Status::Started
 					| tg::sandbox::Status::Starting
-					| tg::sandbox::Status::Stopping => Some(Teardown::with_ttl(data.data.ttl)),
+					| tg::sandbox::Status::Stopping => Some(Teardown::with_time_to_live(data.data.time_to_live)),
 					tg::sandbox::Status::Stopped => continue,
 				},
 			};
@@ -2362,7 +2362,7 @@ impl Component {
 				owner: owner.clone(),
 				status: tg::sandbox::Status::Started,
 				storage: create.storage,
-				ttl: create.ttl,
+				time_to_live: create.time_to_live,
 				usage: None,
 			},
 			location: Some(location.clone()),
@@ -2506,8 +2506,8 @@ impl Component {
 
 impl Teardown {
 	#[must_use]
-	pub(crate) fn with_ttl(ttl: Option<std::time::Duration>) -> Self {
-		if ttl.is_some_and(|ttl| ttl.is_zero()) {
+	pub(crate) fn with_time_to_live(time_to_live: Option<std::time::Duration>) -> Self {
+		if time_to_live.is_some_and(|time_to_live| time_to_live.is_zero()) {
 			Self::Destroy
 		} else {
 			Self::Stop
