@@ -2,18 +2,15 @@ use {
 	futures::{FutureExt as _, future::BoxFuture},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_server_core::Session,
+	tangram_server_core::{
+		Session,
+		list::{Cursor, PageArg, Scope},
+	},
 };
 
 /// The component.
 #[derive(Clone, Default)]
 pub struct Component {}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(tag = "version")]
-enum Cursor {
-	V0 { position: u64 },
-}
 
 impl Component {
 	#[must_use]
@@ -25,64 +22,70 @@ impl Component {
 	pub(crate) async fn match_(
 		&self,
 		session: &Session,
-		mut arg: tg::match_::Arg,
+		arg: tg::match_::Arg,
 	) -> tg::Result<tg::match_::Output> {
 		session.verify_request_with_network_access()?;
 
 		// Parse the pagination arguments.
 		let limit = session.parse_page_limit(arg.limit)?;
-		let cursor = arg
+		let limit = usize::try_from(limit).unwrap();
+		let after = arg
 			.cursor
 			.as_deref()
 			.map(tangram_server_core::cursor::deserialize::<Cursor>)
-			.transpose()?;
-		let position = cursor.map_or(0, |cursor| match cursor {
-			Cursor::V0 { position } => position,
-		});
+			.transpose()?
+			.map(|cursor| match cursor {
+				Cursor::V0 { after } => after,
+			});
 
-		// Collect the complete result before selecting the page.
-		arg.cursor = None;
-		arg.limit = None;
-		let local_arg = arg.clone();
-		let query_arg: tangram_server_core::list::QuerySpecifierItemsArg =
-			tangram_server_core::list::QuerySpecifierItemsArg {
-				cached: arg.cached,
-				filter_local: Box::new(move |items| {
-					let data = filter_items(items, &local_arg);
-					tangram_server_list_common::sort_items(data, local_arg.reverse)
-				}),
-				location: arg.location.as_ref(),
-				query: tangram_server_core::list::remote::Query::Match(arg.clone()),
-				tokens: &arg.tokens,
-				ttl: arg.ttl,
-			};
-		let items = session
+		// Resolve the scope, which is every specifier for an empty pattern, and the children of the pattern's parent otherwise.
+		let scope = if arg.pattern.is_empty() {
+			Scope::All
+		} else {
+			Scope::Children(arg.pattern.parent.clone().map(tg::Selector::Specifier))
+		};
+
+		// List the page of the matching items.
+		let kinds = tangram_server_list_common::Kinds {
+			groups: arg.groups,
+			organizations: arg.organizations,
+			tags: arg.tags,
+			users: arg.users,
+		};
+		let pattern = arg.pattern.clone();
+		let page_arg = PageArg {
+			after,
+			cached: arg.cached,
+			filter: Box::new(move |item| {
+				pattern.matches_specifier(item.specifier())
+					&& tangram_server_list_common::item_kind_enabled(item, &kinds)
+			}),
+			limit,
+			location: arg.location.as_ref(),
+			query: tangram_server_core::list::remote::Query::Match(arg.clone()),
+			reverse: arg.reverse,
+			scope,
+			tokens: &arg.tokens,
+			ttl: arg.ttl,
+		};
+		let page = session
 			.server
 			.components
 			.list
-			.query_specifier_items(session, query_arg)
+			.list_page(session, page_arg)
 			.await?;
-		let data = filter_items(items, &arg);
-		let mut data = tangram_server_list_common::sort_items(data, arg.reverse);
 
-		// Select the page and create the continuation cursor.
-		let position = usize::try_from(position)
-			.unwrap_or(usize::MAX)
-			.min(data.len());
-		let end = position
-			.saturating_add(usize::try_from(limit).unwrap())
-			.min(data.len());
-		let cursor = if end < data.len() {
-			let cursor = Cursor::V0 {
-				position: u64::try_from(end).unwrap(),
-			};
-			Some(tangram_server_core::cursor::serialize(&cursor)?)
-		} else {
-			None
+		// Create the output.
+		let cursor = page
+			.next
+			.map(|after| Cursor::V0 { after })
+			.as_ref()
+			.map(tangram_server_core::cursor::serialize)
+			.transpose()?;
+		let output = tg::match_::Output {
+			cursor,
+			data: page.data,
 		};
-		let data = data.drain(position..end).collect();
-
-		let output = tg::match_::Output { cursor, data };
 
 		Ok(output)
 	}
@@ -157,20 +160,4 @@ impl tangram_server_core::match_::Component for Component {
 	) -> BoxFuture<'a, tg::Result<http::Response<BoxBody>>> {
 		self.request(session, request).boxed()
 	}
-}
-
-fn filter_items(items: Vec<tg::match_::Item>, arg: &tg::match_::Arg) -> Vec<tg::match_::Item> {
-	let kinds = tangram_server_list_common::Kinds {
-		groups: arg.groups,
-		organizations: arg.organizations,
-		tags: arg.tags,
-		users: arg.users,
-	};
-	items
-		.into_iter()
-		.filter(|item| {
-			arg.pattern.matches_specifier(item.specifier())
-				&& tangram_server_list_common::item_kind_enabled(item, &kinds)
-		})
-		.collect()
 }

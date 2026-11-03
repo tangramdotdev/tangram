@@ -5,25 +5,68 @@ use {
 
 pub mod remote;
 
-pub struct QuerySpecifierItemsArg<
-	'a,
-	F = Box<dyn FnOnce(Vec<tg::list::Item>) -> Vec<tg::list::Item> + Send + 'a>,
-> {
+/// The cursor of the list and match endpoints, which continues after the key of the last item.
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "version")]
+pub enum Cursor {
+	V0 { after: Vec<u8> },
+}
+
+pub struct PageArg<'a> {
+	/// The key to continue after.
+	pub after: Option<Vec<u8>>,
+
 	pub cached: bool,
-	pub filter_local: F,
+
+	/// The filter that the local items must pass, in addition to visibility.
+	pub filter: Box<dyn Fn(&tg::list::Item) -> bool + Send + Sync + 'a>,
+
+	pub limit: usize,
+
 	pub location: Option<&'a tg::location::Arg>,
+
+	/// The query to send to each remote, whose cursor and limit are set for each page.
 	pub query: self::remote::Query,
+
+	pub reverse: bool,
+
+	pub scope: Scope,
+
 	pub tokens: &'a tg::authorization::Tokens,
+
 	pub ttl: tg::remote::cache::Ttl,
+}
+
+/// The specifiers that a page of local items is listed from.
+#[derive(Clone)]
+pub enum Scope {
+	/// Every specifier.
+	All,
+
+	/// The children of a parent, or the root specifiers when there is no parent.
+	Children(Option<tg::Selector<tg::Id>>),
+
+	/// The descendants of a specifier.
+	Descendants(tg::Specifier),
+
+	/// No specifiers, because the scope's specifier is not stored locally.
+	Empty,
+}
+
+pub struct Page {
+	pub data: Vec<tg::list::Item>,
+
+	/// The key to continue after, when there are more items.
+	pub next: Option<Vec<u8>>,
 }
 
 /// The list component.
 pub trait Component: crate::component::Lifecycle {
-	fn query_specifier_items<'a>(
+	fn list_page<'a>(
 		&'a self,
 		session: &'a Session,
-		arg: QuerySpecifierItemsArg<'a>,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Item>>>;
+		arg: PageArg<'a>,
+	) -> BoxFuture<'a, tg::Result<Page>>;
 
 	fn list<'a>(
 		&'a self,
