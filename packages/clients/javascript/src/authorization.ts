@@ -14,6 +14,12 @@ export namespace Authorization {
 
 		const cache = new Map<string, Data | null>();
 
+		// Cache decoded tokens with the entries that hold them, so that walks that revisit loaded objects do not decode their tokens again, and the decoded tokens are released along with the objects.
+		const entries = new WeakMap<
+			Authorization.Tokens.Entry,
+			Map<string, Data | null>
+		>();
+
 		// Compare the resources and permissions without considering expiration or verifying signatures.
 		export let covers = (token: Token, other: Token): boolean => {
 			if (token === other) {
@@ -36,8 +42,9 @@ export namespace Authorization {
 			token: Token,
 			resource: string,
 			permission: string,
+			entry?: Authorization.Tokens.Entry,
 		): boolean => {
-			let data = parse(token);
+			let data = parse(token, entry);
 			return (
 				data !== null &&
 				data.body.resource === resource &&
@@ -49,28 +56,53 @@ export namespace Authorization {
 		export let authorizesObjectSubtree = (
 			token: Token,
 			resource: string,
-		): boolean => authorizes(token, resource, "object_subtree");
+			entry?: Authorization.Tokens.Entry,
+		): boolean => authorizes(token, resource, "object_subtree", entry);
 
-		export let resource = (token: Token): string | null =>
-			parse(token)?.body.resource ?? null;
+		export let resource = (
+			token: Token,
+			entry?: Authorization.Tokens.Entry,
+		): string | null => parse(token, entry)?.body.resource ?? null;
 
 		export let expiresAt = (token: Token): bigint | null =>
 			parse(token)?.body.expires_at ?? null;
 
-		let parse = (token: Token): Data | null => {
-			if (cache.has(token)) {
-				return cache.get(token)!;
+		// Parse a token, caching the result with the entry that holds the token when one is given.
+		let parse = (
+			token: Token,
+			entry?: Authorization.Tokens.Entry,
+		): Data | null => {
+			// Look up the token in the cache of its entry.
+			let decoded = entry === undefined ? undefined : entries.get(entry);
+			if (decoded?.has(token)) {
+				return decoded.get(token)!;
 			}
+
+			// Look up the token in the bounded cache, or decode it.
 			let output: Data | null = null;
-			try {
-				output = { body: decode(token) };
-			} catch {
-				// Opaque tokens are retained for the server to validate.
+			if (cache.has(token)) {
+				output = cache.get(token)!;
+			} else {
+				try {
+					output = { body: decode(token) };
+				} catch {
+					// Opaque tokens are retained for the server to validate.
+				}
+				if (cache.size >= 1024) {
+					cache.clear();
+				}
+				cache.set(token, output);
 			}
-			if (cache.size >= 1024) {
-				cache.clear();
+
+			// Cache the token with its entry.
+			if (entry !== undefined) {
+				if (decoded === undefined) {
+					decoded = new Map();
+					entries.set(entry, decoded);
+				}
+				decoded.set(token, output);
 			}
-			cache.set(token, output);
+
 			return output;
 		};
 
@@ -136,8 +168,9 @@ export namespace Authorization {
 			return bytes;
 		};
 
+		// Encode the bytes, joining the symbols at the end so that the output is a flat string that keeps cached decoded tokens compact.
 		let encodeBase32 = (bytes: Array<number>): string => {
-			let output = "";
+			let output: Array<string> = [];
 			let buffer = 0;
 			let bits = 0;
 			for (let byte of bytes) {
@@ -145,13 +178,13 @@ export namespace Authorization {
 				bits += 8;
 				while (bits >= 5) {
 					bits -= 5;
-					output += symbols[(buffer >> bits) & 31];
+					output.push(symbols[(buffer >> bits) & 31]!);
 				}
 			}
 			if (bits > 0) {
-				output += symbols[(buffer << (5 - bits)) & 31];
+				output.push(symbols[(buffer << (5 - bits)) & 31]!);
 			}
-			return output;
+			return output.join("");
 		};
 
 		let readUvarint = (

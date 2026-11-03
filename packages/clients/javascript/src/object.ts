@@ -248,16 +248,20 @@ export namespace Object {
 					if (entry !== undefined) {
 						let collected = (tokens[location] ??= []);
 						let inherited = covered;
+						// Decode the tokens with the entry that holds them, so that later walks over the same handle reuse the decoded tokens.
 						for (let token of entry) {
 							if (
 								!inherited ||
-								tg.Authorization.Token.resource(token)?.startsWith("syn_")
+								tg.Authorization.Token.resource(token, entry)?.startsWith(
+									"syn_",
+								)
 							) {
 								collected.push(token);
 							}
 							covered ||= tg.Authorization.Token.authorizesObjectSubtree(
 								token,
 								state.id,
+								entry,
 							);
 						}
 					}
