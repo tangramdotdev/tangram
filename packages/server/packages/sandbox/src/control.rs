@@ -220,6 +220,7 @@ impl Component {
 		} else {
 			session.server.clock.unix_timestamp()
 		};
+		let boot = arg.boot;
 		let runner = arg.runner;
 
 		// Prepare and submit initialization before accepting subsequent requests.
@@ -235,6 +236,10 @@ impl Component {
 		let sandbox = self
 			.prepare_sandbox_control_index_arg(&session, &id, create)
 			.await?;
+		let mut sandbox = sandbox;
+		if let Some(data) = &mut sandbox.data {
+			data.data.boot = boot;
+		}
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutSandbox(sandbox)],
 		};

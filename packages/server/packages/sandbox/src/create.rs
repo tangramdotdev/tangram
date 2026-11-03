@@ -106,10 +106,12 @@ impl Component {
 
 		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
+			boot: 0,
 			creator,
 			owner,
 			parent: None,
 			process: None,
+			runner: None,
 			sandbox: id.clone(),
 			scheduler: None,
 			token: Some(token),

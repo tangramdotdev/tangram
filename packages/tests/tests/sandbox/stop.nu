@@ -2,7 +2,8 @@ use ../../util/test.nu *
 
 # A stopped sandbox reports that it is stopped, remains readable, and rejects new processes.
 
-let local = server spawn
+# Shorten the control request timeout, because a spawn into a stopped sandbox fails once its control request times out.
+let local = server spawn --config { control: { request_timeout: 1 } }
 
 let sandbox = tg sandbox create --no-tokens | referent node
 tg sandbox stop $sandbox

@@ -268,6 +268,7 @@ fn sandbox_control_arg(
 	};
 	let location = tg::Location::Local(tg::location::Local::default());
 	tg::sandbox::control::Arg {
+		boot: 0,
 		create: Some(tg::sandbox::create::Arg::default()),
 		created_at: None,
 		creator: tg::Principal::Root,

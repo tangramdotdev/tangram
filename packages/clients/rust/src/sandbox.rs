@@ -32,6 +32,7 @@ pub mod id;
 pub mod list;
 pub mod outcome;
 pub mod processes;
+pub mod start;
 pub mod status;
 pub mod stop;
 pub mod wait;

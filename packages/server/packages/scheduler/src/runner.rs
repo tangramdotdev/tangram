@@ -144,6 +144,11 @@ impl SchedulerState {
 		tracing::info!(runner = %request.runner, connection_index = request.connection_index, "removing the runner connection");
 		let completions = self.remove_runner(&request.runner);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
+
+		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later.
+		for discarded in self.discard_pinned_sandboxes(&request.runner) {
+			scheduler.publish_sandbox_discarded(self, discarded);
+		}
 		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
