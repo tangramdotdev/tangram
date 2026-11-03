@@ -1093,10 +1093,10 @@ impl ProcessSearch {
 					Ok(())
 				},
 				Read::ProcessObjects { .. } => {
-					let (after, page) = output.into_process_objects()?;
+					let (next, page) = output.into_process_objects()?;
 					objects.extend(page);
-					if let Some(after) = after {
-						pending.push_back(ProcessFactRead::Objects { after: Some(after) });
+					if let Some(next) = next {
+						pending.push_back(ProcessFactRead::Objects { after: Some(next) });
 					}
 
 					Ok(())
@@ -1280,10 +1280,10 @@ where
 					limit: *limit,
 					resource: resource.clone()
 				});
-				let facts::Output::Delegations { after, delegations } = output else {
+				let facts::Output::Delegations { delegations, next } = output else {
 					return Err(tg::error!("expected delegation facts"));
 				};
-				ReadOutput::Delegations { after, delegations }
+				ReadOutput::Delegations { delegations, next }
 			},
 
 			super::search::AncestorNodeRead::Group { group } => {
@@ -1304,9 +1304,9 @@ where
 					limit: *limit,
 					object: object.clone(),
 				});
-				let (after, processes) = output.into_object_processes()?;
+				let (next, processes) = output.into_object_processes()?;
 
-				ReadOutput::ObjectProcesses { after, processes }
+				ReadOutput::ObjectProcesses { next, processes }
 			},
 			super::search::AncestorNodeRead::ProcessPrincipals { process } => {
 				let output = read!(facts::Request::Process {
@@ -1328,9 +1328,9 @@ where
 					limit: *limit,
 					resource: resource.clone(),
 				});
-				let (after, permissions) = output.into_permissions()?;
+				let (next, permissions) = output.into_permissions()?;
 
-				ReadOutput::Permissions { after, permissions }
+				ReadOutput::Permissions { next, permissions }
 			},
 			super::search::AncestorNodeRead::SandboxPrincipals { sandbox } => {
 				let output = read!(facts::Request::SandboxPrincipals {
@@ -1381,9 +1381,9 @@ where
 				group: group.clone(),
 				limit: *limit,
 			});
-			let (after, ids) = output.into_ids()?;
+			let (next, ids) = output.into_ids()?;
 
-			ReadOutput::Ids { after, ids }
+			ReadOutput::Ids { ids, next }
 		},
 		Read::Member {
 			limit,
@@ -1397,9 +1397,9 @@ where
 					limit: *limit,
 					member: member.clone(),
 				});
-				let (after, groups) = output.into_member_groups()?;
+				let (next, groups) = output.into_member_groups()?;
 
-				ReadOutput::MemberGroups { after, groups }
+				ReadOutput::MemberGroups { groups, next }
 			},
 			super::search::MemberRead::Organizations { after } => {
 				let output = read!(facts::Request::MemberOrganizations {
@@ -1407,10 +1407,10 @@ where
 					limit: *limit,
 					member: member.clone(),
 				});
-				let (after, organizations) = output.into_member_organizations()?;
+				let (next, organizations) = output.into_member_organizations()?;
 
 				ReadOutput::MemberOrganizations {
-					after,
+					next,
 					organizations,
 				}
 			},
@@ -1426,8 +1426,8 @@ where
 				limit: *limit,
 				object: object.clone()
 			});
-			let (after, ids) = output.into_ids()?;
-			ReadOutput::Ids { after, ids }
+			let (next, ids) = output.into_ids()?;
+			ReadOutput::Ids { ids, next }
 		},
 		Read::ObjectChildren {
 			after,
@@ -1454,9 +1454,9 @@ where
 				limit: *limit,
 				object: object.clone(),
 			});
-			let (after, ids) = output.into_ids()?;
+			let (next, ids) = output.into_ids()?;
 
-			ReadOutput::Ids { after, ids }
+			ReadOutput::Ids { ids, next }
 		},
 		Read::Delegation {
 			after,
@@ -1490,19 +1490,19 @@ where
 			let output = read!(request);
 			match read {
 				super::search::DelegationRead::Delegations => {
-					let facts::Output::Delegations { after, delegations } = output else {
+					let facts::Output::Delegations { delegations, next } = output else {
 						return Err(tg::error!("expected delegation facts"));
 					};
-					ReadOutput::Delegations { after, delegations }
+					ReadOutput::Delegations { delegations, next }
 				},
 				super::search::DelegationRead::ObjectProcesses => {
-					let (after, processes) = output.into_object_processes()?;
-					ReadOutput::ObjectProcesses { after, processes }
+					let (next, processes) = output.into_object_processes()?;
+					ReadOutput::ObjectProcesses { next, processes }
 				},
 				super::search::DelegationRead::ObjectParents
 				| super::search::DelegationRead::ProcessParents => {
-					let (after, ids) = output.into_ids()?;
-					ReadOutput::Ids { after, ids }
+					let (next, ids) = output.into_ids()?;
+					ReadOutput::Ids { ids, next }
 				},
 			}
 		},
@@ -1518,9 +1518,9 @@ where
 				limit: *limit,
 				object: object.clone(),
 			});
-			let (after, ids) = output.into_ids()?;
+			let (next, ids) = output.into_ids()?;
 
-			ReadOutput::Ids { after, ids }
+			ReadOutput::Ids { ids, next }
 		},
 		Read::OrganizationMembers {
 			after,
@@ -1533,9 +1533,9 @@ where
 				limit: *limit,
 				organization: organization.clone(),
 			});
-			let (after, ids) = output.into_ids()?;
+			let (next, ids) = output.into_ids()?;
 
-			ReadOutput::Ids { after, ids }
+			ReadOutput::Ids { ids, next }
 		},
 		Read::CreatorProcesses {
 			after,
@@ -1548,9 +1548,9 @@ where
 				limit: *limit,
 				creator: creator.clone(),
 			});
-			let (after, ids) = output.into_ids()?;
+			let (next, ids) = output.into_ids()?;
 
-			ReadOutput::Ids { after, ids }
+			ReadOutput::Ids { ids, next }
 		},
 		Read::CreatorSandboxes {
 			after,
@@ -1563,9 +1563,9 @@ where
 				limit: *limit,
 				creator: creator.clone(),
 			});
-			let (after, ids) = output.into_ids()?;
+			let (next, ids) = output.into_ids()?;
 
-			ReadOutput::Ids { after, ids }
+			ReadOutput::Ids { ids, next }
 		},
 		Read::OwnerProcesses {
 			after,
@@ -1578,9 +1578,9 @@ where
 				limit: *limit,
 				owner: owner.clone(),
 			});
-			let (after, ids) = output.into_ids()?;
+			let (next, ids) = output.into_ids()?;
 
-			ReadOutput::Ids { after, ids }
+			ReadOutput::Ids { ids, next }
 		},
 		Read::OwnerSandboxes {
 			after,
@@ -1593,9 +1593,9 @@ where
 				limit: *limit,
 				owner: owner.clone(),
 			});
-			let (after, ids) = output.into_ids()?;
+			let (next, ids) = output.into_ids()?;
 
-			ReadOutput::Ids { after, ids }
+			ReadOutput::Ids { ids, next }
 		},
 		Read::Process { process } => {
 			let output = read!(facts::Request::Process {
@@ -1622,9 +1622,9 @@ where
 				limit: *limit,
 				process: process.clone(),
 			});
-			let (after, ids) = output.into_ids()?;
+			let (next, ids) = output.into_ids()?;
 
-			ReadOutput::Ids { after, ids }
+			ReadOutput::Ids { ids, next }
 		},
 		Read::ProcessObjectChildren {
 			after,
@@ -1642,9 +1642,9 @@ where
 				limit: *limit,
 				process: process.clone(),
 			});
-			let (after, objects) = output.into_process_objects()?;
+			let (next, objects) = output.into_process_objects()?;
 
-			ReadOutput::ProcessObjects { after, objects }
+			ReadOutput::ProcessObjects { next, objects }
 		},
 		Read::ProcessParents {
 			after,
@@ -1657,9 +1657,9 @@ where
 				limit: *limit,
 				process: process.clone(),
 			});
-			let (after, ids) = output.into_ids()?;
+			let (next, ids) = output.into_ids()?;
 
-			ReadOutput::Ids { after, ids }
+			ReadOutput::Ids { ids, next }
 		},
 		Read::Resolve { selector, .. } => {
 			let resource = match resolve(client, selector).await? {
@@ -1680,9 +1680,9 @@ where
 				limit: *limit,
 				subject: subject.clone(),
 			});
-			let (after, permissions) = output.into_permissions()?;
+			let (next, permissions) = output.into_permissions()?;
 
-			ReadOutput::Permissions { after, permissions }
+			ReadOutput::Permissions { next, permissions }
 		},
 	};
 
@@ -1838,7 +1838,7 @@ mod tests {
 				subject: tg::authorization::Subject::User(user.clone()),
 			};
 			ReadOutput::Permissions {
-				after: None,
+				next: None,
 				permissions: vec![permission],
 			}
 		});
@@ -1869,7 +1869,7 @@ mod tests {
 						subject: tg::authorization::Subject::Group(group.clone()),
 					};
 					ReadOutput::Permissions {
-						after: None,
+						next: None,
 						permissions: vec![permission],
 					}
 				},
@@ -1877,8 +1877,8 @@ mod tests {
 					read: MemberRead::Groups { .. },
 					..
 				} => ReadOutput::MemberGroups {
-					after: None,
 					groups: vec![group.clone()],
+					next: None,
 				},
 				_ => default_output(read),
 			},
@@ -1912,21 +1912,21 @@ mod tests {
 					};
 
 					ReadOutput::Permissions {
-						after: None,
+						next: None,
 						permissions: vec![permission],
 					}
 				},
 				Read::GroupMembers { group, .. } if group == &ancestor_group => ReadOutput::Ids {
-					after: None,
 					ids: vec![descendant_group.clone().into()],
+					next: None,
 				},
 				Read::Member {
 					member,
 					read: MemberRead::Groups { .. },
 					..
 				} if member == &tg::Id::from(user.clone()) => ReadOutput::MemberGroups {
-					after: None,
 					groups: vec![descendant_group.clone()],
+					next: None,
 				},
 				_ => default_output(read),
 			},
@@ -1963,15 +1963,15 @@ mod tests {
 					};
 
 					ReadOutput::Permissions {
-						after: None,
+						next: None,
 						permissions: vec![permission],
 					}
 				},
 				Read::GroupMembers {
 					group: read_group, ..
 				} if read_group == &group => ReadOutput::Ids {
-					after: None,
 					ids: vec![user.clone().into()],
+					next: None,
 				},
 				_ => default_output(read),
 			},
@@ -1999,8 +1999,8 @@ mod tests {
 					read: MemberRead::Groups { .. },
 					..
 				} if member == &tg::Id::from(user.clone()) => ReadOutput::MemberGroups {
-					after: None,
 					groups: vec![group.clone()],
+					next: None,
 				},
 				Read::SubjectPermissions {
 					subject: tg::authorization::Subject::Group(read_group),
@@ -2017,7 +2017,7 @@ mod tests {
 					};
 
 					ReadOutput::Permissions {
-						after: None,
+						next: None,
 						permissions: vec![permission],
 					}
 				},
@@ -2093,15 +2093,15 @@ mod tests {
 					let output = match request {
 						facts::Request::Id { id } => facts::Output::Id(Some(id)),
 						facts::Request::Delegations { .. } => facts::Output::Delegations {
-							after: None,
 							delegations: Vec::new(),
+							next: None,
 						},
 						facts::Request::ObjectParents { .. } => facts::Output::Ids {
-							after: None,
 							ids: Vec::new(),
+							next: None,
 						},
 						facts::Request::ObjectProcesses { .. } => facts::Output::ObjectProcesses {
-							after: None,
+							next: None,
 							processes: Vec::new(),
 						},
 						facts::Request::ResourcePermissions { .. } => {
@@ -2111,16 +2111,16 @@ mod tests {
 							active.fetch_sub(1, Ordering::SeqCst);
 
 							facts::Output::Permissions {
-								after: None,
+								next: None,
 								permissions: Vec::new(),
 							}
 						},
 						facts::Request::SubjectPermissions { .. } => facts::Output::Permissions {
-							after: None,
+							next: None,
 							permissions: Vec::new(),
 						},
 						facts::Request::TargetTags { .. } => facts::Output::Tags {
-							after: None,
+							next: None,
 							tags: Vec::new(),
 						},
 						request => panic!("received an unexpected fact request: {request:?}"),
@@ -2233,7 +2233,7 @@ mod tests {
 				Vec::new()
 			};
 			ReadOutput::Permissions {
-				after: None,
+				next: None,
 				permissions,
 			}
 		});
@@ -2308,12 +2308,12 @@ mod tests {
 		];
 		let outcome = run(&args, &tg::Principal::Anonymous, |read| match read {
 			Read::ObjectChildren { object, .. } if object == &parent => ReadOutput::Ids {
-				after: None,
 				ids: vec![child.clone().into()],
+				next: None,
 			},
 			Read::ObjectParents { object, .. } if object == &child => ReadOutput::Ids {
-				after: None,
 				ids: vec![parent.clone().into()],
+				next: None,
 			},
 			_ => default_output(read),
 		});
@@ -2355,16 +2355,16 @@ mod tests {
 			},
 			Read::AncestorNode { read, .. } => match read {
 				AncestorNodeRead::Delegations { .. } => ReadOutput::Delegations {
-					after: None,
 					delegations: Vec::new(),
+					next: None,
 				},
 				AncestorNodeRead::Group { .. } => ReadOutput::Group(None),
 				AncestorNodeRead::ObjectProcesses { .. } => ReadOutput::ObjectProcesses {
-					after: None,
+					next: None,
 					processes: Vec::new(),
 				},
 				AncestorNodeRead::ResourcePermissions { .. } => ReadOutput::Permissions {
-					after: None,
+					next: None,
 					permissions: Vec::new(),
 				},
 				AncestorNodeRead::ProcessPrincipals { .. }
@@ -2373,17 +2373,17 @@ mod tests {
 			},
 			Read::Member { read, .. } => match read {
 				MemberRead::Groups { .. } => ReadOutput::MemberGroups {
-					after: None,
 					groups: Vec::new(),
+					next: None,
 				},
 				MemberRead::Organizations { .. } => ReadOutput::MemberOrganizations {
-					after: None,
+					next: None,
 					organizations: Vec::new(),
 				},
 			},
 			Read::GroupMembers { .. } | Read::OrganizationMembers { .. } => ReadOutput::Ids {
-				after: None,
 				ids: Vec::new(),
+				next: None,
 			},
 			Read::ObjectChildren { .. }
 			| Read::ProcessObjectDescendants { .. }
@@ -2406,19 +2406,19 @@ mod tests {
 					ReadOutput::Resolved(resource)
 				},
 				_ => ReadOutput::Ids {
-					after: None,
 					ids: Vec::new(),
+					next: None,
 				},
 			},
 			Read::Process { .. } => ReadOutput::Process(None),
 			Read::ProcessObjectChildren { .. } | Read::ProcessObjects { .. } => {
 				ReadOutput::ProcessObjects {
-					after: None,
+					next: None,
 					objects: Vec::new(),
 				}
 			},
 			Read::SubjectPermissions { .. } => ReadOutput::Permissions {
-				after: None,
+				next: None,
 				permissions: Vec::new(),
 			},
 		}

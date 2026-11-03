@@ -79,7 +79,7 @@ impl Index {
 					subspace,
 					&(crate::Kind::GroupMember.to_i32().unwrap(), group.as_ref()),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -99,7 +99,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::Id { id } => {
 				let mut resolved =
@@ -154,7 +154,7 @@ impl Index {
 					subspace,
 					&(crate::Kind::MemberGroup.to_i32().unwrap(), member.as_ref()),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -174,7 +174,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::MemberGroups { after, groups }
+				Output::MemberGroups { groups, next }
 			},
 			Request::MemberOrganizations {
 				after,
@@ -189,7 +189,7 @@ impl Index {
 						member.as_ref(),
 					),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -212,7 +212,7 @@ impl Index {
 					.collect::<tg::Result<Vec<_>>>()?;
 
 				Output::MemberOrganizations {
-					after,
+					next,
 					organizations,
 				}
 			},
@@ -246,7 +246,7 @@ impl Index {
 					subspace,
 					&(crate::Kind::ObjectChild.to_i32().unwrap(), object.as_ref()),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -266,7 +266,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::ObjectParents {
 				after,
@@ -278,7 +278,7 @@ impl Index {
 					subspace,
 					&(crate::Kind::ChildObject.to_i32().unwrap(), object.as_ref()),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -299,7 +299,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::ObjectProcesses {
 				after,
@@ -314,7 +314,7 @@ impl Index {
 						object.as_ref(),
 					),
 				);
-				let (entries, after) = Self::get_verification_entry_page_with_transaction(
+				let (entries, next) = Self::get_verification_entry_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -338,7 +338,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::ObjectProcesses { after, processes }
+				Output::ObjectProcesses { next, processes }
 			},
 			Request::OrganizationMembers {
 				after,
@@ -353,7 +353,7 @@ impl Index {
 						organization.as_ref(),
 					),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -375,7 +375,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::CreatorProcesses {
 				after,
@@ -389,7 +389,7 @@ impl Index {
 						creator.to_string(),
 					),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -412,7 +412,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::CreatorSandboxes {
 				after,
@@ -426,7 +426,7 @@ impl Index {
 						creator.to_string(),
 					),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -449,7 +449,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::OwnerProcesses {
 				after,
@@ -463,7 +463,7 @@ impl Index {
 						owner.to_string(),
 					),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -485,7 +485,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::OwnerSandboxes {
 				after,
@@ -499,7 +499,7 @@ impl Index {
 						owner.to_string(),
 					),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -521,7 +521,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::Process { process } => {
 				let process =
@@ -554,7 +554,7 @@ impl Index {
 						process.as_ref(),
 					),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -576,7 +576,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::ProcessObject { object, process } => {
 				let mut kinds = Vec::new();
@@ -638,7 +638,7 @@ impl Index {
 						process.as_ref(),
 					),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -662,7 +662,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::ProcessObjects { after, objects }
+				Output::ProcessObjects { next, objects }
 			},
 			Request::ProcessParents {
 				after,
@@ -677,7 +677,7 @@ impl Index {
 						process.as_ref(),
 					),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -699,7 +699,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Ids { after, ids }
+				Output::Ids { ids, next }
 			},
 			Request::Delegations {
 				after,
@@ -713,7 +713,7 @@ impl Index {
 						resource.to_bytes().as_ref(),
 					),
 				);
-				let (entries, after) = Self::get_verification_entry_page_with_transaction(
+				let (entries, next) = Self::get_verification_entry_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -729,7 +729,7 @@ impl Index {
 						})
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
-				Output::Delegations { after, delegations }
+				Output::Delegations { delegations, next }
 			},
 			Request::ResourcePermissions {
 				after,
@@ -744,7 +744,7 @@ impl Index {
 						resource_bytes.as_ref(),
 					),
 				);
-				let (entries, after) = Self::get_verification_entry_page_with_transaction(
+				let (entries, next) = Self::get_verification_entry_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -777,7 +777,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Permissions { after, permissions }
+				Output::Permissions { next, permissions }
 			},
 			Request::SandboxPrincipals { sandbox } => {
 				let principals =
@@ -797,7 +797,7 @@ impl Index {
 				limit,
 				subject,
 			} => {
-				let (after, permissions) =
+				let (next, permissions) =
 					Self::get_verification_subject_permissions_with_transaction(
 						db,
 						subspace,
@@ -807,7 +807,7 @@ impl Index {
 						*limit,
 					)?;
 
-				Output::Permissions { after, permissions }
+				Output::Permissions { next, permissions }
 			},
 
 			Request::Tag { tag } => {
@@ -825,7 +825,7 @@ impl Index {
 					subspace,
 					&(crate::Kind::TargetTag.to_i32().unwrap(), target.as_ref()),
 				);
-				let (keys, after) = Self::get_verification_key_page_with_transaction(
+				let (keys, next) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -844,7 +844,7 @@ impl Index {
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Tags { after, tags }
+				Output::Tags { next, tags }
 			},
 		};
 
@@ -897,7 +897,7 @@ impl Index {
 		after: Option<&[u8]>,
 		limit: usize,
 	) -> tg::Result<(Vec<crate::Key>, Option<Vec<u8>>)> {
-		let (entries, after) = Self::get_verification_entry_page_with_transaction(
+		let (entries, next) = Self::get_verification_entry_page_with_transaction(
 			db,
 			subspace,
 			transaction,
@@ -907,7 +907,7 @@ impl Index {
 		)?;
 		let keys = entries.into_iter().map(|(key, _)| key).collect();
 
-		Ok((keys, after))
+		Ok((keys, next))
 	}
 
 	fn get_verification_entry_page_with_transaction(
@@ -965,7 +965,7 @@ impl Index {
 				subject.to_string(),
 			),
 		);
-		let (entries, after) = Self::get_verification_entry_page_with_transaction(
+		let (entries, next) = Self::get_verification_entry_page_with_transaction(
 			db,
 			subspace,
 			transaction,
@@ -998,6 +998,6 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok((after, permissions))
+		Ok((next, permissions))
 	}
 }

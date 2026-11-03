@@ -151,43 +151,43 @@ pub enum Request {
 #[derive(Clone, Debug)]
 pub enum Output {
 	Delegations {
-		after: Option<Vec<u8>>,
 		delegations: Vec<tangram_index::delegation::put::Arg>,
+		next: Option<Vec<u8>>,
 	},
 
 	Bool(bool),
 	Permissions {
-		after: Option<Vec<u8>>,
+		next: Option<Vec<u8>>,
 		permissions: Vec<tangram_index::permission::Fact>,
 	},
 	Group(Option<tangram_index::group::Group>),
 	Id(Option<tg::Id>),
 	Ids {
-		after: Option<Vec<u8>>,
 		ids: Vec<tg::Id>,
+		next: Option<Vec<u8>>,
 	},
 	MemberGroups {
-		after: Option<Vec<u8>>,
 		groups: Vec<tg::group::Id>,
+		next: Option<Vec<u8>>,
 	},
 	MemberOrganizations {
-		after: Option<Vec<u8>>,
+		next: Option<Vec<u8>>,
 		organizations: Vec<tg::organization::Id>,
 	},
 	ObjectProcesses {
-		after: Option<Vec<u8>>,
+		next: Option<Vec<u8>>,
 		processes: Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
 	},
 	Process(Option<tangram_index::process::Process>),
 	ProcessObjectKinds(Vec<tangram_index::process::object::Kind>),
 	ProcessObjects {
-		after: Option<Vec<u8>>,
+		next: Option<Vec<u8>>,
 		objects: Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 	},
 	SandboxPrincipals(Option<(tg::Principal, tg::Principal)>),
 	Tag(Option<tangram_index::tag::Tag>),
 	Tags {
-		after: Option<Vec<u8>>,
+		next: Option<Vec<u8>>,
 		tags: Vec<tg::tag::Id>,
 	},
 }
@@ -455,11 +455,11 @@ impl Output {
 	pub(crate) fn into_permissions(
 		self,
 	) -> tg::Result<(Option<Vec<u8>>, Vec<tangram_index::permission::Fact>)> {
-		let Self::Permissions { after, permissions } = self else {
+		let Self::Permissions { next, permissions } = self else {
 			return Err(tg::error!("received a non-permission verification fact"));
 		};
 
-		Ok((after, permissions))
+		Ok((next, permissions))
 	}
 
 	pub(crate) fn into_group(self) -> tg::Result<Option<tangram_index::group::Group>> {
@@ -479,26 +479,26 @@ impl Output {
 	}
 
 	pub(crate) fn into_ids(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::Id>)> {
-		let Self::Ids { after, ids } = self else {
+		let Self::Ids { ids, next } = self else {
 			return Err(tg::error!("received a non-ID-page verification fact"));
 		};
 
-		Ok((after, ids))
+		Ok((next, ids))
 	}
 
 	pub(crate) fn into_member_groups(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::group::Id>)> {
-		let Self::MemberGroups { after, groups } = self else {
+		let Self::MemberGroups { groups, next } = self else {
 			return Err(tg::error!("received a non-member-group verification fact"));
 		};
 
-		Ok((after, groups))
+		Ok((next, groups))
 	}
 
 	pub(crate) fn into_member_organizations(
 		self,
 	) -> tg::Result<(Option<Vec<u8>>, Vec<tg::organization::Id>)> {
 		let Self::MemberOrganizations {
-			after,
+			next,
 			organizations,
 		} = self
 		else {
@@ -507,7 +507,7 @@ impl Output {
 			));
 		};
 
-		Ok((after, organizations))
+		Ok((next, organizations))
 	}
 
 	pub(crate) fn into_object_processes(
@@ -516,13 +516,13 @@ impl Output {
 		Option<Vec<u8>>,
 		Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
 	)> {
-		let Self::ObjectProcesses { after, processes } = self else {
+		let Self::ObjectProcesses { next, processes } = self else {
 			return Err(tg::error!(
 				"received a non-object-process verification fact"
 			));
 		};
 
-		Ok((after, processes))
+		Ok((next, processes))
 	}
 
 	pub(crate) fn into_process(self) -> tg::Result<Option<tangram_index::process::Process>> {
@@ -551,13 +551,13 @@ impl Output {
 		Option<Vec<u8>>,
 		Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 	)> {
-		let Self::ProcessObjects { after, objects } = self else {
+		let Self::ProcessObjects { next, objects } = self else {
 			return Err(tg::error!(
 				"received a non-process-object verification fact"
 			));
 		};
 
-		Ok((after, objects))
+		Ok((next, objects))
 	}
 
 	pub(crate) fn into_sandbox_principals(
@@ -936,8 +936,8 @@ mod tests {
 					requests.fetch_add(1, Ordering::SeqCst);
 
 					Ok(ControlFlow::Break(Output::Ids {
-						after: None,
 						ids: Vec::new(),
+						next: None,
 					}))
 				}
 			}
@@ -981,8 +981,8 @@ mod tests {
 					requests.fetch_add(1, Ordering::SeqCst);
 
 					Ok(ControlFlow::Break(Output::Ids {
-						after: None,
 						ids: Vec::new(),
+						next: None,
 					}))
 				}
 			}
