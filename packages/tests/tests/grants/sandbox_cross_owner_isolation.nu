@@ -16,12 +16,12 @@ success (tg --token $eve.token sandbox get $eve_sandbox | complete) "Eve should 
 failure (tg --token $eve.token sandbox get $alice_sandbox | complete) "Eve must not get Alice's sandbox"
 
 let alice_list = tg --token $alice.token sandbox list | from json
-assert (($alice_list | where id == $alice_sandbox | is-empty) == false) "Alice should see her own sandbox"
-assert ($alice_list | where id == $eve_sandbox | is-empty) "Alice must not see Eve's sandbox"
+assert (($alice_list | where node == $alice_sandbox | is-empty) == false) "Alice should see her own sandbox"
+assert ($alice_list | where node == $eve_sandbox | is-empty) "Alice must not see Eve's sandbox"
 
 let eve_list = tg --token $eve.token sandbox list | from json
-assert (($eve_list | where id == $eve_sandbox | is-empty) == false) "Eve should see her own sandbox"
-assert ($eve_list | where id == $alice_sandbox | is-empty) "Eve must not see Alice's sandbox"
+assert (($eve_list | where node == $eve_sandbox | is-empty) == false) "Eve should see her own sandbox"
+assert ($eve_list | where node == $alice_sandbox | is-empty) "Eve must not see Alice's sandbox"
 
 failure (tg --token $alice.token sandbox destroy $eve_sandbox | complete) "Alice must not destroy Eve's sandbox"
 failure (tg --token $eve.token sandbox destroy $alice_sandbox | complete) "Eve must not destroy Alice's sandbox"

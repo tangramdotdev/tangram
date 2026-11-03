@@ -43,6 +43,10 @@ pub struct Data {
 	#[tangram_serialize(id = 4)]
 	pub created_at: i64,
 
+	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
+	#[tangram_serialize(default, id = 20, skip_serializing_if = "tg::Principal::is_root")]
+	pub creator: tg::Principal,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub debug: Option<tg::process::Debug>,
@@ -71,6 +75,10 @@ pub struct Data {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
 	pub output: Option<tg::Referent<tg::value::Data>>,
+
+	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
+	#[tangram_serialize(default, id = 21, skip_serializing_if = "tg::Principal::is_root")]
+	pub owner: tg::Principal,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 12, skip_serializing_if = "is_false")]

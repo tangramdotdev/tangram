@@ -15,48 +15,63 @@ use {
 impl Component {
 	/// Stop or destroy the sandboxes that the index records as running on a runner other than this server's, because a single server's restart loses the runners' registrations, so that their heartbeats can no longer expire. Apply the same rule as heartbeat expiration: destroy a sandbox whose ttl is zero, and stop the others.
 	pub(crate) async fn expire_unfinished_sandboxes(&self, server: &Server) -> tg::Result<()> {
-		// Get the running sandboxes that are not on this server's runner.
 		let local_runner = server.components.runner.local_runner_id(server);
-		let sandboxes = server
-			.index
-			.list_sandboxes()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to list the sandboxes"))?
-			.into_iter()
-			.filter_map(|(id, sandbox)| {
-				let data = sandbox.data?.data;
-				let running = !data.status.is_stopped_or_destroyed();
-				let remote = sandbox
-					.location
-					.as_ref()
-					.is_some_and(tg::Location::is_remote);
-				let local = sandbox.runner.is_some() && sandbox.runner == local_runner;
-				(running && !remote && !local).then_some((id, data.ttl))
-			})
-			.collect::<Vec<_>>();
+		let limit = 1024;
+		let mut after = None;
+		loop {
+			// Get the next page of the running sandboxes that are not on this server's runner.
+			let ids = server
+				.index
+				.list_sandbox_ids(after.take(), limit)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to list the sandboxes"))?;
+			let sandboxes = server
+				.index
+				.try_get_sandboxes(&ids)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the sandboxes"))?;
+			let sandboxes = std::iter::zip(&ids, sandboxes)
+				.filter_map(|(id, sandbox)| {
+					let sandbox = sandbox?;
+					let data = sandbox.data?.data;
+					let running = !data.status.is_stopped_or_destroyed();
+					let remote = sandbox
+						.location
+						.as_ref()
+						.is_some_and(tg::Location::is_remote);
+					let local = sandbox.runner.is_some() && sandbox.runner == local_runner;
+					(running && !remote && !local).then_some((id.clone(), data.ttl))
+				})
+				.collect::<Vec<_>>();
 
-		// Stop or destroy each sandbox.
-		sandboxes
-			.into_iter()
-			.map(|(id, ttl)| async move {
-				let error = tg::error::Data {
-					code: Some(tg::error::Code::Internal),
-					message: Some("server restarted".to_owned()),
-					..Default::default()
-				};
-				let scheduler = &server.components.scheduler;
-				let result = if ttl.is_some_and(|ttl| ttl.is_zero()) {
-					scheduler.destroy_runner_sandbox(server, &id, error).await
-				} else {
-					scheduler.stop_runner_sandbox(server, &id, error).await
-				};
-				if let Err(error) = result {
-					tracing::error!(sandbox = %id, error = %error.trace(), "failed to expire the sandbox");
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<()>()
-			.await;
+			// Stop or destroy each sandbox.
+			sandboxes
+				.into_iter()
+				.map(|(id, ttl)| async move {
+					let error = tg::error::Data {
+						code: Some(tg::error::Code::Internal),
+						message: Some("server restarted".to_owned()),
+						..Default::default()
+					};
+					let scheduler = &server.components.scheduler;
+					let result = if ttl.is_some_and(|ttl| ttl.is_zero()) {
+						scheduler.destroy_runner_sandbox(server, &id, error).await
+					} else {
+						scheduler.stop_runner_sandbox(server, &id, error).await
+					};
+					if let Err(error) = result {
+						tracing::error!(sandbox = %id, error = %error.trace(), "failed to expire the sandbox");
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.collect::<()>()
+				.await;
+
+			if ids.len() < limit {
+				break;
+			}
+			after = ids.last().cloned();
+		}
 
 		Ok(())
 	}

@@ -72,6 +72,16 @@ where
 		}
 	}
 
+	fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::list::Output>> {
+		match self {
+			tg::Either::Left(s) => s.list_processes(arg).left_future(),
+			tg::Either::Right(s) => s.list_processes(arg).right_future(),
+		}
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,

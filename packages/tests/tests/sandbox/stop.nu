@@ -10,9 +10,9 @@ tg sandbox stop $sandbox
 let data = tg sandbox get $sandbox | from json | get data
 assert equal $data.status stopped "the sandbox should be stopped"
 
-let ids = tg sandbox list --status stopped | from json | get id
+let ids = tg sandbox list --status stopped | from json | get node
 assert ($sandbox in $ids) "listing stopped sandboxes should include the sandbox"
-let ids = tg sandbox list --status started | from json | get id
+let ids = tg sandbox list --status started | from json | get node
 assert ($sandbox not-in $ids) "listing started sandboxes should not include the sandbox"
 
 let path = artifact {

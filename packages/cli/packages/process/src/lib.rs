@@ -6,6 +6,7 @@ pub mod cancel;
 pub mod children;
 pub mod exec;
 pub mod get;
+pub mod list;
 pub mod metadata;
 pub mod output;
 pub mod put;
@@ -32,6 +33,7 @@ pub enum Command {
 	Children(self::children::Args),
 	Exec(self::exec::Args),
 	Get(self::get::Args),
+	List(self::list::Args),
 	Log(self::stdio::read::Args),
 	Metadata(self::metadata::Args),
 	Output(self::output::Args),
@@ -62,6 +64,9 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		},
 		Command::Get(args) => {
 			crate::get::run(cli, args).await?;
+		},
+		Command::List(args) => {
+			crate::list::run(cli, args).await?;
 		},
 		Command::Log(args) => {
 			crate::stdio::read::run(cli, args).await?;

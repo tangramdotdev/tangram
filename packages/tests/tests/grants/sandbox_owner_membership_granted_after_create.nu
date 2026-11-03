@@ -9,6 +9,7 @@ let bob = tg login --verbose --name bob | from json
 let carol = tg login --verbose --name carol | from json
 
 tg --token $alice.token group create team
+let team = tg --token $alice.token group get team | from json
 tg --token $alice.token group members add team $bob.user.id
 
 let sandbox = tg --token $bob.token sandbox create --no-tokens --group team --no-network | referent node
@@ -19,7 +20,7 @@ failure (tg --token $carol.token sandbox get $sandbox | complete) "Carol must no
 # After Carol joins the team, membership is evaluated live, so she gains access immediately.
 tg --token $alice.token group members add team $carol.user.id
 success (tg --token $carol.token sandbox get $sandbox | complete) "Carol should get the sandbox after joining the team"
-let carol_list = tg --token $carol.token sandbox list | from json
-assert (($carol_list | where id == $sandbox | is-empty) == false) "Carol should see the sandbox after joining the team"
+let carol_list = tg --token $carol.token sandbox list --owner $team.id | from json
+assert (($carol_list | where node == $sandbox | is-empty) == false) "Carol should see the sandbox after joining the team"
 
 tg --token $bob.token sandbox destroy $sandbox

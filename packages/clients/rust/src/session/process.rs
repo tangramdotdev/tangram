@@ -50,6 +50,13 @@ impl tg::instance::Process for tg::Session {
 		self.try_get_process_availability(id, arg)
 	}
 
+	fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::list::Output>> {
+		self.list_processes(arg)
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,

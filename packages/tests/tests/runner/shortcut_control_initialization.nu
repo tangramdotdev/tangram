@@ -54,7 +54,7 @@ for order in [process sandbox] {
 		tg --url $remote.url --token $root_token checkpoint unwatch process.control.index.started $process_watch
 		success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.index.submitted $process_submitted 0 | complete)
 		tg --url $remote.url --token $root_token index
-		let sandboxes = tg --url $remote.url --token $alice.token sandbox list | from json | get id
+		let sandboxes = tg --url $remote.url --token $alice.token sandbox list --owner $alice.user.id | from json | get node
 		assert ($sandbox in $sandboxes) "process initialization should index the sandbox with its owner"
 		tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.connect $sandbox_watch
 	} else {

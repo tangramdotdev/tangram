@@ -8,6 +8,7 @@ use {
 pub use tg::process::storage;
 
 pub mod data;
+pub mod list;
 pub mod object;
 pub mod put;
 
@@ -17,11 +18,17 @@ pub struct Process {
 	#[tangram_serialize(id = 8)]
 	pub command_id: tg::object::Id,
 
+	#[tangram_serialize(default, id = 10, skip_serializing_if = "tg::Principal::is_root")]
+	pub creator: tg::Principal,
+
 	#[tangram_serialize(id = 7)]
 	pub location: Option<tg::Location>,
 
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
 	pub metadata: tg::process::Metadata,
+
+	#[tangram_serialize(default, id = 11, skip_serializing_if = "tg::Principal::is_root")]
+	pub owner: tg::Principal,
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub reference_count: u64,
@@ -117,6 +124,16 @@ pub trait Index {
 	) -> impl Future<
 		Output = tg::Result<Vec<Option<(crate::process::Process, Option<tg::process::Data>)>>>,
 	> + Send;
+
+	fn list_processes_for_creator(
+		&self,
+		arg: crate::process::list::Arg,
+	) -> impl Future<Output = tg::Result<crate::process::list::Output>> + Send;
+
+	fn list_processes_for_owner(
+		&self,
+		arg: crate::process::list::Arg,
+	) -> impl Future<Output = tg::Result<crate::process::list::Output>> + Send;
 
 	fn try_get_cached_processes(
 		&self,

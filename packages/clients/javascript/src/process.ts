@@ -1700,6 +1700,7 @@ export namespace Process {
 		children?: Array<tg.Process.Data.Child> | null;
 		command: tg.Process.Data.CommandReferent;
 		created_at: number;
+		creator?: string;
 		debug?: tg.Process.Debug | null;
 		error?: tg.Process.Data.ErrorReferent | null;
 		exit?: number | null;
@@ -1707,6 +1708,7 @@ export namespace Process {
 		host: string;
 		log?: string | null;
 		output?: tg.Process.Data.OutputReferent;
+		owner?: string;
 		retry?: boolean;
 		sandbox?: string | null;
 		started_at?: number | null;

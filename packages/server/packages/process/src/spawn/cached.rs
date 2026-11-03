@@ -660,12 +660,15 @@ impl Component {
 			actual: Some(actual_checksum),
 			expected: Some(expected_checksum),
 		};
+		let creator = session.context.principal.clone();
+		let owner = self.cache_principal(session).await?;
 		let data = tg::process::Data {
 			cacheable: true,
 			checksum,
 			children: source.children,
 			command: tg::Referent::new(source.command.node, command.options.clone()),
 			created_at: now,
+			creator,
 			debug: arg.debug.clone(),
 			error: error
 				.clone()
@@ -675,6 +678,7 @@ impl Component {
 			host: host.to_owned(),
 			log: None,
 			output: source.output,
+			owner,
 			retry: arg.retry,
 			sandbox: None,
 			started_at: None,

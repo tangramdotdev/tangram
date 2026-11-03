@@ -65,6 +65,17 @@ impl tg::instance::Process for Session {
 			.await
 	}
 
+	async fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> tg::Result<tg::process::list::Output> {
+		self.server
+			.components
+			.process
+			.list_processes(self, arg)
+			.await
+	}
+
 	async fn try_get_process(
 		&self,
 		id: &tg::process::Id,
