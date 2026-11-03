@@ -6,8 +6,11 @@ use {
 #[cfg(test)]
 mod tests;
 
+const FS_QUOTA_PDQ_ACCT: u16 = 1 << 4;
+const FS_QUOTA_PDQ_ENFD: u16 = 1 << 5;
 const FS_XFLAG_PROJINHERIT: u32 = 0x0000_0200;
 pub(super) const PRJQUOTA: libc::c_int = 2;
+const Q_XGETQSTAT: libc::c_int = ((b'X' as libc::c_int) << 8) + 5;
 
 // Preserve the field order required by the Linux quota ABI.
 #[repr(C)]
@@ -18,6 +21,33 @@ struct FsXAttr {
 	project: u32,
 	cowextsize: u32,
 	pad: [u8; 8],
+}
+
+// Preserve the leading field order of the Linux quota state ABI, and leave room for the rest of the state.
+#[repr(C)]
+struct FsQuotaStat {
+	version: i8,
+	flags: u16,
+	rest: [u8; 128],
+}
+
+/// Get whether the filesystem of a directory accounts and enforces project quotas.
+pub(super) fn enforced(directory: &File) -> tg::Result<bool> {
+	let mut state = std::mem::MaybeUninit::<FsQuotaStat>::zeroed();
+	let command = libc::QCMD(Q_XGETQSTAT, PRJQUOTA);
+	control(
+		directory,
+		command,
+		0,
+		state.as_mut_ptr().cast_const().cast(),
+	)
+	.map_err(|error| tg::error!(!error, "failed to get the project quota state"))?;
+
+	// SAFETY: The state was zeroed, and the kernel wrote the state it reports.
+	let state = unsafe { state.assume_init() };
+	let enforced = state.flags & (FS_QUOTA_PDQ_ACCT | FS_QUOTA_PDQ_ENFD)
+		== FS_QUOTA_PDQ_ACCT | FS_QUOTA_PDQ_ENFD;
+	Ok(enforced)
 }
 
 pub(super) fn create(path: &Path, project: u32) -> tg::Result<File> {
