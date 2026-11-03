@@ -2,7 +2,7 @@ use {
 	crate::{
 		Result, database,
 		progress::{self, Counts, Progress, Running},
-		snapshot,
+		quota, snapshot,
 		test::{self, Options, Output, SKIPPED, Test},
 	},
 	std::{
@@ -127,6 +127,27 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 		(None, None)
 	};
 
+	// Create a file system with project quotas if passwordless sudo is available on Linux. Otherwise, skip the tests that require it.
+	let quota = match quota::create() {
+		Ok(Some(quota)) => Some(quota),
+		Ok(None) => {
+			if cfg!(target_os = "linux") {
+				eprintln!("\x1b[33mwarning\x1b[0m: passwordless sudo is not available");
+				eprintln!(
+					"the tests that require a file system with project quotas will be skipped"
+				);
+			}
+			None
+		},
+		Err(error) => {
+			eprintln!(
+				"\x1b[33mwarning\x1b[0m: failed to create the file system with project quotas: {error}"
+			);
+			eprintln!("the tests that require a file system with project quotas will be skipped");
+			None
+		},
+	};
+
 	// Create the options.
 	let options = Arc::new(Options {
 		cloud,
@@ -138,6 +159,7 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 		preserve_failing_temps: args.preserve_failing_temps,
 		preserve_temps: args.preserve_temps,
 		quickjs: args.quickjs,
+		quota: quota.as_ref().map(|quota| quota.path().to_owned()),
 		stress,
 		timeout: Duration::from_secs(args.timeout),
 		turso: args.turso,

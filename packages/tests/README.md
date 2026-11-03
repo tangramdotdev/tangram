@@ -217,6 +217,16 @@ silent early return never masquerades as a pass.
 A test which requires the cloud databases calls `skip_test --cloud`, which skips
 only when the databases are not running. `server spawn --cloud` calls it itself.
 
+On Linux, when passwordless sudo is available, the runner creates a loop-mounted
+ext4 file system with project quotas for the run, and removes it when the run
+ends. A test which requires sandbox storage accounting gets a directory on it
+with `project_quota_directory`, which skips the test when sudo is not available.
+A test which sets sandbox filesystem size or inode limits runs its server as
+root with `server spawn --root`, because setting a directory's project ID
+requires privileges. Only the server runs as root, in a directory on that file
+system. DNS does not work for a server running as root, so such a test must not
+download anything, such as busybox.
+
 ### 8. Prefer the template form of `tg.run` and `tg.build`
 
 In test artifacts, invoke commands with the tagged template form rather than

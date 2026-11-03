@@ -7,6 +7,7 @@ mod clean;
 mod database;
 mod instance;
 mod progress;
+mod quota;
 mod run;
 mod semaphore;
 mod snapshot;
@@ -27,6 +28,8 @@ enum Args {
 	Database(database::Subcommand),
 	#[command(subcommand)]
 	Instance(instance::Subcommand),
+	#[command(subcommand)]
+	Quota(quota::Subcommand),
 	Run(run::Args),
 	#[command(subcommand)]
 	Semaphore(semaphore::Command),
@@ -49,6 +52,7 @@ fn main() -> ExitCode {
 		Args::Instance(subcommand) => {
 			runtime().and_then(|runtime| runtime.block_on(instance::command(subcommand)))
 		},
+		Args::Quota(subcommand) => quota::command(&subcommand),
 		Args::Run(args) => runtime().and_then(|runtime| runtime.block_on(run::run(args))),
 		Args::Semaphore(command) => semaphore::command(&command),
 		Args::Wrap(args) => runtime().and_then(|runtime| runtime.block_on(wrap::wrap(args))),

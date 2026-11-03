@@ -14,6 +14,7 @@ pub mod cli;
 pub mod database;
 #[cfg(feature = "instance")]
 pub mod instance;
+pub mod quota;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod temp;
