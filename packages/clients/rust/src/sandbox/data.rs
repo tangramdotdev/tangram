@@ -63,6 +63,11 @@ pub struct Data {
 	#[tangram_serialize(id = 9)]
 	pub status: tg::sandbox::Status,
 
+	/// The time, in seconds since the epoch, at which the sandbox last stopped.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 17, skip_serializing_if = "Option::is_none")]
+	pub stopped_at: Option<i64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 12, skip_serializing_if = "Option::is_none")]
 	pub storage: Option<tg::sandbox::Resource<u64>>,

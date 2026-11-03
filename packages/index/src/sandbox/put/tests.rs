@@ -39,6 +39,41 @@ fn the_usage_of_every_boot_is_summed() {
 	assert_eq!(total(&merge), 10);
 }
 
+#[test]
+fn the_stopped_usage_of_every_boot_is_summed_and_only_grows() {
+	let mut existing = sandbox(data(0, tg::sandbox::Status::Stopped, Some(usage(5))));
+	existing.usages = BTreeMap::from([(0, usage(5))]);
+
+	// A stopped usage report adds to the running usage and keeps the data.
+	let mut report = arg(data(0, tg::sandbox::Status::Stopped, None));
+	report.data = None;
+	report.stopped_usage = Some(StoppedUsage {
+		boot: 0,
+		usage: usage(3),
+	});
+	let merge = report.merge(Some(&existing));
+	assert_eq!(status(&merge), tg::sandbox::Status::Stopped);
+	assert_eq!(total(&merge), 8);
+
+	// A later report replaces the boot's stopped usage, and a stale report does not reduce it.
+	existing.data = merge.data;
+	existing.stopped_usages = merge.stopped_usages;
+	report.stopped_usage = Some(StoppedUsage {
+		boot: 0,
+		usage: usage(4),
+	});
+	let merge = report.merge(Some(&existing));
+	assert_eq!(total(&merge), 9);
+	existing.data = merge.data;
+	existing.stopped_usages = merge.stopped_usages;
+	report.stopped_usage = Some(StoppedUsage {
+		boot: 0,
+		usage: usage(2),
+	});
+	let merge = report.merge(Some(&existing));
+	assert_eq!(total(&merge), 9);
+}
+
 fn arg(data: tg::sandbox::get::Output) -> Arg {
 	let id = data.data.id.clone();
 	Arg {
@@ -51,6 +86,7 @@ fn arg(data: tg::sandbox::get::Output) -> Arg {
 		principal: tg::Principal::Root,
 		processes: None,
 		runner: None,
+		stopped_usage: None,
 		touched_at: 0,
 	}
 }
@@ -73,6 +109,7 @@ fn data(
 		network: None,
 		owner: tg::Principal::Root,
 		status,
+		stopped_at: None,
 		storage: None,
 		time_to_live: None,
 		time_to_stop: None,
@@ -94,6 +131,7 @@ fn sandbox(data: tg::sandbox::get::Output) -> super::super::Sandbox {
 		reference_count: 0,
 		runner: None,
 		set: super::super::Set::default(),
+		stopped_usages: BTreeMap::new(),
 		touched_at: 0,
 		usages: BTreeMap::new(),
 	}

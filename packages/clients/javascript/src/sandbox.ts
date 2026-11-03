@@ -193,6 +193,7 @@ export namespace Sandbox {
 		network?: tg.Sandbox.Network.Data | null;
 		owner?: string;
 		status: tg.Sandbox.Status;
+		stopped_at?: number | null;
 		time_to_live?: number | null;
 		time_to_stop?: number | null;
 		usage?: tg.Sandbox.Usage | null;

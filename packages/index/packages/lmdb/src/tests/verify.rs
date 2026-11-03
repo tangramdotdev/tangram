@@ -304,6 +304,7 @@ fn put_sandbox(index: &Index, txn: &mut lmdb::RwTxn<'_>, sandbox: &tg::sandbox::
 		set: tangram_index::sandbox::Set::default(),
 		reference_count: 0,
 		runner: None,
+		stopped_usages: std::collections::BTreeMap::new(),
 		touched_at: 0,
 		usages: std::collections::BTreeMap::new(),
 	}

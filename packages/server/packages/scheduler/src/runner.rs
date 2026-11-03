@@ -516,6 +516,15 @@ impl Component {
 		data.data.error = Some(tg::Either::Left(error));
 		data.data.status = status;
 		data.data.usage = None;
+
+		// Record a stop as of now, so that the stopped sandbox is charged and expires from now rather than from an earlier stop.
+		if status.is_stopped() {
+			let stopped_at = server.clock.unix_timestamp();
+			data.data.expires_at = data.data.time_to_live.map(|time_to_live| {
+				stopped_at.saturating_add(time_to_live.as_secs().try_into().unwrap_or(i64::MAX))
+			});
+			data.data.stopped_at = Some(stopped_at);
+		}
 		let account = if server.config.usage.enabled {
 			indexed.account
 		} else {
@@ -535,6 +544,7 @@ impl Component {
 						principal: tg::Principal::Sandbox(id.clone()),
 						processes: Some(processes),
 						runner: indexed.runner,
+						stopped_usage: None,
 						touched_at: now,
 					},
 				)],

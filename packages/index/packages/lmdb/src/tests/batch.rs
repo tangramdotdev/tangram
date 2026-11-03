@@ -95,6 +95,7 @@ fn sandbox_arg(
 			network: None,
 			owner: tg::Principal::Root,
 			status,
+			stopped_at: None,
 			storage: None,
 			time_to_live: None,
 			time_to_stop: None,
@@ -113,6 +114,7 @@ fn sandbox_arg(
 		principal: tg::Principal::Sandbox(id),
 		processes: None,
 		runner: None,
+		stopped_usage: None,
 		touched_at: 0,
 	}
 }

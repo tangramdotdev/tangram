@@ -85,6 +85,7 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 			principal: tg::Principal::Sandbox(id.clone()),
 			processes: None,
 			runner: None,
+			stopped_usage: None,
 			touched_at: 1,
 		};
 		let arg = tangram_index::batch::Arg {

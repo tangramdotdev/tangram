@@ -431,6 +431,10 @@ impl Component {
 				.destroy_runner_sandbox(session, runner, arg)
 				.await
 				.map(tg::runner::control::ServerResponseOutput::DestroySandbox),
+			tg::runner::control::ClientRequestArg::ReportSandboxUsage(arg) => self
+				.report_runner_sandbox_usage(session, runner, arg)
+				.await
+				.map(tg::runner::control::ServerResponseOutput::ReportSandboxUsage),
 			tg::runner::control::ClientRequestArg::StopSandbox(arg) => self
 				.stop_runner_sandbox(session, runner, arg)
 				.await
@@ -494,6 +498,69 @@ impl Component {
 			false
 		};
 		let output = tg::runner::control::DestroySandboxServerResponseOutput { destroyed };
+		Ok(output)
+	}
+
+	async fn report_runner_sandbox_usage(
+		&self,
+		session: &Session,
+		runner: &tg::runner::Id,
+		arg: tg::runner::control::ReportSandboxUsageClientRequestArg,
+	) -> tg::Result<tg::runner::control::ReportSandboxUsageServerResponseOutput> {
+		let tg::runner::control::ReportSandboxUsageClientRequestArg {
+			boot,
+			sandbox,
+			usage,
+		} = arg;
+
+		// Accept the usage of a sandbox that this runner holds, that is not destroyed, and that is at the boot or a later one, because a restart reports the previous boot's usage while its start is recorded.
+		let indexed = session
+			.server
+			.index
+			.try_get_sandbox(&sandbox)
+			.await?
+			.filter(|indexed| {
+				indexed.runner.as_ref() == Some(runner)
+					&& indexed.data.as_ref().is_some_and(|data| {
+						!data.data.status.is_destroyed() && data.data.boot >= boot
+					})
+			});
+		let Some(indexed) = indexed else {
+			let output =
+				tg::runner::control::ReportSandboxUsageServerResponseOutput { reported: false };
+			return Ok(output);
+		};
+
+		// Record the stopped boot's storage usage directly in the index, which merges it with the earlier reports, so that it is recorded before the runner reports the sandbox's destruction, which bills it.
+		let touched_at = session.server.clock.unix_timestamp();
+		let stopped_usage = tangram_index::sandbox::put::StoppedUsage { boot, usage };
+		let put_sandbox = tangram_index::sandbox::put::Arg {
+			account: indexed.account,
+			created_at: indexed.created_at,
+			data: None,
+			id: sandbox.clone(),
+			location: None,
+			permissions: Vec::new(),
+			principal: tg::Principal::Sandbox(sandbox.clone()),
+			processes: None,
+			runner: None,
+			stopped_usage: Some(stopped_usage),
+			touched_at,
+		};
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutSandbox(put_sandbox)],
+		};
+		session
+			.server
+			.index
+			.batch(arg)
+			.await
+			.and_then(std::convert::identity)
+			.map_err(
+				|error| tg::error!(!error, %sandbox, "failed to index the stopped sandbox's usage"),
+			)?;
+		let output = tg::runner::control::ReportSandboxUsageServerResponseOutput { reported: true };
+
 		Ok(output)
 	}
 

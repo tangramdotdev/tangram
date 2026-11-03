@@ -109,6 +109,9 @@ pub enum ClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxClientRequestArg),
 
+	#[tangram_serialize(id = 2)]
+	ReportSandboxUsage(ReportSandboxUsageClientRequestArg),
+
 	#[tangram_serialize(id = 1)]
 	StopSandbox(StopSandboxClientRequestArg),
 }
@@ -228,6 +231,9 @@ pub struct ServerResponse {
 pub enum ServerResponseOutput {
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxServerResponseOutput),
+
+	#[tangram_serialize(id = 2)]
+	ReportSandboxUsage(ReportSandboxUsageServerResponseOutput),
 
 	#[tangram_serialize(id = 1)]
 	StopSandbox(StopSandboxServerResponseOutput),
@@ -435,6 +441,40 @@ pub struct DestroySandboxServerRequestArg {
 pub struct DestroySandboxClientResponseOutput {
 	#[tangram_serialize(id = 0)]
 	pub destroyed: bool,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ReportSandboxUsageClientRequestArg {
+	/// The boot that the sandbox stopped after.
+	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub sandbox: tg::sandbox::Id,
+
+	/// The storage usage of the stopped directory since the boot stopped.
+	#[tangram_serialize(id = 2)]
+	pub usage: tg::sandbox::Usage,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ReportSandboxUsageServerResponseOutput {
+	#[tangram_serialize(id = 0)]
+	pub reported: bool,
 }
 
 #[derive(

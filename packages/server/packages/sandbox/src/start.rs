@@ -228,10 +228,17 @@ impl Component {
 			Ok(()) => {},
 			Err(StartError::Assigned(error)) => return Err(error),
 			Err(StartError::Unassigned(error)) => {
+				// Count the start as a use, so that the failed boot is stopped and expires from now.
+				let stopped_at = session.server.clock.unix_timestamp();
+				let expires_at = data.time_to_live.map(|time_to_live| {
+					stopped_at.saturating_add(time_to_live.as_secs().try_into().unwrap_or(i64::MAX))
+				});
 				let stopped = tg::sandbox::Data {
 					boot,
 					error: Some(error_data(session, &error)),
+					expires_at,
 					status: tg::sandbox::Status::Stopped,
+					stopped_at: Some(stopped_at),
 					usage: None,
 					..data
 				};
@@ -281,6 +288,7 @@ impl Component {
 			principal: tg::Principal::Sandbox(id.clone()),
 			processes: None,
 			runner: Some(runner),
+			stopped_usage: None,
 			touched_at,
 		};
 		let arg = tangram_index::batch::Arg {

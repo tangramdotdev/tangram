@@ -42,6 +42,7 @@ impl Component {
 			principal: tg::Principal::Sandbox(id.clone()),
 			processes: Some(arg.processes),
 			runner,
+			stopped_usage: None,
 			touched_at: now,
 		};
 		let arg = tangram_index::batch::Arg {

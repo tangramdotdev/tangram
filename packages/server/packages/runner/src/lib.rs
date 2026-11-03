@@ -414,15 +414,13 @@ impl Component {
 		};
 		self.start_sandbox_pool(session);
 
-		// Destroy the expired stopped sandboxes periodically, until the runner stops.
-		let _expire_task = Task::spawn({
+		// Report the stopped sandboxes' storage usage and destroy the expired ones periodically, until the runner stops.
+		let _stopped_sandbox_task = Task::spawn({
 			let component = self.clone();
 			let session = session.clone();
 			let stopper = stopper.clone();
 			move |_| async move {
-				component
-					.expire_stopped_sandboxes_task(&session, stopper)
-					.await;
+				component.stopped_sandbox_task(&session, stopper).await;
 			}
 		});
 
@@ -743,9 +741,13 @@ impl Component {
 				crate::sandbox::Teardown::Stop => {
 					let arg = tg::runner::control::StopSandboxClientRequestArg {
 						error: None,
-						sandbox,
+						sandbox: sandbox.clone(),
 					};
-					Self::request_runner_sandbox_stop(&sender, arg).await?
+					let result = Self::request_runner_sandbox_stop(&sender, arg).await?;
+					if result.is_break() {
+						self.record_previous_sandbox_stop(session, &sandbox).await?;
+					}
+					result
 				},
 			};
 			match result {
@@ -949,6 +951,49 @@ impl Component {
 		let Some(tg::runner::control::ServerResponseOutput::StopSandbox(_)) = response.output
 		else {
 			return Err(tg::error!("expected a stop sandbox response"));
+		};
+
+		Ok(ControlFlow::Break(()))
+	}
+
+	pub(crate) async fn request_runner_sandbox_usage(
+		sender: &RunnerSender,
+		arg: tg::runner::control::ReportSandboxUsageClientRequestArg,
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
+		let request = tg::runner::control::ClientRequest {
+			arg: tg::runner::control::ClientRequestArg::ReportSandboxUsage(arg),
+			id: tangram_server_core::control::id(),
+		};
+		let response = sender
+			.request(
+				tg::runner::control::ClientMessage::Request(request),
+				tangram_server_core::control::Priority::High,
+			)
+			.await;
+		let response = match response {
+			Ok(response) => response.await,
+			Err(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let Ok(response) = response else {
+			let error = tg::error!("the runner control response stream ended");
+			return Ok(ControlFlow::Continue(error));
+		};
+		let tg::runner::control::ServerMessage::Response(response) = response else {
+			return Err(tg::error!("expected a runner control response"));
+		};
+		if let Some(error) = response.error {
+			let error = tg::Error::try_from(error).map_err(|error| {
+				tg::error!(!error, "failed to deserialize the runner control error")
+			})?;
+			return Err(tg::error!(
+				!error,
+				"the report sandbox usage request failed"
+			));
+		}
+		let Some(tg::runner::control::ServerResponseOutput::ReportSandboxUsage(_)) =
+			response.output
+		else {
+			return Err(tg::error!("expected a report sandbox usage response"));
 		};
 
 		Ok(ControlFlow::Break(()))

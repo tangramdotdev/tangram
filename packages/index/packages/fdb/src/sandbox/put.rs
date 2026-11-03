@@ -83,8 +83,11 @@ impl Index {
 			let arg = arg.as_ref();
 
 			// Keep the data that is latest in the sandbox lifecycle, because writes may be applied out of order.
-			let tangram_index::sandbox::put::Merge { mut data, usages } =
-				arg.merge(existing.as_ref());
+			let tangram_index::sandbox::put::Merge {
+				mut data,
+				stopped_usages,
+				usages,
+			} = arg.merge(existing.as_ref());
 			let location = arg.location.clone().or_else(|| {
 				existing
 					.as_ref()
@@ -118,6 +121,7 @@ impl Index {
 							.as_ref()
 							.is_some_and(|sandbox| sandbox.set.processes),
 				},
+				stopped_usages,
 				touched_at,
 				usages,
 			};

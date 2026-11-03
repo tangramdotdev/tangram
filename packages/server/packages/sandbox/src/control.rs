@@ -413,6 +413,7 @@ impl Component {
 				network: create.network,
 				owner,
 				status: tg::sandbox::Status::Started,
+				stopped_at: None,
 				storage: create.storage,
 				time_to_live: create.time_to_live,
 				time_to_stop: create.time_to_stop,
@@ -431,6 +432,7 @@ impl Component {
 			principal: tg::Principal::Sandbox(id.clone()),
 			processes: None,
 			runner,
+			stopped_usage: None,
 			touched_at: created_at,
 		};
 		Ok(arg)

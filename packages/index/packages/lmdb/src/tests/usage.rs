@@ -296,6 +296,7 @@ fn sandbox_data(
 			network: None,
 			owner,
 			status,
+			stopped_at: None,
 			storage: None,
 			time_to_live: None,
 			time_to_stop: None,
@@ -769,6 +770,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 		principal: tg::Principal::Sandbox(sandbox.clone()),
 		processes: None,
 		runner: None,
+		stopped_usage: None,
 		touched_at: 1,
 	};
 	index
@@ -803,6 +805,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 		principal: tg::Principal::Sandbox(sandbox.clone()),
 		processes: None,
 		runner: None,
+		stopped_usage: None,
 		touched_at: 2,
 	};
 	index
@@ -869,6 +872,7 @@ async fn records_compute_once_when_destroy_precedes_start() {
 			principal: tg::Principal::Sandbox(sandbox.clone()),
 			processes: None,
 			runner: None,
+			stopped_usage: None,
 			touched_at: 2,
 		};
 		let arg = tangram_index::batch::Arg {
@@ -914,6 +918,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 		principal: tg::Principal::Sandbox(sandbox.clone()),
 		processes: None,
 		runner: None,
+		stopped_usage: None,
 		touched_at: 1,
 	};
 	index
@@ -948,6 +953,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 		principal: tg::Principal::Sandbox(sandbox.clone()),
 		processes: None,
 		runner: None,
+		stopped_usage: None,
 		touched_at: 2,
 	};
 	index
