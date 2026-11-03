@@ -11,13 +11,21 @@ let local = server spawn --name local --config {
 	},
 }
 let runner = tg runner create | from json
-assert equal (tg runner list --all | from json | get id) [$runner.data.id]
+assert equal (tg runner list --all | from json | get node) [$runner.data.id]
 assert equal (tg runner list --local | from json) []
-assert equal (tg runner list -r=staging --all | from json | get id) [$runner.data.id]
+let runners = tg runner list -r=staging --all | from json
+assert equal ($runners | get node) [$runner.data.id]
+assert equal ($runners | get options.location) [remote:staging]
+assert equal (tg runner list -r=staging --all --expand | from json | get location) [remote:staging]
+let output = tg --no-quiet runner get $"($runner.data.id)?location=remote:staging" | complete
+success $output
+assert equal ($output.stdout | from json | get id) $runner.data.id
+assert ($output.stderr | str contains "remote:staging") "getting a listed runner should report its location"
 let token = tg runner token create $runner.data.id | from json
-assert ((tg runner token list --all $runner.data.id | from json | get id) | any { $in == $token.id })
-tg runner token delete $runner.data.id $token.id
-assert not ((tg runner token list --all $runner.data.id | from json | get id) | any { $in == $token.id })
+assert ((tg runner token list --all $runner.data.id | from json | get node) | any { $in == $token.id })
+let listed = tg runner token list -r=staging --all $runner.data.id | from json | where node == $token.id | first
+tg runner token delete $runner.data.id $"($listed.node)?location=($listed.options.location)"
+assert not ((tg runner token list --all $runner.data.id | from json | get node) | any { $in == $token.id })
 let output = tg runner create --local | complete
 failure $output
 assert ($output.stderr | str contains 'local runner management is disabled')
@@ -32,6 +40,6 @@ let local = server spawn --name enabled --config {
 	remotes: { default: { url: $remote.url } },
 }
 let runner = tg runner create | from json
-assert equal (tg runner list | from json | get id) [$runner.data.id]
+assert equal (tg runner list | from json | get node) [$runner.data.id]
 assert equal (tg runner list --remote | from json) []
 tg runner delete $runner.data.id

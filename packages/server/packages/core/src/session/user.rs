@@ -24,6 +24,18 @@ impl tg::instance::User for Session {
 			.await
 	}
 
+	async fn try_get_user_token(
+		&self,
+		token: &tg::token::Id,
+		arg: tg::user::token::get::Arg,
+	) -> tg::Result<Option<tg::user::token::get::Output>> {
+		self.server
+			.components
+			.user
+			.try_get_user_token(self, token, arg)
+			.await
+	}
+
 	async fn list_user_tokens(
 		&self,
 		arg: tg::user::token::list::Arg,

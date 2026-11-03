@@ -22,12 +22,25 @@ pub trait Runner: Send + Sync + 'static {
 		arg: tg::runner::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
+	fn try_get_runner<'a>(
+		&'a self,
+		runner: &'a tg::runner::Id,
+		arg: tg::runner::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::runner::get::Output>>>;
+
 	fn try_delete_runner_token<'a>(
 		&'a self,
 		runner: &'a tg::runner::Id,
 		token: &'a tg::token::Id,
 		arg: tg::runner::token::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+
+	fn try_get_runner_token<'a>(
+		&'a self,
+		runner: &'a tg::runner::Id,
+		token: &'a tg::token::Id,
+		arg: tg::runner::token::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::runner::token::get::Output>>>;
 
 	fn list_runners(
 		&self,
@@ -85,6 +98,14 @@ where
 		self.try_delete_runner(runner, arg).boxed()
 	}
 
+	fn try_get_runner<'a>(
+		&'a self,
+		runner: &'a tg::runner::Id,
+		arg: tg::runner::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::runner::get::Output>>> {
+		self.try_get_runner(runner, arg).boxed()
+	}
+
 	fn try_delete_runner_token<'a>(
 		&'a self,
 		runner: &'a tg::runner::Id,
@@ -92,6 +113,15 @@ where
 		arg: tg::runner::token::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
 		self.try_delete_runner_token(runner, token, arg).boxed()
+	}
+
+	fn try_get_runner_token<'a>(
+		&'a self,
+		runner: &'a tg::runner::Id,
+		token: &'a tg::token::Id,
+		arg: tg::runner::token::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::runner::token::get::Output>>> {
+		self.try_get_runner_token(runner, token, arg).boxed()
 	}
 
 	fn list_runners(

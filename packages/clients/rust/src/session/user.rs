@@ -16,6 +16,14 @@ impl tg::instance::User for tg::Session {
 		self.try_delete_user_token(token, arg)
 	}
 
+	fn try_get_user_token(
+		&self,
+		token: &tg::token::Id,
+		arg: tg::user::token::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::user::token::get::Output>>> {
+		self.try_get_user_token(token, arg)
+	}
+
 	fn list_user_tokens(
 		&self,
 		arg: tg::user::token::list::Arg,

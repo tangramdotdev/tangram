@@ -37,6 +37,18 @@ impl tg::instance::Runner for Session {
 			.await
 	}
 
+	async fn try_get_runner(
+		&self,
+		runner: &tg::runner::Id,
+		arg: tg::runner::get::Arg,
+	) -> tg::Result<Option<tg::runner::get::Output>> {
+		self.server
+			.components
+			.runner
+			.try_get_runner(self, runner, arg)
+			.await
+	}
+
 	async fn try_delete_runner_token(
 		&self,
 		runner: &tg::runner::Id,
@@ -47,6 +59,19 @@ impl tg::instance::Runner for Session {
 			.components
 			.runner
 			.try_delete_runner_token(self, runner, token, arg)
+			.await
+	}
+
+	async fn try_get_runner_token(
+		&self,
+		runner: &tg::runner::Id,
+		token: &tg::token::Id,
+		arg: tg::runner::token::get::Arg,
+	) -> tg::Result<Option<tg::runner::token::get::Output>> {
+		self.server
+			.components
+			.runner
+			.try_get_runner_token(self, runner, token, arg)
 			.await
 	}
 

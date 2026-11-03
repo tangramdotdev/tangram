@@ -15,6 +15,10 @@ pub struct Args {
 	#[arg(long)]
 	pub cursor: Option<String>,
 
+	/// Return each of the runners with its data instead of a reference.
+	#[arg(long)]
+	pub expand: bool,
+
 	/// The maximum number of entries per page (default: 100, maximum: 1000).
 	#[arg(long)]
 	pub limit: Option<u64>,
@@ -38,6 +42,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let arg = tg::runner::list::Arg {
 		all_owners: args.all_owners,
 		cursor: args.cursor,
+		expand: args.expand,
 		limit: args.limit,
 		location: args.location.get(),
 		owner: args.owner,
