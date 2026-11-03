@@ -36,8 +36,8 @@ let a_from_a = tg checkin --no-tokens ($root | path join "packages/a") | referen
 let b_from_b = tg checkin --no-tokens ($root | path join "packages/b") | referent node
 
 # Get the graph ID for each using tg children.
-let a_graph = tg children $a_from_a | from json | get 0
-let b_graph = tg children $b_from_b | from json | get 0
+let a_graph = tg object children $a_from_a | from json | get 0
+let b_graph = tg object children $b_from_b | from json | get 0
 
 # The graphs should be the same since the cycle content is identical.
 assert ($a_graph == $b_graph) $"Graphs differ based on entry point. From A: ($a_graph), from B: ($b_graph)"

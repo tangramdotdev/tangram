@@ -79,16 +79,6 @@ where
 		}
 	}
 
-	fn children(
-		&self,
-		arg: tg::children::Arg,
-	) -> impl Future<Output = tg::Result<tg::children::Output>> {
-		match self {
-			tg::Either::Left(s) => s.children(arg).left_future(),
-			tg::Either::Right(s) => s.children(arg).right_future(),
-		}
-	}
-
 	fn clean(
 		&self,
 	) -> impl Future<

@@ -10,7 +10,7 @@ let local_builder = server spawn --name local-builder --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 let directory = tg --url $local_builder.url put --no-tokens 'tg.directory({ "child.txt": tg.file("hello") })' | referent node
-let child = tg --url $local_builder.url children $directory | from json | get 0
+let child = tg --url $local_builder.url object children $directory | from json | get 0
 tg --url $local_builder.url index
 tg --url $local_builder.url push $child
 tg --url $remote.url index

@@ -387,22 +387,6 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::TryGetProcessChildrenAndObjects(output)
 			},
-			tangram_index::read::Request::TryGetProcessChildrenAndObjectsPage {
-				id,
-				limit,
-				position,
-			} => {
-				let result = Self::try_get_process_children_and_objects_page_with_transaction(
-					transaction,
-					subspace,
-					id,
-					position.as_ref(),
-					*limit,
-				)
-				.await;
-				let output = crate::propagate!(result);
-				tangram_index::read::Response::TryGetProcessChildrenAndObjectsPage(output)
-			},
 			tangram_index::read::Request::GetRunnerSandboxes { runner } => {
 				let result =
 					Self::get_runner_sandboxes_with_transaction(transaction, subspace, runner)
@@ -556,27 +540,6 @@ impl Index {
 					None
 				};
 				tangram_index::read::Response::TryGetObjectChildren(output)
-			},
-			tangram_index::read::Request::TryGetObjectChildrenPage { after, id, limit } => {
-				let object = crate::propagate!(
-					Self::try_get_object_with_transaction(transaction, subspace, id).await
-				);
-				let output = if object.is_some() {
-					let (data, next) = crate::propagate!(
-						Self::get_object_children_page_with_transaction(
-							transaction,
-							subspace,
-							id,
-							after.as_deref(),
-							*limit,
-						)
-						.await
-					);
-					Some(tangram_index::object::ChildrenPage { data, next })
-				} else {
-					None
-				};
-				tangram_index::read::Response::TryGetObjectChildrenPage(output)
 			},
 			tangram_index::read::Request::TryGetObjects { ids } => {
 				let result =

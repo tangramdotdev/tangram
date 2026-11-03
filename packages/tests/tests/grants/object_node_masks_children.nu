@@ -14,7 +14,7 @@ let alice_local = server spawn --name alice-local --config {
 # Alice stores a private directory with a file and pushes the whole subtree.
 let directory = tg --url $alice_local.url put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' | referent node
 tg --url $alice_local.url index
-let file = tg --url $alice_local.url children $directory | from json | get 0
+let file = tg --url $alice_local.url object children $directory | from json | get 0
 tg --url $alice_local.url push $directory
 tg --url $remote.url index
 

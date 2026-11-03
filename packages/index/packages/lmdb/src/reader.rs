@@ -229,21 +229,6 @@ impl Index {
 				)?;
 				tangram_index::read::Response::TryGetProcessChildrenAndObjects(output)
 			},
-			tangram_index::read::Request::TryGetProcessChildrenAndObjectsPage {
-				id,
-				limit,
-				position,
-			} => {
-				let output = Self::try_get_process_children_and_objects_page_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&id,
-					position.as_ref(),
-					limit,
-				)?;
-				tangram_index::read::Response::TryGetProcessChildrenAndObjectsPage(output)
-			},
 			tangram_index::read::Request::GetRunnerSandboxes { runner } => {
 				let output = Self::get_runner_sandboxes_with_transaction(
 					db,
@@ -380,22 +365,6 @@ impl Index {
 					})
 					.transpose()?;
 				tangram_index::read::Response::TryGetObjectChildren(output)
-			},
-			tangram_index::read::Request::TryGetObjectChildrenPage { after, id, limit } => {
-				let output = Self::try_get_object_with_transaction(db, subspace, transaction, &id)?
-					.map(|_| {
-						let (data, next) = Self::get_object_children_page_with_transaction(
-							db,
-							subspace,
-							transaction,
-							&id,
-							after.as_deref(),
-							limit,
-						)?;
-						Ok::<_, tg::Error>(tangram_index::object::ChildrenPage { data, next })
-					})
-					.transpose()?;
-				tangram_index::read::Response::TryGetObjectChildrenPage(output)
 			},
 			tangram_index::read::Request::TryGetObjects { ids } => {
 				let output =

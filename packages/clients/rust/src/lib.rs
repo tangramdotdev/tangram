@@ -68,7 +68,6 @@ pub mod checkin;
 pub mod checkout;
 pub mod checkpoint;
 pub mod checksum;
-pub mod children;
 pub mod clean;
 pub mod clock;
 pub mod command;

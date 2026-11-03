@@ -65,8 +65,6 @@ pub trait Instance:
 		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>>,
 	>;
 
-	fn children(&self, arg: tg::children::Arg) -> BoxFuture<'_, tg::Result<tg::children::Output>>;
-
 	fn clean(
 		&self,
 	) -> BoxFuture<
@@ -185,10 +183,6 @@ where
 		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>>,
 	> {
 		self.checkout(arg).map_ok(futures::StreamExt::boxed).boxed()
-	}
-
-	fn children(&self, arg: tg::children::Arg) -> BoxFuture<'_, tg::Result<tg::children::Output>> {
-		tg::Instance::children(self, arg).boxed()
 	}
 
 	fn clean(

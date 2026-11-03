@@ -28,7 +28,7 @@ let source = '
 let module = artifact { tangram.ts: $source }
 let command = tg --token $alice.token build $module | str trim | split row '?' | first
 tg --token $root_token index
-let command_object = tg --token $alice.token children $command | from json | get 0 | split row '?' | first
+let command_object = tg --token $alice.token object children $command | from json | get 0 | split row '?' | first
 failure (tg --token $bob.token get --bytes $command | complete) "the spawn caller must need the supplied command token."
 let object = http get --headers { Accept: application/json, Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($command)'
 let token = $object.tokens.local.0

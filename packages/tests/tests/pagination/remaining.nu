@@ -50,12 +50,6 @@ check_pages [--url $remote.url list --local --reverse catalog] specifier
 check_pages [--url $local.url list --recursive] specifier
 check_pages [--url $local.url match "catalog/*"] specifier
 check_pages [--url $local.url match "catalog/*" --reverse] specifier
-check_pages [--url $local.url children catalog] node
-let first = tg --url $local.url children catalog --verbose | from json
-assert equal ($first.data | length) 100
-assert (($first.cursor | str length) > 0) "children should default to one page"
-let children = tg --url $local.url children catalog --all | from json
-assert equal ($children | length) 106
 
 # Local entries retain precedence even when remote results span multiple pages.
 let local_group = tg --url $local.url group create catalog | from json

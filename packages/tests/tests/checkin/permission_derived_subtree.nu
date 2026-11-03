@@ -13,7 +13,7 @@ let eve = tg login --verbose --name eve | from json
 
 let dependency = tg --token $alice.token put --no-tokens 'tg.directory({ "value": tg.file("subtree") })' | referent node
 tg --token $alice.token index
-let child = tg --token $alice.token children $dependency | from json | first
+let child = tg --token $alice.token object children $dependency | from json | first
 tg --token $alice.token grant $bob.user.id object_node $dependency | ignore
 tg --token $alice.token grant $bob.user.id object_subtree $child | ignore
 

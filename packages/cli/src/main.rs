@@ -55,8 +55,6 @@ enum Command {
 
 	Checksum(tangram_cli_checksum::Args),
 
-	Children(tangram_cli_children::Args),
-
 	Clean(tangram_cli_clean::Args),
 
 	#[command(hide = true)]
@@ -449,8 +447,6 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 		Command::Checkout(args) => tangram_cli_checkout::run(cli, args).boxed_local().await,
 
 		Command::Checksum(args) => tangram_cli_checksum::run(cli, args).boxed_local().await,
-
-		Command::Children(args) => tangram_cli_children::run(cli, args).boxed_local().await,
 
 		Command::Clean(args) => tangram_cli_clean::run(cli, args).boxed_local().await,
 

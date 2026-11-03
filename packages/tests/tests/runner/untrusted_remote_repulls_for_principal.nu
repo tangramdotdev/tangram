@@ -21,7 +21,7 @@ let bob = tg --url $remote.url login --verbose --name bob | from json
 
 let artifact = 'tg.file({ "contents": tg.blob("#!/bin/sh\nprintf \"%s\" \"$1\" > \"$TANGRAM_OUTPUT\""), "executable": true })'
 let artifact_a = tg --url $remote.url --token $alice.token put --no-tokens $artifact | referent node
-let contents = tg --url $remote.url --token $alice.token children $artifact_a | from json | get 0
+let contents = tg --url $remote.url --token $alice.token object children $artifact_a | from json | get 0
 
 let output = tg --url $remote.url --token $alice.token build $artifact_a --arg-string alice | complete
 success $output "Alice's process should store artifact A on the runner"

@@ -24,9 +24,9 @@ let process = tg build --no-tokens --detach $module | referent node
 let result = timeout 30s tg wait $process | from json
 if $result.exit != 0 {
 	tg get --depth inf $result.error
-	let children = tg children $process | from json
-	for child in ($children | where $it starts-with pcs_) {
-		tg log $child
+	let children = tg process children $process | from json
+	for child in $children {
+		tg log ($child.process | split row '?' | first)
 	}
 }
 assert equal $result.exit 0

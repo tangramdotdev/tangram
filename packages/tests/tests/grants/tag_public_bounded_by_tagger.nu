@@ -10,7 +10,7 @@ let eve = tg login --verbose --name eve | from json
 
 # Alice creates a directory with a private child file.
 let dir = tg --token $alice.token put --no-tokens 'tg.directory({ "secret.txt": tg.file("childsecret") })' | referent node
-let child = tg --token $alice.token children $dir | from json | get 0
+let child = tg --token $alice.token object children $dir | from json | get 0
 
 # Alice grants Bob only node access to the directory, not its subtree.
 tg --token $alice.token grant $bob.user.id object_node $dir | ignore

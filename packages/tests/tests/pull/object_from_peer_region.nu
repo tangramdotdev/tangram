@@ -19,8 +19,8 @@ let local = server spawn --name local --config {
 
 # Put a directory and its subtree in region A only.
 let directory = tg --url $remote_region_a.url put --no-tokens 'tg.directory({ "file": tg.file("contents") })' | referent node
-let file = tg --url $remote_region_a.url children $directory | from json | get 0
-let blob = tg --url $remote_region_a.url children $file | from json | get 0
+let file = tg --url $remote_region_a.url object children $directory | from json | get 0
+let blob = tg --url $remote_region_a.url object children $file | from json | get 0
 
 # Confirm that region B and the local server do not have the objects.
 for id in [$directory $file $blob] {

@@ -98,13 +98,6 @@ impl tg::Instance for tg::Session {
 		self.checkout(arg)
 	}
 
-	fn children(
-		&self,
-		arg: tg::children::Arg,
-	) -> impl Future<Output = tg::Result<tg::children::Output>> {
-		self.children(arg)
-	}
-
 	fn clean(
 		&self,
 	) -> impl Future<

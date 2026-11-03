@@ -105,28 +105,6 @@ pub trait Instance:
 		>,
 	> + Send;
 
-	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
-	fn children_all(
-		&self,
-		mut arg: tg::children::Arg,
-	) -> impl Future<Output = tg::Result<tg::children::Output>> + Send {
-		async move {
-			let mut output = self.children(arg.clone()).await?;
-			while let Some(cursor) = output.cursor.take() {
-				arg.cursor = Some(cursor);
-				let page = self.children(arg.clone()).await?;
-				output.data.extend(page.data);
-				output.cursor = page.cursor;
-			}
-			Ok(output)
-		}
-	}
-
-	fn children(
-		&self,
-		arg: tg::children::Arg,
-	) -> impl Future<Output = tg::Result<tg::children::Output>> + Send;
-
 	fn clean(
 		&self,
 	) -> impl Future<
@@ -323,10 +301,6 @@ impl tg::Instance for tg::Client {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
 	> {
 		self.session(&self.context).checkout(arg).await
-	}
-
-	async fn children(&self, arg: tg::children::Arg) -> tg::Result<tg::children::Output> {
-		self.session(&self.context).children(arg).await
 	}
 
 	async fn clean(

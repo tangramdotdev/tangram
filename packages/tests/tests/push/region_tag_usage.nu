@@ -4,10 +4,10 @@ use ../../util/test.nu *
 # when the target arrives after the tag.
 
 def target_permissions [url: string, token: string, tag: string] {
-	let target = tg --url $url --token $token children --verbose $tag | from json | get data.0
-	$target.options?.tokens?.local? | default [] | each {|token|
+	let target = tg --no-quiet --url $url --token $token get $"($tag)?follow=true" | complete
+	$target.stderr | parse --regex 'tokens\[local\]\[\d+\]=(?<token>[^&\s]+)' | get token | each {|token|
 		$token | token body | get permissions
-	} | flatten
+	} | flatten | where { |permission| not ($permission | str starts-with 'tag_') }
 }
 
 let regions = [

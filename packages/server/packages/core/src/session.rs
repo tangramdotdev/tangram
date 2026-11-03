@@ -100,10 +100,6 @@ impl tg::Instance for Session {
 		self.server.components.checkout.checkout(self, arg).await
 	}
 
-	async fn children(&self, arg: tg::children::Arg) -> tg::Result<tg::children::Output> {
-		self.server.components.children.children(self, arg).await
-	}
-
 	async fn clean(
 		&self,
 	) -> tg::Result<

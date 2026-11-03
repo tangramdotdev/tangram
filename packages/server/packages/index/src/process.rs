@@ -63,28 +63,6 @@ impl Index {
 		}
 	}
 
-	pub async fn try_get_process_children_and_objects_page(
-		&self,
-		id: &tg::process::Id,
-		position: Option<index::process::NodeChildrenPosition>,
-		limit: usize,
-	) -> tg::Result<Option<index::process::NodeChildrenPage>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => {
-				index
-					.try_get_process_children_and_objects_page(id, position, limit)
-					.await
-			},
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => {
-				index
-					.try_get_process_children_and_objects_page(id, position, limit)
-					.await
-			},
-		}
-	}
-
 	pub async fn list_processes_for_creator(
 		&self,
 		arg: index::process::list::Arg,
@@ -254,16 +232,6 @@ impl index::process::Index for Index {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tangram_index::process::NodeChildren>> {
 		self.try_get_process_children_and_objects(id).await
-	}
-
-	async fn try_get_process_children_and_objects_page(
-		&self,
-		id: &tg::process::Id,
-		position: Option<index::process::NodeChildrenPosition>,
-		limit: usize,
-	) -> tg::Result<Option<index::process::NodeChildrenPage>> {
-		self.try_get_process_children_and_objects_page(id, position, limit)
-			.await
 	}
 
 	async fn list_processes_for_creator(

@@ -661,11 +661,6 @@ impl Server {
 				.components
 				.checkpoint
 				.request(&session, request),
-			(_, ["children", ..]) => session
-				.server
-				.components
-				.children
-				.request(&session, request),
 			(_, ["clean", ..]) => session.server.components.clean.request(&session, request),
 			(_, ["clock", ..]) => session.server.components.clock.request(&session, request),
 			(_, ["document", ..]) => session
