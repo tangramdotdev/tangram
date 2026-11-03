@@ -4,6 +4,18 @@ pub mod pattern;
 
 pub use self::pattern::Pattern;
 
+/// The byte that separates a specifier's components from the specifier in its key, and that ends a run of letters in a component's key.
+const KEY_TERMINATOR: u8 = 0x00;
+
+/// The byte that ends a component's key.
+const KEY_END: u8 = 0x01;
+
+/// The byte that starts a run of letters, which sorts after the end of a component.
+const KEY_LETTERS: u8 = 0x02;
+
+/// The byte that starts a run of digits, which sorts after a run of letters.
+const KEY_DIGITS: u8 = 0x03;
+
 #[derive(
 	Clone,
 	Debug,
@@ -64,6 +76,25 @@ impl Specifier {
 			.as_str()
 	}
 
+	/// Get the key that sorts specifiers component by component, comparing each component as a version, so that a specifier sorts before its descendants and the descendants of each specifier are contiguous.
+	#[must_use]
+	pub fn key(&self) -> Vec<u8> {
+		let mut key = self.prefix_key();
+		key.push(KEY_TERMINATOR);
+		key.extend_from_slice(self.to_string().as_bytes());
+		key
+	}
+
+	/// Get the key of the specifier's components, which every key of the specifier and its descendants starts with.
+	#[must_use]
+	pub fn prefix_key(&self) -> Vec<u8> {
+		let mut key = Vec::new();
+		for component in &self.0 {
+			component.write_key(&mut key);
+		}
+		key
+	}
+
 	pub fn ancestors(&self) -> impl Iterator<Item = Self> + '_ {
 		(1..self.0.len()).map(|length| Self(self.0[..length].to_vec()))
 	}
@@ -77,6 +108,36 @@ impl Component {
 	#[must_use]
 	pub fn as_str(&self) -> &str {
 		&self.0
+	}
+
+	/// Write the component's key, which skips punctuation, sorts the end before letters and letters before digits, and sorts runs of digits by their value.
+	fn write_key(&self, key: &mut Vec<u8>) {
+		let mut chars = self.0.chars().peekable();
+		loop {
+			while chars.next_if(|c| !c.is_ascii_alphanumeric()).is_some() {}
+			let Some(c) = chars.peek().copied() else {
+				key.push(KEY_END);
+				return;
+			};
+			if c.is_ascii_digit() {
+				let mut digits = String::new();
+				while let Some(c) = chars.next_if(char::is_ascii_digit) {
+					digits.push(c);
+				}
+				let digits = digits.trim_start_matches('0');
+				let digits = if digits.is_empty() { "0" } else { digits };
+				let length = u16::try_from(digits.len()).unwrap_or(u16::MAX);
+				key.push(KEY_DIGITS);
+				key.extend_from_slice(&length.to_be_bytes());
+				key.extend_from_slice(digits.as_bytes());
+			} else {
+				key.push(KEY_LETTERS);
+				while let Some(c) = chars.next_if(char::is_ascii_alphabetic) {
+					key.push(u8::try_from(c).unwrap());
+				}
+				key.push(KEY_TERMINATOR);
+			}
+		}
 	}
 }
 
@@ -138,6 +199,59 @@ impl std::str::FromStr for Component {
 #[cfg(test)]
 mod tests {
 	use {super::*, std::str::FromStr};
+
+	fn assert_key_order(specifiers: &[&str]) {
+		for pair in specifiers.windows(2) {
+			let a = Specifier::from_str(pair[0]).unwrap();
+			let b = Specifier::from_str(pair[1]).unwrap();
+			assert!(a.key() < b.key(), "expected {a} to sort before {b}");
+		}
+	}
+
+	// Components compare as versions, with numbers by value and a tilde before everything.
+	#[test]
+	fn key_sorts_components_as_versions() {
+		assert_key_order(&["1", "2", "10", "100"]);
+		assert_key_order(&["1.0", "1.0.1", "1.1", "1.1a", "1.2"]);
+		assert_key_order(&["a", "a1", "ab", "b"]);
+		assert_key_order(&["1.05", "1.5", "1.6"]);
+	}
+
+	// A specifier sorts before its descendants, and the descendants of each specifier are contiguous.
+	#[test]
+	fn key_sorts_specifiers_by_component() {
+		assert_key_order(&["a", "a/c", "a/c/d", "a/d", "ab"]);
+		let a = Specifier::from_str("a").unwrap().prefix_key();
+		for descendant in ["a/c", "a/c/d", "a/d"] {
+			let key = Specifier::from_str(descendant).unwrap().key();
+			assert!(
+				key.starts_with(&a),
+				"expected {descendant} to start with the key of a"
+			);
+		}
+		let key = Specifier::from_str("ab").unwrap().key();
+		assert!(
+			!key.starts_with(&a),
+			"expected ab not to start with the key of a"
+		);
+	}
+
+	// The key agrees with the list comparison within a component.
+	#[test]
+	fn key_agrees_with_the_list_comparison() {
+		let components = [
+			"0", "00", "1", "01", "1.0", "1.0.1", "1-2", "a", "a.1", "a1", "1a", "ab", "a_b", "b",
+			"10", "9",
+		];
+		for a in components {
+			for b in components {
+				let order = crate::list::compare(a, b);
+				let a_key = Specifier::from_str(a).unwrap().prefix_key();
+				let b_key = Specifier::from_str(b).unwrap().prefix_key();
+				assert_eq!(a_key.cmp(&b_key), order, "{a} and {b}");
+			}
+		}
+	}
 
 	#[test]
 	fn component_rejects_id() {

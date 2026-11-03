@@ -9,6 +9,7 @@ use {
 pub async fn insert_specifier_with_transaction(
 	transaction: &Transaction<'_>,
 	id: &tg::Id,
+	parent: Option<&tg::Id>,
 	specifier: &tg::Specifier,
 ) -> tg::Result<ControlFlow<(), Error>> {
 	if specifier.components().next().is_none() {
@@ -17,14 +18,20 @@ pub async fn insert_specifier_with_transaction(
 	let p = transaction.p();
 	let statement = formatdoc!(
 		"
-			insert into specifiers (id, specifier)
-			values ({p}1, {p}2);
+			insert into specifiers (id, key, parent, specifier)
+			values ({p}1, {p}2, {p}3, {p}4);
 		"
 	);
+	let key = bytes::Bytes::from(specifier.key());
 	let result = transaction
 		.execute(
 			statement.into(),
-			db::params![id.to_string(), specifier.to_string()],
+			db::params![
+				id.to_string(),
+				key,
+				parent.map(ToString::to_string),
+				specifier.to_string()
+			],
 		)
 		.await;
 	tangram_server_database::retry!(result, "failed to execute the statement");

@@ -368,12 +368,13 @@ impl Component {
 			.iter()
 			.map(|node| {
 				let id = Self::sync_get_database_node_id(node)?;
+				let parent = Self::sync_get_database_node_parent(node)?;
 				let specifier = Self::sync_get_database_node_specifier(node)?;
-				Ok((id, specifier.clone()))
+				Ok((id, parent.cloned(), specifier.clone()))
 			})
 			.collect::<tg::Result<Vec<_>>>()?
 			.into_iter()
-			.filter(|(id, _)| created.contains(id))
+			.filter(|(id, _, _)| created.contains(id))
 			.collect::<Vec<_>>();
 		match Self::sync_get_database_insert_specifiers_with_transaction(
 			transaction,
@@ -986,21 +987,29 @@ impl Component {
 
 	async fn sync_get_database_insert_specifiers_with_transaction(
 		transaction: &Transaction<'_>,
-		specifiers: &[(tg::Id, tg::Specifier)],
+		specifiers: &[(tg::Id, Option<tg::Id>, tg::Specifier)],
 		batch_size: usize,
 	) -> tg::Result<ControlFlow<(), tangram_server_core::database::Error>> {
 		for specifiers in specifiers.chunks(batch_size) {
 			let p = transaction.p();
-			let values = Self::sync_get_database_placeholders(p, specifiers.len(), 2);
+			let values = Self::sync_get_database_placeholders(p, specifiers.len(), 4);
 			let statement = formatdoc!(
 				"
-					insert into specifiers (id, specifier)
+					insert into specifiers (id, key, parent, specifier)
 					values {values};
 				"
 			);
 			let params = specifiers
 				.iter()
-				.flat_map(|(id, specifier)| db::params![id.to_string(), specifier.to_string()])
+				.flat_map(|(id, parent, specifier)| {
+					let key = bytes::Bytes::from(specifier.key());
+					db::params![
+						id.to_string(),
+						key,
+						parent.as_ref().map(ToString::to_string),
+						specifier.to_string()
+					]
+				})
 				.collect();
 			let result = transaction.execute(statement.into(), params).await;
 			tangram_server_core::database::retry!(result, "failed to insert the specifiers");
@@ -1483,6 +1492,23 @@ impl Component {
 		};
 
 		Ok(id)
+	}
+
+	fn sync_get_database_node_parent(
+		node: &tg::sync::PutNodeMessage,
+	) -> tg::Result<Option<&tg::Id>> {
+		let parent = match node {
+			tg::sync::PutNodeMessage::Group(message) => message.parent.as_ref(),
+			tg::sync::PutNodeMessage::Object(_)
+			| tg::sync::PutNodeMessage::Process(_)
+			| tg::sync::PutNodeMessage::Sandbox(_) => {
+				return Err(tg::error!("invalid sync node kind"));
+			},
+			tg::sync::PutNodeMessage::Organization(_) | tg::sync::PutNodeMessage::User(_) => None,
+			tg::sync::PutNodeMessage::Tag(message) => message.parent.as_ref(),
+		};
+
+		Ok(parent)
 	}
 
 	fn sync_get_database_node_specifier(
