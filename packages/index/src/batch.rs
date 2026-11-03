@@ -156,6 +156,7 @@ mod tests {
 				status: tg::sandbox::Status::Destroyed,
 				storage: None,
 				time_to_live: Some(std::time::Duration::new(60, 123)),
+				time_to_stop: None,
 				usage: Some(tg::sandbox::Usage {
 					cpu: tg::sandbox::ResourceUsage {
 						consumption: 123,

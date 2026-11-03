@@ -266,7 +266,7 @@ impl Client {
 		let progress = arg.progress;
 		let sandbox = arg.sandbox;
 		let value = arg.value;
-		Self::validate(progress, sandbox, value)?;
+		Self::validate(progress, value)?;
 		let url = match arg.url {
 			Some(url) => url,
 			None => Self::default_url()?,
@@ -326,7 +326,7 @@ impl Client {
 		let progress = arg.progress;
 		let sandbox = arg.sandbox;
 		let value = arg.value;
-		Self::validate(progress, sandbox, value)?;
+		Self::validate(progress, value)?;
 		let url = match arg.url {
 			Some(url) => url,
 			None => Uri::builder()
@@ -378,19 +378,10 @@ impl Client {
 		Ok(client)
 	}
 
-	fn validate(
-		progress: tg::progress::Config,
-		sandbox: tg::sandbox::Config,
-		value: tg::value::Config,
-	) -> tg::Result<()> {
+	fn validate(progress: tg::progress::Config, value: tg::value::Config) -> tg::Result<()> {
 		if progress.interval.is_zero() {
 			return Err(tg::error!(
 				"expected the progress interval to be greater than zero"
-			));
-		}
-		if sandbox.time_to_live.is_zero() {
-			return Err(tg::error!(
-				"expected the sandbox time to live to be greater than zero"
 			));
 		}
 		if value.load_concurrency == 0 {

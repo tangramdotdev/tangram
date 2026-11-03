@@ -225,6 +225,9 @@ pub struct Sandbox {
 
 	#[command(flatten)]
 	pub time_to_live: TimeToLive,
+
+	#[command(flatten)]
+	pub time_to_stop: TimeToStop,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -241,6 +244,21 @@ pub struct TimeToLive {
 	/// The time that the sandbox may go unused before it is destroyed.
 	#[arg(alias = "ttl", id = "spawn.sandbox.time_to_live.time_to_live", long = "time-to-live", overrides_with = "spawn.sandbox.time_to_live.no_time_to_live", value_parser = humantime::parse_duration)]
 	pub time_to_live: Option<Duration>,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct TimeToStop {
+	/// Keep the sandbox running until it is stopped.
+	#[arg(
+		id = "spawn.sandbox.time_to_stop.no_time_to_stop",
+		long = "no-time-to-stop",
+		overrides_with = "spawn.sandbox.time_to_stop.time_to_stop"
+	)]
+	pub no_time_to_stop: bool,
+
+	/// The time that the sandbox may run without processes before it is stopped.
+	#[arg(id = "spawn.sandbox.time_to_stop.time_to_stop", long = "time-to-stop", overrides_with = "spawn.sandbox.time_to_stop.no_time_to_stop", value_parser = humantime::parse_duration)]
+	pub time_to_stop: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -797,7 +815,9 @@ pub(crate) async fn spawn_inner(
 	// Determine if the network is enabled.
 	let has_sandbox_arg = !options.sandbox.arg.is_empty()
 		|| options.sandbox.time_to_live.time_to_live.is_some()
-		|| options.sandbox.time_to_live.no_time_to_live;
+		|| options.sandbox.time_to_live.no_time_to_live
+		|| options.sandbox.time_to_stop.time_to_stop.is_some()
+		|| options.sandbox.time_to_stop.no_time_to_stop;
 	let ports = options.sandbox.arg.ports.clone();
 	let network = tangram_cli_sandbox::normalize_network(&options.sandbox.arg.network, ports)?;
 
@@ -841,6 +861,7 @@ pub(crate) async fn spawn_inner(
 						options.sandbox.arg.storage,
 					),
 					time_to_live: Some(options.sandbox.time_to_live.get()),
+					time_to_stop: Some(options.sandbox.time_to_stop.get()),
 				},
 			))
 		}
@@ -938,6 +959,7 @@ impl Sandbox {
 			arg: tangram_cli_sandbox::Options::default(),
 			disabled: None,
 			time_to_live: TimeToLive::default(),
+			time_to_stop: TimeToStop::default(),
 			value: sandbox,
 		}
 	}
@@ -961,6 +983,16 @@ impl TimeToLive {
 			None
 		} else {
 			self.time_to_live.or(Some(Duration::ZERO))
+		}
+	}
+}
+
+impl TimeToStop {
+	fn get(&self) -> Option<Duration> {
+		if self.no_time_to_stop {
+			None
+		} else {
+			self.time_to_stop
 		}
 	}
 }

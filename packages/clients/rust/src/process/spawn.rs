@@ -1392,6 +1392,7 @@ fn normalize_sandbox(
 				owner: arg.owner.clone(),
 				storage: None,
 				time_to_live: Some(Duration::ZERO),
+				time_to_stop: None,
 			};
 			Ok(Some(tg::Either::Left(sandbox)))
 		},
@@ -1412,6 +1413,7 @@ fn normalize_sandbox_create_arg(
 		owner: sandbox.owner,
 		storage: sandbox.storage,
 		time_to_live: sandbox.time_to_live.unwrap_or(Some(Duration::ZERO)),
+		time_to_stop: sandbox.time_to_stop.flatten(),
 	}
 }
 

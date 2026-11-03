@@ -1112,6 +1112,9 @@ let normalizeSandbox = (
 		} else if (defaultTimeToLive) {
 			output.time_to_live = 0;
 		}
+		if (sandbox.timeToStop !== undefined) {
+			output.time_to_stop = sandbox.timeToStop;
+		}
 		if (sandbox.owner !== undefined) {
 			output.owner = sandbox.owner;
 		}

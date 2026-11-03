@@ -166,6 +166,7 @@ impl State {
 			status: self.status,
 			storage: arg.storage,
 			time_to_live: arg.time_to_live,
+			time_to_stop: arg.time_to_stop,
 			usage: self.usage.clone(),
 		};
 		tg::sandbox::get::Output {

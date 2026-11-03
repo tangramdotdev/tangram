@@ -414,6 +414,7 @@ impl Component {
 				status: tg::sandbox::Status::Started,
 				storage: create.storage,
 				time_to_live: create.time_to_live,
+				time_to_stop: create.time_to_stop,
 				usage: None,
 			},
 			location: Some(location.clone()),

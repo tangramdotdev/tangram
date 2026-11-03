@@ -8,6 +8,7 @@ use {
 pub struct Builder {
 	arg: tg::sandbox::create::Arg,
 	default_time_to_live: bool,
+	default_time_to_stop: bool,
 }
 
 impl Builder {
@@ -17,6 +18,7 @@ impl Builder {
 		Self {
 			arg,
 			default_time_to_live: true,
+			default_time_to_stop: true,
 		}
 	}
 
@@ -25,6 +27,7 @@ impl Builder {
 		Self {
 			arg,
 			default_time_to_live: false,
+			default_time_to_stop: false,
 		}
 	}
 
@@ -95,6 +98,13 @@ impl Builder {
 		self
 	}
 
+	#[must_use]
+	pub fn time_to_stop(mut self, time_to_stop: impl Into<Option<Duration>>) -> Self {
+		self.arg.time_to_stop = time_to_stop.into();
+		self.default_time_to_stop = false;
+		self
+	}
+
 	pub async fn build(self) -> tg::Result<tg::Sandbox> {
 		let instance = tg::instance()?;
 		self.build_with_instance(instance).await
@@ -106,7 +116,10 @@ impl Builder {
 	{
 		let mut arg = self.arg;
 		if self.default_time_to_live {
-			arg.time_to_live = Some(instance.arg().sandbox.time_to_live);
+			arg.time_to_live = instance.arg().sandbox.time_to_live;
+		}
+		if self.default_time_to_stop {
+			arg.time_to_stop = instance.arg().sandbox.time_to_stop;
 		}
 		tg::Sandbox::create_with_arg_with_instance(instance, arg).await
 	}

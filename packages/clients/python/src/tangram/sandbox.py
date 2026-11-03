@@ -73,6 +73,7 @@ class SandboxArg(TypedDict, total=False):
     owner: Unresolved[str | Mutation | None]
     ports: Unresolved[list[Unresolved[str]] | None]
     time_to_live: Unresolved[int | float | Mutation | None]
+    time_to_stop: Unresolved[int | float | Mutation | None]
     # An alias for `time_to_live`.
     ttl: Unresolved[int | float | Mutation | None]
 
@@ -107,6 +108,7 @@ class SandboxData(TypedDict, total=False):
     network: SandboxNetworkData | None
     owner: str
     time_to_live: int | float | None
+    time_to_stop: int | float | None
     usage: SandboxUsage | None
 
 
@@ -335,6 +337,9 @@ class Builder:
     def time_to_live(self, value: Unresolved[int | float | Mutation | None]) -> Self:
         return self._push("time_to_live", value)
 
+    def time_to_stop(self, value: Unresolved[int | float | Mutation | None]) -> Self:
+        return self._push("time_to_stop", value)
+
     # An alias for `time_to_live`.
     def ttl(self, value: Unresolved[int | float | Mutation | None]) -> Self:
         return self.time_to_live(value)
@@ -346,7 +351,7 @@ class Builder:
         from .args import Args
 
         arg = await Args.apply(
-            args=[{"host": host.current, "time_to_live": 300}, *self._args],
+            args=[{"host": host.current}, *self._args],
             map=normalize_time_to_live,
             reduce={"mounts": "append", "ports": "append"},
         )
@@ -422,6 +427,7 @@ def arg_to_data(arg):
             "memory",
             "owner",
             "storage",
+            "time_to_stop",
         )
         if key in arg
     }

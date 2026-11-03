@@ -18,6 +18,9 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub time_to_live: TimeToLive,
+
+	#[command(flatten)]
+	pub time_to_stop: TimeToStop,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -36,6 +39,21 @@ pub struct TimeToLive {
 	pub time_to_live: Option<Duration>,
 }
 
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct TimeToStop {
+	/// Keep the sandbox running until it is stopped.
+	#[arg(
+		id = "create.time_to_stop.no_time_to_stop",
+		long = "no-time-to-stop",
+		overrides_with = "create.time_to_stop.time_to_stop"
+	)]
+	pub no_time_to_stop: bool,
+
+	/// The time that the sandbox may run without processes before it is stopped.
+	#[arg(id = "create.time_to_stop.time_to_stop", long = "time-to-stop", overrides_with = "create.time_to_stop.no_time_to_stop", value_parser = humantime::parse_duration)]
+	pub time_to_stop: Option<Duration>,
+}
+
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// Resolve the sandbox settings.
 	let client = cli.client().await?;
@@ -44,6 +62,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let network = crate::normalize_network(&args.arg.network, ports)?;
 	let owner = crate::resolve_owner(&client, &args.arg.owner).await?;
 	let time_to_live = args.time_to_live.get(client.arg().sandbox.time_to_live);
+	let time_to_stop = args.time_to_stop.get(client.arg().sandbox.time_to_stop);
 
 	// Create the sandbox.
 	let sandbox = tg::Sandbox::builder()
@@ -57,6 +76,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.network(network)
 		.owner(owner)
 		.time_to_live(time_to_live)
+		.time_to_stop(time_to_stop)
 		.build_with_instance(&client)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
@@ -68,11 +88,21 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 }
 
 impl TimeToLive {
-	fn get(&self, default: Duration) -> Option<Duration> {
+	fn get(&self, default: Option<Duration>) -> Option<Duration> {
 		if self.no_time_to_live {
 			None
 		} else {
-			Some(self.time_to_live.unwrap_or(default))
+			self.time_to_live.or(default)
+		}
+	}
+}
+
+impl TimeToStop {
+	fn get(&self, default: Option<Duration>) -> Option<Duration> {
+		if self.no_time_to_stop {
+			None
+		} else {
+			self.time_to_stop.or(default)
 		}
 	}
 }
