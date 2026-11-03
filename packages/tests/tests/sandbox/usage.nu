@@ -1,16 +1,11 @@
 use ../../util/test.nu *
 
-let quota_root = $env.TANGRAM_TEST_PROJECT_QUOTA_PATH? | default ''
-if $nu.os-info.name == 'linux' and ($quota_root | is-empty) {
-	skip_test 'TANGRAM_TEST_PROJECT_QUOTA_PATH is required for sandbox storage accounting'
-}
-
 # An idle sandbox is charged for actual memory but does not accrue allocated CPU-time.
 if $nu.os-info.name != 'linux' {
  skip_test 'this test requires linux cgroup accounting'
 }
 
-let directory = mktemp --directory --tmpdir-path $quota_root
+let directory = project_quota_directory
 let local = server spawn --directory $directory --config {
  runner: { memory_sampling_interval: 0.05 },
 }

@@ -426,6 +426,7 @@ export def --env "server spawn" [
 	--preserve-keys
 	--quickjs # Use QuickJS as the JavaScript engine.
 	--region: string # Set the server's region.
+	--root # Run the server as root with passwordless sudo, in a directory on the file system with project quotas unless one is given.
 	--url (-u): string
 ] {
 	let use_fskit = (($env.TANGRAM_TEST_FSKIT? | default "") | str length) > 0
@@ -452,9 +453,22 @@ export def --env "server spawn" [
 	}
 	let use_cloud = $instance.cloud != null
 
-	# Create the server directory. Local instances own one directory, while every cloud server owns its own directory.
+	# Get the Tangram executable that a server running as root runs.
+	let root_tangram = if $root {
+		let path = ^tangram_tests_runner quota tangram | str trim
+		if ($path | is-empty) {
+			skip_test 'this test requires passwordless sudo to run the server as root'
+		}
+		$path
+	} else {
+		null
+	}
+
+	# Create the server directory. Local instances own one directory, while every cloud server owns its own directory. A server running as root uses a directory on the file system with project quotas, which the runner removes with sudo.
 	let directory_path = if $directory != null {
 		$directory
+	} else if $root {
+		project_quota_directory
 	} else if not $use_cloud {
 		$instance.directory
 	} else {
@@ -559,6 +573,7 @@ export def --env "server spawn" [
 		macos_app_group_socket: null,
 		name: $name,
 		pid: null,
+		root_tangram: $root_tangram,
 		supervisor: ($config_path | path dirname),
 		url: $url,
 	}
@@ -665,9 +680,15 @@ export def --env "server start" [server: record] {
 	track_supervisor $supervisor
 	rm -f ($supervisor | path join 'error')
 	let remove = if $macos_app_group_socket == null { [] } else { [--remove $macos_app_group_socket] }
+	let command = [-c $server.config_path -d $server.directory -u $server.url serve --ready-fd '3']
+	let command = if $server.root_tangram? == null {
+		[tangram ...$command]
+	} else {
+		root_command $supervisor $server.directory [$server.root_tangram ...$command]
+	}
 	let output = try {
 		with-env $environment {
-			^tangram_tests_supervisor start --description server --directory $supervisor --name $server.name --ready-fd 3 ...$remove -- tangram -c $server.config_path -d $server.directory -u $server.url serve --ready-fd 3
+			^tangram_tests_supervisor start --description server --directory $supervisor --name $server.name --ready-fd 3 ...$remove -- ...$command
 		} | from json
 	} catch {
 		let error_path = $supervisor | path join 'error'
@@ -697,6 +718,20 @@ export def --env "server restart" [server: record] {
 	let server = server start $server
 
 	$server
+}
+
+# Create a command that runs a server as root with passwordless sudo. Sudo closes the readiness file descriptor, so the server writes its readiness byte to a FIFO, which a process outside sudo copies to the descriptor. The server creates its socket with an empty umask so that the client can connect, keeps its temporary files in its directory so that the runner removes them, and is killed by the parent death signal if sudo is killed.
+def root_command [supervisor: string, directory: string, command: list<string>] {
+	let fifo = $supervisor | path join 'ready'
+	rm -f $fifo
+	^mkfifo $fifo
+	let temp = $directory | path join 'root_tmp'
+	mkdir $temp
+	^chmod 1777 $temp
+	let relay = 'cat "$0" >&3 & exec "$@"'
+	let server = 'umask 000 && exec "$@" 3>"$0"'
+
+	[sh -c $relay $fifo sudo -n env $'TMPDIR=($temp)' setpriv --pdeathsig KILL -- sh -c $server $fifo ...$command]
 }
 
 def server_is_running [server: record] {
@@ -889,6 +924,16 @@ export def skip_test [
 		$reason | save --force $path
 	}
 	exit 77
+}
+
+# Create a directory on the file system with project quotas, which the runner creates when passwordless sudo is available, or skip the test.
+export def project_quota_directory [] {
+	let directory = ^tangram_tests_runner quota directory | str trim
+	if ($directory | is-empty) {
+		skip_test 'this test requires a file system with project quotas, which the runner creates when passwordless sudo is available'
+	}
+
+	$directory
 }
 
 # Determine whether the running kernel has enabled the FUSE io_uring transport.

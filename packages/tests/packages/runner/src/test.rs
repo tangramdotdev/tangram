@@ -1,5 +1,5 @@
 use {
-	crate::{Result, database, semaphore, snapshot, vfs},
+	crate::{Result, database, quota, semaphore, snapshot, vfs},
 	std::{
 		fmt::Write as _,
 		fs::File,
@@ -36,6 +36,7 @@ pub struct Options {
 	pub preserve_failing_temps: bool,
 	pub preserve_temps: bool,
 	pub quickjs: bool,
+	pub quota: Option<PathBuf>,
 	pub stress: bool,
 	pub timeout: Duration,
 	pub turso: bool,
@@ -254,6 +255,13 @@ async fn cleanup(test: &Test, options: &Options, temp_path: &Path, code: i32) ->
 		Err(error) => errors.push(error.to_string()),
 	}
 
+	// Remove the directories that the test created on the file system with project quotas.
+	let path = temp_path.to_owned();
+	match tokio::task::spawn_blocking(move || quota::cleanup(&path)).await {
+		Ok(quota_errors) => errors.extend(quota_errors),
+		Err(error) => errors.push(error.to_string()),
+	}
+
 	// Prune the snapshots of a passing test. Skip this in stress mode, because concurrent runs of the same test would race on these files.
 	if code == 0 && !options.stress {
 		snapshot::prune(test);
@@ -324,6 +332,7 @@ fn environment(options: &Options, temp_path: &Path) -> Vec<(String, String)> {
 		("TANGRAM_TEST_FSKIT".to_owned(), flag(options.fskit)),
 		("TANGRAM_TEST_OFFLINE".to_owned(), flag(options.offline)),
 		("TANGRAM_TEST_QUICKJS".to_owned(), flag(options.quickjs)),
+		("TANGRAM_TEST_QUOTA".to_owned(), path(&options.quota)),
 		(
 			"TANGRAM_TEST_SKIP_PATH".to_owned(),
 			temp_path.join("skip").display().to_string(),

@@ -10,11 +10,17 @@ use {
 #[tokio::test]
 async fn destroy_sandbox_requires_ownership() -> tg::Result<()> {
 	let tangram = env!("CARGO_BIN_EXE_tangram");
-	let Some(quota) =
-		std::env::var_os("TANGRAM_TEST_PROJECT_QUOTA_PATH").filter(|path| !path.is_empty())
+
+	// Create a file system with project quotas for sandbox storage accounting, or skip the test if passwordless sudo is not available.
+	let Some(quota) = tangram_tests_util::quota::Mount::new().map_err(|error| {
+		tg::error!(
+			!error,
+			"failed to create the file system with project quotas"
+		)
+	})?
 	else {
 		eprintln!(
-			"skipping the test because TANGRAM_TEST_PROJECT_QUOTA_PATH is required for sandbox storage accounting"
+			"skipping the test because passwordless sudo is required to create a file system with project quotas"
 		);
 		return Ok(());
 	};
@@ -40,7 +46,7 @@ async fn destroy_sandbox_requires_ownership() -> tg::Result<()> {
 		"remotes": { "default": { "token": created_token, "url": remote.client()?.url().to_string() } },
 		"runner": { "id": created.data.id.to_string(), "remote": "default", "token": created_token },
 	}));
-	let directory = tangram_tests_util::Temp::with_parent(std::path::Path::new(&quota))
+	let directory = tangram_tests_util::Temp::with_parent(&quota.mount_path())
 		.map_err(|error| tg::error!(!error, "failed to create the runner's directory"))?;
 	let mut runner =
 		Server::start_with_path(tangram, config, directory.path().join("server")).await?;

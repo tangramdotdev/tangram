@@ -6,11 +6,10 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
-let root = $env.TANGRAM_TEST_PROJECT_QUOTA_PATH? | default ''
-if ($root | is-empty) {
-	skip_test 'TANGRAM_TEST_PROJECT_QUOTA_PATH is not set'
+if (id -u | into int) != 0 {
+	skip_test 'hardened containers require the tests to run as root'
 }
-let directory = mktemp --directory --tmpdir-path $root
+let directory = project_quota_directory
 
 let cgroup_parent = container_cgroup_parent [cpu memory pids]
 
