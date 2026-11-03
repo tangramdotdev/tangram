@@ -10,15 +10,20 @@ mod tests;
 pub struct Arg {
 	#[tangram_serialize(id = 0)]
 	pub account: Option<crate::usage::Account>,
+
 	#[tangram_serialize(id = 1)]
 	pub created_at: i64,
+
 	#[tangram_serialize(id = 2)]
 	pub data: Option<tg::sandbox::get::Output>,
+
 	#[tangram_serialize(id = 3)]
 	pub id: tg::sandbox::Id,
+
 	/// The sandbox location, or `None` to preserve the indexed location.
 	#[tangram_serialize(id = 6)]
 	pub location: Option<tg::Location>,
+
 	/// Permissions granted after validation if the sandbox is new or both `data` and `processes` are `Some`.
 	#[tangram_serialize(id = 8)]
 	pub permissions: Vec<crate::permission::put::Arg>,
@@ -28,8 +33,14 @@ pub struct Arg {
 
 	#[tangram_serialize(id = 7)]
 	pub processes: Option<Vec<tg::process::Id>>,
+
 	#[tangram_serialize(id = 4)]
 	pub runner: Option<tg::runner::Id>,
+
+	/// The storage usage of a boot's stopped directory so far, which only grows.
+	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
+	pub stopped_usage: Option<StoppedUsage>,
+
 	#[tangram_serialize(id = 5)]
 	pub touched_at: i64,
 }
@@ -37,7 +48,17 @@ pub struct Arg {
 /// The merged sandbox data and per-boot usage that a put records.
 pub struct Merge {
 	pub data: Option<tg::sandbox::get::Output>,
+	pub stopped_usages: BTreeMap<u64, tg::sandbox::Usage>,
 	pub usages: BTreeMap<u64, tg::sandbox::Usage>,
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct StoppedUsage {
+	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub usage: tg::sandbox::Usage,
 }
 
 impl Arg {
@@ -116,14 +137,35 @@ impl Arg {
 			(None, existing) => existing,
 		};
 
-		// Report the sum of the usage of every boot.
-		if let Some(data) = &mut data
-			&& !usages.is_empty()
+		// Record the storage usage of the arg's stopped boot, which only grows, unless the sandbox is destroyed, because its destruction billed its usage.
+		let mut stopped_usages = existing
+			.map(|sandbox| sandbox.stopped_usages.clone())
+			.unwrap_or_default();
+		let destroyed = existing
+			.and_then(|sandbox| sandbox.data.as_ref())
+			.is_some_and(|data| data.data.status.is_destroyed());
+		if let Some(stopped) = &self.stopped_usage
+			&& !destroyed
 		{
-			data.data.usage = Some(sum(usages.values()));
+			let usage = match stopped_usages.get(&stopped.boot) {
+				Some(recorded) => max(recorded, &stopped.usage),
+				None => stopped.usage.clone(),
+			};
+			stopped_usages.insert(stopped.boot, usage);
 		}
 
-		Merge { data, usages }
+		// Report the sum of the usage of every boot, while running and while stopped.
+		if let Some(data) = &mut data
+			&& (!usages.is_empty() || !stopped_usages.is_empty())
+		{
+			data.data.usage = Some(sum(usages.values().chain(stopped_usages.values())));
+		}
+
+		Merge {
+			data,
+			stopped_usages,
+			usages,
+		}
 	}
 }
 

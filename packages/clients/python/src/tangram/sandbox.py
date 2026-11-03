@@ -108,6 +108,7 @@ class SandboxData(TypedDict, total=False):
     mounts: list[str]
     network: SandboxNetworkData | None
     owner: str
+    stopped_at: int | None
     time_to_live: int | float | None
     time_to_stop: int | float | None
     usage: SandboxUsage | None

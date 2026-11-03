@@ -929,6 +929,7 @@ impl Component {
 				principal: session.context.principal.clone(),
 				processes: Some(message.processes),
 				runner: None,
+				stopped_usage: None,
 				touched_at,
 			});
 		}

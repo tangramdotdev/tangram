@@ -6,15 +6,26 @@ pub mod put;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Sandbox {
 	pub account: Option<crate::usage::Account>,
+
 	pub created_at: i64,
+
 	pub data: Option<tg::sandbox::get::Output>,
+
 	pub location: Option<tg::Location>,
+
 	pub reference_count: u64,
+
 	pub runner: Option<tg::runner::Id>,
+
 	pub set: Set,
+
+	/// The storage usage of each boot's stopped directory, which the usage in `data` includes.
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub stopped_usages: BTreeMap<u64, tg::sandbox::Usage>,
+
 	pub touched_at: i64,
 
-	/// The usage reported for each boot, which sums to the usage in `data`.
+	/// The usage reported for each boot, which sums with the stopped usage to the usage in `data`.
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub usages: BTreeMap<u64, tg::sandbox::Usage>,
 }
