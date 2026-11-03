@@ -1,6 +1,6 @@
 use {
 	super::Project,
-	std::collections::{BTreeMap, HashMap},
+	std::collections::{BTreeMap, HashMap, HashSet},
 	tangram_client::prelude::*,
 	tsrs_ast::{Kind, Node, SourceFile, Symbol, SymbolFlags},
 	tsrs_checker::{Checker, ElementFlags, LiteralValue, ObjectFlags, TypeFlags},
@@ -14,10 +14,23 @@ struct Converter<'a> {
 	checker: &'a mut Checker,
 	definitions: BTreeMap<String, tg::interface::Type>,
 	depth: usize,
+	depth_exceeded: bool,
+	failures: HashMap<P<tsrs_checker::Type>, tg::Error>,
 	host: &'a super::host::Host,
 	imports: BTreeMap<String, tg::module::Data>,
+	log: Vec<Entry>,
 	names: HashMap<(P<tsrs_checker::Type>, Mode), String>,
 	path: String,
+	reserved: HashSet<String>,
+	verified: HashMap<P<tsrs_checker::Type>, Target>,
+}
+
+/// A mutation of the converter that a rollback undoes.
+enum Entry {
+	Definition(String),
+	Import(String),
+	Name(P<tsrs_checker::Type>, Mode),
+	Verified(P<tsrs_checker::Type>),
 }
 
 /// The value boundary represented by a converted type.
@@ -31,6 +44,13 @@ enum Mode {
 
 	/// Types that already describe values, including shared named definitions.
 	Value,
+}
+
+/// A named type that another module exports.
+#[derive(Clone)]
+struct Target {
+	module: tg::module::Data,
+	name: String,
 }
 
 impl Project {
@@ -55,10 +75,15 @@ impl Project {
 			checker: &mut checker,
 			definitions: BTreeMap::new(),
 			depth: 0,
+			depth_exceeded: false,
+			failures: HashMap::new(),
 			host: &self.host,
 			imports: BTreeMap::new(),
+			log: Vec::new(),
 			names: HashMap::new(),
 			path: path.clone(),
+			reserved: HashSet::new(),
+			verified: HashMap::new(),
 		};
 
 		// Define the module's exported named types, so that other interfaces can refer to them.
@@ -77,18 +102,15 @@ impl Project {
 				.get(name)
 				.copied()
 				.ok_or_else(|| tg::error!(%name, "failed to find the export"))?;
-			let definitions = converter.definitions.clone();
-			let imports = converter.imports.clone();
-			let names = converter.names.clone();
+			let checkpoint = converter.log.len();
 			match converter.export(symbol) {
 				Ok(type_) => {
 					export.error = None;
 					export.type_ = Some(type_);
 				},
 				Err(error) => {
-					converter.definitions = definitions;
-					converter.imports = imports;
-					converter.names = names;
+					converter.rollback(checkpoint);
+					converter.depth_exceeded = false;
 					export.error = Some(crate::interface::non_value_message(&error));
 					export.type_ = None;
 				},
@@ -128,16 +150,13 @@ impl Converter<'_> {
 		if !is_object(type_) {
 			return;
 		}
-		let definitions = self.definitions.clone();
-		let imports = self.imports.clone();
-		let names = self.names.clone();
-		self.names.insert((type_, Mode::Value), name.to_owned());
+		let checkpoint = self.log.len();
+		self.insert_name(type_, Mode::Value, name.to_owned());
 		if let Ok(definition) = self.record(type_, Mode::Value) {
-			self.definitions.insert(name.to_owned(), definition);
+			self.insert_definition(name.to_owned(), definition);
 		} else {
-			self.definitions = definitions;
-			self.imports = imports;
-			self.names = names;
+			self.rollback(checkpoint);
+			self.depth_exceeded = false;
 		}
 	}
 
@@ -237,6 +256,7 @@ impl Converter<'_> {
 		mode: Mode,
 	) -> tg::Result<tg::interface::Type> {
 		if self.depth >= DEPTH {
+			self.depth_exceeded = true;
 			return Err(tg::error!("the type is too deeply nested"));
 		}
 		self.depth += 1;
@@ -530,46 +550,149 @@ impl Converter<'_> {
 			});
 		}
 
+		// Convert a definition that is shared between the value boundaries.
+		if mode == Mode::Value {
+			return self.value_definition(symbol, type_);
+		}
+
 		// Reuse an unchanged value definition before creating a boundary-specific definition.
-		if mode != Mode::Value {
-			let definitions = self.definitions.clone();
-			let imports = self.imports.clone();
-			let names = self.names.clone();
-			if let Ok(output) = self.type_(type_, Mode::Value) {
-				return Ok(output);
-			}
-			self.definitions = definitions;
-			self.imports = imports;
-			self.names = names;
+		let checkpoint = self.log.len();
+		if let Ok(output) = self.type_(type_, Mode::Value) {
+			return Ok(output);
 		}
-		let definitions = self.definitions.clone();
-		let imports = self.imports.clone();
-		let names = self.names.clone();
-		let mut name = symbol.name().to_owned();
-		let mut suffix = 1;
-		while self.definitions.contains_key(&name)
-			|| self.names.values().any(|other| *other == name)
-		{
-			suffix += 1;
-			name = format!("{}{suffix}", symbol.name().to_owned());
-		}
-		self.names.insert((type_, mode), name.clone());
+		self.rollback(checkpoint);
+		self.depth_exceeded = false;
+
+		// Create the boundary-specific definition.
+		let name = self.unique_name(symbol);
+		self.insert_name(type_, mode, name.clone());
 		let definition = self.record(type_, mode)?;
-		if mode == Mode::Value
-			&& type_ == self.checker.get_declared_type_of_symbol_exported(symbol)
-			&& self.try_import(symbol).is_some()
-		{
-			self.definitions = definitions;
-			self.imports = imports;
-			self.names = names;
-			return Ok(self.try_import(symbol).unwrap());
-		}
-		self.definitions.insert(name.clone(), definition);
+		self.insert_definition(name.clone(), definition);
+
 		Ok(tg::interface::Type::Reference { import: None, name })
 	}
 
-	/// Refer to a named type that another module declares and exports, importing that module.
-	fn try_import(&mut self, symbol: P<Symbol>) -> Option<tg::interface::Type> {
+	/// Convert a named object type to a value definition, or to a reference to the module that declares it, remembering the outcome so that each type is traversed once.
+	fn value_definition(
+		&mut self,
+		symbol: P<Symbol>,
+		type_: P<tsrs_checker::Type>,
+	) -> tg::Result<tg::interface::Type> {
+		// Return the remembered outcome.
+		if let Some(error) = self.failures.get(&type_) {
+			return Err(error.clone());
+		}
+		if let Some(target) = self.verified.get(&type_).cloned() {
+			return Ok(self.import(target));
+		}
+
+		// Convert the record, remembering a failure unless it depends on the current depth.
+		let checkpoint = self.log.len();
+		let name = self.unique_name(symbol);
+		self.insert_name(type_, Mode::Value, name.clone());
+		let definition = self.record(type_, Mode::Value);
+		if let Err(error) = &definition
+			&& !self.depth_exceeded
+		{
+			self.rollback(checkpoint);
+			self.failures.insert(type_, error.clone());
+			return Err(error.clone());
+		}
+
+		// Replace a declared type with a reference to the module that exports it, which does not nest the type's fields in this interface.
+		let target = if type_ == self.checker.get_declared_type_of_symbol_exported(symbol) {
+			self.try_import_target(symbol)
+		} else {
+			None
+		};
+		if let Some(target) = target {
+			self.depth_exceeded = false;
+			self.rollback_retaining_verified(checkpoint);
+			self.verified.insert(type_, target.clone());
+			self.log.push(Entry::Verified(type_));
+			return Ok(self.import(target));
+		}
+
+		// Propagate a failure that depends on the current depth.
+		let definition = match definition {
+			Ok(definition) => definition,
+			Err(error) => {
+				self.rollback(checkpoint);
+				return Err(error);
+			},
+		};
+
+		// Keep the definition.
+		self.insert_definition(name.clone(), definition);
+
+		Ok(tg::interface::Type::Reference { import: None, name })
+	}
+
+	/// Get a definition name for a symbol that no other definition uses.
+	fn unique_name(&self, symbol: P<Symbol>) -> String {
+		let mut name = symbol.name().to_owned();
+		let mut suffix = 1;
+		while self.definitions.contains_key(&name) || self.reserved.contains(&name) {
+			suffix += 1;
+			name = format!("{}{suffix}", symbol.name());
+		}
+		name
+	}
+
+	/// Record a definition so that a rollback can remove it.
+	fn insert_definition(&mut self, name: String, definition: tg::interface::Type) {
+		self.definitions.insert(name.clone(), definition);
+		self.log.push(Entry::Definition(name));
+	}
+
+	/// Reserve the name of a definition so that a rollback can release it.
+	fn insert_name(&mut self, type_: P<tsrs_checker::Type>, mode: Mode, name: String) {
+		self.reserved.insert(name.clone());
+		self.names.insert((type_, mode), name);
+		self.log.push(Entry::Name(type_, mode));
+	}
+
+	/// Undo the mutations since a checkpoint.
+	fn rollback(&mut self, checkpoint: usize) {
+		while self.log.len() > checkpoint {
+			let entry = self.log.pop().unwrap();
+			self.undo(entry);
+		}
+	}
+
+	/// Undo the mutations since a checkpoint while keeping the verified types, which an enclosing rollback can still remove.
+	fn rollback_retaining_verified(&mut self, checkpoint: usize) {
+		let entries = self.log.split_off(checkpoint);
+		for entry in entries.into_iter().rev() {
+			if matches!(entry, Entry::Verified(_)) {
+				self.log.push(entry);
+			} else {
+				self.undo(entry);
+			}
+		}
+	}
+
+	fn undo(&mut self, entry: Entry) {
+		match entry {
+			Entry::Definition(name) => {
+				self.definitions.remove(&name);
+			},
+			Entry::Import(name) => {
+				self.imports.remove(&name);
+			},
+			Entry::Name(type_, mode) => {
+				if let Some(name) = self.names.remove(&(type_, mode)) {
+					self.reserved.remove(&name);
+				}
+			},
+			Entry::Verified(type_) => {
+				self.verified.remove(&type_);
+			},
+		}
+	}
+
+	/// Find the export of another module that declares a named type.
+	fn try_import_target(&mut self, symbol: P<Symbol>) -> Option<Target> {
 		let declaration = symbol.declarations().first().copied()?;
 		let source_file = tsrs_ast::get_source_file_of_node(declaration)?;
 		let path = source_file.file_name().to_owned();
@@ -588,12 +711,21 @@ impl Converter<'_> {
 				(target == symbol).then(|| export.name().to_owned())
 			})?;
 		let module = self.host.try_module(&path).ok().flatten()?;
-		let import = crate::interface::import(&mut self.imports, &module);
-		let reference = tg::interface::Type::Reference {
+		let target = Target { module, name };
+		Some(target)
+	}
+
+	/// Refer to a named type that another module exports, importing that module.
+	fn import(&mut self, target: Target) -> tg::interface::Type {
+		let count = self.imports.len();
+		let import = crate::interface::import(&mut self.imports, &target.module);
+		if self.imports.len() > count {
+			self.log.push(Entry::Import(import.clone()));
+		}
+		tg::interface::Type::Reference {
 			import: Some(import),
-			name,
-		};
-		Some(reference)
+			name: target.name,
+		}
 	}
 
 	/// Convert an object type to a record, or to a map when it only has a string index signature.
