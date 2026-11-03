@@ -35,4 +35,4 @@ if $nu.os-info.name == 'linux' {
 	assert ($state.usage.cpu.consumption > 0) "the sandbox should record actual CPU time"
 	assert ($state.usage.memory.consumption > 0) "the sandbox should record actual memory time"
 }
-assert equal $state.ttl 0 "an implicit process sandbox should have a zero TTL"
+assert equal $state.time_to_live 0 "an implicit process sandbox should have a zero time to live"

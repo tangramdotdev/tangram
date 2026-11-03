@@ -22,7 +22,7 @@ class DataArgObject(TypedDict, total=False):
     mounts: list[dict[str, Any]]
     network: dict[str, Any] | None
     owner: str | None
-    ttl: int | float | None
+    time_to_live: int | float | None
 
 
 class WireOutput(TypedDict):

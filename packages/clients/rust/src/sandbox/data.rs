@@ -62,14 +62,14 @@ pub struct Data {
 	#[tangram_serialize(default, id = 12, skip_serializing_if = "Option::is_none")]
 	pub storage: Option<tg::sandbox::Resource<u64>>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[tangram_serialize(
 		deserialize_with = "super::get::deserialize_duration",
 		id = 10,
 		serialize_with = "super::get::serialize_duration"
 	)]
-	pub ttl: Option<Duration>,
+	pub time_to_live: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]

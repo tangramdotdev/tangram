@@ -95,7 +95,7 @@ fn sandbox_arg(
 			owner: tg::Principal::Root,
 			status,
 			storage: None,
-			ttl: None,
+			time_to_live: None,
 			usage: None,
 		},
 		location: None,

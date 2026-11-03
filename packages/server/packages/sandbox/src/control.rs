@@ -413,7 +413,7 @@ impl Component {
 				owner,
 				status: tg::sandbox::Status::Started,
 				storage: create.storage,
-				ttl: create.ttl,
+				time_to_live: create.time_to_live,
 				usage: None,
 			},
 			location: Some(location.clone()),

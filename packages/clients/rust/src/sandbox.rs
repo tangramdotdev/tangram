@@ -42,13 +42,13 @@ pub const SANDBOX_HEADER: &str = "x-tg-sandbox";
 
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
-	pub ttl: std::time::Duration,
+	pub time_to_live: std::time::Duration,
 }
 
 impl Default for Config {
 	fn default() -> Self {
 		Self {
-			ttl: std::time::Duration::from_mins(5),
+			time_to_live: std::time::Duration::from_mins(5),
 		}
 	}
 }

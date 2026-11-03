@@ -13,7 +13,7 @@ use {
 };
 
 impl Component {
-	/// Stop or destroy the sandboxes that the index records as running on a runner other than this server's, because a single server's restart loses the runners' registrations, so that their heartbeats can no longer expire. Apply the same rule as heartbeat expiration: destroy a sandbox whose ttl is zero, and stop the others.
+	/// Stop or destroy the sandboxes that the index records as running on a runner other than this server's, because a single server's restart loses the runners' registrations, so that their heartbeats can no longer expire. Apply the same rule as heartbeat expiration: destroy a sandbox whose time to live is zero, and stop the others.
 	pub(crate) async fn expire_unfinished_sandboxes(&self, server: &Server) -> tg::Result<()> {
 		let local_runner = server.components.runner.local_runner_id(server);
 		let limit = 1024;
@@ -40,21 +40,21 @@ impl Component {
 						.as_ref()
 						.is_some_and(tg::Location::is_remote);
 					let local = sandbox.runner.is_some() && sandbox.runner == local_runner;
-					(running && !remote && !local).then_some((id.clone(), data.ttl))
+					(running && !remote && !local).then_some((id.clone(), data.time_to_live))
 				})
 				.collect::<Vec<_>>();
 
 			// Stop or destroy each sandbox.
 			sandboxes
 				.into_iter()
-				.map(|(id, ttl)| async move {
+				.map(|(id, time_to_live)| async move {
 					let error = tg::error::Data {
 						code: Some(tg::error::Code::Internal),
 						message: Some("server restarted".to_owned()),
 						..Default::default()
 					};
 					let scheduler = &server.components.scheduler;
-					let result = if ttl.is_some_and(|ttl| ttl.is_zero()) {
+					let result = if time_to_live.is_some_and(|time_to_live| time_to_live.is_zero()) {
 						scheduler.destroy_runner_sandbox(server, &id, error).await
 					} else {
 						scheduler.stop_runner_sandbox(server, &id, error).await

@@ -294,16 +294,16 @@ impl Component {
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
 			)?;
 		for (sandbox, indexed) in std::iter::zip(sandboxes, indexed) {
-			// Destroy a sandbox with a zero ttl, because its processes are lost, and stop the others.
+			// Destroy a sandbox with a zero time to live, because its processes are lost, and stop the others.
 			let error = tg::error::Data {
 				code: Some(tg::error::Code::Internal),
 				message: Some("heartbeat expired".to_owned()),
 				..Default::default()
 			};
-			let ttl = indexed
+			let time_to_live = indexed
 				.and_then(|indexed| indexed.data)
-				.and_then(|data| data.data.ttl);
-			if ttl.is_some_and(|ttl| ttl.is_zero()) {
+				.and_then(|data| data.data.time_to_live);
+			if time_to_live.is_some_and(|time_to_live| time_to_live.is_zero()) {
 				self.destroy_runner_sandbox(server, &sandbox, error).await?;
 			} else {
 				self.stop_runner_sandbox(server, &sandbox, error).await?;

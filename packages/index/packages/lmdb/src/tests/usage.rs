@@ -296,7 +296,7 @@ fn sandbox_data(
 			owner,
 			status,
 			storage: None,
-			ttl: None,
+			time_to_live: None,
 			usage,
 		},
 		location: None,

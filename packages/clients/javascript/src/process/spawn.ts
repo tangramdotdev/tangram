@@ -1051,7 +1051,7 @@ let normalizeSandbox = (
 		hasNetwork ||
 		hasOwner ||
 		hasPorts;
-	let defaultTtl = typeof sandbox !== "string";
+	let defaultTimeToLive = typeof sandbox !== "string";
 
 	// Resolve the sandbox reference or creation request.
 	if (typeof sandbox === "string") {
@@ -1106,10 +1106,11 @@ let normalizeSandbox = (
 		if (networkData?.kind === "bridge") {
 			sandboxNetwork = networkData;
 		}
-		if (sandbox.ttl !== undefined) {
-			output.ttl = sandbox.ttl;
-		} else if (defaultTtl) {
-			output.ttl = 0;
+		let timeToLive = tg.Sandbox.Arg.normalizeTimeToLive(sandbox).timeToLive;
+		if (timeToLive !== undefined) {
+			output.time_to_live = timeToLive;
+		} else if (defaultTimeToLive) {
+			output.time_to_live = 0;
 		}
 		if (sandbox.owner !== undefined) {
 			output.owner = sandbox.owner;

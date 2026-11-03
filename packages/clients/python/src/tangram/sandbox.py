@@ -72,6 +72,8 @@ class SandboxArg(TypedDict, total=False):
     network: Unresolved[bool | NetworkValue | Mutation | None]
     owner: Unresolved[str | Mutation | None]
     ports: Unresolved[list[Unresolved[str]] | None]
+    time_to_live: Unresolved[int | float | Mutation | None]
+    # An alias for `time_to_live`.
     ttl: Unresolved[int | float | Mutation | None]
 
 
@@ -104,7 +106,7 @@ class SandboxData(TypedDict, total=False):
     mounts: list[str]
     network: SandboxNetworkData | None
     owner: str
-    ttl: int | float | None
+    time_to_live: int | float | None
     usage: SandboxUsage | None
 
 
@@ -330,8 +332,12 @@ class Builder:
             self._push("ports", value)
         return self
 
+    def time_to_live(self, value: Unresolved[int | float | Mutation | None]) -> Self:
+        return self._push("time_to_live", value)
+
+    # An alias for `time_to_live`.
     def ttl(self, value: Unresolved[int | float | Mutation | None]) -> Self:
-        return self._push("ttl", value)
+        return self.time_to_live(value)
 
     def __await__(self) -> Generator[Any, None, Sandbox]:
         return self._create().__await__()
@@ -340,8 +346,8 @@ class Builder:
         from .args import Args
 
         arg = await Args.apply(
-            args=[{"host": host.current, "ttl": 300}, *self._args],
-            map=lambda arg: arg,
+            args=[{"host": host.current, "time_to_live": 300}, *self._args],
+            map=normalize_time_to_live,
             reduce={"mounts": "append", "ports": "append"},
         )
         output = await self.client.create_sandbox(arg_to_data(arg))
@@ -394,6 +400,17 @@ def normalize_network(value, ports=()):
     return {"kind": "bridge", "ports": [*((network or {}).get("ports") or []), *ports]}
 
 
+def normalize_time_to_live(arg):
+    # Replace the `ttl` alias with `time_to_live`, raising if an arg sets both.
+    if "ttl" not in arg:
+        return arg
+    if "time_to_live" in arg:
+        raise ValueError("ttl and time_to_live may not both be set")
+    output = {key: value for key, value in arg.items() if key != "ttl"}
+    output["time_to_live"] = arg["ttl"]
+    return output
+
+
 def arg_to_data(arg):
     # Copy the scalar settings.
     output = {
@@ -405,10 +422,14 @@ def arg_to_data(arg):
             "memory",
             "owner",
             "storage",
-            "ttl",
         )
         if key in arg
     }
+
+    # Copy the time to live, which `ttl` aliases.
+    time_to_live = normalize_time_to_live(arg)
+    if "time_to_live" in time_to_live:
+        output["time_to_live"] = time_to_live["time_to_live"]
 
     # Convert the location, mount, and network settings.
     if "location" in arg:
