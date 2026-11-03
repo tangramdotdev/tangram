@@ -18,6 +18,9 @@ pub(super) struct Names {
 	/// The names of the modules that import the modules that the interface imports.
 	pub(super) imports: BTreeMap<String, String>,
 
+	/// The statements that define string literal aliases without escapes in forward annotations.
+	pub(super) literals: RefCell<Vec<String>>,
+
 	/// The prefix of the names of generated helpers.
 	pub(super) prefix: String,
 
@@ -156,8 +159,11 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 			tg::interface::Literal::Boolean(false) => format!("{typing}.Literal[False]"),
 			tg::interface::Literal::Number(_) => "float".to_owned(),
 			tg::interface::Literal::String(value) => {
+				let literal = format!("{}_literal_{}", names.prefix, names.literals.borrow().len());
 				let value = serde_json::to_string(value).unwrap();
-				format!("{typing}.Literal[{value}]")
+				let statement = format!("type {literal} = {typing}.Literal[{value}]");
+				names.literals.borrow_mut().push(statement);
+				literal
 			},
 		},
 		tg::interface::Type::Map { value } => format!("dict[str, {}]", self::type_(value, names)),
