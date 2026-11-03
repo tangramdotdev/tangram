@@ -26,7 +26,7 @@ timeout 30s tg log --no-timeout --length 1 $parent.process | ignore
 let token = tg log $parent.process | str trim
 
 # Listing remotes with a process token uses the creator's remotes.
-let remotes = tg --token $token remote list | from json
+let remotes = tg --token $token remote list --expand | from json | get data
 assert equal ($remotes | get name) [alice]
 assert equal ($remotes | get url) [$remote_alice.url]
 
@@ -40,11 +40,11 @@ failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to put the remote
-	   name = upstream
+	   remote = upstream
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to put the remote
-	   name = upstream
+	   remote = upstream
 	-> unauthorized
 
 '

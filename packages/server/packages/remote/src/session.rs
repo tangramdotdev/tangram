@@ -36,19 +36,20 @@ impl Component {
 		session: &Session,
 		remote: &str,
 	) -> tg::Result<Option<tg::Session>> {
-		let Some(output) = self
-			.try_get_remote_for_principal(session, remote, None)
+		let selector = tg::remote::Selector::Name(remote.to_owned());
+		let Some(row) = self
+			.try_get_remote_inner(session, &selector, None)
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote"))?
 		else {
 			return Ok(None);
 		};
-		let tg::remote::Data {
-			name: _,
+		let crate::get::Row {
 			token,
 			trusted,
 			url,
-		} = output.data;
+			..
+		} = row;
 		let client = self
 			.get_or_create_remote_client(&session.server, url)
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;

@@ -4,5 +4,5 @@ use ../../util/test.nu *
 
 let local = server spawn --config { remotes: { seeded: { url: "http://localhost:9999" } } }
 
-let list = tg remote list | from json
+let list = tg remote list --expand | from json | get data | reject id
 assert equal $list [{ name: "seeded", trusted: false, url: "http://localhost:9999" }] "the config remote should be listed"

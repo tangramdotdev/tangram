@@ -1,6 +1,11 @@
 use {
-	crate::Component, futures::FutureExt as _, std::ops::ControlFlow, tangram_client::prelude::*,
-	tangram_database as db, tangram_index::prelude::*, tangram_server_core::Session,
+	crate::Component,
+	futures::FutureExt as _,
+	std::ops::ControlFlow,
+	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
+	tangram_index::prelude::*,
+	tangram_server_core::Session,
 };
 
 impl Component {
@@ -49,15 +54,94 @@ impl Component {
 		Ok(principal)
 	}
 
+	pub(crate) async fn try_resolve_remote_selector_principal(
+		&self,
+		session: &Session,
+		remote: &tg::remote::Selector,
+		principal: Option<tg::principal::Selector>,
+	) -> tg::Result<Option<Option<tg::Principal>>> {
+		// Resolve the principal from the arg or the session unless the remote is selected by ID alone.
+		let (tg::remote::Selector::Id(id), None) = (remote, &principal) else {
+			let principal = self
+				.resolve_remote_arg_principal(session, principal)
+				.await?;
+			return Ok(Some(principal));
+		};
+
+		// Get the principal of the remote, and treat a remote the session may not manage as absent.
+		let Some(principal) = Self::try_get_remote_principal(session, id).await? else {
+			return Ok(None);
+		};
+		let default = self.resolve_remote_arg_principal(session, None).await?;
+		if principal != default {
+			let authorized =
+				Self::is_remote_principal_authorized(session, principal.as_ref()).await?;
+			if !authorized {
+				return Ok(None);
+			}
+		}
+
+		Ok(Some(principal))
+	}
+
+	async fn try_get_remote_principal(
+		session: &Session,
+		remote: &tg::remote::Id,
+	) -> tg::Result<Option<Option<tg::Principal>>> {
+		let remote = remote.clone();
+		session
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let remote = remote.clone();
+				async move {
+					Self::try_get_remote_principal_with_transaction(transaction, &remote).await
+				}
+				.boxed()
+			})
+			.await
+	}
+
+	async fn try_get_remote_principal_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		remote: &tg::remote::Id,
+	) -> tg::Result<ControlFlow<Option<Option<tg::Principal>>, tangram_server_core::database::Error>>
+	{
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			principal: Option<tg::Principal>,
+		}
+
+		let p = transaction.p();
+		let statement = format!("select principal from remotes where id = {p}1;");
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![remote.to_string()])
+			.await;
+		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let principal = row.map(|row| row.principal);
+
+		Ok(ControlFlow::Break(principal))
+	}
+
 	async fn authorize_remote_principal(
 		session: &Session,
 		principal: Option<&tg::Principal>,
 	) -> tg::Result<()> {
-		let Some(principal) = principal else {
-			if matches!(session.context.principal, tg::Principal::Root) {
-				return Ok(());
-			}
+		let authorized = Self::is_remote_principal_authorized(session, principal).await?;
+		if !authorized {
 			return Err(tg::error!("unauthorized"));
+		}
+		Ok(())
+	}
+
+	async fn is_remote_principal_authorized(
+		session: &Session,
+		principal: Option<&tg::Principal>,
+	) -> tg::Result<bool> {
+		let Some(principal) = principal else {
+			let authorized = matches!(session.context.principal, tg::Principal::Root);
+			return Ok(authorized);
 		};
 		let id: tg::Id = match principal {
 			tg::Principal::Group(id) => id.clone().into(),
@@ -70,11 +154,9 @@ impl Component {
 			.authorize(id, permission)
 			.await?
 			.check_exhaustion()?;
-		let permissions = authorization.permissions;
-		if !permissions.contains(permission) {
-			return Err(tg::error!("unauthorized"));
-		}
-		Ok(())
+		let authorized = authorization.permissions.contains(permission);
+
+		Ok(authorized)
 	}
 
 	async fn resolve_remote_principal_selector(

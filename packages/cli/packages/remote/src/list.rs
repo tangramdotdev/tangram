@@ -12,6 +12,10 @@ pub struct Args {
 	#[arg(long)]
 	pub cursor: Option<String>,
 
+	/// Return each of the remotes with its data instead of a reference.
+	#[arg(long)]
+	pub expand: bool,
+
 	/// The maximum number of entries per page (default: 100, maximum: 1000).
 	#[arg(long)]
 	pub limit: Option<u64>,
@@ -31,6 +35,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::remote::list::Arg {
 		cursor: args.cursor,
+		expand: args.expand,
 		limit: args.limit,
 		principal: args.principal,
 	};

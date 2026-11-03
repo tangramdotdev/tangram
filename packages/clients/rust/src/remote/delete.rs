@@ -13,11 +13,11 @@ pub struct Arg {
 impl tg::Session {
 	pub async fn try_delete_remote(
 		&self,
-		name: &str,
+		remote: &tg::remote::Selector,
 		arg: tg::remote::delete::Arg,
 	) -> tg::Result<Option<()>> {
 		let method = http::Method::DELETE;
-		let path = format!("/remotes/{name}");
+		let path = format!("/remotes/{remote}");
 		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)

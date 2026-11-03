@@ -42,12 +42,14 @@ async fn create_schema_with_transaction(
 		.await
 		.map_err(tangram_database_turso::Error::from);
 	crate::retry!(result, "failed to execute the statements");
+	let id = tg::remote::Id::new();
+	let sql = format!(
+		"insert into remotes (id, name, trusted, url) values ('{id}', 'default', 1, 'https://cloud.tangram.dev');"
+	);
 	let result = transaction
 		.inner()
 		.deref()
-		.execute_batch(
-			"insert into remotes (name, trusted, url) values ('default', 1, 'https://cloud.tangram.dev');",
-		)
+		.execute_batch(&sql)
 		.await
 		.map_err(tangram_database_turso::Error::from);
 	crate::retry!(result, "failed to execute the statements");
