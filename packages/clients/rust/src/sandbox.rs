@@ -40,15 +40,8 @@ pub mod wait;
 /// The header with which a runner's request claims to act for one of its sandboxes.
 pub const SANDBOX_HEADER: &str = "x-tg-sandbox";
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
-	pub time_to_live: std::time::Duration,
-}
-
-impl Default for Config {
-	fn default() -> Self {
-		Self {
-			time_to_live: std::time::Duration::from_mins(5),
-		}
-	}
+	pub time_to_live: Option<std::time::Duration>,
+	pub time_to_stop: Option<std::time::Duration>,
 }

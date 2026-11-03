@@ -57,6 +57,11 @@ pub struct Arg {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[tangram_serialize(default, id = 9, skip_serializing_if = "Option::is_none")]
 	pub time_to_live: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
+	pub time_to_stop: Option<Duration>,
 }
 
 #[derive(

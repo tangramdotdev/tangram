@@ -1,18 +1,13 @@
 use ../../util/test.nu *
 
-# A sandbox defaults to a five-minute ttl, supports an explicitly infinite ttl, and is destroyed after its ttl expires.
+# A sandbox lives until it is destroyed by default, and it is destroyed after its time to live expires, which `--ttl` also sets.
 
 let local = server spawn --name local --now '2026-01-01T00:00:00Z' --config { advanced: { checkpoints: true }, control: { read_timeout: 0.25 }, indexer: { cleaning: {} }, runner: { sandbox_state_ttl: 0 }, sandbox: { ttl: 0 } }
 
 let default = tg sandbox create --no-tokens | referent node
 let sandbox = tg sandbox get $default | from json | get data
-assert equal $sandbox.time_to_live 300 "the default time to live should be five minutes"
+assert ($sandbox.time_to_live? | is-empty) "a sandbox should live until it is destroyed by default"
 tg sandbox destroy $default
-
-let infinite = tg sandbox create --no-tokens --no-ttl | referent node
-let sandbox = tg sandbox get $infinite | from json | get data
-assert ($sandbox.time_to_live? | is-empty) "an explicitly infinite time to live should be preserved"
-tg sandbox destroy $infinite
 
 let id = tg sandbox create --no-tokens --ttl 1s | referent node
 let delete = checkpoint watch cleaning.sandbox.delete --params { sandbox: $id }

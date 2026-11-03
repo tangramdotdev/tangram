@@ -297,6 +297,7 @@ fn sandbox_data(
 			status,
 			storage: None,
 			time_to_live: None,
+			time_to_stop: None,
 			usage,
 		},
 		location: None,

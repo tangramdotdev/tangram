@@ -1,7 +1,5 @@
 import * as tg from "./index.ts";
 
-const defaultTimeToLive = 5 * 60;
-
 export class Sandbox {
 	#id: tg.Sandbox.Id;
 	#location: tg.Location.Arg | null;
@@ -178,6 +176,7 @@ export namespace Sandbox {
 		network?: tg.Sandbox.Network.Data | null;
 		owner?: string | null;
 		time_to_live?: number | null;
+		time_to_stop?: number | null;
 	};
 
 	export type Data = {
@@ -194,6 +193,7 @@ export namespace Sandbox {
 		owner?: string;
 		status: tg.Sandbox.Status;
 		time_to_live?: number | null;
+		time_to_stop?: number | null;
 		usage?: tg.Sandbox.Usage | null;
 	};
 
@@ -278,6 +278,7 @@ export namespace Sandbox {
 		owner?: string | null;
 		ports?: Array<tg.Sandbox.Port> | null;
 		timeToLive?: number | null;
+		timeToStop?: number | null;
 
 		/** An alias for `timeToLive`. */
 		ttl?: number | null;
@@ -329,6 +330,9 @@ export namespace Sandbox {
 			let timeToLive = tg.Sandbox.Arg.normalizeTimeToLive(arg).timeToLive;
 			if (timeToLive !== undefined) {
 				output.time_to_live = timeToLive;
+			}
+			if (arg.timeToStop !== undefined) {
+				output.time_to_stop = arg.timeToStop;
 			}
 
 			return output;
@@ -455,6 +459,13 @@ export namespace Sandbox {
 			return this;
 		}
 
+		timeToStop(
+			timeToStop: tg.Unresolved<tg.MaybeMutation<number> | null>,
+		): this {
+			this.#args.push({ timeToStop });
+			return this;
+		}
+
 		/** An alias for `timeToLive`. */
 		ttl(ttl: tg.Unresolved<tg.MaybeMutation<number> | null>): this {
 			return this.timeToLive(ttl);
@@ -479,10 +490,7 @@ export namespace Sandbox {
 				tg.ValueOrMaybeMutationMap<tg.Sandbox.Arg>,
 				tg.Sandbox.Arg
 			>({
-				args: [
-					{ host: tg.host.current, timeToLive: defaultTimeToLive },
-					...this.#args,
-				],
+				args: [{ host: tg.host.current }, ...this.#args],
 				map: async (arg) => tg.Sandbox.Arg.normalizeTimeToLive(arg),
 				reduce: {
 					mounts: "append",

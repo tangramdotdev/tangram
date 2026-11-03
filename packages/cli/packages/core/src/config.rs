@@ -3026,6 +3026,11 @@ pub struct ClientSandbox {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_live: Option<Duration>,
+
+	/// The default time to stop for a created sandbox.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub time_to_stop: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -3295,7 +3300,10 @@ pub(crate) fn resolve_client_pool(source: &Pool) -> tangram_pool::Options {
 pub(crate) fn resolve_client_sandbox(source: ClientSandbox) -> tg::sandbox::Config {
 	let mut target = tg::sandbox::Config::default();
 	if let Some(value) = source.time_to_live {
-		target.time_to_live = value;
+		target.time_to_live = Some(value);
+	}
+	if let Some(value) = source.time_to_stop {
+		target.time_to_stop = Some(value);
 	}
 	target
 }

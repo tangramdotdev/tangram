@@ -96,6 +96,7 @@ fn sandbox_arg(
 			status,
 			storage: None,
 			time_to_live: None,
+			time_to_stop: None,
 			usage: None,
 		},
 		location: None,

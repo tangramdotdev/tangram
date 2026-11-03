@@ -143,6 +143,7 @@ impl Component {
 			owner: Some(data.owner.clone()),
 			storage: data.storage,
 			time_to_live: data.time_to_live,
+			time_to_stop: data.time_to_stop,
 		};
 		let token = session
 			.server

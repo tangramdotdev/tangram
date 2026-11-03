@@ -74,6 +74,7 @@ fn data(
 		status,
 		storage: None,
 		time_to_live: None,
+		time_to_stop: None,
 		usage,
 	};
 	tg::sandbox::get::Output {

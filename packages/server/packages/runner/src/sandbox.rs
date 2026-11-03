@@ -1350,10 +1350,11 @@ impl Component {
 		// Create the process events.
 		let mut process_events = StreamMap::new();
 
-		// Create the timer.
-		let mut timer_future: Option<BoxFuture<'static, ()>> = None;
+		// Create the idle timer, which stops or destroys the sandbox once it has no processes for its time to stop or time to live.
+		let mut timer_future: Option<BoxFuture<'static, Teardown>> = None;
 		let initial_process = process_task_output.is_some();
 		let time_to_live = state.data.time_to_live;
+		let time_to_stop = state.data.time_to_stop;
 
 		// Observe process initialization without blocking either control transport.
 		let mut pending = FuturesUnordered::new();
@@ -1383,8 +1384,8 @@ impl Component {
 				tokio::select! {
 					result = &mut ready_connection, if !initial_process && !ready => {
 						result?;
-						if pending.is_empty() && process_events.is_empty() && let Some(time_to_live) = time_to_live {
-							timer_future.replace(session.server.clock.sleep(time_to_live).boxed());
+						if pending.is_empty() && process_events.is_empty() {
+							timer_future = idle_timer(&session.server, time_to_live, time_to_stop);
 						}
 						let event = ReadyEvent { connected_event: None, sandbox: id.clone() };
 						event_sender.send(Ok(Event::Ready(event))).ok();
@@ -1515,8 +1516,8 @@ impl Component {
 								if stopping && process_events.is_empty() && pending.is_empty() {
 									break;
 								}
-								if ready && process_events.is_empty() && pending.is_empty() && let Some(time_to_live) = time_to_live {
-									timer_future.replace(session.server.clock.sleep(time_to_live).boxed());
+								if ready && process_events.is_empty() && pending.is_empty() {
+									timer_future = idle_timer(&session.server, time_to_live, time_to_stop);
 								}
 							},
 							ProcessEvent::Connected(_) => {
@@ -1550,8 +1551,9 @@ impl Component {
 						break;
 					},
 
-					// If the timer fires, then break and destroy the sandbox.
-					() = current_timer_future => {
+					// If the idle timer fires, then break and stop or destroy the sandbox.
+					timer_teardown = current_timer_future => {
+						teardown = timer_teardown;
 						break;
 					},
 				}
@@ -1898,6 +1900,7 @@ impl Component {
 			status,
 			storage: arg.storage,
 			time_to_live: arg.time_to_live,
+			time_to_stop: arg.time_to_stop,
 			usage: None,
 		};
 		let data = tg::sandbox::get::Output {
@@ -2363,6 +2366,7 @@ impl Component {
 				status: tg::sandbox::Status::Started,
 				storage: create.storage,
 				time_to_live: create.time_to_live,
+				time_to_stop: create.time_to_stop,
 				usage: None,
 			},
 			location: Some(location.clone()),
@@ -2513,6 +2517,24 @@ impl Teardown {
 			Self::Stop
 		}
 	}
+}
+
+/// Create the idle timer for a sandbox without processes, which fires with a destroy after its time to live, or with a stop after its time to stop if that is shorter.
+fn idle_timer(
+	server: &Server,
+	time_to_live: Option<std::time::Duration>,
+	time_to_stop: Option<std::time::Duration>,
+) -> Option<BoxFuture<'static, Teardown>> {
+	let (duration, teardown) = match (time_to_live, time_to_stop) {
+		(None, None) => return None,
+		(Some(time_to_live), Some(time_to_stop)) if time_to_stop < time_to_live => {
+			(time_to_stop, Teardown::Stop)
+		},
+		(Some(time_to_live), _) => (time_to_live, Teardown::Destroy),
+		(None, Some(time_to_stop)) => (time_to_stop, Teardown::Stop),
+	};
+	let timer = server.clock.sleep(duration).map(move |()| teardown).boxed();
+	Some(timer)
 }
 
 fn wait_for_process_attachion(

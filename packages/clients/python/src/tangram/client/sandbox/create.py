@@ -23,6 +23,7 @@ class DataArgObject(TypedDict, total=False):
     network: dict[str, Any] | None
     owner: str | None
     time_to_live: int | float | None
+    time_to_stop: int | float | None
 
 
 class WireOutput(TypedDict):
