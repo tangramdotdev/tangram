@@ -87,3 +87,27 @@ quota space usage, and CPU from total execution time in `cpu.stat`. No disk I/O
 byte counters are billed. Aggregate indexes expose the six counters as
 `sandbox_{resource}_{reservation|consumption}`. Both counters are needed to
 calculate charges; consumption already excludes the minimum.
+
+# Stopping and starting
+
+`tg sandbox stop` stops a sandbox and keeps its files. Its running processes
+finish with an error, it releases its CPU, memory and sandbox capacity, and a
+spawn into it fails with "the sandbox is not started". `tg sandbox start`
+starts it again on the same runner with the same files, and a process spawned
+after `start` returns runs in it. Both are idempotent, and a stopped sandbox
+can still be destroyed. `tg sandbox list --status stopped` lists the stopped
+sandboxes.
+
+A graceful server shutdown, such as `tangram server stop`, stops the server's
+sandboxes rather than destroying them, and so does the expiration of a
+runner's heartbeat. Usage accrues only while a sandbox runs, and the usage of
+every start is summed.
+
+A sandbox handle destroys its sandbox when it is disposed. To keep a stopped
+sandbox beyond the life of its handle, call `detach()` on the handle:
+
+```ts
+const sandbox = await tg.Sandbox.create();
+await sandbox.stop();
+sandbox.detach();
+```
