@@ -336,6 +336,7 @@ impl Component {
 			match tangram_server_node_common::specifier::insert_specifier_with_transaction(
 				transaction,
 				&id.clone().into(),
+				None,
 				&specifier,
 			)
 			.await?

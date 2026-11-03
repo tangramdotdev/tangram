@@ -1,7 +1,13 @@
 create table specifiers (
 	id text primary key,
+	key blob not null,
+	parent text,
 	specifier text not null
 );
+
+create unique index specifiers_key_index on specifiers (key);
+
+create index specifiers_parent_key_index on specifiers (coalesce(parent, ''), key);
 
 create unique index specifiers_specifier_index on specifiers (specifier);
 
