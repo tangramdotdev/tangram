@@ -18,34 +18,40 @@ export async function write(
 	input?: AsyncIterableIterator<Uint8Array>,
 ): Promise<tg.Write.Output | tg.Blob.Id> {
 	if (typeof argOrBytes === "string" || argOrBytes instanceof Uint8Array) {
-		let output = await write(
-			client,
-			{},
-			singleBytes(
-				typeof argOrBytes === "string"
-					? tg.encoding.utf8.encode(argOrBytes)
-					: argOrBytes,
-			),
-		);
-		return (output as tg.Write.Output).blob.node;
+		let body =
+			typeof argOrBytes === "string"
+				? Body.text(argOrBytes)
+				: Body.bytes(argOrBytes);
+		let output = await writeWithBody(client, {}, body);
+		return output.blob.node;
 	}
+	tg.assert(input !== undefined);
+	let body = new Body(input);
+	return await writeWithBody(client, argOrBytes, body);
+}
+
+async function writeWithBody(
+	client: Client,
+	arg: tg.Write.Arg,
+	body: Body,
+): Promise<tg.Write.Output> {
 	let method = "POST";
 	let uri = "/write";
 	let headers = {
 		accept: "application/json",
 		"content-type": "application/octet-stream",
 	};
-	tg.assert(input !== undefined);
-	let body = new Body(input);
 	let request = new Request({
 		body,
 		method,
 		uri,
 		headers,
 	}).arg({
-		checkout_pointers: argOrBytes.checkoutPointers ?? null,
+		checkout_pointers: arg.checkoutPointers ?? null,
 	});
-	let response = await client.send(request);
+	let response = await (body.replayable
+		? client.sendWithRetry(request)
+		: client.send(request));
 	if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
@@ -53,10 +59,4 @@ export async function write(
 	return {
 		blob: tg.Referent.fromDataString(output.blob, (id) => id as tg.Blob.Id),
 	};
-}
-
-async function* singleBytes(
-	bytes: Uint8Array,
-): AsyncIterableIterator<Uint8Array> {
-	yield bytes;
 }

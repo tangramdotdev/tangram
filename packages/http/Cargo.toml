@@ -23,6 +23,7 @@ bytes = { workspace = true }
 derive_more = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
+h2 = { workspace = true }
 http = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }

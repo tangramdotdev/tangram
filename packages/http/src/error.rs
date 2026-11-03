@@ -1,7 +1,17 @@
+#[cfg(test)]
+mod tests;
+
 #[must_use]
 pub fn is_retryable(error: &(dyn std::error::Error + 'static)) -> bool {
 	let mut current = Some(error);
 	while let Some(error) = current {
+		if let Some(error) = error.downcast_ref::<h2::Error>()
+			&& error.is_remote()
+			&& error.is_go_away()
+			&& error.reason() == Some(h2::Reason::NO_ERROR)
+		{
+			return true;
+		}
 		if let Some(error) = error.downcast_ref::<hyper::Error>()
 			&& (error.is_closed() || error.is_canceled() || error.is_incomplete_message())
 		{
