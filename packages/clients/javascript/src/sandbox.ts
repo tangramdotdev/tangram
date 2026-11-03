@@ -184,6 +184,7 @@ export namespace Sandbox {
 		cpu?: tg.Sandbox.Cpu | null;
 		creator?: string;
 		error?: tg.Error.Data | tg.Error.Id | null;
+		expires_at?: number | null;
 		hostname?: string | null;
 		id: tg.Sandbox.Id;
 		memory?: number | tg.Sandbox.Resource | null;

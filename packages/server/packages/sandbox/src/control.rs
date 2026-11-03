@@ -405,6 +405,7 @@ impl Component {
 				cpu: create.cpu,
 				creator,
 				error: None,
+				expires_at: None,
 				hostname: create.hostname,
 				id: id.clone(),
 				memory: create.memory,

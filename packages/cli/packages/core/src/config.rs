@@ -1960,6 +1960,11 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdio_drained_ttl: Option<Duration>,
 
+	/// The interval at which the runner destroys its expired stopped sandboxes.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stopped_sandbox_interval: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub storage: Option<u64>,
 

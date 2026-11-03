@@ -101,6 +101,7 @@ class SandboxData(TypedDict, total=False):
     cpu: Cpu | None
     creator: str
     error: ErrorData | str | None
+    expires_at: int | None
     hostname: str | None
     memory: Resource | None
     storage: Resource | None

@@ -87,6 +87,7 @@ fn sandbox_arg(
 			cpu: None,
 			creator: tg::Principal::Root,
 			error: None,
+			expires_at: None,
 			hostname: None,
 			id: id.clone(),
 			memory: None,

@@ -145,6 +145,7 @@ mod tests {
 				cpu: Some(2.into()),
 				creator: tg::Principal::User(user.clone()),
 				error: None,
+				expires_at: None,
 				hostname: Some("host".into()),
 				id: sandbox.clone(),
 				memory: Some(1024.into()),

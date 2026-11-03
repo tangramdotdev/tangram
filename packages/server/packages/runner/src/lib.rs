@@ -413,6 +413,19 @@ impl Component {
 			},
 		};
 		self.start_sandbox_pool(session);
+
+		// Destroy the expired stopped sandboxes periodically, until the runner stops.
+		let _expire_task = Task::spawn({
+			let component = self.clone();
+			let session = session.clone();
+			let stopper = stopper.clone();
+			move |_| async move {
+				component
+					.expire_stopped_sandboxes_task(&session, stopper)
+					.await;
+			}
+		});
+
 		let mut cleanup = true;
 		let mut retries = None::<BoxStream<'static, ()>>;
 		loop {
