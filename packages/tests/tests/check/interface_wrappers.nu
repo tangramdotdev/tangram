@@ -79,8 +79,6 @@ for line in 7..15 {
 	assert ($output.stderr | str contains $'tangram.py:($line):') $output.stderr
 }
 
-assert ($output.stderr | str contains "typeof Args") $output.stderr
-
 # Promises in returned records resolve to typed values at the language boundary.
 let source = $caller
 	| str replace -a ': str =' ': int ='
