@@ -113,7 +113,7 @@ impl Converter<'_> {
 			return;
 		}
 		let type_ = self.checker.get_declared_type_of_symbol_exported(symbol);
-		if !type_.flags.get().intersects(TypeFlags::Object) {
+		if !is_object(type_) {
 			return;
 		}
 		let definitions = self.definitions.clone();
@@ -283,7 +283,7 @@ impl Converter<'_> {
 		}
 
 		// Convert the object types.
-		if !flags.intersects(TypeFlags::Object) {
+		if !is_object(type_) {
 			return Err(self.error(type_));
 		}
 		if self.checker.is_array_type_exported(type_) {
@@ -551,6 +551,14 @@ impl Converter<'_> {
 		let type_ = self.checker.type_to_string_exported(type_);
 		tg::error!(%type_, "the type is not a value")
 	}
+}
+
+/// Determine whether a type is an object or an intersection of objects.
+fn is_object(type_: P<tsrs_checker::Type>) -> bool {
+	let flags = type_.flags.get();
+	flags.intersects(TypeFlags::Object)
+		|| (flags.intersects(TypeFlags::Intersection)
+			&& type_.types().iter().all(|type_| is_object(*type_)))
 }
 
 /// Get the symbol of an object type that a module names with an interface or a type alias.
