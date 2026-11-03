@@ -66,7 +66,9 @@ pub(crate) async fn spawn(
 	// Allocate the filesystem resources.
 	let filesystem_inodes = isolation.max_filesystem_inodes;
 	let storage = match (arg.storage, &arg.storage_pool) {
-		(Some(resource), Some(pool)) => Some(pool.allocate(resource)?),
+		(Some(resource), Some(pool)) => {
+			Some(pool.allocate(resource, isolation.filesystem_project_id)?)
+		},
 		(Some(_), None) => return Err(tg::error!("storage limits require a runner storage pool")),
 		(None, _) => None,
 	};

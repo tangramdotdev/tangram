@@ -59,6 +59,9 @@ pub struct State {
 
 	#[cfg(target_os = "linux")]
 	pub stopped_project_ids: dashmap::DashMap<tg::sandbox::Id, crate::project::Id>,
+
+	/// The storage that each stopped sandbox's directory keeps reserved, which a start of the sandbox releases before it acquires its capacity.
+	pub stopped_storage: dashmap::DashMap<tg::sandbox::Id, crate::capacity::Allocation>,
 }
 
 impl State {
@@ -97,6 +100,8 @@ impl State {
 
 			#[cfg(target_os = "linux")]
 			stopped_project_ids: dashmap::DashMap::new(),
+
+			stopped_storage: dashmap::DashMap::new(),
 
 			#[cfg(target_os = "linux")]
 			storage_pool: tangram_sandbox::budget::Pool::new(
