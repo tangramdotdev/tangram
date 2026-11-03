@@ -33,6 +33,7 @@ pub mod list;
 pub mod outcome;
 pub mod processes;
 pub mod status;
+pub mod stop;
 pub mod wait;
 
 /// The header with which a runner's request claims to act for one of its sandboxes.

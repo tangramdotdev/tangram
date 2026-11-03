@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A sandbox get issued after its runner dies must observe destruction without waiting for the control read timeout.
+# A sandbox get issued after its runner dies must observe that the sandbox stopped without waiting for the control read timeout.
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true, multi_server: true },
@@ -44,12 +44,6 @@ checkpoint unwatch $index
 advance_time $remote 4sec
 let output = job recv --tag $get --timeout 15sec
 success $output "the sandbox get must complete before the control read timeout"
-assert equal ($output.stdout | from json | get data.status) "destroyed" "the pending get must observe destruction once the runner expires"
-
-# Waiting for the sandbox returns the error that destroyed it.
-let output = tg --url $remote.url --token $root_token sandbox wait $sandbox | complete
-success $output
-snapshot $output.stdout '
-	{"error":{"code":"internal","message":"heartbeat expired"}}
-
-'
+let data = $output.stdout | from json | get data
+assert equal $data.status "stopped" "the pending get must observe the stop once the runner expires"
+assert equal $data.error.message "heartbeat expired" "the sandbox should record the error that stopped it"

@@ -46,6 +46,38 @@ impl Temp {
 		assert!(self.filesystem_project_id.replace(project_id).is_none());
 	}
 
+	/// Move the temp to a path that outlives it, returning its filesystem project ID so that the caller keeps it reserved.
+	#[cfg(target_os = "linux")]
+	pub async fn persist(
+		mut self,
+		path: &Path,
+	) -> std::io::Result<Option<tangram_server_runner_core::project::Id>> {
+		if let Some(parent) = path.parent() {
+			tokio::fs::create_dir_all(parent).await?;
+		}
+		if self.path != path {
+			tokio::fs::rename(&self.path, path).await?;
+		}
+		self.preserve = true;
+		self.server.temps.remove(&self.path);
+		let project_id = self.filesystem_project_id.take();
+		Ok(project_id)
+	}
+
+	/// Move the temp to a path that outlives it.
+	#[cfg(not(target_os = "linux"))]
+	pub async fn persist(mut self, path: &Path) -> std::io::Result<Option<()>> {
+		if let Some(parent) = path.parent() {
+			tokio::fs::create_dir_all(parent).await?;
+		}
+		if self.path != path {
+			tokio::fs::rename(&self.path, path).await?;
+		}
+		self.preserve = true;
+		self.server.temps.remove(&self.path);
+		Ok(None)
+	}
+
 	pub async fn remove(&mut self) -> std::io::Result<()> {
 		match remove(&self.path).await {
 			Ok(()) => {},

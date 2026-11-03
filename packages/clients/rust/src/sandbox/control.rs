@@ -106,6 +106,9 @@ pub struct ClientRequest {
 pub enum ClientRequestArg {
 	#[tangram_serialize(id = 1)]
 	Destroy(DestroyClientRequestArg),
+
+	#[tangram_serialize(id = 2)]
+	Stop(StopClientRequestArg),
 }
 
 #[derive(
@@ -149,6 +152,9 @@ pub enum ClientResponseOutput {
 
 	#[tangram_serialize(id = 3)]
 	SpawnProcess(SpawnProcessClientResponseOutput),
+
+	#[tangram_serialize(id = 4)]
+	Stop(StopClientResponseOutput),
 }
 
 #[derive(
@@ -213,6 +219,9 @@ pub enum ServerRequestArg {
 
 	#[tangram_serialize(id = 3)]
 	SpawnProcess(SpawnProcessServerRequestArg),
+
+	#[tangram_serialize(id = 4)]
+	Stop(StopServerRequestArg),
 }
 
 #[derive(
@@ -247,6 +256,9 @@ pub struct ServerResponse {
 pub enum ServerResponseOutput {
 	#[tangram_serialize(id = 1)]
 	Destroy(DestroyServerResponseOutput),
+
+	#[tangram_serialize(id = 2)]
+	Stop(StopServerResponseOutput),
 }
 
 #[derive(
@@ -388,6 +400,57 @@ pub struct SpawnProcessClientResponseOutput {
 	#[tangram_serialize(id = 1)]
 	pub process: tg::Referent<tg::process::Id>,
 }
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StopClientRequestArg {
+	#[tangram_serialize(id = 0)]
+	pub data: tg::sandbox::get::Output,
+
+	#[tangram_serialize(id = 1)]
+	pub processes: Vec<tg::process::Id>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StopServerRequestArg {}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StopClientResponseOutput {
+	#[tangram_serialize(id = 0)]
+	pub stopped: bool,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StopServerResponseOutput {}
 
 #[derive(
 	Clone,

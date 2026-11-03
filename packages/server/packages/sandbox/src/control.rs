@@ -13,6 +13,7 @@ use {
 };
 
 mod destroy;
+mod stop;
 
 pub(crate) mod service;
 
@@ -329,11 +330,21 @@ impl Component {
 										.await
 										.map(tg::sandbox::control::ServerResponseOutput::Destroy)
 								},
+								tg::sandbox::control::ClientRequestArg::Stop(request) => component
+									.stop_sandbox_control_request(
+										&session,
+										&id,
+										request,
+										created_at,
+										runner.clone(),
+									)
+									.await
+									.map(tg::sandbox::control::ServerResponseOutput::Stop),
 							};
 							let response =
 								Self::sandbox_control_server_response(request_id, result);
 							control_sender.send(response).await.map_err(|error| {
-								tg::error!(!error, "failed to send the destroy sandbox response")
+								tg::error!(!error, "failed to send the sandbox control response")
 							})?;
 						},
 						tg::sandbox::control::ClientMessage::Response(response) => {
@@ -606,6 +617,7 @@ impl Component {
 			tg::sandbox::control::ServerRequestArg::Get(_) => "get",
 			tg::sandbox::control::ServerRequestArg::GetProcesses(_) => "get_processes",
 			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => "spawn_process",
+			tg::sandbox::control::ServerRequestArg::Stop(_) => "stop",
 		};
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.request", sandbox = %id, kind).await;
 		let request_id = tangram_server_core::control::id();
