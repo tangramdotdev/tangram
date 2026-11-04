@@ -222,28 +222,42 @@ export namespace Object {
 		}
 
 		collectTokens(): tg.Authorization.Tokens {
-			// Discover the token locations on all loaded handles.
+			// Discover the token locations on all loaded handles, deriving the children of each loaded handle once.
 			let locations = new Set<string>();
-			this.#visitLoaded((state) => {
+			let children = new Map<tg.Object.State, Array<tg.Object.State>>();
+			let visited = new Set<tg.Object.State>();
+			let pending: Array<tg.Object.State> = [this];
+			while (pending.length > 0) {
+				let state = pending.pop()!;
+				if (visited.has(state)) {
+					continue;
+				}
+				visited.add(state);
 				for (let location of globalThis.Object.keys(state.#tokens)) {
 					locations.add(location);
 				}
-				return true;
-			});
+				if (state.#object !== null) {
+					let states = tg.Object.Object.children(state.#object).map(
+						(child) => child.state,
+					);
+					children.set(state, states);
+					pending.push(...states);
+				}
+			}
 
 			// Collect uncovered authorization proofs and authorization tokens for pending syncs.
 			let tokens: tg.Authorization.Tokens = {};
 			for (let location of locations) {
-				let visited = new Map<tg.Object.State, Set<boolean>>();
+				let visitedCovered = new Set<tg.Object.State>();
+				let visitedUncovered = new Set<tg.Object.State>();
 				let stack: Array<[tg.Object.State, boolean]> = [[this, false]];
 				while (stack.length > 0) {
 					let [state, covered] = stack.pop()!;
-					let seen = visited.get(state) ?? new Set<boolean>();
-					if (seen.has(covered)) {
+					let visited = covered ? visitedCovered : visitedUncovered;
+					if (visited.has(state)) {
 						continue;
 					}
-					seen.add(covered);
-					visited.set(state, seen);
+					visited.add(state);
 					let entry = state.#tokens[location];
 					if (entry !== undefined) {
 						let collected = (tokens[location] ??= []);
@@ -265,40 +279,14 @@ export namespace Object {
 							);
 						}
 					}
-					if (state.object !== null) {
-						stack.push(
-							...tg.Object.Object.children(state.object).map(
-								(child): [tg.Object.State, boolean] => [child.state, covered],
-							),
-						);
+					for (let child of children.get(state) ?? []) {
+						stack.push([child, covered]);
 					}
 				}
 			}
 
 			tg.Authorization.Tokens.normalize(tokens);
 			return tokens;
-		}
-
-		#visitLoaded(descend: (state: tg.Object.State) => boolean): void {
-			let visited = new Set<tg.Object.State>();
-			let stack: Array<tg.Object.State> = [this];
-			while (stack.length > 0) {
-				let state = stack.pop()!;
-				if (visited.has(state)) {
-					continue;
-				}
-				visited.add(state);
-				if (!descend(state)) {
-					continue;
-				}
-				if (state.object !== null) {
-					stack.push(
-						...tg.Object.Object.children(state.object).map(
-							(child) => child.state,
-						),
-					);
-				}
-			}
 		}
 
 		get kind(): tg.Object.Kind {

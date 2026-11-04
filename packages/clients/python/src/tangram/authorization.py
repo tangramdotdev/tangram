@@ -26,8 +26,13 @@ def covers(token: str, other: str) -> bool:
     )
 
 
-def authorizes(token: str, resource: str, permission: str) -> bool:
-    data = parse(token)
+def authorizes(
+    token: str,
+    resource: str,
+    permission: str,
+    cache: dict[str, TokenBody | None] | None = None,
+) -> bool:
+    data = parse(token, cache)
     return (
         data is not None
         and data["resource"] == resource
@@ -35,12 +40,16 @@ def authorizes(token: str, resource: str, permission: str) -> bool:
     )
 
 
-def authorizes_object_subtree(token: str, resource: str) -> bool:
-    return authorizes(token, resource, "object_subtree")
+def authorizes_object_subtree(
+    token: str, resource: str, cache: dict[str, TokenBody | None] | None = None
+) -> bool:
+    return authorizes(token, resource, "object_subtree", cache)
 
 
-def resource(token: str) -> str | None:
-    data = parse(token)
+def resource(
+    token: str, cache: dict[str, TokenBody | None] | None = None
+) -> str | None:
+    data = parse(token, cache)
     return data["resource"] if data is not None else None
 
 
@@ -49,18 +58,31 @@ def expires_at(token: str) -> int | None:
     return data["expires_at"] if data is not None else None
 
 
-def parse(token: str) -> TokenBody | None:
+def parse(
+    token: str, cache: dict[str, TokenBody | None] | None = None
+) -> TokenBody | None:
+    """Parse a token, caching it in a cache that the object holding it owns."""
+    # Look up the token in the given cache.
+    if cache is not None and token in cache:
+        return cache[token]
+
+    # Look up the token in the bounded cache, or decode it.
     if token in _cache:
-        return _cache[token]
-    output = None
-    try:
-        output = decode(token)
-    except ValueError:
-        # Opaque tokens are retained for the server to validate.
-        pass
-    if len(_cache) >= 1024:
-        _cache.clear()
-    _cache[token] = output
+        output = _cache[token]
+    else:
+        output = None
+        try:
+            output = decode(token)
+        except ValueError:
+            # Opaque tokens are retained for the server to validate.
+            pass
+        if len(_cache) >= 1024:
+            _cache.clear()
+        _cache[token] = output
+
+    # Cache the token in the given cache.
+    if cache is not None:
+        cache[token] = output
     return output
 
 

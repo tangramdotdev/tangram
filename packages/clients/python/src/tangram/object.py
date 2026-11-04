@@ -52,6 +52,8 @@ class Object:
         self._value = value
         self._location = deepcopy(location)
         self.tokens = deepcopy(tokens or {})
+        # Cache decoded tokens per location, releasing them with the object.
+        self._decoded_tokens: dict[str, dict[str, authorization.TokenBody | None]] = {}
         self._stored = id is not None
         self._loading: asyncio.Task | None = None
         self._storing: asyncio.Task | None = None
@@ -249,6 +251,16 @@ class Object:
     def _children(self):
         return objects(self._value)
 
+    def _decoded(self, location: str, entry: list[str]):
+        # Keep only the decoded tokens that the entry holds once the cache outgrows it.
+        decoded = self._decoded_tokens.get(location)
+        if decoded is None or len(decoded) > len(entry):
+            previous = decoded or {}
+            decoded = {token: previous[token] for token in entry if token in previous}
+            self._decoded_tokens[location] = decoded
+
+        return decoded
+
     @property
     def state(self) -> ObjectState:
         return ObjectState(self)
@@ -335,7 +347,9 @@ class ObjectState:
         self._object._inherit_tokens(tokens)
 
     def collect_tokens(self):
+        # Discover the token locations, deriving each loaded object's children once.
         locations = set()
+        children = {}
         visited = set()
         stack = [self._object]
         while stack:
@@ -344,8 +358,17 @@ class ObjectState:
                 continue
             visited.add(id(state))
             locations.update(state.tokens)
+            if state._decoded_tokens.keys() - state.tokens.keys():
+                state._decoded_tokens = {
+                    location: decoded
+                    for location, decoded in state._decoded_tokens.items()
+                    if location in state.tokens
+                }
             if state._value is not None:
-                stack.extend(state._children())
+                children[id(state)] = state._children()
+                stack.extend(children[id(state)])
+
+        # Collect uncovered proofs and tokens for pending syncs.
         tokens = {}
         for location in locations:
             visited = set()
@@ -357,17 +380,21 @@ class ObjectState:
                     continue
                 visited.add(key)
                 inherited = covered
-                for token in state.tokens.get(location, []):
-                    if not inherited or (
-                        authorization.Token.resource(token) or ""
-                    ).startswith("syn_"):
-                        tokens.setdefault(location, []).append(token)
-                    covered |= authorization.Token.authorizes_object_subtree(
-                        token, state.id
-                    )
-                if state._value is not None:
-                    stack.extend((child, covered) for child in state._children())
+                entry = state.tokens.get(location)
+                if entry is not None:
+                    decoded = state._decoded(location, entry)
+                    for token in entry:
+                        if not inherited or (
+                            authorization.Token.resource(token, decoded) or ""
+                        ).startswith("syn_"):
+                            tokens.setdefault(location, []).append(token)
+                        covered |= authorization.Token.authorizes_object_subtree(
+                            token, state.id, decoded
+                        )
+                for child in children.get(id(state), []):
+                    stack.append((child, covered))
         authorization.normalize(tokens)
+
         return tokens
 
     @property
@@ -460,6 +487,8 @@ def objects(value) -> list[Object]:
     from .command import CommandValue
     from .graph import Pointer
 
+    if isinstance(value, Object):
+        return [value]
     if isinstance(value, CommandValue):
         return objects(value.value)
     if isinstance(value, Template):
@@ -468,8 +497,6 @@ def objects(value) -> list[Object]:
         return objects(value.referent.node)
     if isinstance(value, Mutation):
         return objects([value.value, value.values, value.template])
-    if isinstance(value, Object):
-        return [value]
     if isinstance(value, Pointer):
         return [value.graph]
     if isinstance(value, Referent):

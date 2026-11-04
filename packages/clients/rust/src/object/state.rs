@@ -272,12 +272,31 @@ impl State {
 
 	#[must_use]
 	pub fn collect_tokens(&self) -> tg::authorization::Tokens {
-		// Discover the token locations on all loaded handles.
+		// Discover the token locations on all loaded handles, deriving the children of each loaded handle once.
 		let mut locations = BTreeSet::new();
-		self.visit_loaded(|state| {
-			locations.extend(state.tokens().iter().map(|(location, _)| location.clone()));
-			true
-		});
+		let mut children = BTreeMap::new();
+		let mut visited = BTreeSet::new();
+		let mut stack = vec![self.clone()];
+		while let Some(state) = stack.pop() {
+			if !visited.insert(state.identity()) {
+				continue;
+			}
+			let inner = state.0.read().unwrap();
+			locations.extend(inner.tokens.iter().map(|(location, _)| location.clone()));
+			let object = inner.object.clone();
+			drop(inner);
+
+			// Derive the children without holding the lock, because deriving them can lock the children.
+			if let Some(object) = object {
+				let states = object
+					.children()
+					.into_iter()
+					.map(|child| child.state())
+					.collect::<Vec<_>>();
+				stack.extend(states.iter().cloned());
+				children.insert(state.identity(), states);
+			}
+		}
 
 		// Collect uncovered authorization proofs and authorization tokens for pending syncs.
 		let mut tokens = tg::authorization::Tokens::default();
@@ -289,9 +308,15 @@ impl State {
 				if !visited.insert((state.identity(), covered)) {
 					continue;
 				}
-				let state_tokens = state.tokens();
+
+				// Get the ID of a handle with tokens at the location before reading its tokens, because computing the ID locks the handle.
+				let has_entry = state.0.read().unwrap().tokens.get(&location).is_some();
+				let id = has_entry.then(|| tg::Id::from(state.id()));
+
+				// Collect the handle's tokens without copying them.
+				let inner = state.0.read().unwrap();
 				let mut covered = covered;
-				if let Some(state_entry) = state_tokens.get(&location) {
+				if let (Some(id), Some(state_entry)) = (&id, inner.tokens.get(&location)) {
 					entry.authorization.extend(
 						state_entry
 							.authorization
@@ -301,19 +326,14 @@ impl State {
 							})
 							.cloned(),
 					);
-					let id = state.id().into();
 					covered |= state_entry
 						.authorization
 						.iter()
-						.any(|token| token.authorizes_object_subtree(&id));
+						.any(|token| token.authorizes_object_subtree(id));
 				}
-				if let Some(object) = state.object() {
-					stack.extend(
-						object
-							.children()
-							.into_iter()
-							.map(|child| (child.state(), covered)),
-					);
+				drop(inner);
+				if let Some(states) = children.get(&state.identity()) {
+					stack.extend(states.iter().map(|child| (child.clone(), covered)));
 				}
 			}
 			if !entry.is_empty() {
@@ -322,19 +342,6 @@ impl State {
 		}
 
 		tokens
-	}
-
-	fn visit_loaded(&self, mut descend: impl FnMut(&Self) -> bool) {
-		let mut visited = BTreeSet::new();
-		let mut stack = vec![self.clone()];
-		while let Some(state) = stack.pop() {
-			if !visited.insert(state.identity()) || !descend(&state) {
-				continue;
-			}
-			if let Some(object) = state.object() {
-				stack.extend(object.children().into_iter().map(|child| child.state()));
-			}
-		}
 	}
 
 	#[must_use]
@@ -627,5 +634,68 @@ mod tests {
 		parent.state().load_with_instance(&client).await.unwrap();
 
 		assert!(child.state().tokens().is_empty());
+	}
+
+	#[test]
+	fn collecting_tokens_does_not_lock_a_handle_while_deriving_its_children() {
+		// Create a loaded error whose two children inherit a token when they are derived.
+		let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
+		let first = tg::Directory::with_id(tg::directory::Id::new(b"first"));
+		let second = tg::Directory::with_id(tg::directory::Id::new(b"second"));
+		let body = tg::authorization::Body {
+			expires_at: i64::MAX,
+			permissions: vec![tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			)],
+			resource: first.id().into(),
+		};
+		let token = tg::authorization::Token::sign(body, &key).unwrap();
+		let tokens = tg::authorization::Tokens::with_authorization([token]);
+		let location = |child: &tg::Directory| {
+			let node = tg::module::Source::Edge(tg::graph::Edge::Object(child.clone().into()));
+			let module = tg::Module {
+				kind: tg::module::Kind::Artifact,
+				referent: tg::Referent::with_node_and_tokens(node, tokens.clone()),
+			};
+			let position = tg::Position {
+				line: 0,
+				character: 0,
+			};
+			let range = tg::Range {
+				start: position,
+				end: position,
+			};
+			tg::error::Location {
+				symbol: None,
+				file: tg::error::File::Module(module),
+				range,
+			}
+		};
+		let object = tg::error::Object {
+			stack: Some(vec![location(&first), location(&second)]),
+			..Default::default()
+		};
+		let parent = tg::Error::with_object(object);
+
+		// Hold a lock on the second child, as a store that locks a child before its parent does, and collect the tokens.
+		let guard = second.state().0.write().unwrap();
+		let state = parent.state().clone();
+		let thread = std::thread::spawn(move || state.collect_tokens());
+
+		// Wait until the first child has inherited the token, so that deriving the children has started and cannot finish.
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+		while first.state().tokens().is_empty() && std::time::Instant::now() < deadline {
+			std::thread::yield_now();
+		}
+		let derivation_started = !first.state().tokens().is_empty();
+
+		// Try to lock the parent, as the store would next.
+		let parent_is_available = parent.state().0.try_write().is_ok();
+
+		// Release the second child before asserting, so that the thread always finishes.
+		drop(guard);
+		thread.join().unwrap();
+		assert!(derivation_started);
+		assert!(parent_is_available);
 	}
 }
