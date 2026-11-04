@@ -22,8 +22,8 @@ let proxy = job spawn { node $proxy_path $port $ready ...$sockets }
 success (timeout 30s cat $ready | complete) "the proxy should listen"
 let url = $'http://127.0.0.1:($port)'
 
-# Hold every correlated request that either server sends over the messenger.
-let checkpoints = [process.attach.service.heartbeat.start process.control.service.heartbeat.start sandbox.control.service.heartbeat.start]
+# Hold every control request that either server sends over the messenger. An attach's command sync can reach the server before the attach registers its nonce, and then asks the attach service over the messenger.
+let checkpoints = [process.control.service.heartbeat.start sandbox.control.service.heartbeat.start]
 let watches = [$first $second] | each { |server|
 	$checkpoints | each { |name| checkpoint watch $name --url $server.url --token $root_token }
 } | flatten
@@ -47,7 +47,7 @@ let local = server spawn --name local --config {
 let path = artifact { tangram.ts: 'export default () => tg.file("hello")' }
 for _ in 1..4 {
 	let output = timeout 60s tg --url $local.url build --remote $path | complete
-	success $output "the build should complete without a correlated request reaching the messenger"
+	success $output "the build should complete without a control request reaching the messenger"
 	let read = tg --url $local.url read ($output.stdout | str trim) | complete
 	success $read
 	assert equal $read.stdout hello
