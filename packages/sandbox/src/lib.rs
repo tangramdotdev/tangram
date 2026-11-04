@@ -97,8 +97,7 @@ pub struct State {
 	kill: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 
 	#[cfg(target_os = "linux")]
-	#[expect(dead_code)]
-	network: Option<crate::network::Network>,
+	network: std::sync::Mutex<Option<crate::network::Network>>,
 
 	next_process_index: AtomicU64,
 
@@ -627,7 +626,7 @@ impl Sandbox {
 			kill: std::sync::Mutex::new(Some(kill_sender)),
 
 			#[cfg(target_os = "linux")]
-			network,
+			network: std::sync::Mutex::new(network),
 
 			next_process_index: AtomicU64::new(1),
 
@@ -670,6 +669,9 @@ impl Sandbox {
 		let _destroy = self.0.destroy.lock().await;
 		if self.0.activated.load(Ordering::Relaxed) {
 			return Ok(());
+		}
+		if self.0.stopped.load(Ordering::SeqCst) {
+			return Err(tg::error!("the sandbox is stopped"));
 		}
 
 		#[cfg(target_os = "linux")]
@@ -982,6 +984,8 @@ impl Sandbox {
 		#[cfg(target_os = "macos")]
 		self.0.cleanup.stop(self.0.arg.shutdown_timeout).await?;
 		self.cleanup_cgroup().await?;
+		#[cfg(target_os = "linux")]
+		self.stop_network().await?;
 
 		// Settle the usage.
 		let usage = self.finish_accounting().await?;
@@ -1007,6 +1011,14 @@ impl Sandbox {
 			return Ok(());
 		}
 
+		// Find the sandbox's processes before they lose their parent, because only a cgroup waits for them otherwise.
+		#[cfg(target_os = "linux")]
+		let descendants = if self.0.cgroup.lock().await.is_none() {
+			crate::linux::descendants(self.0.pid)
+		} else {
+			Vec::new()
+		};
+
 		// Force the sandbox process to exit.
 		let sender = self.0.kill.lock().unwrap().take();
 		if let Some(sender) = sender {
@@ -1014,6 +1026,25 @@ impl Sandbox {
 		}
 		self.wait_exit().await?;
 
+		// Wait for the sandbox's processes to exit, which the exit of the sandbox process does not imply.
+		#[cfg(target_os = "linux")]
+		{
+			let timeout = self.0.arg.cgroup_cleanup_timeout;
+			tokio::task::spawn_blocking(move || crate::linux::wait_for_exit(&descendants, timeout))
+				.await
+				.map_err(|error| tg::error!(!error, "the process wait task panicked"))??;
+		}
+
+		Ok(())
+	}
+
+	/// Stop the sandbox's network, because a network sidecar that holds host ports outlives a sandbox without a cgroup.
+	#[cfg(target_os = "linux")]
+	async fn stop_network(&self) -> tg::Result<()> {
+		let network = self.0.network.lock().unwrap().take();
+		tokio::task::spawn_blocking(move || drop(network))
+			.await
+			.map_err(|error| tg::error!(!error, "the network stop task panicked"))?;
 		Ok(())
 	}
 

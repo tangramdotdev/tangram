@@ -64,21 +64,23 @@ pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
 pub(crate) fn try_create(arg: &crate::Arg) -> tg::Result<Option<Cgroup>> {
 	// Require a cgroup for a sandbox with resource limits or hardening.
 	let options = options(arg)?;
-	let required = options.limited() || arg.resources.cgroup_readonly;
-	if !required && !parent_available(Path::new(ROOT)) {
+	if options.limited() || arg.resources.cgroup_readonly {
+		let cgroup = Cgroup::new(name(arg), &options)?;
+		return Ok(Some(cgroup));
+	}
+
+	// Create the cgroup if a parent is writable.
+	let cgroup = Cgroup::try_new(name(arg), &options)?;
+	if cgroup.is_none() {
 		static WARNING: std::sync::Once = std::sync::Once::new();
 		WARNING.call_once(|| {
 			tracing::warn!(
 				"no cgroup parent is writable, so unlimited sandboxes will run without a cgroup and report no usage"
 			);
 		});
-		return Ok(None);
 	}
 
-	// Create the cgroup.
-	let cgroup = Cgroup::new(name(arg), &options)?;
-
-	Ok(Some(cgroup))
+	Ok(cgroup)
 }
 
 pub(crate) fn set_affinity_before_exec(command: &mut std::process::Command, cpus: &[usize]) {
@@ -133,26 +135,32 @@ pub(crate) fn enter_before_exec(command: &mut std::process::Command, cgroup: lib
 
 impl Cgroup {
 	pub fn new(name: &str, options: &Options) -> tg::Result<Self> {
+		let current = current(Path::new(ROOT))?;
+		Self::try_new(name, options)?.ok_or_else(|| {
+			tg::error!(
+				controllers = %options.controllers().join(", "),
+				path = %current.display(),
+				"no writable cgroup parent has the required controllers enabled; launch tangram in a leaf of a delegated cgroup with the required controllers enabled"
+			)
+		})
+	}
+
+	/// Create a cgroup, or return `None` if cgroup v2 is not available or no cgroup parent is writable.
+	pub fn try_new(name: &str, options: &Options) -> tg::Result<Option<Self>> {
 		use std::os::unix::fs::OpenOptionsExt as _;
 
 		// Resolve the current cgroup.
 		let root = Path::new(ROOT);
+		if !root.join("cgroup.controllers").exists() {
+			return Ok(None);
+		}
 		let current = current(root)?;
 
-		// Select the required resource controllers.
-		let mut controllers = Vec::new();
-		if options.cpu.is_some() || options.cpu_request.is_some() {
-			controllers.push("cpu");
-		}
-		if options.memory.is_some() || options.memory_oom_group {
-			controllers.push("memory");
-		}
-		if options.pids.is_some() {
-			controllers.push("pids");
-		}
-
 		// Select the parent cgroup.
-		let current = resolve_parent(root, &current, &controllers)?;
+		let controllers = options.controllers();
+		let Some(current) = resolve_parent(root, &current, &controllers)? else {
+			return Ok(None);
+		};
 
 		// Open the parent cgroup.
 		let name = sanitize_name(name);
@@ -303,7 +311,7 @@ impl Cgroup {
 			})?;
 		}
 
-		Ok(cgroup)
+		Ok(Some(cgroup))
 	}
 
 	/// Get the hardware threads that the sandbox's processes are pinned to.
@@ -482,7 +490,24 @@ impl Handle {
 }
 
 impl Options {
+	/// Select the controllers that the options require.
+	#[must_use]
+	fn controllers(&self) -> Vec<&'static str> {
+		let mut controllers = Vec::new();
+		if self.cpu.is_some() || self.cpu_request.is_some() {
+			controllers.push("cpu");
+		}
+		if self.memory.is_some() || self.memory_oom_group {
+			controllers.push("memory");
+		}
+		if self.pids.is_some() {
+			controllers.push("pids");
+		}
+		controllers
+	}
+
 	/// Determine whether the options set a resource limit, which only a cgroup can enforce.
+	#[must_use]
 	fn limited(&self) -> bool {
 		self.cpu.is_some()
 			|| self.cpu_request.is_some()
@@ -576,10 +601,6 @@ fn name(arg: &crate::Arg) -> &str {
 		.file_name()
 		.and_then(|name| name.to_str())
 		.unwrap_or("sandbox")
-}
-
-fn parent_available(root: &Path) -> bool {
-	current(root).is_ok_and(|current| resolve_parent(root, &current, &["memory"]).is_ok())
 }
 
 fn current(root: &Path) -> tg::Result<PathBuf> {
@@ -679,7 +700,11 @@ fn sanitize_name(name: &str) -> String {
 	output
 }
 
-fn resolve_parent(root: &Path, current: &Path, controllers: &[&str]) -> tg::Result<PathBuf> {
+fn resolve_parent(
+	root: &Path,
+	current: &Path,
+	controllers: &[&str],
+) -> tg::Result<Option<PathBuf>> {
 	// A populated leaf cannot distribute memory to children. Use its delegated parent for sibling sandbox cgroups.
 	let parent = current.parent().filter(|parent| parent.starts_with(root));
 	for path in std::iter::once(current).chain(parent) {
@@ -707,13 +732,9 @@ fn resolve_parent(root: &Path, current: &Path, controllers: &[&str]) -> tg::Resu
 		{
 			continue;
 		}
-		return Ok(path.to_owned());
+		return Ok(Some(path.to_owned()));
 	}
-	Err(tg::error!(
-		controllers = %controllers.join(", "),
-		path = %current.display(),
-		"no writable cgroup parent has the required controllers enabled; launch tangram in a leaf of a delegated cgroup with the required controllers enabled"
-	))
+	Ok(None)
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -776,10 +797,18 @@ mod tests {
 		.unwrap();
 		assert_eq!(
 			resolve_parent(temp.path(), &leaf, &["cpu", "memory", "pids"]).unwrap(),
-			temp.path()
+			Some(temp.path().to_owned())
 		);
-		assert_eq!(resolve_parent(temp.path(), &leaf, &[]).unwrap(), leaf);
+		assert_eq!(
+			resolve_parent(temp.path(), &leaf, &[]).unwrap(),
+			Some(leaf.clone())
+		);
 		std::fs::write(temp.path().join("cgroup.subtree_control"), "cpu pids").unwrap();
+		assert_eq!(
+			resolve_parent(temp.path(), &leaf, &["memory"]).unwrap(),
+			None
+		);
+		std::fs::remove_file(leaf.join("cgroup.subtree_control")).unwrap();
 		assert!(resolve_parent(temp.path(), &leaf, &["memory"]).is_err());
 	}
 
@@ -804,13 +833,6 @@ mod tests {
 			..options
 		};
 		assert!(limited.limited());
-	}
-
-	#[test]
-	fn parent_unavailable_without_cgroup_v2() {
-		let temp = tangram_util::fs::Temp::new().unwrap();
-		std::fs::create_dir_all(temp.path()).unwrap();
-		assert!(!parent_available(temp.path()));
 	}
 
 	#[test]
