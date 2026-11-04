@@ -1,10 +1,11 @@
 use {
 	super::local::Output,
 	crate::Component,
-	futures::{FutureExt as _, TryStreamExt as _},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
+	tangram_index::prelude::*,
 	tangram_server_core::Session,
 };
 
@@ -25,8 +26,9 @@ impl Component {
 
 		match &arg.sandbox {
 			Some(tg::Either::Left(_)) if process.allocation.is_some() => {
+				let lease = tg::process::Lease::new();
 				let ready_event = self
-					.spawn_process_in_new_sandbox(session, process)
+					.spawn_process_in_new_sandbox(session, process, lease)
 					.await?
 					.ok_or_else(|| tg::error!("expected the sandbox to be ready"))?;
 				let connected_event = ready_event
@@ -37,9 +39,7 @@ impl Component {
 			},
 			Some(tg::Either::Left(_)) => {
 				let id = process.id.clone();
-				let mut process_control_connection_future = self
-					.subscribe_process_control_connection(session, &id)
-					.await?;
+				let lease = tg::process::Lease::new();
 				let sandbox = process
 					.data
 					.sandbox
@@ -51,7 +51,8 @@ impl Component {
 					.sandbox
 					.subscribe_sandbox_connection(session, &sandbox)
 					.await?;
-				self.spawn_process_in_new_sandbox(session, process).await?;
+				self.spawn_process_in_new_sandbox(session, process, lease)
+					.await?;
 				if let Some(sender) = scheduler_sender.take() {
 					let scheduler = process
 						.scheduler
@@ -63,16 +64,16 @@ impl Component {
 					.scheduler
 					.clone()
 					.ok_or_else(|| tg::error!("missing the scheduler"))?;
-				let connected = self
-					.try_wait_process_control_connection(
+				let started = self
+					.try_wait_process_start(
 						session,
+						&id,
 						&scheduler,
 						&sandbox,
-						&mut process_control_connection_future,
 						&mut sandbox_connection_future,
 					)
 					.await?;
-				let Some(connected) = connected else {
+				let Some(()) = started else {
 					Self::spawn_process_sandbox_cleanup_after_scheduler_heartbeat_expiration(
 						session,
 						id.clone(),
@@ -88,7 +89,7 @@ impl Component {
 						"the scheduler heartbeat expired"
 					));
 				};
-				process.lease = Some(connected.lease);
+				process.lease = Some(lease);
 			},
 			Some(tg::Either::Right(_)) => {
 				let connected_event = self
@@ -102,17 +103,24 @@ impl Component {
 		Ok(output)
 	}
 
-	async fn try_wait_process_control_connection(
+	async fn try_wait_process_start(
 		&self,
 		session: &Session,
+		id: &tg::process::Id,
 		scheduler: &tg::scheduler::Id,
 		sandbox: &tg::sandbox::Id,
-		process_control_connection_future: &mut crate::ConnectionFuture,
 		sandbox_connection_future: &mut tangram_server_core::sandbox::ConnectionFuture,
-	) -> tg::Result<Option<tangram_server_process_common::control::Connected>> {
+	) -> tg::Result<Option<()>> {
+		// Watch the process's status, whose wakeups poll, so that a lost notification only delays the spawn.
+		let wakeups = self
+			.create_process_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
+			.await?;
+		let started_future = self.wait_for_process_start_from_index(session, id, wakeups);
+		let mut started_future = pin!(started_future);
+
 		// The scheduler only governs startup until the sandbox connects.
 		tokio::select! {
-			result = process_control_connection_future.as_mut() => return result.map(Some),
+			result = started_future.as_mut() => return result.map(Some),
 			result = sandbox_connection_future.as_mut() => result?,
 			result = session.server.components.scheduler.scheduler_heartbeat_expired(session, scheduler) => return result.map(|()| None),
 		}
@@ -153,9 +161,46 @@ impl Component {
 		};
 		let destroyed_future = pin!(destroyed_future);
 		tokio::select! {
-			result = process_control_connection_future.as_mut() => result.map(Some),
-			result = destroyed_future => result,
+			result = started_future.as_mut() => result.map(Some),
+			result = destroyed_future => {
+				// Treat a process that started before its sandbox ended as started.
+				if Self::try_get_process_start_from_index(session, id).await? {
+					return Ok(Some(()));
+				}
+				result
+			},
 		}
+	}
+
+	async fn wait_for_process_start_from_index(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+		mut wakeups: BoxStream<'static, ()>,
+	) -> tg::Result<()> {
+		loop {
+			if Self::try_get_process_start_from_index(session, id).await? {
+				return Ok(());
+			}
+			if wakeups.next().await.is_none() {
+				return Err(tg::error!("the process status wakeup stream ended"));
+			}
+		}
+	}
+
+	async fn try_get_process_start_from_index(
+		session: &Session,
+		id: &tg::process::Id,
+	) -> tg::Result<bool> {
+		let process = session
+			.server
+			.index
+			.try_get_process(id)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
+		let started = process.is_some_and(|process| process.status.is_some());
+
+		Ok(started)
 	}
 
 	fn spawn_process_sandbox_cleanup_after_scheduler_heartbeat_expiration(
@@ -208,7 +253,10 @@ impl Component {
 		}
 	}
 
-	fn spawn_process_runner_arg(output: &Output) -> tg::runner::control::Process {
+	fn spawn_process_runner_arg(
+		output: &Output,
+		lease: tg::process::Lease,
+	) -> tg::runner::control::Process {
 		let data = output.data.clone();
 		let id = output.process_token.as_ref().map(|_| output.id.clone());
 		let mut options = data.command.options.clone();
@@ -218,6 +266,7 @@ impl Component {
 		tg::runner::control::Process {
 			data,
 			id,
+			lease,
 			open: Vec::new(),
 			options,
 			parent,
@@ -232,7 +281,8 @@ impl Component {
 		output: &Output,
 		location: Option<&tg::location::Arg>,
 	) -> tg::Result<tangram_server_runner_core::process::ConnectedEvent> {
-		let process = Self::spawn_process_runner_arg(output);
+		let lease = tg::process::Lease::new();
+		let process = Self::spawn_process_runner_arg(output, lease);
 		let id = output.id.clone();
 		let assigned = process.id.is_some();
 		let sandbox = output
@@ -354,6 +404,7 @@ impl Component {
 		&self,
 		session: &Session,
 		output: &mut Output,
+		lease: tg::process::Lease,
 	) -> tg::Result<Option<tangram_server_runner_core::sandbox::ReadyEvent>> {
 		let sandbox = output
 			.data
@@ -364,7 +415,7 @@ impl Component {
 			.sandbox_arg
 			.clone()
 			.ok_or_else(|| tg::error!("missing the sandbox arg"))?;
-		let process = Self::spawn_process_runner_arg(output);
+		let process = Self::spawn_process_runner_arg(output, lease);
 		if let Some(allocation) = output.allocation.take() {
 			let location = session.server.location(arg.location.as_ref())?;
 			let id = output.sandbox_token.as_ref().map(|_| sandbox.clone());

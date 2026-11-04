@@ -10,15 +10,16 @@ use {
 	tangram_tests_util::{Config, Instance, cli::Server, instance},
 };
 
-/// A spawn succeeds when the server loses the process's connected message, as happens when its messenger connection drops while the message is published.
+/// A spawn succeeds when the server's messenger connection drops while the process starts, so that the server misses the process's status notifications.
 #[tokio::test]
-async fn lost_connected_message() -> tg::Result<()> {
+async fn lost_messenger_connection() -> tg::Result<()> {
 	// Create a cloud instance whose servers share the NATS messenger.
 	let tangram = env!("CARGO_BIN_EXE_tangram");
 	let root_token = "root";
 	let config = serde_json::json!({
 		"advanced": { "checkpoints": true },
 		"authentication": { "root": { "token": root_token }, "users": { "providers": { "insecure": true } } },
+		"process": { "status_wakeup_interval": 1 },
 	});
 	let arg = instance::Arg {
 		config: config.as_object().unwrap().clone(),
@@ -62,7 +63,10 @@ async fn lost_connected_message() -> tg::Result<()> {
 	// Run a command through the API server without interference to prove the topology.
 	let command = command(&api, Some(&alice.token)).await?;
 	let output = api
-		.spawn(&alice.token, ["--cached=false", "--sandbox", &command.to_string()])
+		.spawn(
+			&alice.token,
+			["--cached=false", "--sandbox", &command.to_string()],
+		)
 		.await?;
 	let process = output
 		.process
@@ -71,7 +75,7 @@ async fn lost_connected_message() -> tg::Result<()> {
 	api.tg(Some(&alice.token), ["wait", &process.to_string()])
 		.await?;
 
-	// Watch the checkpoints around the spawn's wait for the process attachment and the connected message's publish.
+	// Watch the checkpoints around the spawn's wait for the process to start.
 	let wait = api
 		.watch_checkpoint(
 			Some(root_token),
@@ -104,7 +108,7 @@ async fn lost_connected_message() -> tg::Result<()> {
 		.arg(command.to_string());
 	let spawn = tokio::spawn(async move { spawn.output().await });
 
-	// Wait for the spawn to observe the sandbox connection, and for the process control connection to be about to publish the connected message.
+	// Wait for the spawn to observe the sandbox connection, and for the process to be submitted to the index.
 	api.wait_checkpoint(Some(root_token), "process.spawn.connection.wait", wait, 0)
 		.await?;
 	remote
@@ -116,7 +120,7 @@ async fn lost_connected_message() -> tg::Result<()> {
 		)
 		.await?;
 
-	// Sever the API server's messenger connection while the connected message is published, so that the message is lost.
+	// Sever the API server's messenger connection while the process starts, so that its notifications are lost.
 	proxy.sever();
 	remote
 		.continue_checkpoint(
@@ -136,7 +140,11 @@ async fn lost_connected_message() -> tg::Result<()> {
 	api.continue_checkpoint(Some(root_token), "process.spawn.connection.wait", wait, 0)
 		.await?;
 	remote
-		.unwatch_checkpoint(Some(root_token), "process.control.index.submitted", submitted)
+		.unwatch_checkpoint(
+			Some(root_token),
+			"process.control.index.submitted",
+			submitted,
+		)
 		.await?;
 	remote
 		.unwatch_checkpoint(Some(root_token), "process.control.header", header)
@@ -144,7 +152,7 @@ async fn lost_connected_message() -> tg::Result<()> {
 	api.unwatch_checkpoint(Some(root_token), "process.spawn.connection.wait", wait)
 		.await?;
 
-	// The spawn succeeds even though the connected message was lost, and the process completes.
+	// The spawn succeeds even though the notifications were lost, and the process completes.
 	let output = tokio::time::timeout(Duration::from_secs(120), spawn)
 		.await
 		.map_err(|_| tg::error!("the spawn should complete"))?
@@ -152,7 +160,7 @@ async fn lost_connected_message() -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, "failed to run the spawn"))?;
 	assert!(
 		output.status.success(),
-		"the spawn should succeed when the connected message is lost: {}",
+		"the spawn should succeed when the messenger connection drops: {}",
 		String::from_utf8_lossy(&output.stderr),
 	);
 	let output = serde_json::from_slice::<tg::process::spawn::Output>(&output.stdout)

@@ -38,9 +38,6 @@ pub mod touch;
 pub mod tty;
 pub mod wait;
 
-pub(crate) type ConnectionFuture =
-	BoxFuture<'static, tg::Result<tangram_server_process_common::control::Connected>>;
-
 /// The component.
 #[derive(Clone)]
 pub struct Component(Arc<State>);

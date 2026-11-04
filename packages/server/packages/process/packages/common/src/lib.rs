@@ -1,7 +1,5 @@
 use {std::collections::BTreeSet, tangram_client::prelude::*};
 
-pub mod control;
-
 pub fn update_process_value_tokens(
 	data: &mut tg::value::Data,
 	update: &mut impl FnMut(&mut tg::authorization::Tokens, &tg::object::Id),

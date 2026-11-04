@@ -11552,10 +11552,7 @@ dependencies = [
 name = "tangram_server_process_common"
 version = "0.0.0"
 dependencies = [
- "bytes",
  "tangram_client",
- "tangram_messenger",
- "tangram_serialize",
 ]
 
 [[package]]

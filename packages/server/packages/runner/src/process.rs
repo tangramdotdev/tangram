@@ -17,7 +17,6 @@ use {
 		task::{Stopper, Task},
 	},
 	tangram_index::prelude::*,
-	tangram_messenger::Messenger as _,
 	tangram_server_runner_core::process::ConnectedEvent,
 	tokio::task::JoinSet,
 	tokio_stream::wrappers::UnboundedReceiverStream,
@@ -295,6 +294,7 @@ impl Component {
 		let tg::runner::control::Process {
 			data,
 			id,
+			lease,
 			open,
 			options,
 			parent,
@@ -346,7 +346,6 @@ impl Component {
 		}
 		state.command.options = command_options;
 		let process_stopper = Stopper::new();
-		let lease = tg::process::Lease::new();
 		let (requests_sender, requests_receiver) = tokio::sync::oneshot::channel::<
 			futures::stream::BoxStream<
 				'static,
@@ -1014,26 +1013,6 @@ impl Component {
 			.await;
 		index_sender.send(()).ok();
 
-		if location.is_remote() {
-			let entry = tangram_server_process_common::control::Connected { lease };
-			let result = session
-				.server
-				.messenger
-				.publish(
-					tangram_server_process_common::control::connected_subject(&id),
-					entry,
-				)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to publish the process control connection"),
-				);
-			if let Err(error) = result {
-				process_stopper.stop();
-				finish_task.wait().await.ok();
-
-				return Err(error);
-			}
-		}
 		event_sender
 			.send(Ok(Event::Connected(ConnectedEvent {
 				lease,

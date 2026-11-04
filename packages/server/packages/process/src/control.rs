@@ -17,7 +17,6 @@ use {
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger,
 	tangram_server_core::Session,
-	tangram_server_process_common::control::{Connected, connected_subject},
 };
 
 pub(crate) mod connection;
@@ -47,49 +46,6 @@ struct IndexProcessControlArg {
 }
 
 impl Component {
-	pub(crate) async fn subscribe_process_control_connection(
-		&self,
-		session: &Session,
-		id: &tg::process::Id,
-	) -> tg::Result<super::ConnectionFuture> {
-		let mut event_stream = session
-			.server
-			.messenger
-			.subscribe::<Connected>(connected_subject(id))
-			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					process = %id,
-					"failed to subscribe to the process control connection"
-				)
-			})?;
-		let id = id.clone();
-		let future = async move {
-			let event = event_stream
-				.try_next()
-				.await
-				.map_err(|error| {
-					tg::error!(
-						!error,
-						process = %id,
-						"failed to receive the process control connection"
-					)
-				})?
-				.ok_or_else(|| {
-					tg::error!(
-						process = %id,
-						"the process control connection subscription ended"
-					)
-				})?;
-
-			Ok(event.payload)
-		}
-		.boxed();
-
-		Ok(future)
-	}
-
 	pub(crate) async fn try_get_process_control_stream_with_context(
 		&self,
 		session: &Session,
@@ -214,8 +170,8 @@ impl Component {
 		};
 		let mut parent = None;
 		let resumed = matches!(&arg.mode, tg::process::control::Mode::Resume { .. });
-		let lease = match arg.mode {
-			tg::process::control::Mode::Resume { lease } => {
+		match arg.mode {
+			tg::process::control::Mode::Resume { .. } => {
 				if local_process_control {
 					process_session
 						.server
@@ -242,7 +198,6 @@ impl Component {
 						.await?
 						.and_then(|sandbox| sandbox.runner);
 				}
-				lease
 			},
 			tg::process::control::Mode::Start(start) => {
 				if shortcut {
@@ -251,7 +206,7 @@ impl Component {
 				}
 				let tg::process::control::StartClientRequestArg {
 					mut data,
-					lease,
+					lease: _,
 					mut options,
 					shortcut: shortcut_arg,
 				} = start;
@@ -302,9 +257,8 @@ impl Component {
 						return Err(error);
 					},
 				}
-				lease
 			},
-		};
+		}
 		Self::spawn_publish_process_status_task(&session.server, &id);
 
 		// Answer the requests for the process for as long as the connection lasts.
@@ -518,15 +472,6 @@ impl Component {
 			.map(Ok)
 			.with_stopper(process_session.context.stopper.clone())
 			.boxed();
-
-		process_session
-			.server
-			.messenger
-			.publish(connected_subject(&id), Connected { lease })
-			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to publish the process control connection")
-			})?;
 
 		let header = tg::process::control::Header { token };
 
