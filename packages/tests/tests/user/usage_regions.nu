@@ -7,8 +7,8 @@ let common = {
 	usage: true,
 }
 let instance = instance --cloud --primary-region a --regions [{ name: a }, { name: b }] --config $common
-let region_a = server spawn --preserve-keys --instance $instance --region a --name region-a --url (instance region url $instance a) --config { usage: false }
-let region_b = server spawn --preserve-keys --instance $instance --region b --name region-b --url (instance region url $instance b)
+let region_a = server spawn --instance $instance --region a --name region-a --url (instance region url $instance a) --config { usage: false }
+let region_b = server spawn --instance $instance --region b --name region-b --url (instance region url $instance b)
 let alice = tg --url $region_a.url login --verbose --name alice | from json
 let organization = tg --url $region_a.url --token $alice.token organization create acme | from json
 let user_usage = tg --url $region_b.url --token $alice.token usage --location='local(b)' | from json

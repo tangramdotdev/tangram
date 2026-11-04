@@ -6,7 +6,7 @@ let root_token = random chars
 let instance = instance --cloud --config {
 	authentication: { root: { token: $root_token } },
 }
-let api = server spawn --instance $instance --preserve-keys --name api --config {
+let api = server spawn --instance $instance --name api --config {
 	roles: [api indexer scheduler],
 }
 let created = tg --url $api.url --token $root_token runner create | from json

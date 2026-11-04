@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # Tagging with a subtree proof that is verified only by a previous secret confers permanent access to the target subtree.
 
 let root_token = random chars
-let local = server spawn --preserve-keys --now '2026-01-01T00:00:00Z' --config {
+let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 	indexer: { permission_capture: { delegation_time_to_live: 60 } }
 	object: { permission_time_to_live: 60 }
@@ -19,7 +19,7 @@ let token = $object.tokens.local.0
 let reference = $'($directory)?tokens[local][0]=($token | url encode --all)'
 
 # Keep the authorization secret only as a previous secret, so the server verifies existing tokens without signing new ones.
-let secret = { algorithm: blake3, id: 0, path: ($local.directory | path join secret) }
+let secret = $local.config.authorization.tokens.secret
 let config = open $local.config_path | upsert authorization.tokens { secret: false, previous_secrets: [$secret] }
 $config | to json | save --force $local.config_path
 let server = server restart $local

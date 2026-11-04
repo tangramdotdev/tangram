@@ -239,6 +239,16 @@ impl Data {
 				.collect::<Vec<_>>();
 			config.merge(json!({ "regions": regions }));
 		}
+
+		// Share a token signing secret between the instance's servers, so that each verifies the tokens that the others sign, also after a restart. A server's own configuration can replace it.
+		let secret = path.join("secret");
+		std::fs::write(&secret, rand::random::<[u8; 32]>())
+			.map_err(|error| tg::error!(!error, "failed to write the secret"))?;
+		let tokens = json!({ "secret": { "algorithm": "blake3", "id": 0, "path": secret } });
+		config.merge(json!({
+			"authentication": { "tokens": tokens },
+			"authorization": { "tokens": tokens },
+		}));
 		config.merge(serde_json::Value::Object(arg.config));
 		let config = config.value().clone();
 

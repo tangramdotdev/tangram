@@ -13,7 +13,7 @@ let config = {
 		runner_ttl: 3,
 	},
 }
-let remote = server spawn --name remote --cloud --preserve-keys --now '2026-01-01T00:00:00Z' --config $config
+let remote = server spawn --name remote --cloud --now '2026-01-01T00:00:00Z' --config $config
 let created = tg --url $remote.url --token $root_token runner create | from json
 
 let runner = server spawn --name runner --config {

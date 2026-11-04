@@ -22,8 +22,8 @@ let common = {
 	usage: true,
 }
 let instance = instance --cloud --primary-region a --regions $regions --config $common
-let remote_region_a = server spawn --instance $instance --region a --preserve-keys --name remote-region-a --url (instance region url $instance a)
-let remote_region_b = server spawn --instance $instance --region b --preserve-keys --name remote-region-b --url (instance region url $instance b)
+let remote_region_a = server spawn --instance $instance --region a --name remote-region-a --url (instance region url $instance a)
+let remote_region_b = server spawn --instance $instance --region b --name remote-region-b --url (instance region url $instance b)
 let alice = tg --url $remote_region_a.url login --verbose --name alice | from json
 let bob = tg --url $remote_region_a.url login --verbose --name bob | from json
 let local = server spawn --name local --config {

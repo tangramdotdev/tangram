@@ -10,8 +10,8 @@ let regions = [
 let instance = instance --cloud --primary-region a --regions $regions --config {
 	authentication: { users: { providers: { insecure: true } } },
 }
-let remote_region_a = server spawn --instance $instance --region a --preserve-keys --name remote-region-a --url (instance region url $instance a)
-let remote_region_b = server spawn --instance $instance --region b --preserve-keys --name remote-region-b --url (instance region url $instance b)
+let remote_region_a = server spawn --instance $instance --region a --name remote-region-a --url (instance region url $instance a)
+let remote_region_b = server spawn --instance $instance --region b --name remote-region-b --url (instance region url $instance b)
 assert ($instance.directory? == null) 'a cloud instance must not own a directory'
 assert ($remote_region_a.directory != $remote_region_b.directory) 'cloud servers must own separate directories'
 let alice = tg --url $remote_region_a.url login --verbose --name alice | from json

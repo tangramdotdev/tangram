@@ -17,8 +17,8 @@ let common = {
 	usage: true,
 }
 let instance = instance --cloud --primary-region a --regions [{ name: a }, { name: b }] --config $common
-let region_a = server spawn --preserve-keys --now 2026-08-11T12:00:00Z --instance $instance --region a --name region-a --url (instance region url $instance a)
-let region_b = server spawn --preserve-keys --now 2026-08-11T12:00:00Z --instance $instance --region b --name region-b --url (instance region url $instance b)
+let region_a = server spawn --now 2026-08-11T12:00:00Z --instance $instance --region a --name region-a --url (instance region url $instance a)
+let region_b = server spawn --now 2026-08-11T12:00:00Z --instance $instance --region b --name region-b --url (instance region url $instance b)
 let alice = tg --url $region_a.url login --verbose --name alice | from json
 let organization = tg --url $region_a.url --token $alice.token organization create acme | from json
 let object_a = tg --url $region_a.url --token $alice.token put 'tg.file("a")' | str trim

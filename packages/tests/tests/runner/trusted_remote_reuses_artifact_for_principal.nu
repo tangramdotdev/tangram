@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # A trusted runner re-signs a remote token locally, so a second principal can use a stored artifact without pulling it again.
 
 let root_token = random chars
-let remote = server spawn --cloud --preserve-keys --name remote --config {
+let remote = server spawn --cloud --name remote --config {
 	advanced: { multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],

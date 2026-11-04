@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 # A remote runner sends Finish concurrently with the outcome sync by default.
 let root_token = random chars
-let remote = server spawn --preserve-keys --name remote --config {
+let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],

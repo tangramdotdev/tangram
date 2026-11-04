@@ -4,7 +4,7 @@ use ../../util/test.nu *
 
 for kind in [sandbox process] {
 	let root_token = random chars
-	let remote = server spawn --preserve-keys --name $'remote-($kind)' --config {
+	let remote = server spawn --name $'remote-($kind)' --config {
 		advanced: { multi_server: true },
 		authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 		roles: [api indexer scheduler],

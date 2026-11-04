@@ -12,8 +12,8 @@ let common = {
 	roles: [api indexer scheduler runner],
 }
 let instance = instance --cloud --primary-region primary --regions [{ name: primary }, { name: secondary }] --config $common
-let primary = server spawn --instance $instance --region primary --preserve-keys --name primary --now '2026-01-01T00:00:00Z' --url (instance region url $instance primary)
-let secondary = server spawn --instance $instance --region secondary --preserve-keys --name secondary --now '2026-01-01T00:00:00Z' --url (instance region url $instance secondary)
+let primary = server spawn --instance $instance --region primary --name primary --now '2026-01-01T00:00:00Z' --url (instance region url $instance primary)
+let secondary = server spawn --instance $instance --region secondary --name secondary --now '2026-01-01T00:00:00Z' --url (instance region url $instance secondary)
 
 # Push the package to both regions, since multi-server regions do not support check-in.
 let path = artifact {

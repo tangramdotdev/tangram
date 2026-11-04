@@ -17,7 +17,4 @@ doctest = false
 workspace = true
 
 [dependencies]
-bytes = { workspace = true }
 tangram_client = { workspace = true }
-tangram_messenger = { workspace = true }
-tangram_serialize = { workspace = true }

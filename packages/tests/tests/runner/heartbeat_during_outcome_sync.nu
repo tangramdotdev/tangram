@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # A stalled outcome sync must leave the runner control stream able to deliver heartbeats and the process control stream able to acknowledge Finish.
 
 let root_token = random chars
-let remote = server spawn --preserve-keys --name remote --config {
+let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	cache: { map_size: 268_435_456 },

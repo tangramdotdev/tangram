@@ -425,7 +425,6 @@ export def --env "server spawn" [
 	--instance: record # Spawn the server in this instance.
 	--name (-n): string
 	--now: string # Set the server's simulated wall clock to an RFC 3339 timestamp.
-	--preserve-keys
 	--quickjs # Use QuickJS as the JavaScript engine.
 	--region: string # Set the server's region.
 	--root # Run the server as root with passwordless sudo, in a directory on the file system with project quotas unless one is given.
@@ -492,31 +491,6 @@ export def --env "server spawn" [
 	let region_args = if $region == null { [] } else { ['--region' $region] }
 	let server_json = $overrides | merge deep $server_config | to json --raw
 	let config = ^tangram_tests_runner instance config --instance ($instance | to json --raw) --config $server_json ...$region_args | from json
-
-	# Pin the token signing secret to the server directory so restarts can verify existing tokens.
-	let config = if $preserve_keys {
-		let secret_path = $directory_path | path join 'secret'
-		if not ($secret_path | path exists) {
-			'U9ZBC697GDA0dlUBF/VVM4eqoJUVfQqwRNr6L2z8Ajg=' | decode base64 | save -f $secret_path
-		}
-		let secrets = {
-			secret: {
-				algorithm: 'blake3',
-				id: 0,
-				path: $secret_path,
-			},
-		}
-		$config | merge deep {
-			authentication: {
-				tokens: $secrets,
-			},
-			authorization: {
-				tokens: $secrets
-			},
-		}
-	} else {
-		$config
-	}
 
 	# Give the index in a given directory the same semaphore names across servers and restarts.
 	let config = if $directory != null and $config.index.kind? == 'lmdb' and $server_config.index?.posix_sem_prefix? == null {

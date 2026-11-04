@@ -9,7 +9,7 @@ let remote = server spawn --name remote --config {
 	scheduler: { runner_ttl: 300 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
-let runner = server spawn --name runner --preserve-keys --config {
+let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	runner: { cpus: 1, overcommit: { cpu: 1 }, id: $created.data.id, remote: "default", token: $created.token.token },
 }

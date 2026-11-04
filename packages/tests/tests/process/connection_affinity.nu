@@ -12,8 +12,8 @@ let config = {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 }
-let first = server spawn --preserve-keys --instance $instance --name first --config $config
-let second = server spawn --preserve-keys --instance $instance --name second --config $config
+let first = server spawn --instance $instance --name first --config $config
+let second = server spawn --instance $instance --name second --config $config
 let port = port
 let ready = mktemp -d | path join ready
 ^mkfifo $ready
