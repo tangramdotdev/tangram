@@ -37,8 +37,9 @@ impl Component {
 			},
 			Some(tg::Either::Left(_)) => {
 				let id = process.id.clone();
-				let mut process_control_connection_future =
-					self.subscribe_process_control_connection(session, &id).await?;
+				let mut process_control_connection_future = self
+					.subscribe_process_control_connection(session, &id)
+					.await?;
 				let sandbox = process
 					.data
 					.sandbox

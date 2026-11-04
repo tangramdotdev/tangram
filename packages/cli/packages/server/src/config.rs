@@ -3337,7 +3337,7 @@ mod tests {
 		assert!(!target.backend.harden());
 		assert_eq!(
 			target.resources.filesystem_project_ids.count,
-			i32::MAX.cast_unsigned() - 1
+			i32::MAX.cast_unsigned()
 		);
 		assert_eq!(target.resources.filesystem_project_ids.start, 1);
 		assert!(container.gid_map.is_none());
