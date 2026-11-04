@@ -136,6 +136,14 @@ impl Component {
 		tokio::fs::create_dir_all(host_socket_path.parent().unwrap())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the host path"))?;
+
+		// Remove the socket that a crashed server left in the sandbox's persistent directory, without following a symlink that the guest can replace.
+		match tokio::fs::remove_file(&host_socket_path).await {
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+			Err(error) => return Err(tg::error!(!error, "failed to remove the stale socket")),
+			Ok(()) => {},
+		}
+
 		let host_url = if host_socket_path_string.len() <= max_socket_path_len {
 			unix_url(&host_socket_path)?
 		} else {
