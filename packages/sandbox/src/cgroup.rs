@@ -17,6 +17,8 @@ pub(crate) const SIDECARS: &CStr = c"sidecars";
 
 const INIT: &CStr = c"init";
 
+const ROOT: &str = "/sys/fs/cgroup";
+
 pub struct Cgroup {
 	cleanup: Arc<Cleanup>,
 	cleanup_interval: Duration,
@@ -53,30 +55,30 @@ pub struct Options {
 }
 
 pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
-	let resources = &arg.resources;
-	let options = Options {
-		cleanup_interval: arg.cgroup_cleanup_interval,
-		cleanup_timeout: arg.cgroup_cleanup_timeout,
-		cpu: arg
-			.cpu
-			.map(tg::sandbox::Cpu::threads)
-			.transpose()?
-			.flatten(),
-		cpu_affinity: arg.cpu_affinity,
-		cpu_request: arg.cpu,
-		cpu_shares: arg.cpu_shares.clone(),
-		cpu_threads: arg.cpu_threads.clone(),
-		memory: arg.memory,
-		memory_oom_group: true,
-		pids: resources.max_pids,
-	};
-	let name = arg
-		.path
-		.file_name()
-		.and_then(|name| name.to_str())
-		.unwrap_or("sandbox");
-	let cgroup = Cgroup::new(name, &options)?;
+	let options = options(arg)?;
+	let cgroup = Cgroup::new(name(arg), &options)?;
 	Ok(cgroup)
+}
+
+/// Create the cgroup of a sandbox, or return `None` when the sandbox has no resource limits, is not hardened, and no cgroup parent is writable.
+pub(crate) fn try_create(arg: &crate::Arg) -> tg::Result<Option<Cgroup>> {
+	// Require a cgroup for a sandbox with resource limits or hardening.
+	let options = options(arg)?;
+	let required = options.limited() || arg.resources.cgroup_readonly;
+	if !required && !parent_available(Path::new(ROOT)) {
+		static WARNING: std::sync::Once = std::sync::Once::new();
+		WARNING.call_once(|| {
+			tracing::warn!(
+				"no cgroup parent is writable, so unlimited sandboxes will run without a cgroup and report no usage"
+			);
+		});
+		return Ok(None);
+	}
+
+	// Create the cgroup.
+	let cgroup = Cgroup::new(name(arg), &options)?;
+
+	Ok(Some(cgroup))
 }
 
 pub(crate) fn set_affinity_before_exec(command: &mut std::process::Command, cpus: &[usize]) {
@@ -134,7 +136,7 @@ impl Cgroup {
 		use std::os::unix::fs::OpenOptionsExt as _;
 
 		// Resolve the current cgroup.
-		let root = Path::new("/sys/fs/cgroup");
+		let root = Path::new(ROOT);
 		let current = current(root)?;
 
 		// Select the required resource controllers.
@@ -479,6 +481,16 @@ impl Handle {
 	}
 }
 
+impl Options {
+	/// Determine whether the options set a resource limit, which only a cgroup can enforce.
+	fn limited(&self) -> bool {
+		self.cpu.is_some()
+			|| self.cpu_request.is_some()
+			|| self.memory.is_some()
+			|| self.pids.is_some()
+	}
+}
+
 impl Default for Options {
 	fn default() -> Self {
 		Self {
@@ -537,6 +549,37 @@ fn available_cpus() -> tg::Result<Vec<usize>> {
 		.filter(|cpu| unsafe { libc::CPU_ISSET(*cpu, &set) })
 		.collect();
 	Ok(cpus)
+}
+
+fn options(arg: &crate::Arg) -> tg::Result<Options> {
+	let options = Options {
+		cleanup_interval: arg.cgroup_cleanup_interval,
+		cleanup_timeout: arg.cgroup_cleanup_timeout,
+		cpu: arg
+			.cpu
+			.map(tg::sandbox::Cpu::threads)
+			.transpose()?
+			.flatten(),
+		cpu_affinity: arg.cpu_affinity,
+		cpu_request: arg.cpu,
+		cpu_shares: arg.cpu_shares.clone(),
+		cpu_threads: arg.cpu_threads.clone(),
+		memory: arg.memory,
+		memory_oom_group: true,
+		pids: arg.resources.max_pids,
+	};
+	Ok(options)
+}
+
+fn name(arg: &crate::Arg) -> &str {
+	arg.path
+		.file_name()
+		.and_then(|name| name.to_str())
+		.unwrap_or("sandbox")
+}
+
+fn parent_available(root: &Path) -> bool {
+	current(root).is_ok_and(|current| resolve_parent(root, &current, &["memory"]).is_ok())
 }
 
 fn current(root: &Path) -> tg::Result<PathBuf> {
@@ -738,6 +781,36 @@ mod tests {
 		assert_eq!(resolve_parent(temp.path(), &leaf, &[]).unwrap(), leaf);
 		std::fs::write(temp.path().join("cgroup.subtree_control"), "cpu pids").unwrap();
 		assert!(resolve_parent(temp.path(), &leaf, &["memory"]).is_err());
+	}
+
+	#[test]
+	fn options_limited() {
+		let options = Options {
+			cpu_affinity: true,
+			memory_oom_group: true,
+			..Default::default()
+		};
+		assert!(!options.limited());
+		let limited = Options {
+			pids: Some(1),
+			..options.clone()
+		};
+		assert!(limited.limited());
+		let limited = Options {
+			memory: Some(tg::sandbox::Resource {
+				max: Some(1),
+				min: 0,
+			}),
+			..options
+		};
+		assert!(limited.limited());
+	}
+
+	#[test]
+	fn parent_unavailable_without_cgroup_v2() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir_all(temp.path()).unwrap();
+		assert!(!parent_available(temp.path()));
 	}
 
 	#[test]

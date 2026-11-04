@@ -44,7 +44,7 @@ pub(crate) async fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &crate::serve::Arg,
 	network: Option<&mut crate::network::Network>,
-	cgroup: &crate::cgroup::Cgroup,
+	cgroup: Option<&crate::cgroup::Cgroup>,
 ) -> tg::Result<Output> {
 	// Prepare the network pair.
 	let isolation = &arg.resources;
@@ -302,7 +302,7 @@ pub(crate) async fn spawn(
 		cwd: "/".into(),
 		env: environment,
 	};
-	let cgroup_readonly = isolation.cgroup_readonly;
+	let cgroup_readonly = isolation.cgroup_readonly || cgroup.is_none();
 	let options = crate::run::Options {
 		cgroup_delegate: !cgroup_readonly,
 		cgroup_readonly,
@@ -363,12 +363,14 @@ pub(crate) async fn spawn(
 	};
 
 	// Select the launcher cgroup, creating a guest cgroup with the enabled controllers when the guest can create cgroups.
-	let launcher_cgroup = if launch.options.cgroup_delegate {
-		let handle = cgroup.handle()?;
-		handle.enable_controllers()?;
-		cgroup.child(crate::cgroup::GUEST)?
-	} else {
-		cgroup.handle()?
+	let launcher_cgroup = match cgroup {
+		Some(cgroup) if launch.options.cgroup_delegate => {
+			let handle = cgroup.handle()?;
+			handle.enable_controllers()?;
+			Some(cgroup.child(crate::cgroup::GUEST)?)
+		},
+		Some(cgroup) => Some(cgroup.handle()?),
+		None => None,
 	};
 
 	// Create the launcher and inherit the control descriptors.
@@ -400,7 +402,8 @@ pub(crate) async fn spawn(
 		.stderr(std::process::Stdio::piped());
 
 	// Spawn the launcher and install the identity maps.
-	let child = spawn_command(&mut command, &launcher_cgroup, cgroup.affinity())?;
+	let affinity = cgroup.and_then(crate::cgroup::Cgroup::affinity);
+	let child = spawn_command(&mut command, launcher_cgroup.as_ref(), affinity)?;
 	config.finish().await?;
 	if let Some((host, guest, uid_map, gid_map)) = user_namespace {
 		drop(guest);
@@ -420,15 +423,22 @@ pub(crate) async fn spawn(
 			.id()
 			.ok_or_else(|| tg::error!("no child pid available"))?;
 		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
-		let pasta_cgroup = if launch.options.cgroup_delegate {
-			cgroup.child(crate::cgroup::SIDECARS)?
-		} else {
-			cgroup.handle()?
+		let pasta_cgroup = match cgroup {
+			Some(cgroup) if launch.options.cgroup_delegate => {
+				Some(cgroup.child(crate::cgroup::SIDECARS)?)
+			},
+			Some(cgroup) => Some(cgroup.handle()?),
+			None => None,
 		};
-		let directory = pasta_cgroup.open_fd()?;
+		let directory = pasta_cgroup
+			.as_ref()
+			.map(crate::cgroup::Handle::open_fd)
+			.transpose()?;
 		network
 			.start_netns(pid, |command| {
-				crate::cgroup::enter_before_exec(command, directory.as_raw_fd());
+				if let Some(directory) = &directory {
+					crate::cgroup::enter_before_exec(command, directory.as_raw_fd());
+				}
 			})
 			.await?;
 	}
@@ -464,11 +474,13 @@ pub(crate) async fn spawn(
 
 pub(crate) fn spawn_command(
 	command: &mut tokio::process::Command,
-	cgroup: &crate::cgroup::Handle,
+	cgroup: Option<&crate::cgroup::Handle>,
 	affinity: Option<&[usize]>,
 ) -> tg::Result<tokio::process::Child> {
-	let directory = cgroup.open_fd()?;
-	crate::cgroup::enter_before_exec(command.as_std_mut(), directory.as_raw_fd());
+	let directory = cgroup.map(crate::cgroup::Handle::open_fd).transpose()?;
+	if let Some(directory) = &directory {
+		crate::cgroup::enter_before_exec(command.as_std_mut(), directory.as_raw_fd());
+	}
 	if let Some(cpus) = affinity {
 		crate::cgroup::set_affinity_before_exec(command.as_std_mut(), cpus);
 	}

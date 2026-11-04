@@ -438,6 +438,13 @@ impl Component {
 		Ok(arg)
 	}
 
+	/// Log that a runner reported no usage for a sandbox when this server tracks usage.
+	fn warn_missing_sandbox_usage(session: &Session, data: &tg::sandbox::Data) {
+		if session.server.config.usage.enabled && data.usage.is_none() {
+			tracing::warn!(sandbox = %data.id, "the runner reported no usage for the sandbox");
+		}
+	}
+
 	async fn publish_sandbox_control_ack(
 		&self,
 		session: &Session,

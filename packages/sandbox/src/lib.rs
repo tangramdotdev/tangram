@@ -205,7 +205,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug)]
 pub struct Output {
-	pub usage: tg::sandbox::Usage,
+	pub usage: Option<tg::sandbox::Usage>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -464,10 +464,10 @@ impl Sandbox {
 		let (mut process, network, filesystem, cgroup, storage) = match &arg.backend {
 			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
 				let mut network = create_network(&arg)?;
-				let cgroup = self::cgroup::create(&arg)?;
+				let cgroup = self::cgroup::try_create(&arg)?;
 				let output = tokio::time::timeout_at(
 					deadline,
-					self::run::spawn(&arg, &serve_arg, network.as_mut(), &cgroup),
+					self::run::spawn(&arg, &serve_arg, network.as_mut(), cgroup.as_ref()),
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "timed out preparing the sandbox"))??;
@@ -475,7 +475,7 @@ impl Sandbox {
 					output.process,
 					network,
 					output.filesystem,
-					Some(cgroup),
+					cgroup,
 					output.storage,
 				)
 			},
@@ -495,7 +495,8 @@ impl Sandbox {
 				let cgroup = self::cgroup::create(&arg)?;
 				let (mut command, config) =
 					self::cloud_hypervisor::run::command(&arg, &serve_arg, network.as_ref())?;
-				let process = self::run::spawn_command(&mut command, &cgroup.handle()?, None)?;
+				let process =
+					self::run::spawn_command(&mut command, Some(&cgroup.handle()?), None)?;
 				tokio::time::timeout_at(deadline, config.finish())
 					.await
 					.map_err(|error| tg::error!(!error, "timed out configuring the sandbox"))??;
@@ -676,9 +677,6 @@ impl Sandbox {
 			// Select the usage source.
 			let source = {
 				let cgroup = self.0.cgroup.lock().await;
-				let cgroup = cgroup
-					.as_ref()
-					.ok_or_else(|| tg::error!("the sandbox accounting cgroup is missing"))?;
 				let (path, project) = if self.0.arg.backend.uses_linux_namespaces() {
 					let container = &self.0.arg.resources;
 					let project = container.filesystem_project_id;
@@ -691,7 +689,10 @@ impl Sandbox {
 				} else {
 					(self.0.arg.path.clone(), None)
 				};
-				usage::Source::new(cgroup.handle()?, &path, project)?
+				cgroup
+					.as_ref()
+					.map(|cgroup| usage::Source::new(cgroup.handle()?, &path, project))
+					.transpose()?
 			};
 
 			// Start charging for the assigned sandbox.
@@ -701,11 +702,13 @@ impl Sandbox {
 				sandboxes: 1,
 				storage: self.0.arg.storage.unwrap_or_default(),
 			};
-			*self.0.accounting.lock().await = Some(usage::Accounting::new(
-				source,
-				resources,
-				self.0.arg.memory_sampling_interval,
-			)?);
+			if let Some(source) = source {
+				*self.0.accounting.lock().await = Some(usage::Accounting::new(
+					source,
+					resources,
+					self.0.arg.memory_sampling_interval,
+				)?);
+			}
 		}
 		self.0.activated.store(true, Ordering::Relaxed);
 
@@ -730,15 +733,15 @@ impl Sandbox {
 		Ok(())
 	}
 
-	/// Return the current sandbox resource usage without stopping accounting.
+	/// Return the current sandbox resource usage without stopping accounting, or `None` when the sandbox has no accounting.
 	#[cfg(target_os = "linux")]
-	pub async fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
+	pub async fn usage(&self) -> tg::Result<Option<tg::sandbox::Usage>> {
 		let mut accounting = self.0.accounting.lock().await;
-		let accounting = accounting
-			.as_mut()
-			.ok_or_else(|| tg::error!("the sandbox accounting has not started"))?;
+		let Some(accounting) = accounting.as_mut() else {
+			return Ok(None);
+		};
 		let usage = accounting.usage().await?;
-		Ok(usage)
+		Ok(Some(usage))
 	}
 
 	#[cfg(target_os = "linux")]
@@ -752,12 +755,8 @@ impl Sandbox {
 	}
 
 	#[cfg(target_os = "macos")]
-	pub async fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
-		Ok(tg::sandbox::Usage {
-			cpu: tg::sandbox::ResourceUsage::default(),
-			memory: tg::sandbox::ResourceUsage::default(),
-			storage: tg::sandbox::ResourceUsage::default(),
-		})
+	pub async fn usage(&self) -> tg::Result<Option<tg::sandbox::Usage>> {
+		Ok(None)
 	}
 
 	#[cfg(target_os = "macos")]
@@ -985,14 +984,7 @@ impl Sandbox {
 		self.cleanup_cgroup().await?;
 
 		// Settle the usage.
-		let usage = self
-			.finish_accounting()
-			.await?
-			.unwrap_or(tg::sandbox::Usage {
-				cpu: tg::sandbox::ResourceUsage::default(),
-				memory: tg::sandbox::ResourceUsage::default(),
-				storage: tg::sandbox::ResourceUsage::default(),
-			});
+		let usage = self.finish_accounting().await?;
 
 		let output = Output { usage };
 
