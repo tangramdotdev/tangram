@@ -734,12 +734,8 @@ def create_macos_app_group_socket_path [server: record] {
 	if $nu.os-info.name != 'macos' or $kind != 'fskit' {
 		return null
 	}
-	let group_id = (identifiers).app_group_identifier
-	let group_container = $env.HOME | path join 'Library/Group Containers' $group_id
-	try { mkdir $group_container }
-	let socket_name = $'socket-((random chars) | str lowercase)'
-
-	$group_container | path join $socket_name
+	# Put the socket in the directory shared with the extension so unsigned test servers do not need access to the protected app group container.
+	$server.directory | path join 'fskit.sock'
 }
 
 def remove_macos_app_group_socket [path] {
