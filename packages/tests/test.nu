@@ -24,7 +24,7 @@ def main [
 	--stress # Run the matching tests repeatedly until one fails.
 	--stress-count: int # Run the matching tests this many times, then stop. Implies --stress.
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
-	--timeout: duration = 2min # The timeout for each test.
+	--timeout: duration = 1min # The timeout for each test.
 	--turso # Use Turso for the server database.
 	...filters: string # Filter tests.
 ] {

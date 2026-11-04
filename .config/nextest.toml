@@ -2,6 +2,9 @@ nextest-version = "0.9.150"
 
 experimental = ["setup-scripts", "wrapper-scripts"]
 
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 1 }
+
 # Timing ratios require an uncontended test runner.
 [[profile.default.overrides]]
 filter = "package(tangram_index_lmdb) & test(scales_linearly)"
