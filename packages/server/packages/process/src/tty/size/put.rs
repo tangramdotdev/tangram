@@ -181,8 +181,13 @@ impl Component {
 		let response = if let Some(control_sender) = control_sender {
 			control_sender.request(request).await?
 		} else {
-			self.request_process_control(session, id, request, options)
-				.await??
+			let Some(response) = self
+				.try_request_process_control(session, id, request, options)
+				.await?
+			else {
+				return Ok(Some(()));
+			};
+			response?
 		};
 		response
 			.try_unwrap_tty()

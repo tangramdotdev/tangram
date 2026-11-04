@@ -54,3 +54,4 @@ advance_time $remote 4sec
 # The signal request must return rather than hang waiting for the response from the dead runner.
 let status = try { job recv --tag $signal --timeout 30sec } catch { null }
 assert ($status != null) "the signal request must return after the runner dies before responding"
+assert equal $status 200
