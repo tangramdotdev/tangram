@@ -14,27 +14,31 @@ tg checkin $second | ignore
 tg index
 
 # Occupy the runner with a process that is held at its finish.
-let finish = tg checkpoint watch runner.process.finish | from json | get watch
-tg build --detach --verbose $first | ignore
-success (tg checkpoint wait --timeout 30s runner.process.finish $finish 0 | complete)
+let finish = checkpoint watch runner.process.finish
+tg build --detach $first | ignore
+checkpoint wait $finish | ignore
 
 # Hold the index so that the second process does not reach it.
-let batch = tg checkpoint watch index.batch | from json | get watch
+let batch = checkpoint watch index.batch
 
 # Start a build that must wait for capacity, and observe its wait on the index.
-let start = tg checkpoint watch process.spawn.start.index | from json | get watch
+let start = checkpoint watch process.spawn.start.index
+let ended = checkpoint watch process.spawn.sandbox.ended
 let build = job spawn {
 	let job_id = job id
 	let output = tg build --no-tokens $second | complete
 	$output | job send --tag $job_id 0
 }
-success (tg checkpoint wait --timeout 30s process.spawn.start.index $start 0 | complete)
-tg checkpoint unwatch process.spawn.start.index $start
+checkpoint wait $start | ignore
+checkpoint unwatch $start
 
 # Release the runner so that the second process runs and finishes while the index is still held.
-tg checkpoint unwatch runner.process.finish $finish
-let held = try { job recv --tag $build --timeout 20sec } catch { null }
-tg checkpoint unwatch index.batch $batch
-let output = if $held != null { $held } else { job recv --tag $build --timeout 30sec }
+checkpoint unwatch $finish
+checkpoint wait $ended | ignore
+
+# Release the index after the spawn observes the sandbox ending without an indexed process status.
+checkpoint unwatch $batch
+checkpoint unwatch $ended
+let output = job recv --tag $build --timeout 30sec
 success $output "a process that succeeded must not fail its build"
-assert ($output.stdout | str contains "second")
+assert equal ($output.stdout | str trim) '"second"'

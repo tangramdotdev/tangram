@@ -163,7 +163,21 @@ impl Component {
 		tokio::select! {
 			result = started_future.as_mut() => result.map(Some),
 			result = destroyed_future => {
-				// Treat a process that started before its sandbox ended as started.
+				let started = Self::try_get_process_start_from_index(session, id).await?;
+				tangram_server_core::checkpoint!(session.server, "process.spawn.sandbox.ended", process = %id)
+					.await;
+				if started {
+					return Ok(Some(()));
+				}
+
+				// Wait for pending writes before checking whether the process started before its sandbox ended.
+				session
+					.index(tg::index::Arg::default())
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?
+					.try_last()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?;
 				if Self::try_get_process_start_from_index(session, id).await? {
 					return Ok(Some(()));
 				}
