@@ -520,6 +520,9 @@ pub struct StopSandboxServerResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
+	#[tangram_serialize(id = 6)]
+	pub attempt: u64,
+
 	#[tangram_serialize(id = 0)]
 	pub heartbeat: HeartbeatClientNotification,
 

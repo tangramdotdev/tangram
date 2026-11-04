@@ -29,6 +29,7 @@ pub(super) enum Request {
 		now: jiff::Timestamp,
 		period: tangram_index::usage::Period,
 	},
+	NextRunnerAttempt(tg::runner::Id),
 	PutCheckouts(Vec<tangram_index::checkout::put::Arg>),
 	PutPermissions(Vec<tangram_index::permission::put::Arg>),
 	PutGroupMembers(Vec<tangram_index::group::member::put::Arg>),
@@ -211,6 +212,7 @@ impl Request {
 			| Self::DeleteTags(_)
 			| Self::DeleteUsers(_)
 			| Self::GetUsage { .. }
+			| Self::NextRunnerAttempt(_)
 			| Self::PutIndexer(_)
 			| Self::PutTags(_)
 			| Self::TouchCheckouts(_)

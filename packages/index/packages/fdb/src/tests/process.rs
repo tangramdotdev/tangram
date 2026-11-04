@@ -363,3 +363,125 @@ async fn a_finished_process_accepts_only_the_children_that_it_lists() {
 	})
 	.await;
 }
+
+#[tokio::test]
+async fn registration_attempts_fence_delayed_updates_and_cleanup() {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
+		for same_scheduler in [false, true] {
+			let first = tangram_index::runner::Registration {
+				attempt: 1,
+				runner: tg::runner::Id::new(),
+				scheduler: tg::scheduler::Id::new(),
+			};
+			let group = tg::group::Id::new();
+			let put = tangram_index::batch::Arg {
+				items: vec![
+					tangram_index::batch::Item::PutRunner(first.clone()),
+					tangram_index::batch::Item::PutGroup(tangram_index::group::put::Arg {
+						id: group.clone(),
+						parent: None,
+						specifier: "test".parse().unwrap(),
+					}),
+				],
+			};
+			index.batch(put).await.unwrap().unwrap();
+			// Exercise both migration to a different scheduler and reconnection to the same one.
+			let scheduler = if same_scheduler {
+				first.scheduler.clone()
+			} else {
+				tg::scheduler::Id::new()
+			};
+			let current = tangram_index::runner::Registration {
+				attempt: 2,
+				scheduler,
+				..first.clone()
+			};
+			let put = tangram_index::batch::Arg {
+				items: vec![tangram_index::batch::Item::PutRunner(current.clone())],
+			};
+			index.batch(put).await.unwrap().unwrap();
+			let conflicting = tangram_index::runner::Registration {
+				scheduler: tg::scheduler::Id::new(),
+				..current.clone()
+			};
+			let put = tangram_index::batch::Arg {
+				items: vec![tangram_index::batch::Item::PutRunner(conflicting)],
+			};
+			assert!(index.batch(put).await.unwrap().is_err());
+			let stale = tangram_index::batch::Arg {
+				items: vec![tangram_index::batch::Item::PutRunner(first.clone())],
+			};
+			assert!(index.batch(stale).await.unwrap().is_err());
+			let stale = tangram_index::batch::Arg {
+				items: vec![tangram_index::batch::Item::DeleteGroup(group.clone())],
+			}
+			.with_runner(first.clone());
+			assert!(index.batch(stale).await.unwrap().is_err());
+			let groups = index
+				.try_get_groups(std::slice::from_ref(&group))
+				.await
+				.unwrap();
+			assert!(groups[0].is_some());
+			let check = tangram_index::batch::Arg::default().with_runner(current);
+			index.batch(check).await.unwrap().unwrap();
+		}
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn attempt_allocations_are_unique_and_survive_reopen() {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
+		let runner = tg::runner::Id::new();
+		let allocations =
+			futures::future::try_join_all((0..32).map(|_| index.next_runner_attempt(&runner)))
+				.await
+				.unwrap();
+		let mut allocations = allocations;
+		allocations.sort_unstable();
+		assert_eq!(allocations, (1..=32).collect::<Vec<_>>());
+
+		let index = Index::new(&options).unwrap();
+
+		assert_eq!(index.next_runner_attempt(&runner).await.unwrap(), 33);
+		assert_eq!(
+			index
+				.next_runner_attempt(&tg::runner::Id::new())
+				.await
+				.unwrap(),
+			1
+		);
+		let registration = tangram_index::runner::Registration {
+			attempt: 100,
+			runner: runner.clone(),
+			scheduler: tg::scheduler::Id::new(),
+		};
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutRunner(registration.clone())],
+		};
+		index.batch(arg).await.unwrap().unwrap();
+		assert_eq!(index.next_runner_attempt(&runner).await.unwrap(), 101);
+		// Allocation must leave the accepted registration unchanged.
+		index
+			.batch(tangram_index::batch::Arg::default().with_runner(registration.clone()))
+			.await
+			.unwrap()
+			.unwrap();
+		let registration = tangram_index::runner::Registration {
+			attempt: u64::MAX,
+			..registration
+		};
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutRunner(registration)],
+		};
+		index.batch(arg).await.unwrap().unwrap();
+		assert!(index.next_runner_attempt(&runner).await.is_err());
+	})
+	.await;
+}

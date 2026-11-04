@@ -33,6 +33,7 @@ impl Component {
 					defer_index: false,
 					location: None,
 					outcome_sync: None,
+					runner: None,
 					store_data: true,
 				};
 				(
@@ -135,6 +136,7 @@ impl Component {
 			defer_index,
 			location,
 			outcome_sync,
+			runner,
 			store_data,
 		} = options;
 		let now = session.server.clock.unix_timestamp();
@@ -279,6 +281,7 @@ impl Component {
 				}))
 				.collect(),
 		};
+		let arg = arg.with_optional_runner(runner);
 		let result = if defer_index {
 			session
 				.server

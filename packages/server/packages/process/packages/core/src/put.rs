@@ -5,5 +5,6 @@ pub struct Options {
 	pub defer_index: bool,
 	pub location: Option<tg::Location>,
 	pub outcome_sync: Option<tg::Referent<tg::sync::Id>>,
+	pub runner: Option<tangram_index::runner::Registration>,
 	pub store_data: bool,
 }

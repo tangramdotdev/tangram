@@ -94,6 +94,56 @@ impl Component {
 	)> {
 		let id = arg.id.clone();
 		let scheduler_ttl = arg.scheduler_ttl;
+
+		let server_messages = session
+			.server
+			.messenger
+			.subscribe::<ServerMessage>(format!("runners.{id}.control.server"))
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to subscribe to the runner server message stream"
+				)
+			})?;
+
+		tangram_server_core::checkpoint!(session.server, "runner.registration.start", runner = %id, attempt = arg.attempt).await;
+		let request = tangram_server_scheduler_core::RequestArg::AddRunner(
+			tangram_server_scheduler_core::AddRunnerRequestArg {
+				attempt: arg.attempt,
+				capacity: arg.heartbeat.capacity,
+				host: arg.host,
+				runner: id.clone(),
+			},
+		);
+		let (scheduler, output) = session
+			.server
+			.components
+			.scheduler
+			.send_scheduler_request(session, request)
+			.boxed()
+			.await?;
+		let output = output?;
+		let output = output
+			.try_unwrap_add_runner()
+			.map_err(|_| tg::error!("expected an add runner response"))?;
+		let connection_index = output.connection_index;
+		if output.scheduler != scheduler {
+			return Err(tg::error!(
+				actual = %output.scheduler,
+				expected = %scheduler,
+				"the scheduler returned an invalid ID"
+			));
+		}
+
+		// Record the scheduler only if this registration attempt has not been superseded.
+		tangram_server_core::checkpoint!(session.server, "runner.registration.accept", runner = %id, attempt = arg.attempt).await;
+		self.set_runner_scheduler(session, &id, &scheduler, arg.attempt)
+			.await
+			.map_err(
+				|error| tg::error!(!error, runner = %id, "failed to set the runner's scheduler"),
+			)?;
+
 		// Get the sandboxes that the runner is running and that the index records as stopped, destroyed, or at another boot, after pending indexing so that a start that is not indexed yet is not mistaken for a sandbox that the server stopped.
 		let sandboxes = if arg.sandboxes.is_empty() {
 			Vec::new()
@@ -134,44 +184,7 @@ impl Component {
 				.map(|(_, sandbox)| sandbox.id)
 				.collect()
 		};
-		let server_messages = session
-			.server
-			.messenger
-			.subscribe::<ServerMessage>(format!("runners.{id}.control.server"))
-			.await
-			.map_err(|source| {
-				tg::error!(
-					!source,
-					"failed to subscribe to the runner server message stream"
-				)
-			})?;
 
-		let request = tangram_server_scheduler_core::RequestArg::AddRunner(
-			tangram_server_scheduler_core::AddRunnerRequestArg {
-				capacity: arg.heartbeat.capacity,
-				host: arg.host,
-				runner: id.clone(),
-			},
-		);
-		let (scheduler, output) = session
-			.server
-			.components
-			.scheduler
-			.send_scheduler_request(session, request)
-			.boxed()
-			.await?;
-		let output = output?;
-		let output = output
-			.try_unwrap_add_runner()
-			.map_err(|_| tg::error!("expected an add runner response"))?;
-		let connection_index = output.connection_index;
-		if output.scheduler != scheduler {
-			return Err(tg::error!(
-				actual = %output.scheduler,
-				expected = %scheduler,
-				"the scheduler returned an invalid ID"
-			));
-		}
 		let header = tg::runner::control::Header {
 			sandboxes,
 			scheduler: scheduler.clone(),
@@ -390,6 +403,7 @@ impl Component {
 				if !scheduler_unavailable.load(Ordering::Acquire) {
 					let request = tangram_server_scheduler_core::RequestArg::RemoveRunner(
 						tangram_server_scheduler_core::RemoveRunnerRequestArg {
+							attempt: arg.attempt,
 							connection_index,
 							runner: runner.clone(),
 						},

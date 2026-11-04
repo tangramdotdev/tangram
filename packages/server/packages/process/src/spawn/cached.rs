@@ -700,6 +700,7 @@ impl Component {
 			defer_index: false,
 			location: Some(location),
 			outcome_sync: None,
+			runner: None,
 			store_data: true,
 		};
 		let output = self

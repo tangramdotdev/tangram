@@ -26,7 +26,8 @@ impl Index {
 		process_data_fragment_size: usize,
 		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
-		for item in &arg.items {
+		let mut pending = arg.items.iter().rev().collect::<Vec<_>>();
+		while let Some(item) = pending.pop() {
 			// Skip a grant from a finished process to a process that it does not list as a child.
 			if let Some((source, destination)) = item.process_grant()
 				&& Self::try_get_process_accepts_child_with_transaction(
@@ -219,6 +220,18 @@ impl Index {
 						return Ok(Err(error));
 					}
 				},
+				tangram_index::batch::Item::PutRunner(registration) => {
+					let result = Self::runner_registration_with_transaction(
+						db,
+						subspace,
+						transaction,
+						registration,
+						true,
+					)?;
+					if let Err(error) = result {
+						return Ok(Err(error));
+					}
+				},
 				tangram_index::batch::Item::PutSandbox(arg) => {
 					let result = Self::put_sandboxes_with_transaction(
 						db,
@@ -249,6 +262,22 @@ impl Index {
 						transaction,
 						std::slice::from_ref(arg),
 					)?;
+				},
+				tangram_index::batch::Item::WithRunner {
+					items,
+					registration,
+				} => {
+					let result = Self::runner_registration_with_transaction(
+						db,
+						subspace,
+						transaction,
+						registration,
+						false,
+					)?;
+					if let Err(error) = result {
+						return Ok(Err(error));
+					}
+					pending.extend(items.iter().rev());
 				},
 			}
 		}

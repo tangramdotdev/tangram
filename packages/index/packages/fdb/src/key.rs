@@ -99,6 +99,8 @@ pub enum Kind {
 	CreatorProcess = 79,
 	OwnerProcess = 80,
 	PermissionCapture = 90,
+	Runner = 91,
+	RunnerAttempt = 92,
 }
 
 impl fdbt::TuplePack for Key {
@@ -267,6 +269,16 @@ impl fdbt::TuplePack for Key {
 
 			Key::Sync(crate::sync::Key::Sync { id }) => {
 				(Kind::Sync.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
+			},
+
+			Key::Runner(crate::runner::Key::Attempt(runner)) => (
+				Kind::RunnerAttempt.to_i32().unwrap(),
+				runner.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Runner(crate::runner::Key::Registration(runner)) => {
+				(Kind::Runner.to_i32().unwrap(), runner.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
 
 			Key::Runner(crate::runner::Key::RunnerSandbox { runner, sandbox }) => (
@@ -1040,6 +1052,20 @@ impl fdbt::TupleUnpack<'_> for Key {
 					input,
 					Key::Sync(crate::sync::Key::ExpiresAt { expires_at, id }),
 				))
+			},
+
+			Kind::RunnerAttempt => {
+				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let runner = tg::runner::Id::from_slice(&runner)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				Ok((input, Key::Runner(crate::runner::Key::Attempt(runner))))
+			},
+
+			Kind::Runner => {
+				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let runner = tg::runner::Id::from_slice(&runner)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				Ok((input, Key::Runner(crate::runner::Key::Registration(runner))))
 			},
 
 			Kind::RunnerSandbox => {

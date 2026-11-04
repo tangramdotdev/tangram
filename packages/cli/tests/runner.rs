@@ -171,6 +171,7 @@ async fn destroy_sandbox(
 	let (mut sender, receiver) =
 		futures::channel::mpsc::unbounded::<tg::Result<tg::runner::control::ClientMessage>>();
 	let arg = tg::runner::control::Arg {
+		attempt: 1,
 		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
 		host: "test".to_owned(),
 		id: runner.data.id.clone(),

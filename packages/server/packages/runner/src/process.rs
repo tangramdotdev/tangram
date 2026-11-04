@@ -1581,6 +1581,7 @@ impl Component {
 			defer_index: false,
 			location: Some(location.clone()),
 			outcome_sync: None,
+			runner: None,
 			store_data: location.is_remote(),
 		};
 		let arg = tg::process::put::Arg {

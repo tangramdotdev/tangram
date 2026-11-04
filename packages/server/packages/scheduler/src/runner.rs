@@ -21,6 +21,7 @@ pub(super) struct Runners {
 }
 
 pub(super) struct Runner {
+	pub attempt: u64,
 	pub borrowable: HashSet<tg::sandbox::Id, tg::id::BuildHasher>,
 	pub capacity: tg::runner::control::Capacity,
 	pub committed: tg::runner::Capacity,
@@ -59,11 +60,11 @@ impl Runners {
 		&self,
 		now: tangram_server_core::clock::Instant,
 		ttl: Duration,
-	) -> Vec<(tg::runner::Id, u64)> {
+	) -> Vec<(tg::runner::Id, u64, u64)> {
 		self.entries
 			.iter()
 			.filter(|(_, runner)| now - runner.heartbeat_at > ttl)
-			.map(|(id, runner)| (id.clone(), runner.connection_index))
+			.map(|(id, runner)| (id.clone(), runner.connection_index, runner.attempt))
 			.collect()
 	}
 
@@ -82,11 +83,26 @@ impl SchedulerState {
 		id: String,
 		request: AddRunnerRequestArg,
 	) {
+		if self
+			.runners
+			.entries
+			.get(&request.runner)
+			.is_some_and(|runner| request.attempt < runner.attempt)
+		{
+			let error = tg::error!(
+				code = tg::error::Code::Cancellation,
+				"the runner registration was superseded"
+			);
+			let response = scheduler.response(id, Err(error));
+			scheduler.send_response(self, response);
+			return;
+		}
 		let connection_index = self.runners.next_connection_index();
 		tracing::info!(runner = %request.runner, connection_index, "registering the runner connection");
 		let completions = self.remove_runner(&request.runner);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
 		let runner = Runner {
+			attempt: request.attempt,
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
 			committed: tg::runner::Capacity::default(),
@@ -188,7 +204,10 @@ impl SchedulerState {
 			.runners
 			.entries
 			.get(&request.runner)
-			.is_some_and(|runner| runner.connection_index == request.connection_index);
+			.is_some_and(|runner| {
+				runner.connection_index == request.connection_index
+					&& runner.attempt == request.attempt
+			});
 		if !current {
 			if let Some(id) = id {
 				let output = RemoveRunnerResponseOutput {
@@ -249,15 +268,12 @@ impl Scheduler {
 			},
 		};
 
-		// Record this scheduler as the runner's owner, so that a scheduler that the runner left does not stop its sandboxes.
+		tangram_server_core::checkpoint!(self.server, "scheduler.runner.register", runner = %request.runner).await;
 		self.server
 			.components
 			.runner
-			.set_runner_scheduler(&session, &request.runner, &self.id)
-			.await
-			.map_err(
-				|error| tg::error!(!error, runner = %request.runner, "failed to set the runner's scheduler"),
-			)?;
+			.set_runner_scheduler(&session, &request.runner, &self.id, request.attempt)
+			.await?;
 		tangram_server_core::checkpoint!(self.server, "scheduler.runner.added", runner = %request.runner).await;
 		let output = AddRunnerResponseOutput {
 			connection_index,
@@ -272,26 +288,24 @@ impl Scheduler {
 		&self,
 		request: RemoveRunnerRequestArg,
 	) -> tg::Result<RemoveRunnerResponseOutput> {
-		// Stop the runner's sandboxes only if the runner has not moved to another scheduler.
-		let session = self.server.session(&self.server.context);
-		let scheduler = self
-			.server
-			.components
-			.runner
-			.try_get_runner_scheduler(&session, &request.runner)
-			.await
-			.map_err(
-				|error| tg::error!(!error, runner = %request.runner, "failed to get the runner's scheduler"),
-			)?;
-		if scheduler.is_none_or(|scheduler| scheduler == self.id) {
-			self.component
-				.handle_expired_runner(&self.server, &request.runner)
-				.boxed()
-				.await
-				.map_err(
-					|error| tg::error!(!error, runner = %request.runner, "failed to handle the expired runner"),
-				)?;
+		// Stop the runner's sandboxes only while this registration still owns the runner.
+		let registration = tangram_index::runner::Registration {
+			attempt: request.attempt,
+			runner: request.runner.clone(),
+			scheduler: self.id.clone(),
+		};
+		let result = self
+			.component
+			.handle_expired_runner(&self.server, &registration)
+			.boxed()
+			.await;
+		if let Err(error) = result {
+			let arg = tangram_index::batch::Arg::default().with_runner(registration);
+			if self.server.index.batch(arg).await?.is_ok() {
+				return Err(error);
+			}
 		}
+
 		tangram_server_core::checkpoint!(self.server, "scheduler.runner.removed", runner = %request.runner).await;
 
 		let output = RemoveRunnerResponseOutput {
@@ -306,8 +320,11 @@ impl Component {
 	pub(crate) async fn handle_expired_runner(
 		&self,
 		server: &Server,
-		runner: &tg::runner::Id,
+		registration: &tangram_index::runner::Registration,
 	) -> tg::Result<()> {
+		let arg = tangram_index::batch::Arg::default().with_runner(registration.clone());
+		server.index.batch(arg).await??;
+		let runner = &registration.runner;
 		let sandboxes =
 			server.index.get_runner_sandboxes(runner).await.map_err(
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
@@ -328,11 +345,14 @@ impl Component {
 			let time_to_live = indexed
 				.and_then(|indexed| indexed.data)
 				.and_then(|data| data.data.time_to_live);
-			if time_to_live.is_some_and(|time_to_live| time_to_live.is_zero()) {
-				self.destroy_runner_sandbox(server, &sandbox, error).await?;
+			let status = if time_to_live.is_some_and(|time_to_live| time_to_live.is_zero()) {
+				tg::sandbox::Status::Destroyed
 			} else {
-				self.stop_runner_sandbox(server, &sandbox, error).await?;
-			}
+				tg::sandbox::Status::Stopped
+			};
+			self.finish_runner_sandbox(server, &sandbox, error, status, Some(registration))
+				.boxed()
+				.await?;
 		}
 
 		Ok(())
@@ -344,7 +364,8 @@ impl Component {
 		id: &tg::sandbox::Id,
 		error: tg::error::Data,
 	) -> tg::Result<()> {
-		self.finish_runner_sandbox(server, id, error, tg::sandbox::Status::Destroyed)
+		self.finish_runner_sandbox(server, id, error, tg::sandbox::Status::Destroyed, None)
+			.boxed()
 			.await
 	}
 
@@ -354,7 +375,8 @@ impl Component {
 		id: &tg::sandbox::Id,
 		error: tg::error::Data,
 	) -> tg::Result<()> {
-		self.finish_runner_sandbox(server, id, error, tg::sandbox::Status::Stopped)
+		self.finish_runner_sandbox(server, id, error, tg::sandbox::Status::Stopped, None)
+			.boxed()
 			.await
 	}
 
@@ -364,6 +386,7 @@ impl Component {
 		id: &tg::sandbox::Id,
 		error: tg::error::Data,
 		status: tg::sandbox::Status,
+		registration: Option<&tangram_index::runner::Registration>,
 	) -> tg::Result<()> {
 		// Leave a sandbox that is already stopped or destroyed alone.
 		let stopped_or_destroyed = server
@@ -407,7 +430,9 @@ impl Component {
 			let mut data = data.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
 			let finish = data.status.is_started();
 			if finish {
-				if data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log()) {
+				let recover_log =
+					data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log());
+				if recover_log {
 					match self
 						.finish_expired_process_log(server, &process)
 						.boxed()
@@ -437,6 +462,7 @@ impl Component {
 					defer_index: false,
 					location: None,
 					outcome_sync: None,
+					runner: registration.cloned(),
 					store_data: true,
 				};
 				session
@@ -449,6 +475,11 @@ impl Component {
 					.map_err(
 						|source| tg::error!(!source, %process, "failed to store the finished process"),
 					)?;
+
+				// Finalize the cache only after the fenced process write succeeds.
+				if recover_log {
+					self.end_expired_process_log(server, &process).await?;
+				}
 				let session = server.session(&server.context);
 				if let Err(error) = session
 					.server
@@ -472,40 +503,42 @@ impl Component {
 				// Remove the tokens before updating the index.
 				let data = data.without_location_and_tokens_except_sync();
 
+				let arg = tangram_index::batch::Arg {
+					items: std::iter::once(tangram_index::batch::Item::PutProcess(
+						tangram_index::process::put::Arg {
+							cached: false,
+							children: None,
+							command: Some(
+								data.command
+									.objects()
+									.into_iter()
+									.map(|object| object.node)
+									.collect(),
+							),
+							command_id: data.command.command_id()?.into(),
+							data: Some(data.clone()),
+							error: None,
+							id: process.clone(),
+							location: None,
+							log: None,
+							metadata: indexed.metadata,
+							options: tg::referent::Options::default(),
+							output: None,
+							parent: None,
+							permissions: Vec::new(),
+							principal: tg::Principal::Process(process.clone()),
+							sandbox: None,
+							storage: indexed.storage,
+							time_to_touch: server.config.process.time_to_touch,
+							touched_at: now,
+						},
+					))
+					.collect(),
+				}
+				.with_optional_runner(registration.cloned());
 				server
 					.index
-					.batch(tangram_index::batch::Arg {
-						items: std::iter::once(tangram_index::batch::Item::PutProcess(
-							tangram_index::process::put::Arg {
-								cached: false,
-								children: None,
-								command: Some(
-									data.command
-										.objects()
-										.into_iter()
-										.map(|object| object.node)
-										.collect(),
-								),
-								command_id: data.command.command_id()?.into(),
-								data: Some(data.clone()),
-								error: None,
-								id: process.clone(),
-								location: None,
-								log: None,
-								metadata: indexed.metadata,
-								options: tg::referent::Options::default(),
-								output: None,
-								parent: None,
-								permissions: Vec::new(),
-								principal: tg::Principal::Process(process.clone()),
-								sandbox: None,
-								storage: indexed.storage,
-								time_to_touch: server.config.process.time_to_touch,
-								touched_at: now,
-							},
-						))
-						.collect(),
-					})
+					.batch(arg)
 					.await
 					.and_then(std::convert::identity)
 					.map_err(
@@ -555,25 +588,27 @@ impl Component {
 		} else {
 			None
 		};
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutSandbox(
+				tangram_index::sandbox::put::Arg {
+					account,
+					created_at: indexed.created_at,
+					data: indexed.data,
+					id: id.clone(),
+					location: None,
+					permissions: Vec::new(),
+					principal: tg::Principal::Sandbox(id.clone()),
+					processes: Some(processes),
+					runner: indexed.runner,
+					stopped_usage: None,
+					touched_at: now,
+				},
+			)],
+		}
+		.with_optional_runner(registration.cloned());
 		server
 			.index
-			.batch(tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutSandbox(
-					tangram_index::sandbox::put::Arg {
-						account,
-						created_at: indexed.created_at,
-						data: indexed.data,
-						id: id.clone(),
-						location: None,
-						permissions: Vec::new(),
-						principal: tg::Principal::Sandbox(id.clone()),
-						processes: Some(processes),
-						runner: indexed.runner,
-						stopped_usage: None,
-						touched_at: now,
-					},
-				)],
-			})
+			.batch(arg)
 			.await
 			.and_then(std::convert::identity)
 			.map_err(
@@ -592,7 +627,6 @@ impl Component {
 		server: &Server,
 		process: &tg::process::Id,
 	) -> tg::Result<tg::Referent<tg::blob::Id>> {
-		self.end_expired_process_log(server, process).await?;
 		let session = server.session(&server.context);
 		let mut writer = tangram_server_log_common::Writer::new(&session);
 		let mut position = 0;
