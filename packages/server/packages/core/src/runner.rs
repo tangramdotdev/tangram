@@ -24,6 +24,19 @@ pub trait Component: crate::component::Lifecycle {
 		runner: &'a tg::runner::Id,
 	) -> BoxFuture<'a, tg::Result<Option<tg::runner::Data>>>;
 
+	fn try_get_runner_scheduler<'a>(
+		&'a self,
+		session: &'a Session,
+		runner: &'a tg::runner::Id,
+	) -> BoxFuture<'a, tg::Result<Option<tg::scheduler::Id>>>;
+
+	fn set_runner_scheduler<'a>(
+		&'a self,
+		session: &'a Session,
+		runner: &'a tg::runner::Id,
+		scheduler: &'a tg::scheduler::Id,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
 	fn create_runner<'a>(
 		&'a self,
 		session: &'a Session,

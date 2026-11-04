@@ -7,7 +7,7 @@ use ../../util/nats.nu *
 # The scenario is driven entirely with checkpoints. A dedicated NATS lets the frozen scheduler's share of the
 # shared queue group be dropped, so that the runner's re-registration reaches the second scheduler, leaving the
 # first scheduler holding a stale registration.
-let nats = spawn_nats
+let nats = spawn_nats --config { ping_interval: 1, ping_max: 1 }
 let root = random chars
 let common = {
 	advanced: { checkpoints: true, multi_server: true },
@@ -19,8 +19,9 @@ let instance = instance --cloud --config $common
 
 # Start an api gateway and the first scheduler. The gateway bridges the runner's control connection and stays
 # alive throughout, so the runner always has an entry point even while the first scheduler is frozen.
+# The first scheduler does not index, because a frozen indexer would stall the runner's re-registration.
 let gateway = server spawn --instance $instance --name gateway --config { roles: [api indexer] }
-let scheduler_a = server spawn --instance $instance --name scheduler-a --config { roles: [api indexer scheduler] }
+let scheduler_a = server spawn --instance $instance --name scheduler-a --config { roles: [api scheduler] }
 
 # Register the runner. With only the first scheduler running, it registers there deterministically.
 let created = tg --url $gateway.url --token $root runner create | from json
@@ -57,9 +58,9 @@ checkpoint unwatch $connected
 let scheduler_b = server spawn --instance $instance --name scheduler-b --config { roles: [api indexer scheduler] }
 
 # Register the checkpoints on both schedulers while they are alive: the migration on the second scheduler and
-# the stale registration's expiry on the first, which the first scheduler reaches only after it is thawed.
+# the stale registration's removal on the first, which the first scheduler reaches only after it is thawed.
 let added_b = checkpoint watch scheduler.runner.added --url $scheduler_b.url --token $root --params { runner: $created.data.id }
-let expired = checkpoint watch scheduler.runner.expired --url $scheduler_a.url --token $root --params { runner: $created.data.id }
+let removed = checkpoint watch scheduler.runner.removed --url $scheduler_a.url --token $root --params { runner: $created.data.id }
 
 # Freeze the first scheduler so that NATS evicts it from the shared queue group while its in-memory registration
 # stays alive. The runner stops receiving heartbeat acknowledgements and re-registers with the second scheduler.
@@ -69,10 +70,10 @@ checkpoint pass $added_b | ignore
 checkpoint unwatch $added_b
 
 # Thaw the first scheduler, which still holds its now-stale registration. Its cleaner expires the stale
-# registration and runs the expired-runner handler.
+# registration and removes it.
 ^kill -CONT $scheduler_a_pid
-checkpoint pass $expired | ignore
-checkpoint unwatch $expired
+checkpoint pass $removed | ignore
+checkpoint unwatch $removed
 
 # Finish indexing on the second scheduler, then read the process. The process sleeps and can only be finished by
 # the stale registration's expiry, so it must still be started.
