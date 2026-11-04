@@ -2,7 +2,6 @@ use {futures::future::BoxFuture, tangram_client::prelude::*};
 
 /// A running vfs.
 pub trait Server: Send {
-	#[cfg(target_os = "linux")]
 	fn provider(&self) -> std::sync::Arc<dyn Provider>;
 
 	fn stop(&self);
@@ -16,6 +15,5 @@ pub trait Provider: Send + Sync {
 
 	fn seed_tokens(&self, id: &tg::Id, tokens: &tg::authorization::Tokens);
 
-	#[cfg(target_os = "linux")]
 	fn set_principal(&self, principal: tg::Principal);
 }

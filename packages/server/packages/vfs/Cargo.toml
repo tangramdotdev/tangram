@@ -31,9 +31,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_cache = { workspace = true }
 tangram_client = { workspace = true }
+tangram_futures = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_server_grant_common = { workspace = true }
 tangram_server_vfs_core = { workspace = true }
+tangram_util = { workspace = true }
 tangram_vfs = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }

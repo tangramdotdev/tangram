@@ -26,7 +26,6 @@ pub struct State {
 
 pub struct Server {
 	inner: Inner,
-	#[cfg(target_os = "linux")]
 	provider: provider::Weak,
 }
 
@@ -99,14 +98,14 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
 
-		#[cfg(target_os = "linux")]
 		let weak = provider.downgrade();
 		let inner = match kind {
 			Kind::Fskit => {
 				#[cfg(target_os = "macos")]
 				{
 					let principal = principal.unwrap_or(tg::Principal::Anonymous);
-					let fskit = fskit::Server::start(server, path, principal).await?;
+					let fskit =
+						fskit::Server::start(server, path, principal, origin, provider).await?;
 					Inner::Fskit(fskit)
 				}
 				#[cfg(not(target_os = "macos"))]
@@ -202,7 +201,6 @@ impl Server {
 
 		let server = Self {
 			inner,
-			#[cfg(target_os = "linux")]
 			provider: weak,
 		};
 		Ok(server)
@@ -264,7 +262,6 @@ impl Server {
 		Ok(())
 	}
 
-	#[cfg(target_os = "linux")]
 	#[must_use]
 	pub fn provider(&self) -> &provider::Weak {
 		&self.provider
@@ -286,9 +283,7 @@ impl Server {
 		match self.inner {
 			#[cfg(target_os = "macos")]
 			Inner::Fskit(server) => {
-				if let Err(error) = fskit::Server::unmount(server.path()).await {
-					tracing::error!(?error, "failed to unmount the fskit vfs");
-				}
+				server.wait().await;
 			},
 			#[cfg(target_os = "linux")]
 			Inner::Fuse(server) => {
@@ -396,7 +391,6 @@ impl tangram_server_core::vfs::Component for Component {
 }
 
 impl tangram_server_vfs_core::Server for Server {
-	#[cfg(target_os = "linux")]
 	fn provider(&self) -> std::sync::Arc<dyn tangram_server_vfs_core::Provider> {
 		std::sync::Arc::new(self.provider().clone())
 	}

@@ -11995,12 +11995,15 @@ dependencies = [
  "serde_json",
  "tangram_cache",
  "tangram_client",
+ "tangram_futures",
  "tangram_server_core",
  "tangram_server_grant_common",
  "tangram_server_vfs_core",
+ "tangram_util",
  "tangram_vfs",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -12173,6 +12176,8 @@ dependencies = [
  "libc",
  "num",
  "rustix 1.1.6",
+ "serde",
+ "serde_json",
  "tangram_either",
  "tangram_futures",
  "tokio",

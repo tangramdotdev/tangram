@@ -323,10 +323,7 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		let principal = options["principal"] ?? ""
 		let tokens = options["tokens"] ?? ""
 
-		// The client connects to the server over the unix socket the server sends as
-		// a mount option, which lets concurrent servers each serve on their own
-		// socket. It falls back to the socket in the shared app group container, the
-		// only path the sandbox permits the extension to open.
+		// Connect to the socket supplied by the server, or fall back to the shared app group socket.
 		let socket: String
 		if let socketOption = options["socket"] {
 			socket = socketOption
@@ -343,7 +340,8 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		logger.info(
 			"creating provider for socket=\(socket, privacy: .public) data=\(dataDirectory, privacy: .public) cache_map_size=\(cacheMapSize, privacy: .public) cache_path=\(cachePath, privacy: .public) cache_posix_sem_prefix=\(cachePosixSemPrefix, privacy: .public)",
 		)
-		let status = socket.withCString { socket in
+		let providerSocket = options["proxy"] == "1" ? "proxy:\(socket)" : socket
+		let status = providerSocket.withCString { socket in
 			dataDirectory.withCString { dataDirectory in
 				cachePath.withCString { cachePath in
 					cachePosixSemPrefix.withCString { cachePosixSemPrefix in

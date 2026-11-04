@@ -86,12 +86,22 @@ pub struct Provider {
 
 struct Inner {
 	artifact_tag_target_tokens: Mutex<BTreeMap<tg::artifact::Id, Vec<tg::authorization::Token>>>,
+
 	client: tg::Client,
+
 	fast: Option<Fast>,
+
 	file_handle_count: AtomicU64,
+
 	file_handles: Mutex<BTreeMap<u64, FileHandle>>,
+
 	nodes: Nodes,
+
 	principal: Option<tg::Principal>,
+
+	#[cfg(target_os = "macos")]
+	proxy: Option<PathBuf>,
+
 	tokens: BTreeMap<tg::artifact::Id, Vec<tg::authorization::Token>>,
 }
 
@@ -116,6 +126,7 @@ enum Transaction<'a> {
 
 struct FileHandle {
 	blob: tg::blob::Id,
+	file: tg::File,
 }
 
 struct Nodes {
@@ -175,11 +186,21 @@ struct ReaddirPlusPage {
 
 impl Provider {
 	pub fn new(socket: &str, config: &Config) -> std::io::Result<Self> {
+		#[cfg(target_os = "macos")]
+		let (socket, proxy) = socket
+			.strip_prefix("proxy:")
+			.map_or((socket, None), |socket| {
+				(socket, Some(PathBuf::from(socket)))
+			});
+
 		// Initialize the logging and runtime.
 		init_logging();
-		let runtime = tokio::runtime::Builder::new_multi_thread()
-			.enable_all()
-			.build()?;
+		let mut runtime = tokio::runtime::Builder::new_multi_thread();
+		#[cfg(target_os = "macos")]
+		if proxy.is_some() {
+			runtime.worker_threads(2);
+		}
+		let runtime = runtime.enable_all().build()?;
 
 		// Create the client URL with the builder so socket paths are not mangled by percent-encoding round trips.
 		let url = Uri::builder()
@@ -196,10 +217,10 @@ impl Provider {
 		let client = tg::Client::new(arg).map_err(std::io::Error::other)?;
 
 		// Initialize the provider state.
-		let fast = config
-			.data_directory
-			.as_deref()
-			.and_then(|data_directory| Fast::new(data_directory, config));
+		let data_directory = config.data_directory.as_deref();
+		#[cfg(target_os = "macos")]
+		let data_directory = data_directory.filter(|_| proxy.is_none());
+		let fast = data_directory.and_then(|data_directory| Fast::new(data_directory, config));
 
 		// Index the artifact tokens.
 		let mut tokens = BTreeMap::<_, Vec<_>>::new();
@@ -210,16 +231,27 @@ impl Provider {
 			};
 			tokens.entry(artifact).or_default().push(token.clone());
 		}
-		let inner = Arc::new(Inner {
+		let inner = Inner {
 			artifact_tag_target_tokens: Mutex::new(BTreeMap::new()),
+
 			client,
+
 			fast,
+
 			file_handle_count: AtomicU64::new(1000),
+
 			file_handles: Mutex::new(BTreeMap::new()),
+
 			nodes: Nodes::new(),
+
 			principal: config.principal.clone(),
+
+			#[cfg(target_os = "macos")]
+			proxy,
+
 			tokens,
-		});
+		};
+		let inner = Arc::new(inner);
 
 		// Spawn a background task that evicts cache-only nodes the kernel never referenced, bounding node table growth; it is aborted when the runtime is dropped with the provider.
 		runtime.spawn({
@@ -262,6 +294,16 @@ impl Inner {
 		&self,
 		requests: Vec<vfs::Request>,
 	) -> Vec<std::io::Result<vfs::Response>> {
+		#[cfg(target_os = "macos")]
+		if let Some(path) = &self.proxy {
+			let result = async {
+				let stream = tokio::net::UnixStream::connect(path).await?;
+				vfs::proxy::request(stream, &requests).await
+			}
+			.await;
+			return proxy_responses(result, requests.len());
+		}
+
 		// Handle each request.
 		let mut responses = Vec::with_capacity(requests.len());
 		for request in requests {
@@ -818,6 +860,9 @@ impl Inner {
 		let Some(artifact) = artifact else {
 			return Err(std::io::Error::other("expected a file"));
 		};
+		let tg::Artifact::File(file) = tg::Artifact::with_id(artifact.clone()) else {
+			return Err(std::io::Error::other("expected a file"));
+		};
 		let blob = 'a: {
 			if let Some(fast) = &self.fast {
 				match fast.file_contents(&artifact) {
@@ -825,9 +870,6 @@ impl Inner {
 					result => break 'a result?,
 				}
 			}
-			let tg::Artifact::File(file) = tg::Artifact::with_id(artifact) else {
-				return Err(std::io::Error::other("expected a file"));
-			};
 			file.contents_with_instance(&self.client)
 				.await
 				.map_err(eio)?
@@ -836,10 +878,11 @@ impl Inner {
 
 		// Create a file handle.
 		let handle = self.file_handle_count.fetch_add(1, Ordering::Relaxed);
+		let file_handle = FileHandle { blob, file };
 		self.file_handles
 			.lock()
 			.unwrap()
-			.insert(handle, FileHandle { blob });
+			.insert(handle, file_handle);
 
 		Ok(handle)
 	}
@@ -858,12 +901,12 @@ impl Inner {
 
 	async fn read(&self, handle: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
 		// Resolve the file handle.
-		let blob = {
+		let (blob, file) = {
 			let file_handles = self.file_handles.lock().unwrap();
 			let Some(file_handle) = file_handles.get(&handle) else {
 				return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 			};
-			file_handle.blob.clone()
+			(file_handle.blob.clone(), file_handle.file.clone())
 		};
 
 		// Try the fast path.
@@ -875,14 +918,18 @@ impl Inner {
 		}
 
 		// Read through the client.
+		let blob = file
+			.contents_with_instance(&self.client)
+			.await
+			.map_err(eio)?;
 		let arg = tg::read::Arg {
-			blob,
+			blob: blob.id(),
 			options: tg::read::Options {
 				length: Some(length),
 				position: Some(SeekFrom::Start(position)),
 				size: None,
 			},
-			tokens: tg::authorization::Tokens::default(),
+			tokens: blob.state().tokens(),
 		};
 		let stream = self
 			.client
@@ -1267,7 +1314,15 @@ impl Inner {
 			.await
 			.map_err(eio)?;
 		let mut references = Vec::with_capacity(dependencies.len());
-		for (reference, _) in dependencies {
+		for (mut reference, dependency) in dependencies {
+			if let Some(dependency) = dependency {
+				let mut options = reference.options().clone();
+				options.tokens.inherit(&dependency.0.options.tokens);
+				if let Some(object) = dependency.0.node {
+					options.tokens.inherit(&object.state().tokens());
+				}
+				reference.set_options(options);
+			}
 			references.push(reference);
 		}
 
@@ -2356,6 +2411,13 @@ impl vfs::Provider for Inner {
 		&self,
 		requests: Vec<vfs::Request>,
 	) -> Vec<std::io::Result<vfs::Response>> {
+		#[cfg(target_os = "macos")]
+		if let Some(path) = &self.proxy {
+			let result = std::os::unix::net::UnixStream::connect(path)
+				.and_then(|stream| vfs::proxy::request_sync(stream, &requests));
+			return proxy_responses(result, requests.len());
+		}
+
 		// Serve operations without asynchronous I/O and return `ENOSYS` for the caller to retry on the asynchronous path.
 		requests
 			.into_iter()
@@ -2454,6 +2516,23 @@ fn fallback() -> std::io::Error {
 /// Returns whether an error from the fast path means the provider should fall back to the client. Any other error is returned to the caller, so that a corrupt object is not masked by a request to the server.
 fn is_fallback(error: &std::io::Error) -> bool {
 	error.raw_os_error() == Some(libc::ENOSYS)
+}
+
+#[cfg(target_os = "macos")]
+fn proxy_responses(
+	result: std::io::Result<Vec<std::io::Result<vfs::Response>>>,
+	length: usize,
+) -> Vec<std::io::Result<vfs::Response>> {
+	match result {
+		Ok(responses) => responses,
+		Err(error) => {
+			tracing::error!(%error, "failed to proxy the VFS requests");
+			let errno = error.raw_os_error().unwrap_or(libc::EIO);
+			(0..length)
+				.map(|_| Err(std::io::Error::from_raw_os_error(errno)))
+				.collect()
+		},
+	}
 }
 
 fn eio(error: impl std::fmt::Debug) -> std::io::Error {

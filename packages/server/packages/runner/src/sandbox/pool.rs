@@ -21,7 +21,6 @@ pub struct CreateSandboxOutput {
 
 	pub temp: Temp,
 
-	#[cfg(target_os = "linux")]
 	pub vfs: Option<Box<dyn tangram_server_vfs_core::Server>>,
 }
 
@@ -136,12 +135,10 @@ async fn destroy(output: CreateSandboxOutput) -> tg::Result<()> {
 		sandbox,
 		serve_task,
 		mut temp,
-		#[cfg(target_os = "linux")]
 		vfs,
 	} = output;
 
 	// Stop the VFS while the sandbox still owns its mount namespace.
-	#[cfg(target_os = "linux")]
 	if let Some(vfs) = vfs {
 		vfs.stop();
 		vfs.wait().await;
