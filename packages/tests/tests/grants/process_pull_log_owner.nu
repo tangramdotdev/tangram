@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # An authorized caller can pull a finished process log even when a runner cannot read it.
 
 let root_token = random chars
-let remote = server spawn --cloud --name remote --preserve-keys --config {
+let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],

@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 # The runner must retain the error's tokens when pushing it to the remote.
 let root_token = random chars
-let remote = server spawn --cloud --preserve-keys --name remote --config {
+let remote = server spawn --cloud --name remote --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 	verification: { permissions: { initial: false, final: false } },

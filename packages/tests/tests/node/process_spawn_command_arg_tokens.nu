@@ -6,7 +6,7 @@ const javascript_path = path self '../../../javascript'
 
 # An unsandboxed inline spawn command authorizes its private executable from its referent tokens without traversing the authorization graph.
 
-let local = server spawn --preserve-keys --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
 

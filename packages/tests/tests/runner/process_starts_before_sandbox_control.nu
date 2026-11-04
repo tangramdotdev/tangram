@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # A scheduled process starts in a pooled sandbox before sandbox control connects.
 
 let root_token = random chars
-let remote = server spawn --preserve-keys --name remote --config {
+let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],

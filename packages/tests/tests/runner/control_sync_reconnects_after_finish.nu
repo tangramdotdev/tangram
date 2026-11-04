@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 # A reconnect resumes outcome sync after Finish has already been acknowledged.
 let root_token = random chars
-let remote = server spawn --name remote --preserve-keys --config {
+let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],

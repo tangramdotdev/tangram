@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # Pulling a process with its logs must not let a node-only reader obtain a live log. Sync omits live logs, and the process is kept running so its log cannot be transferred as a finished object.
 
 let root_token = random chars
-let remote = server spawn --cloud --name remote --preserve-keys --config {
+let remote = server spawn --cloud --name remote --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 }
 

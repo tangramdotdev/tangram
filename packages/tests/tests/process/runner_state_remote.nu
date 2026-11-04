@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # Runner reads precede remote dispatch without changing the process's location or token issuer.
 
 let root_token = random chars
-let remote = server spawn --preserve-keys --name remote --config {
+let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],

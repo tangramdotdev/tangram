@@ -8,7 +8,7 @@ for location in [remote 'local(east)'] {
 
 		# Spawn a scheduler with checkpoints enabled and no local runner.
 		let store = { object_max_batch: 1 }
-		let remote = server spawn --preserve-keys --instance $instance --region east --url (instance region url $instance east) --name remote --config {
+		let remote = server spawn --instance $instance --region east --url (instance region url $instance east) --name remote --config {
 			advanced: { checkpoints: true, multi_server: true },
 			authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 			roles: [api indexer scheduler],

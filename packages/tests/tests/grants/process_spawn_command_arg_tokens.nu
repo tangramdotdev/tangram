@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 # An inline spawn command authorizes its private executable and stdin directly from their referent tokens without traversing the authorization graph.
 
-let local = server spawn --preserve-keys --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
 

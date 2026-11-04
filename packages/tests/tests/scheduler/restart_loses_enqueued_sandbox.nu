@@ -16,7 +16,7 @@ let config = {
 		heartbeat_ttl: 3,
 	},
 }
-let remote = server spawn --name remote --preserve-keys --config $config
+let remote = server spawn --name remote --config $config
 let created = tg --url $remote.url --token $root_token runner create | from json
 let replacement_created = tg --url $remote.url --token $root_token runner create | from json
 

@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # Getting a sandbox succeeds when one remote has it, even if another remote fails.
 
 let root_token = random chars
-let remote_alpha = server spawn --cloud --name remote-alpha --preserve-keys --config {
+let remote_alpha = server spawn --cloud --name remote-alpha --config {
 	authentication: { root: { token: $root_token } },
 }
 let remote_zeta = server spawn --cloud --name remote-zeta

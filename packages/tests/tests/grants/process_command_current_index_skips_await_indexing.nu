@@ -11,7 +11,7 @@ let config = {
 		users: { providers: { insecure: true } },
 	},
 }
-let local = server spawn --preserve-keys --directory $directory --config $config
+let local = server spawn --directory $directory --config $config
 let alice = tg --url $local.url login --verbose --name alice | from json
 let path = artifact {
 	tangram.ts: '

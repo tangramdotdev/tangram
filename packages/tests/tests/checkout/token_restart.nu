@@ -5,7 +5,13 @@ use ../../util/test.nu *
 for preserve_keys in [true false] {
 	# A zero-edge budget makes a tiny fixture reproduce the fallback search exhaustion.
 	let root_token = random chars
-	let local = server spawn --preserve-keys=$preserve_keys --config {
+	let secrets = if $preserve_keys {
+		{}
+	} else {
+		let tokens = { secret: { algorithm: blake3, id: 0, path: null } }
+		{ authentication: { tokens: $tokens }, authorization: { tokens: $tokens } }
+	}
+	let local = server spawn --config ({
 		authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 		verification: {
 			index: { delay: null }
@@ -19,7 +25,7 @@ for preserve_keys in [true false] {
 			}
 		}
 		vfs: false
-	}
+	} | merge deep $secrets)
 	let bob = tg --token $root_token login --verbose --name bob | from json
 	let user = $bob.user.id
 	let library = tg --token $root_token put --no-tokens 'tg.file("library")' | referent node

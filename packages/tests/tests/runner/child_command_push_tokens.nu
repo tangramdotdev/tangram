@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # A process on a trusted runner whose verification search budget is smaller than the package spawns a child with an artifact another process built, so the runner must push the child's command, including that artifact and its module files, to the remote.
 
 let root_token = random chars
-let remote = server spawn --cloud --preserve-keys --name remote --config {
+let remote = server spawn --cloud --name remote --config {
 	advanced: { multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],

@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # Only destroyed sandbox get responses can be served from the principal-scoped remote cache.
 
 let root_token = random chars
-let remote = server spawn --cloud --name remote --preserve-keys --config {
+let remote = server spawn --cloud --name remote --config {
 	authentication: { root: { token: $root_token } },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json

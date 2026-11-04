@@ -16,20 +16,12 @@ async fn lost_messenger_connection() -> tg::Result<()> {
 	// Create a cloud instance whose servers share the NATS messenger.
 	let tangram = env!("CARGO_BIN_EXE_tangram");
 	let root_token = "root";
-	let secret = std::env::temp_dir().join(format!("tangram_test_secret_{}", std::process::id()));
-	std::fs::write(&secret, [0u8; 32])
-		.map_err(|error| tg::error!(!error, "failed to write the secret file"))?;
-	let secrets = serde_json::json!({
-		"secret": { "algorithm": "blake3", "id": 0, "path": secret },
-	});
 	let config = serde_json::json!({
 		"advanced": { "checkpoints": true },
 		"authentication": {
 			"root": { "token": root_token },
-			"tokens": secrets,
 			"users": { "providers": { "insecure": true } },
 		},
-		"authorization": { "tokens": secrets },
 		"process": { "status_wakeup_interval": 1 },
 	});
 	let arg = instance::Arg {
@@ -186,8 +178,6 @@ async fn lost_messenger_connection() -> tg::Result<()> {
 	runner.stop().await?;
 	api.stop().await?;
 	remote.stop().await?;
-	std::fs::remove_file(&secret)
-		.map_err(|error| tg::error!(!error, "failed to remove the secret file"))?;
 
 	Ok(())
 }
