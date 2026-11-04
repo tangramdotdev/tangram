@@ -25,6 +25,7 @@ pub struct DeleteArg {
 
 #[derive(Clone, Debug)]
 pub struct DequeueArg {
+	pub after: Option<BatchId>,
 	pub batch_size: usize,
 	pub region: String,
 }
@@ -161,13 +162,23 @@ impl Database {
 	pub async fn dequeue_index_queue(&self, arg: DequeueArg) -> tg::Result<Vec<Item>> {
 		let batch_size = i64::try_from(arg.batch_size)
 			.map_err(|_| tg::error!("the database index queue batch size exceeded an i64"))?;
-		// Read from the write connection so a notification cannot outrun replication.
+		let after = arg.after.map_or(Ok(0), |after| {
+			i64::try_from(after.value())
+				.map_err(|_| tg::error!("the database index queue batch exceeded an i64"))
+		})?;
+
+		// Read from the read connection so that an entry is visible only after the data that its transaction wrote, which keeps the index from getting ahead of this region's database.
 		let rows = self
-			.run(|transaction| {
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let region = arg.region.clone();
 				async move {
-					Self::dequeue_index_queue_with_transaction(transaction, &region, batch_size)
-						.await
+					Self::dequeue_index_queue_with_transaction(
+						transaction,
+						&region,
+						after,
+						batch_size,
+					)
+					.await
 				}
 				.boxed()
 			})
@@ -180,6 +191,7 @@ impl Database {
 	async fn dequeue_index_queue_with_transaction(
 		transaction: &Transaction<'_>,
 		region: &str,
+		after: i64,
 		batch_size: i64,
 	) -> tg::Result<ControlFlow<Vec<Row>, crate::Error>> {
 		let p = transaction.p();
@@ -187,13 +199,13 @@ impl Database {
 			r"
 				select batch, payload
 				from index_queue
-				where region = {p}1
+				where region = {p}1 and batch > {p}2
 				order by batch
-				limit {p}2;
+				limit {p}3;
 			"
 		);
 		let result = transaction
-			.query_all_into::<Row>(statement.into(), db::params![region, batch_size])
+			.query_all_into::<Row>(statement.into(), db::params![region, after, batch_size])
 			.await;
 		let rows = crate::retry!(result, "failed to dequeue the database index queue");
 
