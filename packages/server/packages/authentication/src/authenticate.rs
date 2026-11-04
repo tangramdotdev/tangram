@@ -621,15 +621,38 @@ impl Component {
 		kind: tg::principal::Kind,
 	) -> tg::Result<Option<Entry>> {
 		let hash = blake3::Hash::from_bytes(*hash).to_hex().to_string();
-		// Read from the write connection, because a follower can still return a revoked token or miss a new one.
+
+		// Read the token from the read connection.
+		let options = db::ConnectionOptions::default();
+		let entry =
+			Self::authenticate_token_from_database_with_options(server, &hash, kind, options)
+				.await?;
+		if entry.is_some() {
+			return Ok(entry);
+		}
+
+		// Read the token from the write connection, because a new token may not have reached the read connection.
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			..Default::default()
 		};
+		let entry =
+			Self::authenticate_token_from_database_with_options(server, &hash, kind, options)
+				.await?;
+
+		Ok(entry)
+	}
+
+	async fn authenticate_token_from_database_with_options(
+		server: &Server,
+		hash: &str,
+		kind: tg::principal::Kind,
+		options: db::ConnectionOptions,
+	) -> tg::Result<Option<Entry>> {
 		let entry = server
 			.database
 			.run_with_options(options, |transaction| {
-				let hash = hash.clone();
+				let hash = hash.to_owned();
 				async move {
 					Self::authenticate_token_from_database_with_transaction(
 						transaction,
