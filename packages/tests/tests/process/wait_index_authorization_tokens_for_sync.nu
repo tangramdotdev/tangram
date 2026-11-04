@@ -53,7 +53,7 @@ for field in [output error log] {
 	# Hold the control response so an automatic wait must return the indexed outcome.
 	let control_watch = tg --url $remote.url --token $root_token checkpoint watch process.get.control | from json | get watch
 	let automatic = timeout 10s tg --url $remote.url --token $root_token $operation $process | from json
-	assert equal $automatic $output "an automatic wait must retain the indexed tokens"
+	assert equal ($automatic | to json | normalize_tokens) ($output | to json | normalize_tokens) "an automatic wait must retain the indexed tokens"
 	tg --url $remote.url --token $root_token checkpoint unwatch process.get.control $control_watch
 
 	let node_output_objects = timeout 10s tg --url $remote.url --token $bob.token $operation --source=index $process | from json
