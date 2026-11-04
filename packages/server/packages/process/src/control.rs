@@ -47,7 +47,7 @@ struct IndexProcessControlArg {
 }
 
 impl Component {
-	pub(crate) async fn subscribe_process_attachion(
+	pub(crate) async fn subscribe_process_control_connection(
 		&self,
 		session: &Session,
 		id: &tg::process::Id,

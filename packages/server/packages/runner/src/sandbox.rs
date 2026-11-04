@@ -1407,7 +1407,7 @@ impl Component {
 		// Observe process initialization without blocking either control transport.
 		let mut pending = FuturesUnordered::new();
 		if let Some(output) = process_task_output {
-			pending.push(wait_for_process_attachion(output, None));
+			pending.push(wait_for_process_control_connection(output, None));
 		}
 		let mut ready = false;
 		let mut ready_connection = connected.clone();
@@ -1522,7 +1522,7 @@ impl Component {
 									sandbox_ready_receiver: None,
 								};
 								let task = self.spawn_process_task(session, arg);
-								pending.push(wait_for_process_attachion(task, Some(message.sender)));
+								pending.push(wait_for_process_control_connection(task, Some(message.sender)));
 								continue;
 							},
 							tg::sandbox::control::ServerRequestArg::Stop(_) => {
@@ -2974,7 +2974,7 @@ fn idle_timer(
 	Some(timer)
 }
 
-fn wait_for_process_attachion(
+fn wait_for_process_control_connection(
 	output: SpawnProcessTaskOutput,
 	sender: Option<Reply>,
 ) -> PendingProcess {
