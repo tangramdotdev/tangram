@@ -567,6 +567,7 @@ impl Component {
 								})?;
 						},
 						tg::process::control::ServerRequestArg::Tty(tty) => {
+							tangram_server_core::checkpoint!(session.server, "runner.process.control.tty.received", process = %session.context.principal).await;
 							tty_sender
 								.send((request_id, tty, sender))
 								.await
