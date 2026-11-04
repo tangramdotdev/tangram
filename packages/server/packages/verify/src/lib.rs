@@ -552,11 +552,15 @@ impl Component {
 
 	async fn await_indexing(session: &Session) -> tg::Result<()> {
 		tangram_server_core::checkpoint!(session.server, "verification.index.wait").await;
+		let arg = tg::index::Arg {
+			database: true,
+			..Default::default()
+		};
 		session
 			.server
 			.components
 			.indexer
-			.index(session, tg::index::Arg::default())
+			.index(session, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()

@@ -20,7 +20,10 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Index.
-	let arg = tg::index::Arg::default();
+	let arg = tg::index::Arg {
+		database: true,
+		..Default::default()
+	};
 	let stream = client
 		.index(arg)
 		.await

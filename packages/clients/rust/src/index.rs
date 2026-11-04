@@ -10,6 +10,10 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub capture: bool,
 
+	/// Also wait for the writes in the database to reach this region's index, which reads the database index queue from the primary.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub database: bool,
+
 	/// Also do everything that `capture` does, and aggregate usage for every hour before the server's current hour.
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub usage: bool,

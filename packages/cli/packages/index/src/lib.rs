@@ -17,6 +17,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::index::Arg {
 		capture: args.capture,
+		database: true,
 		usage: args.usage,
 	};
 	let stream = client
