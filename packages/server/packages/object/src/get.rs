@@ -45,9 +45,9 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		let local_future = async {
-			if locations.local.as_ref().is_some_and(|local| local.current) {
-				return self
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(output) = self
 					.try_get_object_local(
 						session,
 						id,
@@ -55,58 +55,44 @@ impl Component {
 						arg.availability,
 						arg.tokens.local_authorization(),
 					)
-					.await;
-			}
-			Ok(None)
-		};
-		let lookup_future = async {
-			if let Some(local) = &locations.local
-				&& let Some(output) = self
-					.try_get_object_regions(
-						session,
-						id,
-						&local.regions,
-						arg.metadata,
-						arg.availability,
-						&arg.tokens,
-					)
-					.await
-					.map_err(
-						|error| tg::error!(!error, %id, "failed to get the object from another region"),
-					)? {
+					.await?
+			{
 				return Ok(Some(output));
 			}
 
 			if let Some(output) = self
-				.try_get_object_remotes(
+				.try_get_object_regions(
 					session,
 					id,
-					&locations.remotes,
+					&local.regions,
 					arg.metadata,
 					arg.availability,
 					&arg.tokens,
 				)
 				.await
 				.map_err(
-					|error| tg::error!(!error, %id, "failed to get the object from a remote"),
+					|error| tg::error!(!error, %id, "failed to get the object from another region"),
 				)? {
 				return Ok(Some(output));
 			}
-
-			Ok(None)
-		};
-		let mut futures = [local_future.boxed(), lookup_future.boxed()]
-			.into_iter()
-			.collect::<FuturesUnordered<_>>();
-		let mut error = None;
-		while let Some(result) = futures.next().await {
-			match result {
-				Ok(Some(output)) => return Ok(Some(output)),
-				Ok(None) => {},
-				Err(source) => error = Some(source),
-			}
 		}
-		error.map_or(Ok(None), Err)
+
+		if let Some(output) = self
+			.try_get_object_remotes(
+				session,
+				id,
+				&locations.remotes,
+				arg.metadata,
+				arg.availability,
+				&arg.tokens,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object from a remote"))?
+		{
+			return Ok(Some(output));
+		}
+
+		Ok(None)
 	}
 
 	pub async fn try_get_object_local(

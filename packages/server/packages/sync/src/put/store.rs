@@ -1,9 +1,6 @@
 use {
 	crate::{Component, put::State},
-	futures::{
-		FutureExt as _, StreamExt as _, TryStreamExt as _,
-		stream::{FuturesOrdered, FuturesUnordered},
-	},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::FuturesOrdered},
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
@@ -325,7 +322,7 @@ impl Component {
 								metadata,
 							)
 							.await?;
-						Ok(outputs.pop().flatten())
+						Ok::<_, tg::Error>(outputs.pop().flatten())
 					};
 					let region_future = session.server.components.object.try_get_object_regions(
 						session,
@@ -335,25 +332,20 @@ impl Component {
 						false,
 						&object.options.tokens,
 					);
-					let mut futures = [local_future.boxed(), region_future.boxed()]
-						.into_iter()
-						.collect::<FuturesUnordered<_>>();
+					let future = async {
+						if let Some(output) = local_future.await? {
+							return Ok(Some(output));
+						}
+						region_future.await
+					};
 					let available =
 						state.wait_remote(|graph| graph.object_remote_available(&object.node));
 					tokio::pin!(available);
-					let mut error = None;
-					while let Some(result) = tokio::select! {
+					tokio::select! {
 						biased;
-						() = &mut available => return Ok(None),
-						result = futures.next() => result,
-					} {
-						match result {
-							Ok(Some(output)) => return Ok(Some(output)),
-							Ok(None) => {},
-							Err(source) => error = Some(source),
-						}
+						() = &mut available => Ok(None),
+						result = future.boxed() => result,
 					}
-					error.map_or(Ok(None), Err)
 				}
 			})
 			.collect::<FuturesOrdered<_>>()
@@ -750,25 +742,20 @@ impl Component {
 						.components
 						.process
 						.try_get_process_regions(session, arg);
-					let mut futures = [local_future.boxed(), region_future.boxed()]
-						.into_iter()
-						.collect::<FuturesUnordered<_>>();
+					let future = async {
+						if let Some(output) = local_future.await? {
+							return Ok(Some(output));
+						}
+						region_future.await
+					};
 					let available =
 						state.wait_remote(|graph| graph.process_remote_available(&process.node));
 					tokio::pin!(available);
-					let mut error = None;
-					while let Some(result) = tokio::select! {
+					tokio::select! {
 						biased;
-						() = &mut available => return Ok(None),
-						result = futures.next() => result,
-					} {
-						match result {
-							Ok(Some(output)) => return Ok(Some(output)),
-							Ok(None) => {},
-							Err(source) => error = Some(source),
-						}
+						() = &mut available => Ok(None),
+						result = future.boxed() => result,
 					}
-					error.map_or(Ok(None), Err)
 				}
 			})
 			.collect::<FuturesOrdered<_>>()
