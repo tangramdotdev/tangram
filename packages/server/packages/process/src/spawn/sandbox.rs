@@ -179,6 +179,8 @@ impl Component {
 		mut wakeups: BoxStream<'static, ()>,
 	) -> tg::Result<()> {
 		loop {
+			tangram_server_core::checkpoint!(session.server, "process.spawn.start.index", process = %id)
+				.await;
 			if Self::try_get_process_start_from_index(session, id).await? {
 				return Ok(());
 			}

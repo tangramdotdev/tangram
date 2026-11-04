@@ -17,24 +17,17 @@ let local = server spawn --name local --config {
 	remotes: { default: { token: $root_token, url: $remote.url } },
 }
 
-# Hold the spawn after the sandbox connects, and let the process finish.
-let wait = checkpoint watch process.spawn.connection.wait --url $remote.url --token $root_token
-let finished = checkpoint watch runner.process.control.finished --url $runner.url
+# Hold the spawn's watch of the process's status, so that the spawn observes the sandbox ending first.
+let status = checkpoint watch process.spawn.start.index --url $remote.url --token $root_token
 let path = artifact { tangram.ts: 'export default () => 42' }
 let build = job spawn {
 	let job_id = job id
 	let output = tg --url $local.url build --remote $path | complete
 	$output | job send --tag $job_id 0
 }
-checkpoint wait $wait | ignore
-checkpoint pass $finished | ignore
-checkpoint unwatch $finished
-
-# Let the spawn continue after its sandbox has ended.
-sleep 500ms
-checkpoint continue $wait
-checkpoint unwatch $wait
+checkpoint wait $status | ignore
 
 let output = job recv --tag $build --timeout 30sec
 success $output "the build must succeed when its process finishes before the spawn observes it"
 assert equal ($output.stdout | str trim) "42"
+checkpoint unwatch $status
