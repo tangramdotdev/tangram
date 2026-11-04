@@ -3054,7 +3054,7 @@ impl Default for Scheduler {
 			message_timeout: Duration::from_secs(10),
 			request_concurrency: 1024,
 			restart_delay: Duration::from_secs(1),
-			runner_ttl: Duration::from_secs(10),
+			runner_ttl: Duration::from_secs(20),
 		}
 	}
 }
