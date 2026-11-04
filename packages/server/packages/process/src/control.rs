@@ -1020,6 +1020,45 @@ impl Component {
 			.await
 	}
 
+	/// Send a process control request, returning `None` if the process finishes first, because a process's runner can stop before it responds.
+	pub(crate) async fn try_request_process_control(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+		arg: tg::process::control::ServerRequestArg,
+		options: tangram_server_core::control::Options,
+	) -> tg::Result<Option<tg::Result<tg::process::control::ClientResponseOutput>>> {
+		let wakeups = self
+			.create_process_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
+			.await?;
+		tokio::select! {
+			result = self.request_process_control(session, id, arg, options) => result.map(Some),
+			result = self.wait_for_process_finish_from_index(session, id, wakeups) => result.map(|()| None),
+		}
+	}
+
+	async fn wait_for_process_finish_from_index(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+		mut wakeups: BoxStream<'static, ()>,
+	) -> tg::Result<()> {
+		loop {
+			let process = self
+				.try_get_process_from_index(session, id)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
+			if process
+				.is_some_and(|process| process.status.is_some_and(|status| status.is_finished()))
+			{
+				return Ok(());
+			}
+			if wakeups.next().await.is_none() {
+				return Err(tg::error!("the process status wakeup stream ended"));
+			}
+		}
+	}
+
 	pub(crate) async fn send_process_control_request(
 		&self,
 		session: &Session,
