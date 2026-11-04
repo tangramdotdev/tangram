@@ -1738,7 +1738,7 @@ impl Component {
 				.sandboxes
 				.get_mut_by_id(&id)
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-			state.usage = Some(usage);
+			state.usage = usage;
 			drop(state);
 
 			// Stop and await the serve task.

@@ -97,8 +97,7 @@ pub struct State {
 	kill: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 
 	#[cfg(target_os = "linux")]
-	#[expect(dead_code)]
-	network: Option<crate::network::Network>,
+	network: std::sync::Mutex<Option<crate::network::Network>>,
 
 	next_process_index: AtomicU64,
 
@@ -205,7 +204,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug)]
 pub struct Output {
-	pub usage: tg::sandbox::Usage,
+	pub usage: Option<tg::sandbox::Usage>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -464,10 +463,10 @@ impl Sandbox {
 		let (mut process, network, filesystem, cgroup, storage) = match &arg.backend {
 			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
 				let mut network = create_network(&arg)?;
-				let cgroup = self::cgroup::create(&arg)?;
+				let cgroup = self::cgroup::try_create(&arg)?;
 				let output = tokio::time::timeout_at(
 					deadline,
-					self::run::spawn(&arg, &serve_arg, network.as_mut(), &cgroup),
+					self::run::spawn(&arg, &serve_arg, network.as_mut(), cgroup.as_ref()),
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "timed out preparing the sandbox"))??;
@@ -475,7 +474,7 @@ impl Sandbox {
 					output.process,
 					network,
 					output.filesystem,
-					Some(cgroup),
+					cgroup,
 					output.storage,
 				)
 			},
@@ -495,7 +494,8 @@ impl Sandbox {
 				let cgroup = self::cgroup::create(&arg)?;
 				let (mut command, config) =
 					self::cloud_hypervisor::run::command(&arg, &serve_arg, network.as_ref())?;
-				let process = self::run::spawn_command(&mut command, &cgroup.handle()?, None)?;
+				let process =
+					self::run::spawn_command(&mut command, Some(&cgroup.handle()?), None)?;
 				tokio::time::timeout_at(deadline, config.finish())
 					.await
 					.map_err(|error| tg::error!(!error, "timed out configuring the sandbox"))??;
@@ -626,7 +626,7 @@ impl Sandbox {
 			kill: std::sync::Mutex::new(Some(kill_sender)),
 
 			#[cfg(target_os = "linux")]
-			network,
+			network: std::sync::Mutex::new(network),
 
 			next_process_index: AtomicU64::new(1),
 
@@ -670,15 +670,15 @@ impl Sandbox {
 		if self.0.activated.load(Ordering::Relaxed) {
 			return Ok(());
 		}
+		if self.0.stopped.load(Ordering::SeqCst) {
+			return Err(tg::error!("the sandbox is stopped"));
+		}
 
 		#[cfg(target_os = "linux")]
 		{
 			// Select the usage source.
 			let source = {
 				let cgroup = self.0.cgroup.lock().await;
-				let cgroup = cgroup
-					.as_ref()
-					.ok_or_else(|| tg::error!("the sandbox accounting cgroup is missing"))?;
 				let (path, project) = if self.0.arg.backend.uses_linux_namespaces() {
 					let container = &self.0.arg.resources;
 					let project = container.filesystem_project_id;
@@ -691,7 +691,10 @@ impl Sandbox {
 				} else {
 					(self.0.arg.path.clone(), None)
 				};
-				usage::Source::new(cgroup.handle()?, &path, project)?
+				cgroup
+					.as_ref()
+					.map(|cgroup| usage::Source::new(cgroup.handle()?, &path, project))
+					.transpose()?
 			};
 
 			// Start charging for the assigned sandbox.
@@ -701,11 +704,13 @@ impl Sandbox {
 				sandboxes: 1,
 				storage: self.0.arg.storage.unwrap_or_default(),
 			};
-			*self.0.accounting.lock().await = Some(usage::Accounting::new(
-				source,
-				resources,
-				self.0.arg.memory_sampling_interval,
-			)?);
+			if let Some(source) = source {
+				*self.0.accounting.lock().await = Some(usage::Accounting::new(
+					source,
+					resources,
+					self.0.arg.memory_sampling_interval,
+				)?);
+			}
 		}
 		self.0.activated.store(true, Ordering::Relaxed);
 
@@ -730,15 +735,15 @@ impl Sandbox {
 		Ok(())
 	}
 
-	/// Return the current sandbox resource usage without stopping accounting.
+	/// Return the current sandbox resource usage without stopping accounting, or `None` when the sandbox has no accounting.
 	#[cfg(target_os = "linux")]
-	pub async fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
+	pub async fn usage(&self) -> tg::Result<Option<tg::sandbox::Usage>> {
 		let mut accounting = self.0.accounting.lock().await;
-		let accounting = accounting
-			.as_mut()
-			.ok_or_else(|| tg::error!("the sandbox accounting has not started"))?;
+		let Some(accounting) = accounting.as_mut() else {
+			return Ok(None);
+		};
 		let usage = accounting.usage().await?;
-		Ok(usage)
+		Ok(Some(usage))
 	}
 
 	#[cfg(target_os = "linux")]
@@ -752,12 +757,8 @@ impl Sandbox {
 	}
 
 	#[cfg(target_os = "macos")]
-	pub async fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
-		Ok(tg::sandbox::Usage {
-			cpu: tg::sandbox::ResourceUsage::default(),
-			memory: tg::sandbox::ResourceUsage::default(),
-			storage: tg::sandbox::ResourceUsage::default(),
-		})
+	pub async fn usage(&self) -> tg::Result<Option<tg::sandbox::Usage>> {
+		Ok(None)
 	}
 
 	#[cfg(target_os = "macos")]
@@ -983,16 +984,11 @@ impl Sandbox {
 		#[cfg(target_os = "macos")]
 		self.0.cleanup.stop(self.0.arg.shutdown_timeout).await?;
 		self.cleanup_cgroup().await?;
+		#[cfg(target_os = "linux")]
+		self.stop_network().await?;
 
 		// Settle the usage.
-		let usage = self
-			.finish_accounting()
-			.await?
-			.unwrap_or(tg::sandbox::Usage {
-				cpu: tg::sandbox::ResourceUsage::default(),
-				memory: tg::sandbox::ResourceUsage::default(),
-				storage: tg::sandbox::ResourceUsage::default(),
-			});
+		let usage = self.finish_accounting().await?;
 
 		let output = Output { usage };
 
@@ -1015,6 +1011,14 @@ impl Sandbox {
 			return Ok(());
 		}
 
+		// Find the sandbox's processes before they lose their parent, because only a cgroup waits for them otherwise.
+		#[cfg(target_os = "linux")]
+		let descendants = if self.0.cgroup.lock().await.is_none() {
+			crate::linux::descendants(self.0.pid)
+		} else {
+			Vec::new()
+		};
+
 		// Force the sandbox process to exit.
 		let sender = self.0.kill.lock().unwrap().take();
 		if let Some(sender) = sender {
@@ -1022,6 +1026,25 @@ impl Sandbox {
 		}
 		self.wait_exit().await?;
 
+		// Wait for the sandbox's processes to exit, which the exit of the sandbox process does not imply.
+		#[cfg(target_os = "linux")]
+		{
+			let timeout = self.0.arg.cgroup_cleanup_timeout;
+			tokio::task::spawn_blocking(move || crate::linux::wait_for_exit(&descendants, timeout))
+				.await
+				.map_err(|error| tg::error!(!error, "the process wait task panicked"))??;
+		}
+
+		Ok(())
+	}
+
+	/// Stop the sandbox's network, because a network sidecar that holds host ports outlives a sandbox without a cgroup.
+	#[cfg(target_os = "linux")]
+	async fn stop_network(&self) -> tg::Result<()> {
+		let network = self.0.network.lock().unwrap().take();
+		tokio::task::spawn_blocking(move || drop(network))
+			.await
+			.map_err(|error| tg::error!(!error, "the network stop task panicked"))?;
 		Ok(())
 	}
 
