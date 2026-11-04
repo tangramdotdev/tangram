@@ -20,10 +20,13 @@ impl Index {
 				.map(tangram_index::group::Group::deserialize)
 				.transpose()?;
 			if let Some(group) = group {
-				let key = Key::Node(crate::node::Key::Node(group.specifier));
-				let key = Self::pack(subspace, &key);
-				db.delete(transaction, &key)
-					.map_err(|error| tg::error!(!error, "failed to delete the node"))?;
+				Self::delete_node_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&id.clone().into(),
+					&group.specifier,
+				)?;
 			}
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the group"))?;

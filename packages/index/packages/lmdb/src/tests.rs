@@ -5,6 +5,7 @@ mod clean;
 mod delegation;
 mod indexer;
 mod location;
+mod node;
 mod object;
 mod page;
 mod process;
