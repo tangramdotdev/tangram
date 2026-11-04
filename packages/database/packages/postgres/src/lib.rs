@@ -40,6 +40,7 @@ pub struct PoolOptions {
 
 #[derive(Clone, Debug)]
 pub struct ConnectionOptions {
+	pub read_only: bool,
 	pub url: Uri,
 }
 
@@ -88,8 +89,8 @@ impl Cache {
 
 impl Database {
 	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
-		let read_pool = create_pool(options.read).await?;
-		let write_pool = create_pool(options.write).await?;
+		let read_pool = create_pool(options.read, true).await?;
+		let write_pool = create_pool(options.write, false).await?;
 		let database = Self {
 			read_pool,
 			retry: options.retry,
@@ -157,8 +158,12 @@ impl Database {
 	}
 }
 
-async fn create_pool(options: PoolOptions) -> Result<Pool<Connection, Error>, Error> {
+async fn create_pool(
+	options: PoolOptions,
+	read_only: bool,
+) -> Result<Pool<Connection, Error>, Error> {
 	let connection_options = ConnectionOptions {
+		read_only,
 		url: options.url.clone(),
 	};
 	let create = {
@@ -308,10 +313,17 @@ impl db::Connection for Connection {
 		Self: 't;
 
 	async fn transaction(&mut self) -> Result<Self::Transaction<'_>, Self::Error> {
+		// Run read-only transactions at the repeatable read isolation level, because a Postgres standby rejects serializable transactions.
+		let isolation_level = if self.options.read_only {
+			postgres::IsolationLevel::RepeatableRead
+		} else {
+			postgres::IsolationLevel::Serializable
+		};
 		let transaction = self
 			.client
 			.build_transaction()
-			.isolation_level(postgres::IsolationLevel::Serializable)
+			.isolation_level(isolation_level)
+			.read_only(self.options.read_only)
 			.start()
 			.await?;
 		let cache = &self.cache;
