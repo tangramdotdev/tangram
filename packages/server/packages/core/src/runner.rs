@@ -29,7 +29,7 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		runner: &'a tg::runner::Id,
 		scheduler: &'a tg::scheduler::Id,
-		attempt: u64,
+		registration_index: u64,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn create_runner<'a>(

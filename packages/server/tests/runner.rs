@@ -6,7 +6,7 @@ use {
 };
 
 #[tokio::test]
-async fn an_older_registration_cannot_replace_a_newer_attempt() -> tg::Result<()> {
+async fn an_older_registration_cannot_replace_a_newer_registration_index() -> tg::Result<()> {
 	// Start a server and create a runner whose connections the test controls.
 	let mut config = Config::new();
 	config.merge(serde_json::json!({
@@ -25,7 +25,7 @@ async fn an_older_registration_cannot_replace_a_newer_attempt() -> tg::Result<()
 	let checkpoint = "runner.registration.accept";
 	let arg = tg::checkpoint::watch::Arg {
 		params: BTreeMap::from([
-			("attempt".to_owned(), 1.into()),
+			("registration_index".to_owned(), 1.into()),
 			("runner".to_owned(), runner.data.id.to_string().into()),
 		]),
 	};
@@ -49,7 +49,7 @@ async fn an_older_registration_cannot_replace_a_newer_attempt() -> tg::Result<()
 		.await?
 		.ok_or_else(|| tg::error!("missing the checkpoint hit"))?;
 
-	// Accept the newer attempt on the same scheduler before releasing the first.
+	// Accept the newer scheduler index on the same scheduler before releasing the first.
 	let (second_sender, second_receiver) = mpsc::unbounded();
 	let second = session
 		.get_runner_control_stream(
@@ -80,7 +80,10 @@ async fn an_older_registration_cannot_replace_a_newer_attempt() -> tg::Result<()
 	let result = session
 		.get_runner_control_stream(control_arg(runner.data.id, 1), receiver.boxed())
 		.await;
-	assert!(result.is_err(), "an older attempt should not reconnect");
+	assert!(
+		result.is_err(),
+		"an older scheduler index should not reconnect"
+	);
 
 	drop((first_sender, second_sender, second_stream));
 	server.stop().await?;
@@ -88,14 +91,14 @@ async fn an_older_registration_cannot_replace_a_newer_attempt() -> tg::Result<()
 	Ok(())
 }
 
-fn control_arg(id: tg::runner::Id, attempt: u64) -> tg::runner::control::Arg {
+fn control_arg(id: tg::runner::Id, registration_index: u64) -> tg::runner::control::Arg {
 	tg::runner::control::Arg {
-		attempt,
 		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
 		host: "test".to_owned(),
 		id,
 		location: None,
 		sandboxes: Vec::new(),
+		registration_index,
 		scheduler_ttl: Duration::from_secs(300),
 	}
 }

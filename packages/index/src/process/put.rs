@@ -64,6 +64,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 19)]
 	pub principal: tg::Principal,
 
+	/// The registration that must still own the runner when this mutation is applied.
+	#[tangram_serialize(default, id = 20, skip_serializing_if = "Option::is_none")]
+	pub registration: Option<crate::runner::Registration>,
+
 	/// Register sandbox membership during verified process initialization; ordinary writes leave this unset.
 	#[tangram_serialize(id = 9)]
 	pub sandbox: Option<tg::sandbox::Id>,

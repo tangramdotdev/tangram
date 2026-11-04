@@ -1045,10 +1045,10 @@ impl Scheduler {
 	fn handle_cleaner_tick(&self, state: &mut SchedulerState) {
 		let now = self.server.clock.instant();
 		let expired = state.runners.expired(now, self.config.runner_ttl);
-		for (runner, connection_index, attempt) in expired {
+		for (runner, connection_index, registration_index) in expired {
 			tracing::warn!(%runner, connection_index, ttl_ms = self.config.runner_ttl.as_millis(), "the runner heartbeat expired");
 			let request = RemoveRunnerRequestArg {
-				attempt,
+				registration_index,
 				connection_index,
 				runner,
 			};

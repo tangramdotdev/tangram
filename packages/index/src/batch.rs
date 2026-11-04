@@ -89,34 +89,9 @@ pub enum Item {
 
 	#[tangram_serialize(id = 19)]
 	PutUser(crate::user::put::Arg),
-
-	#[tangram_serialize(id = 33)]
-	WithRunner {
-		items: Vec<Item>,
-		registration: crate::runner::Registration,
-	},
 }
 
 impl Arg {
-	#[must_use]
-	pub fn with_optional_runner(self, registration: Option<crate::runner::Registration>) -> Self {
-		match registration {
-			Some(registration) => self.with_runner(registration),
-			None => self,
-		}
-	}
-
-	#[must_use]
-	pub fn with_runner(self, registration: crate::runner::Registration) -> Self {
-		let items = self.items;
-		Self {
-			items: vec![Item::WithRunner {
-				items,
-				registration,
-			}],
-		}
-	}
-
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the index batch arg"))
@@ -247,6 +222,7 @@ mod tests {
 					permissions: Vec::new(),
 					principal: tg::Principal::Sandbox(sandbox.clone()),
 					processes: None,
+					registration: None,
 					runner: None,
 					stopped_usage: None,
 					touched_at: 2,

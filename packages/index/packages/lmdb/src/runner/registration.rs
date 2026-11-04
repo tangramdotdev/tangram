@@ -28,9 +28,9 @@ impl Index {
 		// Accept an identical retry or a strictly newer ownership claim.
 		let accepted = existing.as_ref() == Some(registration)
 			|| (put
-				&& existing
-					.as_ref()
-					.is_none_or(|existing| registration.attempt > existing.attempt));
+				&& existing.as_ref().is_none_or(|existing| {
+					registration.registration_index > existing.registration_index
+				}));
 		if !accepted {
 			return Ok(Err(tg::error!(
 				code = tg::error::Code::Cancellation,

@@ -21,7 +21,6 @@ pub(super) struct Runners {
 }
 
 pub(super) struct Runner {
-	pub attempt: u64,
 	pub borrowable: HashSet<tg::sandbox::Id, tg::id::BuildHasher>,
 	pub capacity: tg::runner::control::Capacity,
 	pub committed: tg::runner::Capacity,
@@ -34,6 +33,7 @@ pub(super) struct Runner {
 	pub requests: usize,
 	pub reservations: HashMap<tg::sandbox::Id, Reservation, tg::id::BuildHasher>,
 	pub reserved: tg::runner::Capacity,
+	pub registration_index: u64,
 }
 
 pub(super) struct Reservation {
@@ -64,7 +64,13 @@ impl Runners {
 		self.entries
 			.iter()
 			.filter(|(_, runner)| now - runner.heartbeat_at > ttl)
-			.map(|(id, runner)| (id.clone(), runner.connection_index, runner.attempt))
+			.map(|(id, runner)| {
+				(
+					id.clone(),
+					runner.connection_index,
+					runner.registration_index,
+				)
+			})
 			.collect()
 	}
 
@@ -87,7 +93,7 @@ impl SchedulerState {
 			.runners
 			.entries
 			.get(&request.runner)
-			.is_some_and(|runner| request.attempt < runner.attempt)
+			.is_some_and(|runner| request.registration_index < runner.registration_index)
 		{
 			let error = tg::error!(
 				code = tg::error::Code::Cancellation,
@@ -102,7 +108,6 @@ impl SchedulerState {
 		let completions = self.remove_runner(&request.runner);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
 		let runner = Runner {
-			attempt: request.attempt,
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
 			committed: tg::runner::Capacity::default(),
@@ -115,6 +120,7 @@ impl SchedulerState {
 			requests: 0,
 			reservations: HashMap::default(),
 			reserved: tg::runner::Capacity::default(),
+			registration_index: request.registration_index,
 		};
 		self.runners.entries.insert(request.runner.clone(), runner);
 		self.queue.wake();
@@ -206,7 +212,7 @@ impl SchedulerState {
 			.get(&request.runner)
 			.is_some_and(|runner| {
 				runner.connection_index == request.connection_index
-					&& runner.attempt == request.attempt
+					&& runner.registration_index == request.registration_index
 			});
 		if !current {
 			if let Some(id) = id {
@@ -272,7 +278,12 @@ impl Scheduler {
 		self.server
 			.components
 			.runner
-			.set_runner_scheduler(&session, &request.runner, &self.id, request.attempt)
+			.set_runner_scheduler(
+				&session,
+				&request.runner,
+				&self.id,
+				request.registration_index,
+			)
 			.await?;
 		tangram_server_core::checkpoint!(self.server, "scheduler.runner.added", runner = %request.runner).await;
 		let output = AddRunnerResponseOutput {
@@ -290,9 +301,9 @@ impl Scheduler {
 	) -> tg::Result<RemoveRunnerResponseOutput> {
 		// Stop the runner's sandboxes only while this registration still owns the runner.
 		let registration = tangram_index::runner::Registration {
-			attempt: request.attempt,
 			runner: request.runner.clone(),
 			scheduler: self.id.clone(),
+			registration_index: request.registration_index,
 		};
 		let result = self
 			.component
@@ -300,8 +311,18 @@ impl Scheduler {
 			.boxed()
 			.await;
 		if let Err(error) = result {
-			let arg = tangram_index::batch::Arg::default().with_runner(registration);
-			if self.server.index.batch(arg).await?.is_ok() {
+			let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
+			let mut superseded = false;
+			while let Some(error) = source {
+				if error.downcast_ref::<tg::Error>().is_some_and(|error| {
+					matches!(error.code(), Some(tg::error::Code::Cancellation))
+				}) {
+					superseded = true;
+					break;
+				}
+				source = error.source();
+			}
+			if !superseded {
 				return Err(error);
 			}
 		}
@@ -322,8 +343,6 @@ impl Component {
 		server: &Server,
 		registration: &tangram_index::runner::Registration,
 	) -> tg::Result<()> {
-		let arg = tangram_index::batch::Arg::default().with_runner(registration.clone());
-		server.index.batch(arg).await??;
 		let runner = &registration.runner;
 		let sandboxes =
 			server.index.get_runner_sandboxes(runner).await.map_err(
@@ -462,7 +481,7 @@ impl Component {
 					defer_index: false,
 					location: None,
 					outcome_sync: None,
-					runner: registration.cloned(),
+					registration: registration.cloned(),
 					store_data: true,
 				};
 				session
@@ -527,6 +546,7 @@ impl Component {
 							parent: None,
 							permissions: Vec::new(),
 							principal: tg::Principal::Process(process.clone()),
+							registration: registration.cloned(),
 							sandbox: None,
 							storage: indexed.storage,
 							time_to_touch: server.config.process.time_to_touch,
@@ -534,8 +554,7 @@ impl Component {
 						},
 					))
 					.collect(),
-				}
-				.with_optional_runner(registration.cloned());
+				};
 				server
 					.index
 					.batch(arg)
@@ -599,13 +618,13 @@ impl Component {
 					permissions: Vec::new(),
 					principal: tg::Principal::Sandbox(id.clone()),
 					processes: Some(processes),
+					registration: registration.cloned(),
 					runner: indexed.runner,
 					stopped_usage: None,
 					touched_at: now,
 				},
 			)],
-		}
-		.with_optional_runner(registration.cloned());
+		};
 		server
 			.index
 			.batch(arg)

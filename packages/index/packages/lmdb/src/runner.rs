@@ -1,4 +1,4 @@
-mod attempt;
+mod allocation;
 mod get;
 mod key;
 mod registration;

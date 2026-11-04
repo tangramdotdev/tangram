@@ -16,6 +16,18 @@ impl Index {
 			if let Err(error) = arg.validate() {
 				return Ok(Err(error));
 			}
+			if let Some(registration) = &arg.registration {
+				let result = Self::runner_registration_with_transaction(
+					db,
+					subspace,
+					transaction,
+					registration,
+					false,
+				)?;
+				if let Err(error) = result {
+					return Ok(Err(error));
+				}
+			}
 			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
 			let existing = db

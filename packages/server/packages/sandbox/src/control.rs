@@ -431,6 +431,7 @@ impl Component {
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(id.clone()),
 			processes: None,
+			registration: None,
 			runner,
 			stopped_usage: None,
 			touched_at: created_at,

@@ -77,6 +77,7 @@ fn the_stopped_usage_of_every_boot_is_summed_and_only_grows() {
 fn arg(data: tg::sandbox::get::Output) -> Arg {
 	let id = data.data.id.clone();
 	Arg {
+		registration: None,
 		account: None,
 		created_at: 0,
 		data: Some(data),

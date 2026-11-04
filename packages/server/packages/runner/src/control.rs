@@ -107,13 +107,13 @@ impl Component {
 				)
 			})?;
 
-		tangram_server_core::checkpoint!(session.server, "runner.registration.start", runner = %id, attempt = arg.attempt).await;
+		tangram_server_core::checkpoint!(session.server, "runner.registration.start", runner = %id, registration_index = arg.registration_index).await;
 		let request = tangram_server_scheduler_core::RequestArg::AddRunner(
 			tangram_server_scheduler_core::AddRunnerRequestArg {
-				attempt: arg.attempt,
 				capacity: arg.heartbeat.capacity,
 				host: arg.host,
 				runner: id.clone(),
+				registration_index: arg.registration_index,
 			},
 		);
 		let (scheduler, output) = session
@@ -136,9 +136,9 @@ impl Component {
 			));
 		}
 
-		// Record the scheduler only if this registration attempt has not been superseded.
-		tangram_server_core::checkpoint!(session.server, "runner.registration.accept", runner = %id, attempt = arg.attempt).await;
-		self.set_runner_scheduler(session, &id, &scheduler, arg.attempt)
+		// Record the scheduler only if this registration registration_index has not been superseded.
+		tangram_server_core::checkpoint!(session.server, "runner.registration.accept", runner = %id, registration_index = arg.registration_index).await;
+		self.set_runner_scheduler(session, &id, &scheduler, arg.registration_index)
 			.await
 			.map_err(
 				|error| tg::error!(!error, runner = %id, "failed to set the runner's scheduler"),
@@ -403,9 +403,9 @@ impl Component {
 				if !scheduler_unavailable.load(Ordering::Acquire) {
 					let request = tangram_server_scheduler_core::RequestArg::RemoveRunner(
 						tangram_server_scheduler_core::RemoveRunnerRequestArg {
-							attempt: arg.attempt,
 							connection_index,
 							runner: runner.clone(),
+							registration_index: arg.registration_index,
 						},
 					);
 					session
@@ -557,6 +557,7 @@ impl Component {
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(sandbox.clone()),
 			processes: None,
+			registration: None,
 			runner: None,
 			stopped_usage: Some(stopped_usage),
 			touched_at,

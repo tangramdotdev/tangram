@@ -2,7 +2,7 @@ use tangram_client::prelude::*;
 
 #[derive(Clone, Debug)]
 pub enum Key {
-	Attempt(tg::runner::Id),
+	RegistrationIndex(tg::runner::Id),
 	Registration(tg::runner::Id),
 	RunnerSandbox {
 		runner: tg::runner::Id,

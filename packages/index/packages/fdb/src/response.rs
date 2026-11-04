@@ -9,7 +9,7 @@ pub(super) enum Response {
 	Mutation(tg::Result<()>),
 	Objects(Vec<Option<tangram_index::object::Object>>),
 	Processes(Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>),
-	RunnerAttempt(u64),
+	RunnerRegistrationIndex(u64),
 	Unit,
 	UpdateOutput(tangram_index::update::Output),
 	Usage(tangram_index::usage::Aggregate),

@@ -520,9 +520,6 @@ pub struct StopSandboxServerResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
-	#[tangram_serialize(id = 6)]
-	pub attempt: u64,
-
 	#[tangram_serialize(id = 0)]
 	pub heartbeat: HeartbeatClientNotification,
 
@@ -535,6 +532,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[tangram_serialize(id = 6)]
+	pub registration_index: u64,
 
 	/// The sandboxes that the runner is running.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]

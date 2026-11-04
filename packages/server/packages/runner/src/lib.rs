@@ -385,12 +385,12 @@ impl Component {
 		session: &Session,
 		runner: &tg::runner::Id,
 		scheduler: &tg::scheduler::Id,
-		attempt: u64,
+		registration_index: u64,
 	) -> tg::Result<()> {
 		let registration = tangram_index::runner::Registration {
-			attempt,
 			runner: runner.clone(),
 			scheduler: scheduler.clone(),
+			registration_index,
 		};
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutRunner(registration)],
@@ -1057,14 +1057,18 @@ impl Component {
 			})
 			.collect();
 		let scheduler_ttl = session.server.config.runner.scheduler_ttl;
-		let attempt = session.server.index.next_runner_attempt(id).await?;
+		let registration_index = session
+			.server
+			.index
+			.next_runner_registration_index(id)
+			.await?;
 		let arg = tg::runner::control::Arg {
-			attempt,
 			heartbeat,
 			host,
 			id: id.clone(),
 			location,
 			sandboxes,
+			registration_index,
 			scheduler_ttl,
 		};
 		let output = self
@@ -1455,9 +1459,9 @@ impl tangram_server_core::runner::Component for Component {
 		session: &'a tangram_server_core::Session,
 		runner: &'a tg::runner::Id,
 		scheduler: &'a tg::scheduler::Id,
-		attempt: u64,
+		registration_index: u64,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.set_runner_scheduler(session, runner, scheduler, attempt)
+		self.set_runner_scheduler(session, runner, scheduler, registration_index)
 			.boxed()
 	}
 

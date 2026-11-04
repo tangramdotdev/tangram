@@ -5,7 +5,7 @@ use tangram_client::prelude::*;
 )]
 pub struct Registration {
 	#[tangram_serialize(id = 0)]
-	pub attempt: u64,
+	pub registration_index: u64,
 
 	#[tangram_serialize(id = 1)]
 	pub runner: tg::runner::Id,

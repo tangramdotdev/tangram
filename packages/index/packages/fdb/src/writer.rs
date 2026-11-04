@@ -244,7 +244,7 @@ impl Index {
 				Request::Batch(arg) => Some(arg.items.len()),
 				Request::CompletePermissionCapture(_)
 				| Request::DeleteIndexer(_)
-				| Request::NextRunnerAttempt(_)
+				| Request::NextRunnerRegistrationIndex(_)
 				| Request::PutIndexer(_)
 				| Request::UpdateIndexer(_) => Some(1),
 				_ => None,
@@ -323,7 +323,7 @@ impl Index {
 
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
-			Request::NextRunnerAttempt(_) => Response::RunnerAttempt(0),
+			Request::NextRunnerRegistrationIndex(_) => Response::RunnerRegistrationIndex(0),
 			Request::AggregateUsage(_) => {
 				Response::AggregateUsageOutput(tangram_index::usage::aggregate::Output::default())
 			},
@@ -369,7 +369,7 @@ impl Index {
 			Request::Batch(_)
 			| Request::CompletePermissionCapture(_)
 			| Request::DeleteIndexer(_)
-			| Request::NextRunnerAttempt(_)
+			| Request::NextRunnerRegistrationIndex(_)
 			| Request::PutIndexer(_)
 			| Request::UpdateIndexer(_) => unreachable!(),
 			Request::Clean(crate::Clean {
@@ -873,7 +873,10 @@ impl Index {
 			return;
 		};
 		match (target, source) {
-			(Response::RunnerAttempt(existing), Response::RunnerAttempt(new)) => {
+			(
+				Response::RunnerRegistrationIndex(existing),
+				Response::RunnerRegistrationIndex(new),
+			) => {
 				*existing = new;
 			},
 			(Response::AggregateUsageOutput(existing), Response::AggregateUsageOutput(new)) => {
@@ -969,7 +972,7 @@ impl Index {
 					Request::Batch(_)
 					| Request::CompletePermissionCapture(_)
 					| Request::DeleteIndexer(_)
-					| Request::NextRunnerAttempt(_)
+					| Request::NextRunnerRegistrationIndex(_)
 					| Request::PutIndexer(_)
 					| Request::UpdateIndexer(_) => Err(tg::error!(
 						!error,
@@ -1327,11 +1330,12 @@ impl Index {
 		let partition_total = partition_totals.cleaning;
 		let usage_partition_total = partition_totals.usage;
 		let response = match request {
-			Request::NextRunnerAttempt(runner) => {
-				let attempt = crate::propagate!(
-					Self::next_runner_attempt_with_transaction(txn, subspace, runner).await
+			Request::NextRunnerRegistrationIndex(runner) => {
+				let registration_index = crate::propagate!(
+					Self::next_runner_registration_index_with_transaction(txn, subspace, runner)
+						.await
 				);
-				Response::RunnerAttempt(attempt)
+				Response::RunnerRegistrationIndex(registration_index)
 			},
 			Request::CompletePermissionCapture(entry) => {
 				Self::complete_permission_capture_with_transaction(txn, subspace, entry);
@@ -1712,7 +1716,6 @@ impl Metrics {
 fn batch_item_kind(item: &tangram_index::batch::Item) -> &'static str {
 	match item {
 		tangram_index::batch::Item::PutRunner(_) => "put_runner",
-		tangram_index::batch::Item::WithRunner { .. } => "with_runner",
 		tangram_index::batch::Item::DeleteCheckout(_) => "delete_checkout",
 		tangram_index::batch::Item::DeleteDelegations(_) => "delete_delegations",
 		tangram_index::batch::Item::DeleteGroup(_) => "delete_group",
