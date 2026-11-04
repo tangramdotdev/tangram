@@ -1084,10 +1084,15 @@ impl Component {
 		resource: &tg::Selector<tg::Id>,
 	) -> tg::Result<tg::Id> {
 		let resource = resource.clone();
+		// Read from the write connection, because the session is authorized against the resolved ID.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		let resource = session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let resource = resource.clone();
 				async move { Self::resolve_resource_with_transaction(transaction, &resource).await }
 					.boxed()

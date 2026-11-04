@@ -249,10 +249,15 @@ impl Component {
 		};
 
 		// Get the tags in a single transaction.
+		// Read from the write connection, because a tag that this read misses is not deleted.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		let tags = session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let specifiers = specifiers.clone();
 				async move { Self::list_tags_to_delete_with_transaction(transaction, specifiers).await }
 					.boxed()

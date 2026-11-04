@@ -64,10 +64,15 @@ impl Component {
 		id: &tg::process::Id,
 	) -> tg::Result<()> {
 		let resource = tg::Id::from(id.clone());
+		// Read from the write connection, because these grants decide whether to write a grant.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		let existing = session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let resource = resource.clone();
 				let session = session.clone();
 				async move {

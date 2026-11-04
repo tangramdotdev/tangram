@@ -930,10 +930,15 @@ impl Component {
 		id: &tg::tag::Id,
 	) -> tg::Result<Option<(tg::Id, String)>> {
 		let id = id.clone();
+		// Read from the write connection, because this state decides whether a proof of the tag is still valid.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let id = id.clone();
 				async move {
 					Self::try_get_tag_target_state_with_transaction(transaction, &id).await

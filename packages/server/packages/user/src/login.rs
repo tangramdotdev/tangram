@@ -120,10 +120,15 @@ impl Component {
 		arg: &FinishLoginArg,
 	) -> tg::Result<tg::Specifier> {
 		let arg = arg.clone();
+		// Read from the write connection, because the login can be created earlier in this request.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		let specifier = session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let arg = arg.clone();
 				async move { Self::login_user_specifier_with_transaction(transaction, &arg).await }
 					.boxed()

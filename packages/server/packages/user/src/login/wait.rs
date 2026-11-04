@@ -120,10 +120,15 @@ impl Component {
 		let code = code.to_owned();
 		let component = self.clone();
 		let session = session.clone();
+		// Read from the write connection, because the client waits immediately after creating the login.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let code = code.clone();
 				let component = component.clone();
 				let session = session.clone();

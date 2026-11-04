@@ -333,10 +333,15 @@ impl Component {
 		runner: &tg::runner::Id,
 	) -> tg::Result<Option<tg::runner::Data>> {
 		let runner = runner.clone();
+		// Read from the write connection, because the owner authorizes changes to the runner.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let runner = runner.clone();
 				async move { Self::try_get_runner_data_with_transaction(transaction, &runner).await }
 					.boxed()
@@ -385,10 +390,15 @@ impl Component {
 		runner: &tg::runner::Id,
 	) -> tg::Result<Option<tg::scheduler::Id>> {
 		let runner = runner.clone();
+		// Read from the write connection, because the scheduler decides whether to stop the runner's sandboxes.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let runner = runner.clone();
 				async move {
 					Self::try_get_runner_scheduler_with_transaction(transaction, &runner).await

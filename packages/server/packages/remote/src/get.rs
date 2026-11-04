@@ -119,10 +119,15 @@ impl Component {
 	) -> tg::Result<Option<Row>> {
 		let principal = principal.as_ref().map(ToString::to_string);
 		let remote = remote.clone();
+		// Read from the write connection, because this row selects the URL and token that requests are sent with.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let principal = principal.clone();
 				let remote = remote.clone();
 				async move {

@@ -621,9 +621,14 @@ impl Component {
 		kind: tg::principal::Kind,
 	) -> tg::Result<Option<Entry>> {
 		let hash = blake3::Hash::from_bytes(*hash).to_hex().to_string();
+		// Read from the write connection, because a follower can still return a revoked token or miss a new one.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		let entry = server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let hash = hash.clone();
 				async move {
 					Self::authenticate_token_from_database_with_transaction(
