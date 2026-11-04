@@ -248,6 +248,17 @@ impl Scheduler {
 				return Err(tg::error!(runner = %request.runner, "failed to find the runner"));
 			},
 		};
+
+		// Record this scheduler as the runner's owner, so that a scheduler that the runner left does not stop its sandboxes.
+		self.server
+			.components
+			.runner
+			.set_runner_scheduler(&session, &request.runner, &self.id)
+			.await
+			.map_err(
+				|error| tg::error!(!error, runner = %request.runner, "failed to set the runner's scheduler"),
+			)?;
+		tangram_server_core::checkpoint!(self.server, "scheduler.runner.added", runner = %request.runner).await;
 		let output = AddRunnerResponseOutput {
 			connection_index,
 			runner: request.runner,
@@ -261,13 +272,27 @@ impl Scheduler {
 		&self,
 		request: RemoveRunnerRequestArg,
 	) -> tg::Result<RemoveRunnerResponseOutput> {
-		self.component
-			.handle_expired_runner(&self.server, &request.runner)
-			.boxed()
+		// Stop the runner's sandboxes only if the runner has not moved to another scheduler.
+		let session = self.server.session(&self.server.context);
+		let scheduler = self
+			.server
+			.components
+			.runner
+			.try_get_runner_scheduler(&session, &request.runner)
 			.await
 			.map_err(
-				|error| tg::error!(!error, runner = %request.runner, "failed to handle the expired runner"),
+				|error| tg::error!(!error, runner = %request.runner, "failed to get the runner's scheduler"),
 			)?;
+		if scheduler.is_none_or(|scheduler| scheduler == self.id) {
+			self.component
+				.handle_expired_runner(&self.server, &request.runner)
+				.boxed()
+				.await
+				.map_err(
+					|error| tg::error!(!error, runner = %request.runner, "failed to handle the expired runner"),
+				)?;
+		}
+		tangram_server_core::checkpoint!(self.server, "scheduler.runner.removed", runner = %request.runner).await;
 
 		let output = RemoveRunnerResponseOutput {
 			runner: request.runner,

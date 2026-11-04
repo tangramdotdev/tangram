@@ -379,6 +379,90 @@ impl Component {
 		Ok(ControlFlow::Break(data))
 	}
 
+	pub async fn try_get_runner_scheduler(
+		&self,
+		session: &Session,
+		runner: &tg::runner::Id,
+	) -> tg::Result<Option<tg::scheduler::Id>> {
+		let runner = runner.clone();
+		session
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let runner = runner.clone();
+				async move {
+					Self::try_get_runner_scheduler_with_transaction(transaction, &runner).await
+				}
+				.boxed()
+			})
+			.await
+	}
+
+	async fn try_get_runner_scheduler_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		runner: &tg::runner::Id,
+	) -> tg::Result<ControlFlow<Option<tg::scheduler::Id>, tangram_server_core::database::Error>> {
+		#[derive(tangram_database::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "Option<tangram_database::value::FromStr>")]
+			scheduler: Option<tg::scheduler::Id>,
+		}
+
+		let p = transaction.p();
+		let statement = format!("select scheduler from runners where id = {p}1;");
+		let result = transaction
+			.query_optional_into::<Row>(
+				statement.into(),
+				tangram_database::params![runner.to_string()],
+			)
+			.await;
+		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let scheduler = row.and_then(|row| row.scheduler);
+
+		Ok(ControlFlow::Break(scheduler))
+	}
+
+	pub async fn set_runner_scheduler(
+		&self,
+		session: &Session,
+		runner: &tg::runner::Id,
+		scheduler: &tg::scheduler::Id,
+	) -> tg::Result<()> {
+		let runner = runner.clone();
+		let scheduler = scheduler.clone();
+		session
+			.server
+			.database
+			.run(|transaction| {
+				let runner = runner.clone();
+				let scheduler = scheduler.clone();
+				async move {
+					Self::set_runner_scheduler_with_transaction(transaction, &runner, &scheduler)
+						.await
+				}
+				.boxed()
+			})
+			.await
+	}
+
+	async fn set_runner_scheduler_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		runner: &tg::runner::Id,
+		scheduler: &tg::scheduler::Id,
+	) -> tg::Result<ControlFlow<(), tangram_server_core::database::Error>> {
+		let p = transaction.p();
+		let statement = format!("update runners set scheduler = {p}1 where id = {p}2;");
+		let result = transaction
+			.execute(
+				statement.into(),
+				tangram_database::params![scheduler.to_string(), runner.to_string()],
+			)
+			.await;
+		tangram_server_core::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
+	}
+
 	pub(crate) fn runner_owner_from_id(owner: tg::Id) -> tg::Result<tg::Principal> {
 		match owner.kind() {
 			tg::id::Kind::Group => Ok(tg::Principal::Group(owner.try_into()?)),
@@ -1426,6 +1510,24 @@ impl tangram_server_core::runner::Component for Component {
 		runner: &'a tg::runner::Id,
 	) -> BoxFuture<'a, tg::Result<Option<tg::runner::Data>>> {
 		self.try_get_runner_data(session, runner).boxed()
+	}
+
+	fn try_get_runner_scheduler<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		runner: &'a tg::runner::Id,
+	) -> BoxFuture<'a, tg::Result<Option<tg::scheduler::Id>>> {
+		self.try_get_runner_scheduler(session, runner).boxed()
+	}
+
+	fn set_runner_scheduler<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		runner: &'a tg::runner::Id,
+		scheduler: &'a tg::scheduler::Id,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.set_runner_scheduler(session, runner, scheduler)
+			.boxed()
 	}
 
 	fn guest_path_for_host_path(
