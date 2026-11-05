@@ -5,6 +5,7 @@ use {
 		stream::{BoxStream, FuturesUnordered},
 	},
 	std::{
+		collections::BTreeMap,
 		ops::ControlFlow,
 		pin::pin,
 		sync::{Arc, Mutex, atomic::Ordering},
@@ -1067,15 +1068,21 @@ impl Component {
 		let heartbeat = Self::create_runner_heartbeat(session, 0, cleanup);
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
-		let sandboxes = self
+
+		// Report every sandbox that is running or booting, so that a restarted scheduler can tell which requests it already placed.
+		let mut sandboxes = self
 			.state
 			.sandboxes
 			.iter()
 			.filter(|sandbox| !sandbox.status.is_stopped_or_destroyed())
-			.map(|sandbox| tg::runner::control::ArgSandbox {
-				boot: sandbox.boot,
-				id: sandbox.id.clone(),
-			})
+			.map(|sandbox| (sandbox.id.clone(), sandbox.boot))
+			.collect::<BTreeMap<_, _>>();
+		for entry in &self.state.booting {
+			sandboxes.entry(entry.key().clone()).or_insert(*entry.value());
+		}
+		let sandboxes = sandboxes
+			.into_iter()
+			.map(|(id, boot)| tg::runner::control::ArgSandbox { boot, id })
 			.collect();
 		let scheduler_ttl = session.server.config.runner.scheduler_ttl;
 		let registration_index = session
@@ -1183,17 +1190,16 @@ impl Component {
 				requested.storage = request.arg.storage.unwrap_or_default();
 			}
 
-			// Join a start of a boot that this runner is already starting or running, because concurrent starts of a sandbox are not deduplicated before they reach its runner.
+			// Join a boot that this runner is already starting or running, because a scheduler that restarted can send the same boot again and concurrent starts of a sandbox are not deduplicated before they reach its runner.
 			let state = session.server.components.runner.state();
-			let joined = request.boot > 0
-				&& (state
-					.booting
-					.get(&request.sandbox)
-					.is_some_and(|boot| *boot == request.boot)
-					|| state
-						.sandboxes
-						.get_by_id(&request.sandbox)
-						.is_some_and(|sandbox| sandbox.boot == request.boot));
+			let joined = state
+				.booting
+				.get(&request.sandbox)
+				.is_some_and(|boot| *boot == request.boot)
+				|| state
+					.sandboxes
+					.get_by_id(&request.sandbox)
+					.is_some_and(|sandbox| sandbox.boot == request.boot);
 			if joined {
 				let output =
 					tg::runner::control::CreateSandboxClientResponseOutput { created: true };
@@ -1261,9 +1267,7 @@ impl Component {
 			};
 
 			// Spawn the sandbox task.
-			if request.boot > 0 {
-				state.booting.insert(sandbox.clone(), request.boot);
-			}
+			state.booting.insert(sandbox.clone(), request.boot);
 			let _ = self.spawn_sandbox_task(
 				&session.server,
 				tangram_server_runner_core::sandbox::SpawnSandboxTaskArg {
