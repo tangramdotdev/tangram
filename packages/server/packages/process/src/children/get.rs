@@ -13,7 +13,7 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
@@ -72,45 +72,68 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(id) = &id
-				&& let Some(stream) = self
-					.try_get_process_children_local(session, id, arg.clone())
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the process children"))?
-			{
-				let location = tg::Location::Local(tg::location::Local::default());
-				let stream = Self::update_process_children_stream_referents_for_location(
-					session, stream, location, false,
-				);
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-				return Ok(Some(stream));
-			}
-
-			if let Some(stream) = self
-				.try_get_process_children_regions(session, process, arg.clone(), &local.regions)
+		// Read the local children without a search.
+		if current
+			&& let Some(id) = &id
+			&& let Some(stream) = self
+				.try_get_process_children_local(session, id, arg.clone(), false)
 				.await
-				.map_err(|error| {
-					tg::error!(
-						!error,
-						"failed to get the process children from another region"
-					)
-				})? {
-				return Ok(Some(stream));
-			}
-		}
-
-		if let Some(stream) = self
-			.try_get_process_children_remotes(session, process, arg, &locations.remotes)
-			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to get the process children from a remote")
-			})? {
+				.map_err(|error| tg::error!(!error, "failed to get the process children"))?
+		{
+			let location = tg::Location::Local(tg::location::Local::default());
+			let stream = Self::update_process_children_stream_referents_for_location(
+				session, stream, location, false,
+			);
 			return Ok(Some(stream));
 		}
 
-		Ok(None)
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			let (true, Some(id)) = (current, &id) else {
+				return Ok(None);
+			};
+			let Some(stream) = self
+				.try_get_process_children_local(session, id, arg.clone(), true)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the process children"))?
+			else {
+				return Ok(None);
+			};
+			let location = tg::Location::Local(tg::location::Local::default());
+			let stream = Self::update_process_children_stream_referents_for_location(
+				session, stream, location, false,
+			);
+			Ok(Some(stream))
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(stream) = self
+					.try_get_process_children_regions(session, process, arg.clone(), &local.regions)
+					.await
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							"failed to get the process children from another region"
+						)
+					})? {
+				return Ok(Some(stream));
+			}
+			self.try_get_process_children_remotes(session, process, arg.clone(), &locations.remotes)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, "failed to get the process children from a remote")
+				})
+		};
+		let stream = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+
+		Ok(stream)
 	}
 
 	async fn try_get_process_children_runner(
@@ -278,6 +301,7 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
+		exhaustive: bool,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let resource = tg::Referent::with_node_and_local_tokens(
 			id.clone(),
@@ -287,7 +311,7 @@ impl Component {
 			tg::authorization::permission::process::Permission::Node,
 		);
 		let permissions = session
-			.authorize(resource, permission)
+			.authorize_with_exhaustive(resource, permission, exhaustive)
 			.await?
 			.check_exhaustion()?;
 		if !permissions.permissions.contains(permission) {

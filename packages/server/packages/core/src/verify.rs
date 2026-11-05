@@ -18,6 +18,7 @@ pub struct Arg {
 pub struct VerifyBatchArg<'a> {
 	pub args: Vec<Arg>,
 	pub current_sync: Option<&'a tg::sync::Id>,
+	pub defer_sync_errors: bool,
 	pub required: Option<tg::authorization::permission::Set>,
 	pub search: bool,
 	pub subject: Option<tg::authorization::Subject>,
@@ -74,6 +75,20 @@ impl Session {
 		Ok(outputs.pop().unwrap())
 	}
 
+	pub async fn verify_with_exhaustive(
+		&self,
+		resource: impl IntoAuthorizationResource,
+		permissions: tg::authorization::permission::Set,
+		storage: tg::storage::Set,
+		exhaustive: bool,
+	) -> tg::Result<Output> {
+		let args = [(resource, permissions, None, storage)];
+		let mut outputs = self
+			.verify_batch_inner_with_subject(args, None, None, None, exhaustive, !exhaustive)
+			.await?;
+		Ok(outputs.pop().unwrap())
+	}
+
 	pub async fn verify_with_subject(
 		&self,
 		resource: impl IntoAuthorizationResource,
@@ -89,6 +104,7 @@ impl Session {
 				Some(subject),
 				None,
 				true,
+				false,
 			)
 			.await?;
 		Ok(outputs.pop().unwrap())
@@ -142,7 +158,7 @@ impl Session {
 			),
 		>,
 	{
-		self.verify_batch_inner_with_subject(args, required, None, current_sync, true)
+		self.verify_batch_inner_with_subject(args, required, None, current_sync, true, false)
 			.await
 	}
 
@@ -153,6 +169,7 @@ impl Session {
 		subject: Option<tg::authorization::Subject>,
 		current_sync: Option<&tg::sync::Id>,
 		search: bool,
+		defer_sync_errors: bool,
 	) -> tg::Result<Vec<Output>>
 	where
 		R: IntoAuthorizationResource,
@@ -181,6 +198,7 @@ impl Session {
 		let arg = VerifyBatchArg {
 			args,
 			current_sync,
+			defer_sync_errors,
 			required,
 			search,
 			subject,

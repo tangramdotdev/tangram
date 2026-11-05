@@ -7,7 +7,7 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_index::prelude::*,
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 };
 
 pub(super) struct Output<T> {
@@ -71,9 +71,26 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if locations.local.as_ref().is_some_and(|local| local.current)
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
+
+		// Read the sandbox and authorize it without a search.
+		let node = if current {
+			self.try_get_sandbox_local_inner(session, id, arg.source)
+				.boxed()
+				.await?
+		} else {
+			None
+		};
+		if current
 			&& let Some(output) = self
-				.try_get_sandbox_local(session, id, arg.tokens.local_authorization(), arg.source)
+				.try_get_sandbox_local(
+					session,
+					id,
+					arg.tokens.local_authorization(),
+					arg.source,
+					node.clone(),
+					false,
+				)
 				.await?
 		{
 			let output = if output.data.status.is_stopped_or_destroyed() {
@@ -84,43 +101,59 @@ impl Component {
 			return Ok(Some(output));
 		}
 
-		if let Some(local) = &locations.local
-			&& let Some(output) = self
-				.try_get_sandbox_regions(session, id, &local.regions, &arg.tokens, arg.source)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to get the sandbox from another region"),
-				)? {
-			let output = if output.data.status.is_stopped_or_destroyed() {
-				output
-			} else {
-				runner.unwrap_or(output)
-			};
-			return Ok(Some(output));
-		}
-
-		let remotes_arg = TryGetSandboxRemotesArg {
-			cached: arg.cached,
-			id,
-			remotes: &locations.remotes,
-			source: arg.source,
-			tokens: &arg.tokens,
-			ttl: arg.ttl,
-		};
-		if let Some(output) = self
-			.try_get_sandbox_remotes(session, remotes_arg)
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			if !current {
+				return Ok(None);
+			}
+			self.try_get_sandbox_local(
+				session,
+				id,
+				arg.tokens.local_authorization(),
+				arg.source,
+				node,
+				true,
+			)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox from a remote"))?
-		{
-			let output = if output.data.status.is_stopped_or_destroyed() {
-				output
-			} else {
-				runner.unwrap_or(output)
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(output) = self
+					.try_get_sandbox_regions(session, id, &local.regions, &arg.tokens, arg.source)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to get the sandbox from another region"),
+					)? {
+				return Ok(Some(output));
+			}
+			let remotes_arg = TryGetSandboxRemotesArg {
+				cached: arg.cached,
+				id,
+				remotes: &locations.remotes,
+				source: arg.source,
+				tokens: &arg.tokens,
+				ttl: arg.ttl,
 			};
-			return Ok(Some(output));
-		}
+			self.try_get_sandbox_remotes(session, remotes_arg)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox from a remote"))
+		};
+		let output = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+		let Some(output) = output else {
+			return Ok(runner);
+		};
+		let output = if output.data.status.is_stopped_or_destroyed() {
+			output
+		} else {
+			runner.unwrap_or(output)
+		};
 
-		Ok(runner)
+		Ok(Some(output))
 	}
 
 	async fn try_get_sandbox_runner(
@@ -179,20 +212,29 @@ impl Component {
 		id: &tg::sandbox::Id,
 		tokens: &[tg::authorization::Token],
 		source: tg::sandbox::Source,
+		node: Option<tg::sandbox::get::Output>,
+		exhaustive: bool,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Node,
 		);
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
-		let authorize_future = session.authorize(resource, permission).boxed();
-		let get_future = self
-			.try_get_sandbox_local_inner(session, id, source)
-			.boxed();
-		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
-		let permissions = permissions.check_exhaustion()?;
+		let permissions = session
+			.authorize_with_exhaustive(resource, permission, exhaustive)
+			.boxed()
+			.await?
+			.check_exhaustion()?;
 		if !permissions.permissions.contains(permission) {
 			return Ok(None);
 		}
+		let output = match node {
+			Some(node) => Some(node),
+			None => {
+				self.try_get_sandbox_local_inner(session, id, source)
+					.boxed()
+					.await?
+			},
+		};
 		let Some(mut output) = output else {
 			return Ok(None);
 		};

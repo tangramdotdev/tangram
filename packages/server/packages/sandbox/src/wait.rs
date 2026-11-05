@@ -10,7 +10,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 };
 
 type WaitFuture = BoxFuture<'static, tg::Result<Option<tg::sandbox::outcome::Data>>>;
@@ -32,40 +32,61 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(future) = self
-					.try_wait_sandbox_local(
-						session,
-						id,
-						arg.tokens.local_authorization(),
-						arg.source,
-					)
-					.await?
-			{
-				return Ok(Some(future));
-			}
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-			if let Some(future) = self
-				.try_wait_sandbox_regions(session, id, &local.regions, &arg.tokens, arg.source)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to wait for the sandbox in another region"),
-				)? {
-				return Ok(Some(future));
-			}
-		}
-
-		if let Some(future) = self
-			.try_wait_sandbox_remotes(session, id, &locations.remotes, &arg.tokens, arg.source)
-			.await
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to wait for the sandbox on a remote"),
-			)? {
+		// Wait for the local sandbox without a search.
+		if current
+			&& let Some(future) = self
+				.try_wait_sandbox_local(
+					session,
+					id,
+					arg.tokens.local_authorization(),
+					arg.source,
+					false,
+				)
+				.await?
+		{
 			return Ok(Some(future));
 		}
 
-		Ok(None)
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			if !current {
+				return Ok(None);
+			}
+			self.try_wait_sandbox_local(
+				session,
+				id,
+				arg.tokens.local_authorization(),
+				arg.source,
+				true,
+			)
+			.await
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(future) = self
+					.try_wait_sandbox_regions(session, id, &local.regions, &arg.tokens, arg.source)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to wait for the sandbox in another region"),
+					)? {
+				return Ok(Some(future));
+			}
+			self.try_wait_sandbox_remotes(session, id, &locations.remotes, &arg.tokens, arg.source)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to wait for the sandbox on a remote"),
+				)
+		};
+		let future = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+
+		Ok(future)
 	}
 
 	async fn try_wait_sandbox_runner(
@@ -134,6 +155,7 @@ impl Component {
 		id: &tg::sandbox::Id,
 		tokens: &[tg::authorization::Token],
 		source: tg::sandbox::Source,
+		exhaustive: bool,
 	) -> tg::Result<Option<WaitFuture>> {
 		let mut wakeups = self
 			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
@@ -141,7 +163,7 @@ impl Component {
 		let deadline = session.server.control_read_deadline();
 		let sandbox = loop {
 			tokio::select! {
-				output = self.try_get_sandbox_observation_local(session, id, tokens, source, deadline) => break output?,
+				output = self.try_get_sandbox_observation_local(session, id, tokens, source, deadline, exhaustive) => break output?,
 				wakeup = wakeups.next() => {
 					if wakeup.is_none() { return Ok(None); }
 				},

@@ -14,7 +14,7 @@ use {
 		response::{Ext as _, builder::Ext as _},
 	},
 	tangram_messenger::prelude::*,
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 	tokio_util::task::AbortOnDropHandle,
 };
@@ -116,6 +116,7 @@ impl Component {
 
 		let Some(source) = self
 			.try_read_process_stdio_source(session, id.as_ref(), process, arg.clone(), &acks, open)
+			.boxed()
 			.await?
 		else {
 			return Ok(ControlFlow::Break(None));
@@ -156,6 +157,7 @@ impl Component {
 						id,
 						&source,
 						arg.tokens.local_authorization(),
+						true,
 					)
 					.await?
 			{
@@ -179,34 +181,57 @@ impl Component {
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(id) = id
-				&& let Some(stream) = self
-					.try_read_process_stdio_local(session, id, arg.clone(), acks, open)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to read local process stdio"))?
-			{
-				return Ok(Some(stream));
-			}
-			if let Some(stream) = self
-				.try_read_process_stdio_regions(session, process, arg.clone(), &local.regions, acks)
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
+
+		// Read the local stdio without a search.
+		if current
+			&& let Some(id) = id
+			&& let Some(stream) = self
+				.try_read_process_stdio_local(session, id, arg.clone(), acks, open.clone(), false)
 				.await
-				.map_err(|error| {
-					tg::error!(!error, "failed to read process stdio from another region")
-				})? {
-				return Ok(Some(stream));
-			}
-		}
-		if let Some(stream) = self
-			.try_read_process_stdio_remotes(session, process, arg, &locations.remotes, acks)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to read process stdio from a remote"))?
+				.map_err(|error| tg::error!(!error, "failed to read local process stdio"))?
 		{
 			return Ok(Some(stream));
 		}
 
-		Ok(None)
+		// Search locally before trying the regions and remotes, because two readers of a pipe would split its bytes.
+		let local = async {
+			let (true, Some(id)) = (current, id) else {
+				return Ok(None);
+			};
+			self.try_read_process_stdio_local(session, id, arg.clone(), acks, open, true)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to read local process stdio"))
+		}
+		.await;
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(stream) = self
+					.try_read_process_stdio_regions(
+						session,
+						process,
+						arg.clone(),
+						&local.regions,
+						acks,
+					)
+					.await
+					.map_err(|error| {
+						tg::error!(!error, "failed to read process stdio from another region")
+					})? {
+				return Ok(Some(stream));
+			}
+			self.try_read_process_stdio_remotes(session, process, arg, &locations.remotes, acks)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to read process stdio from a remote"))
+		};
+		let stream = await_local_future_over_regions_remotes_futures(
+			future::ready(local),
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+
+		Ok(stream)
 	}
 
 	fn read_process_stdio_protocol(
@@ -228,6 +253,7 @@ impl Component {
 		arg: tg::process::stdio::read::Arg,
 		acks: &Acks,
 		open: Option<String>,
+		exhaustive: bool,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
 		let output = self
@@ -238,6 +264,8 @@ impl Component {
 				false,
 				arg.tokens.local_authorization(),
 				tg::process::Source::Auto,
+				None,
+				exhaustive,
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
@@ -254,9 +282,18 @@ impl Component {
 			return Ok(None);
 		}
 		if !self
-			.authorize_process_stdio_read(session, id, &source, arg.tokens.local_authorization())
+			.authorize_process_stdio_read(
+				session,
+				id,
+				&source,
+				arg.tokens.local_authorization(),
+				exhaustive,
+			)
 			.await?
 		{
+			if !exhaustive {
+				return Ok(None);
+			}
 			return Err(tg::error!("unauthorized"));
 		}
 		let mut arg = arg;
@@ -293,6 +330,7 @@ impl Component {
 		id: &tg::process::Id,
 		source: &Source,
 		tokens: &[tg::authorization::Token],
+		exhaustive: bool,
 	) -> tg::Result<bool> {
 		let Source::Pipe(streams) = source else {
 			return Ok(true);
@@ -313,7 +351,7 @@ impl Component {
 				let resource =
 					tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 				let authorized = session
-					.authorize(resource, permission)
+					.authorize_with_exhaustive(resource, permission, exhaustive)
 					.await?
 					.check_exhaustion()?;
 				Ok(authorized.permissions.contains(permission))
