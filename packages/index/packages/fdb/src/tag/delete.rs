@@ -79,9 +79,10 @@ impl Index {
 		let tag_parent_key = Self::pack(subspace, &tag_parent_key);
 		txn.clear(&tag_parent_key);
 
-		let node_key = Key::Node(crate::node::Key::Node(data.specifier.clone()));
-		let node_key = Self::pack(subspace, &node_key);
-		txn.clear(&node_key);
+		crate::propagate!(
+			Self::delete_node_with_transaction(txn, subspace, &id.clone().into(), &data.specifier)
+				.await
+		);
 
 		match &data.target {
 			tg::Either::Left(id) => {

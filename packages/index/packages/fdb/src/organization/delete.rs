@@ -21,9 +21,15 @@ impl Index {
 				.map(|bytes| tangram_index::organization::Organization::deserialize(&bytes))
 				.transpose()?;
 			if let Some(organization) = organization {
-				let node_key = Key::Node(crate::node::Key::Node(organization.specifier));
-				let node_key = Self::pack(subspace, &node_key);
-				txn.clear(&node_key);
+				crate::propagate!(
+					Self::delete_node_with_transaction(
+						txn,
+						subspace,
+						&id.clone().into(),
+						&organization.specifier
+					)
+					.await
+				);
 			}
 			txn.clear(&key);
 		}

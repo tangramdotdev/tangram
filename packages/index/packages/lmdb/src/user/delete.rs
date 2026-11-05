@@ -20,10 +20,13 @@ impl Index {
 				.map(tangram_index::user::User::deserialize)
 				.transpose()?;
 			if let Some(user) = user {
-				let key = Key::Node(crate::node::Key::Node(user.specifier));
-				let key = Self::pack(subspace, &key);
-				db.delete(transaction, &key)
-					.map_err(|error| tg::error!(!error, "failed to delete the node"))?;
+				Self::delete_node_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&id.clone().into(),
+					&user.specifier,
+				)?;
 			}
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the user"))?;
