@@ -874,6 +874,14 @@ impl Component {
 						let mut configure = arg.clone();
 						if !session.server.config.runner.backend.storage_limits() {
 							configure.storage = None;
+						} else if configure.storage.is_none() {
+							let resources = session
+								.server
+								.config
+								.runner
+								.backend
+								.resources(&session.server.config.runner.resources);
+							configure.storage = resources.max_filesystem_size.map(Into::into);
 						}
 						if let Err(error) = output.sandbox.configure(configure).await {
 							tracing::warn!(error = %error.trace(), "failed to configure a pooled sandbox; falling back to cold creation");
@@ -995,7 +1003,11 @@ impl Component {
 		if !session.server.config.runner.backend.storage_limits() {
 			arg.storage = None;
 		} else if prepare {
-			arg.storage.get_or_insert_default();
+			let storage = tg::sandbox::Resource {
+				max: resources.max_filesystem_size,
+				min: 0,
+			};
+			arg.storage.get_or_insert(storage);
 		}
 
 		// Apply the sandbox storage maximum.
