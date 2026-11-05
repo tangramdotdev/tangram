@@ -76,81 +76,69 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		let local_future = async {
-			if locations.local.as_ref().is_some_and(|local| local.current) {
-				let output = self
-					.try_get_process_local(
-						session,
-						id,
-						arg.metadata,
-						arg.availability,
-						arg.tokens.local_authorization(),
-						arg.source,
-					)
-					.await?;
-				return Ok(output);
-			}
-			Ok(None)
-		};
-		let lookup_future = async {
-			if let Some(local) = &locations.local {
-				let regions_arg = TryGetProcessRegionsArg {
-					availability: arg.availability,
+		if locations.local.as_ref().is_some_and(|local| local.current)
+			&& let Some(output) = self
+				.try_get_process_local(
+					session,
 					id,
-					metadata: arg.metadata,
-					regions: &local.regions,
-					source: arg.source,
-					tokens: &arg.tokens,
-				};
-				if let Some(output) = self
-					.try_get_process_regions(session, regions_arg)
-					.await
-					.map_err(
-						|error| tg::error!(!error, %id, "failed to get the process from another region"),
-					)? {
-					return Ok(Some(output));
-				}
-			}
+					arg.metadata,
+					arg.availability,
+					arg.tokens.local_authorization(),
+					arg.source,
+				)
+				.await?
+		{
+			let output = if output.data.status.is_finished() {
+				output
+			} else {
+				runner.unwrap_or(output)
+			};
+			return Ok(Some(output));
+		}
 
-			let remotes_arg = TryGetProcessRemotesArg {
+		if let Some(local) = &locations.local {
+			let regions_arg = TryGetProcessRegionsArg {
 				availability: arg.availability,
 				id,
 				metadata: arg.metadata,
-				remotes: &locations.remotes,
+				regions: &local.regions,
 				source: arg.source,
 				tokens: &arg.tokens,
 			};
 			if let Some(output) = self
-				.try_get_process_remotes(session, remotes_arg)
+				.try_get_process_regions(session, regions_arg)
 				.await
 				.map_err(
-					|error| tg::error!(!error, %id, "failed to get the process from a remote"),
+					|error| tg::error!(!error, %id, "failed to get the process from another region"),
 				)? {
+				let output = if output.data.status.is_finished() {
+					output
+				} else {
+					runner.unwrap_or(output)
+				};
 				return Ok(Some(output));
 			}
-
-			Ok(None)
-		};
-		let mut futures = [local_future.boxed(), lookup_future.boxed()]
-			.into_iter()
-			.collect::<FuturesUnordered<_>>();
-		let mut error = None;
-		while let Some(result) = futures.next().await {
-			match result {
-				Err(source) => error = Some(source),
-				Ok(None) => {},
-				Ok(Some(output)) => {
-					let output = if output.data.status.is_finished() {
-						output
-					} else {
-						runner.unwrap_or(output)
-					};
-					return Ok(Some(output));
-				},
-			}
 		}
-		if let Some(error) = error {
-			return Err(error);
+
+		let remotes_arg = TryGetProcessRemotesArg {
+			availability: arg.availability,
+			id,
+			metadata: arg.metadata,
+			remotes: &locations.remotes,
+			source: arg.source,
+			tokens: &arg.tokens,
+		};
+		if let Some(output) = self
+			.try_get_process_remotes(session, remotes_arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process from a remote"))?
+		{
+			let output = if output.data.status.is_finished() {
+				output
+			} else {
+				runner.unwrap_or(output)
+			};
+			return Ok(Some(output));
 		}
 
 		Ok(runner)

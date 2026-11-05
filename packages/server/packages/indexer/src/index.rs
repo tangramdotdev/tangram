@@ -198,14 +198,14 @@ impl Component {
 	) -> tg::Result<()> {
 		// Wait for indexing.
 		progress.spinner("index", "waiting for indexing");
-		self.index_inner().await?;
+		self.index_inner(arg.database).await?;
 		progress.finish("index");
 
 		// Wait for the permission capture queue to be empty, and then for the index updates that the captures produced.
 		if arg.capture || arg.usage {
 			progress.spinner("capture", "waiting for permission capture");
 			self.wait_for_permission_capture(server).await?;
-			self.index_inner().await?;
+			self.index_inner(arg.database).await?;
 			progress.finish("capture");
 		}
 

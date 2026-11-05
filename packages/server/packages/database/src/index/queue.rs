@@ -216,8 +216,13 @@ impl Database {
 		&self,
 		arg: TryGetBatchArg,
 	) -> tg::Result<Option<BatchId>> {
+		// Read from the write connection, because a follower can be missing entries and report that the queue is empty.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		let batch = self
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let arg = arg.clone();
 				async move {
 					Self::try_get_index_queue_batch_at_or_before_with_transaction(transaction, arg)

@@ -159,7 +159,7 @@ async fn read_errors_complete_all_waits_and_allow_new_requests() {
 async fn inputs_run_concurrently_and_share_reads() {
 	let mut state = State::new();
 	let _receivers = (0..1024)
-		.map(|id| insert(&mut state, &id.to_string(), RequestState::new()))
+		.map(|id| insert(&mut state, &id.to_string(), RequestState::new(true)))
 		.collect::<Vec<_>>();
 	let barrier = Arc::new(tokio::sync::Barrier::new(2));
 	let calls = Arc::new(AtomicUsize::new(0));
@@ -215,7 +215,7 @@ async fn inputs_run_concurrently_and_share_reads() {
 async fn updates_wait_for_both_inputs_in_any_completion_order() {
 	for order in [[0, 1], [1, 0]] {
 		let mut state = State::new();
-		let mut receiver = insert(&mut state, "client", RequestState::new());
+		let mut receiver = insert(&mut state, "client", RequestState::new(true));
 		state.start_indexer_wait(async { Ok(()) });
 		let (ids, result) = state.indexer_waits.next().await.unwrap();
 		let batch = tangram_server_core::database::index::queue::BatchId::new(10);
@@ -253,7 +253,7 @@ async fn updates_wait_for_both_inputs_in_any_completion_order() {
 #[tokio::test]
 async fn later_requests_keep_their_own_input_targets() {
 	let mut state = State::new();
-	let _first = insert(&mut state, "first", RequestState::new());
+	let _first = insert(&mut state, "first", RequestState::new(true));
 	state.start_indexer_wait(async { Ok(()) });
 	let (ids, result) = state.indexer_waits.next().await.unwrap();
 	state.handle_indexer_wait(ids, &result);
@@ -263,7 +263,7 @@ async fn later_requests_keep_their_own_input_targets() {
 		.poll_inputs(|_| async { Ok(Some(first)) })
 		.await
 		.unwrap();
-	let _second = insert(&mut state, "second", RequestState::new());
+	let _second = insert(&mut state, "second", RequestState::new(true));
 	state
 		.poll_inputs(|target| {
 			assert_eq!(target, Some(first));
@@ -302,7 +302,7 @@ async fn later_requests_keep_their_own_input_targets() {
 #[tokio::test]
 async fn canceled_waits_do_not_poll_or_reuse_old_queue_targets() {
 	let mut state = State::new();
-	let receiver = insert(&mut state, "first", RequestState::new());
+	let receiver = insert(&mut state, "first", RequestState::new(true));
 	state.start_indexer_wait(std::future::pending());
 	state
 		.poll_inputs(|_| async {
@@ -319,7 +319,7 @@ async fn canceled_waits_do_not_poll_or_reuse_old_queue_targets() {
 		.poll_inputs(|_| async { panic!("idle waits must not read the queue") })
 		.await
 		.unwrap();
-	let receiver = insert(&mut state, "later", RequestState::new());
+	let receiver = insert(&mut state, "later", RequestState::new(true));
 	state.start_indexer_wait(async { Ok(()) });
 	let (ids, result) = state.indexer_waits.next().await.unwrap();
 	assert_eq!(ids, ["later"]);
@@ -340,11 +340,21 @@ async fn canceled_waits_do_not_poll_or_reuse_old_queue_targets() {
 }
 
 #[tokio::test]
+async fn waits_without_the_database_do_not_read_the_queue() {
+	let mut state = State::new();
+	let _receiver = insert(&mut state, "first", RequestState::new(false));
+	state
+		.poll_inputs(|_| async { panic!("a wait without the database must not read the queue") })
+		.await
+		.unwrap();
+}
+
+#[tokio::test]
 async fn an_indexer_error_only_fails_its_batch() {
 	let mut state = State::new();
-	let receiver = insert(&mut state, "first", RequestState::new());
+	let receiver = insert(&mut state, "first", RequestState::new(true));
 	state.start_indexer_wait(async { Err(tg::error!("test failure")) });
-	let _later = insert(&mut state, "later", RequestState::new());
+	let _later = insert(&mut state, "later", RequestState::new(true));
 	let (ids, result) = state.indexer_waits.next().await.unwrap();
 	state.handle_indexer_wait(ids, &result);
 	assert!(receiver.await.unwrap().is_err());

@@ -844,11 +844,15 @@ impl Component {
 			tag.version == version && list_target_to_id(tag.target.clone()) == *target
 		};
 		if !indexed.as_ref().is_some_and(matches) {
+			let arg = tg::index::Arg {
+				database: true,
+				..Default::default()
+			};
 			session
 				.server
 				.components
 				.indexer
-				.index(session, tg::index::Arg::default())
+				.index(session, arg)
 				.await?
 				.try_last()
 				.await

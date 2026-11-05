@@ -11,13 +11,17 @@ use {
 #[cfg(test)]
 mod tests;
 
-pub(crate) type Receiver =
-	tokio::sync::mpsc::Receiver<tokio::sync::oneshot::Sender<tg::Result<()>>>;
+pub(crate) type Receiver = tokio::sync::mpsc::Receiver<WaitArg>;
 
-pub(crate) type Sender = tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<tg::Result<()>>>;
+pub(crate) type Sender = tokio::sync::mpsc::Sender<WaitArg>;
 
 type IndexerWaits =
 	FuturesUnordered<futures::future::BoxFuture<'static, (Vec<String>, tg::Result<()>)>>;
+
+pub(crate) struct WaitArg {
+	database: bool,
+	sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
+}
 
 struct State {
 	database_index_queue_batch_id: Option<tangram_server_core::database::index::queue::BatchId>,
@@ -51,10 +55,11 @@ enum Progress<T> {
 
 impl Component {
 	#[tracing::instrument(name = "index.wait", level = "info", skip_all, err)]
-	pub(crate) async fn index_inner(&self) -> tg::Result<()> {
+	pub(crate) async fn index_inner(&self, database: bool) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let arg = WaitArg { database, sender };
 		self.index_wait_sender
-			.send(sender)
+			.send(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "the index wait task stopped"))?;
 		receiver
@@ -99,11 +104,11 @@ impl Component {
 			tokio::select! {
 				() = stopper.wait() => return,
 				request = receiver.recv(), if state.waits.len() < server.config.indexer.request.wait_concurrency => {
-					let Some(sender) = request else { return; };
+					let Some(WaitArg { database, sender }) = request else { return; };
 					let request = Request {
 						id: tangram_server_core::control::id(),
 						sender,
-						state: RequestState::new(),
+						state: RequestState::new(database),
 					};
 					state.waits.insert(request.id.clone(), request);
 				},
@@ -491,9 +496,14 @@ impl State {
 }
 
 impl RequestState {
-	fn new() -> Self {
+	fn new(database: bool) -> Self {
+		let database_index_queue = if database {
+			Progress::Ready
+		} else {
+			Progress::Complete
+		};
 		Self::Inputs {
-			database_index_queue: Progress::Ready,
+			database_index_queue,
 			indexers: Progress::Ready,
 		}
 	}
