@@ -101,13 +101,29 @@ impl Component {
 			.authentication
 			.create_sandbox_authentication_token(&session.server, id.clone())?;
 
-		// Schedule the sandbox and wait for its connection.
-		let mut connection_future = self.subscribe_sandbox_connection(session, &id).await?;
+		// Subscribe before enqueuing the sandbox, so that a wait cannot miss a status change.
+		let wait = arg.wait;
+		let mut wakeups = if wait {
+			let wakeups = self
+				.create_sandbox_status_wakeup_stream(
+					session,
+					&id,
+					session.context.stopper.clone(),
+					None,
+				)
+				.await?;
+			Some(wakeups)
+		} else {
+			None
+		};
 
+		// Enqueue the sandbox, which the scheduler accepts once its record is durable.
 		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
 			boot: 0,
+			created_at: session.server.clock.unix_timestamp(),
 			creator,
+			declinable: false,
 			owner,
 			parent: None,
 			process: None,
@@ -116,98 +132,56 @@ impl Component {
 			scheduler: None,
 			token: Some(token),
 		};
-		let scheduler = session
+		let data =
+			tangram_server_scheduler_core::sandbox_data(&request, tg::sandbox::Status::Starting);
+		session
 			.server
 			.components
 			.scheduler
 			.enqueue_sandbox(session, request)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
-		let connected = self
-			.try_wait_sandbox_connection(session, &scheduler, &mut connection_future)
-			.await?;
-		if !connected {
-			self.spawn_create_sandbox_cleanup_after_scheduler_heartbeat_expiration(
-				session,
-				id.clone(),
-				scheduler.clone(),
-				connection_future,
-			);
-			return Err(tg::error!(
-				code = tg::error::Code::HeartbeatExpiration,
-				sandbox = %id,
-				%scheduler,
-				"the scheduler heartbeat expired"
-			));
+
+		// Wait for the sandbox to start if requested.
+		if let Some(wakeups) = &mut wakeups {
+			self.wait_for_sandbox_boot(session, &id, 0, wakeups).await?;
+			let arg = tg::sandbox::get::Arg {
+				location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+				..Default::default()
+			};
+			let output = self
+				.try_get_sandbox(session, &id, arg)
+				.boxed()
+				.await?
+				.ok_or_else(|| tg::error!(%id, "failed to get the created sandbox"))?;
+			let output = tg::sandbox::create::Output {
+				data: output.data,
+				location: output.location,
+				tokens: output.tokens,
+			};
+			return Ok(output);
 		}
 
-		tracing::info!(sandbox = %id, "connected to the sandbox");
-
-		// Capture the initial sandbox state after its control connection is available.
-		let arg = tg::sandbox::get::Arg {
-			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
-			..Default::default()
-		};
-		let get_output = self
-			.try_get_sandbox(session, &id, arg)
-			.boxed()
-			.await?
-			.ok_or_else(|| tg::error!(%id, "failed to get the created sandbox"))?;
+		// Create the output from the request.
+		let mut tokens = tg::authorization::Tokens::default();
+		if let Some(token) = session
+			.server
+			.components
+			.authorization
+			.create_read_token(session, &id.clone().into())?
+		{
+			tokens.insert_local_authorization(token);
+		}
+		let location = tg::Location::Local(tg::location::Local {
+			region: session.server.config.region.clone(),
+		});
 		let output = tg::sandbox::create::Output {
-			data: get_output.data,
-			location: get_output.location,
-			tokens: get_output.tokens,
+			data,
+			location: Some(location),
+			tokens,
 		};
 
 		Ok(output)
-	}
-
-	async fn try_wait_sandbox_connection(
-		&self,
-		session: &Session,
-		scheduler: &tg::scheduler::Id,
-		connection_future: &mut super::ConnectionFuture,
-	) -> tg::Result<bool> {
-		tokio::select! {
-			result = connection_future.as_mut() => result.map(|()| true),
-			result = session.server.components.scheduler.scheduler_heartbeat_expired(session, scheduler) => result.map(|()| false),
-		}
-	}
-
-	fn spawn_create_sandbox_cleanup_after_scheduler_heartbeat_expiration(
-		&self,
-		session: &Session,
-		sandbox: tg::sandbox::Id,
-		scheduler: tg::scheduler::Id,
-		connection_future: super::ConnectionFuture,
-	) {
-		let error = tg::error::Data {
-			code: Some(tg::error::Code::HeartbeatExpiration),
-			message: Some("the scheduler heartbeat expired".into()),
-			..Default::default()
-		};
-		let arg = tg::sandbox::destroy::Arg {
-			error: Some(tg::Either::Left(error)),
-			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
-			tokens: tg::authorization::Tokens::default(),
-			wait: false,
-		};
-		let component = self.clone();
-		let session = session.server.session(&session.server.context);
-		tokio::spawn(async move {
-			component
-				.destroy_sandbox_when_available(&session, &sandbox, arg, connection_future)
-				.await
-				.inspect_err(|error| {
-					tracing::error!(
-						error = %error.trace(),
-						%sandbox,
-						%scheduler,
-						"failed to destroy the sandbox after the scheduler heartbeat expired"
-					);
-				})
-				.ok();
-		});
 	}
 
 	async fn create_sandbox_region(

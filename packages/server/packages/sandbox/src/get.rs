@@ -318,10 +318,9 @@ impl Component {
 		} = arg;
 		let index_complete = |sandbox: &tangram_index::sandbox::Sandbox| {
 			processes
-				|| sandbox
-					.data
-					.as_ref()
-					.is_some_and(|data| data.data.status.is_stopped_or_destroyed())
+				|| sandbox.data.as_ref().is_some_and(|data| {
+					data.data.status.is_starting() || data.data.status.is_stopped_or_destroyed()
+				})
 		};
 		let get_index = || async {
 			let indexed = self.try_get_sandbox_from_index(session, id).await?;

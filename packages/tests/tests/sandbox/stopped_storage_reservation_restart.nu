@@ -29,7 +29,7 @@ checkpoint pass $heartbeat 0
 let enqueued = checkpoint watch scheduler.sandbox.enqueued
 let second = job spawn {
 	let job_id = job id
-	tg sandbox create --no-tokens --storage-min 50331648 --storage 50331648 | complete | job send --tag $job_id 0
+	tg sandbox create --wait --no-tokens --storage-min 50331648 --storage 50331648 | complete | job send --tag $job_id 0
 }
 checkpoint pass $enqueued
 checkpoint unwatch $enqueued
@@ -37,7 +37,7 @@ checkpoint pass $heartbeat 1
 checkpoint unwatch $heartbeat
 
 # The stopped sandbox starts again on its reserved storage.
-success (timeout 60s tg sandbox start $first | complete) "the stopped sandbox should start on its reserved storage"
+success (timeout 60s tg sandbox start --wait $first | complete) "the stopped sandbox should start on its reserved storage"
 assert equal (tg sandbox get $first | from json | get data.status) started
 
 # Destroying the first sandbox releases the storage, so the second sandbox is created.

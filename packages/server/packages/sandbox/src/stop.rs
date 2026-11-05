@@ -95,7 +95,7 @@ impl Component {
 		else {
 			return Ok(None);
 		};
-		self.stop_sandbox_with_status(session, id, status, Some(control_sender))
+		self.stop_sandbox_with_status(session, id, status, Some(control_sender), arg.wait)
 			.boxed()
 			.await
 	}
@@ -129,6 +129,39 @@ impl Component {
 			return Ok(None);
 		};
 
+		// Send the stop to the sandbox's scheduler if its runner has not connected, and otherwise wait for the connection.
+		if data.data.status.is_starting()
+			&& let Some(scheduler) = &sandbox.scheduler
+		{
+			let request = tangram_server_scheduler_core::EndSandboxRequestArg {
+				error: None,
+				sandbox: id.clone(),
+				stop: true,
+			};
+			let ended = session
+				.server
+				.components
+				.scheduler
+				.end_sandbox(session, scheduler, request)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, %scheduler, "failed to end the sandbox"),
+				)?;
+			if ended {
+				return Ok(Some(true));
+			}
+			let mut wakeups = self
+				.create_sandbox_status_wakeup_stream(
+					session,
+					id,
+					session.context.stopper.clone(),
+					None,
+				)
+				.await?;
+			self.wait_for_sandbox_start(session, id, &mut wakeups)
+				.await?;
+		}
+
 		// Confirm a stop after pending indexing, because a start may not be indexed yet.
 		let mut status = data.data.status;
 		if status.is_stopped() {
@@ -145,7 +178,7 @@ impl Component {
 				status = data.data.status;
 			}
 		}
-		self.stop_sandbox_with_status(session, id, status, None)
+		self.stop_sandbox_with_status(session, id, status, None, arg.wait)
 			.boxed()
 			.await
 	}
@@ -156,6 +189,7 @@ impl Component {
 		id: &tg::sandbox::Id,
 		status: tg::sandbox::Status,
 		control_sender: Option<tangram_server_sandbox_core::control::local::Local>,
+		wait: bool,
 	) -> tg::Result<Option<bool>> {
 		// Subscribe before sending the request, so that the stop cannot be missed.
 		let wakeups = self
@@ -200,8 +234,10 @@ impl Component {
 			},
 		};
 
-		// Wait for the sandbox to be stopped.
-		self.wait_for_sandbox_stop(session, id, wakeups).await?;
+		// Wait for the sandbox to be stopped if requested.
+		if wait {
+			self.wait_for_sandbox_stop(session, id, wakeups).await?;
+		}
 
 		Ok(Some(stopped))
 	}

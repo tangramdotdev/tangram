@@ -35,6 +35,20 @@ impl Index {
 			))));
 		}
 
+		// Move the runner to its scheduler.
+		if let Some(scheduler) = &existing.scheduler {
+			let key = Key::Runner(crate::runner::Key::SchedulerRunner {
+				runner: arg.id.clone(),
+				scheduler: scheduler.clone(),
+			});
+			txn.clear(&Self::pack(subspace, &key));
+		}
+		let scheduler_key = Key::Runner(crate::runner::Key::SchedulerRunner {
+			runner: arg.id.clone(),
+			scheduler: arg.scheduler.clone(),
+		});
+		txn.set(&Self::pack(subspace, &scheduler_key), &[]);
+
 		// Store the accepted registration.
 		existing.next = existing.next.max(arg.registration.saturating_add(1));
 		existing.registration = arg.registration;

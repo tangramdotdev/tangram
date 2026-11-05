@@ -16,6 +16,12 @@ pub struct Registration {
 	pub scheduler: tg::scheduler::Id,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct SchedulerSandbox {
+	pub id: tg::sandbox::Id,
+	pub request: Vec<u8>,
+}
+
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Runner {
 	#[tangram_serialize(id = 0)]

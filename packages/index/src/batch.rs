@@ -224,6 +224,7 @@ mod tests {
 					processes: None,
 					registration: None,
 					runner: None,
+					scheduled: None,
 					stopped_usage: None,
 					touched_at: 2,
 				}),

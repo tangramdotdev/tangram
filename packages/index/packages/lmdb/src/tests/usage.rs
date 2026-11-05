@@ -771,6 +771,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 		processes: None,
 		registration: None,
 		runner: None,
+		scheduled: None,
 		stopped_usage: None,
 		touched_at: 1,
 	};
@@ -807,6 +808,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 		processes: None,
 		registration: None,
 		runner: None,
+		scheduled: None,
 		stopped_usage: None,
 		touched_at: 2,
 	};
@@ -875,6 +877,7 @@ async fn records_compute_once_when_destroy_precedes_start() {
 			processes: None,
 			registration: None,
 			runner: None,
+			scheduled: None,
 			stopped_usage: None,
 			touched_at: 2,
 		};
@@ -922,6 +925,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 		processes: None,
 		registration: None,
 		runner: None,
+		scheduled: None,
 		stopped_usage: None,
 		touched_at: 1,
 	};
@@ -958,6 +962,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 		processes: None,
 		registration: None,
 		runner: None,
+		scheduled: None,
 		stopped_usage: None,
 		touched_at: 2,
 	};

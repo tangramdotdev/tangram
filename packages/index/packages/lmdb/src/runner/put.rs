@@ -35,6 +35,24 @@ impl Index {
 			)));
 		}
 
+		// Move the runner to its scheduler.
+		if let Some(scheduler) = &existing.scheduler {
+			let key = Key::Runner(crate::runner::Key::SchedulerRunner {
+				runner: arg.id.clone(),
+				scheduler: scheduler.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the scheduler runner"))?;
+		}
+		let scheduler_key = Key::Runner(crate::runner::Key::SchedulerRunner {
+			runner: arg.id.clone(),
+			scheduler: arg.scheduler.clone(),
+		});
+		let scheduler_key = Self::pack(subspace, &scheduler_key);
+		db.put(transaction, &scheduler_key, &[])
+			.map_err(|error| tg::error!(!error, "failed to put the scheduler runner"))?;
+
 		// Store the accepted registration.
 		existing.next = existing.next.max(arg.registration.saturating_add(1));
 		existing.registration = arg.registration;

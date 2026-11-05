@@ -8,10 +8,10 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			await using sandbox = await tg.Sandbox.create();
-			await sandbox.stop();
-			await sandbox.stop();
-			await sandbox.start();
-			await sandbox.start();
+			await sandbox.stop(undefined, { wait: true });
+			await sandbox.stop(undefined, { wait: true });
+			await sandbox.start(undefined, { wait: true });
+			await sandbox.start(undefined, { wait: true });
 			await sandbox.run`echo hello`;
 		}
 	',

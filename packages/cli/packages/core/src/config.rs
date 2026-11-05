@@ -2110,6 +2110,12 @@ pub enum JavaScriptEngine {
 	V8,
 }
 
+/// A duration in seconds.
+#[serde_as]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(transparent)]
+pub struct Seconds(#[serde_as(as = "DurationSecondsWithFrac")] pub Duration);
+
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -2132,17 +2138,6 @@ pub struct Scheduler {
 	/// The storage bounds for a sandbox that omits them, where an omitted maximum means no limit.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_storage: Option<tg::sandbox::Resource<u64>>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub enqueue_retry: Option<Retry>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub heartbeat_interval: Option<Duration>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub heartbeat_ttl: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::scheduler::Id>,
@@ -2181,6 +2176,14 @@ pub struct Scheduler {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub runner_ttl: Option<Duration>,
+
+	/// How long a request that no runner could fit stays queued before it fails, where zero rejects the request and null waits indefinitely.
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub unplaceable_timeout: Option<Option<Seconds>>,
 }
 
 #[serde_as]

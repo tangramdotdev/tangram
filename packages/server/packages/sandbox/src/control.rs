@@ -433,6 +433,7 @@ impl Component {
 			processes: None,
 			registration: None,
 			runner,
+			scheduled: None,
 			stopped_usage: None,
 			touched_at: created_at,
 		};

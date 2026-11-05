@@ -259,6 +259,21 @@ impl Component {
 }
 
 impl Component {
+	/// Record that the runner accepted a stop or destroy, so that reads report it before the teardown finishes.
+	fn set_sandbox_status(session: &Session, id: &tg::sandbox::Id, status: tg::sandbox::Status) {
+		if let Some(mut state) = session
+			.server
+			.components
+			.runner
+			.state()
+			.sandboxes
+			.get_mut_by_id(id)
+		{
+			state.status = status;
+			state.changed.send_replace(());
+		}
+	}
+
 	async fn handle_destroyed_sandbox_control_request(
 		&self,
 		session: &Session,
@@ -1495,6 +1510,7 @@ impl Component {
 						let result = match message.arg {
 							tg::sandbox::control::ServerRequestArg::Destroy(request) => {
 								Self::cancel_sandbox_processes(session, &id, request.error)?;
+								Self::set_sandbox_status(session, &id, tg::sandbox::Status::Destroying);
 								end = true;
 								Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
 									tg::sandbox::control::DestroyClientResponseOutput {
@@ -1539,6 +1555,7 @@ impl Component {
 							},
 							tg::sandbox::control::ServerRequestArg::Stop(_) => {
 								Self::cancel_sandbox_processes(session, &id, None)?;
+								Self::set_sandbox_status(session, &id, tg::sandbox::Status::Stopping);
 								end = true;
 								teardown = Teardown::Stop;
 								Ok(tg::sandbox::control::ClientResponseOutput::Stop(
@@ -2908,6 +2925,7 @@ impl Component {
 			processes: processes.map(<[_]>::to_vec),
 			registration: None,
 			runner: None,
+			scheduled: None,
 			stopped_usage: None,
 			touched_at,
 		};

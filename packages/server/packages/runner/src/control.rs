@@ -115,6 +115,7 @@ impl Component {
 				host: arg.host,
 				runner: id.clone(),
 				registration_index,
+				sandboxes: arg.sandboxes.clone(),
 			},
 		);
 
@@ -572,6 +573,7 @@ impl Component {
 			processes: None,
 			registration: None,
 			runner: None,
+			scheduled: None,
 			stopped_usage: Some(stopped_usage),
 			touched_at,
 		};

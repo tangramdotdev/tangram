@@ -85,6 +85,7 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 				processes: None,
 				registration: Some(registration.clone()),
 				runner: None,
+				scheduled: None,
 				stopped_usage: None,
 				touched_at: 0,
 			};
@@ -202,4 +203,133 @@ async fn registration_index_allocations_are_unique_and_survive_reopen() {
 	};
 	index.batch(arg).await.unwrap().unwrap();
 	assert!(index.next_runner_registration_index(&runner).await.is_err());
+}
+
+#[tokio::test]
+async fn a_scheduler_owns_a_sandbox_until_its_runner_connects() {
+	let (_directory, index) = new_index();
+	let scheduler = tg::scheduler::Id::new();
+	let scheduled = tangram_index::sandbox::put::Scheduled {
+		request: b"request".to_vec(),
+		scheduler: scheduler.clone(),
+	};
+
+	// The accepted request is recorded with the starting sandbox.
+	let id = tg::sandbox::Id::new();
+	let starting = sandbox_arg(&id, tg::sandbox::Status::Starting, Some(scheduled.clone()));
+	put_sandbox(&index, starting.clone()).await;
+	let sandboxes = index.get_scheduler_sandboxes(&scheduler).await.unwrap();
+	assert_eq!(sandboxes.len(), 1);
+	assert_eq!(sandboxes[0].id, id);
+	assert_eq!(sandboxes[0].request, b"request");
+
+	// A destroy before the runner connects keeps the request until the sandbox is gone.
+	let destroying = sandbox_arg(&id, tg::sandbox::Status::Destroying, None);
+	put_sandbox(&index, destroying).await;
+	let sandboxes = index.get_scheduler_sandboxes(&scheduler).await.unwrap();
+	assert_eq!(sandboxes.len(), 1);
+	let destroyed = sandbox_arg(&id, tg::sandbox::Status::Destroyed, None);
+	put_sandbox(&index, destroyed).await;
+	let sandboxes = index.get_scheduler_sandboxes(&scheduler).await.unwrap();
+	assert!(sandboxes.is_empty());
+
+	// The request is removed in the transaction that records the runner's connection.
+	let id = tg::sandbox::Id::new();
+	let starting = sandbox_arg(&id, tg::sandbox::Status::Starting, Some(scheduled.clone()));
+	put_sandbox(&index, starting.clone()).await;
+	let started = sandbox_arg(&id, tg::sandbox::Status::Started, None);
+	put_sandbox(&index, started).await;
+	let sandboxes = index.get_scheduler_sandboxes(&scheduler).await.unwrap();
+	assert!(sandboxes.is_empty());
+
+	// A late starting write that loses to the connection records no request.
+	put_sandbox(&index, starting).await;
+	let sandboxes = index.get_scheduler_sandboxes(&scheduler).await.unwrap();
+	assert!(sandboxes.is_empty());
+
+	// A starting write that arrives after the connection records no request.
+	let id = tg::sandbox::Id::new();
+	let started = sandbox_arg(&id, tg::sandbox::Status::Started, None);
+	put_sandbox(&index, started).await;
+	let starting = sandbox_arg(&id, tg::sandbox::Status::Starting, Some(scheduled));
+	put_sandbox(&index, starting).await;
+	let sandboxes = index.get_scheduler_sandboxes(&scheduler).await.unwrap();
+	assert!(sandboxes.is_empty());
+}
+
+#[tokio::test]
+async fn a_scheduler_lists_its_runners() {
+	let (_directory, index) = new_index();
+	let first = tg::scheduler::Id::new();
+	let second = tg::scheduler::Id::new();
+	let runner = tg::runner::Id::new();
+	for (registration, scheduler) in [(1, &first), (2, &second)] {
+		let arg = tangram_index::runner::put::Arg {
+			id: runner.clone(),
+			registration,
+			scheduler: scheduler.clone(),
+		};
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutRunner(arg)],
+		};
+		index.batch(arg).await.unwrap().unwrap();
+	}
+	let runners = index.get_scheduler_runners(&first).await.unwrap();
+	assert!(runners.is_empty());
+	assert_eq!(
+		index.get_scheduler_runners(&second).await.unwrap(),
+		vec![runner]
+	);
+}
+
+async fn put_sandbox(index: &crate::Index, arg: tangram_index::sandbox::put::Arg) {
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutSandbox(arg)],
+	};
+	index.batch(arg).await.unwrap().unwrap();
+}
+
+fn sandbox_arg(
+	id: &tg::sandbox::Id,
+	status: tg::sandbox::Status,
+	scheduled: Option<tangram_index::sandbox::put::Scheduled>,
+) -> tangram_index::sandbox::put::Arg {
+	let data = tg::sandbox::get::Output {
+		data: tg::sandbox::Data {
+			boot: 0,
+			cpu: None,
+			creator: tg::Principal::Root,
+			error: None,
+			expires_at: None,
+			hostname: None,
+			id: id.clone(),
+			memory: None,
+			mounts: Vec::new(),
+			network: None,
+			owner: tg::Principal::Root,
+			status,
+			stopped_at: None,
+			storage: None,
+			time_to_live: None,
+			time_to_stop: None,
+			usage: None,
+		},
+		location: None,
+		tokens: tg::authorization::Tokens::default(),
+	};
+	tangram_index::sandbox::put::Arg {
+		account: None,
+		created_at: 0,
+		data: Some(data),
+		id: id.clone(),
+		location: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Sandbox(id.clone()),
+		processes: None,
+		registration: None,
+		runner: None,
+		scheduled,
+		stopped_usage: None,
+		touched_at: 0,
+	}
 }

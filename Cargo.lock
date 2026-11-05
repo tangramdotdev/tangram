@@ -11793,6 +11793,7 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "futures",
+ "serde_json",
  "tangram_cache",
  "tangram_client",
  "tangram_futures",

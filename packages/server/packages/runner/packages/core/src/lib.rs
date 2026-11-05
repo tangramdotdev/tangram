@@ -57,6 +57,9 @@ pub struct State {
 
 	pub scheduler: tokio::sync::watch::Sender<Option<tg::scheduler::Id>>,
 
+	/// The number of times that the runner has connected to a scheduler, which changes even when a restarted scheduler keeps its ID.
+	pub scheduler_connections: tokio::sync::watch::Sender<u64>,
+
 	#[cfg(target_os = "linux")]
 	pub stopped_project_ids: dashmap::DashMap<tg::sandbox::Id, crate::project::Id>,
 
@@ -68,6 +71,7 @@ impl State {
 	#[must_use]
 	pub fn new(config: Config) -> Self {
 		let (scheduler, _) = tokio::sync::watch::channel(None);
+		let (scheduler_connections, _) = tokio::sync::watch::channel(0);
 		Self {
 			booting: dashmap::DashMap::new(),
 
@@ -97,6 +101,7 @@ impl State {
 			sandboxes: crate::sandbox::Sandboxes::default(),
 
 			scheduler,
+			scheduler_connections,
 
 			#[cfg(target_os = "linux")]
 			stopped_project_ids: dashmap::DashMap::new(),
@@ -152,24 +157,27 @@ impl State {
 		}
 	}
 
-	pub async fn wait_for_scheduler_change(
-		&self,
-		current: &tg::scheduler::Id,
-	) -> tg::scheduler::Id {
-		let mut scheduler = self.scheduler.subscribe();
-		loop {
-			if let Some(scheduler) = scheduler.borrow_and_update().clone()
-				&& scheduler != *current
-			{
-				return scheduler;
-			}
-			scheduler.changed().await.unwrap();
-		}
+	#[must_use]
+	pub fn scheduler_connection(&self) -> u64 {
+		*self.scheduler_connections.borrow()
+	}
+
+	pub async fn wait_for_scheduler_connection_change(&self, current: u64) {
+		let mut connections = self.scheduler_connections.subscribe();
+		connections
+			.wait_for(|connection| *connection != current)
+			.await
+			.ok();
 	}
 
 	pub fn set_scheduler(&self, scheduler: Option<tg::scheduler::Id>) {
 		self.heartbeat_index.store(0, Ordering::Release);
+		let connected = scheduler.is_some();
 		self.scheduler.send_replace(scheduler);
+		if connected {
+			self.scheduler_connections
+				.send_modify(|connection| *connection = connection.wrapping_add(1));
+		}
 	}
 
 	#[must_use]

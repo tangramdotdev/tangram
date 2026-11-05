@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A missing index result must not end a read while control is becoming available.
+# A read of a sandbox whose runner has not connected returns the record that the scheduler wrote.
 let local_owner = server spawn --name local-owner --config {
 	advanced: { checkpoints: true },
 	control: { read_timeout: 60 },
@@ -19,18 +19,9 @@ let creator = job spawn {
 	$output | job send --tag $job_id 0
 }
 let sandbox = tg --url $local_owner.url checkpoint wait --timeout 10s sandbox.control.connect $connect 0 | from json | get params.sandbox
-let index = tg --url $local_owner.url checkpoint watch sandbox.get.index | from json | get watch
-let reader = job spawn {
-	let job_id = job id
-	let output = timeout 20s tg --url $local_owner.url sandbox get $sandbox | complete
-	$output | job send --tag $job_id 0
-}
-tg --url $local_owner.url checkpoint wait --timeout 10s sandbox.get.index $index 0 | ignore
-tg --url $local_owner.url checkpoint unwatch sandbox.get.index $index
-assert equal (try { job recv --tag $reader --timeout 300ms } catch { null }) null
+let output = timeout 20s tg --url $local_owner.url sandbox get $sandbox | complete
+success $output
+assert equal ($output.stdout | from json | get data.status) starting
 tg --url $local_owner.url checkpoint unwatch sandbox.control.connect $connect
 success (job recv --tag $creator --timeout 20sec)
-let output = job recv --tag $reader --timeout 20sec
-success $output
-assert equal ($output.stdout | from json | get data.status) started
-tg --url $local_owner.url sandbox destroy $sandbox
+tg --url $local_owner.url sandbox destroy --wait $sandbox
