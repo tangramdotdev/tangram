@@ -161,7 +161,6 @@ impl Component {
 			boot,
 			created_at,
 			creator: data.creator.clone(),
-			declinable: false,
 			owner: data.owner.clone(),
 			parent: None,
 			process: None,

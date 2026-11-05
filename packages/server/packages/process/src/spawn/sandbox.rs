@@ -422,7 +422,6 @@ impl Component {
 			boot: 0,
 			created_at: session.server.clock.unix_timestamp(),
 			creator: session.context.principal.clone(),
-			declinable: false,
 			owner,
 			parent: output.parent_sandbox.clone(),
 			process: Some(process),

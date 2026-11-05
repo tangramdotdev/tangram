@@ -41,11 +41,11 @@ let bob_local = server spawn --name bob-local --config {
 	remotes: { default: { token: $bob.token, url: $remote.url } },
 }
 let unrelated_path = artifact { tangram.ts: 'export default () => tg.file("unrelated")' }
-# Wait for the scheduler to decline the unrelated user's sandbox, because the connected runner is not eligible to run it.
-let declined = checkpoint watch scheduler.sandbox.declined --token $root_token --url $remote.url
+# Wait for the scheduler to accept the unrelated user's sandbox, which waits because the connected runner is not eligible to run it.
+let enqueued = checkpoint watch scheduler.sandbox.enqueued --token $root_token --url $remote.url
 let build = build_background $bob_local.url $bob.user.id $unrelated_path
-checkpoint pass $declined | ignore
-checkpoint unwatch $declined
+checkpoint pass $enqueued | ignore
+checkpoint unwatch $enqueued
 let premature = try { job recv --tag $build --timeout 0sec } catch { null }
 assert equal $premature null "the organization runner should not run an unrelated user's build"
 

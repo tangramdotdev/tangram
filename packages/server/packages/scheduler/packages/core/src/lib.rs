@@ -168,10 +168,6 @@ pub struct EnqueueSandboxRequestArg {
 	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
 	pub creator: tg::Principal,
 
-	/// Whether a scheduler whose runners could not fit the sandbox may decline it, so that the caller can try another scheduler.
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
-	pub declinable: bool,
-
 	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
 	pub owner: tg::Principal,
 
@@ -195,9 +191,7 @@ pub struct EnqueueSandboxRequestArg {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct EnqueueSandboxResponseOutput {
-	pub enqueued: bool,
-}
+pub struct EnqueueSandboxResponseOutput {}
 
 /// Create the data of a sandbox from its enqueued request.
 #[must_use]
