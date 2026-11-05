@@ -28,7 +28,7 @@ failure (tg --token $reader.token get --bytes $directory | complete) "the reader
 
 let tagged = tg --token $bob.token tag put accepted $reference --public | complete
 success $tagged "a subtree proof verified only by a previous secret must authorize tagging."
-tg --token $root_token index
+tg --token $root_token index --database
 
 # Neither a signing secret nor an unexpired source proof is needed to read the captured subtree.
 advance_time $server 2min

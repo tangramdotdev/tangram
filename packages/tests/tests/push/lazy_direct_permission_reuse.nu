@@ -25,7 +25,7 @@ tg --url $remote.url --token $alice.token grant $bob.user.id object_subtree $fil
 
 # Bob's first push transfers the directory and writes direct permissions over the subtree he relied on.
 tg --url $bob_local.url push --lazy $directory
-tg --url $remote.url index
+tg --url $remote.url index --database
 
 # Bob's second push skips the whole subtree using his direct permissions and transfers nothing.
 let output = tg --url $bob_local.url --no-quiet push --lazy $directory | complete

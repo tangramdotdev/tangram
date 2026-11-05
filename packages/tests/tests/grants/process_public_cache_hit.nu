@@ -12,7 +12,7 @@ let path = artifact { tangram.ts: 'export default function () { return tg.file("
 # Alice builds the command publicly, so it is not a cache hit.
 let alice_build = tg --token $alice.token build --detach --verbose --public $path | from json
 success (tg --token $alice.token wait $alice_build.process | complete)
-tg --token $alice.token index
+tg --token $alice.token index --database
 assert (($alice_build.cached? | default false) == false) "Alice's first public build should not be a cache hit."
 
 # Eve building the identical deterministic command reuses Alice's public cached process.

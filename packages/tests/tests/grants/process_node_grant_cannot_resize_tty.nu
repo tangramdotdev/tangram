@@ -11,7 +11,7 @@ let process = tg --token $alice.token spawn --no-tokens --network=true --tty=24,
 
 # Alice grants Eve read-only access to the process.
 tg --token $alice.token grant $eve.user.id process_node $process
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 # A process_node grant must not confer the ability to resize the process's tty.
 let socket = $local.url | str replace 'http+unix://' '' | url decode

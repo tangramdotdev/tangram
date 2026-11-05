@@ -11,7 +11,7 @@ let transitive_1_0_0 = artifact {
 	'
 }
 tg tag -p transitive/1.0.0 $transitive_1_0_0
-tg index
+tg index --database
 # Create the direct dependency (version 1) which depends on transitive.
 let dep_1_0_0 = artifact {
 	tangram.ts: '
@@ -20,7 +20,7 @@ let dep_1_0_0 = artifact {
 	'
 }
 tg tag -p dep/1.0.0 $dep_1_0_0
-tg index
+tg index --database
 # Create a dependency that will be removed in the next version.
 let removed = artifact {
 	tangram.ts: '
@@ -28,7 +28,7 @@ let removed = artifact {
 	'
 }
 tg tag -p removed/1.0.0 $removed
-tg index
+tg index --database
 # Create the initial root package which depends on dep and removed.
 let old_root = artifact {
 	tangram.ts: '
@@ -48,7 +48,7 @@ let transitive_1_1_0 = artifact {
 	'
 }
 tg tag -p transitive/1.1.0 $transitive_1_1_0
-tg index
+tg index --database
 
 # Create a new dependency that will be added.
 let added_path = artifact {
@@ -57,7 +57,7 @@ let added_path = artifact {
 	'
 }
 tg tag -p added/1.0.0 $added_path
-tg index
+tg index --database
 
 let dep_1_1_0 = artifact {
 	tangram.ts: '
@@ -67,7 +67,7 @@ let dep_1_1_0 = artifact {
 	'
 }
 tg tag -p dep/1.1.0 $dep_1_1_0
-tg index
+tg index --database
 
 # Create the updated root package which drops removed and adds added.
 let new_root = artifact {

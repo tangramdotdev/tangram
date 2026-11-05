@@ -20,7 +20,7 @@ let params = { resource: $target } | to json --raw
 let advance = tg --token $root_token checkpoint watch permission_capture.advance --params $params | from json | get watch
 let advanced = tg --token $root_token checkpoint watch permission_capture.advanced --params $params | from json | get watch
 tg --token $alice.token tag put deleting $target --public
-tg --token $root_token index
+tg --token $root_token index --database
 tg --token $root_token checkpoint wait --timeout 30s permission_capture.advance $advance 0 | ignore
 let tag = http get --headers { Accept: application/json, Authorization: $'Bearer ($bob.token)' } --unix-socket $socket 'http://localhost/tags/deleting'
 let token = $tag.tokens.local.0
@@ -29,7 +29,7 @@ success (tg --token $bob.token get $reference | complete) "the retained tag-read
 
 # Retain only tag_read, so this cannot pass because of an already issued target token.
 tg --token $alice.token tag delete deleting | ignore
-tg --token $root_token index
+tg --token $root_token index --database
 failure (tg --token $bob.token get $reference | complete) "deletion must remove the tag's existing target access."
 tg --token $root_token checkpoint continue permission_capture.advance $advance 0
 tg --token $root_token checkpoint wait --timeout 30s permission_capture.advanced $advanced 0 | ignore

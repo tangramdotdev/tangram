@@ -68,8 +68,8 @@ for id in [$file $blob] {
 
 # Propagate the parent tag to both regional indexes before allowing TTL cleaning.
 tg --url $primary.url tag put retained-parent $parent
-tg --url $primary.url index
-tg --url $secondary.url index
+tg --url $primary.url index --database
+tg --url $secondary.url index --database
 assert equal (tg --url $secondary.url tag get retained-parent | from json | get target.id) $parent
 let delete = checkpoint watch --url $secondary.url cleaning.process.delete --params { process: $process_sentinel }
 advance_time $secondary 2hr

@@ -18,7 +18,7 @@ let alice = tg login --verbose --name alice | from json
 
 let first = tg --token $alice.token put --no-tokens 'tg.file("first")' | referent node
 tg --token $alice.token tag first $first
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 # Aggregate every completed period containing the first storage event.
 set_time $local '2026-02-02T00:00:00Z'
@@ -35,7 +35,7 @@ assert equal $month_before.object_count 1488
 set_time $local '2026-01-01T00:30:00Z'
 let second = tg --token $alice.token put --no-tokens 'tg.file("second")' | referent node
 tg --token $alice.token tag second $second
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 # Every later storage gauge must include the late event after re-aggregation.
 set_time $local '2026-02-02T00:00:00Z'

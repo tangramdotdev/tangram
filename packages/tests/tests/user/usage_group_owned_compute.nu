@@ -15,7 +15,7 @@ let process = tg --token $alice.token build --no-tokens --detach --owner alice/t
 tg --token $alice.token wait $process
 let sandbox = tg --token $alice.token process get $process | from json | get sandbox
 tg --token $alice.token wait $sandbox
-tg index
+tg index --database
 let after = tg --token $alice.token usage | from json
 
 assert ($after.sandbox_count > $before.sandbox_count) "a group-owned sandbox must charge sandbox usage"

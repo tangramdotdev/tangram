@@ -20,11 +20,11 @@ assert equal $updated.id $first.id "granting should add to the oldest grant"
 
 # Deleting one grant keeps the permissions that another grant still holds.
 tg --token $alice.token grants delete $first.id
-tg index
+tg index --database
 success (tg --token $bob.token group get team | complete) "the remaining grant should keep the subject's access"
 
 # Revoking removes the permission from every matching grant and deletes the grants that have none left.
 tg --token $alice.token revoke $bob.user.id read team
-tg index
+tg index --database
 failure (tg --token $bob.token group get team | complete) "revoking should remove the subject's access"
 failure (tg --token $alice.token grants get $second.id | complete) "a grant with no permissions left should be deleted"

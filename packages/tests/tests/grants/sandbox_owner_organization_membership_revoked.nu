@@ -28,7 +28,7 @@ failure (tg --token $eve.token sandbox get $sandbox | complete) "Eve must not ge
 # Revoking Carol's and Bob's memberships removes their memberships and the auto-granted write on the organization.
 tg --token $alice.token organization members remove acme $carol.user.id
 tg --token $alice.token organization members remove acme $bob.user.id
-tg index
+tg index --database
 
 failure (tg --token $carol.token sandbox get $sandbox | complete) "Carol must not get the sandbox after her membership is revoked"
 let carol_list_after = tg --token $carol.token sandbox list --owner $acme.id | from json

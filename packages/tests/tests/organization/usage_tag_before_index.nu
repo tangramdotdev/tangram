@@ -13,6 +13,6 @@ tg --url $local_source.url tag put -p acme/owned $object
 
 # Sync the organization and its tag before either exists in the destination index.
 tg --url $local_source.url push --ancestors=always acme/owned
-tg --url $remote_destination.url index
+tg --url $remote_destination.url index --database
 let usage = tg --url $remote_destination.url organization usage $organization.id | from json
 assert ($usage.object_count >= 1) "an organization tag must charge the organization"

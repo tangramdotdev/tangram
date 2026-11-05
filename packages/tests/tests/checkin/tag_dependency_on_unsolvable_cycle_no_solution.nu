@@ -26,7 +26,7 @@ let c2_path = artifact {
     '
 }
 tg tag -p c/2.0.0 ($c2_path | path join 'foo.tg.ts')
-tg index
+tg index --database
 
 let a_path = artifact {
 	tangram.ts: '

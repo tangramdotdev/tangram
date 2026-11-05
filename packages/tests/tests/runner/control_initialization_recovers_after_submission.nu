@@ -23,7 +23,7 @@ let path = artifact { tangram.ts: 'export default async () => tg.run(await tg.fi
 let spawned = tg --url $local.url build --remote --detach --verbose --user $alice.user.id $path | from json
 let parent = $spawned.process | split row '?' | first
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $run_watch 0 | complete)
-tg --url $remote.url --token $root_token index
+tg --url $remote.url --token $root_token index --database
 let start_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.start.received | from json | get watch
 let reply_watch = tg --url $runner.url checkpoint watch runner.process.control.start.succeeded | from json | get watch
 tg --url $runner.url checkpoint continue runner.process.start $run_watch 0

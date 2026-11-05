@@ -22,7 +22,7 @@ tg clean
 tg revoke public subtree $process
 
 # The update queue must drain.
-let index = timeout 15 tg index | complete
+let index = timeout 15 tg index --database | complete
 success $index "the update queue must drain after a grant update for a cleaned process"
 
 let errors = server_errors $local | where { $in | str starts-with 'tangram_server_core::indexer' }

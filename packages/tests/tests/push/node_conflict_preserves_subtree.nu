@@ -25,7 +25,7 @@ let local_groups_child = (
 	tg --url $remote_destination.url --token $alice.token group create groups/child | from json
 )
 tg --url $remote_destination.url --token $alice.token grant $bob.user.id admin groups | ignore
-tg --url $remote_destination.url index
+tg --url $remote_destination.url index --database
 
 let local_source = server spawn --name local-source --config {
 	remotes: { default: { token: $bob.token, url: $remote_destination.url } }

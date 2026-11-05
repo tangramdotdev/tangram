@@ -19,7 +19,7 @@ let finished = tg --url $local.url --token $root_token wait $process | from json
 let output = $finished.output.value | split row '?' | first
 tg --url $local.url --token $root_token index
 tg --url $local.url --token $root_token tag put process $process --public
-tg --url $local.url --token $root_token index
+tg --url $local.url --token $root_token index --database
 let source = tg --url $local.url --token $reader.token get $process | from json
 assert equal ($source.output.node.value | split row '?' | first) $output
 success (tg --url $local.url --token $reader.token get $output | complete) "the source tag should confer access to its output object."
@@ -27,12 +27,12 @@ success (tg --url $local.url --token $reader.token get $output | complete) "the 
 # Transfer only the process node; the tag must not confer output object permissions.
 failure (tg --url $remote.url --token $alice.token get $output | complete) "the output must not already be available at the destination."
 tg --url $local.url --token $root_token push --no-process-output-objects process
-tg --url $remote.url --token $alice.token index
+tg --url $remote.url --token $alice.token index --database
 let tag = tg --url $remote.url --token $alice.token tag get process | from json
 assert equal $tag.target.id $process
 failure (tg --url $remote.url --token $bob.token get $process | complete) "Bob should have no direct access to the imported process."
 tg --url $remote.url --token $alice.token grant $bob.user.id tag_read $tag.id | ignore
-tg --url $remote.url --token $alice.token index
+tg --url $remote.url --token $alice.token index --database
 let destination = tg --url $remote.url --token $bob.token get $process | from json
 assert equal $destination.status finished
 failure (tg --url $remote.url --token $bob.token get $output | complete) "the destination must not expose the untransferred output."

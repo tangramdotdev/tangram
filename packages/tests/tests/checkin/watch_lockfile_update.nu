@@ -8,7 +8,6 @@ let original = tg checkin --no-tokens $path --watch --locked
 
 let second = artifact {tangram.ts: 'export const value = 2;'}
 tg tag -p dependency/1.1.0 $second
-tg index
 let second_id = tg tag get dependency/1.1.0 | from json | get target.id
 
 # Change only the lockfile and deliver its event before the next checkin.

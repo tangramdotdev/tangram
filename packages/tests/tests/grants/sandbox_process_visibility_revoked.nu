@@ -24,7 +24,7 @@ success (tg --token $carol.token get $process | complete) "a group member should
 
 # After Carol's membership is revoked, she can no longer read it.
 tg --token $alice.token group members remove team $carol.user.id
-tg --token $alice.token index
+tg --token $alice.token index --database
 failure (tg --token $carol.token get $process | complete) "a former member must not read the group-owned process after revocation"
 
 # Bob, the builder, retains access through his per-subject process grant.

@@ -14,7 +14,7 @@ tg checkin --no-tokens $root | referent node
 
 let a2 = artifact { tangram.ts: 'export default function () { return "a2"; }' }
 tg tag -p a/1.1.0 $a2
-tg index
+tg index --database
 
 let output = do --env { cd $root; tg update . --json } | complete
 success $output

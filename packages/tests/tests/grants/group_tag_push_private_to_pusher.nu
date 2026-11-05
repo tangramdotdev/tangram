@@ -13,7 +13,7 @@ tg --url $alice_local.url group create private
 let file = tg --url $alice_local.url put --no-tokens 'tg.file("secret")' | referent node
 tg --url $alice_local.url tag put private/1.0.0 $file
 tg --url $alice_local.url push --group-children private
-tg --url $remote.url index
+tg --url $remote.url index --database
 
 success (tg --url $remote.url --token $alice.token group get private | complete)
 success (tg --url $remote.url --token $alice.token tag get private/1.0.0 | complete)

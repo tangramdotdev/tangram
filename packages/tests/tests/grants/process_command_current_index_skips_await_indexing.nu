@@ -28,7 +28,7 @@ let id = checkin push $local $path --token $alice.token
 let build = tg --url $local.url --token $alice.token build --detach --verbose $id | from json
 let command = tg --url $local.url --token $alice.token wait $build.process | from json | get output.value
 tg --url $local.url --token $alice.token grant $alice.user.id object_subtree $command | ignore
-tg --url $local.url --token $alice.token index
+tg --url $local.url --token $alice.token index --database
 let config = (
 	$local.config
 	| upsert advanced.multi_server false

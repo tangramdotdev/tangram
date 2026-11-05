@@ -22,7 +22,7 @@ def command-id [root: string, host: string, executable: string] {
 let proven = command-id $root $host '/bin/true'
 let granted = command-id $root $host '/bin/false'
 tg --token $root grant $bob.user.id object_subtree $granted | ignore
-tg --token $root index
+tg --token $root index --database
 
 let token = http get --headers { Accept: 'application/json', Authorization: $'Bearer ($root)' } --unix-socket $socket $'http://localhost/objects/($proven)'
 	| get tokens.local.0

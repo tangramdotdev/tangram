@@ -26,7 +26,7 @@ let contents = tg --url $remote.url --token $alice.token object children $artifa
 let output = tg --url $remote.url --token $alice.token build $artifact_a --arg-string alice | complete
 success $output "Alice's process should store artifact A on the runner"
 tg --url $remote.url --token $alice.token grant $bob.user.id object_subtree $artifact_a
-tg --url $remote.url index
+tg --url $remote.url index --database
 tg --url $runner.url index
 assert equal (tg --url $runner.url availability --local $artifact_a | from json) { subtree: true } "artifact A should be stored on the runner"
 

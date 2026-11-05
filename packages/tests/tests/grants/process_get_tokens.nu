@@ -38,7 +38,7 @@ for permission in [process_node process_node_command_objects process_node_output
 	tg --token $root grant $reader.user.id $permission $parent | ignore
 }
 tg --token $root grant $owner.user.id process_parent $parent | ignore
-tg --token $root index
+tg --token $root index --database
 let scoped = (get-process $socket $reader.token $parent '' true true).tokens.local.0
 let full = (get-process $socket $owner.token $parent '' true true).tokens.local.0
 

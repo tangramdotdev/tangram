@@ -8,7 +8,7 @@ let remote = server spawn --cloud --name remote --config {
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let bob = tg --url $remote.url login --verbose --name bob | from json
 let remote_parent = tg --url $remote.url --token $alice.token group create private | from json
-tg --url $remote.url index
+tg --url $remote.url index --database
 
 let local = server spawn --name local --config {
 	remotes: { default: { token: $bob.token, url: $remote.url } }

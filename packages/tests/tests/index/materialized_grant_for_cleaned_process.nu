@@ -34,7 +34,7 @@ tg --token $alice.token process put $parent ($parent_data | to json)
 # These explicit grants imply a non-expiring process_subtree grant on the parent.
 tg --token $alice.token grant $eve.user.id process_node $parent | ignore
 tg --token $alice.token grant $eve.user.id process_subtree $child | ignore
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 let metadata = tg --token $eve.token metadata $parent | from json
 assert equal $metadata.subtree.count 2 "the explicit grants should materialize a subtree grant on the parent"
@@ -42,12 +42,12 @@ assert equal $metadata.subtree.count 2 "the explicit grants should materialize a
 # Remove the process graph, then revoke one of the grants supporting the materialized grant.
 tg --token $alice.token clean
 tg --token $alice.token revoke $eve.user.id process_subtree $child | ignore
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 # Restore the same graph without restoring the revoked grant.
 tg --token $alice.token process put $child ($child_data | to json)
 tg --token $alice.token process put $parent ($parent_data | to json)
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 let metadata = tg --token $eve.token metadata $parent | from json
 assert equal ($metadata.subtree?.count? | default null) null "the stale materialized subtree grant must not survive restoration"

@@ -63,6 +63,6 @@ let response = http get --unix-socket $socket --headers { Authorization: $'Beare
 assert (($response.data.command.node | describe) | str starts-with record)
 assert ($response.data.command.node.args | to json --raw | str contains $file)
 tg --url $runner.url --token $runner_root grant $reader.user.id process_node_command_objects $process | ignore
-tg --url $runner.url --token $runner_root index
+tg --url $runner.url --token $runner_root index --database
 success (tg --url $runner.url --token $runner_root get --bytes $file | complete) "the private file must still be stored on the runner."
 failure (tg --url $runner.url --token $reader.token get --bytes $file | complete) "an unused inline argument must not confer node access through the process command aspect."
