@@ -11,16 +11,19 @@ use {
 const DEPTH: usize = 32;
 
 struct Converter<'a> {
+	active: HashSet<P<tsrs_checker::Type>>,
 	checker: &'a mut Checker,
 	definitions: BTreeMap<String, tg::interface::Type>,
 	depth: usize,
 	depth_exceeded: bool,
+	exports: HashMap<String, P<Symbol>>,
 	failures: HashMap<P<tsrs_checker::Type>, tg::Error>,
 	host: &'a super::host::Host,
 	imports: BTreeMap<String, tg::module::Data>,
 	log: Vec<Entry>,
 	names: HashMap<(P<tsrs_checker::Type>, Mode), String>,
 	path: String,
+	recursive: HashSet<P<tsrs_checker::Type>>,
 	reserved: HashSet<String>,
 	verified: HashMap<P<tsrs_checker::Type>, Target>,
 }
@@ -72,26 +75,41 @@ impl Project {
 		})?;
 		let mut checker = program.get_type_checker(&context);
 		let mut converter = Converter {
+			active: HashSet::new(),
 			checker: &mut checker,
 			definitions: BTreeMap::new(),
 			depth: 0,
 			depth_exceeded: false,
+			exports: HashMap::new(),
 			failures: HashMap::new(),
 			host: &self.host,
 			imports: BTreeMap::new(),
 			log: Vec::new(),
 			names: HashMap::new(),
 			path: path.clone(),
+			recursive: HashSet::new(),
 			reserved: HashSet::new(),
 			verified: HashMap::new(),
 		};
 
-		// Define the module's exported named types, so that other interfaces can refer to them.
+		// Get the module's exports.
 		let symbols = converter
 			.module_exports(source_file)
 			.into_iter()
 			.map(|symbol| (symbol.name().to_owned(), symbol))
 			.collect::<BTreeMap<_, _>>();
+
+		// Reserve the names of the module's exports, so that a definition of another type cannot take them.
+		for (name, symbol) in &symbols {
+			let symbol = if symbol.flags().intersects(SymbolFlags::Alias) {
+				converter.checker.get_aliased_symbol(*symbol)
+			} else {
+				*symbol
+			};
+			converter.exports.insert(name.clone(), symbol);
+		}
+
+		// Define the module's exported named types, so that other interfaces can refer to them.
 		for (name, symbol) in &symbols {
 			converter.export_definition(name, *symbol);
 		}
@@ -132,7 +150,7 @@ impl Converter<'_> {
 		self.checker.get_exports_of_module_exported(symbol)
 	}
 
-	/// Define an exported named object type by its export name, leaving the definitions unchanged if the type is not a value.
+	/// Define an exported record or recursive type by its export name, leaving the definitions unchanged if the type is not a value.
 	fn export_definition(&mut self, name: &str, symbol: P<Symbol>) {
 		let symbol = if symbol.flags().intersects(SymbolFlags::Alias) {
 			self.checker.get_aliased_symbol(symbol)
@@ -147,12 +165,21 @@ impl Converter<'_> {
 			return;
 		}
 		let type_ = self.checker.get_declared_type_of_symbol_exported(symbol);
-		if !is_object(type_) {
-			return;
-		}
 		let checkpoint = self.log.len();
+
+		// Skip a type that is converted in place, which is any type other than a record that does not refer to itself.
+		if !self.is_record(type_) {
+			self.type_(type_, Mode::Value).ok();
+			self.rollback(checkpoint);
+			self.depth_exceeded = false;
+			if !self.recursive.contains(&type_) {
+				return;
+			}
+		}
+
+		// Define the type.
 		self.insert_name(type_, Mode::Value, name.to_owned());
-		if let Ok(definition) = self.record(type_, Mode::Value) {
+		if let Ok(definition) = self.structure(type_, Mode::Value) {
 			self.insert_definition(name.to_owned(), definition);
 		} else {
 			self.rollback(checkpoint);
@@ -327,8 +354,47 @@ impl Converter<'_> {
 			return Ok(output);
 		}
 
+		// Convert a named record or a recursive type to a definition.
+		let symbol = named(self.checker, type_);
+		if self.recursive.contains(&type_) || (symbol.is_some() && self.is_record(type_)) {
+			return self.definition(symbol, type_, mode);
+		}
+
+		// Record that a type refers to itself, and return a placeholder that the enclosing conversion of the type discards.
+		if !self.active.insert(type_) {
+			self.recursive.insert(type_);
+			return Ok(tg::interface::Type::Value);
+		}
+
+		// Convert the type in place.
+		let checkpoint = self.log.len();
+		let output = self.structure(type_, mode);
+		self.active.remove(&type_);
+
+		// Convert a recursive type to a definition instead, including a named union whose recursive member was flattened out of the alias.
+		if self.recursive.contains(&type_)
+			|| (symbol.is_some()
+				&& type_.flags.get().intersects(TypeFlags::Union)
+				&& type_.types().iter().any(|member| {
+					named(self.checker, *member).is_none() && self.recursive.contains(member)
+				})) {
+			self.recursive.insert(type_);
+			self.rollback(checkpoint);
+			self.depth_exceeded = false;
+			return self.definition(symbol, type_, mode);
+		}
+
+		output
+	}
+
+	/// Convert the structure of a composite type without reserving its name.
+	fn structure(
+		&mut self,
+		type_: P<tsrs_checker::Type>,
+		mode: Mode,
+	) -> tg::Result<tg::interface::Type> {
 		// Convert a union, merging the literals true and false into a boolean.
-		if flags.intersects(TypeFlags::Union) {
+		if type_.flags.get().intersects(TypeFlags::Union) {
 			let members = type_.types().to_vec();
 			return self.union(members, mode);
 		}
@@ -353,9 +419,7 @@ impl Converter<'_> {
 				"a function is not a value"
 			));
 		}
-		if let Some(symbol) = named(type_) {
-			return self.definition(symbol, type_, mode);
-		}
+
 		self.record(type_, mode)
 	}
 
@@ -506,7 +570,16 @@ impl Converter<'_> {
 					self.checker.get_type_arguments_exported(type_).to_vec()
 				};
 				let args = match arguments.first() {
+					// Convert an array or a tuple in place, so that bindings can print the args without resolving a definition.
+					Some(args)
+						if self.checker.is_array_type_exported(*args)
+							|| tsrs_checker::is_tuple_type_exported(*args) =>
+					{
+						self.structure(*args, Mode::Value)?
+					},
+
 					Some(args) => self.type_(*args, Mode::Value)?,
+
 					None => tg::interface::Type::Array {
 						item: Box::new(tg::interface::Type::Value),
 					},
@@ -536,10 +609,10 @@ impl Converter<'_> {
 		Ok(Some(output))
 	}
 
-	/// Convert a named object type, sharing a definition only for the same instantiated type and value boundary.
+	/// Convert a named record or a recursive type, sharing a definition only for the same instantiated type and value boundary.
 	fn definition(
 		&mut self,
-		symbol: P<Symbol>,
+		symbol: Option<P<Symbol>>,
 		type_: P<tsrs_checker::Type>,
 		mode: Mode,
 	) -> tg::Result<tg::interface::Type> {
@@ -566,16 +639,16 @@ impl Converter<'_> {
 		// Create the boundary-specific definition.
 		let name = self.unique_name(symbol);
 		self.insert_name(type_, mode, name.clone());
-		let definition = self.record(type_, mode)?;
+		let definition = self.structure(type_, mode)?;
 		self.insert_definition(name.clone(), definition);
 
 		Ok(tg::interface::Type::Reference { import: None, name })
 	}
 
-	/// Convert a named object type to a value definition, or to a reference to the module that declares it, remembering the outcome so that each type is traversed once.
+	/// Convert a named record or a recursive type to a value definition, or to a reference to the module that declares it, remembering the outcome so that each type is traversed once.
 	fn value_definition(
 		&mut self,
-		symbol: P<Symbol>,
+		symbol: Option<P<Symbol>>,
 		type_: P<tsrs_checker::Type>,
 	) -> tg::Result<tg::interface::Type> {
 		// Return the remembered outcome.
@@ -586,11 +659,11 @@ impl Converter<'_> {
 			return Ok(self.import(target));
 		}
 
-		// Convert the record, remembering a failure unless it depends on the current depth.
+		// Convert the definition, remembering a failure unless it depends on the current depth.
 		let checkpoint = self.log.len();
 		let name = self.unique_name(symbol);
 		self.insert_name(type_, Mode::Value, name.clone());
-		let definition = self.record(type_, Mode::Value);
+		let definition = self.structure(type_, Mode::Value);
 		if let Err(error) = &definition
 			&& !self.depth_exceeded
 		{
@@ -600,7 +673,9 @@ impl Converter<'_> {
 		}
 
 		// Replace a declared type with a reference to the module that exports it, which does not nest the type's fields in this interface.
-		let target = if type_ == self.checker.get_declared_type_of_symbol_exported(symbol) {
+		let target = if let Some(symbol) = symbol
+			&& type_ == self.checker.get_declared_type_of_symbol_exported(symbol)
+		{
 			self.try_import_target(symbol)
 		} else {
 			None
@@ -628,13 +703,23 @@ impl Converter<'_> {
 		Ok(tg::interface::Type::Reference { import: None, name })
 	}
 
-	/// Get a definition name for a symbol that no other definition uses.
-	fn unique_name(&self, symbol: P<Symbol>) -> String {
-		let mut name = symbol.name().to_owned();
+	/// Get a definition name that no other definition or export uses, from a symbol's name or, for a recursive type without a symbol, from a reserved name.
+	fn unique_name(&self, symbol: Option<P<Symbol>>) -> String {
+		let base = symbol.map_or_else(
+			|| "_tg_recursive".to_owned(),
+			|symbol| symbol.name().to_owned(),
+		);
+		let mut name = base.clone();
 		let mut suffix = 1;
-		while self.definitions.contains_key(&name) || self.reserved.contains(&name) {
+		while self.definitions.contains_key(&name)
+			|| self.reserved.contains(&name)
+			|| self
+				.exports
+				.get(&name)
+				.is_some_and(|export| Some(*export) != symbol)
+		{
 			suffix += 1;
-			name = format!("{}{suffix}", symbol.name());
+			name = format!("{base}{suffix}");
 		}
 		name
 	}
@@ -763,6 +848,14 @@ impl Converter<'_> {
 		}
 	}
 
+	/// Determine whether a type converts to a record or a map, rather than an array, a tuple, or a function.
+	fn is_record(&mut self, type_: P<tsrs_checker::Type>) -> bool {
+		is_object(type_)
+			&& !self.checker.is_array_type_exported(type_)
+			&& !tsrs_checker::is_tuple_type_exported(type_)
+			&& self.checker.get_call_signatures(type_).is_empty()
+	}
+
 	fn error(&mut self, type_: P<tsrs_checker::Type>) -> tg::Error {
 		let type_ = self.checker.type_to_string_exported(type_);
 		tg::error!(%type_, "the type is not a value")
@@ -777,12 +870,15 @@ fn is_object(type_: P<tsrs_checker::Type>) -> bool {
 			&& type_.types().iter().all(|type_| is_object(*type_)))
 }
 
-/// Get the symbol of an object type that a module names with an interface or a type alias.
-fn named(type_: P<tsrs_checker::Type>) -> Option<P<Symbol>> {
+/// Get the symbol of a type that a module names with an interface or a type alias, which excludes an instantiation of the array interface.
+fn named(checker: &Checker, type_: P<tsrs_checker::Type>) -> Option<P<Symbol>> {
 	if let Some(alias) = type_.alias()
 		&& let Some(symbol) = alias.symbol()
 	{
 		return Some(symbol);
+	}
+	if checker.is_array_type_exported(type_) {
+		return None;
 	}
 	let symbol = type_.symbol()?;
 	symbol

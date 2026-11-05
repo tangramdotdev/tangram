@@ -1,7 +1,7 @@
 use {
 	super::Database,
 	ruff_db::files::File,
-	std::collections::BTreeMap,
+	std::collections::{BTreeMap, HashMap},
 	tangram_client::prelude::*,
 	ty_python_core::Program,
 	ty_python_semantic::{
@@ -17,6 +17,7 @@ use {
 const DEPTH: usize = 32;
 
 struct Converter<'a, 'db> {
+	aliases: HashMap<Type<'db>, String>,
 	database: &'db Database,
 	definitions: BTreeMap<String, tg::interface::Type>,
 	depth: usize,
@@ -42,6 +43,7 @@ impl Database {
 		let program_file = program.program_file(self, entry.file);
 		let environment = ProgramEnvironment::from_file(program_file);
 		let mut converter = Converter {
+			aliases: HashMap::new(),
 			database: self,
 			definitions: BTreeMap::new(),
 			depth: 0,
@@ -69,6 +71,7 @@ impl Database {
 		for (name, export) in &mut interface.exports {
 			let type_ = describe::module_member(self, program_file, name)
 				.ok_or_else(|| tg::error!(%name, "failed to find the export"))?;
+			let aliases = converter.aliases.clone();
 			let definitions = converter.definitions.clone();
 			let imports = converter.imports.clone();
 			let names = converter.names.clone();
@@ -78,6 +81,7 @@ impl Database {
 					export.type_ = Some(type_);
 				},
 				Err(error) => {
+					converter.aliases = aliases;
 					converter.definitions = definitions;
 					converter.imports = imports;
 					converter.names = names;
@@ -106,10 +110,12 @@ impl<'db> Converter<'_, 'db> {
 		if !matches!(self.describe(instance), Description::TypedDict(_)) {
 			return false;
 		}
+		let aliases = self.aliases.clone();
 		let definitions = self.definitions.clone();
 		let imports = self.imports.clone();
 		let names = self.names.clone();
 		if self.type_(instance).is_err() {
+			self.aliases = aliases;
 			self.definitions = definitions;
 			self.imports = imports;
 			self.names = names;
@@ -210,7 +216,7 @@ impl<'db> Converter<'_, 'db> {
 				if self.is_library(file) && matches!(name.as_str(), "Type" | "ValueType") {
 					return Ok(tg::interface::Type::Value);
 				}
-				self.type_(value)
+				self.alias(&name, value)
 			},
 			Description::Literal(literal) => {
 				let value = match literal {
@@ -274,7 +280,12 @@ impl<'db> Converter<'_, 'db> {
 						let args = instance
 							.arguments
 							.first()
-							.map(|args| self.type_(*args))
+							.map(|args| match self.describe(*args) {
+								// Convert an alias in place, so that bindings can print the args without resolving a definition.
+								Description::Alias { value, .. } => self.type_(value),
+
+								_ => self.type_(*args),
+							})
 							.transpose()?
 							.unwrap_or(tg::interface::Type::Array {
 								item: Box::new(tg::interface::Type::Value),
@@ -356,12 +367,7 @@ impl<'db> Converter<'_, 'db> {
 					return Ok(reference);
 				}
 				let name = key.as_ref().map(|key| {
-					let mut name = key.1.clone();
-					let mut suffix = 1;
-					while self.names.values().any(|other| *other == name) {
-						suffix += 1;
-						name = format!("{}{suffix}", key.1);
-					}
+					let name = self.unique_name(&key.1);
 					self.names.insert(key.clone(), name.clone());
 					name
 				});
@@ -408,9 +414,52 @@ impl<'db> Converter<'_, 'db> {
 		}
 	}
 
-	/// Refer to a typed dict class that another module declares at its top level, importing that module.
+	/// Convert a type alias in place, naming the alias with a definition only if it refers to itself.
+	fn alias(&mut self, name: &str, value: Type<'db>) -> tg::Result<tg::interface::Type> {
+		// Refer to an alias that is being converted or that has a definition, reserving its definition.
+		if let Some(name) = self.aliases.get(&value).cloned() {
+			self.definitions
+				.entry(name.clone())
+				.or_insert(tg::interface::Type::Value);
+			return Ok(tg::interface::Type::Reference { import: None, name });
+		}
+
+		// Convert the alias's value while its name is reserved.
+		let name = self.unique_name(name);
+		self.aliases.insert(value, name.clone());
+		let output = self.type_(value)?;
+
+		// Release the name of an alias that does not refer to itself.
+		if !self.definitions.contains_key(&name) {
+			self.aliases.remove(&value);
+			return Ok(output);
+		}
+
+		// Define an alias that refers to itself.
+		self.definitions.insert(name.clone(), output);
+
+		Ok(tg::interface::Type::Reference { import: None, name })
+	}
+
+	/// Get a definition name that no other typed dict or alias uses.
+	fn unique_name(&self, base: &str) -> String {
+		let mut name = base.to_owned();
+		let mut suffix = 1;
+		while self
+			.names
+			.values()
+			.chain(self.aliases.values())
+			.any(|other| *other == name)
+		{
+			suffix += 1;
+			name = format!("{base}{suffix}");
+		}
+		name
+	}
+
+	/// Refer to a typed dict class that another module declares at its top level, importing that module, unless the name is one that bindings generate, which the module does not export.
 	fn try_import(&mut self, file: File, name: &str) -> Option<tg::interface::Type> {
-		if file == self.file || self.is_library(file) {
+		if file == self.file || self.is_library(file) || name.starts_with("_tg") {
 			return None;
 		}
 		let program_file = self.program.program_file(self.database, file);
