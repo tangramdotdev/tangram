@@ -46,7 +46,7 @@ where
 {
 	pub(super) async fn connect(
 		path: &Path,
-		options: Options,
+		mut options: Options,
 		limits: RequestLimits,
 		supports_no_opendir: bool,
 		fd: Arc<OwnedFd>,
@@ -58,6 +58,12 @@ where
 			Some(connection_id) => connection_id,
 		};
 		let abort = Self::open_connection_abort(id)?;
+
+		// Select ReadWrite when an automatic transport fallback cannot abort the connection.
+		if options.io == Io::Auto && abort.is_none() {
+			options.io = Io::ReadWrite;
+		}
+
 		let features = match Self::init_handshake(fd.as_ref(), options, limits, supports_no_opendir)
 		{
 			Err(error) => {
@@ -68,6 +74,7 @@ where
 			},
 			Ok(features) => features,
 		};
+
 		Ok(Connection {
 			abort,
 			fd,
