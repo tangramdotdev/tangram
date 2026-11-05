@@ -66,12 +66,17 @@ impl Indexer {
 			.map(|_| ());
 		let wakeups = stream::select(notifications, interval);
 		let mut wakeups = wakeups.boxed();
+
+		// Track the last applied batch, because the read connection can return batches until their deletion reaches it.
+		let mut after = None;
 		loop {
 			if stopper.stopped() {
 				return Ok(());
 			}
 			while wakeups.next().now_or_never().flatten().is_some() {}
-			let count = self.database_index_queue_batch(queue, region).await?;
+			let count = self
+				.database_index_queue_batch(queue, region, &mut after)
+				.await?;
 			if count == 0
 				&& tokio::select! {
 					() = stopper.wait() => return Ok(()),
@@ -86,9 +91,11 @@ impl Indexer {
 		&self,
 		queue: &tangram_server_core::config::DatabaseIndexQueue,
 		region: &str,
+		after: &mut Option<tangram_server_core::database::index::queue::BatchId>,
 	) -> tg::Result<usize> {
 		// Dequeue a batch.
 		let arg = tangram_server_core::database::index::queue::DequeueArg {
+			after: *after,
 			batch_size: queue.batch_size,
 			region: region.to_owned(),
 		};
@@ -155,6 +162,7 @@ impl Indexer {
 			}
 			self.index_database_queue_batch(arg).await?;
 		}
+		*after = Some(batch);
 		let arg = tangram_server_core::database::index::queue::DeleteArg {
 			batch,
 			region: region.to_owned(),
