@@ -4,7 +4,7 @@ use ../../util/test.nu *
 
 let local = server spawn
 
-let sandbox = tg sandbox create --no-tokens | referent node
+let sandbox = tg sandbox create --wait --no-tokens | referent node
 tg sandbox stop --wait $sandbox
 
 let data = tg sandbox get $sandbox | from json | get data

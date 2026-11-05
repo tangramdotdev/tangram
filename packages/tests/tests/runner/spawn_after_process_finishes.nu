@@ -22,7 +22,7 @@ let status = checkpoint watch process.spawn.start.index --url $remote.url --toke
 let path = artifact { tangram.ts: 'export default () => 42' }
 let build = job spawn {
 	let job_id = job id
-	let output = tg --url $local.url build --remote $path | complete
+	let output = tg --url $local.url build --wait --remote $path | complete
 	$output | job send --tag $job_id 0
 }
 checkpoint wait $status | ignore

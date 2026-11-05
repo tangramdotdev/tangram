@@ -16,7 +16,7 @@ let local = server spawn --directory $directory --config {
 
 let sandbox = tg sandbox create --no-tokens --no-ttl --cpu-min 0.25 --cpu-max 1 | referent node
 sleep 200ms
-tg sandbox destroy $sandbox
+tg sandbox destroy --wait $sandbox
 let data = tg sandbox get $sandbox | from json | get data
 assert equal $data.cpu { max: 1, min: 0.25 }
 assert ($data.usage.cpu.reservation >= 50) 'an idle minimum must accrue reservation time'

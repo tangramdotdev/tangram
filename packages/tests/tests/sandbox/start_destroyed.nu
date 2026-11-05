@@ -5,7 +5,7 @@ use ../../util/test.nu *
 let local = server spawn
 
 let sandbox = tg sandbox create --no-tokens | referent node
-tg sandbox destroy $sandbox
+tg sandbox destroy --wait $sandbox
 tg sandbox wait $sandbox | ignore
 
 let output = tg sandbox start $sandbox | complete

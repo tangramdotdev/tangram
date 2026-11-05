@@ -1604,6 +1604,13 @@ impl Scheduler {
 		let id = &request.sandbox;
 		let now = self.server.clock.unix_timestamp();
 		let mut data = tangram_server_scheduler_core::sandbox_data(request, status);
+		let process_error = error.clone().unwrap_or_else(|| {
+			tg::Either::Left(tg::error::Data {
+				code: Some(tg::error::Code::Cancellation),
+				message: Some("the sandbox was destroyed".to_owned()),
+				..Default::default()
+			})
+		});
 		data.error = error;
 		if status.is_stopped() {
 			data.expires_at = data.time_to_live.map(|time_to_live| {
@@ -1643,19 +1650,132 @@ impl Scheduler {
 			stopped_usage: None,
 			touched_at: now,
 		};
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(arg)],
-		};
+		let mut items = vec![tangram_index::batch::Item::PutSandbox(arg)];
+		if status.is_starting()
+			&& let Some(process) = &request.process
+		{
+			items.push(self.starting_process_item(process, now)?);
+		}
+		let arg = tangram_index::batch::Arg { items };
 		self.server
 			.components
 			.indexer
 			.index_batch(&self.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the sandbox in the index"))?;
+
+		// Finish a process that never started, because no runner will report it.
+		if !status.is_starting()
+			&& let Some(process) = &request.process
+		{
+			self.finish_unstarted_process(process, process_error)
+				.await?;
+		}
 		self.server
 			.components
 			.sandbox
 			.spawn_publish_sandbox_status_task(&self.server, id);
+
+		Ok(())
+	}
+}
+
+impl Scheduler {
+	/// Create the starting record of a process, which is visible until its runner connects.
+	fn starting_process_item(
+		&self,
+		process: &tg::runner::control::Process,
+		now: i64,
+	) -> tg::Result<tangram_index::batch::Item> {
+		let id = process
+			.id
+			.clone()
+			.ok_or_else(|| tg::error!("expected the scheduled process to have an id"))?;
+		let mut data = process
+			.data
+			.clone()
+			.without_location_and_tokens_except_sync();
+		data.started_at = None;
+		data.status = tg::process::Status::Starting;
+		let location = tg::Location::Local(tg::location::Local {
+			region: self.server.config.region.clone(),
+		});
+		let arg = tangram_index::process::put::Arg {
+			cached: false,
+			children: None,
+			command: Some(
+				data.command
+					.objects()
+					.into_iter()
+					.map(|object| object.node)
+					.collect(),
+			),
+			command_id: data.command.command_id()?.into(),
+			data: Some(data),
+			error: None,
+			id: id.clone(),
+			location: Some(location),
+			log: None,
+			metadata: tg::process::Metadata::default(),
+			options: tg::referent::Options::default(),
+			output: None,
+			parent: None,
+			permissions: Vec::new(),
+			principal: tg::Principal::Process(id),
+			registration: None,
+			sandbox: None,
+			storage: tangram_index::process::storage::Set::default(),
+			time_to_touch: self.server.config.process.time_to_touch,
+			touched_at: now,
+		};
+
+		Ok(tangram_index::batch::Item::PutProcess(arg))
+	}
+
+	/// Record the failure of a process whose sandbox ended before the process started.
+	async fn finish_unstarted_process(
+		&self,
+		process: &tg::runner::control::Process,
+		error: tg::Either<tg::error::Data, tg::error::Id>,
+	) -> tg::Result<()> {
+		let Some(id) = process.id.clone() else {
+			return Ok(());
+		};
+		let mut data = process.data.clone();
+		data.cacheable = false;
+		data.children.get_or_insert_default();
+		data.exit = Some(1);
+		data.finished_at = Some(self.server.clock.unix_timestamp());
+		data.set_error(Some(error.map_right(tg::Referent::with_node)));
+		data.started_at = None;
+		data.status = tg::process::Status::Finished;
+		let mut context = self.server.context.clone();
+		context.principal = tg::Principal::Process(id.clone());
+		let session = self.server.session(&context);
+		let entry = tg::process::put::Arg {
+			data,
+			location: None,
+		};
+		let options = tangram_server_process_core::put::Options {
+			command_sync: None,
+			defer_index: false,
+			location: None,
+			outcome_sync: None,
+			registration: None,
+			store_data: true,
+		};
+		self.server
+			.components
+			.process
+			.put_process_local(&session, &id, entry, options)
+			.boxed()
+			.await
+			.map_err(|source| tg::error!(!source, process = %id, "failed to store the process"))?;
+		let session = self.server.session(&self.server.context);
+		self.server
+			.components
+			.process
+			.spawn_process_finish_tasks(&session, &id);
 
 		Ok(())
 	}

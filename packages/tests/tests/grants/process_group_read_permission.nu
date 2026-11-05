@@ -14,7 +14,7 @@ tg --token $alice.token grant $dave.user.id read team
 
 # Alice runs a long-running, non-cacheable process owned by the team.
 let path = artifact { tangram.ts: 'export default async function () { await tg.sleep(30); return "done"; }' }
-let process = tg --token $alice.token run --no-tokens --network=true --detach --group team $path | referent node
+let process = tg --token $alice.token run --wait --no-tokens --network=true --detach --group team $path | referent node
 
 # Dave can read the process through read on the team but cannot signal it.
 success (tg --token $dave.token get $process | complete) "read on the group should allow reading its process"

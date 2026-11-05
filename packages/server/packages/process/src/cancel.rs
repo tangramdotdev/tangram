@@ -97,9 +97,64 @@ impl Component {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
+		// Release a process that is starting at its sandbox's scheduler, because it has no control connection.
+		if let Some(output) = self.try_cancel_starting_process(session, id).await? {
+			return Ok(Some(output));
+		}
 		self.cancel_process_with_control(session, id, arg.lease, None)
 			.boxed()
 			.await
+	}
+
+	async fn try_cancel_starting_process(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
+		let Some((process, data)) = self
+			.try_get_process_with_data_from_index(session, id)
+			.await?
+		else {
+			return Ok(None);
+		};
+		if !process.status.is_some_and(|status| status.is_starting()) {
+			return Ok(None);
+		}
+		let Some(sandbox) = data.and_then(|data| data.sandbox) else {
+			return Ok(None);
+		};
+		let Some(scheduler) = session
+			.server
+			.components
+			.sandbox
+			.try_get_sandbox_from_index(session, &sandbox)
+			.await?
+			.and_then(|sandbox| sandbox.scheduler)
+		else {
+			return Ok(None);
+		};
+		let error = tg::error::Data {
+			code: Some(tg::error::Code::Cancellation),
+			message: Some("the process was canceled".into()),
+			..Default::default()
+		};
+		let arg = tangram_server_scheduler_core::EndSandboxRequestArg {
+			error: Some(error),
+			sandbox,
+			stop: false,
+		};
+		let ended = session
+			.server
+			.components
+			.scheduler
+			.end_sandbox(session, &scheduler, arg)
+			.await?;
+		if !ended {
+			return Ok(None);
+		}
+		let output = tg::process::cancel::Output { released: true };
+
+		Ok(Some(output))
 	}
 
 	async fn cancel_process_with_control(

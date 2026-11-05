@@ -565,7 +565,9 @@ impl Component {
 	) -> tg::Result<Output<T>> {
 		let index_complete =
 			|(process, _): &(tangram_index::process::Process, Option<tg::process::Data>)| {
-				process.status.is_some_and(|status| status.is_finished())
+				process
+					.status
+					.is_some_and(|status| status.is_finished() || status.is_starting())
 			};
 		let get_index = || self.try_get_process_with_data_from_index(session, id);
 		let index_future = async {

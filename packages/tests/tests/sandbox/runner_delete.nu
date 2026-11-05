@@ -15,7 +15,7 @@ let runner = server spawn --name runner --config {
 }
 
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
-tg --url $remote.url --token $root_token sandbox stop $sandbox
+tg --url $remote.url --token $root_token sandbox stop --wait $sandbox
 tg --url $remote.url --token $root_token runner delete $created.data.id
 
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) destroyed

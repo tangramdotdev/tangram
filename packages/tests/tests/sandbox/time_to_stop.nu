@@ -35,7 +35,7 @@ let stopped = checkpoint watch sandbox.control.stop --params { sandbox: $sandbox
 advance_time $local 6sec
 checkpoint pass $stopped
 checkpoint unwatch $stopped
-tg sandbox stop $sandbox
+tg sandbox stop --wait $sandbox
 assert equal (tg sandbox get $sandbox | from json | get data.status) stopped "the sandbox should stop after its time to stop"
 
 tg sandbox start $sandbox

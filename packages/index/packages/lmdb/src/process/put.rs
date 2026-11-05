@@ -37,6 +37,18 @@ impl Index {
 			.map(tangram_index::process::Process::deserialize)
 			.transpose()?;
 
+		// Ignore a starting record that arrives after the process started, because writes may be applied out of order.
+		if arg
+			.data
+			.as_ref()
+			.is_some_and(|data| data.status.is_starting())
+			&& existing
+				.as_ref()
+				.is_some_and(|existing| existing.status.is_some())
+		{
+			return Ok(Ok(()));
+		}
+
 		// Get the existing data when the validation compares it, which is for another principal's data or a finished process.
 		let existing_data = if arg.data.is_some()
 			&& existing

@@ -30,6 +30,9 @@ mod recovery;
 mod runner;
 mod sandbox;
 
+/// The number of schedulers that an enqueue tries before the last one accepts a sandbox that its runners cannot fit.
+const ENQUEUE_ATTEMPTS: usize = 32;
+
 /// The ID of the only scheduler of a single server, which multi-server mode replaces with a configured ID.
 const SINGLE_SERVER_ID: &str = "sch_0000000000000000000000000000";
 
@@ -311,10 +314,9 @@ impl Component {
 			None
 		};
 		// Try other schedulers while a scheduler's runners cannot fit the sandbox, and let the last scheduler accept it.
-		let attempts = session.server.config.scheduler.max_create_sandbox_attempts;
 		let mut request = request;
 		for attempt in 1.. {
-			request.declinable = target.is_none() && attempt < attempts;
+			request.declinable = target.is_none() && attempt < ENQUEUE_ATTEMPTS;
 			let arg = RequestArg::EnqueueSandbox(request.clone());
 			let (scheduler, response) = match &target {
 				Some(scheduler) => {

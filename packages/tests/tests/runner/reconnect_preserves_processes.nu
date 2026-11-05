@@ -27,7 +27,7 @@ let path = artifact {
 
 # Hold the process on the runner after it exits and before it finishes.
 let exit_watch = tg --url $runner.url checkpoint watch runner.process.exit | from json | get watch
-let id = tg --url $local.url build --no-tokens --remote --detach $path | referent node
+let id = tg --url $local.url build --wait --no-tokens --remote --detach $path | referent node
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.exit $exit_watch 0 | complete) "the process must run on the runner"
 

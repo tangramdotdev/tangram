@@ -50,6 +50,18 @@ impl Index {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 
+		// Ignore a starting record that arrives after the process started, because writes may be applied out of order.
+		if arg
+			.data
+			.as_ref()
+			.is_some_and(|data| data.status.is_starting())
+			&& existing
+				.as_ref()
+				.is_some_and(|existing| existing.status.is_some())
+		{
+			return Ok(ControlFlow::Break(Ok(())));
+		}
+
 		// Get the existing data when the process rewrites its own finished data, which the validation compares.
 		if arg.data.is_some()
 			&& !compare
