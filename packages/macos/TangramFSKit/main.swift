@@ -618,8 +618,38 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 			reply(verifier, posixError(ENOTDIR))
 			return
 		}
+		submit({ response, status in
+			var handle: UInt64 = 0
+			guard let response, tg_response_opendir(response, &handle) == 0 else {
+				reply(verifier, posixError(status < 0 ? -status : EIO))
+				return
+			}
+			self.enumerateDirectory(
+				nodeID: nodeID,
+				handle: handle,
+				startingAt: cookie,
+				verifier: verifier,
+				attributes: desiredAttributes,
+				packer: packer,
+				replyHandler: reply,
+			)
+		}, { callback, context in
+			self.withProvider { tg_provider_opendir_async($0, nodeID, callback, context) }
+		})
+	}
+
+	private func enumerateDirectory(
+		nodeID: UInt64,
+		handle: UInt64,
+		startingAt cookie: FSDirectoryCookie,
+		verifier: FSDirectoryVerifier,
+		attributes desiredAttributes: FSItem.GetAttributesRequest?,
+		packer: FSDirectoryEntryPacker,
+		replyHandler reply: @escaping (FSDirectoryVerifier, Error?) -> Void,
+	) {
 		let offset = UInt64(cookie.rawValue)
 		submit({ response, status in
+			_ = self.withProvider { tg_provider_close_sync($0, handle) }
 			guard let response else {
 				reply(verifier, posixError(status < 0 ? -status : EIO))
 				return
@@ -652,7 +682,7 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 			}
 			reply(verifier, nil)
 		}, { callback, context in
-			self.withProvider { tg_provider_readdirplus_async($0, nodeID, offset, 64 * 1024, callback, context) }
+			self.withProvider { tg_provider_readdirplus_async($0, handle, offset, 64 * 1024, callback, context) }
 		})
 	}
 

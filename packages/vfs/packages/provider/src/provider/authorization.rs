@@ -1,15 +1,31 @@
 use {
 	super::now,
-	std::collections::{BTreeMap, BTreeSet},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		sync::{
+			Arc, Mutex,
+			atomic::{AtomicBool, AtomicI64, Ordering},
+		},
+	},
 	tangram_client::prelude::*,
 };
 
 #[derive(Default)]
 pub(super) struct Authorizations {
 	nodes: BTreeMap<tg::object::Id, i64>,
-	parents: BTreeMap<tg::object::Id, BTreeSet<tg::object::Id>>,
+	pruned: usize,
 	subtrees: BTreeMap<tg::object::Id, i64>,
 	tokens: BTreeMap<tg::Id, tg::authorization::Tokens>,
+}
+
+/// An authorization path retained by the nodes and handles reached through it.
+pub(super) struct Authority {
+	expires_at: AtomicI64,
+	has_previous: AtomicBool,
+	id: tg::object::Id,
+	parent: Mutex<Option<Arc<Authority>>>,
+	previous: Mutex<Vec<Arc<Authority>>>,
+	proven: AtomicBool,
 }
 
 impl Authorizations {
@@ -61,18 +77,13 @@ impl Authorizations {
 		self.prune(now);
 	}
 
-	pub(super) fn inherit(&mut self, parent: &tg::object::Id, child: &tg::object::Id) {
-		if parent != child {
-			self.parents
-				.entry(child.clone())
-				.or_default()
-				.insert(parent.clone());
-		}
-	}
-
-	pub(super) fn tokens(&self, id: &tg::object::Id) -> tg::authorization::Tokens {
+	pub(super) fn tokens(
+		&self,
+		authority: &Arc<Authority>,
+		id: &tg::object::Id,
+	) -> tg::authorization::Tokens {
 		let mut tokens = tg::authorization::Tokens::default();
-		for id in self.path_ids(id) {
+		for id in Self::path_ids(authority, id) {
 			if let Some(existing) = self.tokens.get(&id.into()) {
 				for (location, entry) in existing.iter() {
 					for token in entry
@@ -89,32 +100,59 @@ impl Authorizations {
 		tokens
 	}
 
-	pub(super) fn authorized(&self, id: &tg::object::Id) -> bool {
-		self.nodes
+	pub(super) fn authorized(&self, authority: &Arc<Authority>, id: &tg::object::Id) -> bool {
+		let now = now();
+		if self
+			.subtrees
 			.get(id)
-			.is_some_and(|expires_at| *expires_at >= now())
-			|| self.path_ids(id).into_iter().any(|id| {
-				self.subtrees
-					.get(&id)
-					.is_some_and(|expires_at| *expires_at >= now())
-			})
+			.is_some_and(|expiration| *expiration >= now)
+		{
+			authority.release(id);
+			return true;
+		}
+		if authority.id == *id {
+			authority.proven.store(false, Ordering::Relaxed);
+		}
+		if self
+			.nodes
+			.get(id)
+			.is_some_and(|expiration| *expiration >= now)
+		{
+			return true;
+		}
+		let expiration = Self::path_ids(authority, id)
+			.iter()
+			.filter_map(|id| self.subtrees.get(id))
+			.copied()
+			.max()
+			.unwrap_or(i64::MIN);
+		if expiration >= now {
+			authority.expires_at.store(expiration, Ordering::Relaxed);
+			authority.clear_previous(id);
+			return true;
+		}
+		false
 	}
 
-	fn path_ids(&self, id: &tg::object::Id) -> BTreeSet<tg::object::Id> {
-		let mut ids = BTreeSet::new();
-		let mut stack = vec![id.clone()];
-		while let Some(id) = stack.pop() {
-			if ids.insert(id.clone())
-				&& let Some(parents) = self.parents.get(&id)
-			{
-				stack.extend(parents.iter().cloned());
+	fn path_ids(authority: &Arc<Authority>, id: &tg::object::Id) -> BTreeSet<tg::object::Id> {
+		let mut ids = BTreeSet::from([id.clone()]);
+		let mut visited = BTreeSet::new();
+		let mut stack = vec![authority.clone()];
+		while let Some(authority) = stack.pop() {
+			if visited.insert(Arc::as_ptr(&authority)) {
+				ids.insert(authority.id.clone());
+				stack.extend(authority.parents());
 			}
 		}
-
 		ids
 	}
 
+	/// Prune expired proofs once the retained state has doubled since the last scan.
 	fn prune(&mut self, now: i64) {
+		let count = self.nodes.len() + self.subtrees.len() + self.tokens.len();
+		if count < self.pruned.saturating_mul(2).max(1024) {
+			return;
+		}
 		self.nodes.retain(|_, expires_at| *expires_at >= now);
 		self.subtrees.retain(|_, expires_at| *expires_at >= now);
 		self.tokens.retain(|_, tokens| {
@@ -131,13 +169,99 @@ impl Authorizations {
 			*tokens = retained;
 			!tokens.is_empty()
 		});
+		self.pruned = self.nodes.len() + self.subtrees.len() + self.tokens.len();
+	}
+}
+
+impl Authority {
+	#[must_use]
+	pub(super) fn new(id: tg::object::Id, parent: Option<&Arc<Self>>) -> Arc<Self> {
+		Arc::new(Self {
+			expires_at: AtomicI64::new(i64::MIN),
+			has_previous: AtomicBool::new(false),
+			id,
+			parent: Mutex::new(parent.cloned()),
+			previous: Mutex::new(Vec::new()),
+			proven: AtomicBool::new(false),
+		})
+	}
+
+	fn parent(&self) -> Option<Arc<Self>> {
+		self.parent.lock().unwrap().clone()
+	}
+
+	/// Release the paths that reached this authority's object once its subtree is proven, because the object's own tokens authorize the objects reached through it.
+	fn release(&self, id: &tg::object::Id) {
+		if self.id != *id
+			|| self.proven.load(Ordering::Relaxed)
+			|| self.proven.swap(true, Ordering::Relaxed)
+		{
+			return;
+		}
+		self.parent.lock().unwrap().take();
+		self.clear_previous(id);
+	}
+
+	/// Release the other paths that reached this authority's object once it is authorized, keeping the current path.
+	fn clear_previous(&self, id: &tg::object::Id) {
+		if self.id != *id || !self.has_previous.load(Ordering::Relaxed) {
+			return;
+		}
+		let mut previous = self.previous.lock().unwrap();
+		previous.clear();
+		self.has_previous.store(false, Ordering::Relaxed);
+	}
+
+	/// Determine whether this authority is known to have been authorized, through its own proof or its current path.
+	fn authorized(&self) -> bool {
+		self.proven.load(Ordering::Relaxed) || self.expires_at.load(Ordering::Relaxed) != i64::MIN
+	}
+
+	/// Get the parents of every path that reached this authority.
+	fn parents(&self) -> Vec<Arc<Self>> {
+		let mut parents = self.previous.lock().unwrap().clone();
+		parents.extend(self.parent());
+		parents
+	}
+
+	/// Authorize this authority through the path that reached another authority for the same object, unless this authority is proven or that path passes through it.
+	pub(super) fn adopt(&self, incoming: &Self) {
+		if std::ptr::eq(self, incoming) || self.proven.load(Ordering::Relaxed) {
+			return;
+		}
+		let Some(parent) = incoming.parent() else {
+			return;
+		};
+		let mut link = Some(parent.clone());
+		while let Some(current) = link {
+			if std::ptr::eq(current.as_ref(), self) {
+				return;
+			}
+			link = current.parent();
+		}
+
+		// Replace the path, and retain the replaced path so that its tokens still apply unless the new path is known to be authorized.
+		if let Some(replaced) = self.parent.lock().unwrap().replace(parent.clone())
+			&& !Arc::ptr_eq(&replaced, &parent)
+			&& !parent.authorized()
+		{
+			let mut previous = self.previous.lock().unwrap();
+			if !previous
+				.iter()
+				.any(|existing| Arc::ptr_eq(existing, &replaced))
+			{
+				previous.push(replaced);
+				self.has_previous.store(true, Ordering::Relaxed);
+			}
+		}
+		self.expires_at.store(i64::MIN, Ordering::Relaxed);
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use {
-		super::{Authorizations, now},
+		super::{Authority, Authorizations, now},
 		tangram_client::prelude::*,
 	};
 
@@ -146,8 +270,10 @@ mod tests {
 		let parent: tg::object::Id = tg::directory::Id::new(b"parent").into();
 		let child: tg::object::Id = tg::file::Id::new(b"child").into();
 		let mut authorizations = Authorizations::default();
-		authorizations.inherit(&parent, &child);
-		authorizations.inherit(&child, &parent);
+		let parent_authority = Authority::new(parent.clone(), None);
+		let child_authority = Authority::new(child.clone(), Some(&parent_authority));
+		let cycle = Authority::new(parent.clone(), Some(&child_authority));
+		parent_authority.adopt(&cycle);
 		let expired = tokens(
 			parent.clone().into(),
 			tg::authorization::Permission::Object(
@@ -156,7 +282,7 @@ mod tests {
 			now() - 1,
 		);
 		authorizations.insert(&parent.clone().into(), &expired, true);
-		assert!(!authorizations.authorized(&child));
+		assert!(!authorizations.authorized(&child_authority, &child));
 
 		let fresh = tokens(
 			parent.clone().into(),
@@ -166,8 +292,8 @@ mod tests {
 			now() + 60,
 		);
 		authorizations.insert(&parent.clone().into(), &fresh, true);
-		assert!(authorizations.authorized(&child));
-		assert_eq!(authorizations.tokens(&child), fresh);
+		assert!(authorizations.authorized(&child_authority, &child));
+		assert_eq!(authorizations.tokens(&child_authority, &child), fresh);
 	}
 
 	#[test]
@@ -183,11 +309,12 @@ mod tests {
 			now() + 60,
 		);
 		authorizations.insert(&parent.clone().into(), &tokens, true);
-		authorizations.inherit(&parent, &child);
+		let parent_authority = Authority::new(parent.clone(), None);
+		let child_authority = Authority::new(child.clone(), Some(&parent_authority));
 
-		assert!(authorizations.authorized(&parent));
-		assert!(!authorizations.authorized(&child));
-		assert_eq!(authorizations.tokens(&child), tokens);
+		assert!(authorizations.authorized(&parent_authority, &parent));
+		assert!(!authorizations.authorized(&child_authority, &child));
+		assert_eq!(authorizations.tokens(&child_authority, &child), tokens);
 	}
 
 	#[test]
@@ -203,8 +330,11 @@ mod tests {
 		);
 		authorizations.insert(&id.clone().into(), &tokens, false);
 
-		assert!(!authorizations.authorized(&id));
-		assert_eq!(authorizations.tokens(&id), tokens);
+		assert!(!authorizations.authorized(&Authority::new(id.clone(), None), &id));
+		assert_eq!(
+			authorizations.tokens(&Authority::new(id.clone(), None), &id),
+			tokens
+		);
 	}
 
 	#[test]
@@ -221,11 +351,61 @@ mod tests {
 			now() + 60,
 		);
 		authorizations.insert(&parent.clone().into(), &tokens, true);
-		authorizations.inherit(&parent, &child);
+		let parent_authority = Authority::new(parent.clone(), None);
+		let child_authority = Authority::new(child.clone(), Some(&parent_authority));
 
-		assert!(!authorizations.authorized(&child));
-		assert_eq!(authorizations.tokens(&child), tokens);
-		assert!(authorizations.tokens(&unrelated).is_empty());
+		assert!(!authorizations.authorized(&child_authority, &child));
+		assert_eq!(authorizations.tokens(&child_authority, &child), tokens);
+		assert!(
+			authorizations
+				.tokens(&Authority::new(unrelated.clone(), None), &unrelated)
+				.is_empty()
+		);
+	}
+
+	#[test]
+	fn exact_subtree_proofs_release_parent_paths() {
+		let parent = Authority::new(tg::directory::Id::new(b"parent").into(), None);
+		let weak = std::sync::Arc::downgrade(&parent);
+		let id: tg::object::Id = tg::file::Id::new(b"child").into();
+		let child = Authority::new(id.clone(), Some(&parent));
+		let mut authorizations = Authorizations::default();
+		let proofs = tokens(
+			id.clone().into(),
+			tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			),
+			now() + 60,
+		);
+		authorizations.insert(&id.clone().into(), &proofs, true);
+		drop(parent);
+		assert!(weak.upgrade().is_some());
+		assert!(authorizations.authorized(&child, &id));
+		assert!(weak.upgrade().is_none());
+		assert_eq!(authorizations.tokens(&child, &id), proofs);
+	}
+
+	#[test]
+	fn pruning_is_amortized_and_removes_expired_proofs() {
+		let mut authorizations = Authorizations::default();
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		let expires_at = now() + 60;
+		for index in 0..1024_u64 {
+			let id: tg::Id = tg::file::Id::new(&index.to_le_bytes()).into();
+			authorizations.insert(&id, &tokens(id.clone(), permission, expires_at), true);
+			if index < 511 {
+				assert_eq!(authorizations.pruned, 0);
+			} else if index < 1023 {
+				assert_eq!(authorizations.pruned, 1024);
+			}
+		}
+		assert_eq!(authorizations.pruned, 2048);
+		authorizations.pruned = 0;
+		authorizations.prune(expires_at + 1);
+		assert!(authorizations.tokens.is_empty());
+		assert!(authorizations.subtrees.is_empty());
 	}
 
 	fn tokens(

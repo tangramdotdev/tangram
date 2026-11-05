@@ -1,5 +1,5 @@
 use {
-	authorization::Authorizations,
+	authorization::{Authority, Authorizations},
 	bytes::Bytes,
 	futures::TryStreamExt as _,
 	heed as lmdb,
@@ -93,15 +93,15 @@ struct Inner {
 
 	client: tg::Client,
 
-	fast: Option<Fast>,
+	directory_handles: Mutex<BTreeMap<u64, u64>>,
 
-	file_handle_count: AtomicU64,
+	fast: Option<Fast>,
 
 	file_handles: Mutex<BTreeMap<u64, FileHandle>>,
 
-	nodes: Nodes,
+	handle_count: AtomicU64,
 
-	pointers: Mutex<BTreeMap<tg::artifact::Id, tg::graph::data::Pointer>>,
+	nodes: Nodes,
 
 	principal: Option<tg::Principal>,
 
@@ -113,7 +113,6 @@ struct Inner {
 struct Fast {
 	cache: Cache,
 	checkout_path: PathBuf,
-	pointers: Mutex<BTreeMap<tg::artifact::Id, tg::graph::data::Pointer>>,
 	secondary_path: Option<tangram_util::fs::Temp>,
 }
 
@@ -131,7 +130,7 @@ enum Transaction<'a> {
 
 struct FileHandle {
 	blob: tg::blob::Id,
-	file: tg::artifact::Id,
+	file: ArtifactState,
 }
 
 struct Nodes {
@@ -146,9 +145,10 @@ struct State {
 #[derive(Clone)]
 struct Node {
 	accessed: Instant,
-	artifact: Option<tg::artifact::Id>,
+	artifact: Option<ArtifactState>,
 	attrs: Option<vfs::Attrs>,
 	children: BTreeMap<String, u64>,
+	dependencies: Vec<ArtifactState>,
 	depth: u64,
 	lookup_count: u64,
 	name: Option<String>,
@@ -158,11 +158,18 @@ struct Node {
 
 #[derive(Clone)]
 struct NodeInfo {
-	artifact: Option<tg::artifact::Id>,
+	artifact: Option<ArtifactState>,
 	attrs: Option<vfs::Attrs>,
 	depth: u64,
 	named: Option<NamedNodeInfo>,
 	parent: u64,
+}
+
+#[derive(Clone)]
+struct ArtifactState {
+	authority: Arc<Authority>,
+	data: Option<tg::artifact::data::Artifact>,
+	id: tg::artifact::Id,
 }
 
 #[derive(Clone)]
@@ -238,15 +245,15 @@ impl Provider {
 
 			client,
 
-			fast,
+			directory_handles: Mutex::new(BTreeMap::new()),
 
-			file_handle_count: AtomicU64::new(1000),
+			fast,
 
 			file_handles: Mutex::new(BTreeMap::new()),
 
-			nodes: Nodes::new(),
+			handle_count: AtomicU64::new(1000),
 
-			pointers: Mutex::new(BTreeMap::new()),
+			nodes: Nodes::new(),
 
 			principal: config.principal.clone(),
 
@@ -425,7 +432,7 @@ impl Inner {
 	/// Computes the attributes for a node. A symlink's target is rendered so that its size is the length of the target, which the file system extension uses to size the readlink result.
 	async fn compute_attrs_for_node(
 		&self,
-		artifact: Option<&tg::artifact::Id>,
+		artifact: Option<&ArtifactState>,
 		depth: u64,
 	) -> std::io::Result<vfs::Attrs> {
 		if let Some(artifact) = artifact
@@ -434,9 +441,9 @@ impl Inner {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		}
 		if let Some(artifact) = artifact
-			&& matches!(artifact.kind(), tg::artifact::Kind::Symlink)
+			&& matches!(artifact.id.kind(), tg::artifact::Kind::Symlink)
 		{
-			let target = self.resolve_symlink(artifact, depth).await?;
+			let target = self.resolve_symlink(artifact, depth).await?.0;
 			let size = target.len().to_u64().unwrap();
 			return Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink { size }));
 		}
@@ -446,7 +453,7 @@ impl Inner {
 	/// Computes the attributes with the fast path, falling back to the client if the fast path is unavailable.
 	async fn compute_attrs_with_fallback(
 		&self,
-		artifact: Option<&tg::artifact::Id>,
+		artifact: Option<&ArtifactState>,
 	) -> std::io::Result<vfs::Attrs> {
 		if let Some(fast) = &self.fast
 			&& self
@@ -465,8 +472,8 @@ impl Inner {
 	/// Gets the entries of a directory with the fast path, falling back to the client if the fast path is unavailable.
 	async fn directory_entry_ids(
 		&self,
-		artifact: &tg::artifact::Id,
-	) -> std::io::Result<BTreeMap<String, tg::artifact::Id>> {
+		artifact: &ArtifactState,
+	) -> std::io::Result<BTreeMap<String, ArtifactState>> {
 		let entries = 'a: {
 			if let Some(fast) = &self.fast {
 				match fast.directory_entries(artifact) {
@@ -476,9 +483,6 @@ impl Inner {
 			}
 			self.directory_entries(artifact).await?
 		};
-		for child in entries.values() {
-			self.inherit(&artifact.clone().into(), &child.clone().into());
-		}
 		Ok(entries)
 	}
 
@@ -531,13 +535,14 @@ impl Inner {
 		if parent == vfs::ROOT_NODE_ID {
 			match tg::store::path::parse_component(name) {
 				Ok(tg::store::path::Component::Id { id, .. }) => {
-					if !self.authorize(&id).await {
+					let artifact = self.nodes.root_artifact(&id);
+					if !self.authorize(&artifact).await {
 						return Ok(None);
 					}
 					let attrs = attrs_from_artifact(Some(&id));
 					let id = self
 						.nodes
-						.get_or_insert_child(parent, name, id, 1, attrs, remember)?;
+						.get_or_insert_child(parent, name, artifact, 1, attrs, remember)?;
 					return Ok(Some(id));
 				},
 				Ok(tg::store::path::Component::Tag { component, suffix }) => {
@@ -582,11 +587,10 @@ impl Inner {
 		let Some(artifact) = parent_node.artifact else {
 			return Ok(None);
 		};
-		if !matches!(artifact.kind(), tg::artifact::Kind::Directory) {
+		if !matches!(artifact.id.kind(), tg::artifact::Kind::Directory) {
 			return Ok(None);
 		}
 		// The fast path descends the directory tree to the named entry, so unlike the fallback it does not enumerate the whole directory.
-		let directory = artifact.clone();
 		let artifact = 'a: {
 			if let Some(fast) = &self.fast {
 				match fast.directory_lookup_entry(&artifact, name) {
@@ -600,11 +604,10 @@ impl Inner {
 		let Some(artifact) = artifact else {
 			return Ok(None);
 		};
-		self.inherit(&directory.into(), &artifact.clone().into());
 		let depth = parent_node.depth + 1;
 
 		// Insert the resolved node.
-		let attrs = attrs_from_artifact(Some(&artifact));
+		let attrs = attrs_from_artifact(Some(&artifact.id));
 		let id = self
 			.nodes
 			.get_or_insert_child(parent, name, artifact, depth, attrs, remember)?;
@@ -791,22 +794,19 @@ impl Inner {
 			.insert(&target.node, &target.options.tokens, true);
 	}
 
-	async fn authorize(&self, artifact: &tg::artifact::Id) -> bool {
-		if self
-			.principal
-			.as_ref()
-			.is_none_or(|principal| matches!(principal, tg::Principal::Root))
-		{
-			return true;
-		}
-		if let Some(pointer) = self.pointer(artifact) {
-			self.inherit(&artifact.clone().into(), &pointer.graph.clone().into());
-			return self.authorize_object(&pointer.graph.into()).await;
-		}
-		self.authorize_object(&artifact.clone().into()).await
+	async fn authorize(&self, artifact: &ArtifactState) -> bool {
+		let id = match &artifact.data {
+			Some(
+				tg::artifact::data::Artifact::Directory(tg::directory::Data::Pointer(pointer))
+				| tg::artifact::data::Artifact::File(tg::file::Data::Pointer(pointer))
+				| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Pointer(pointer)),
+			) => pointer.graph.clone().into(),
+			_ => artifact.id.clone().into(),
+		};
+		self.authorize_object(&artifact.authority, &id).await
 	}
 
-	async fn authorize_object(&self, id: &tg::object::Id) -> bool {
+	async fn authorize_object(&self, authority: &Arc<Authority>, id: &tg::object::Id) -> bool {
 		if self
 			.principal
 			.as_ref()
@@ -814,13 +814,18 @@ impl Inner {
 		{
 			return true;
 		}
-		if self.authorizations.lock().unwrap().authorized(id) {
+		if self
+			.authorizations
+			.lock()
+			.unwrap()
+			.authorized(authority, id)
+		{
 			return true;
 		}
-		if self.tokens(id).is_empty() {
+		if self.tokens(authority, id).is_empty() {
 			return false;
 		}
-		self.get_object(id).await.is_ok()
+		self.get_object(authority, id).await.is_ok()
 	}
 
 	async fn get(&self, id: u64) -> std::io::Result<NodeInfo> {
@@ -852,18 +857,18 @@ impl Inner {
 			}
 			self.file_node(&artifact).await?
 		};
-		if let Some(graph) = &graph {
-			self.inherit(&artifact.clone().into(), &graph.clone().into());
-		}
-		self.file_dependency_references(&artifact, &data, graph.as_ref())
+		let (_, dependencies) = self
+			.file_dependency_references(&artifact, &data, graph.as_ref())
 			.await?;
+		for dependency in dependencies {
+			self.nodes.insert_dependency(id, &dependency);
+		}
 		let blob = data
 			.contents
 			.ok_or_else(|| std::io::Error::other("the file has no contents"))?;
-		self.inherit(&artifact.into(), &blob.clone().into());
 
 		// Create a file handle.
-		let handle = self.file_handle_count.fetch_add(1, Ordering::Relaxed);
+		let handle = self.handle_count.fetch_add(1, Ordering::Relaxed);
 		let file_handle = FileHandle { blob, file };
 		self.file_handles
 			.lock()
@@ -877,12 +882,16 @@ impl Inner {
 		let NodeInfo { artifact, .. } = self.get(id).await?;
 		let immutable = artifact.is_some();
 		if let Some(artifact) = &artifact
-			&& !matches!(artifact.kind(), tg::artifact::Kind::Directory)
+			&& !matches!(artifact.id.kind(), tg::artifact::Kind::Directory)
 		{
 			return Err(std::io::Error::other("expected a directory"));
 		}
 
-		Ok((id, immutable))
+		let handle = self.handle_count.fetch_add(1, Ordering::Relaxed);
+		self.nodes.remember_existing(id)?;
+		self.directory_handles.lock().unwrap().insert(handle, id);
+
+		Ok((handle, immutable))
 	}
 
 	async fn read(&self, handle: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
@@ -898,8 +907,10 @@ impl Inner {
 		if !self.authorize(&file).await {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		}
-		self.inherit(&file.into(), &blob.clone().into());
-		if !self.authorize_object(&blob.clone().into()).await {
+		if !self
+			.authorize_object(&file.authority, &blob.clone().into())
+			.await
+		{
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		}
 
@@ -919,7 +930,7 @@ impl Inner {
 				position: Some(SeekFrom::Start(position)),
 				size: None,
 			},
-			tokens: self.tokens(&blob.into()),
+			tokens: self.tokens(&file.authority, &blob.into()),
 		};
 		let stream = self
 			.client
@@ -940,10 +951,18 @@ impl Inner {
 
 	async fn readdir(
 		&self,
-		id: u64,
+		handle: u64,
 		offset: u64,
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		let id = self
+			.directory_handles
+			.lock()
+			.unwrap()
+			.get(&handle)
+			.copied()
+			.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOENT))?;
+
 		// Resolve the directory.
 		let NodeInfo {
 			artifact,
@@ -952,7 +971,7 @@ impl Inner {
 			..
 		} = self.get(id).await?;
 		let directory = match artifact {
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				Some(artifact)
 			},
 			None => None,
@@ -966,7 +985,7 @@ impl Inner {
 		if let Some(directory) = directory {
 			let children = self.directory_entry_ids(&directory).await?;
 			for (name, artifact) in children {
-				let kind = match artifact.kind() {
+				let kind = match artifact.id.kind() {
 					tg::artifact::Kind::Directory => vfs::EntryKind::Directory,
 					tg::artifact::Kind::File => vfs::EntryKind::File,
 					tg::artifact::Kind::Symlink => vfs::EntryKind::Symlink,
@@ -1024,10 +1043,18 @@ impl Inner {
 
 	async fn readdirplus(
 		&self,
-		id: u64,
+		handle: u64,
 		offset: u64,
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		let id = self
+			.directory_handles
+			.lock()
+			.unwrap()
+			.get(&handle)
+			.copied()
+			.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOENT))?;
+
 		// Resolve the directory.
 		let NodeInfo {
 			artifact,
@@ -1037,7 +1064,7 @@ impl Inner {
 			..
 		} = self.get(id).await?;
 		let directory = match artifact {
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				Some(artifact)
 			},
 			None => None,
@@ -1173,15 +1200,19 @@ impl Inner {
 		let Some(artifact) = artifact else {
 			return Err(std::io::Error::other("expected a symlink"));
 		};
-		self.resolve_symlink(&artifact, depth).await
+		let (target, dependency) = self.resolve_symlink(&artifact, depth).await?;
+		if let Some(dependency) = dependency {
+			self.nodes.insert_dependency(id, &dependency);
+		}
+		Ok(target)
 	}
 
 	/// Renders a symlink's target with the fast path, falling back to the client if the fast path is unavailable.
 	async fn resolve_symlink(
 		&self,
-		artifact: &tg::artifact::Id,
+		artifact: &ArtifactState,
 		depth: u64,
-	) -> std::io::Result<Bytes> {
+	) -> std::io::Result<(Bytes, Option<ArtifactState>)> {
 		let (symlink, graph) = 'a: {
 			if let Some(fast) = &self.fast {
 				let result = fast.transaction().and_then(|transaction| {
@@ -1194,30 +1225,35 @@ impl Inner {
 			}
 			self.symlink_node(artifact).await?
 		};
-		if let Some(graph) = &graph {
-			self.inherit(&artifact.clone().into(), &graph.clone().into());
-		}
 		let target = match symlink.artifact {
-			Some(edge) => Some(self.artifact_id_from_edge(edge, graph.as_ref()).await?),
+			Some(edge) => Some(
+				self.artifact_from_edge(&artifact.authority, edge, graph.as_ref())
+					.await?,
+			),
 			None => None,
 		};
-		if let Some(target) = &target {
-			self.inherit(&artifact.clone().into(), &target.clone().into());
-		}
-		render_symlink(depth, target, symlink.path)
+		let path = render_symlink(
+			depth,
+			target.as_ref().map(|target| target.id.clone()),
+			symlink.path,
+		)?;
+		Ok((path, target))
 	}
 
 	async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
 		let NodeInfo { artifact, .. } = self.get(id).await?;
 		let Some(artifact) =
-			artifact.filter(|artifact| artifact.kind() == tg::artifact::Kind::File)
+			artifact.filter(|artifact| artifact.id.kind() == tg::artifact::Kind::File)
 		else {
 			return Ok(Vec::new());
 		};
 		let (file, graph) = self.file_node(&artifact).await?;
-		let references = self
+		let (references, dependencies) = self
 			.file_dependency_references(&artifact, &file, graph.as_ref())
 			.await?;
+		for dependency in dependencies {
+			self.nodes.insert_dependency(id, &dependency);
+		}
 		let mut names =
 			tg::file::xattrs::encode_dependencies(&references, tg::file::xattrs::MAX_VALUE_SIZE)
 				.map_err(eio)?
@@ -1236,7 +1272,7 @@ impl Inner {
 	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
 		let NodeInfo { artifact, .. } = self.get(id).await?;
 		let Some(artifact) =
-			artifact.filter(|artifact| artifact.kind() == tg::artifact::Kind::File)
+			artifact.filter(|artifact| artifact.id.kind() == tg::artifact::Kind::File)
 		else {
 			return Ok(None);
 		};
@@ -1251,9 +1287,12 @@ impl Inner {
 			return Ok(self.file_token(&artifact).map(Bytes::from));
 		}
 		if tg::file::xattrs::is_dependencies_name(name) {
-			let references = self
+			let (references, dependencies) = self
 				.file_dependency_references(&artifact, &file, graph.as_ref())
 				.await?;
+			for dependency in dependencies {
+				self.nodes.insert_dependency(id, &dependency);
+			}
 			let xattrs = tg::file::xattrs::encode_dependencies(
 				&references,
 				tg::file::xattrs::MAX_VALUE_SIZE,
@@ -1269,9 +1308,9 @@ impl Inner {
 		Ok(None)
 	}
 
-	fn file_token(&self, artifact: &tg::artifact::Id) -> Option<String> {
-		let resource = tg::Id::from(artifact.clone());
-		self.tokens(&artifact.clone().into())
+	fn file_token(&self, artifact: &ArtifactState) -> Option<String> {
+		let resource = tg::Id::from(artifact.id.clone());
+		self.tokens(&artifact.authority, &artifact.id.clone().into())
 			.local_authorization()
 			.iter()
 			.filter(|token| token.authorizes_object_subtree(&resource))
@@ -1281,10 +1320,11 @@ impl Inner {
 
 	async fn file_dependency_references(
 		&self,
-		artifact: &tg::artifact::Id,
+		artifact: &ArtifactState,
 		file: &tg::graph::data::File,
 		graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<Vec<tg::Reference>> {
+	) -> std::io::Result<(Vec<tg::Reference>, Vec<ArtifactState>)> {
+		let mut artifacts = Vec::new();
 		let mut references = Vec::with_capacity(file.dependencies.len());
 		for (reference, dependency) in &file.dependencies {
 			let mut reference = reference.clone();
@@ -1293,50 +1333,61 @@ impl Inner {
 				options.tokens.inherit(&dependency.0.options.tokens);
 				let object = match &dependency.0.node {
 					Some(tg::graph::data::Edge::Index(index)) => Some(
-						self.artifact_id_from_index(*index, graph, None)
-							.await?
-							.into(),
+						self.artifact_from_index(&artifact.authority, *index, graph, None)
+							.await?,
 					),
-					Some(tg::graph::data::Edge::Object(object)) => Some(object.clone()),
-					Some(tg::graph::data::Edge::Pointer(pointer)) => {
-						Some(self.artifact_id_from_pointer(pointer, None)?.into())
+					Some(tg::graph::data::Edge::Object(object)) => {
+						if let Ok(id) = tg::artifact::Id::try_from(object.clone()) {
+							Some(ArtifactState::new(id, Some(&artifact.authority)))
+						} else {
+							options
+								.tokens
+								.inherit(&self.tokens(&artifact.authority, object));
+							options.tokens.normalize(Some(&object.clone().into()));
+							None
+						}
 					},
+					Some(tg::graph::data::Edge::Pointer(pointer)) => Some(
+						client::artifact_from_pointer(&artifact.authority, pointer, None)?,
+					),
 					None => None,
 				};
-				if let Some(object) = object {
+				if let Some(dependency) = object {
+					let object: tg::object::Id = dependency.id.clone().into();
 					self.authorizations.lock().unwrap().insert(
 						&object.clone().into(),
 						&options.tokens,
 						false,
 					);
-					self.inherit(&artifact.clone().into(), &object);
-					options.tokens.inherit(&self.tokens(&object));
+					options
+						.tokens
+						.inherit(&self.tokens(&dependency.authority, &object));
 					options.tokens.normalize(Some(&object.into()));
+					artifacts.push(dependency);
 				}
 				reference.set_options(options);
 			}
 			references.push(reference);
 		}
-		Ok(references)
+		Ok((references, artifacts))
 	}
 
 	fn close(&self, handle: u64) {
 		self.file_handles.lock().unwrap().remove(&handle);
+		if let Some(id) = self.directory_handles.lock().unwrap().remove(&handle) {
+			self.nodes.forget(id, 1);
+		}
 	}
 
-	async fn compute_attrs(
-		&self,
-		artifact: Option<&tg::artifact::Id>,
-	) -> std::io::Result<vfs::Attrs> {
+	async fn compute_attrs(&self, artifact: Option<&ArtifactState>) -> std::io::Result<vfs::Attrs> {
 		match artifact {
-			Some(artifact) if artifact.kind() == tg::artifact::Kind::Directory => {
+			Some(artifact) if artifact.id.kind() == tg::artifact::Kind::Directory => {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
-			Some(artifact) if artifact.kind() == tg::artifact::Kind::File => {
+			Some(artifact) if artifact.id.kind() == tg::artifact::Kind::File => {
 				let (file, _) = self.file_node(artifact).await?;
 				let size = if let Some(blob) = &file.contents {
-					self.inherit(&artifact.clone().into(), &blob.clone().into());
-					self.blob_length(blob).await?
+					self.blob_length(&artifact.authority, blob).await?
 				} else {
 					0
 				};
@@ -1345,7 +1396,7 @@ impl Inner {
 					size,
 				}))
 			},
-			Some(artifact) if artifact.kind() == tg::artifact::Kind::Symlink => {
+			Some(artifact) if artifact.id.kind() == tg::artifact::Kind::Symlink => {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink { size: 0 }))
 			},
 			None => Ok(vfs::Attrs::new(vfs::AttrsInner::Directory)),
@@ -1410,7 +1461,6 @@ impl Fast {
 		let fast = Self {
 			cache,
 			checkout_path,
-			pointers: Mutex::new(BTreeMap::new()),
 			secondary_path,
 		};
 
@@ -1444,24 +1494,24 @@ impl Fast {
 		})
 	}
 
-	fn compute_attrs(&self, artifact: Option<&tg::artifact::Id>) -> std::io::Result<vfs::Attrs> {
+	fn compute_attrs(&self, artifact: Option<&ArtifactState>) -> std::io::Result<vfs::Attrs> {
 		let transaction = self.transaction()?;
 		self.compute_attrs_with_transaction(&transaction, artifact)
 	}
 
 	fn directory_entries(
 		&self,
-		artifact: &tg::artifact::Id,
-	) -> std::io::Result<BTreeMap<String, tg::artifact::Id>> {
+		artifact: &ArtifactState,
+	) -> std::io::Result<BTreeMap<String, ArtifactState>> {
 		let transaction = self.transaction()?;
 		self.directory_entries_with_transaction(&transaction, artifact, None)
 	}
 
 	fn directory_lookup_entry(
 		&self,
-		artifact: &tg::artifact::Id,
+		artifact: &ArtifactState,
 		name: &str,
-	) -> std::io::Result<Option<tg::artifact::Id>> {
+	) -> std::io::Result<Option<ArtifactState>> {
 		let transaction = self.transaction()?;
 		self.directory_lookup_entry_with_transaction(&transaction, artifact, name, None)
 	}
@@ -1474,8 +1524,8 @@ impl Fast {
 		Ok(output.into())
 	}
 
-	fn getxattr(&self, artifact: &tg::artifact::Id, name: &str) -> std::io::Result<Option<Bytes>> {
-		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+	fn getxattr(&self, artifact: &ArtifactState, name: &str) -> std::io::Result<Option<Bytes>> {
+		if !matches!(artifact.id.kind(), tg::artifact::Kind::File) {
 			return Ok(None);
 		}
 		if tg::file::xattrs::is_dependencies_name(name) || name == tg::file::xattrs::TOKEN_NAME {
@@ -1496,13 +1546,13 @@ impl Fast {
 	fn compute_attrs_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
-		artifact: Option<&tg::artifact::Id>,
+		artifact: Option<&ArtifactState>,
 	) -> std::io::Result<vfs::Attrs> {
 		match artifact {
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::File) => {
 				let (file, _) = self.file_node_with_transaction(transaction, artifact)?;
 				let size = file.contents.as_ref().map_or(Ok(0), |contents| {
 					self.blob_length_with_transaction(transaction, contents)
@@ -1512,7 +1562,7 @@ impl Fast {
 					size,
 				}))
 			},
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Symlink) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Symlink) => {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink { size: 0 }))
 			},
 			None => Ok(vfs::Attrs::new(vfs::AttrsInner::Directory)),
@@ -1566,14 +1616,17 @@ impl Fast {
 	fn artifact_data_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
-		artifact: &tg::artifact::Id,
+		artifact: &ArtifactState,
 	) -> std::io::Result<tg::artifact::data::Artifact> {
-		let id: tg::object::Id = artifact.clone().into();
+		if let Some(data) = &artifact.data {
+			return Ok(data.clone());
+		}
+		let id: tg::object::Id = artifact.id.clone().into();
 		let Some((_, data)) = self.try_get_data(transaction, &id)? else {
 			return Err(fallback());
 		};
 		data.try_into().map_err(|_| {
-			tracing::error!(%artifact, "expected artifact data");
+			tracing::error!(artifact = %artifact.id, "expected artifact data");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})
 	}
@@ -1651,7 +1704,7 @@ impl Fast {
 	fn directory_node_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
-		directory: &tg::artifact::Id,
+		directory: &ArtifactState,
 	) -> std::io::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_with_transaction(transaction, directory)?;
 		let tg::artifact::data::Artifact::Directory(directory) = data else {
@@ -1675,7 +1728,7 @@ impl Fast {
 	fn file_node_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
-		file: &tg::artifact::Id,
+		file: &ArtifactState,
 	) -> std::io::Result<(tg::graph::data::File, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_with_transaction(transaction, file)?;
 		let tg::artifact::data::Artifact::File(file) = data else {
@@ -1699,7 +1752,7 @@ impl Fast {
 	fn symlink_node_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
-		symlink: &tg::artifact::Id,
+		symlink: &ArtifactState,
 	) -> std::io::Result<(tg::graph::data::Symlink, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_with_transaction(transaction, symlink)?;
 		let tg::artifact::data::Artifact::Symlink(symlink) = data else {
@@ -1723,20 +1776,22 @@ impl Fast {
 	fn directory_entries_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
-		directory: &tg::artifact::Id,
+		directory: &ArtifactState,
 		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<BTreeMap<String, tg::artifact::Id>> {
+	) -> std::io::Result<BTreeMap<String, ArtifactState>> {
 		let mut entries = BTreeMap::new();
 		let mut stack = vec![(directory.clone(), default_graph.cloned())];
 		while let Some((directory, default_graph)) = stack.pop() {
+			let authority = directory.authority.clone();
 			let (directory, graph) =
 				self.directory_node_with_transaction(transaction, &directory)?;
 			let graph = graph.or(default_graph);
 			match directory {
 				tg::graph::data::Directory::Branch(branch) => {
 					for child in branch.children.into_iter().rev() {
-						let artifact = self.artifact_id_from_directory_edge(
+						let artifact = self.artifact_from_directory_edge(
 							transaction,
+							&authority,
 							child.directory,
 							graph.as_ref(),
 						)?;
@@ -1746,7 +1801,7 @@ impl Fast {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					for (name, edge) in leaf.entries {
 						let artifact =
-							self.artifact_id_from_edge(transaction, edge, graph.as_ref())?;
+							self.artifact_from_edge(transaction, &authority, edge, graph.as_ref())?;
 						entries.insert(name, artifact);
 					}
 				},
@@ -1758,13 +1813,14 @@ impl Fast {
 	fn directory_lookup_entry_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
-		directory: &tg::artifact::Id,
+		directory: &ArtifactState,
 		name: &str,
 		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<Option<tg::artifact::Id>> {
+	) -> std::io::Result<Option<ArtifactState>> {
 		let mut directory = directory.clone();
 		let mut default_graph = default_graph.cloned();
 		loop {
+			let authority = directory.authority.clone();
 			let (directory_data, graph) =
 				self.directory_node_with_transaction(transaction, &directory)?;
 			let graph = graph.or(default_graph);
@@ -1777,8 +1833,9 @@ impl Fast {
 					else {
 						return Ok(None);
 					};
-					directory = self.artifact_id_from_directory_edge(
+					directory = self.artifact_from_directory_edge(
 						transaction,
+						&authority,
 						child.directory,
 						graph.as_ref(),
 					)?;
@@ -1788,7 +1845,8 @@ impl Fast {
 					let Some(edge) = leaf.entries.get(name).cloned() else {
 						return Ok(None);
 					};
-					let artifact = self.artifact_id_from_edge(transaction, edge, graph.as_ref())?;
+					let artifact =
+						self.artifact_from_edge(transaction, &authority, edge, graph.as_ref())?;
 					return Ok(Some(artifact));
 				},
 			}
@@ -1946,52 +2004,63 @@ impl Fast {
 		Ok(())
 	}
 
-	fn artifact_id_from_edge(
+	fn artifact_from_edge(
 		&self,
 		transaction: &Transaction<'_>,
+		authority: &Arc<Authority>,
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<tg::artifact::Id> {
+	) -> std::io::Result<ArtifactState> {
 		match edge {
-			tg::graph::data::Edge::Index(index) => self.artifact_id_from_index_with_transaction(
+			tg::graph::data::Edge::Index(index) => self.artifact_from_index_with_transaction(
 				transaction,
+				authority,
 				index,
 				default_graph,
 				None,
 			),
-			tg::graph::data::Edge::Object(artifact) => Ok(artifact),
+			tg::graph::data::Edge::Object(artifact) => {
+				Ok(ArtifactState::new(artifact, Some(authority)))
+			},
 			tg::graph::data::Edge::Pointer(pointer) => {
-				self.artifact_id_from_pointer(&pointer, None)
+				client::artifact_from_pointer(authority, &pointer, None)
 			},
 		}
 	}
 
-	fn artifact_id_from_directory_edge(
+	fn artifact_from_directory_edge(
 		&self,
 		transaction: &Transaction<'_>,
+		authority: &Arc<Authority>,
 		edge: tg::graph::data::Edge<tg::directory::Id>,
 		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<tg::artifact::Id> {
+	) -> std::io::Result<ArtifactState> {
 		match edge {
-			tg::graph::data::Edge::Index(index) => self.artifact_id_from_index_with_transaction(
+			tg::graph::data::Edge::Index(index) => self.artifact_from_index_with_transaction(
 				transaction,
+				authority,
 				index,
 				default_graph,
 				Some(tg::artifact::Kind::Directory),
 			),
-			tg::graph::data::Edge::Object(directory) => Ok(directory.into()),
-			tg::graph::data::Edge::Pointer(pointer) => {
-				self.artifact_id_from_pointer(&pointer, Some(tg::artifact::Kind::Directory))
+			tg::graph::data::Edge::Object(directory) => {
+				Ok(ArtifactState::new(directory.into(), Some(authority)))
 			},
+			tg::graph::data::Edge::Pointer(pointer) => client::artifact_from_pointer(
+				authority,
+				&pointer,
+				Some(tg::artifact::Kind::Directory),
+			),
 		}
 	}
-	fn artifact_id_from_index_with_transaction(
+	fn artifact_from_index_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
+		authority: &Arc<Authority>,
 		index: usize,
 		graph: Option<&tg::graph::Id>,
 		expected_kind: Option<tg::artifact::Kind>,
-	) -> std::io::Result<tg::artifact::Id> {
+	) -> std::io::Result<ArtifactState> {
 		let graph = graph.ok_or_else(fallback)?;
 		let node = self
 			.graph_node_with_transaction(transaction, graph, index)?
@@ -2001,21 +2070,7 @@ impl Fast {
 			index,
 			kind: node.kind(),
 		};
-		self.artifact_id_from_pointer(&pointer, expected_kind)
-	}
-
-	fn artifact_id_from_pointer(
-		&self,
-		pointer: &tg::graph::data::Pointer,
-		expected_kind: Option<tg::artifact::Kind>,
-	) -> std::io::Result<tg::artifact::Id> {
-		let id = client::pointer_id(pointer, expected_kind)?;
-		self.pointers
-			.lock()
-			.unwrap()
-			.insert(id.clone(), pointer.clone());
-
-		Ok(id)
+		client::artifact_from_pointer(authority, &pointer, expected_kind)
 	}
 }
 
@@ -2027,6 +2082,7 @@ impl Nodes {
 			artifact: None,
 			attrs: Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
 			children: BTreeMap::new(),
+			dependencies: Vec::new(),
 			depth: 0,
 			lookup_count: u64::MAX,
 			name: None,
@@ -2038,12 +2094,75 @@ impl Nodes {
 		Self { state }
 	}
 
+	fn root_artifact(&self, id: &tg::artifact::Id) -> ArtifactState {
+		let state = self.state.lock().unwrap();
+		let root = &state.nodes[&vfs::ROOT_NODE_ID];
+		if let Some(source) = root
+			.children
+			.get(&id.to_string())
+			.and_then(|id| state.nodes.get(id))
+		{
+			if let Some(artifact) = &source.artifact
+				&& &artifact.id == id
+			{
+				return artifact.clone();
+			}
+			if let Some(artifact) = source
+				.dependencies
+				.iter()
+				.find(|artifact| &artifact.id == id)
+			{
+				return artifact.clone();
+			}
+		}
+		ArtifactState::new(id.clone(), None)
+	}
+
+	fn insert_dependency(&self, source: u64, artifact: &ArtifactState) {
+		let mut state = self.state.lock().unwrap();
+		let Some(node) = state.nodes.get_mut(&source) else {
+			return;
+		};
+		if let Some(existing) = node
+			.dependencies
+			.iter()
+			.find(|dependency| dependency.id == artifact.id)
+		{
+			existing.authority.adopt(&artifact.authority);
+		} else {
+			node.dependencies.push(artifact.clone());
+		}
+		let entry = *state
+			.nodes
+			.get_mut(&vfs::ROOT_NODE_ID)
+			.unwrap()
+			.children
+			.entry(artifact.id.to_string())
+			.or_insert(source);
+
+		// Authorize an artifact already loaded at the root through the path that reached the dependency, so that its loaded descendants are authorized as well.
+		if let Some(node) = state.nodes.get(&entry) {
+			let loaded = node
+				.artifact
+				.iter()
+				.chain(&node.dependencies)
+				.filter(|loaded| loaded.id == artifact.id);
+			for loaded in loaded {
+				loaded.authority.adopt(&artifact.authority);
+			}
+		}
+	}
+
 	fn lookup(&self, parent: u64, name: &str) -> Option<u64> {
 		let mut state = self.state.lock().unwrap();
 		let id = state
 			.nodes
 			.get(&parent)
 			.and_then(|node| node.children.get(name).copied())?;
+		let node = state.nodes.get(&id)?;
+		if node.parent != parent || node.name.as_deref() != Some(name) {
+			return None;
+		}
 		// Refresh the access time so a node handed to the kernel is not evicted before the driver records its lookup reference.
 		if let Some(node) = state.nodes.get_mut(&id) {
 			node.accessed = Instant::now();
@@ -2058,6 +2177,9 @@ impl Nodes {
 			.get(&parent)
 			.and_then(|node| node.children.get(name).copied())?;
 		let node = state.nodes.get_mut(&id)?;
+		if node.parent != parent || node.name.as_deref() != Some(name) {
+			return None;
+		}
 		node.accessed = Instant::now();
 		node.lookup_count = node.lookup_count.saturating_add(1);
 		Some(id)
@@ -2106,6 +2228,16 @@ impl Nodes {
 		}
 	}
 
+	fn remember_existing(&self, id: u64) -> std::io::Result<()> {
+		let mut state = self.state.lock().unwrap();
+		let node = state
+			.nodes
+			.get_mut(&id)
+			.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOENT))?;
+		node.lookup_count = node.lookup_count.saturating_add(1);
+		Ok(())
+	}
+
 	fn remember(&self, id: u64) {
 		if id == vfs::ROOT_NODE_ID {
 			return;
@@ -2135,6 +2267,7 @@ impl Nodes {
 			if id == vfs::ROOT_NODE_ID {
 				return;
 			}
+
 			let Some(node) = state.nodes.get(&id) else {
 				return;
 			};
@@ -2143,12 +2276,16 @@ impl Nodes {
 			}
 			let parent = node.parent;
 			let name = node.name.clone();
-			state.nodes.remove(&id);
+
+			Self::remove(state, id);
+
 			let prune_parent = {
 				let Some(parent_node) = state.nodes.get_mut(&parent) else {
 					return;
 				};
-				if let Some(name) = name {
+				if let Some(name) = name
+					&& parent_node.children.get(&name) == Some(&id)
+				{
 					parent_node.children.remove(&name);
 				}
 				parent != vfs::ROOT_NODE_ID
@@ -2159,6 +2296,36 @@ impl Nodes {
 				return;
 			}
 			id = parent;
+		}
+	}
+
+	fn remove(state: &mut State, id: u64) {
+		let parent = state.nodes[&id].parent;
+		let node = state.nodes.remove(&id).unwrap();
+		let mut dependencies = node.dependencies;
+		if parent == vfs::ROOT_NODE_ID
+			&& let Some(artifact) = node.artifact
+		{
+			dependencies.push(artifact);
+		}
+		for dependency in dependencies {
+			let name = dependency.id.to_string();
+			if state.nodes[&vfs::ROOT_NODE_ID].children.get(&name) != Some(&id) {
+				continue;
+			}
+			// Preserve a shared dependency only while another existing inode supplies its tokens.
+			let source = state.nodes.iter().find_map(|(id, node)| {
+				node.dependencies
+					.iter()
+					.any(|other| other.id == dependency.id)
+					.then_some(*id)
+			});
+			let root = state.nodes.get_mut(&vfs::ROOT_NODE_ID).unwrap();
+			if let Some(source) = source {
+				root.children.insert(name, source);
+			} else {
+				root.children.remove(&name);
+			}
 		}
 	}
 
@@ -2179,9 +2346,10 @@ impl Nodes {
 			.collect::<Vec<_>>();
 		// Remove only the collected nodes; eviction is not cascaded into a parent, which may have just been handed to the kernel, so an emptied parent is collected by a later sweep once its own time to live has elapsed.
 		for (id, parent, name) in expired {
-			state.nodes.remove(&id);
+			Self::remove(&mut state, id);
 			if let Some(name) = name
 				&& let Some(parent_node) = state.nodes.get_mut(&parent)
+				&& parent_node.children.get(&name) == Some(&id)
 			{
 				parent_node.children.remove(&name);
 			}
@@ -2192,7 +2360,7 @@ impl Nodes {
 		&self,
 		parent: u64,
 		name: &str,
-		artifact: tg::artifact::Id,
+		artifact: ArtifactState,
 		depth: u64,
 		attrs: Option<vfs::Attrs>,
 		remember: bool,
@@ -2202,10 +2370,15 @@ impl Nodes {
 			.nodes
 			.get(&parent)
 			.and_then(|node| node.children.get(name).copied())
+			&& state.nodes[&id].parent == parent
+			&& state.nodes[&id].name.as_deref() == Some(name)
 		{
 			// Refresh the access time so an actively enumerated entry is not evicted.
 			if let Some(node) = state.nodes.get_mut(&id) {
 				node.accessed = Instant::now();
+				if let Some(existing) = &node.artifact {
+					existing.authority.adopt(&artifact.authority);
+				}
 				if remember {
 					node.lookup_count = node.lookup_count.saturating_add(1);
 				}
@@ -2222,6 +2395,7 @@ impl Nodes {
 			artifact: Some(artifact),
 			attrs,
 			children: BTreeMap::new(),
+			dependencies: Vec::new(),
 			depth,
 			lookup_count: u64::from(remember),
 			name: Some(name.to_owned()),
@@ -2273,6 +2447,7 @@ impl Nodes {
 			artifact: None,
 			attrs: Some(attrs),
 			children: BTreeMap::new(),
+			dependencies: Vec::new(),
 			depth,
 			lookup_count: u64::from(remember),
 			name: Some(name.to_owned()),
@@ -2287,6 +2462,18 @@ impl Nodes {
 			.children
 			.insert(name.to_owned(), id);
 		Ok(id)
+	}
+}
+
+impl ArtifactState {
+	#[must_use]
+	fn new(id: tg::artifact::Id, parent: Option<&Arc<Authority>>) -> Self {
+		let authority = Authority::new(id.clone().into(), parent);
+		Self {
+			authority,
+			data: None,
+			id,
+		}
 	}
 }
 
@@ -2515,7 +2702,94 @@ mod tests {
 			.unwrap();
 		let info = inner.nodes.get(child).unwrap();
 
-		assert_eq!(info.artifact, Some(fixture.child.clone()));
+		assert_eq!(
+			info.artifact.map(|artifact| artifact.id),
+			Some(fixture.child.clone())
+		);
+	}
+
+	#[test]
+	fn directory_handles_remain_independent_and_pin_the_node() {
+		let fixture = fixture(true);
+		let inner = &fixture.provider.inner;
+		fixture.provider.runtime.block_on(async {
+			let id = inner
+				.lookup(vfs::ROOT_NODE_ID, &fixture.directory.to_string())
+				.await
+				.unwrap()
+				.unwrap();
+			let (first, immutable) = inner.opendir(id).await.unwrap();
+			let (second, _) = inner.opendir(id).await.unwrap();
+			assert!(immutable);
+			assert_ne!(first, second);
+			inner.nodes.evict_expired(Duration::ZERO);
+			let entries = inner.readdir(first, 0, 4096).await.unwrap();
+			assert!(entries.iter().any(|(name, _, _)| name == "child"));
+			inner.close(first);
+			assert!(inner.readdir(first, 0, 4096).await.is_err());
+			assert!(inner.readdir(second, 0, 4096).await.is_ok());
+			inner.close(second);
+			assert!(inner.nodes.get(id).is_err());
+		});
+	}
+
+	#[test]
+	fn eviction_releases_pointer_data_and_authority_paths() {
+		let nodes = Nodes::new();
+		let parent = ArtifactState::new(tg::directory::Id::new(b"parent").into(), None);
+		let parent_authority = Arc::downgrade(&parent.authority);
+		let source = nodes
+			.get_or_insert_child(vfs::ROOT_NODE_ID, "parent", parent.clone(), 1, None, false)
+			.unwrap();
+		let pointer = tg::graph::data::Pointer {
+			graph: tg::graph::Id::new(b"graph"),
+			index: 0,
+			kind: tg::artifact::Kind::File,
+		};
+		let dependency = client::artifact_from_pointer(&parent.authority, &pointer, None).unwrap();
+		let dependency_authority = Arc::downgrade(&dependency.authority);
+		let id = dependency.id.clone();
+		nodes.insert_dependency(source, &dependency);
+		let loaded = nodes.root_artifact(&id);
+		assert!(loaded.data.is_some());
+		assert!(Arc::ptr_eq(&loaded.authority, &dependency.authority));
+		drop(loaded);
+		drop(dependency);
+		drop(parent);
+		nodes.evict_expired(Duration::ZERO);
+		assert!(parent_authority.upgrade().is_none());
+		assert!(dependency_authority.upgrade().is_none());
+		assert!(nodes.root_artifact(&id).data.is_none());
+	}
+
+	#[test]
+	fn shared_dependencies_survive_until_their_last_source_is_forgotten() {
+		let nodes = Nodes::new();
+		let first = ArtifactState::new(tg::file::Id::new(b"first").into(), None);
+		let second = ArtifactState::new(tg::file::Id::new(b"second").into(), None);
+		let dependency = ArtifactState::new(
+			tg::file::Id::new(b"dependency").into(),
+			Some(&first.authority),
+		);
+		let id = dependency.id.clone();
+		let first = nodes
+			.get_or_insert_child(vfs::ROOT_NODE_ID, "first", first, 1, None, true)
+			.unwrap();
+		let second = nodes
+			.get_or_insert_child(vfs::ROOT_NODE_ID, "second", second, 1, None, true)
+			.unwrap();
+		nodes.insert_dependency(first, &dependency);
+		nodes.insert_dependency(second, &dependency);
+		nodes.forget(first, 1);
+		assert!(Arc::ptr_eq(
+			&nodes.root_artifact(&id).authority,
+			&dependency.authority
+		));
+		nodes.forget(second, 1);
+		assert!(!Arc::ptr_eq(
+			&nodes.root_artifact(&id).authority,
+			&dependency.authority
+		));
 	}
 
 	#[test]
