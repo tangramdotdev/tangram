@@ -19,7 +19,7 @@ let a = server spawn --instance $instance --region a --name a --url (instance re
 let b = server spawn --instance $instance --region b --name b --url (instance region url $instance b)
 let alice = tg --url $a.url login --verbose --email alice@example.com --name alice | from json
 with-env { BROWSER: 'false' } { tg --url $a.url --token $alice.token user billing manage }
-tg --url $b.url --token $alice.token index
+tg --url $b.url --token $alice.token index --database
 failure (tg --url $b.url --token $alice.token sandbox create --no-tokens --no-network | complete)
 let invalidated = checkpoint watch authentication.cache.invalidated --params { id: $alice.user.id, kind: principal } --token $root --url $b.url
 let ready = { data: { object: { id: cus_mock } }, id: evt_ready, type: customer.updated }

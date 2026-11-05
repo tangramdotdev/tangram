@@ -37,7 +37,7 @@ let socket = $local.url | str replace 'http+unix://' '' | url decode
 for permission in [process_node process_node_command_objects process_node_output_objects] {
 	tg --token $root grant $reader.user.id $permission $process | ignore
 }
-tg --token $root index
+tg --token $root index --database
 let baseline = get-process $socket $reader.token $process '' true true
 let scoped = $baseline.tokens.local.0
 assert ($baseline.data.children.0.process | referent tokens local | is-empty) 'a node reader must not receive the stored child authorization tokens'

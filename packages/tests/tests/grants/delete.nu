@@ -26,5 +26,5 @@ assert (not ($grants | any {|g| $g.subject == $bob.user.id and $g.permissions ==
 let grant = tg --token $alice.token grant $bob.user.id read team | from json
 tg --token $bob.token group get team | ignore
 tg --token $alice.token grants delete $grant.id
-tg index
+tg index --database
 failure (tg --token $bob.token group get team | complete) "deleting the grant should remove the subject's access"

@@ -13,11 +13,11 @@ assert equal (open $path) 'first' "expected the tag path to contain the first ar
 let second = artifact 'second'
 tg tag --force dep $second
 # Tag writes return before the indexer invalidates checkout entries.
-tg index
+tg index --database
 
 let path = tg checkout dep | str trim
 assert equal (open $path) 'second' "expected the tag path to contain the second artifact"
 
 tg tag delete dep | ignore
-tg index
+tg index --database
 failure (tg checkout dep | complete) "expected checking out a deleted tag to fail"

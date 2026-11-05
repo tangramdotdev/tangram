@@ -20,7 +20,7 @@ let child_path = artifact { tangram.ts: 'export default async () => { await tg.s
 let child_object = tg --token $alice.token checkin --no-tokens $child_path | referent node
 tg --token $alice.token grant public object_subtree $child_object
 let child = tg --token $token run --no-tokens --network=true --detach $child_object | referent node
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 success (tg --token $bob.token process get $child | complete) "write on the owner should permit reading a descendant process"
 let signaled = tg --token $eve.token process signal $child --signal KILL | complete

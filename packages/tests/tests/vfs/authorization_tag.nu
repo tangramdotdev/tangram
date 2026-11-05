@@ -17,7 +17,7 @@ for io in $transports {
 	tg tag shared $target
 	let sandbox = tg sandbox create --no-tokens --no-network | referent node
 	tg grant $sandbox read shared | ignore
-	tg index
+	tg index --database
 
 	let module = artifact {
 		tangram.ts: '

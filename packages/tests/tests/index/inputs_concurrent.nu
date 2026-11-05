@@ -12,7 +12,7 @@ let watches = $waits | each {|name|
 }
 let request = job spawn {
 	let job_id = job id
-	let output = tg --url $local.url index | complete
+	let output = tg --url $local.url index --database | complete
 	$output | job send --tag $job_id 0
 }
 for watch in ($watches | first 2) {

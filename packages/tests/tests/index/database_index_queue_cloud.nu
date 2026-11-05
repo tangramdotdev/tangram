@@ -4,6 +4,6 @@ use ../../util/test.nu *
 
 let local = server spawn --cloud
 let group = tg group create project | from json
-tg index
+tg index --database
 let indexed = tg group get project | from json
 assert equal $indexed.id $group.id

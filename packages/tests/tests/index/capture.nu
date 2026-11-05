@@ -12,7 +12,7 @@ let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 let object = tg --token $alice.token put --no-tokens 'tg.file("captured")' | referent node
 tg --token $alice.token tag put captured $object --public
-tg --token $root_token index --capture
+tg --token $root_token index --capture --database
 
 # Expire every delegation and source proof, so that only the captured permission grants access.
 advance_time $local 2min

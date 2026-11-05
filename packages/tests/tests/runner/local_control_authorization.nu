@@ -48,7 +48,7 @@ for authority in [remote local] {
 	assert equal $capability.resource $process
 	assert equal $capability.permissions [process_parent]
 	tg --url $runner.url --token $runner_root grant $alice.user.id process_node $process | ignore
-	tg --url $runner.url --token $runner_root index
+	tg --url $runner.url --token $runner_root index --database
 	let response = http get --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/processes/($process)?location=remote'
 	let node = $response.tokens.local.0
 	let tokens = { local: [$node] }
@@ -77,7 +77,7 @@ for authority in [remote local] {
 		$tokens | insert remote $spawned.tokens.local
 	} else {
 		tg --url $runner.url --token $runner_root grant $alice.user.id process_parent $process
-		tg --url $runner.url --token $runner_root index
+		tg --url $runner.url --token $runner_root index --database
 		$tokens
 	}
 	if $authority == remote {

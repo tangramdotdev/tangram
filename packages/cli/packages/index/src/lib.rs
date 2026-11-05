@@ -8,6 +8,10 @@ pub struct Args {
 	#[arg(long)]
 	pub capture: bool,
 
+	/// Also wait for the database index queue to be empty, so that the index reflects every database write.
+	#[arg(long)]
+	pub database: bool,
+
 	/// Also do everything that --capture does, and aggregate usage for every hour before the server's current hour.
 	#[arg(long)]
 	pub usage: bool,
@@ -17,7 +21,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::index::Arg {
 		capture: args.capture,
-		database: true,
+		database: args.database,
 		usage: args.usage,
 	};
 	let stream = client

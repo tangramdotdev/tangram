@@ -19,7 +19,7 @@ let process = $spawned.process
 timeout 30s tg --token $root_token process log --no-timeout --length 6 $process | ignore
 tg --token $root_token grant $alice.user.id process_node_error_objects $process | ignore
 tg --token $root_token grant $bob.user.id process_node $process | ignore
-tg --token $root_token index
+tg --token $root_token index --database
 
 # Hold the error object's index batch before the runner stores the error.
 let object_watch = tg --token $root_token checkpoint watch index.batch --params '{"finished_process":false}' | from json | get watch

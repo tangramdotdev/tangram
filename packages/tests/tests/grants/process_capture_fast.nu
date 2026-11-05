@@ -55,7 +55,7 @@ tg --token $root_token index
 tg --token $bob.token grant $reader.user.id process_node_command_objects $process | ignore
 tg --token $bob.token grant $reader.user.id process_node_output_objects $process | ignore
 tg --token $root_token tag put retained $process
-tg --token $root_token index
+tg --token $root_token index --database
 success (tg --token $reader.token get --bytes $command_object | complete) "the command aspect must expose the actual command input."
 advance_time $local 2min
 tg --token $root_token clean

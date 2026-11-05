@@ -11,7 +11,6 @@ let a_path = artifact {
 	'
 }
 tg tag a $a_path
-tg index
 
 let path = artifact {
 	tangram.ts: '

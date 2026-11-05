@@ -13,7 +13,7 @@ let local_source = server spawn --name local-source --config {
 	remotes: { default: { token: $alice.token, url: $remote_destination.url } },
 }
 let file = tg --url $local_source.url put --no-tokens 'tg.file("private")' | referent node
-tg --url $remote_destination.url --token $root_token index
+tg --url $remote_destination.url --token $root_token index --database
 let batch_watch = tg --url $remote_destination.url --token $root_token checkpoint watch index.batch | from json | get watch
 let stopped_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.service.stopped | from json | get watch
 let push_log = $env.TMPDIR | path join push.log

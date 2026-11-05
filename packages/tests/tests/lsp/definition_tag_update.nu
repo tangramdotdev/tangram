@@ -26,7 +26,7 @@ let second = artifact {'tangram.ts': '// The updated package.
 
 export function greet() { return 43; }'}
 tg tag -p incremental-javascript/1.1.0 $second
-tg index
+tg index --database
 success (tg update $path | complete)
 python3 -c 'import os, sys; os.utime(sys.argv[1], ns=(946684800200000000, 946684800200000000))' ($path | path join tangram.lock)
 $session = lsp send $session (lsp definition 11 $uri 1 16)

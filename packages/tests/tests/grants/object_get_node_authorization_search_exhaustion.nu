@@ -20,7 +20,7 @@ let bob = tg login --verbose --name bob | from json
 let directory = tg --token $alice.token put --no-tokens 'tg.directory({ "child": tg.directory({}) })' | referent node
 tg --token $alice.token index
 tg --token $alice.token grant $bob.user.id object_node $directory | ignore
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 let output = tg --token $bob.token object get --availability --bytes --metadata $directory | complete
 success $output "Bob should read the directory node even when its optional subtree authorization is indeterminate."

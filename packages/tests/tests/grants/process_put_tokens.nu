@@ -34,7 +34,7 @@ let node = tg --token $root put --no-tokens 'tg.file("node token")' | referent n
 let expired = tg --token $root put --no-tokens 'tg.file("expired token")' | referent node
 let wrong = tg --token $root put --no-tokens 'tg.file("wrong resource")' | referent node
 tg --token $root grant $alice.user.id object_node $node | ignore
-tg --token $root index
+tg --token $root index --database
 let command_token = (get-object $socket $root $command).tokens.local.0
 let subtree_token = (get-object $socket $root $subtree).tokens.local.0
 let node_object = get-object $socket $alice.token $node
@@ -74,7 +74,7 @@ for process in [$subtree_process $node_process $expired_process $wrong_process] 
 	tg --token $root grant $reader.user.id process_node_command_objects $process | ignore
 	tg --token $root grant $reader.user.id process_node_output_objects $process | ignore
 }
-tg --token $root index
+tg --token $root index --database
 success (tg --token $reader.token get --bytes $command | complete) "the permissions authorized by the command token must be preserved"
 assert equal (tg --token $reader.token cat $subtree | str trim) "subtree token" "the permissions authorized by the subtree token must be preserved"
 success (tg --token $reader.token get --bytes $node | complete) "the permissions authorized by the node token must be preserved"

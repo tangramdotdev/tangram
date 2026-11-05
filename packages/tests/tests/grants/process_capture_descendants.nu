@@ -41,7 +41,7 @@ assert equal $finished.exit 0
 assert equal ($finished.output.value | split row '?' | first) $directory
 
 tg --token $alice.token grant $bob.user.id process_node_output_objects $process | ignore
-tg --token $root_token index
+tg --token $root_token index --database
 tg --token $root_token checkpoint wait --timeout 30s permission_capture.write $write 0 | ignore
 tg --token $root_token checkpoint continue permission_capture.write $write 0
 tg --token $root_token checkpoint wait --timeout 30s permission_capture.written $written 0 | ignore
@@ -50,7 +50,7 @@ tg --token $root_token checkpoint unwatch permission_capture.written $written
 
 # Remove temporary proofs and delegations, leaving only the captured process permissions.
 tg --token $root_token tag put retained $process
-tg --token $root_token index
+tg --token $root_token index --database
 advance_time $local 2min
 tg --token $root_token clean
 for id in [$directory $file] {

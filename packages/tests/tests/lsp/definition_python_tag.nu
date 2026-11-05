@@ -27,7 +27,7 @@ assert equal $response.result.0.range.start {line: 0, character: 4}
 let second = artifact {'tangram.py': "# The updated package.\n\ndef greet(): return 43"}
 tg tag -p incremental/1.1.0 $second
 rm --recursive $second
-tg index
+tg index --database
 success (tg update $path | complete)
 $session = lsp send $session (lsp definition 11 $uri 5 10)
 let response = lsp wait_result $session 11

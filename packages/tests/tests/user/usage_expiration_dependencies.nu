@@ -27,7 +27,7 @@ let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 let alice = tg login --verbose --name alice | from json
 let object = tg --token $alice.token put --no-tokens 'tg.file("keep")' | referent node
 tg --token $alice.token tag keep $object
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 # The first hour remains available immediately before the day closes.
 set_time $local '2026-01-01T23:59:59Z'

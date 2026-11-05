@@ -23,6 +23,6 @@ tg --token $alice.token revoke $bob.user.id read team
 tg --token $bob.token group get team
 
 tg --token $carol.token revoke $bob.user.id write team
-tg index
+tg index --database
 let output = tg --token $bob.token group get team | complete
 failure $output "Bob should lose access after both grantors revoke their grants"

@@ -22,7 +22,7 @@ let a2 = artifact { tangram.ts: 'export default function () { return "a2"; }' }
 tg tag -p a/1.1.0 $a2
 let b2 = artifact { tangram.ts: 'export default function () { return "b2"; }' }
 tg tag -p b/1.1.0 $b2
-tg index
+tg index --database
 
 let output = do --env { cd $root; tg update . a } | complete
 success $output
