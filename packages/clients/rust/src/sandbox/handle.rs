@@ -166,6 +166,7 @@ impl Drop for Inner {
 				error: None,
 				location,
 				tokens,
+				wait: false,
 			};
 			instance.try_destroy_sandbox(&id, arg).await.ok();
 		});

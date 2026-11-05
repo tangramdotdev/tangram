@@ -73,29 +73,47 @@ export class Sandbox {
 	}
 
 	/** Destroy this sandbox. */
-	async destroy(client = tg.client): Promise<void> {
+	async destroy(
+		client = tg.client,
+		options: { wait?: boolean } = {},
+	): Promise<void> {
 		let arg: tg.Sandbox.Destroy.Arg = {};
 		if (this.#location !== null) {
 			arg.location = this.#location;
+		}
+		if (options.wait) {
+			arg.wait = options.wait;
 		}
 		await client.destroySandbox(this.#id, arg);
 		this.detach();
 	}
 
 	/** Start this sandbox if it is stopped. */
-	async start(client = tg.client): Promise<void> {
+	async start(
+		client = tg.client,
+		options: { wait?: boolean } = {},
+	): Promise<void> {
 		let arg: tg.Sandbox.Start.Arg = {};
 		if (this.#location !== null) {
 			arg.location = this.#location;
+		}
+		if (options.wait) {
+			arg.wait = options.wait;
 		}
 		await client.startSandbox(this.#id, arg);
 	}
 
 	/** Stop this sandbox, keeping its files so that it can start again. */
-	async stop(client = tg.client): Promise<void> {
+	async stop(
+		client = tg.client,
+		options: { wait?: boolean } = {},
+	): Promise<void> {
 		let arg: tg.Sandbox.Stop.Arg = {};
 		if (this.#location !== null) {
 			arg.location = this.#location;
+		}
+		if (options.wait) {
+			arg.wait = options.wait;
 		}
 		await client.stopSandbox(this.#id, arg);
 	}
@@ -177,6 +195,7 @@ export namespace Sandbox {
 		owner?: string | null;
 		time_to_live?: number | null;
 		time_to_stop?: number | null;
+		wait?: boolean;
 	};
 
 	export type Data = {
@@ -284,6 +303,9 @@ export namespace Sandbox {
 
 		/** An alias for `timeToLive`. */
 		ttl?: number | null;
+
+		/** Wait for the sandbox to start. */
+		wait?: boolean | null;
 	};
 
 	export namespace Arg {
@@ -335,6 +357,9 @@ export namespace Sandbox {
 			}
 			if (arg.timeToStop !== undefined) {
 				output.time_to_stop = arg.timeToStop;
+			}
+			if (arg.wait) {
+				output.wait = arg.wait;
 			}
 
 			return output;
@@ -394,6 +419,11 @@ export namespace Sandbox {
 			> | null>,
 		): this {
 			this.#args.push({ memory });
+			return this;
+		}
+
+		wait(wait: tg.Unresolved<tg.MaybeMutation<boolean> | null>): this {
+			this.#args.push({ wait });
 			return this;
 		}
 
@@ -537,18 +567,21 @@ export namespace Sandbox {
 	export namespace Destroy {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
+			wait?: boolean;
 		};
 	}
 
 	export namespace Start {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
+			wait?: boolean;
 		};
 	}
 
 	export namespace Stop {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
+			wait?: boolean;
 		};
 	}
 

@@ -95,6 +95,7 @@ pub struct Arg {
 	pub stdout: tg::process::Stdio,
 	pub tty: Option<tg::Either<bool, tg::process::Tty>>,
 	pub user: Option<String>,
+	pub wait: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]

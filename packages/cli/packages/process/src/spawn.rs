@@ -58,6 +58,10 @@ pub struct Options {
 	#[arg(id = "spawn.build", long = "build", short = 'b')]
 	pub build: bool,
 
+	/// Wait for the process to start.
+	#[arg(id = "spawn.wait", long = "wait")]
+	pub wait: bool,
+
 	/// Set this flag to true to require a cached process. Set this flag to false to require a new process to be created. Omit this flag to use a cached process if possible, and create a new process if not.
 	#[arg(
 		default_missing_value = "true",
@@ -911,6 +915,7 @@ pub(crate) async fn spawn_inner(
 		stdin,
 		stdout: options.stdout.unwrap_or_default(),
 		tty,
+		wait: options.wait,
 		..Default::default()
 	};
 

@@ -18,6 +18,7 @@ export namespace Spawn {
 		stdin?: tg.Process.Stdio;
 		stdout?: tg.Process.Stdio;
 		tty?: boolean | tg.Process.Tty | null;
+		wait?: boolean;
 	};
 
 	export namespace Arg {
@@ -63,6 +64,9 @@ export namespace Spawn {
 			}
 			if (arg.retry) {
 				output.retry = arg.retry;
+			}
+			if (arg.wait) {
+				output.wait = arg.wait;
 			}
 			if (arg.sandbox !== undefined) {
 				output.sandbox = arg.sandbox;

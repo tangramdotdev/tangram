@@ -21,6 +21,10 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub time_to_stop: TimeToStop,
+
+	/// Wait for the sandbox to start.
+	#[arg(id = "create.wait", long = "wait")]
+	pub wait: bool,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -77,6 +81,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.owner(owner)
 		.time_to_live(time_to_live)
 		.time_to_stop(time_to_stop)
+		.wait(args.wait)
 		.build_with_instance(&client)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;

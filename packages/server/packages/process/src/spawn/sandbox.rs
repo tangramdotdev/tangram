@@ -221,6 +221,7 @@ impl Component {
 			error: Some(tg::Either::Left(error)),
 			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 			tokens: tg::authorization::Tokens::default(),
+			wait: false,
 		};
 		let session = session.server.session(&session.server.context);
 		tokio::spawn(async move {

@@ -30,6 +30,7 @@ export async function tryDestroySandbox(
 			arg?.location === undefined || arg.location === null
 				? null
 				: tg.Location.Arg.toDataString(arg.location),
+		wait: arg?.wait ?? false,
 	});
 	let request = new Request({
 		body,

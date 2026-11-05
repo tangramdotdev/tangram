@@ -10,6 +10,9 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	pub tokens: tg::authorization::Tokens,
+
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub wait: bool,
 }
 
 impl tg::Sandbox {
@@ -25,6 +28,7 @@ impl tg::Sandbox {
 		let arg = tg::sandbox::stop::Arg {
 			location: self.location(),
 			tokens: self.tokens(),
+			wait: false,
 		};
 		instance
 			.try_stop_sandbox(self.id(), arg)

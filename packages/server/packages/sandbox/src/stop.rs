@@ -280,6 +280,7 @@ impl Component {
 		let arg = tg::sandbox::stop::Arg {
 			location: Some(location.clone().into()),
 			tokens: arg.tokens.for_location(&location),
+			wait: arg.wait,
 		};
 		let Some(stopped) = client
 			.try_stop_sandbox(id, arg)
@@ -348,6 +349,7 @@ impl Component {
 				}),
 			])),
 			tokens: arg.tokens.for_location(&location),
+			wait: arg.wait,
 		};
 		let Some(stopped) = client.try_stop_sandbox(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to stop the sandbox"),

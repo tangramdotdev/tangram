@@ -42,6 +42,7 @@ class ArgObject(TypedDict):
     stderr: NotRequired[Stdio]
     stdin: NotRequired[Stdio]
     stdout: NotRequired[Stdio]
+    wait: NotRequired[bool]
     tty: NotRequired[bool | dict[str, Any] | None]
 
 
@@ -87,6 +88,8 @@ class Arg:
             output["public"] = arg["public"]
         if arg.get("retry"):
             output["retry"] = arg["retry"]
+        if arg.get("wait"):
+            output["wait"] = arg["wait"]
         if "sandbox" in arg:
             output["sandbox"] = arg["sandbox"]
         for stream in ("stderr", "stdin", "stdout"):

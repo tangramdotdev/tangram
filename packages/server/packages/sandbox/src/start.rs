@@ -144,6 +144,7 @@ impl Component {
 			storage: data.storage,
 			time_to_live: data.time_to_live,
 			time_to_stop: data.time_to_stop,
+			wait: false,
 		};
 		let token = session
 			.server
@@ -427,6 +428,7 @@ impl Component {
 		let arg = tg::sandbox::start::Arg {
 			location: Some(location.clone().into()),
 			tokens: arg.tokens.for_location(&location),
+			wait: arg.wait,
 		};
 		let Some(started) = client
 			.try_start_sandbox(id, arg)
@@ -495,6 +497,7 @@ impl Component {
 				}),
 			])),
 			tokens: arg.tokens.for_location(&location),
+			wait: arg.wait,
 		};
 		let Some(started) = client.try_start_sandbox(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to start the sandbox"),
