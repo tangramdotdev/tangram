@@ -7,7 +7,7 @@ use {
 		stream::BoxStream,
 	},
 	std::{
-		collections::{BTreeMap, BTreeSet},
+		collections::BTreeMap,
 		path::{Path, PathBuf},
 		sync::Arc,
 	},
@@ -292,14 +292,17 @@ impl Component {
 			sandbox_stopper,
 		} = arg;
 		let tg::runner::control::Process {
-			data,
+			mut data,
 			id,
 			lease,
+			leases,
 			open,
 			options,
 			parent,
 			token,
 		} = process;
+		data.started_at
+			.get_or_insert_with(|| session.server.clock.unix_timestamp());
 		let mut state = tg::process::State::try_from_data(data)?;
 		let mut command_options = options.clone();
 		command_options
@@ -494,7 +497,7 @@ impl Component {
 			finish: None,
 			index_task: index_task.clone(),
 			inner_token: inner_token.clone(),
-			leases: BTreeSet::from([lease]),
+			leases: std::iter::once(lease).chain(leases).collect(),
 			parent: parent.clone(),
 			process: None,
 			stopper: process_stopper.clone(),

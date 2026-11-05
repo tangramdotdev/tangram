@@ -16,13 +16,15 @@ use {
 	tangram_messenger::Messenger,
 	tangram_server_core::{Server, Session},
 	tangram_server_scheduler_core::{
-		Ack, AddRunnerRequestArg, AddRunnerResponseOutput, BorrowableCapacityNotification,
-		DequeueSandboxRequestArg, DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
+		Ack, AcquireProcessLeaseRequestArg, AcquireProcessLeaseResponseOutput, AddRunnerRequestArg,
+		AddRunnerResponseOutput, BorrowableCapacityNotification, DequeueSandboxRequestArg,
+		DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
 		DestroyRunnerSandboxResponseOutput, EndSandboxRequestArg, EndSandboxResponseOutput,
 		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatAcknowledgement,
-		HeartbeatNotification, Message, Notification, RemoveRunnerRequestArg,
-		RemoveRunnerResponseOutput, Request, RequestArg, Response, ResponseOutput,
-		runner_heartbeat_subject, scheduler_server_subject,
+		HeartbeatNotification, Message, Notification, ReleaseProcessLeaseRequestArg,
+		ReleaseProcessLeaseResponseOutput, RemoveRunnerRequestArg, RemoveRunnerResponseOutput,
+		Request, RequestArg, Response, ResponseOutput, runner_heartbeat_subject,
+		scheduler_server_subject,
 	},
 };
 
@@ -90,11 +92,13 @@ struct Requests {
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 enum RequestKind {
+	AcquireProcessLease,
 	AddRunner,
 	DequeueSandbox,
 	DestroyRunnerSandbox,
 	EndSandbox,
 	EnqueueSandbox,
+	ReleaseProcessLease,
 	RemoveRunner,
 }
 
@@ -138,7 +142,7 @@ enum Operation {
 		result: tg::Result<()>,
 	},
 	Recovered {
-		result: tg::Result<Vec<recovery::Entry>>,
+		result: tg::Result<recovery::Statuses>,
 	},
 	RecoveryExpired,
 	RemoveRunner {
@@ -147,6 +151,10 @@ enum Operation {
 	},
 	Reply {
 		result: tg::Result<()>,
+	},
+	Respond {
+		id: String,
+		result: tg::Result<ResponseOutput>,
 	},
 	Response {
 		id: String,
@@ -273,6 +281,48 @@ impl Component {
 			.map_err(|_| tg::error!("expected a dequeue sandbox response"))?;
 
 		Ok(output.dequeued)
+	}
+
+	/// Acquire a lease of a queued process from its scheduler, which returns `None` if the process's request was sent to a runner.
+	pub(crate) async fn acquire_process_lease(
+		&self,
+		session: &Session,
+		scheduler: &tg::scheduler::Id,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<Option<tg::process::Lease>> {
+		let arg = AcquireProcessLeaseRequestArg {
+			sandbox: sandbox.clone(),
+		};
+		let output = self
+			.send_scheduler_request_to(session, scheduler, RequestArg::AcquireProcessLease(arg))
+			.boxed()
+			.await??
+			.try_unwrap_acquire_process_lease()
+			.map_err(|_| tg::error!("expected an acquire process lease response"))?;
+
+		Ok(output.lease)
+	}
+
+	/// Release a lease of a queued process at its scheduler, which returns `None` if the process's request was sent to a runner.
+	pub(crate) async fn release_process_lease(
+		&self,
+		session: &Session,
+		scheduler: &tg::scheduler::Id,
+		sandbox: &tg::sandbox::Id,
+		lease: tg::process::Lease,
+	) -> tg::Result<Option<bool>> {
+		let arg = ReleaseProcessLeaseRequestArg {
+			lease,
+			sandbox: sandbox.clone(),
+		};
+		let output = self
+			.send_scheduler_request_to(session, scheduler, RequestArg::ReleaseProcessLease(arg))
+			.boxed()
+			.await??
+			.try_unwrap_release_process_lease()
+			.map_err(|_| tg::error!("expected a release process lease response"))?;
+
+		Ok(output.released)
 	}
 
 	/// Ask the scheduler that owns a sandbox to stop or destroy it before its runner connects, returning whether the scheduler owns it.
@@ -730,11 +780,13 @@ impl Scheduler {
 			return;
 		}
 		let kind = match &request.arg {
+			RequestArg::AcquireProcessLease(_) => RequestKind::AcquireProcessLease,
 			RequestArg::AddRunner(_) => RequestKind::AddRunner,
 			RequestArg::DequeueSandbox(_) => RequestKind::DequeueSandbox,
 			RequestArg::DestroyRunnerSandbox(_) => RequestKind::DestroyRunnerSandbox,
 			RequestArg::EndSandbox(_) => RequestKind::EndSandbox,
 			RequestArg::EnqueueSandbox(_) => RequestKind::EnqueueSandbox,
+			RequestArg::ReleaseProcessLease(_) => RequestKind::ReleaseProcessLease,
 			RequestArg::RemoveRunner(_) => RequestKind::RemoveRunner,
 		};
 		if !state
@@ -817,6 +869,9 @@ impl Scheduler {
 
 		let id = request.id;
 		match request.arg {
+			RequestArg::AcquireProcessLease(request) => {
+				state.handle_acquire_process_lease_request(self, id, &request);
+			},
 			RequestArg::AddRunner(request) => {
 				state.handle_add_runner_request(self, id, request);
 			},
@@ -833,6 +888,9 @@ impl Scheduler {
 			},
 			RequestArg::EnqueueSandbox(request) => {
 				state.handle_enqueue_sandbox_request(self, Some(id), request, false);
+			},
+			RequestArg::ReleaseProcessLease(request) => {
+				state.handle_release_process_lease_request(self, id, request);
 			},
 			RequestArg::RemoveRunner(request) => {
 				state.handle_remove_runner_request(self, Some(id), request);
@@ -946,6 +1004,10 @@ impl Scheduler {
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "failed to reply to a scheduler request");
 				}
+			},
+			Operation::Respond { id, result } => {
+				let response = self.response(id, result);
+				self.send_response(state, response);
 			},
 			Operation::Response { id, result } => {
 				state.requests.active.remove(&id);
@@ -1195,6 +1257,27 @@ impl tangram_server_core::scheduler::Component for Component {
 		scheduler: &'a tg::scheduler::Id,
 	) -> BoxFuture<'a, tg::Result<bool>> {
 		self.dequeue_sandbox(session, sandbox, scheduler).boxed()
+	}
+
+	fn acquire_process_lease<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		scheduler: &'a tg::scheduler::Id,
+		sandbox: &'a tg::sandbox::Id,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::Lease>>> {
+		self.acquire_process_lease(session, scheduler, sandbox)
+			.boxed()
+	}
+
+	fn release_process_lease<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		scheduler: &'a tg::scheduler::Id,
+		sandbox: &'a tg::sandbox::Id,
+		lease: tg::process::Lease,
+	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
+		self.release_process_lease(session, scheduler, sandbox, lease)
+			.boxed()
 	}
 
 	fn end_sandbox<'a>(

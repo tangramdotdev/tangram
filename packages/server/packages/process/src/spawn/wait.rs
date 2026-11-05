@@ -22,18 +22,6 @@ impl Component {
 				.then(|| output.data.sandbox.clone())
 				.flatten()
 		});
-		let sandbox_connection_future = if let Some(sandbox) = &scheduled_sandbox {
-			Some(
-				session
-					.server
-					.components
-					.sandbox
-					.subscribe_sandbox_connection(session, sandbox)
-					.await?,
-			)
-		} else {
-			None
-		};
 		let (scheduler_sender, scheduler_receiver) = if scheduled_sandbox.is_some() {
 			let (sender, receiver) = tokio::sync::oneshot::channel();
 			(Some(sender), Some(receiver))
@@ -103,7 +91,6 @@ impl Component {
 									session,
 									sandbox.clone(),
 									scheduler,
-									sandbox_connection_future.unwrap(),
 								);
 							},
 						}
@@ -260,7 +247,7 @@ impl Component {
 				},
 			}
 		} else {
-			self.try_get_cached_process_local(session, arg, command)
+			self.try_get_cached_process_local(session, arg, command, exclude)
 				.boxed()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get a cached process"))?
@@ -306,7 +293,6 @@ impl Component {
 		session: &Session,
 		sandbox: tg::sandbox::Id,
 		scheduler: tg::scheduler::Id,
-		connection_future: tangram_server_core::sandbox::ConnectionFuture,
 	) {
 		let session = session.clone();
 		tokio::spawn(async move {
@@ -336,10 +322,7 @@ impl Component {
 			let arg = process_candidate_sandbox_destroy_arg();
 			let session = session.server.session(&session.server.context);
 			session
-				.server
-				.components
-				.sandbox
-				.destroy_sandbox_when_available(&session, &sandbox, arg, connection_future)
+				.try_destroy_sandbox(&sandbox, arg)
 				.await
 				.inspect_err(|error| {
 					tracing::error!(

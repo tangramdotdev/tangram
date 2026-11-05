@@ -407,7 +407,7 @@ impl Component {
 				.await
 				.map(Some);
 		}
-		self.try_get_cached_process_local(session, arg, command)
+		self.try_get_cached_process_local(session, arg, command, None)
 			.boxed()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a cached process"))
@@ -589,7 +589,7 @@ impl Component {
 			owner: owner.clone(),
 			retry: spawn_arg.retry,
 			sandbox: Some(sandbox.clone()),
-			started_at: Some(now),
+			started_at: None,
 			status: tg::process::Status::Started,
 			stderr: spawn_arg.stderr.clone(),
 			stdin: spawn_arg.stdin.clone(),
