@@ -40,7 +40,7 @@ struct Parent {
 struct Borrowable {
 	available: bool,
 	capacity: tg::runner::Capacity,
-	connection_index: Option<u64>,
+	registration_index: Option<u64>,
 	heartbeat_index: u64,
 	runner: tg::runner::Id,
 }
@@ -68,7 +68,7 @@ enum SandboxState {
 }
 
 struct Block {
-	connection_index: u64,
+	registration_index: u64,
 	heartbeat_index: u64,
 }
 
@@ -85,7 +85,7 @@ enum Placement {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct RunnerRef {
-	connection_index: u64,
+	registration_index: u64,
 	id: tg::runner::Id,
 }
 
@@ -216,7 +216,7 @@ impl Borrowable {
 	#[must_use]
 	fn new(
 		notification: BorrowableCapacityNotification,
-		connection_index: Option<u64>,
+		registration_index: Option<u64>,
 		previous: Option<&Self>,
 	) -> Self {
 		// A pending borrower must not revoke an existing unconsumed reservation.
@@ -224,13 +224,13 @@ impl Borrowable {
 			|| previous.is_some_and(|previous| {
 				previous.available
 					&& previous.capacity == notification.capacity
-					&& previous.connection_index == connection_index
+					&& previous.registration_index == registration_index
 					&& previous.runner == notification.runner
 			});
 		let heartbeat_index = previous
 			.filter(|previous| {
 				previous.runner == notification.runner
-					&& previous.connection_index == connection_index
+					&& previous.registration_index == registration_index
 			})
 			.map_or(notification.heartbeat_index, |previous| {
 				previous.heartbeat_index.max(notification.heartbeat_index)
@@ -238,7 +238,7 @@ impl Borrowable {
 		Self {
 			available,
 			capacity: notification.capacity,
-			connection_index,
+			registration_index,
 			heartbeat_index,
 			runner: notification.runner,
 		}
@@ -443,11 +443,11 @@ impl SchedulerState {
 		scheduler: &Scheduler,
 		notification: BorrowableCapacityNotification,
 	) {
-		let connection_index = self
+		let registration_index = self
 			.runners
 			.entries
 			.get(&notification.runner)
-			.map(|runner| runner.connection_index);
+			.map(|runner| runner.registration_index);
 		let runner = notification.runner.clone();
 		let parent_id = notification.parent.clone();
 		let parent = self
@@ -459,7 +459,7 @@ impl SchedulerState {
 				queue: Queue::new(),
 			});
 		let borrowable =
-			Borrowable::new(notification, connection_index, parent.borrowable.as_ref());
+			Borrowable::new(notification, registration_index, parent.borrowable.as_ref());
 		let previous = parent.borrowable.take();
 		if borrowable.capacity.sandboxes != 0 {
 			parent.borrowable = Some(borrowable);
@@ -494,7 +494,7 @@ impl SchedulerState {
 		let Some(runner) = self.runners.entries.get_mut(&notification.runner) else {
 			return false;
 		};
-		if runner.connection_index != notification.connection_index
+		if runner.registration_index != notification.registration_index
 			|| runner.heartbeat_index >= notification.heartbeat_index
 		{
 			return false;
@@ -601,7 +601,7 @@ impl SchedulerState {
 			.runners
 			.entries
 			.get(&runner_ref.id)
-			.is_some_and(|runner| runner.connection_index == runner_ref.connection_index);
+			.is_some_and(|runner| runner.registration_index == runner_ref.registration_index);
 		let failure = if let Ok(Err(error)) = &result {
 			Some(error.clone())
 		} else {
@@ -647,7 +647,7 @@ impl SchedulerState {
 						&& let Some(runner) = self.runners.entries.get(&runner_ref.id)
 					{
 						let entry = Block {
-							connection_index: runner.connection_index,
+							registration_index: runner.registration_index,
 							heartbeat_index: runner.heartbeat_index,
 						};
 						self.sandboxes
@@ -711,7 +711,7 @@ impl SchedulerState {
 			};
 			let remove = parent.borrowable.as_ref().is_some_and(|borrowable| {
 				borrowable.runner == *id
-					&& borrowable.connection_index == Some(runner.connection_index)
+					&& borrowable.registration_index == Some(runner.registration_index)
 			});
 			if remove {
 				parent.borrowable = None;
@@ -801,7 +801,7 @@ impl SchedulerState {
 		let mut best: Option<(RunnerRef, (u128, u128))> = None;
 		for (id, runner) in &self.runners.entries {
 			let blocked = sandbox.blocked.get(id).is_some_and(|block| {
-				block.connection_index == runner.connection_index
+				block.registration_index == runner.registration_index
 					&& block.heartbeat_index == runner.heartbeat_index
 			});
 			let owner_matches = runner
@@ -831,7 +831,7 @@ impl SchedulerState {
 				score < *best_score || (score == *best_score && id < &best_runner.id)
 			}) {
 				let runner = RunnerRef {
-					connection_index: runner.connection_index,
+					registration_index: runner.registration_index,
 					id: id.clone(),
 				};
 				best = Some((runner, score));
@@ -850,7 +850,7 @@ impl SchedulerState {
 			return None;
 		}
 		let runner = RunnerRef {
-			connection_index: runner.connection_index,
+			registration_index: runner.registration_index,
 			id: borrowable.runner.clone(),
 		};
 		Some(Placement::Borrowed {
@@ -867,8 +867,8 @@ impl SchedulerState {
 		let (_, acquired) = borrowable.capacity.try_borrow(sandbox.capacity)?;
 		if !available(runner).contains(acquired, runner.capacity.overcommit)
 			|| borrowable
-				.connection_index
-				.is_some_and(|index| index != runner.connection_index)
+				.registration_index
+				.is_some_and(|index| index != runner.registration_index)
 			|| !runner.ready
 			|| !matches_host(runner, &sandbox.request)
 		{
@@ -925,7 +925,7 @@ impl SchedulerState {
 		let Some(runner) = self.runners.entries.get_mut(&runner_ref.id) else {
 			return;
 		};
-		if runner.connection_index != runner_ref.connection_index {
+		if runner.registration_index != runner_ref.registration_index {
 			return;
 		}
 		runner.requests = runner.requests.saturating_sub(1);
@@ -1093,7 +1093,7 @@ async fn create_sandbox(
 			session,
 			&runner.id,
 			scheduler,
-			runner.connection_index,
+			runner.registration_index,
 			arg,
 			options,
 		)

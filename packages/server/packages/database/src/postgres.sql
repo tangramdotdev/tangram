@@ -101,7 +101,6 @@ create table organizations (
 create table runners (
 	id text primary key,
 	owner text,
-	scheduler text,
 	created_at int8 not null,
 	foreign key (owner) references specifiers (id)
 );

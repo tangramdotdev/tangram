@@ -26,6 +26,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 		parent: None,
 		permissions: Vec::new(),
 		principal: tg::Principal::Process(id),
+		registration: None,
 		sandbox: None,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,

@@ -19,6 +19,14 @@ impl Index {
 		if let Err(error) = arg.validate() {
 			return Ok(ControlFlow::Break(Err(error)));
 		}
+		if let Some(registration) = &arg.registration {
+			let result = crate::propagate!(
+				Self::check_runner_registration_with_transaction(txn, subspace, registration).await
+			);
+			if let Err(error) = result {
+				return Ok(ControlFlow::Break(Err(error)));
+			}
+		}
 		let id = &arg.id;
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);

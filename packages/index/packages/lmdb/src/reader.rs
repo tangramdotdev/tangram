@@ -229,6 +229,11 @@ impl Index {
 				)?;
 				tangram_index::read::Response::TryGetProcessChildrenAndObjects(output)
 			},
+			tangram_index::read::Request::TryGetRunner { runner } => {
+				let output =
+					Self::try_get_runner_with_transaction(db, subspace, transaction, &runner)?;
+				tangram_index::read::Response::TryGetRunner(output)
+			},
 			tangram_index::read::Request::GetRunnerSandboxes { runner } => {
 				let output = Self::get_runner_sandboxes_with_transaction(
 					db,

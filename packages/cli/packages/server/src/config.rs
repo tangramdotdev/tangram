@@ -2143,6 +2143,7 @@ fn resolve_javascript_engine(source: JavaScriptEngine) -> server::JavaScriptEngi
 
 fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	let mut target = server::Scheduler::default();
+	target.id.clone_from(&source.id);
 	if let Some(value) = source.request_concurrency {
 		target.request_concurrency = value;
 	}

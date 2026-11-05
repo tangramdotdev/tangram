@@ -1311,6 +1311,9 @@ pub struct Scheduler {
 
 	pub heartbeat_ttl: Duration,
 
+	/// The scheduler's ID, which stays the same when the scheduler restarts.
+	pub id: Option<tg::scheduler::Id>,
+
 	pub inbox_ttl: Duration,
 
 	pub max_create_sandbox_attempts: usize,
@@ -3044,6 +3047,7 @@ impl Default for Scheduler {
 			enqueue_retry: message_retry_default(),
 			heartbeat_interval: Duration::from_secs(1),
 			heartbeat_ttl: Duration::from_secs(10),
+			id: None,
 			inbox_ttl: Duration::from_mins(1),
 			max_create_sandbox_attempts: default_scheduler_max_create_sandbox_attempts(),
 			max_create_sandbox_requests: default_scheduler_max_create_sandbox_requests(),

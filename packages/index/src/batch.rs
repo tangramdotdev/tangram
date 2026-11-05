@@ -75,6 +75,9 @@ pub enum Item {
 	#[tangram_serialize(id = 15)]
 	PutProcess(crate::process::put::Arg),
 
+	#[tangram_serialize(id = 32)]
+	PutRunner(crate::runner::put::Arg),
+
 	#[tangram_serialize(id = 17)]
 	PutSandbox(crate::sandbox::put::Arg),
 
@@ -219,6 +222,7 @@ mod tests {
 					permissions: Vec::new(),
 					principal: tg::Principal::Sandbox(sandbox.clone()),
 					processes: None,
+					registration: None,
 					runner: None,
 					stopped_usage: None,
 					touched_at: 2,

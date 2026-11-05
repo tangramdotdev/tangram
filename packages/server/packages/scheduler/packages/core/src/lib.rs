@@ -47,14 +47,14 @@ pub struct Response {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct HeartbeatAcknowledgement {
-	pub connection_index: u64,
+	pub registration_index: u64,
 	pub heartbeat_index: u64,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct HeartbeatNotification {
 	pub capacity: tg::runner::control::Capacity,
-	pub connection_index: u64,
+	pub registration_index: u64,
 	pub heartbeat_index: u64,
 	pub runner: tg::runner::Id,
 	pub sandboxes: BTreeSet<tg::sandbox::Id>,
@@ -85,19 +85,19 @@ pub enum ResponseOutput {
 pub struct AddRunnerRequestArg {
 	pub capacity: tg::runner::control::Capacity,
 	pub host: String,
+	pub registration_index: u64,
 	pub runner: tg::runner::Id,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AddRunnerResponseOutput {
-	pub connection_index: u64,
 	pub runner: tg::runner::Id,
 	pub scheduler: tg::scheduler::Id,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RemoveRunnerRequestArg {
-	pub connection_index: u64,
+	pub registration_index: u64,
 	pub runner: tg::runner::Id,
 }
 

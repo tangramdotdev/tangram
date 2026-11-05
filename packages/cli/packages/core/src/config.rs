@@ -2111,7 +2111,7 @@ pub enum JavaScriptEngine {
 }
 
 #[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Scheduler {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2143,6 +2143,9 @@ pub struct Scheduler {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub heartbeat_ttl: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::scheduler::Id>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]

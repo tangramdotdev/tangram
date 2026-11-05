@@ -1581,6 +1581,7 @@ impl Component {
 			defer_index: false,
 			location: Some(location.clone()),
 			outcome_sync: None,
+			registration: None,
 			store_data: location.is_remote(),
 		};
 		let arg = tg::process::put::Arg {
@@ -1941,6 +1942,7 @@ impl Component {
 			parent: parent.cloned(),
 			permissions: Vec::new(),
 			principal: tg::Principal::Process(id.clone()),
+			registration: None,
 			sandbox: Some(sandbox.clone()),
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,

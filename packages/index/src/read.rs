@@ -91,6 +91,9 @@ pub enum Request {
 	TryGetProcessesWithData {
 		ids: Vec<tg::process::Id>,
 	},
+	TryGetRunner {
+		runner: tg::runner::Id,
+	},
 	TryGetSandboxProcesses {
 		id: tg::sandbox::Id,
 		length: u64,
@@ -152,6 +155,7 @@ pub enum Response {
 	TryGetProcessChildrenAndObjects(Option<crate::process::NodeChildren>),
 	TryGetProcesses(Vec<Option<crate::process::Process>>),
 	TryGetProcessesWithData(Vec<Option<(crate::process::Process, Option<tg::process::Data>)>>),
+	TryGetRunner(Option<crate::runner::Runner>),
 	TryGetSandboxProcesses(Option<Vec<tg::process::Id>>),
 	TryGetSandboxProcessesCount(Option<u64>),
 	TryGetSandboxes(Vec<Option<crate::sandbox::Sandbox>>),

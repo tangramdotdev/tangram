@@ -219,6 +219,12 @@ impl Index {
 						return Ok(Err(error));
 					}
 				},
+				tangram_index::batch::Item::PutRunner(arg) => {
+					let result = Self::put_runner_with_transaction(db, subspace, transaction, arg)?;
+					if let Err(error) = result {
+						return Ok(Err(error));
+					}
+				},
 				tangram_index::batch::Item::PutSandbox(arg) => {
 					let result = Self::put_sandboxes_with_transaction(
 						db,

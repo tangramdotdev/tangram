@@ -11565,6 +11565,7 @@ dependencies = [
  "indexmap 2.14.2",
  "tangram_client",
  "tangram_futures",
+ "tangram_index",
  "tangram_sandbox",
  "tangram_server_control",
  "tokio",

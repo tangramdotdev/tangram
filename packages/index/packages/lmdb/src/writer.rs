@@ -163,6 +163,15 @@ impl Index {
 			let mut results: Vec<tg::Result<Response>> = Vec::new();
 			for request in batch.requests {
 				let result = match request {
+					Request::NextRunnerRegistrationIndex(runner) => {
+						Self::next_runner_registration_index_with_transaction(
+							db,
+							subspace,
+							&mut transaction,
+							&runner,
+						)
+						.map(Response::RunnerRegistrationIndex)
+					},
 					Request::CompletePermissionCapture(entry) => {
 						Self::complete_permission_capture_with_transaction(
 							db,
@@ -519,10 +528,11 @@ impl Index {
 			});
 			let operation_count = match &request {
 				Request::Batch(arg) => Some(arg.items.len()),
-				Request::CompletePermissionCapture(_) => Some(1),
-				Request::DeleteIndexer(_) | Request::PutIndexer(_) | Request::UpdateIndexer(_) => {
-					Some(1)
-				},
+				Request::CompletePermissionCapture(_)
+				| Request::DeleteIndexer(_)
+				| Request::NextRunnerRegistrationIndex(_)
+				| Request::PutIndexer(_)
+				| Request::UpdateIndexer(_) => Some(1),
 				_ => None,
 			};
 			if let Some(count) = operation_count {
@@ -599,6 +609,7 @@ impl Index {
 
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
+			Request::NextRunnerRegistrationIndex(_) => Response::RunnerRegistrationIndex(0),
 			Request::AggregateUsage(_) => {
 				Response::AggregateUsageOutput(tangram_index::usage::aggregate::Output::default())
 			},
@@ -644,6 +655,7 @@ impl Index {
 			Request::Batch(_)
 			| Request::CompletePermissionCapture(_)
 			| Request::DeleteIndexer(_)
+			| Request::NextRunnerRegistrationIndex(_)
 			| Request::PutIndexer(_)
 			| Request::UpdateIndexer(_) => unreachable!(),
 			Request::Clean(crate::Clean {
@@ -1121,6 +1133,12 @@ impl Index {
 			return;
 		};
 		match (target, source) {
+			(
+				Response::RunnerRegistrationIndex(existing),
+				Response::RunnerRegistrationIndex(new),
+			) => {
+				*existing = new;
+			},
 			(Response::AggregateUsageOutput(existing), Response::AggregateUsageOutput(new)) => {
 				existing.count += new.count;
 			},
