@@ -1,4 +1,5 @@
 use {
+	authorization::Authorizations,
 	bytes::Bytes,
 	futures::TryStreamExt as _,
 	heed as lmdb,
@@ -21,6 +22,9 @@ use {
 	tangram_vfs as vfs,
 	tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _},
 };
+
+mod authorization;
+mod client;
 
 /// The name of the checkouts directory within the data directory. The server uses this name only while a vfs is mounted, which is the only circumstance in which this provider runs.
 const CHECKOUTS_DIRECTORY_NAME: &str = "checkouts";
@@ -85,7 +89,7 @@ pub struct Provider {
 }
 
 struct Inner {
-	artifact_tag_target_tokens: Mutex<BTreeMap<tg::artifact::Id, Vec<tg::authorization::Token>>>,
+	authorizations: Mutex<Authorizations>,
 
 	client: tg::Client,
 
@@ -97,18 +101,19 @@ struct Inner {
 
 	nodes: Nodes,
 
+	pointers: Mutex<BTreeMap<tg::artifact::Id, tg::graph::data::Pointer>>,
+
 	principal: Option<tg::Principal>,
 
 	#[cfg(target_os = "macos")]
 	proxy: Option<PathBuf>,
-
-	tokens: BTreeMap<tg::artifact::Id, Vec<tg::authorization::Token>>,
 }
 
 /// The state the fast path requires. It reads the cache and the checkouts directory directly instead of sending a request to the server.
 struct Fast {
 	cache: Cache,
 	checkout_path: PathBuf,
+	pointers: Mutex<BTreeMap<tg::artifact::Id, tg::graph::data::Pointer>>,
 	secondary_path: Option<tangram_util::fs::Temp>,
 }
 
@@ -126,7 +131,7 @@ enum Transaction<'a> {
 
 struct FileHandle {
 	blob: tg::blob::Id,
-	file: tg::File,
+	file: tg::artifact::Id,
 }
 
 struct Nodes {
@@ -222,17 +227,14 @@ impl Provider {
 		let data_directory = data_directory.filter(|_| proxy.is_none());
 		let fast = data_directory.and_then(|data_directory| Fast::new(data_directory, config));
 
-		// Index the artifact tokens.
-		let mut tokens = BTreeMap::<_, Vec<_>>::new();
+		// Retain the mount's authorization proofs.
+		let mut authorizations = Authorizations::default();
 		for token in &config.tokens {
-			let id = &token.body.resource;
-			let Ok(artifact) = tg::artifact::Id::try_from(id.clone()) else {
-				continue;
-			};
-			tokens.entry(artifact).or_default().push(token.clone());
+			let tokens = tg::authorization::Tokens::with_authorization(vec![token.clone()]);
+			authorizations.insert(&token.body.resource, &tokens, true);
 		}
 		let inner = Inner {
-			artifact_tag_target_tokens: Mutex::new(BTreeMap::new()),
+			authorizations: Mutex::new(authorizations),
 
 			client,
 
@@ -244,12 +246,12 @@ impl Provider {
 
 			nodes: Nodes::new(),
 
+			pointers: Mutex::new(BTreeMap::new()),
+
 			principal: config.principal.clone(),
 
 			#[cfg(target_os = "macos")]
 			proxy,
-
-			tokens,
 		};
 		let inner = Arc::new(inner);
 
@@ -409,7 +411,7 @@ impl Inner {
 	}
 
 	async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
-		let node = self.nodes.get(id)?;
+		let node = self.get(id).await?;
 		if let Some(attrs) = node.attrs {
 			return Ok(attrs);
 		}
@@ -427,6 +429,11 @@ impl Inner {
 		depth: u64,
 	) -> std::io::Result<vfs::Attrs> {
 		if let Some(artifact) = artifact
+			&& !self.authorize(artifact).await
+		{
+			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+		}
+		if let Some(artifact) = artifact
 			&& matches!(artifact.kind(), tg::artifact::Kind::Symlink)
 		{
 			let target = self.resolve_symlink(artifact, depth).await?;
@@ -441,7 +448,12 @@ impl Inner {
 		&self,
 		artifact: Option<&tg::artifact::Id>,
 	) -> std::io::Result<vfs::Attrs> {
-		if let Some(fast) = &self.fast {
+		if let Some(fast) = &self.fast
+			&& self
+				.principal
+				.as_ref()
+				.is_none_or(|principal| matches!(principal, tg::Principal::Root))
+		{
 			match fast.compute_attrs(artifact) {
 				Err(error) if is_fallback(&error) => (),
 				result => return result,
@@ -455,17 +467,19 @@ impl Inner {
 		&self,
 		artifact: &tg::artifact::Id,
 	) -> std::io::Result<BTreeMap<String, tg::artifact::Id>> {
-		if let Some(fast) = &self.fast {
-			match fast.directory_entries(artifact) {
-				Err(error) if is_fallback(&error) => (),
-				result => return result,
+		let entries = 'a: {
+			if let Some(fast) = &self.fast {
+				match fast.directory_entries(artifact) {
+					Err(error) if is_fallback(&error) => (),
+					result => break 'a result?,
+				}
 			}
+			self.directory_entries(artifact).await?
+		};
+		for child in entries.values() {
+			self.inherit(&artifact.clone().into(), &child.clone().into());
 		}
-		let entries = self.directory_entries(artifact).await?;
-		Ok(entries
-			.into_iter()
-			.map(|(name, artifact)| (name, artifact.id()))
-			.collect())
+		Ok(entries)
 	}
 
 	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
@@ -513,7 +527,7 @@ impl Inner {
 		}
 
 		// Resolve root entries and named nodes using the flat store namespace.
-		let parent_node = self.nodes.get(parent)?;
+		let parent_node = self.get(parent).await?;
 		if parent == vfs::ROOT_NODE_ID {
 			match tg::store::path::parse_component(name) {
 				Ok(tg::store::path::Component::Id { id, .. }) => {
@@ -572,6 +586,7 @@ impl Inner {
 			return Ok(None);
 		}
 		// The fast path descends the directory tree to the named entry, so unlike the fallback it does not enumerate the whole directory.
+		let directory = artifact.clone();
 		let artifact = 'a: {
 			if let Some(fast) = &self.fast {
 				match fast.directory_lookup_entry(&artifact, name) {
@@ -580,11 +595,12 @@ impl Inner {
 				}
 			}
 			let entries = self.directory_entries(&artifact).await?;
-			entries.get(name).map(tg::Artifact::id)
+			entries.get(name).cloned()
 		};
 		let Some(artifact) = artifact else {
 			return Ok(None);
 		};
+		self.inherit(&directory.into(), &artifact.clone().into());
 		let depth = parent_node.depth + 1;
 
 		// Insert the resolved node.
@@ -615,7 +631,7 @@ impl Inner {
 		let Some(entry) = self.get_named_node_entry(&specifier).await? else {
 			return Ok(None);
 		};
-		let depth = self.nodes.get(parent)?.depth + 1;
+		let depth = self.get(parent).await?.depth + 1;
 		let (attrs, target) = match entry {
 			NamedNodeEntry::Directory if suffix.is_none() => (
 				vfs::Attrs::new(vfs::AttrsInner::Directory).cacheable(false),
@@ -647,7 +663,6 @@ impl Inner {
 		&self,
 		specifier: &tg::Specifier,
 	) -> std::io::Result<Option<NamedNodeEntry>> {
-		let session = self.client.session(self.client.context());
 		let location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		let pattern = specifier
 			.to_string()
@@ -659,10 +674,7 @@ impl Inner {
 		};
 		let reference =
 			tg::Reference::with_node_and_options(tg::reference::Node::Specifier(pattern), entry);
-		let output = reference
-			.try_get_with_instance(&session)
-			.await
-			.map_err(eio)?;
+		let output = self.try_get_reference(&reference).await?;
 		let Some(output) = output else {
 			return Ok(None);
 		};
@@ -681,8 +693,10 @@ impl Inner {
 		let selector = tg::tag::Selector::Id(id);
 		let arg = tg::tag::get::Arg {
 			location,
+			tokens: output.options.tokens,
 			..Default::default()
 		};
+		let session = self.client.session(self.client.context());
 		let output = session.try_get_tag(&selector, arg).await.map_err(eio)?;
 		let Some(output) = output else {
 			return Ok(None);
@@ -719,7 +733,10 @@ impl Inner {
 				tg::reference::Node::Specifier(parent.into()),
 				options,
 			);
-			let node = reference.get_with_instance(&session).await.map_err(eio)?;
+			let node = self
+				.try_get_reference(&reference)
+				.await?
+				.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOENT))?;
 			let node = node
 				.try_map(|node| match node {
 					tg::get::Node::Id(id) => Ok(id),
@@ -768,113 +785,82 @@ impl Inner {
 	}
 
 	fn remember_artifact_tag_target_token(&self, target: &tg::Referent<tg::Id>) {
-		let Ok(artifact) = tg::artifact::Id::try_from(target.node.clone()) else {
-			return;
-		};
-		let incoming = target.options.tokens.local_authorization();
-		let mut artifact_tag_target_tokens = self.artifact_tag_target_tokens.lock().unwrap();
-		let tokens = artifact_tag_target_tokens.entry(artifact).or_default();
-		for token in incoming {
-			if !tokens.contains(token) {
-				tokens.push(token.clone());
-			}
-		}
+		self.authorizations
+			.lock()
+			.unwrap()
+			.insert(&target.node, &target.options.tokens, true);
 	}
 
-	fn artifact_tag_target_tokens(
-		&self,
-		artifact: &tg::artifact::Id,
-	) -> Vec<tg::authorization::Token> {
-		let now = SystemTime::now()
-			.duration_since(UNIX_EPOCH)
-			.map_or(0, |duration| {
-				duration.as_secs().to_i64().unwrap_or(i64::MAX)
-			});
-		let mut artifact_tag_target_tokens = self.artifact_tag_target_tokens.lock().unwrap();
-		let Some(tokens) = artifact_tag_target_tokens.get_mut(artifact) else {
-			return Vec::new();
-		};
-		tokens.retain(|token| token.body.expires_at >= now);
-		let tokens = tokens.clone();
-		if tokens.is_empty() {
-			artifact_tag_target_tokens.remove(artifact);
-		}
-
-		tokens
-	}
-
-	// Authorize the artifact subtree for the mount's principal.
 	async fn authorize(&self, artifact: &tg::artifact::Id) -> bool {
-		let Some(principal) = &self.principal else {
-			return true;
-		};
-		if matches!(principal, tg::Principal::Root) {
-			return true;
-		}
-
-		let permission = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		);
-
-		// Check the locally held subtree tokens.
-		let now = SystemTime::now()
-			.duration_since(UNIX_EPOCH)
-			.map_or(0, |duration| {
-				duration.as_secs().to_i64().unwrap_or(i64::MAX)
-			});
-		let authorized = self.tokens.get(artifact).is_some_and(|tokens| {
-			tokens
-				.iter()
-				.any(|token| token.body.expires_at >= now && token.body.authorizes(permission))
-		});
-		if authorized {
+		if self
+			.principal
+			.as_ref()
+			.is_none_or(|principal| matches!(principal, tg::Principal::Root))
+		{
 			return true;
 		}
+		if let Some(pointer) = self.pointer(artifact) {
+			self.inherit(&artifact.clone().into(), &pointer.graph.clone().into());
+			return self.authorize_object(&pointer.graph.into()).await;
+		}
+		self.authorize_object(&artifact.clone().into()).await
+	}
 
-		// Try the target tokens returned by tags that point to this artifact.
-		let id: tg::object::Id = artifact.clone().into();
-		let location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		let session = self.client.session(self.client.context());
-		let tokens = self.artifact_tag_target_tokens(artifact);
-		if tokens.is_empty() {
+	async fn authorize_object(&self, id: &tg::object::Id) -> bool {
+		if self
+			.principal
+			.as_ref()
+			.is_none_or(|principal| matches!(principal, tg::Principal::Root))
+		{
+			return true;
+		}
+		if self.authorizations.lock().unwrap().authorized(id) {
+			return true;
+		}
+		if self.tokens(id).is_empty() {
 			return false;
 		}
-		let arg = tg::object::get::Arg {
-			location,
-			tokens: tg::authorization::Tokens::with_authorization(tokens),
-			..Default::default()
-		};
-		let Ok(Some(output)) = session.try_get_object(&id, arg).await else {
-			return false;
-		};
-		output.tokens.local_authorization().iter().any(|token| {
-			token.body.resource == tg::Id::from(id.clone())
-				&& token.body.expires_at >= now
-				&& token.body.authorizes(permission)
-		})
+		self.get_object(id).await.is_ok()
+	}
+
+	async fn get(&self, id: u64) -> std::io::Result<NodeInfo> {
+		let node = self.nodes.get(id)?;
+		if let Some(artifact) = &node.artifact
+			&& !self.authorize(artifact).await
+		{
+			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+		}
+		Ok(node)
 	}
 
 	async fn open(&self, id: u64) -> std::io::Result<u64> {
 		// Resolve the file contents.
-		let NodeInfo { artifact, .. } = self.nodes.get(id)?;
+		let NodeInfo { artifact, .. } = self.get(id).await?;
 		let Some(artifact) = artifact else {
 			return Err(std::io::Error::other("expected a file"));
 		};
-		let tg::Artifact::File(file) = tg::Artifact::with_id(artifact.clone()) else {
-			return Err(std::io::Error::other("expected a file"));
-		};
-		let blob = 'a: {
+		let file = artifact.clone();
+		let (data, graph) = 'a: {
 			if let Some(fast) = &self.fast {
-				match fast.file_contents(&artifact) {
+				let result = fast.transaction().and_then(|transaction| {
+					fast.file_node_with_transaction(&transaction, &artifact)
+				});
+				match result {
 					Err(error) if is_fallback(&error) => (),
 					result => break 'a result?,
 				}
 			}
-			file.contents_with_instance(&self.client)
-				.await
-				.map_err(eio)?
-				.id()
+			self.file_node(&artifact).await?
 		};
+		if let Some(graph) = &graph {
+			self.inherit(&artifact.clone().into(), &graph.clone().into());
+		}
+		self.file_dependency_references(&artifact, &data, graph.as_ref())
+			.await?;
+		let blob = data
+			.contents
+			.ok_or_else(|| std::io::Error::other("the file has no contents"))?;
+		self.inherit(&artifact.into(), &blob.clone().into());
 
 		// Create a file handle.
 		let handle = self.file_handle_count.fetch_add(1, Ordering::Relaxed);
@@ -888,7 +874,7 @@ impl Inner {
 	}
 
 	async fn opendir(&self, id: u64) -> std::io::Result<(u64, bool)> {
-		let NodeInfo { artifact, .. } = self.nodes.get(id)?;
+		let NodeInfo { artifact, .. } = self.get(id).await?;
 		let immutable = artifact.is_some();
 		if let Some(artifact) = &artifact
 			&& !matches!(artifact.kind(), tg::artifact::Kind::Directory)
@@ -909,6 +895,14 @@ impl Inner {
 			(file_handle.blob.clone(), file_handle.file.clone())
 		};
 
+		if !self.authorize(&file).await {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+		}
+		self.inherit(&file.into(), &blob.clone().into());
+		if !self.authorize_object(&blob.clone().into()).await {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+		}
+
 		// Try the fast path.
 		if let Some(fast) = &self.fast {
 			match fast.read(&blob, position, length) {
@@ -918,18 +912,14 @@ impl Inner {
 		}
 
 		// Read through the client.
-		let blob = file
-			.contents_with_instance(&self.client)
-			.await
-			.map_err(eio)?;
 		let arg = tg::read::Arg {
-			blob: blob.id(),
+			blob: blob.clone(),
 			options: tg::read::Options {
 				length: Some(length),
 				position: Some(SeekFrom::Start(position)),
 				size: None,
 			},
-			tokens: blob.state().tokens(),
+			tokens: self.tokens(&blob.into()),
 		};
 		let stream = self
 			.client
@@ -960,7 +950,7 @@ impl Inner {
 			named: named_node,
 			parent,
 			..
-		} = self.nodes.get(id)?;
+		} = self.get(id).await?;
 		let directory = match artifact {
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
 				Some(artifact)
@@ -1045,7 +1035,7 @@ impl Inner {
 			named: named_node,
 			parent,
 			..
-		} = self.nodes.get(id)?;
+		} = self.get(id).await?;
 		let directory = match artifact {
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
 				Some(artifact)
@@ -1166,7 +1156,7 @@ impl Inner {
 			depth,
 			named: named_node,
 			..
-		} = self.nodes.get(id)?;
+		} = self.get(id).await?;
 		if let Some(named_node) = named_node {
 			let Some(NamedNodeEntry::Symlink(target)) =
 				self.get_named_node_entry(&named_node.specifier).await?
@@ -1192,68 +1182,62 @@ impl Inner {
 		artifact: &tg::artifact::Id,
 		depth: u64,
 	) -> std::io::Result<Bytes> {
-		if let Some(fast) = &self.fast {
-			match fast.readlink(artifact, depth) {
-				Err(error) if is_fallback(&error) => (),
-				result => return result,
+		let (symlink, graph) = 'a: {
+			if let Some(fast) = &self.fast {
+				let result = fast.transaction().and_then(|transaction| {
+					fast.symlink_node_with_transaction(&transaction, artifact)
+				});
+				match result {
+					Err(error) if is_fallback(&error) => (),
+					result => break 'a result?,
+				}
 			}
-		}
-		let tg::Artifact::Symlink(symlink) = tg::Artifact::with_id(artifact.clone()) else {
-			return Err(std::io::Error::other("expected a symlink"));
+			self.symlink_node(artifact).await?
 		};
-		let artifact = symlink
-			.artifact_with_instance(&self.client)
-			.await
-			.map_err(eio)?
-			.map(|artifact| artifact.id());
-		let path = symlink
-			.path_with_instance(&self.client)
-			.await
-			.map_err(eio)?;
-		render_symlink(depth, artifact, path)
+		if let Some(graph) = &graph {
+			self.inherit(&artifact.clone().into(), &graph.clone().into());
+		}
+		let target = match symlink.artifact {
+			Some(edge) => Some(self.artifact_id_from_edge(edge, graph.as_ref()).await?),
+			None => None,
+		};
+		if let Some(target) = &target {
+			self.inherit(&artifact.clone().into(), &target.clone().into());
+		}
+		render_symlink(depth, target, symlink.path)
 	}
 
 	async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
-		let NodeInfo { artifact, .. } = self.nodes.get(id)?;
-		let Some(artifact) = artifact else {
+		let NodeInfo { artifact, .. } = self.get(id).await?;
+		let Some(artifact) =
+			artifact.filter(|artifact| artifact.kind() == tg::artifact::Kind::File)
+		else {
 			return Ok(Vec::new());
 		};
-		if self.fast.is_some() {
-			match Fast::listxattrs(&artifact) {
-				Err(error) if is_fallback(&error) => (),
-				result => return result,
-			}
-		}
-		let tg::Artifact::File(file) = tg::Artifact::with_id(artifact) else {
-			return Ok(Vec::new());
-		};
-		let dependencies = file
-			.dependencies_with_instance(&self.client)
-			.await
-			.map_err(eio)?;
-		let module = file.module_with_instance(&self.client).await.map_err(eio)?;
-		let mut names = Vec::new();
-		if !dependencies.is_empty() {
-			let references = dependencies.into_keys().collect::<Vec<_>>();
-			let xattrs = tg::file::xattrs::encode_dependencies(
-				&references,
-				tg::file::xattrs::MAX_VALUE_SIZE,
-			)
-			.map_err(eio)?;
-			names.extend(xattrs.into_iter().map(|xattr| xattr.name));
-		}
-		if module.is_some() {
+		let (file, graph) = self.file_node(&artifact).await?;
+		let references = self
+			.file_dependency_references(&artifact, &file, graph.as_ref())
+			.await?;
+		let mut names =
+			tg::file::xattrs::encode_dependencies(&references, tg::file::xattrs::MAX_VALUE_SIZE)
+				.map_err(eio)?
+				.into_iter()
+				.map(|xattr| xattr.name)
+				.collect::<Vec<_>>();
+		if file.module.is_some() {
 			names.push(tg::file::xattrs::MODULE_NAME.to_owned());
 		}
-		if !file.state().tokens().local_authorization().is_empty() {
+		if self.file_token(&artifact).is_some() {
 			names.push(tg::file::xattrs::TOKEN_NAME.to_owned());
 		}
 		Ok(names)
 	}
 
 	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
-		let NodeInfo { artifact, .. } = self.nodes.get(id)?;
-		let Some(artifact) = artifact else {
+		let NodeInfo { artifact, .. } = self.get(id).await?;
+		let Some(artifact) =
+			artifact.filter(|artifact| artifact.kind() == tg::artifact::Kind::File)
+		else {
 			return Ok(None);
 		};
 		if let Some(fast) = &self.fast {
@@ -1262,70 +1246,77 @@ impl Inner {
 				result => return result,
 			}
 		}
-		let tg::Artifact::File(file) = tg::Artifact::with_id(artifact) else {
-			return Ok(None);
-		};
-		if tg::file::xattrs::is_dependencies_name(name) || name == tg::file::xattrs::TOKEN_NAME {
-			let references = self.file_dependency_references(&file).await?;
-			if name == tg::file::xattrs::TOKEN_NAME {
-				// The file xattr contains a single subtree proof for this file.
-				let resource = tg::Id::from(file.id());
-				let permission = tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Subtree,
-				);
-				let value = file
-					.state()
-					.tokens()
-					.local_authorization()
-					.iter()
-					.filter(|token| {
-						token.body.resource == resource && token.body.authorizes(permission)
-					})
-					.max_by_key(|token| token.body.expires_at)
-					.map(ToString::to_string)
-					.map(Bytes::from);
-				return Ok(value);
-			}
+		let (file, graph) = self.file_node(&artifact).await?;
+		if name == tg::file::xattrs::TOKEN_NAME {
+			return Ok(self.file_token(&artifact).map(Bytes::from));
+		}
+		if tg::file::xattrs::is_dependencies_name(name) {
+			let references = self
+				.file_dependency_references(&artifact, &file, graph.as_ref())
+				.await?;
 			let xattrs = tg::file::xattrs::encode_dependencies(
 				&references,
 				tg::file::xattrs::MAX_VALUE_SIZE,
 			)
 			.map_err(eio)?;
-			let value = xattrs
+			return Ok(xattrs
 				.into_iter()
-				.find_map(|xattr| (xattr.name == name).then_some(xattr.value));
-			return Ok(value);
+				.find_map(|xattr| (xattr.name == name).then_some(xattr.value)));
 		}
 		if name == tg::file::xattrs::MODULE_NAME {
-			let Some(module) = file.module_with_instance(&self.client).await.map_err(eio)? else {
-				return Ok(None);
-			};
-			return Ok(Some(module.to_string().as_bytes().to_vec().into()));
+			return Ok(file.module.map(|module| Bytes::from(module.to_string())));
 		}
 		Ok(None)
 	}
 
+	fn file_token(&self, artifact: &tg::artifact::Id) -> Option<String> {
+		let resource = tg::Id::from(artifact.clone());
+		self.tokens(&artifact.clone().into())
+			.local_authorization()
+			.iter()
+			.filter(|token| token.authorizes_object_subtree(&resource))
+			.max_by_key(|token| token.body.expires_at)
+			.map(ToString::to_string)
+	}
+
 	async fn file_dependency_references(
 		&self,
-		file: &tg::File,
+		artifact: &tg::artifact::Id,
+		file: &tg::graph::data::File,
+		graph: Option<&tg::graph::Id>,
 	) -> std::io::Result<Vec<tg::Reference>> {
-		let dependencies = file
-			.dependencies_with_instance(&self.client)
-			.await
-			.map_err(eio)?;
-		let mut references = Vec::with_capacity(dependencies.len());
-		for (mut reference, dependency) in dependencies {
+		let mut references = Vec::with_capacity(file.dependencies.len());
+		for (reference, dependency) in &file.dependencies {
+			let mut reference = reference.clone();
 			if let Some(dependency) = dependency {
 				let mut options = reference.options().clone();
 				options.tokens.inherit(&dependency.0.options.tokens);
-				if let Some(object) = dependency.0.node {
-					options.tokens.inherit(&object.state().tokens());
+				let object = match &dependency.0.node {
+					Some(tg::graph::data::Edge::Index(index)) => Some(
+						self.artifact_id_from_index(*index, graph, None)
+							.await?
+							.into(),
+					),
+					Some(tg::graph::data::Edge::Object(object)) => Some(object.clone()),
+					Some(tg::graph::data::Edge::Pointer(pointer)) => {
+						Some(self.artifact_id_from_pointer(pointer, None)?.into())
+					},
+					None => None,
+				};
+				if let Some(object) = object {
+					self.authorizations.lock().unwrap().insert(
+						&object.clone().into(),
+						&options.tokens,
+						false,
+					);
+					self.inherit(&artifact.clone().into(), &object);
+					options.tokens.inherit(&self.tokens(&object));
+					options.tokens.normalize(Some(&object.into()));
 				}
 				reference.set_options(options);
 			}
 			references.push(reference);
 		}
-
 		Ok(references)
 	}
 
@@ -1338,39 +1329,28 @@ impl Inner {
 		artifact: Option<&tg::artifact::Id>,
 	) -> std::io::Result<vfs::Attrs> {
 		match artifact {
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if artifact.kind() == tg::artifact::Kind::Directory => {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => {
-				let tg::Artifact::File(file) = tg::Artifact::with_id(artifact.clone()) else {
-					return Err(std::io::Error::from_raw_os_error(libc::EIO));
+			Some(artifact) if artifact.kind() == tg::artifact::Kind::File => {
+				let (file, _) = self.file_node(artifact).await?;
+				let size = if let Some(blob) = &file.contents {
+					self.inherit(&artifact.clone().into(), &blob.clone().into());
+					self.blob_length(blob).await?
+				} else {
+					0
 				};
-				let size = file.length_with_instance(&self.client).await.map_err(eio)?;
-				let executable = file
-					.executable_with_instance(&self.client)
-					.await
-					.map_err(eio)?;
-				Ok(vfs::Attrs::new(vfs::AttrsInner::File { executable, size }))
+				Ok(vfs::Attrs::new(vfs::AttrsInner::File {
+					executable: file.executable,
+					size,
+				}))
 			},
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Symlink) => {
+			Some(artifact) if artifact.kind() == tg::artifact::Kind::Symlink => {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink { size: 0 }))
 			},
 			None => Ok(vfs::Attrs::new(vfs::AttrsInner::Directory)),
 			_ => Err(std::io::Error::from_raw_os_error(libc::EIO)),
 		}
-	}
-
-	async fn directory_entries(
-		&self,
-		artifact: &tg::artifact::Id,
-	) -> std::io::Result<BTreeMap<String, tg::Artifact>> {
-		let tg::Artifact::Directory(directory) = tg::Artifact::with_id(artifact.clone()) else {
-			return Err(std::io::Error::from_raw_os_error(libc::EIO));
-		};
-		directory
-			.entries_with_instance(&self.client)
-			.await
-			.map_err(eio)
 	}
 }
 
@@ -1430,6 +1410,7 @@ impl Fast {
 		let fast = Self {
 			cache,
 			checkout_path,
+			pointers: Mutex::new(BTreeMap::new()),
 			secondary_path,
 		};
 
@@ -1485,41 +1466,12 @@ impl Fast {
 		self.directory_lookup_entry_with_transaction(&transaction, artifact, name, None)
 	}
 
-	fn file_contents(&self, artifact: &tg::artifact::Id) -> std::io::Result<tg::blob::Id> {
-		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
-			return Err(std::io::Error::other("expected a file"));
-		}
-		let transaction = self.transaction()?;
-		let (file, _) = self.file_node_with_transaction(&transaction, artifact)?;
-		// A file with no contents is empty. The fallback handles it, so that this path does not have to represent a handle with no blob.
-		file.contents.ok_or_else(fallback)
-	}
-
 	fn read(&self, blob: &tg::blob::Id, position: u64, length: u64) -> std::io::Result<Bytes> {
 		let transaction = self.transaction()?;
 		let mut output = Vec::with_capacity(length.to_usize().unwrap_or(0));
 		self.read_blob_range_with_transaction(&transaction, blob, position, length, &mut output)?;
+
 		Ok(output.into())
-	}
-
-	fn readlink(&self, artifact: &tg::artifact::Id, depth: u64) -> std::io::Result<Bytes> {
-		if !matches!(artifact.kind(), tg::artifact::Kind::Symlink) {
-			return Err(std::io::Error::other("expected a symlink"));
-		}
-		let transaction = self.transaction()?;
-		let (symlink, graph) = self.symlink_node_with_transaction(&transaction, artifact)?;
-		let artifact = match symlink.artifact {
-			None => None,
-			Some(edge) => Some(self.artifact_id_from_edge(&transaction, edge, graph.as_ref())?),
-		};
-		render_symlink(depth, artifact, symlink.path)
-	}
-
-	fn listxattrs(artifact: &tg::artifact::Id) -> std::io::Result<Vec<String>> {
-		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
-			return Ok(Vec::new());
-		}
-		Err(fallback())
 	}
 
 	fn getxattr(&self, artifact: &tg::artifact::Id, name: &str) -> std::io::Result<Option<Bytes>> {
@@ -2009,7 +1961,7 @@ impl Fast {
 			),
 			tg::graph::data::Edge::Object(artifact) => Ok(artifact),
 			tg::graph::data::Edge::Pointer(pointer) => {
-				Self::artifact_id_from_pointer(&pointer, None)
+				self.artifact_id_from_pointer(&pointer, None)
 			},
 		}
 	}
@@ -2029,7 +1981,7 @@ impl Fast {
 			),
 			tg::graph::data::Edge::Object(directory) => Ok(directory.into()),
 			tg::graph::data::Edge::Pointer(pointer) => {
-				Self::artifact_id_from_pointer(&pointer, Some(tg::artifact::Kind::Directory))
+				self.artifact_id_from_pointer(&pointer, Some(tg::artifact::Kind::Directory))
 			},
 		}
 	}
@@ -2049,36 +2001,21 @@ impl Fast {
 			index,
 			kind: node.kind(),
 		};
-		Self::artifact_id_from_pointer(&pointer, expected_kind)
+		self.artifact_id_from_pointer(&pointer, expected_kind)
 	}
 
 	fn artifact_id_from_pointer(
+		&self,
 		pointer: &tg::graph::data::Pointer,
 		expected_kind: Option<tg::artifact::Kind>,
 	) -> std::io::Result<tg::artifact::Id> {
-		if let Some(expected_kind) = expected_kind
-			&& pointer.kind != expected_kind
-		{
-			tracing::error!(kind = ?pointer.kind, expected = ?expected_kind, "invalid pointer kind");
-			return Err(std::io::Error::from_raw_os_error(libc::EIO));
-		}
-		let graph = pointer.graph.clone();
-		let pointer = tg::graph::data::Pointer {
-			graph,
-			index: pointer.index,
-			kind: pointer.kind,
-		};
-		let kind = pointer.kind;
-		let data: tg::artifact::data::Artifact = match kind {
-			tg::artifact::Kind::Directory => tg::directory::Data::Pointer(pointer).into(),
-			tg::artifact::Kind::File => tg::file::Data::Pointer(pointer).into(),
-			tg::artifact::Kind::Symlink => tg::symlink::Data::Pointer(pointer).into(),
-		};
-		let bytes = data.serialize().map_err(|error| {
-			tracing::error!(error = %error.trace(), "failed to serialize the pointer artifact data");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
-		Ok(tg::artifact::Id::new(kind, &bytes))
+		let id = client::pointer_id(pointer, expected_kind)?;
+		self.pointers
+			.lock()
+			.unwrap()
+			.insert(id.clone(), pointer.clone());
+
+		Ok(id)
 	}
 }
 
@@ -2533,6 +2470,14 @@ fn proxy_responses(
 				.collect()
 		},
 	}
+}
+
+fn now() -> i64 {
+	SystemTime::now()
+		.duration_since(UNIX_EPOCH)
+		.map_or(0, |duration| {
+			duration.as_secs().to_i64().unwrap_or(i64::MAX)
+		})
 }
 
 fn eio(error: impl std::fmt::Debug) -> std::io::Error {

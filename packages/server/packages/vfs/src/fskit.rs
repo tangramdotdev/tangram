@@ -10,7 +10,14 @@ use {
 	},
 };
 
+#[cfg(test)]
+mod tests;
+
 pub struct Server {
+	task: Option<Task<()>>,
+}
+
+struct Mount {
 	path: PathBuf,
 	proxy: Option<Task<()>>,
 }
@@ -61,6 +68,82 @@ struct Response {
 
 impl Server {
 	pub async fn start(
+		server: &tangram_server_core::Server,
+		path: &Path,
+		principal: tg::Principal,
+		origin: Origin,
+		provider: crate::Provider,
+	) -> tg::Result<Self> {
+		let server = server.clone();
+		let path = path.to_owned();
+		let start = async move {
+			let result = Mount::start(&server, &path, principal, origin, provider).await;
+			let mount = match result {
+				Err(error) => {
+					Mount::unmount(&path).await.ok();
+					return Err(error);
+				},
+				Ok(mount) => mount,
+			};
+
+			Ok(mount.wait())
+		};
+
+		Self::start_inner(start).await
+	}
+
+	async fn start_inner<F>(
+		start: impl Future<Output = tg::Result<F>> + Send + 'static,
+	) -> tg::Result<Self>
+	where
+		F: Future<Output = ()> + Send + 'static,
+	{
+		// Keep startup and cleanup alive when the caller is cancelled.
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let mut task = Task::spawn(move |stopper| async move {
+			let cleanup = match start.await {
+				Err(error) => {
+					sender.send(Err(error)).ok();
+					return;
+				},
+				Ok(cleanup) => cleanup,
+			};
+			if sender.send(Ok(())).is_ok() {
+				stopper.wait().await;
+			}
+			cleanup.await;
+		});
+		task.detach();
+		let server = Self { task: Some(task) };
+		receiver
+			.await
+			.map_err(|error| tg::error!(!error, "the fskit mount task exited during startup"))??;
+
+		Ok(server)
+	}
+
+	pub fn stop(&self) {
+		if let Some(task) = &self.task {
+			task.stop();
+		}
+	}
+
+	pub async fn wait(mut self) {
+		let task = self.task.take().unwrap();
+		task.stop();
+		if let Err(error) = task.wait().await {
+			tracing::error!(?error, "the fskit mount task panicked");
+		}
+	}
+
+	pub async fn unmount(path: &Path) -> tg::Result<()> {
+		Mount::unmount(path).await?;
+		Ok(())
+	}
+}
+
+impl Mount {
+	async fn start(
 		server: &tangram_server_core::Server,
 		path: &Path,
 		principal: tg::Principal,
@@ -239,7 +322,7 @@ impl Server {
 		Ok((task, socket))
 	}
 
-	pub async fn wait(self) {
+	async fn wait(self) {
 		if let Err(error) = Self::unmount(&self.path).await {
 			tracing::error!(?error, "failed to unmount the fskit vfs");
 		}
@@ -249,7 +332,7 @@ impl Server {
 		}
 	}
 
-	pub async fn unmount(path: &Path) -> tg::Result<()> {
+	async fn unmount(path: &Path) -> tg::Result<()> {
 		let output = tokio::process::Command::new("/sbin/umount")
 			.arg(path)
 			.output()
@@ -337,5 +420,11 @@ impl Server {
 			}
 		}
 		options.join(",")
+	}
+}
+
+impl Drop for Server {
+	fn drop(&mut self) {
+		self.stop();
 	}
 }

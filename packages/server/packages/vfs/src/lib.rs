@@ -270,7 +270,7 @@ impl Server {
 	pub fn stop(&self) {
 		match &self.inner {
 			#[cfg(target_os = "macos")]
-			Inner::Fskit(_) => {},
+			Inner::Fskit(server) => server.stop(),
 			#[cfg(target_os = "linux")]
 			Inner::Fuse(server) => server.stop(),
 			Inner::Nfs(server) => server.stop(),
