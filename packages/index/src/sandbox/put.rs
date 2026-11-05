@@ -171,15 +171,14 @@ impl Arg {
 
 /// The position of the sandbox data in its lifecycle, which orders writes that may be applied out of order. A destroyed sandbox is after every boot.
 #[must_use]
-fn position(data: &tg::sandbox::Data) -> (bool, u64, u8) {
-	let rank = match data.status {
-		tg::sandbox::Status::Starting => 0,
-		tg::sandbox::Status::Started => 1,
-		tg::sandbox::Status::Stopping => 2,
-		tg::sandbox::Status::Stopped => 3,
-		tg::sandbox::Status::Destroyed => 4,
-	};
-	(data.status.is_destroyed(), data.boot, rank)
+fn position(data: &tg::sandbox::Data) -> (u64, u8) {
+	match data.status {
+		tg::sandbox::Status::Starting => (data.boot, 0),
+		tg::sandbox::Status::Started => (data.boot, 1),
+		tg::sandbox::Status::Stopping => (data.boot, 2),
+		tg::sandbox::Status::Stopped => (data.boot, 3),
+		tg::sandbox::Status::Destroyed => (u64::MAX, 4),
+	}
 }
 
 fn max(a: &tg::sandbox::Usage, b: &tg::sandbox::Usage) -> tg::sandbox::Usage {
