@@ -929,11 +929,32 @@ impl Component {
 		session: &Session,
 		id: &tg::tag::Id,
 	) -> tg::Result<Option<(tg::Id, String)>> {
-		let id = id.clone();
+		// Read the state from the read connection.
+		let options = db::ConnectionOptions::default();
+		let state = Self::try_get_tag_target_state_with_options(session, id, options).await?;
+		if state.is_some() {
+			return Ok(state);
+		}
+
+		// Read the state from the write connection, because a new tag may not have reached the read connection.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
+		let state = Self::try_get_tag_target_state_with_options(session, id, options).await?;
+
+		Ok(state)
+	}
+
+	async fn try_get_tag_target_state_with_options(
+		session: &Session,
+		id: &tg::tag::Id,
+		options: db::ConnectionOptions,
+	) -> tg::Result<Option<(tg::Id, String)>> {
 		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let id = id.clone();
 				async move {
 					Self::try_get_tag_target_state_with_transaction(transaction, &id).await

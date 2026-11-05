@@ -189,7 +189,7 @@ impl Component {
 	pub(crate) async fn grant(
 		&self,
 		session: &Session,
-		arg: tg::grant::grant::Arg,
+		mut arg: tg::grant::grant::Arg,
 	) -> tg::Result<tg::grant::grant::Output> {
 		if !session.server.is_primary_region() {
 			return self.grant_primary_region(session, arg).await;
@@ -246,6 +246,10 @@ impl Component {
 				}
 			},
 		}
+
+		// Write to the authorized ID, so that the write fails if a specifier now names a different node.
+		arg.resource.node = tg::Selector::Id(resource);
+
 		let component = self.clone();
 		let session = session.clone();
 		let grant = session
@@ -323,7 +327,7 @@ impl Component {
 	pub(crate) async fn revoke(
 		&self,
 		session: &Session,
-		arg: tg::grant::revoke::Arg,
+		mut arg: tg::grant::revoke::Arg,
 	) -> tg::Result<()> {
 		if !session.server.is_primary_region() {
 			return self.revoke_primary_region(session, arg).await;
@@ -353,6 +357,10 @@ impl Component {
 					.into_result()?;
 			},
 		}
+
+		// Write to the authorized ID, so that the write fails if a specifier now names a different node.
+		arg.resource.node = tg::Selector::Id(resource);
+
 		let component = self.clone();
 		let session = session.clone();
 		let output = session
@@ -1083,19 +1091,39 @@ impl Component {
 		session: &Session,
 		resource: &tg::Selector<tg::Id>,
 	) -> tg::Result<tg::Id> {
-		let resource = resource.clone();
-		let resource = session
+		// Read the resource from the read connection.
+		let options = db::ConnectionOptions::default();
+		let id = Self::try_resolve_resource_with_options(session, resource, options).await?;
+		if let Some(id) = id {
+			return Ok(id);
+		}
+
+		// Read the resource from the write connection, because a new node may not have reached the read connection.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
+		let id = Self::try_resolve_resource_with_options(session, resource, options)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the resource"))?;
+
+		Ok(id)
+	}
+
+	async fn try_resolve_resource_with_options(
+		session: &Session,
+		resource: &tg::Selector<tg::Id>,
+		options: db::ConnectionOptions,
+	) -> tg::Result<Option<tg::Id>> {
+		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let resource = resource.clone();
 				async move { Self::resolve_resource_with_transaction(transaction, &resource).await }
 					.boxed()
 			})
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the resource"))?;
-
-		Ok(resource)
+			.await
 	}
 
 	async fn resolve_resource_with_transaction(

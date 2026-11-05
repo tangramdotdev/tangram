@@ -40,12 +40,17 @@ impl Component {
 		let remote = remote.clone();
 		let trusted = arg.trusted;
 		let url = arg.url.to_string();
+		let principal_id = principal
+			.as_ref()
+			.map(Self::remote_principal_id)
+			.transpose()?;
 		let principal = principal.as_ref().map(ToString::to_string);
 		let name = session
 			.server
 			.database
 			.run(|transaction| {
 				let principal = principal.clone();
+				let principal_id = principal_id.clone();
 				let remote = remote.clone();
 				let url = url.clone();
 				async move {
@@ -53,6 +58,7 @@ impl Component {
 						transaction,
 						&remote,
 						principal.as_deref(),
+						principal_id.as_ref(),
 						trusted,
 						&url,
 					)
@@ -89,12 +95,30 @@ impl Component {
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		remote: &tg::remote::Selector,
 		principal: Option<&str>,
+		principal_id: Option<&tg::Id>,
 		trusted: bool,
 		url: &str,
 	) -> tg::Result<ControlFlow<Option<String>, tangram_server_core::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			name: String,
+		}
+
+		// Fail if the authorized principal no longer exists, because its specifier can now name a different node.
+		if let Some(id) = principal_id {
+			let specifier =
+				match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
+					transaction,
+					id,
+				)
+				.await?
+				{
+					ControlFlow::Break(specifier) => specifier,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+			if specifier.is_none() {
+				return Err(tg::error!(%id, "failed to find the remote principal"));
+			}
 		}
 
 		// Update the remote.

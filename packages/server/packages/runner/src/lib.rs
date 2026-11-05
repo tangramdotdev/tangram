@@ -332,11 +332,32 @@ impl Component {
 		session: &Session,
 		runner: &tg::runner::Id,
 	) -> tg::Result<Option<tg::runner::Data>> {
-		let runner = runner.clone();
+		// Read the runner from the read connection.
+		let options = db::ConnectionOptions::default();
+		let data = Self::try_get_runner_data_with_options(session, runner, options).await?;
+		if data.is_some() {
+			return Ok(data);
+		}
+
+		// Read the runner from the write connection, because a new runner may not have reached the read connection.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
+		let data = Self::try_get_runner_data_with_options(session, runner, options).await?;
+
+		Ok(data)
+	}
+
+	async fn try_get_runner_data_with_options(
+		session: &Session,
+		runner: &tg::runner::Id,
+		options: db::ConnectionOptions,
+	) -> tg::Result<Option<tg::runner::Data>> {
 		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let runner = runner.clone();
 				async move { Self::try_get_runner_data_with_transaction(transaction, &runner).await }
 					.boxed()
@@ -385,10 +406,15 @@ impl Component {
 		runner: &tg::runner::Id,
 	) -> tg::Result<Option<tg::scheduler::Id>> {
 		let runner = runner.clone();
+		// Read from the write connection, because the scheduler decides whether to stop the runner's sandboxes.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let runner = runner.clone();
 				async move {
 					Self::try_get_runner_scheduler_with_transaction(transaction, &runner).await

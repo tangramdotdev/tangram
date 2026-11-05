@@ -117,13 +117,38 @@ impl Component {
 	}
 
 	async fn try_wait_login_local(&self, session: &Session, code: &str) -> tg::Result<WaitLogin> {
+		// Read the login from the read connection.
+		let options = db::ConnectionOptions::default();
+		let output = self
+			.try_wait_login_local_with_options(session, code, options)
+			.await?;
+		if let Some(output) = output {
+			return Ok(output);
+		}
+
+		// Read the login from the write connection, because the client waits immediately after creating the login.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
+		self.try_wait_login_local_with_options(session, code, options)
+			.await?
+			.ok_or_else(|| tg::error!("invalid login code"))
+	}
+
+	async fn try_wait_login_local_with_options(
+		&self,
+		session: &Session,
+		code: &str,
+		options: db::ConnectionOptions,
+	) -> tg::Result<Option<WaitLogin>> {
 		let code = code.to_owned();
 		let component = self.clone();
 		let session = session.clone();
 		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let code = code.clone();
 				let component = component.clone();
 				let session = session.clone();
@@ -142,7 +167,7 @@ impl Component {
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		code: &str,
-	) -> tg::Result<ControlFlow<WaitLogin, tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<Option<WaitLogin>, tangram_server_core::database::Error>> {
 		// Get the login.
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -166,7 +191,7 @@ impl Component {
 			.await;
 		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
 		let Some(row) = row else {
-			return Err(tg::error!("invalid login code"));
+			return Ok(ControlFlow::Break(None));
 		};
 
 		// Check the expiration time.
@@ -204,7 +229,7 @@ impl Component {
 			},
 			_ => return Err(tg::error!("invalid login status")),
 		};
-		Ok(ControlFlow::Break(output))
+		Ok(ControlFlow::Break(Some(output)))
 	}
 
 	pub(crate) async fn wait_login_request(
