@@ -67,12 +67,11 @@ declare -a pids=()
 
 cleanup() {
 	status=$?
-	trap - EXIT HUP INT TERM
+	trap - EXIT
+	# Finish the cleanup even if another interrupt arrives.
+	trap '' HUP INT TERM
 	if [ -n "$build_pid" ]; then
 		pids+=("$build_pid")
-	fi
-	if [ "$platform" = macos ]; then
-		docker rm --force "$foundationdb_container" "$scylla_container" >/dev/null 2>&1 || true
 	fi
 	for pid in "${pids[@]}"; do
 		kill -TERM -- "-$pid" 2>/dev/null || true
@@ -93,6 +92,10 @@ cleanup() {
 		kill -KILL -- "-$pid" 2>/dev/null || true
 		wait "$pid" 2>/dev/null || true
 	done
+	# Remove the containers after their clients can no longer start them.
+	if [ "$platform" = macos ]; then
+		docker rm --force "$foundationdb_container" "$scylla_container" >/dev/null 2>&1 || true
+	fi
 	if ! rm -rf -- "$state_path" "$database_pool_path" 2>/dev/null; then
 		echo "warning: failed to remove temporary database state in $state_path" >&2
 	fi
