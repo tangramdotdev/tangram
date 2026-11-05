@@ -6,7 +6,7 @@ pub(super) struct MountControl {
 }
 
 pub(super) struct Connection {
-	pub(super) abort: OwnedFd,
+	pub(super) abort: Option<OwnedFd>,
 	pub(super) fd: Arc<OwnedFd>,
 	pub(super) features: Features,
 	pub(super) ready: Option<Arc<MountControl>>,
@@ -61,7 +61,9 @@ where
 		let features = match Self::init_handshake(fd.as_ref(), options, limits, supports_no_opendir)
 		{
 			Err(error) => {
-				Self::abort_connection(&abort).ok();
+				if let Some(abort) = &abort {
+					Self::abort_connection(abort).ok();
+				}
 				return Err(error);
 			},
 			Ok(features) => features,
@@ -263,10 +265,12 @@ where
 		Ok(())
 	}
 
-	pub(super) async fn disconnect_transport(&self, abort: &OwnedFd, path: &Path) -> bool {
-		let aborted = Self::abort_connection(abort)
-			.inspect_err(|error| tracing::error!(%error, "failed to abort the FUSE connection"))
-			.is_ok();
+	pub(super) async fn disconnect_transport(&self, abort: Option<&OwnedFd>, path: &Path) -> bool {
+		let aborted = abort.is_some_and(|abort| {
+			Self::abort_connection(abort)
+				.inspect_err(|error| tracing::error!(%error, "failed to abort the FUSE connection"))
+				.is_ok()
+		});
 		if self.auto_unmount {
 			Self::unmount(path)
 				.await
@@ -277,21 +281,27 @@ where
 		aborted
 	}
 
-	pub(super) fn open_connection_abort(connection_id: u64) -> Result<OwnedFd> {
-		let abort = Path::new("/sys/fs/fuse/connections")
+	pub(super) fn open_connection_abort(connection_id: u64) -> Result<Option<OwnedFd>> {
+		let path = Path::new("/sys/fs/fuse/connections")
 			.join(connection_id.to_string())
 			.join("abort");
-		let abort = std::fs::File::options()
-			.write(true)
-			.open(abort)
-			.map_err(|error| {
-				Error::other(format!(
-					"failed to open the abort descriptor for FUSE connection {connection_id}: {error}",
-				))
-			})?
-			.into();
+		match std::fs::File::options().write(true).open(path) {
+			Ok(abort) => Ok(Some(abort.into())),
 
-		Ok(abort)
+			// Continue without the descriptor where the FUSE control filesystem is unavailable, such as in a sandbox.
+			Err(error)
+				if matches!(
+					error.kind(),
+					std::io::ErrorKind::NotFound | std::io::ErrorKind::ReadOnlyFilesystem
+				) =>
+			{
+				Ok(None)
+			},
+
+			Err(error) => Err(Error::other(format!(
+				"failed to open the abort descriptor for FUSE connection {connection_id}: {error}",
+			))),
+		}
 	}
 
 	pub(super) fn abort_connection(abort: &OwnedFd) -> Result<()> {
@@ -358,9 +368,7 @@ where
 		disconnected: bool,
 	) {
 		if !disconnected {
-			tracing::error!(
-				"detaching FUSE workers because the connection could not be terminated"
-			);
+			tracing::debug!("detaching FUSE workers because the connection was not terminated");
 			thread_handles.clear();
 			return;
 		}
