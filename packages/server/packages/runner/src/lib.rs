@@ -332,12 +332,28 @@ impl Component {
 		session: &Session,
 		runner: &tg::runner::Id,
 	) -> tg::Result<Option<tg::runner::Data>> {
-		let runner = runner.clone();
-		// Read from the write connection, because the owner authorizes changes to the runner.
+		// Read the runner from the read connection.
+		let options = db::ConnectionOptions::default();
+		let data = Self::try_get_runner_data_with_options(session, runner, options).await?;
+		if data.is_some() {
+			return Ok(data);
+		}
+
+		// Read the runner from the write connection, because a new runner may not have reached the read connection.
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			..Default::default()
 		};
+		let data = Self::try_get_runner_data_with_options(session, runner, options).await?;
+
+		Ok(data)
+	}
+
+	async fn try_get_runner_data_with_options(
+		session: &Session,
+		runner: &tg::runner::Id,
+		options: db::ConnectionOptions,
+	) -> tg::Result<Option<tg::runner::Data>> {
 		session
 			.server
 			.database

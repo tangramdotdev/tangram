@@ -119,13 +119,30 @@ impl Component {
 		session: &Session,
 		arg: &FinishLoginArg,
 	) -> tg::Result<tg::Specifier> {
-		let arg = arg.clone();
-		// Read from the write connection, because the login can be created earlier in this request.
+		// Read the specifier from the read connection.
+		let options = db::ConnectionOptions::default();
+		let specifier =
+			Self::try_get_login_user_specifier_with_options(session, arg, options).await?;
+		if let Some(specifier) = specifier {
+			return Ok(specifier);
+		}
+
+		// Read the specifier from the write connection, because the login can be created earlier in this request.
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			..Default::default()
 		};
-		let specifier = session
+		Self::try_get_login_user_specifier_with_options(session, arg, options)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the login"))
+	}
+
+	async fn try_get_login_user_specifier_with_options(
+		session: &Session,
+		arg: &FinishLoginArg,
+		options: db::ConnectionOptions,
+	) -> tg::Result<Option<tg::Specifier>> {
+		session
 			.server
 			.database
 			.run_with_options(options, |transaction| {
@@ -133,15 +150,13 @@ impl Component {
 				async move { Self::login_user_specifier_with_transaction(transaction, &arg).await }
 					.boxed()
 			})
-			.await?;
-
-		Ok(specifier)
+			.await
 	}
 
 	async fn login_user_specifier_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		arg: &FinishLoginArg,
-	) -> tg::Result<ControlFlow<tg::Specifier, tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<Option<tg::Specifier>, tangram_server_core::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			name: Option<String>,
@@ -156,9 +171,12 @@ impl Component {
 			"
 		);
 		let result = transaction
-			.query_one_into::<Row>(statement.into(), db::params![arg.code.clone()])
+			.query_optional_into::<Row>(statement.into(), db::params![arg.code.clone()])
 			.await;
 		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let Some(row) = row else {
+			return Ok(ControlFlow::Break(None));
+		};
 		let specifier = row
 			.name
 			.as_deref()
@@ -169,7 +187,7 @@ impl Component {
 			return Err(tg::error!("invalid user specifier"));
 		}
 
-		Ok(ControlFlow::Break(specifier))
+		Ok(ControlFlow::Break(Some(specifier)))
 	}
 
 	async fn finish_login_with_transaction(
@@ -315,6 +333,7 @@ impl Component {
 			ControlFlow::Break(specifier) => specifier,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
+		let specifier = specifier.ok_or_else(|| tg::error!("failed to find the login"))?;
 
 		// Get or create the user.
 		let id =
