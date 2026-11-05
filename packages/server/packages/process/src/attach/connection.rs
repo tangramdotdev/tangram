@@ -195,6 +195,7 @@ impl Component {
 					&id,
 					wait_arg.tokens.local_authorization().to_vec(),
 					tg::process::Source::Auto,
+					true,
 				)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the process"))?

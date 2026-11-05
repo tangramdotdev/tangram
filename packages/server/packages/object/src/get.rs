@@ -16,7 +16,9 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_index::prelude::*,
-	tangram_server_core::{Server, Session},
+	tangram_server_core::{
+		Server, Session, location::await_first_found_of_local_regions_remotes_futures,
+	},
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
@@ -45,21 +47,48 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		let local_future = async {
-			if locations.local.as_ref().is_some_and(|local| local.current) {
-				return self
-					.try_get_object_local(
-						session,
-						id,
-						arg.metadata,
-						arg.availability,
-						arg.tokens.local_authorization(),
-					)
-					.await;
-			}
-			Ok(None)
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
+
+		// Read the object and authorize it without a search.
+		let node = if current {
+			self.try_get_object_local_with_server(&session.server, id, false)
+				.await?
+		} else {
+			None
 		};
-		let lookup_future = async {
+		if current
+			&& let Some(output) = self
+				.try_get_object_local(
+					session,
+					id,
+					arg.metadata,
+					arg.availability,
+					arg.tokens.local_authorization(),
+					node.clone(),
+					false,
+				)
+				.await?
+		{
+			return Ok(Some(output));
+		}
+
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			if !current {
+				return Ok(None);
+			}
+			self.try_get_object_local(
+				session,
+				id,
+				arg.metadata,
+				arg.availability,
+				arg.tokens.local_authorization(),
+				node,
+				true,
+			)
+			.await
+		};
+		let regions_and_remotes_future = async {
 			if let Some(local) = &locations.local
 				&& let Some(output) = self
 					.try_get_object_regions(
@@ -76,39 +105,28 @@ impl Component {
 					)? {
 				return Ok(Some(output));
 			}
-
-			if let Some(output) = self
-				.try_get_object_remotes(
-					session,
-					id,
-					&locations.remotes,
-					arg.metadata,
-					arg.availability,
-					&arg.tokens,
-				)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to get the object from a remote"),
-				)? {
-				return Ok(Some(output));
-			}
-
-			Ok(None)
+			self.try_get_object_remotes(
+				session,
+				id,
+				&locations.remotes,
+				arg.metadata,
+				arg.availability,
+				&arg.tokens,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object from a remote"))
 		};
-		let mut futures = [local_future.boxed(), lookup_future.boxed()]
-			.into_iter()
-			.collect::<FuturesUnordered<_>>();
-		let mut error = None;
-		while let Some(result) = futures.next().await {
-			match result {
-				Ok(Some(output)) => return Ok(Some(output)),
-				Ok(None) => {},
-				Err(source) => error = Some(source),
-			}
-		}
-		error.map_or(Ok(None), Err)
+		let output = await_first_found_of_local_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+
+		Ok(output)
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	pub async fn try_get_object_local(
 		&self,
 		session: &Session,
@@ -116,27 +134,40 @@ impl Component {
 		metadata: bool,
 		availability: bool,
 		tokens: &[tg::authorization::Token],
+		node: Option<tg::object::get::Output>,
+		exhaustive: bool,
 	) -> tg::Result<Option<tg::object::get::Output>> {
+		// Authorize the object.
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
-		let node = tg::authorization::Permission::Object(
+		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
-		let authorize_future = session.authorize_object_read(resource.clone()).boxed();
-		let get_future = self.try_get_object_local_with_server(&session.server, id, false);
-		let (authorization, output) = future::join(authorize_future, get_future).await;
-		let authorization = authorization?.check_exhaustion()?;
-		if !authorization.permissions.contains(node) {
+		let authorization = session
+			.authorize_object_read_with_exhaustive(resource.clone(), exhaustive)
+			.boxed()
+			.await?
+			.check_exhaustion()?;
+		if !authorization.permissions.contains(permission) {
 			return Ok(None);
 		}
-		let mut output = output?;
-		// The concurrent read can miss bytes that arrive while authorization is pending.
+
+		// Read the object if it was not provided.
+		let mut output = match node {
+			Some(node) => Some(node),
+			None => {
+				self.try_get_object_local_with_server(&session.server, id, false)
+					.await?
+			},
+		};
+
+		// Wait for the bytes to arrive through a sync, then read the object again.
 		if output.is_none() {
 			let permissions = tg::authorization::permission::Set::Object(
 				tg::authorization::permission::object::Set::empty(),
 			);
 			let storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
 			if session
-				.verify(resource, permissions, storage, None)
+				.verify_with_exhaustive(resource, permissions, storage, exhaustive)
 				.boxed()
 				.await?
 				.check_exhaustion()?
@@ -148,12 +179,15 @@ impl Component {
 				.try_get_object_local_with_server(&session.server, id, false)
 				.await?;
 		}
+
+		// Create the output.
 		let Some(output) = output else {
 			return Ok(None);
 		};
 		let output = self
 			.create_object_get_output(session, id, metadata, availability, authorization, output)
 			.await?;
+
 		Ok(Some(output))
 	}
 

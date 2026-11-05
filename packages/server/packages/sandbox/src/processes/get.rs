@@ -13,7 +13,7 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
@@ -72,39 +72,54 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(stream) = self
-					.try_get_sandbox_processes_local(session, id, arg.clone())
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the sandbox processes"))?
-			{
-				return Ok(Some(stream));
-			}
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-			if let Some(stream) = self
-				.try_get_sandbox_processes_regions(session, id, arg.clone(), &local.regions)
+		// Read the local processes without a search.
+		if current
+			&& let Some(stream) = self
+				.try_get_sandbox_processes_local(session, id, arg.clone(), false)
 				.await
-				.map_err(|error| {
-					tg::error!(
-						!error,
-						"failed to get the sandbox processes from another region"
-					)
-				})? {
-				return Ok(Some(stream));
-			}
-		}
-
-		if let Some(stream) = self
-			.try_get_sandbox_processes_remotes(session, id, arg, &locations.remotes)
-			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to get the sandbox processes from a remote")
-			})? {
+				.map_err(|error| tg::error!(!error, "failed to get the sandbox processes"))?
+		{
 			return Ok(Some(stream));
 		}
 
-		Ok(None)
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			if !current {
+				return Ok(None);
+			}
+			self.try_get_sandbox_processes_local(session, id, arg.clone(), true)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the sandbox processes"))
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(stream) = self
+					.try_get_sandbox_processes_regions(session, id, arg.clone(), &local.regions)
+					.await
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							"failed to get the sandbox processes from another region"
+						)
+					})? {
+				return Ok(Some(stream));
+			}
+			self.try_get_sandbox_processes_remotes(session, id, arg.clone(), &locations.remotes)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, "failed to get the sandbox processes from a remote")
+				})
+		};
+		let stream = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+
+		Ok(stream)
 	}
 
 	async fn try_get_sandbox_processes_runner(
@@ -259,6 +274,7 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
+		exhaustive: bool,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
 		let resource = tg::Referent::with_node_and_local_tokens(
 			id.clone(),
@@ -268,7 +284,7 @@ impl Component {
 			tg::authorization::permission::sandbox::Permission::Node,
 		);
 		let permissions = session
-			.authorize(resource, permission)
+			.authorize_with_exhaustive(resource, permission, exhaustive)
 			.await?
 			.check_exhaustion()?;
 		if !permissions.permissions.contains(permission) {

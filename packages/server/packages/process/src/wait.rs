@@ -14,7 +14,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 };
 
 impl Component {
@@ -196,62 +196,82 @@ impl Component {
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(future) = self
-					.try_wait_process_local(
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
+		let tokens = arg.tokens.local_authorization().to_vec();
+		let local = tg::Location::Local(tg::location::Local::default());
+
+		// Wait for the local process without a search.
+		if current
+			&& let Some(future) = self
+				.try_wait_process_local(session, id, tokens.clone(), arg.source, false)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
+		{
+			return Ok(Some(attach(future, local)));
+		}
+
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			if !current {
+				return Ok(None);
+			}
+			let future = self
+				.try_wait_process_local(session, id, tokens, arg.source, true)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
+			Ok(future.map(|future| (future, local)))
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some((future, region)) = self
+					.try_wait_process_regions(
 						session,
-						id,
-						arg.tokens.local_authorization().to_vec(),
+						&process,
+						arg.lease,
+						arg.tokens.clone(),
+						&local.regions,
 						arg.source,
 					)
 					.await
-					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
-			{
-				let location = tg::Location::Local(tg::location::Local::default());
-				return Ok(Some(attach(future, location)));
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to wait for the process in another region"),
+					)? {
+				let location = tg::Location::Local(tg::location::Local {
+					region: Some(region),
+				});
+				return Ok(Some((future, location)));
 			}
-
-			if let Some((future, region)) = self
-				.try_wait_process_regions(
+			let output = self
+				.try_wait_process_remotes(
 					session,
 					&process,
 					arg.lease,
 					arg.tokens.clone(),
-					&local.regions,
+					&locations.remotes,
 					arg.source,
 				)
 				.await
 				.map_err(
-					|error| tg::error!(!error, %id, "failed to wait for the process in another region"),
-				)? {
-				let location = tg::Location::Local(tg::location::Local {
-					region: Some(region),
+					|error| tg::error!(!error, %id, "failed to wait for the process on the remote"),
+				)?;
+			let output = output.map(|(future, remote)| {
+				let location = tg::Location::Remote(tg::location::Remote {
+					name: remote.name.clone(),
+					region: None,
 				});
-				return Ok(Some(attach(future, location)));
-			}
-		}
-
-		let Some((future, remote)) = self
-			.try_wait_process_remotes(
-				session,
-				&process,
-				arg.lease,
-				arg.tokens.clone(),
-				&locations.remotes,
-				arg.source,
-			)
-			.await
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to wait for the process on the remote"),
-			)?
-		else {
+				(future, location)
+			});
+			Ok(output)
+		};
+		let output = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+		let Some((future, location)) = output else {
 			return Ok(None);
 		};
-		let location = tg::Location::Remote(tg::location::Remote {
-			name: remote.name.clone(),
-			region: None,
-		});
 
 		Ok(Some(attach(future, location)))
 	}
@@ -519,6 +539,7 @@ impl Component {
 		id: &tg::process::Id,
 		tokens: Vec<tg::authorization::Token>,
 		source: tg::process::Source,
+		exhaustive: bool,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
 		let mut wakeups = self
 			.create_process_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
@@ -529,7 +550,7 @@ impl Component {
 		let deadline = session.server.control_read_deadline();
 		let process = loop {
 			tokio::select! {
-				output = self.try_get_process_observation_local_with_permissions(session, id, &tokens, source, deadline, requested) => break output?,
+				output = self.try_get_process_observation_local_with_permissions(session, id, &tokens, source, deadline, requested, exhaustive) => break output?,
 				wakeup = wakeups.next() => {
 					if wakeup.is_none() { return Ok(None); }
 				},

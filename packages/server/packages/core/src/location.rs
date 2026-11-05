@@ -1,5 +1,7 @@
 use {
 	crate::{Server, Session, config},
+	futures::future::{self, Either},
+	std::pin::pin,
 	tangram_client::prelude::*,
 };
 
@@ -17,6 +19,53 @@ pub struct Local {
 pub struct Remote {
 	pub name: String,
 	pub regions: Option<Vec<String>>,
+}
+
+/// Run the futures concurrently and return the first result found, or else the local error, or else the error from the regions and remotes.
+pub async fn await_first_found_of_local_regions_remotes_futures<T>(
+	local_future: impl Future<Output = tg::Result<Option<T>>>,
+	regions_and_remotes_future: impl Future<Output = tg::Result<Option<T>>>,
+) -> tg::Result<Option<T>> {
+	let local_future = pin!(local_future);
+	let regions_and_remotes_future = pin!(regions_and_remotes_future);
+	match future::select(local_future, regions_and_remotes_future).await {
+		Either::Left((local, regions_and_remotes_future)) => {
+			if matches!(local, Ok(Some(_))) {
+				return local;
+			}
+			let regions_and_remotes = regions_and_remotes_future.await;
+			combine_local_regions_remotes_results(local, regions_and_remotes)
+		},
+		Either::Right((regions_and_remotes, local_future)) => {
+			if matches!(regions_and_remotes, Ok(Some(_))) {
+				return regions_and_remotes;
+			}
+			let local = local_future.await;
+			combine_local_regions_remotes_results(local, regions_and_remotes)
+		},
+	}
+}
+
+/// Run the futures concurrently and return the local result if it is found, otherwise the result found by the regions and remotes, or else the local error, or else the error from the regions and remotes.
+pub async fn await_local_future_over_regions_remotes_futures<T>(
+	local_future: impl Future<Output = tg::Result<Option<T>>>,
+	regions_and_remotes_future: impl Future<Output = tg::Result<Option<T>>>,
+) -> tg::Result<Option<T>> {
+	let local_future = pin!(local_future);
+	let regions_and_remotes_future = pin!(regions_and_remotes_future);
+	match future::select(local_future, regions_and_remotes_future).await {
+		Either::Left((local, regions_and_remotes_future)) => {
+			if matches!(local, Ok(Some(_))) {
+				return local;
+			}
+			let regions_and_remotes = regions_and_remotes_future.await;
+			combine_local_regions_remotes_results(local, regions_and_remotes)
+		},
+		Either::Right((regions_and_remotes, local_future)) => {
+			let local = local_future.await;
+			combine_local_regions_remotes_results(local, regions_and_remotes)
+		},
+	}
 }
 
 impl Server {
@@ -255,5 +304,16 @@ fn default_location(local: bool) -> tg::Location {
 			name: "default".into(),
 			region: None,
 		})
+	}
+}
+
+fn combine_local_regions_remotes_results<T>(
+	local: tg::Result<Option<T>>,
+	regions_and_remotes: tg::Result<Option<T>>,
+) -> tg::Result<Option<T>> {
+	match (local, regions_and_remotes) {
+		(Ok(Some(output)), _) | (_, Ok(Some(output))) => Ok(Some(output)),
+		(Err(error), _) | (_, Err(error)) => Err(error),
+		(Ok(None), Ok(None)) => Ok(None),
 	}
 }

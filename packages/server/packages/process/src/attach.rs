@@ -487,6 +487,7 @@ impl Component {
 					id,
 					arg.tokens.local_authorization().to_vec(),
 					tg::process::Source::Auto,
+					true,
 				)
 				.await?
 			else {

@@ -205,7 +205,7 @@ impl tangram_server_core::object::Component for Component {
 		availability: bool,
 		tokens: &'a [tg::authorization::Token],
 	) -> BoxFuture<'a, tg::Result<Option<tg::object::get::Output>>> {
-		self.try_get_object_local(session, id, metadata, availability, tokens)
+		self.try_get_object_local(session, id, metadata, availability, tokens, None, true)
 			.boxed()
 	}
 

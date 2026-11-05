@@ -483,8 +483,17 @@ impl tangram_server_core::process::Component for Component {
 		tokens: &'a [tg::authorization::Token],
 		source: tg::process::Source,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>> {
-		self.try_get_process_local(session, id, metadata, availability, tokens, source)
-			.boxed()
+		self.try_get_process_local(
+			session,
+			id,
+			metadata,
+			availability,
+			tokens,
+			source,
+			None,
+			true,
+		)
+		.boxed()
 	}
 
 	fn authorize_with_process_control_service<'a>(

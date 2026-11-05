@@ -5,7 +5,6 @@ use {
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_futures::stream::TryExt as _,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -14,40 +13,6 @@ use {
 
 impl Component {
 	pub(crate) async fn try_get_group(
-		&self,
-		session: &Session,
-		group: &tg::group::Selector,
-		arg: tg::group::get::Arg,
-	) -> tg::Result<Option<tg::group::get::Output>> {
-		// Read the group.
-		let output = self
-			.try_get_group_inner(session, group, arg.clone())
-			.await?;
-		if output.is_some() || matches!(group, tg::Selector::Id(_)) {
-			return Ok(output);
-		}
-
-		// Await indexing and read the specifier again, because a specifier that a forced push redirected still names the deleted node until the index catches up.
-		let index_arg = tg::index::Arg {
-			database: true,
-			..Default::default()
-		};
-		session
-			.server
-			.components
-			.indexer
-			.index(session, index_arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index"))?
-			.try_last()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index"))?;
-		let output = self.try_get_group_inner(session, group, arg).await?;
-
-		Ok(output)
-	}
-
-	async fn try_get_group_inner(
 		&self,
 		session: &Session,
 		group: &tg::group::Selector,

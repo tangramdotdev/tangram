@@ -5,7 +5,6 @@ use {
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_futures::stream::TryExt as _,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -22,38 +21,6 @@ impl Component {
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		session.verify_request_with_network_access()?;
 
-		// Read the tag.
-		let output = self.try_get_tag_inner(session, tag, arg.clone()).await?;
-		if output.is_some() || matches!(tag, tg::Selector::Id(_)) {
-			return Ok(output);
-		}
-
-		// Await indexing and read the specifier again, because a specifier that a forced push redirected still names the deleted node until the index catches up.
-		let index_arg = tg::index::Arg {
-			database: true,
-			..Default::default()
-		};
-		session
-			.server
-			.components
-			.indexer
-			.index(session, index_arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index"))?
-			.try_last()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index"))?;
-		let output = self.try_get_tag_inner(session, tag, arg).await?;
-
-		Ok(output)
-	}
-
-	async fn try_get_tag_inner(
-		&self,
-		session: &Session,
-		tag: &tg::tag::Selector,
-		arg: tg::tag::get::Arg,
-	) -> tg::Result<Option<tg::tag::get::Output>> {
 		let selector = match tag {
 			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
 			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),

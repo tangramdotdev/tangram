@@ -15,7 +15,7 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
@@ -77,67 +77,44 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			let stopper = session.context.stopper.clone();
-			if local.current
-				&& let Some(id) = &id
-			{
-				let mut wakeups = if arg.timeout == Some(Duration::ZERO) {
-					None
-				} else {
-					Some(
-						self.create_process_status_wakeup_stream(session, id, stopper, arg.timeout)
-							.await?,
-					)
-				};
-				let deadline = session.server.control_read_deadline();
-				let initial = loop {
-					tokio::select! {
-						output = self
-					.try_get_process_observation_local(session,
-						id,
-						arg.tokens.local_authorization(),
-						arg.source,
-						deadline,
-					) => break output?,
-						wakeup = async {
-							match &mut wakeups {
-								Some(wakeups) => wakeups.next().await,
-								None => std::future::pending().await,
-							}
-						} => {
-							if wakeup.is_none() { return Ok(None); }
-						},
-					}
-				};
-				if let Some(process) = initial {
-					let initial = Some(process);
-					let stream = self.create_process_status_stream_local_with_wakeups(
-						session, id, initial, wakeups, arg.source,
-					);
-					return Ok(Some(stream));
-				}
-			}
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-			if let Some(status) = self
-				.try_get_process_status_stream_regions(
-					session,
-					process,
-					&local.regions,
-					arg.timeout,
-					&arg.tokens,
-					arg.source,
-				)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %process, "failed to get the process status from another region"),
-				)? {
-				return Ok(Some(status));
-			}
+		// Read the local status without a search.
+		if current
+			&& let Some(id) = &id
+			&& let Some(stream) = self
+				.try_get_process_status_stream_local(session, id, &arg, false)
+				.await?
+		{
+			return Ok(Some(stream));
 		}
 
-		if let Some(status) = self
-			.try_get_process_status_stream_remotes(
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			let (true, Some(id)) = (current, &id) else {
+				return Ok(None);
+			};
+			self.try_get_process_status_stream_local(session, id, &arg, true)
+				.await
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(status) = self
+					.try_get_process_status_stream_regions(
+						session,
+						process,
+						&local.regions,
+						arg.timeout,
+						&arg.tokens,
+						arg.source,
+					)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %process, "failed to get the process status from another region"),
+					)? {
+				return Ok(Some(status));
+			}
+			self.try_get_process_status_stream_remotes(
 				session,
 				process,
 				&locations.remotes,
@@ -148,11 +125,67 @@ impl Component {
 			.await
 			.map_err(
 				|error| tg::error!(!error, %process, "failed to get the process status from a remote"),
-			)? {
-			return Ok(Some(status));
-		}
+			)
+		};
+		let stream = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
 
-		Ok(None)
+		Ok(stream)
+	}
+
+	async fn try_get_process_status_stream_local(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+		arg: &tg::process::status::Arg,
+		exhaustive: bool,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
+		let stopper = session.context.stopper.clone();
+		let mut wakeups = if arg.timeout == Some(Duration::ZERO) {
+			None
+		} else {
+			Some(
+				self.create_process_status_wakeup_stream(session, id, stopper, arg.timeout)
+					.await?,
+			)
+		};
+		let deadline = session.server.control_read_deadline();
+		let initial = loop {
+			tokio::select! {
+				output = self.try_get_process_observation_local(
+					session,
+					id,
+					arg.tokens.local_authorization(),
+					arg.source,
+					deadline,
+					exhaustive,
+				) => break output?,
+				wakeup = async {
+					match &mut wakeups {
+						Some(wakeups) => wakeups.next().await,
+						None => std::future::pending().await,
+					}
+				} => {
+					if wakeup.is_none() { return Ok(None); }
+				},
+			}
+		};
+		let Some(process) = initial else {
+			return Ok(None);
+		};
+		let stream = self.create_process_status_stream_local_with_wakeups(
+			session,
+			id,
+			Some(process),
+			wakeups,
+			arg.source,
+		);
+
+		Ok(Some(stream))
 	}
 
 	async fn try_get_process_status_stream_runner(
@@ -267,16 +300,18 @@ impl Component {
 		tokens: &[tg::authorization::Token],
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
+		exhaustive: bool,
 	) -> tg::Result<Option<tg::process::Data>> {
 		let requested = tg::authorization::permission::process::Set::NODE;
 		let output = self
 			.try_get_process_observation_local_with_permissions(
-				session, id, tokens, source, deadline, requested,
+				session, id, tokens, source, deadline, requested, exhaustive,
 			)
 			.await?;
 		Ok(output.map(|(data, _)| data))
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	pub(super) async fn try_get_process_observation_local_with_permissions(
 		&self,
 		session: &Session,
@@ -285,6 +320,7 @@ impl Component {
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 		requested: tg::authorization::permission::process::Set,
+		exhaustive: bool,
 	) -> tg::Result<
 		Option<(
 			tg::process::Data,
@@ -296,8 +332,11 @@ impl Component {
 			tg::authorization::permission::process::Set::NODE,
 		);
 		let requested = tg::authorization::permission::Set::Process(requested);
-		let authorize_future =
-			session.authorize_batch_with_required([(resource, requested)], required, None);
+		let authorize_future = session.authorize_batch_with_required_with_exhaustive(
+			[(resource, requested)],
+			required,
+			exhaustive,
+		);
 		let get_future = self.try_get_process_data_local(session, id, source, deadline);
 		let (mut permissions, output) = future::try_join(authorize_future, get_future).await?;
 		let Some(tg::authorization::permission::Set::Process(permissions)) =
