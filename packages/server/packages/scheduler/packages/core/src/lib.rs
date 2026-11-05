@@ -85,8 +85,8 @@ pub enum ResponseOutput {
 pub struct AddRunnerRequestArg {
 	pub capacity: tg::runner::control::Capacity,
 	pub host: String,
-	pub runner: tg::runner::Id,
 	pub registration_index: u64,
+	pub runner: tg::runner::Id,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -99,8 +99,8 @@ pub struct AddRunnerResponseOutput {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RemoveRunnerRequestArg {
 	pub connection_index: u64,
-	pub runner: tg::runner::Id,
 	pub registration_index: u64,
+	pub runner: tg::runner::Id,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

@@ -257,15 +257,9 @@ impl Index {
 						return Ok(ControlFlow::Break(Err(error)));
 					}
 				},
-				tangram_index::batch::Item::PutRunner(registration) => {
+				tangram_index::batch::Item::PutRunner(arg) => {
 					let result = crate::propagate!(
-						Self::runner_registration_with_transaction(
-							txn,
-							subspace,
-							registration,
-							true
-						)
-						.await
+						Self::put_runner_with_transaction(txn, subspace, arg).await
 					);
 					if let Err(error) = result {
 						return Ok(ControlFlow::Break(Err(error)));

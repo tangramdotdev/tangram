@@ -21,8 +21,7 @@ impl Index {
 		}
 		if let Some(registration) = &arg.registration {
 			let result = crate::propagate!(
-				Self::runner_registration_with_transaction(txn, subspace, registration, false)
-					.await
+				Self::check_runner_registration_with_transaction(txn, subspace, registration).await
 			);
 			if let Err(error) = result {
 				return Ok(ControlFlow::Break(Err(error)));

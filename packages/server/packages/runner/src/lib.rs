@@ -387,13 +387,13 @@ impl Component {
 		scheduler: &tg::scheduler::Id,
 		registration_index: u64,
 	) -> tg::Result<()> {
-		let registration = tangram_index::runner::Registration {
-			runner: runner.clone(),
+		let arg = tangram_index::runner::put::Arg {
+			id: runner.clone(),
+			registration: registration_index,
 			scheduler: scheduler.clone(),
-			registration_index,
 		};
 		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutRunner(registration)],
+			items: vec![tangram_index::batch::Item::PutRunner(arg)],
 		};
 		session.server.index.batch(arg).await??;
 		Ok(())

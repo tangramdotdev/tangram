@@ -136,7 +136,7 @@ impl Component {
 			));
 		}
 
-		// Record the scheduler only if this registration registration_index has not been superseded.
+		// Record the scheduler only if this registration index has not been superseded.
 		tangram_server_core::checkpoint!(session.server, "runner.registration.accept", runner = %id, registration_index = arg.registration_index).await;
 		self.set_runner_scheduler(session, &id, &scheduler, arg.registration_index)
 			.await

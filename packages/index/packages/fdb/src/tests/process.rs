@@ -372,23 +372,23 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 	};
 	super::run(&options, async |index| {
 		for same_scheduler in [false, true] {
-			let first = tangram_index::runner::Registration {
-				runner: tg::runner::Id::new(),
+			let first = tangram_index::runner::put::Arg {
+				id: tg::runner::Id::new(),
+				registration: 1,
 				scheduler: tg::scheduler::Id::new(),
-				registration_index: 1,
 			};
-			let current = tangram_index::runner::Registration {
+			let current = tangram_index::runner::put::Arg {
+				registration: 2,
 				scheduler: if same_scheduler {
 					first.scheduler.clone()
 				} else {
 					tg::scheduler::Id::new()
 				},
-				registration_index: 2,
 				..first.clone()
 			};
-			for registration in [&first, &current, &current] {
+			for runner_arg in [&first, &current, &current] {
 				let arg = tangram_index::batch::Arg {
-					items: vec![tangram_index::batch::Item::PutRunner(registration.clone())],
+					items: vec![tangram_index::batch::Item::PutRunner(runner_arg.clone())],
 				};
 				index.batch(arg).await.unwrap().unwrap();
 			}
@@ -396,7 +396,14 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 				items: vec![tangram_index::batch::Item::PutRunner(first.clone())],
 			};
 			assert!(index.batch(arg).await.unwrap().is_err());
-			let conflicting = tangram_index::runner::Registration {
+			assert_eq!(
+				index
+					.next_runner_registration_index(&current.id)
+					.await
+					.unwrap(),
+				3
+			);
+			let conflicting = tangram_index::runner::put::Arg {
 				scheduler: tg::scheduler::Id::new(),
 				..current.clone()
 			};
@@ -406,7 +413,12 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 			assert!(index.batch(arg).await.unwrap().is_err());
 			let process = tg::process::Id::new();
 			let sandbox = tg::sandbox::Id::new();
-			for registration in [&first, &current] {
+			for arg in [&first, &current] {
+				let registration = tangram_index::runner::Registration {
+					index: arg.registration,
+					runner: arg.id.clone(),
+					scheduler: arg.scheduler.clone(),
+				};
 				let process_arg = tangram_index::process::put::Arg {
 					cached: false,
 					children: None,
@@ -449,10 +461,7 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 				] {
 					let arg = tangram_index::batch::Arg { items: vec![item] };
 					let accepted = index.batch(arg).await.unwrap().is_ok();
-					assert_eq!(
-						accepted,
-						registration.registration_index == current.registration_index
-					);
+					assert_eq!(accepted, registration.index == current.registration);
 				}
 				assert_eq!(
 					index
@@ -460,7 +469,7 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 						.await
 						.unwrap()[0]
 						.is_some(),
-					registration.registration_index == current.registration_index
+					registration.index == current.registration
 				);
 				assert_eq!(
 					index
@@ -468,7 +477,7 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 						.await
 						.unwrap()[0]
 						.is_some(),
-					registration.registration_index == current.registration_index
+					registration.index == current.registration
 				);
 			}
 		}
@@ -505,13 +514,26 @@ async fn registration_index_allocations_are_unique_and_survive_reopen() {
 				.unwrap(),
 			1
 		);
-		let registration = tangram_index::runner::Registration {
-			runner: runner.clone(),
+		let runner_arg = tangram_index::runner::put::Arg {
+			id: runner.clone(),
+			registration: 1,
 			scheduler: tg::scheduler::Id::new(),
-			registration_index: 100,
 		};
 		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutRunner(registration.clone())],
+			items: vec![tangram_index::batch::Item::PutRunner(runner_arg)],
+		};
+		index.batch(arg).await.unwrap().unwrap();
+		assert_eq!(
+			index.next_runner_registration_index(&runner).await.unwrap(),
+			34
+		);
+		let runner_arg = tangram_index::runner::put::Arg {
+			id: runner.clone(),
+			registration: 100,
+			scheduler: tg::scheduler::Id::new(),
+		};
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutRunner(runner_arg.clone())],
 		};
 		index.batch(arg).await.unwrap().unwrap();
 		assert_eq!(
@@ -519,19 +541,16 @@ async fn registration_index_allocations_are_unique_and_survive_reopen() {
 			101
 		);
 		// Allocation must leave the accepted registration unchanged.
-		index
-			.batch(tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutRunner(registration.clone())],
-			})
-			.await
-			.unwrap()
-			.unwrap();
-		let registration = tangram_index::runner::Registration {
-			registration_index: u64::MAX,
-			..registration
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutRunner(runner_arg.clone())],
+		};
+		index.batch(arg).await.unwrap().unwrap();
+		let runner_arg = tangram_index::runner::put::Arg {
+			registration: u64::MAX,
+			..runner_arg
 		};
 		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutRunner(registration)],
+			items: vec![tangram_index::batch::Item::PutRunner(runner_arg)],
 		};
 		index.batch(arg).await.unwrap().unwrap();
 		assert!(index.next_runner_registration_index(&runner).await.is_err());

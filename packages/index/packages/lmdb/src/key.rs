@@ -99,7 +99,6 @@ pub enum Kind {
 	OwnerProcess = 80,
 	PermissionCapture = 90,
 	Runner = 91,
-	RunnerRegistrationIndex = 92,
 }
 
 impl fdbt::TuplePack for Key {
@@ -270,13 +269,7 @@ impl fdbt::TuplePack for Key {
 				(Kind::Sync.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
 
-			Key::Runner(crate::runner::Key::RegistrationIndex(runner)) => (
-				Kind::RunnerRegistrationIndex.to_i32().unwrap(),
-				runner.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::Runner(crate::runner::Key::Registration(runner)) => {
+			Key::Runner(crate::runner::Key::Runner(runner)) => {
 				(Kind::Runner.to_i32().unwrap(), runner.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
 
@@ -1005,21 +998,11 @@ impl fdbt::TupleUnpack<'_> for Key {
 				))
 			},
 
-			Kind::RunnerRegistrationIndex => {
-				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let runner = tg::runner::Id::from_slice(&runner)
-					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
-				Ok((
-					input,
-					Key::Runner(crate::runner::Key::RegistrationIndex(runner)),
-				))
-			},
-
 			Kind::Runner => {
 				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let runner = tg::runner::Id::from_slice(&runner)
 					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
-				Ok((input, Key::Runner(crate::runner::Key::Registration(runner))))
+				Ok((input, Key::Runner(crate::runner::Key::Runner(runner))))
 			},
 
 			Kind::RunnerSandbox => {

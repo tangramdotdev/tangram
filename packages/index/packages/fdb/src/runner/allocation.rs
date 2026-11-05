@@ -22,40 +22,25 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		runner: &tg::runner::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
-		// Read the last allocation and the accepted registration in the same transaction.
-		let key = Key::Runner(crate::runner::Key::RegistrationIndex(runner.clone()));
+		// Read the allocation and accepted ownership from the runner's registration record.
+		let key = Key::Runner(crate::runner::Key::Runner(runner.clone()));
 		let key = Self::pack(subspace, &key);
-		let registration_key = Key::Runner(crate::runner::Key::Registration(runner.clone()));
-		let registration_key = Self::pack(subspace, &registration_key);
 		let result = txn.get(&key, false).await;
-		let previous = crate::retry!(result);
-		let previous = previous
-			.as_deref()
-			.map(tangram_serialize::from_slice::<u64>)
+		let bytes = crate::retry!(result);
+		let existing = bytes.as_deref();
+		let mut existing = existing
+			.map(tangram_serialize::from_slice::<tangram_index::runner::Runner>)
 			.transpose()
-			.map_err(|error| {
-				tg::error!(!error, "failed to decode the runner registration index")
-			})?;
-		let result = txn.get(&registration_key, false).await;
-		let registration = crate::retry!(result);
-		let registration = registration
-			.as_deref()
-			.map(tangram_serialize::from_slice::<tangram_index::runner::Registration>)
-			.transpose()
-			.map_err(|error| {
-				tg::error!(!error, "failed to decode the runner registration index")
-			})?;
+			.map_err(|error| tg::error!(!error, "failed to decode the runner registration"))?
+			.unwrap_or_default();
 
-		// Advance past any accepted registration when the runner and scheduler share an index.
-		let previous = previous
-			.unwrap_or_default()
-			.max(registration.map_or(0, |registration| registration.registration_index));
-		let registration_index = previous
+		// Advance the allocation without changing the accepted ownership.
+		let registration_index = existing.next;
+		existing.next = registration_index
 			.checked_add(1)
 			.ok_or_else(|| tg::error!("the runner registration index overflowed"))?;
-		let bytes = tangram_serialize::to_vec(&registration_index).map_err(|error| {
-			tg::error!(!error, "failed to encode the runner registration index")
-		})?;
+		let bytes = tangram_serialize::to_vec(&existing)
+			.map_err(|error| tg::error!(!error, "failed to encode the runner registration"))?;
 		txn.set(&key, &bytes);
 
 		Ok(ControlFlow::Break(registration_index))

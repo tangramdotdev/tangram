@@ -30,10 +30,10 @@ pub(super) struct Runner {
 	pub host: String,
 	pub owner: Option<tg::Id>,
 	pub ready: bool,
+	pub registration_index: u64,
 	pub requests: usize,
 	pub reservations: HashMap<tg::sandbox::Id, Reservation, tg::id::BuildHasher>,
 	pub reserved: tg::runner::Capacity,
-	pub registration_index: u64,
 }
 
 pub(super) struct Reservation {
@@ -117,10 +117,10 @@ impl SchedulerState {
 			host: request.host.clone(),
 			owner: None,
 			ready: false,
+			registration_index: request.registration_index,
 			requests: 0,
 			reservations: HashMap::default(),
 			reserved: tg::runner::Capacity::default(),
-			registration_index: request.registration_index,
 		};
 		self.runners.entries.insert(request.runner.clone(), runner);
 		self.queue.wake();
@@ -301,9 +301,9 @@ impl Scheduler {
 	) -> tg::Result<RemoveRunnerResponseOutput> {
 		// Stop the runner's sandboxes only while this registration still owns the runner.
 		let registration = tangram_index::runner::Registration {
+			index: request.registration_index,
 			runner: request.runner.clone(),
 			scheduler: self.id.clone(),
-			registration_index: request.registration_index,
 		};
 		let result = self
 			.component
