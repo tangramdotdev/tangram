@@ -95,16 +95,52 @@ impl Network {
 		pid: libc::pid_t,
 		pre_exec: impl FnOnce(&mut Command),
 	) -> tg::Result<()> {
-		let host_pipe = self
-			.host_pipe
-			.as_mut()
-			.ok_or_else(|| tg::error!("the host sync pipe is missing"))?;
-
 		// Wait for the container child to finish unsharing its netns.
-		host_pipe
+		self.host_pipe
+			.as_mut()
+			.ok_or_else(|| tg::error!("the host sync pipe is missing"))?
 			.read_u8()
 			.await
 			.map_err(|error| tg::error!(!error, "child process failed"))?;
+		self.start(&[pid.to_string()], pre_exec).await?;
+
+		// Signal the child to proceed.
+		self.host_pipe
+			.as_mut()
+			.unwrap()
+			.write_u8(0)
+			.await
+			.map_err(|error| tg::error!(!error, "child process failed"))?;
+
+		Ok(())
+	}
+	/// Attach networking to an already prepared network namespace.
+	pub async fn start_namespace(
+		&mut self,
+		pid: u32,
+		network: OwnedFd,
+		user: OwnedFd,
+		pre_exec: impl FnOnce(&mut Command),
+	) -> tg::Result<()> {
+		drop(self.guest_pipe.take());
+		drop(self.host_pipe.take());
+		let target = [
+			"--netns".to_owned(),
+			format!("/proc/{pid}/fd/{}", network.as_raw_fd()),
+			"--userns".to_owned(),
+			format!("/proc/{pid}/fd/{}", user.as_raw_fd()),
+			"--no-netns-quit".to_owned(),
+		];
+		self.start(&target, pre_exec).await?;
+		drop((network, user));
+		Ok(())
+	}
+
+	async fn start(
+		&mut self,
+		target: &[String],
+		pre_exec: impl FnOnce(&mut Command),
+	) -> tg::Result<()> {
 		let executable = self
 			.executable
 			.as_deref()
@@ -131,7 +167,7 @@ impl Network {
 		if let Some(interface) = &self.interface {
 			command.arg("-i").arg(interface);
 		}
-		command.arg(pid.to_string());
+		command.args(target);
 		pre_exec(&mut command);
 		let child = command
 			.spawn()
@@ -139,12 +175,6 @@ impl Network {
 		self.child = Some(child);
 
 		wait_for_pid_file_async(self.pid_file.clone(), executable, self.startup_timeout).await?;
-
-		// Signal the child to proceed.
-		host_pipe
-			.write_u8(0)
-			.await
-			.map_err(|error| tg::error!(!error, "child process failed"))?;
 
 		Ok(())
 	}

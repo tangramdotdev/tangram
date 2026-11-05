@@ -126,6 +126,62 @@ pub(crate) fn validate(arg: &Arg) -> tg::Result<()> {
 	Ok(())
 }
 
+pub(crate) fn clone_source(path: &Path) -> tg::Result<OwnedFd> {
+	let source = open_absolute_path(path).map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to open the mount source"),
+	)?;
+	let directory = fd_is_directory(source.as_raw_fd())
+		.map_err(|error| tg::error!(!error, "failed to inspect the mount source"))?;
+	let source = clone_mount(source.as_raw_fd(), directory).map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to clone the mount source"),
+	)?;
+	Ok(source)
+}
+
+pub(crate) fn clone_target(root: RawFd, target: &Path) -> tg::Result<OwnedFd> {
+	let target = target
+		.strip_prefix("/")
+		.map_err(|error| tg::error!(!error, "the mount target must be absolute"))?;
+	let source = openat2(
+		root,
+		target,
+		libc::O_PATH | libc::O_CLOEXEC,
+		RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_SYMLINKS,
+	)
+	.map_err(|error| tg::error!(!error, "failed to open a mandatory sandbox mount"))?;
+	let directory = fd_is_directory(source.as_raw_fd())
+		.map_err(|error| tg::error!(!error, "failed to inspect a mandatory sandbox mount"))?;
+	let source = clone_mount(source.as_raw_fd(), directory)
+		.map_err(|error| tg::error!(!error, "failed to clone a mandatory sandbox mount"))?;
+	Ok(source)
+}
+
+pub(crate) fn bind_descriptor(
+	source: &OwnedFd,
+	root: RawFd,
+	target: &Path,
+	readonly: bool,
+) -> tg::Result<()> {
+	let directory = fd_is_directory(source.as_raw_fd())
+		.map_err(|error| tg::error!(!error, "failed to inspect the mount source"))?;
+	let target_path = target;
+	let target = target
+		.strip_prefix("/")
+		.map_err(|error| tg::error!(!error, "the mount target must be absolute"))?;
+	let target = create_mount_target(root, target, directory)
+		.map_err(|error| tg::error!(!error, "failed to create the mount target"))?;
+	let attributes = MountAttributes {
+		nodev: true,
+		noexec: false,
+		nosuid: true,
+		readonly,
+	};
+	attach_mount(source, target.as_raw_fd(), directory, attributes).map_err(
+		|error| tg::error!(!error, target = %target_path.display(), "failed to attach the sandbox mount"),
+	)?;
+	Ok(())
+}
+
 pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 	// Make the mount tree private.
 	make_mounts_private()?;
@@ -660,6 +716,11 @@ fn mount_bind_modern(
 	recursive: bool,
 	attributes: MountAttributes,
 ) -> std::io::Result<()> {
+	let mount = clone_mount(source, recursive)?;
+	attach_mount(&mount, target, recursive, attributes)
+}
+
+fn clone_mount(source: RawFd, recursive: bool) -> std::io::Result<OwnedFd> {
 	let recursive_flag = if recursive { AT_RECURSIVE } else { 0 };
 	let flags = libc::OPEN_TREE_CLONE | libc::OPEN_TREE_CLOEXEC | libc::AT_EMPTY_PATH as u32;
 	let flags = flags | recursive_flag;
@@ -677,7 +738,7 @@ fn mount_bind_modern(
 	// SAFETY: A nonnegative result from open_tree is a newly owned descriptor.
 	let mount = unsafe { OwnedFd::from_raw_fd(mount.try_into().unwrap()) };
 
-	attach_mount(&mount, target, recursive, attributes)
+	Ok(mount)
 }
 
 fn attach_mount(

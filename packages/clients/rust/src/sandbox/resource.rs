@@ -7,6 +7,7 @@ use {crate::prelude::*, tangram_util::serde::is_default};
 	Debug,
 	Default,
 	Eq,
+	Hash,
 	PartialEq,
 	serde::Serialize,
 	tangram_serialize::Deserialize,

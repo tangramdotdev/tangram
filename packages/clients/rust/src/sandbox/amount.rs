@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 /// CPU execution capacity in thousandths of a hardware thread.
-#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Amount(u64);
 
 impl Amount {

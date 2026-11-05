@@ -17,8 +17,11 @@ pub struct Network {
 
 #[derive(Debug)]
 pub struct Pair {
+	attached: bool,
+	created: bool,
 	pub guest_name: String,
 	pub guest_pipe: Option<std::os::unix::net::UnixStream>,
+	host_name: String,
 	pub host_pipe: tokio::net::UnixStream,
 	pub netlink: Netlink,
 }
@@ -78,12 +81,7 @@ impl Pair {
 		let host_name = format!("tg-vh-{suffix}");
 		let guest_name = format!("tg-vc-{suffix}");
 
-		let mut netlink = Netlink::new()?;
-		netlink.link_add_veth_pair(&host_name, &guest_name)?;
-		netlink.link_set_master(&host_name, bridge_name)?;
-		host::disable_ipv6(&host_name)?;
-		netlink.link_set_up(&host_name)?;
-		isolate_bridge_port(&host_name)?;
+		let netlink = Netlink::new()?;
 
 		let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair()
 			.map_err(|error| tg::error!(!error, "failed to create socket pair"))?;
@@ -112,12 +110,31 @@ impl Pair {
 			}
 		}
 
-		Ok(Self {
+		let mut pair = Self {
+			attached: false,
+			created: false,
 			guest_name,
 			guest_pipe: Some(guest_pipe),
+			host_name,
 			host_pipe,
 			netlink,
-		})
+		};
+		pair.netlink
+			.link_add_veth_pair(&pair.host_name, &pair.guest_name)?;
+		pair.created = true;
+		pair.netlink.link_set_master(&pair.host_name, bridge_name)?;
+		host::disable_ipv6(&pair.host_name)?;
+		pair.netlink.link_set_up(&pair.host_name)?;
+		isolate_bridge_port(&pair.host_name)?;
+
+		Ok(pair)
+	}
+
+	/// Attach the guest link to an already prepared network namespace.
+	pub fn attach(&mut self, pid: u32) -> tg::Result<()> {
+		self.netlink.link_set_netns_pid(&self.guest_name, pid)?;
+		self.attached = true;
+		Ok(())
 	}
 
 	pub async fn connect(&mut self, child: libc::pid_t) -> tg::Result<()> {
@@ -128,11 +145,20 @@ impl Pair {
 		let pid = u32::try_from(child)
 			.map_err(|error| tg::error!(!error, "the child pid does not fit in a u32"))?;
 		self.netlink.link_set_netns_pid(&self.guest_name, pid)?;
+		self.attached = true;
 		self.host_pipe
 			.write_u8(0)
 			.await
 			.map_err(|error| tg::error!(!error, "child process failed"))?;
 		Ok(())
+	}
+}
+
+impl Drop for Pair {
+	fn drop(&mut self) {
+		if self.created && !self.attached {
+			self.netlink.link_delete(&self.host_name).ok();
+		}
 	}
 }
 

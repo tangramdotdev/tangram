@@ -853,9 +853,41 @@ impl Component {
 		arg: tg::sandbox::create::Arg,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<CreateSandboxOutput> {
+		// Validate the sandbox's network and mounts before claiming a warm sandbox.
+		if session.server.config.runner.backend.harden() {
+			if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
+				return Err(tg::error!(
+					"host networking is not allowed for hardened container isolation"
+				));
+			}
+			if arg.mounts.iter().any(|mount| !mount.readonly) {
+				return Err(tg::error!(
+					"writable mounts are not allowed for hardened container isolation"
+				));
+			}
+		}
 		if let Some(task) = self.sandbox_pool.take(&arg, self, session) {
 			match task.wait().await {
 				Ok(Ok(mut output)) => {
+					#[cfg(target_os = "linux")]
+					{
+						let mut configure = arg.clone();
+						if !session.server.config.runner.backend.storage_limits() {
+							configure.storage = None;
+						}
+						if let Err(error) = output.sandbox.configure(configure).await {
+							tracing::warn!(error = %error.trace(), "failed to configure a pooled sandbox; falling back to cold creation");
+							self::pool::destroy(output).await.map_err(|error| {
+								tg::error!(!error, "failed to destroy a rejected pooled sandbox")
+							})?;
+							let path = Self::sandbox_path(session, id);
+							let directory = Directory::New { path };
+							return self
+								.create_sandbox_inner(session, arg, Some(directory))
+								.await;
+						}
+					}
+
 					// Link the sandbox's path to the pooled sandbox's temp and keep the temp, so that a crash or termination leaves the sandbox's files where its next boot finds them.
 					let path = Self::sandbox_path(session, id);
 					let result = async {
@@ -921,6 +953,12 @@ impl Component {
 		directory: Option<Directory>,
 	) -> tg::Result<CreateSandboxOutput> {
 		let isolation = self.resolve_sandbox_backend(&session.server)?;
+		let prepare = directory.is_none()
+			&& matches!(
+				isolation,
+				tangram_sandbox::Backend::Builtin | tangram_sandbox::Backend::Bubblewrap { .. }
+			);
+
 		let mut resources = session
 			.server
 			.config
@@ -956,6 +994,8 @@ impl Component {
 		// Enforce the sandbox storage maximum only when storage limits are enabled, because enforcement requires a filesystem with project quotas.
 		if !session.server.config.runner.backend.storage_limits() {
 			arg.storage = None;
+		} else if prepare {
+			arg.storage.get_or_insert_default();
 		}
 
 		// Apply the sandbox storage maximum.
@@ -975,7 +1015,8 @@ impl Component {
 			backend
 				if backend.uses_linux_namespaces()
 					&& (resources.max_filesystem_inodes.is_some()
-						|| resources.max_filesystem_size.is_some()) =>
+						|| resources.max_filesystem_size.is_some()
+						|| arg.storage.is_some()) =>
 			{
 				let reused = match &directory {
 					Some(Directory::Existing {
@@ -1228,6 +1269,8 @@ impl Component {
 			nice: config.nice,
 
 			path: temp.path().to_owned(),
+
+			prepare,
 
 			request_timeout: config.request_timeout,
 

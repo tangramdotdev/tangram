@@ -3,6 +3,9 @@ use {crate::prelude::*, std::path::PathBuf};
 #[derive(
 	Clone,
 	Debug,
+	Eq,
+	Hash,
+	PartialEq,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,

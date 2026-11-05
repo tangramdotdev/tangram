@@ -13,6 +13,9 @@ pub struct Args {
 	#[command(flatten)]
 	pub listen: Listen,
 
+	#[arg(long, hide = true)]
+	pub namespaces: Option<PathBuf>,
+
 	#[arg(long)]
 	pub output_path: PathBuf,
 
@@ -51,6 +54,7 @@ pub async fn run(args: Args) -> tg::Result<()> {
 		http2: args.http2.config(),
 		library_paths: args.library_paths,
 		listen: args.listen.get(),
+		namespaces: args.namespaces,
 		output_path: args.output_path,
 		tangram_path: args.tangram_path,
 		url: args.url,

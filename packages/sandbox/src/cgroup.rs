@@ -314,6 +314,74 @@ impl Cgroup {
 		Ok(Some(cgroup))
 	}
 
+	pub(crate) fn set_cpu(
+		&mut self,
+		arg: &crate::Arg,
+		previous: Option<tg::sandbox::Cpu>,
+	) -> tg::Result<()> {
+		if arg.cpu.and_then(|cpu| cpu.max) != previous.and_then(|cpu| cpu.max) {
+			let handle = self.handle()?;
+			let quota = arg
+				.cpu
+				.and_then(|cpu| cpu.max)
+				.map(|max| {
+					max.millis()
+						.checked_mul(1000)
+						.ok_or_else(|| tg::error!("the sandbox CPU is too large"))
+				})
+				.transpose()?
+				.map_or_else(|| "max".to_owned(), |quota| quota.to_string());
+			handle.write(c"cpu.max", format!("{quota} 1000000\n").as_bytes())?;
+		}
+		if let Some(share) = &self.share {
+			share.set_cpu(arg.cpu.unwrap_or_default())?;
+		}
+		if arg.cpu_affinity {
+			let width = arg
+				.cpu
+				.and_then(|cpu| cpu.max)
+				.map(tg::sandbox::Amount::threads);
+			if width != self.pin.as_ref().map(|pin| pin.cpus().len() as u64) {
+				let available = available_cpus()?;
+				drop(self.pin.take());
+				if let Some(width) = width {
+					let width = usize::try_from(width)
+						.map_err(|error| tg::error!(!error, "the CPU affinity is too wide"))?;
+					let threads = arg.cpu_threads.clone().unwrap_or_default();
+					self.pin = Some(threads.pin(&available, width)?);
+				}
+				let cpus = self.affinity().unwrap_or(&available);
+				set_affinity(&self.cleanup.directory, cpus)?;
+			}
+		}
+		Ok(())
+	}
+
+	pub(crate) fn set_memory(
+		&self,
+		memory: Option<tg::sandbox::Resource<u64>>,
+		previous: Option<tg::sandbox::Resource<u64>>,
+	) -> tg::Result<()> {
+		let handle = self.handle()?;
+		let memory = memory.unwrap_or_default();
+		let previous = previous.unwrap_or_default();
+		if memory.min != previous.min {
+			handle.write(c"memory.min", memory.min.to_string().as_bytes())?;
+		}
+		if memory.max != previous.max {
+			let max = memory
+				.max
+				.map_or_else(|| "max".to_owned(), |max| max.to_string());
+			handle.write(c"memory.max", max.as_bytes())?;
+			if self.oom_kill()? > 0 {
+				return Err(tg::error!(
+					"the warm sandbox exceeded the requested memory maximum"
+				));
+			}
+		}
+		Ok(())
+	}
+
 	/// Get the hardware threads that the sandbox's processes are pinned to.
 	#[must_use]
 	pub(crate) fn affinity(&self) -> Option<&[usize]> {
@@ -554,6 +622,79 @@ impl Drop for Cleanup {
 			tracing::error!(%error, name = %self.name, "failed to remove the cgroup");
 		}
 	}
+}
+
+/// Update the affinity of every sandbox thread.
+fn set_affinity(directory: &OwnedFd, cpus: &[usize]) -> tg::Result<()> {
+	// Update every thread, including threads created while the affinity is changing.
+	let path = PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
+	let mut directories = vec![path];
+	let mut processes = Vec::new();
+	while let Some(path) = directories.pop() {
+		let contents = std::fs::read_to_string(path.join("cgroup.procs"))
+			.map_err(|error| tg::error!(!error, "failed to read the sandbox processes"))?;
+		processes.extend(contents.split_ascii_whitespace().map(str::to_owned));
+		for entry in std::fs::read_dir(&path)
+			.map_err(|error| tg::error!(!error, "failed to read the sandbox cgroup"))?
+		{
+			let entry = entry
+				.map_err(|error| tg::error!(!error, "failed to read a sandbox cgroup entry"))?;
+			if entry
+				.file_type()
+				.map_err(|error| tg::error!(!error, "failed to inspect a sandbox cgroup entry"))?
+				.is_dir()
+			{
+				directories.push(entry.path());
+			}
+		}
+	}
+	// SAFETY: A zeroed cpu_set_t is an empty CPU set.
+	let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+	for cpu in cpus {
+		// SAFETY: The CPU indices came from the runner's available CPU set.
+		unsafe { libc::CPU_SET(*cpu, &mut set) };
+	}
+	for process in processes {
+		let mut updated = std::collections::BTreeSet::new();
+		loop {
+			let tasks = match std::fs::read_dir(format!("/proc/{process}/task")) {
+				Ok(tasks) => tasks,
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+				Err(error) => return Err(tg::error!(!error, "failed to read the sandbox threads")),
+			};
+			let mut changed = false;
+			for task in tasks {
+				let task =
+					task.map_err(|error| tg::error!(!error, "failed to read a sandbox thread"))?;
+				let tid = task
+					.file_name()
+					.to_string_lossy()
+					.parse::<libc::pid_t>()
+					.map_err(|error| tg::error!(!error, "failed to parse a sandbox thread ID"))?;
+				if !updated.insert(tid) {
+					continue;
+				}
+				// SAFETY: The thread ID and CPU set are valid syscall inputs.
+				if unsafe {
+					libc::sched_setaffinity(tid, std::mem::size_of_val(&set), &raw const set)
+				} != 0
+				{
+					let error = std::io::Error::last_os_error();
+					if error.raw_os_error() != Some(libc::ESRCH) {
+						return Err(tg::error!(
+							!error,
+							"failed to update a sandbox thread's CPU affinity"
+						));
+					}
+				}
+				changed = true;
+			}
+			if !changed {
+				break;
+			}
+		}
+	}
+	Ok(())
 }
 
 /// Get the hardware threads that the current process may run on.

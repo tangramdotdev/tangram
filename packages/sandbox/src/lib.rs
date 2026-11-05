@@ -21,6 +21,8 @@ mod cgroup;
 mod client;
 mod command;
 #[cfg(target_os = "linux")]
+mod configuration;
+#[cfg(target_os = "linux")]
 mod filesystem;
 mod libraries;
 #[cfg(target_os = "linux")]
@@ -50,6 +52,8 @@ pub mod builtin;
 pub mod capacity;
 #[cfg(target_os = "linux")]
 pub mod cloud_hypervisor;
+#[cfg(target_os = "linux")]
+pub mod configure;
 #[cfg(target_os = "linux")]
 pub mod cpu;
 #[cfg(target_os = "linux")]
@@ -95,6 +99,9 @@ pub struct State {
 	filesystem: Option<crate::filesystem::Filesystem>,
 
 	kill: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+
+	#[cfg(target_os = "linux")]
+	namespaces: std::sync::Mutex<Option<configuration::Namespaces>>,
 
 	#[cfg(target_os = "linux")]
 	network: std::sync::Mutex<Option<crate::network::Network>>,
@@ -181,6 +188,8 @@ pub struct Arg {
 	pub nice: u8,
 
 	pub path: PathBuf,
+
+	pub prepare: bool,
 
 	pub request_timeout: Duration,
 
@@ -356,67 +365,7 @@ pub fn filesystem_project_id(root_path: &Path) -> tg::Result<Option<u32>> {
 impl Sandbox {
 	#[tracing::instrument(name = "sandbox.start_physical", level = "debug", skip_all, fields(sandbox_index = arg.index), err(level = "debug"))]
 	pub async fn start(arg: Arg) -> tg::Result<Self> {
-		// Validate the sandbox resources and mount targets.
-		validate_resources(&arg.backend, arg.cpu, arg.memory)?;
-		for resource in [arg.memory, arg.storage].into_iter().flatten() {
-			resource.validate()?;
-		}
-		if !matches!(
-			arg.backend,
-			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. }
-		) && arg.storage.is_some()
-		{
-			return Err(tg::error!("storage bounds require container isolation"));
-		}
-		validate_options(&arg)?;
-
-		// Validate the mounts.
-		let mut targets = BTreeSet::new();
-		for mount in &arg.mounts {
-			if !mount.source.is_absolute() {
-				return Err(tg::error!(
-					source = %mount.source.display(),
-					"sandbox mount sources must be absolute paths"
-				));
-			}
-			if !mount.target.is_absolute() {
-				return Err(tg::error!(
-					target = %mount.target.display(),
-					"sandbox mount targets must be absolute paths"
-				));
-			}
-			if mount.target == Path::new("/") {
-				return Err(tg::error!(
-					target = %mount.target.display(),
-					"mounting to / is not supported"
-				));
-			}
-			if mount
-				.target
-				.components()
-				.any(|component| component == std::path::Component::ParentDir)
-			{
-				return Err(tg::error!(
-					target = %mount.target.display(),
-					"sandbox mount targets may not contain parent directory components"
-				));
-			}
-			if ["/dev", "/proc", "/sys"]
-				.iter()
-				.any(|path| mount.target.starts_with(path))
-			{
-				return Err(tg::error!(
-					target = %mount.target.display(),
-					"sandbox mounts at or beneath /dev, /proc, and /sys are not supported"
-				));
-			}
-			if !targets.insert(mount.target.clone()) {
-				return Err(tg::error!(
-					target = %mount.target.display(),
-					"duplicate mount targets are not supported"
-				));
-			}
-		}
+		validate(&arg)?;
 
 		// Get the library paths.
 		let library_paths = {
@@ -449,18 +398,41 @@ impl Sandbox {
 			},
 		};
 
+		// Prepare the namespace handoff through a directory descriptor so that deep sandbox paths fit in a Unix socket address.
+		#[cfg(target_os = "linux")]
+		let namespace_listener = if arg.prepare {
+			use std::os::{fd::AsRawFd as _, unix::fs::PermissionsExt as _};
+			let directory = std::fs::File::open(&arg.path)
+				.map_err(|error| tg::error!(!error, "failed to open the sandbox directory"))?;
+			let address = format!("/proc/self/fd/{}/namespaces.sock", directory.as_raw_fd());
+			let listener = tokio::net::UnixListener::bind(&address).map_err(|error| {
+				tg::error!(!error, "failed to bind the sandbox namespace socket")
+			})?;
+			std::fs::set_permissions(
+				arg.path.join("namespaces.sock"),
+				std::fs::Permissions::from_mode(0o666),
+			)
+			.map_err(|error| {
+				tg::error!(!error, "failed to set the namespace socket permissions")
+			})?;
+			Some(listener)
+		} else {
+			None
+		};
+
 		// Create the sandbox server configuration.
 		let serve_arg = self::serve::Arg {
 			http2: arg.http2,
 			library_paths,
 			listen: false,
+			namespaces: arg.prepare.then(configuration_socket_path),
 			output_path: Self::guest_output_path_from_root(&arg.path),
 			tangram_path: Self::guest_tangram_path_from_host_tangram_path(&arg.tangram_path),
 			url,
 		};
 		let deadline = tokio::time::Instant::now() + arg.connect_timeout;
 		#[cfg(target_os = "linux")]
-		let (mut process, network, filesystem, cgroup, storage) = match &arg.backend {
+		let (mut process, network, filesystem, cgroup, storage, mounts) = match &arg.backend {
 			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
 				let mut network = create_network(&arg)?;
 				let cgroup = self::cgroup::try_create(&arg)?;
@@ -476,6 +448,7 @@ impl Sandbox {
 					output.filesystem,
 					cgroup,
 					output.storage,
+					output.mounts,
 				)
 			},
 			Backend::Seatbelt => {
@@ -499,7 +472,7 @@ impl Sandbox {
 				tokio::time::timeout_at(deadline, config.finish())
 					.await
 					.map_err(|error| tg::error!(!error, "timed out configuring the sandbox"))??;
-				(process, network, None, Some(cgroup), None)
+				(process, network, None, Some(cgroup), None, Vec::new())
 			},
 		};
 
@@ -599,6 +572,33 @@ impl Sandbox {
 			exit_sender.send_replace(Some(status));
 		});
 
+		// Retain the namespace descriptors for configuring a warm sandbox.
+		#[cfg(target_os = "linux")]
+		let namespaces = if let Some(listener) = namespace_listener {
+			let receive = async {
+				let (stream, _) = listener.accept().await.map_err(|error| {
+					tg::error!(!error, "failed to accept the sandbox namespaces")
+				})?;
+				let stream = stream
+					.into_std()
+					.map_err(|error| tg::error!(!error, "failed to take the namespace socket"))?;
+				tokio::task::spawn_blocking(move || {
+					configuration::Namespaces::receive(stream, pid, mounts)
+				})
+				.await
+				.map_err(|error| tg::error!(!error, "the namespace receive task panicked"))?
+			};
+			Some(
+				tokio::time::timeout_at(deadline, receive)
+					.await
+					.map_err(|error| {
+						tg::error!(!error, "timed out receiving the sandbox namespaces")
+					})??,
+			)
+		} else {
+			None
+		};
+
 		// Create the sandbox state.
 		let sandbox = Self(Arc::new(State {
 			#[cfg(target_os = "linux")]
@@ -624,6 +624,9 @@ impl Sandbox {
 			filesystem,
 
 			kill: std::sync::Mutex::new(Some(kill_sender)),
+
+			#[cfg(target_os = "linux")]
+			namespaces: std::sync::Mutex::new(namespaces),
 
 			#[cfg(target_os = "linux")]
 			network: std::sync::Mutex::new(network),
@@ -984,6 +987,8 @@ impl Sandbox {
 		#[cfg(target_os = "macos")]
 		self.0.cleanup.stop(self.0.arg.shutdown_timeout).await?;
 		self.cleanup_cgroup().await?;
+		#[cfg(target_os = "linux")]
+		drop(self.0.namespaces.lock().unwrap().take());
 		#[cfg(target_os = "linux")]
 		self.stop_network().await?;
 
@@ -1346,6 +1351,76 @@ fn reserve_veth_guest(pool: &self::network::ip::Pool) -> tg::Result<self::networ
 			"failed to reserve a veth address in the bridge subnet"
 		)
 	})
+}
+
+fn validate(arg: &Arg) -> tg::Result<()> {
+	// Validate the sandbox resources and mount targets.
+	validate_resources(&arg.backend, arg.cpu, arg.memory)?;
+	for resource in [arg.memory, arg.storage].into_iter().flatten() {
+		resource.validate()?;
+	}
+	if !matches!(
+		arg.backend,
+		Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. }
+	) && arg.storage.is_some()
+	{
+		return Err(tg::error!("storage bounds require container isolation"));
+	}
+	validate_options(arg)?;
+
+	// Validate the mounts.
+	let mut targets = BTreeSet::new();
+	for mount in &arg.mounts {
+		if !mount.source.is_absolute() {
+			return Err(tg::error!(
+				source = %mount.source.display(),
+				"sandbox mount sources must be absolute paths"
+			));
+		}
+		if !mount.target.is_absolute() {
+			return Err(tg::error!(
+				target = %mount.target.display(),
+				"sandbox mount targets must be absolute paths"
+			));
+		}
+		if mount.target == Path::new("/") {
+			return Err(tg::error!(
+				target = %mount.target.display(),
+				"mounting to / is not supported"
+			));
+		}
+		if mount
+			.target
+			.components()
+			.any(|component| component == std::path::Component::ParentDir)
+		{
+			return Err(tg::error!(
+				target = %mount.target.display(),
+				"sandbox mount targets may not contain parent directory components"
+			));
+		}
+		if ["/dev", "/proc", "/sys"]
+			.iter()
+			.any(|path| mount.target.starts_with(path))
+		{
+			return Err(tg::error!(
+				target = %mount.target.display(),
+				"sandbox mounts at or beneath /dev, /proc, and /sys are not supported"
+			));
+		}
+		if !targets.insert(mount.target.clone()) {
+			return Err(tg::error!(
+				target = %mount.target.display(),
+				"duplicate mount targets are not supported"
+			));
+		}
+	}
+
+	Ok(())
+}
+
+fn configuration_socket_path() -> PathBuf {
+	"/opt/tangram/namespaces.sock".into()
 }
 
 #[cfg(test)]

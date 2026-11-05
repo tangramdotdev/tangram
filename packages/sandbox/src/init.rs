@@ -53,6 +53,10 @@ pub fn command(arg: &crate::serve::Arg) -> std::process::Command {
 		.arg(&arg.tangram_path)
 		.args(crate::util::http2_args(&arg.http2));
 
+	if let Some(path) = &arg.namespaces {
+		command.arg("--namespaces").arg(path);
+	}
+
 	// Supply the Tangram server environment defaults.
 	command.env("SSL_CERT_DIR", crate::Sandbox::guest_ssl_cert_dir());
 	if let Some(home) = std::env::home_dir() {

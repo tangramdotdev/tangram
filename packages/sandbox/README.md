@@ -70,8 +70,11 @@ overcommitted. Capacity admission charges `min * factor + (max - min)` against
 Without explicit budgets, RAM and disk use 75% of available backing. The disk pool
 assigns kernel limits within its backed budget; capacity above minima is best effort and may be unavailable even
 before a sandbox reaches its requested maximum. Persistent data prevents a new
-minimum from being admitted until enough backing becomes available. Sandbox
-prewarming is disabled so allocation happens after capacity admission.
+minimum from being admitted until enough backing becomes available. Warm builtin and bubblewrap sandboxes prepare private namespaces and quota
+tracking without reserving workload minima. After capacity admission, the runner
+configures resource bounds, hostname, mounts, and isolated networking before
+activation and accounting. Pool lookup uses only settings fixed by the backend;
+host networking and the guest configuration of gVisor and VMs remain fixed.
 
 Usage has a `{ reservation, consumption }` counter for each resource. Reservation
 accrues as `min * duration`, including idle time. Consumption accrues above the

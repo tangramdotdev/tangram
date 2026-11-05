@@ -199,6 +199,8 @@ fn main() -> std::process::ExitCode {
 	let args = Args::from_arg_matches(&matches).unwrap();
 	if let Command::Sandbox(tangram_cli_sandbox::Args { command }) = args.command.clone() {
 		let result = match command {
+			#[cfg(target_os = "linux")]
+			tangram_cli_sandbox::Command::Configure(args) => Some(tangram_cli_sandbox::configure::run(args)),
 			tangram_cli_sandbox::Command::Run(args) => Some(tangram_cli_sandbox::run::run(args)),
 			_ => None,
 		};

@@ -23,7 +23,7 @@ pub fn run(command: &crate::run::Command, arg: &Arg) -> tg::Result<u8> {
 	// Configure the process lifetime and isolation namespaces.
 	crate::util::set_parent_death_signal(libc::SIGKILL)?;
 	linux::unshare(
-		namespace_flags(arg),
+		namespace_flags(),
 		"failed to unshare the builtin namespaces",
 	)?;
 	if let Some(hostname) = &arg.hostname {
@@ -78,12 +78,8 @@ pub(crate) fn mount_fuse(fd: i32, path: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn namespace_flags(arg: &Arg) -> libc::c_int {
-	let mut flags = libc::CLONE_NEWIPC | libc::CLONE_NEWPID;
-	if arg.hostname.is_some() {
-		flags |= libc::CLONE_NEWUTS;
-	}
-	flags
+fn namespace_flags() -> libc::c_int {
+	libc::CLONE_NEWIPC | libc::CLONE_NEWPID | libc::CLONE_NEWUTS
 }
 
 fn mounts(root: &std::fs::File) -> mount::Arg {
@@ -253,13 +249,8 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn hostname_selects_uts_namespace() {
-		let arg = Arg {
-			hostname: Some("tangram-test".into()),
-			..Default::default()
-		};
-		assert_ne!(namespace_flags(&arg) & libc::CLONE_NEWUTS, 0);
-		assert_eq!(namespace_flags(&Arg::default()) & libc::CLONE_NEWUTS, 0);
+	fn native_sandboxes_have_a_private_uts_namespace() {
+		assert_ne!(namespace_flags() & libc::CLONE_NEWUTS, 0);
 	}
 
 	#[test]

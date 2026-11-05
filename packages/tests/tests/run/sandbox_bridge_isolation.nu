@@ -18,7 +18,8 @@ let module = artifact {
 
 def test_backend [firewall: string] {
 	let local = server spawn --busybox --config {
-		runner: { sandbox_pool_size: 0 },
+		advanced: { checkpoints: true },
+		runner: { sandbox_pool_size: 1, sandboxes: 4 },
 		sandbox: {
 			network: {
 				firewall: $firewall,
@@ -26,8 +27,20 @@ def test_backend [firewall: string] {
 			},
 		},
 	}
-	let listener_sandbox = tg sandbox create --no-tokens --network --port 127.0.0.1::8080 | referent node
-	let client_sandbox = tg sandbox create --no-tokens --network | referent node
+	let checkpoint = checkpoint watch runner.sandbox.pool.take
+	let job = job spawn {
+		let job_id = job id
+		tg sandbox create --no-tokens --network --port 127.0.0.1::8080 | job send --tag $job_id 0
+	}
+	checkpoint pass $checkpoint | ignore
+	let listener_sandbox = job recv --tag $job | referent node
+	let job = job spawn {
+		let job_id = job id
+		tg sandbox create --no-tokens --network | job send --tag $job_id 0
+	}
+	checkpoint pass $checkpoint 1 | ignore
+	checkpoint unwatch $checkpoint
+	let client_sandbox = job recv --tag $job | referent node
 	let address_command = tg build $module --arg-string r#'ip -4 -o addr show scope global | awk '{ print $4 }' | cut -d/ -f1'# | str trim
 	let listener_ip = tg run --no-tokens $'--sandbox=($listener_sandbox)' $address_command | str trim
 	let listener_command = tg build $module --arg-string r#'echo ready; while :; do printf 'HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok' | nc -l -p 8080; done'# | str trim

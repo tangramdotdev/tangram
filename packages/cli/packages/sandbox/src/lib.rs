@@ -1,5 +1,7 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
+#[cfg(target_os = "linux")]
+pub mod configure;
 pub mod create;
 pub mod destroy;
 pub mod get;
@@ -21,6 +23,10 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
+	#[cfg(target_os = "linux")]
+	#[command(hide = true)]
+	Configure(self::configure::Args),
+
 	Create(self::create::Args),
 
 	Destroy(self::destroy::Args),
@@ -234,6 +240,10 @@ pub async fn resolve_owner(
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
+		#[cfg(target_os = "linux")]
+		Command::Configure(args) => {
+			cli.exit = Some(crate::configure::run(args)?);
+		},
 		Command::Create(args) => {
 			crate::create::run(cli, args).await?;
 		},
