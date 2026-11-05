@@ -508,24 +508,19 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 				reply(nil, nil, posixError(status < 0 ? -status : ENOENT))
 				return
 			}
-			// Resolve the type with a follow-up getattr so the item is complete.
-			submit({ response, status in
-				var attrs = TgAttrs()
-				guard let response, tg_response_attrs(response, &attrs) == 0 else {
-					reply(nil, nil, posixError(status < 0 ? -status : EIO))
-					return
-				}
-				// Take a lookup reference for the vended item, balanced by the forget in reclaimItem.
-				_ = self.withProvider { tg_provider_remember_sync($0, id) }
-				let type = self.itemType(for: attrs.kind)
-				let item = TangramItem(nodeID: id, parentID: parent, itemType: type, name: component)
-				reply(item, name, nil)
-			}, { callback, context in
-				self.withProvider { tg_provider_getattr_async($0, id, callback, context) }
-			})
+			var attrs = TgAttrs()
+			guard tg_response_attrs(response, &attrs) == 0 else {
+				_ = self.withProvider { tg_provider_forget_sync($0, id, 1) }
+				reply(nil, nil, posixError(EIO))
+				return
+			}
+			// The lookup reference belongs to the vended item and is released in reclaimItem.
+			let type = self.itemType(for: attrs.kind)
+			let item = TangramItem(nodeID: id, parentID: parent, itemType: type, name: component)
+			reply(item, name, nil)
 		}, { callback, context in
 			bytes.withUnsafeBufferPointer { buffer in
-				self.withProvider { tg_provider_lookup_async($0, parent, buffer.baseAddress, buffer.count, callback, context) }
+				self.withProvider { tg_provider_lookup_and_remember_async($0, parent, buffer.baseAddress, buffer.count, callback, context) }
 			}
 		})
 	}
@@ -649,11 +644,13 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 	) {
 		let offset = UInt64(cookie.rawValue)
 		submit({ response, status in
-			_ = self.withProvider { tg_provider_close_sync($0, handle) }
+			defer { _ = self.withProvider { tg_provider_close_sync($0, handle) } }
 			guard let response else {
 				reply(verifier, posixError(status < 0 ? -status : EIO))
 				return
 			}
+			// Release the whole returned page, including entries that do not fit in the kernel's buffer.
+			defer { self.forgetDirectoryEntries(response) }
 			var count = 0
 			guard tg_response_readdirplus_len(response, &count) == 0 else {
 				reply(verifier, posixError(EIO))
@@ -684,6 +681,28 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		}, { callback, context in
 			self.withProvider { tg_provider_readdirplus_async($0, handle, offset, 64 * 1024, callback, context) }
 		})
+	}
+
+	private func forgetDirectoryEntries(_ response: TgResponse) {
+		var count = 0
+		guard tg_response_readdirplus_len(response, &count) == 0 else { return }
+		let requests: [TgRequest] = (0 ..< count).compactMap { index in
+			var entry = TgDirEntryPlus()
+			guard tg_response_readdirplus_get(response, index, &entry) == 0 else { return nil }
+			var request = TgRequest()
+			request.kind = TgRequestKindForget
+			request.id = entry.id
+			request.nlookup = 1
+			return request
+		}
+		guard !requests.isEmpty else { return }
+		var batch: TgResponseBatch?
+		_ = requests.withUnsafeBufferPointer { requests in
+			self.withProvider { tg_provider_handle_batch_sync($0, requests.baseAddress, requests.count, &batch) }
+		}
+		if let batch {
+			_ = tg_response_batch_free(batch)
+		}
 	}
 
 	func openItem(_ item: FSItem, modes: FSVolume.OpenModes, replyHandler reply: @escaping (Error?) -> Void) {

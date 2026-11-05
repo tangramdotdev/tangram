@@ -189,6 +189,12 @@ enum NamedNodeEntry {
 	Symlink(tg::Referent<tg::Id>),
 }
 
+struct PendingNodes<'a> {
+	committed: bool,
+	ids: Vec<u64>,
+	nodes: &'a Nodes,
+}
+
 struct ReaddirPlusPage {
 	length: usize,
 	offset: usize,
@@ -1078,14 +1084,23 @@ impl Inner {
 			size: 0,
 		};
 		let mut entries = Vec::new();
+		let mut pending = PendingNodes::new(&self.nodes);
 
 		// Add the special directory entries.
 		let attrs = self.getattr(id).await?;
-		if page.push(&mut entries, ".".to_owned(), id, attrs) {
+		if page.push(&mut entries, ".".to_owned(), id, attrs, &mut pending)? {
+			pending.commit();
 			return Ok(entries);
 		}
 		let parent_attrs = self.getattr(parent).await?;
-		if page.push(&mut entries, "..".to_owned(), parent, parent_attrs) {
+		if page.push(
+			&mut entries,
+			"..".to_owned(),
+			parent,
+			parent_attrs,
+			&mut pending,
+		)? {
+			pending.commit();
 			return Ok(entries);
 		}
 
@@ -1109,8 +1124,9 @@ impl Inner {
 					artifact,
 					depth + 1,
 					Some(attrs),
-					false,
+					true,
 				)?;
+				pending.push_acquired(node_id);
 				page.size += ReaddirPlusPage::entry_size(name.len());
 				page.position += 1;
 				entries.push((name, node_id, attrs));
@@ -1164,8 +1180,9 @@ impl Inner {
 					depth + 1,
 					attrs,
 					named_node,
-					false,
+					true,
 				)?;
+				pending.push_acquired(node);
 				page.size += ReaddirPlusPage::entry_size(name.len());
 				page.position += 1;
 				entries.push((name, node, attrs));
@@ -1173,6 +1190,8 @@ impl Inner {
 		} else {
 			return Err(std::io::Error::other("expected a directory"));
 		}
+
+		pending.commit();
 
 		Ok(entries)
 	}
@@ -2477,6 +2496,31 @@ impl ArtifactState {
 	}
 }
 
+impl<'a> PendingNodes<'a> {
+	fn new(nodes: &'a Nodes) -> Self {
+		Self {
+			committed: false,
+			ids: Vec::new(),
+			nodes,
+		}
+	}
+
+	fn acquire(&mut self, id: u64) -> std::io::Result<()> {
+		self.nodes.remember_existing(id)?;
+		self.ids.push(id);
+
+		Ok(())
+	}
+
+	fn push_acquired(&mut self, id: u64) {
+		self.ids.push(id);
+	}
+
+	fn commit(mut self) {
+		self.committed = true;
+	}
+}
+
 impl ReaddirPlusPage {
 	const FUSE_DIRENT_PLUS_HEADER_SIZE: usize = 152;
 
@@ -2486,19 +2530,21 @@ impl ReaddirPlusPage {
 		name: String,
 		id: u64,
 		attrs: vfs::Attrs,
-	) -> bool {
+		pending: &mut PendingNodes<'_>,
+	) -> std::io::Result<bool> {
 		if self.position < self.offset {
 			self.position += 1;
-			return false;
+			return Ok(false);
 		}
 		let entry_size = Self::entry_size(name.len());
 		if self.size + entry_size > self.length {
-			return true;
+			return Ok(true);
 		}
+		pending.acquire(id)?;
 		self.position += 1;
 		self.size += entry_size;
 		entries.push((name, id, attrs));
-		false
+		Ok(false)
 	}
 
 	fn entry_size(name_len: usize) -> usize {
@@ -2565,6 +2611,17 @@ impl vfs::Provider for Inner {
 				_ => Err(std::io::Error::from_raw_os_error(libc::ENOSYS)),
 			})
 			.collect()
+	}
+}
+
+impl Drop for PendingNodes<'_> {
+	fn drop(&mut self) {
+		if self.committed {
+			return;
+		}
+		for &id in self.ids.iter().rev() {
+			self.nodes.forget(id, 1);
+		}
 	}
 }
 
@@ -2731,6 +2788,75 @@ mod tests {
 			inner.close(second);
 			assert!(inner.nodes.get(id).is_err());
 		});
+	}
+
+	#[test]
+	fn readdirplus_references_are_balanced_when_only_part_of_a_page_is_used() {
+		let fixture = fixture(true);
+		let inner = &fixture.provider.inner;
+		fixture.provider.runtime.block_on(async {
+			let (id, _) = inner
+				.lookup_and_remember(vfs::ROOT_NODE_ID, &fixture.directory.to_string())
+				.await
+				.unwrap()
+				.unwrap();
+			let (child, _) = inner
+				.lookup_and_remember(id, "child")
+				.await
+				.unwrap()
+				.unwrap();
+			let (handle, _) = inner.opendir(id).await.unwrap();
+			for _ in 0..3 {
+				let mut offset = 0;
+				let mut names = Vec::new();
+				loop {
+					let entries = inner.readdirplus(handle, offset, 4096).await.unwrap();
+					if entries.is_empty() {
+						break;
+					}
+					// Accept only the first entry, as a full FSKit output buffer can reject the rest of a page.
+					names.push(entries[0].0.clone());
+					offset += 1;
+					assert_eq!(
+						inner.nodes.state.lock().unwrap().nodes[&child].lookup_count,
+						2
+					);
+
+					// Release every returned reference, including the entries that were not accepted.
+					let requests = entries
+						.into_iter()
+						.map(|(_, id, _)| vfs::Request::Forget { id, nlookup: 1 })
+						.collect();
+					let responses = inner.handle_batch(requests).await;
+					assert!(responses.iter().all(Result::is_ok));
+					let state = inner.nodes.state.lock().unwrap();
+					assert_eq!(state.nodes[&child].lookup_count, 1);
+					assert_eq!(state.nodes[&id].lookup_count, 2);
+				}
+				assert_eq!(names, [".", "..", "child"]);
+			}
+			inner.close(handle);
+			inner.nodes.forget(child, 1);
+			assert!(inner.nodes.get(child).is_err());
+			inner.nodes.forget(id, 1);
+			assert!(inner.nodes.get(id).is_err());
+		});
+	}
+
+	#[test]
+	fn failed_readdirplus_releases_acquired_references() {
+		let nodes = Nodes::new();
+		let artifact = ArtifactState::new(tg::directory::Id::new(b"directory").into(), None);
+		let id = nodes
+			.get_or_insert_child(vfs::ROOT_NODE_ID, "directory", artifact, 1, None, true)
+			.unwrap();
+		{
+			let mut pending = PendingNodes::new(&nodes);
+			pending.acquire(id).unwrap();
+			assert!(pending.acquire(u64::MAX).is_err());
+		}
+		nodes.forget(id, 1);
+		assert!(nodes.get(id).is_err());
 	}
 
 	#[test]
@@ -2906,7 +3032,7 @@ mod tests {
 		// Create a temporary cache containing a directory and one child.
 		let temp = Temp::new().unwrap();
 		std::fs::create_dir(temp.path()).unwrap();
-		let child: tg::artifact::Id = tg::file::Id::new(b"child").into();
+		let child: tg::artifact::Id = tg::directory::Id::new(b"child").into();
 		let entries = BTreeMap::from([(
 			"child".to_owned(),
 			tg::graph::data::Edge::Object(child.clone()),

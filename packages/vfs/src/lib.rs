@@ -21,6 +21,7 @@ pub fn readdir_inode(node: u64) -> u64 {
 
 pub type Result<T> = std::io::Result<T>;
 
+/// A VFS operation. Each entry returned by `ReadDirPlus` owns a lookup reference that the caller must release with `Forget`.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub enum Request {
 	Close {
