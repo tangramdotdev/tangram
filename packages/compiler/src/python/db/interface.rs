@@ -280,11 +280,17 @@ impl<'db> Converter<'_, 'db> {
 						let args = instance
 							.arguments
 							.first()
-							.map(|args| match self.describe(*args) {
-								// Convert an alias in place, so that bindings can print the args without resolving a definition.
-								Description::Alias { value, .. } => self.type_(value),
+							.map(|args| {
+								// Resolve the aliases before converting the outer argument shape.
+								let mut args = *args;
+								for _ in self.depth..DEPTH {
+									match self.describe(args) {
+										Description::Alias { value, .. } => args = value,
+										_ => return self.type_(args),
+									}
+								}
 
-								_ => self.type_(*args),
+								Err(tg::error!("the type is too deeply nested"))
 							})
 							.transpose()?
 							.unwrap_or(tg::interface::Type::Array {

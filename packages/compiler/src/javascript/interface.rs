@@ -569,17 +569,26 @@ impl Converter<'_> {
 				} else {
 					self.checker.get_type_arguments_exported(type_).to_vec()
 				};
-				let args = match arguments.first() {
-					// Convert an array or a tuple in place, so that bindings can print the args without resolving a definition.
-					Some(args)
-						if self.checker.is_array_type_exported(*args)
-							|| tsrs_checker::is_tuple_type_exported(*args) =>
-					{
-						self.structure(*args, Mode::Value)?
+				let args = match arguments.first().copied() {
+					Some(args) => {
+						// Resolve a type parameter before converting the argument shape.
+						let args = if args.flags.get().intersects(TypeFlags::TypeParameter) {
+							self.checker
+								.get_base_constraint_of_type_exported(args)
+								.unwrap_or(args)
+						} else {
+							args
+						};
+
+						// Convert an array or a tuple in place, so that bindings can print the args without resolving a definition.
+						if self.checker.is_array_type_exported(args)
+							|| tsrs_checker::is_tuple_type_exported(args)
+						{
+							self.structure(args, Mode::Value)?
+						} else {
+							self.type_(args, Mode::Value)?
+						}
 					},
-
-					Some(args) => self.type_(*args, Mode::Value)?,
-
 					None => tg::interface::Type::Array {
 						item: Box::new(tg::interface::Type::Value),
 					},

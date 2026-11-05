@@ -125,7 +125,7 @@ for kind in ['{ y: string }' 'string | Array<Kind>'] {
 	assert equal $interface.definitions.Aaa.fields.other.type { kind: reference, name: Kind2 }
 }
 
-# The args of a command keep their types when a recursive alias names them.
+# The args of a command keep their types through recursive aliases and type parameter constraints.
 let modules = {
 	shapes.tg.ts: '
 		export type Imported = [string, Imported | null];
@@ -136,8 +136,8 @@ let modules = {
 		export type Rec = [string, Rec | null];
 		export type NestedArgs = Array<string | NestedArgs>;
 		export function imported(c: tg.Command<Imported, string>): string { return "x"; }
-		export function importedArray(c: tg.Command<ImportedArray, string>): string { return "x"; }
-		export function recursive(c: tg.Command<Rec, string>): string { return "x"; }
+		export function importedArray<A extends ImportedArray>(c: tg.Command<A, string>): string { return "x"; }
+		export function recursive<A extends Rec>(c: tg.Command<A, string>): string { return "x"; }
 		export function recursiveArray(c: tg.Command<NestedArgs, string>): string { return "x"; }
 	'
 }
@@ -192,6 +192,7 @@ let modules = {
 		from typing import TypedDict
 		type Flat = str | None
 		type Local = list[str | Local]
+		type Alias = Local
 		type Later = list[str | Later]
 		type Box[T] = T | list[Box[T]]
 		class FailingDict(TypedDict, closed=True):
@@ -199,7 +200,7 @@ let modules = {
 		    other: set[str]
 		def box(strings: Box[str], numbers: Box[float]) -> None:
 		    return None
-		def command(c: tg.Command[Local, str]) -> str:
+		def command(c: tg.Command[Alias, str]) -> str:
 		    return "x"
 		def failing(value: Later, other: set[str]) -> None:
 		    return None
