@@ -99,7 +99,7 @@ impl Component {
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 		match output.data.status {
-			tg::sandbox::Status::Destroyed => {
+			tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
 				return Err(tg::error!(%id, "the sandbox was destroyed"));
 			},
 			tg::sandbox::Status::Started => return Ok(Some(false)),
@@ -320,7 +320,7 @@ impl Component {
 				.await?
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 			let data = output.data;
-			if data.status.is_destroyed() {
+			if data.status.is_destroyed() || data.status.is_destroying() {
 				return Err(tg::error!(%id, "the sandbox was destroyed"));
 			}
 			if data.boot == boot {
@@ -338,7 +338,9 @@ impl Component {
 						};
 						return Err(error);
 					},
-					tg::sandbox::Status::Destroyed | tg::sandbox::Status::Starting => {},
+					tg::sandbox::Status::Destroyed
+					| tg::sandbox::Status::Destroying
+					| tg::sandbox::Status::Starting => {},
 				}
 			}
 			tokio::select! {
@@ -364,7 +366,7 @@ impl Component {
 				.await?
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 			match output.data.status {
-				tg::sandbox::Status::Destroyed => {
+				tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
 					return Err(tg::error!(%id, "the sandbox was destroyed"));
 				},
 				tg::sandbox::Status::Started => return Ok(()),

@@ -147,7 +147,7 @@ impl Component {
 			while let Some(event) = status_stream.try_next().await? {
 				if let tg::sandbox::status::Event::Status(status) = event {
 					match status {
-						tg::sandbox::Status::Destroyed => {
+						tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
 							return Err(tg::error!(%sandbox, "the sandbox was destroyed"));
 						},
 						tg::sandbox::Status::Starting | tg::sandbox::Status::Stopped => {
@@ -330,7 +330,7 @@ impl Component {
 						.and_then(|sandbox| sandbox.data)
 						.map(|data| data.data.status);
 					return Err(match status {
-						Some(tg::sandbox::Status::Destroyed) => {
+						Some(tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying) => {
 							tg::error!(!error, %sandbox, "the sandbox was destroyed")
 						},
 						Some(tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping) => {
@@ -378,7 +378,7 @@ impl Component {
 				.and_then(|sandbox| sandbox.data)
 				.map(|data| data.data.status);
 			match status {
-				Some(tg::sandbox::Status::Destroyed) => {
+				Some(tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying) => {
 					return Err(tg::error!(%sandbox, "the sandbox was destroyed"));
 				},
 				Some(tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping) if indexed => {

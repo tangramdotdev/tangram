@@ -96,7 +96,9 @@ class SandboxUsage(TypedDict):
 
 class SandboxData(TypedDict, total=False):
     id: Required[str]
-    status: Required[Literal["destroyed", "started", "starting", "stopped", "stopping"]]
+    status: Required[
+        Literal["destroyed", "destroying", "started", "starting", "stopped", "stopping"]
+    ]
     boot: int
     cpu: Cpu | None
     creator: str
@@ -145,7 +147,9 @@ class Sandbox:
     Stop: ClassVar[type[Stop]]
     ConstructorArg = SandboxConstructorArg
     Source = dict
-    Status = Literal["destroyed", "started", "starting", "stopped", "stopping"]
+    Status = Literal[
+        "destroyed", "destroying", "started", "starting", "stopped", "stopping"
+    ]
     Usage = SandboxUsage
     __tangram_atomic__ = True
 

@@ -27,6 +27,9 @@ pub enum Status {
 	#[tangram_serialize(id = 0)]
 	Destroyed,
 
+	#[tangram_serialize(id = 5)]
+	Destroying,
+
 	#[tangram_serialize(id = 1)]
 	Started,
 
@@ -140,6 +143,7 @@ impl std::str::FromStr for Status {
 	fn from_str(value: &str) -> Result<Self, Self::Err> {
 		match value {
 			"destroyed" => Ok(Self::Destroyed),
+			"destroying" => Ok(Self::Destroying),
 			"started" => Ok(Self::Started),
 			"starting" => Ok(Self::Starting),
 			"stopped" => Ok(Self::Stopped),
