@@ -130,9 +130,16 @@ impl Cli {
 		args.push("serve".to_owned());
 		args.push("--ready-fd".to_owned());
 		args.push(ready_fd.to_string());
+
+		// Run the server in the home directory, or in the root directory if the home directory does not exist.
+		let current_dir = std::env::var_os("HOME")
+			.map(PathBuf::from)
+			.filter(|path| path.is_dir())
+			.unwrap_or_else(|| PathBuf::from("/"));
+
 		command
 			.args(args)
-			.current_dir(PathBuf::from(std::env::var("HOME").unwrap()))
+			.current_dir(current_dir)
 			.stdin(std::process::Stdio::null())
 			.stdout(stdout)
 			.stderr(stderr);
