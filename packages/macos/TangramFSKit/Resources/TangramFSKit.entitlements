@@ -14,5 +14,10 @@
 	<array>
 		<string>/.tangram/</string>
 	</array>
+	<!-- Allow Unix socket connections to CLI servers in the existing Tangram directory. -->
+	<key>com.apple.security.temporary-exception.sbpl</key>
+	<array>
+		<string>(allow network-outbound (home-subpath "/.tangram/"))</string>
+	</array>
 </dict>
 </plist>

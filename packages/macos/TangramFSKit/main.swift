@@ -323,10 +323,7 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		let principal = options["principal"] ?? ""
 		let tokens = options["tokens"] ?? ""
 
-		// The client connects to the server over the unix socket the server sends as
-		// a mount option, which lets concurrent servers each serve on their own
-		// socket. It falls back to the socket in the shared app group container, the
-		// only path the sandbox permits the extension to open.
+		// Connect to the socket supplied by the server, or fall back to the shared app group socket.
 		let socket: String
 		if let socketOption = options["socket"] {
 			socket = socketOption
@@ -343,7 +340,8 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		logger.info(
 			"creating provider for socket=\(socket, privacy: .public) data=\(dataDirectory, privacy: .public) cache_map_size=\(cacheMapSize, privacy: .public) cache_path=\(cachePath, privacy: .public) cache_posix_sem_prefix=\(cachePosixSemPrefix, privacy: .public)",
 		)
-		let status = socket.withCString { socket in
+		let providerSocket = options["proxy"] == "1" ? "proxy:\(socket)" : socket
+		let status = providerSocket.withCString { socket in
 			dataDirectory.withCString { dataDirectory in
 				cachePath.withCString { cachePath in
 					cachePosixSemPrefix.withCString { cachePosixSemPrefix in
@@ -510,24 +508,19 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 				reply(nil, nil, posixError(status < 0 ? -status : ENOENT))
 				return
 			}
-			// Resolve the type with a follow-up getattr so the item is complete.
-			submit({ response, status in
-				var attrs = TgAttrs()
-				guard let response, tg_response_attrs(response, &attrs) == 0 else {
-					reply(nil, nil, posixError(status < 0 ? -status : EIO))
-					return
-				}
-				// Take a lookup reference for the vended item, balanced by the forget in reclaimItem.
-				_ = self.withProvider { tg_provider_remember_sync($0, id) }
-				let type = self.itemType(for: attrs.kind)
-				let item = TangramItem(nodeID: id, parentID: parent, itemType: type, name: component)
-				reply(item, name, nil)
-			}, { callback, context in
-				self.withProvider { tg_provider_getattr_async($0, id, callback, context) }
-			})
+			var attrs = TgAttrs()
+			guard tg_response_attrs(response, &attrs) == 0 else {
+				_ = self.withProvider { tg_provider_forget_sync($0, id, 1) }
+				reply(nil, nil, posixError(EIO))
+				return
+			}
+			// The lookup reference belongs to the vended item and is released in reclaimItem.
+			let type = self.itemType(for: attrs.kind)
+			let item = TangramItem(nodeID: id, parentID: parent, itemType: type, name: component)
+			reply(item, name, nil)
 		}, { callback, context in
 			bytes.withUnsafeBufferPointer { buffer in
-				self.withProvider { tg_provider_lookup_async($0, parent, buffer.baseAddress, buffer.count, callback, context) }
+				self.withProvider { tg_provider_lookup_and_remember_async($0, parent, buffer.baseAddress, buffer.count, callback, context) }
 			}
 		})
 	}
@@ -620,12 +613,44 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 			reply(verifier, posixError(ENOTDIR))
 			return
 		}
+		submit({ response, status in
+			var handle: UInt64 = 0
+			guard let response, tg_response_opendir(response, &handle) == 0 else {
+				reply(verifier, posixError(status < 0 ? -status : EIO))
+				return
+			}
+			self.enumerateDirectory(
+				nodeID: nodeID,
+				handle: handle,
+				startingAt: cookie,
+				verifier: verifier,
+				attributes: desiredAttributes,
+				packer: packer,
+				replyHandler: reply,
+			)
+		}, { callback, context in
+			self.withProvider { tg_provider_opendir_async($0, nodeID, callback, context) }
+		})
+	}
+
+	private func enumerateDirectory(
+		nodeID: UInt64,
+		handle: UInt64,
+		startingAt cookie: FSDirectoryCookie,
+		verifier: FSDirectoryVerifier,
+		attributes desiredAttributes: FSItem.GetAttributesRequest?,
+		packer: FSDirectoryEntryPacker,
+		replyHandler reply: @escaping (FSDirectoryVerifier, Error?) -> Void,
+	) {
 		let offset = UInt64(cookie.rawValue)
 		submit({ response, status in
+			defer { _ = self.withProvider { tg_provider_close_sync($0, handle) } }
 			guard let response else {
 				reply(verifier, posixError(status < 0 ? -status : EIO))
 				return
 			}
+			// Release the whole returned page, including entries that do not fit in the kernel's buffer.
+			defer { self.forgetDirectoryEntries(response) }
 			var count = 0
 			guard tg_response_readdirplus_len(response, &count) == 0 else {
 				reply(verifier, posixError(EIO))
@@ -654,8 +679,30 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 			}
 			reply(verifier, nil)
 		}, { callback, context in
-			self.withProvider { tg_provider_readdirplus_async($0, nodeID, offset, 64 * 1024, callback, context) }
+			self.withProvider { tg_provider_readdirplus_async($0, handle, offset, 64 * 1024, callback, context) }
 		})
+	}
+
+	private func forgetDirectoryEntries(_ response: TgResponse) {
+		var count = 0
+		guard tg_response_readdirplus_len(response, &count) == 0 else { return }
+		let requests: [TgRequest] = (0 ..< count).compactMap { index in
+			var entry = TgDirEntryPlus()
+			guard tg_response_readdirplus_get(response, index, &entry) == 0 else { return nil }
+			var request = TgRequest()
+			request.kind = TgRequestKindForget
+			request.id = entry.id
+			request.nlookup = 1
+			return request
+		}
+		guard !requests.isEmpty else { return }
+		var batch: TgResponseBatch?
+		_ = requests.withUnsafeBufferPointer { requests in
+			self.withProvider { tg_provider_handle_batch_sync($0, requests.baseAddress, requests.count, &batch) }
+		}
+		if let batch {
+			_ = tg_response_batch_free(batch)
+		}
 	}
 
 	func openItem(_ item: FSItem, modes: FSVolume.OpenModes, replyHandler reply: @escaping (Error?) -> Void) {

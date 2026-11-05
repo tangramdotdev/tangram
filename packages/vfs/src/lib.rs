@@ -5,6 +5,8 @@ pub mod cache;
 #[cfg(target_os = "linux")]
 pub mod fuse;
 pub mod nfs;
+#[cfg(target_os = "macos")]
+pub mod proxy;
 #[cfg(target_os = "linux")]
 pub mod virtiofs;
 
@@ -19,7 +21,8 @@ pub fn readdir_inode(node: u64) -> u64 {
 
 pub type Result<T> = std::io::Result<T>;
 
-#[derive(Clone, Debug)]
+/// A VFS operation. Each entry returned by `ReadDirPlus` owns a lookup reference that the caller must release with `Forget`.
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub enum Request {
 	Close {
 		handle: u64,
@@ -78,7 +81,7 @@ pub enum Request {
 	},
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub enum Response {
 	GetAttr {
 		attrs: Attrs,
@@ -98,8 +101,10 @@ pub enum Response {
 		id: u64,
 	},
 	Open {
-		handle: u64,
+		#[serde(skip)]
 		backing_fd: Option<OwnedFd>,
+
+		handle: u64,
 	},
 	OpenDir {
 		handle: u64,
@@ -121,14 +126,14 @@ pub enum Response {
 	Unit,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 pub enum EntryKind {
 	File,
 	Directory,
 	Symlink,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Attrs {
 	pub atime: Timestamp,
 	pub cacheable: bool,
@@ -139,14 +144,14 @@ pub struct Attrs {
 	pub uid: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 pub enum AttrsInner {
 	File { executable: bool, size: u64 },
 	Directory,
 	Symlink { size: u64 },
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Timestamp {
 	pub secs: u64,
 	pub nanos: u32,

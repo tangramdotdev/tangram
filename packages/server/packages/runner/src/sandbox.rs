@@ -715,11 +715,7 @@ impl Component {
 
 			usage: None,
 
-			#[cfg(target_os = "linux")]
 			vfs: create_output.vfs.as_ref().map(|vfs| vfs.provider()),
-
-			#[cfg(not(target_os = "linux"))]
-			vfs: None,
 		};
 		self.state.sandboxes.insert(index, entry);
 		let server = session.server.clone();
@@ -740,7 +736,6 @@ impl Component {
 			.await;
 
 		// Bind the pooled VFS to this sandbox before starting any processes.
-		#[cfg(target_os = "linux")]
 		if let Some(vfs) = &create_output.vfs {
 			vfs.provider()
 				.set_principal(tg::Principal::Sandbox(id.clone()));
@@ -1095,6 +1090,30 @@ impl Component {
 			},
 			_ => (None, None, None, None),
 		};
+		#[cfg(target_os = "macos")]
+		let (vfs, vfs_mount) = if session.server.components.vfs.mounted()
+			&& session.server.config.vfs.as_ref().is_some_and(|config| {
+				matches!(config.kind, tangram_server_core::config::VfsKind::Fskit)
+			}) {
+			let mount_path = temp.path().join("store");
+			let arg = tangram_server_core::vfs::MountArg {
+				kind: tangram_server_core::vfs::Kind::Fskit,
+				options: session.server.config.vfs.clone().unwrap_or_default(),
+				origin: Origin::Sandbox(index),
+				path: &mount_path,
+				principal: None,
+				recvfd: None,
+			};
+			let vfs = session
+				.server
+				.components
+				.vfs
+				.mount(&session.server, arg)
+				.await?;
+			(Some(vfs), Some(mount_path))
+		} else {
+			(None, None)
+		};
 
 		// Create the listener.
 		let listener_port = match &session.server.config.runner.backend {
@@ -1112,10 +1131,9 @@ impl Component {
 
 		// Create the sandbox with a readonly store mount.
 		let store_path = session.server.store_path();
-		#[cfg(target_os = "linux")]
 		let store_source = vfs_mount.clone().unwrap_or_else(|| store_path.clone());
-		#[cfg(not(target_os = "linux"))]
-		let store_source = store_path.clone();
+		#[cfg(target_os = "macos")]
+		let store_path = store_source.clone();
 		let mut mounts = arg.mounts;
 		mounts.push(tg::sandbox::Mount {
 			readonly: true,
@@ -1265,7 +1283,6 @@ impl Component {
 
 			temp,
 
-			#[cfg(target_os = "linux")]
 			vfs,
 		};
 
@@ -1297,7 +1314,6 @@ impl Component {
 			sandbox,
 			serve_task,
 			temp,
-			#[cfg(target_os = "linux")]
 			mut vfs,
 		} = create_output;
 
@@ -1318,16 +1334,12 @@ impl Component {
 			stopper,
 		};
 		let mut temp = Some(temp);
-		#[cfg(target_os = "linux")]
 		let result = self
 			.run_sandbox_task(session, arg, &mut temp, &mut vfs)
 			.boxed()
 			.await;
-		#[cfg(not(target_os = "linux"))]
-		let result = self.run_sandbox_task(session, arg, &mut temp).boxed().await;
 
 		// Stop the VFS after an early sandbox task failure.
-		#[cfg(target_os = "linux")]
 		if let Some(vfs) = vfs {
 			vfs.stop();
 			vfs.wait().await;
@@ -1372,7 +1384,7 @@ impl Component {
 		session: &Session,
 		arg: RunSandboxTaskArg,
 		temp: &mut Option<Temp>,
-		#[cfg(target_os = "linux")] vfs: &mut Option<Box<dyn tangram_server_vfs_core::Server>>,
+		vfs: &mut Option<Box<dyn tangram_server_vfs_core::Server>>,
 	) -> tg::Result<RetainSandboxTaskArg> {
 		let RunSandboxTaskArg {
 			connected,
@@ -1694,7 +1706,6 @@ impl Component {
 			};
 
 			// Stop the VFS while the sandbox still owns its mount namespace.
-			#[cfg(target_os = "linux")]
 			if let Some(vfs) = vfs.take() {
 				vfs.stop();
 				vfs.wait().await;
