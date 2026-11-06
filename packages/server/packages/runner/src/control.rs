@@ -93,8 +93,17 @@ impl Component {
 		BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
 	)> {
 		let id = arg.id.clone();
-		let registration_index = arg.registration_index;
 		let scheduler_ttl = arg.scheduler_ttl;
+
+		// Allocate the registration in the index that enforces it, so that a runner does not need to keep it.
+		let registration_index = session
+			.server
+			.index
+			.next_runner_registration_index(&id)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to allocate the runner registration"),
+			)?;
 
 		let server_messages = session
 			.server

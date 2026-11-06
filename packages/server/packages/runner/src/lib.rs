@@ -1087,18 +1087,12 @@ impl Component {
 			.map(|(id, boot)| tg::runner::control::ArgSandbox { boot, id })
 			.collect();
 		let scheduler_ttl = session.server.config.runner.scheduler_ttl;
-		let registration_index = session
-			.server
-			.index
-			.next_runner_registration_index(id)
-			.await?;
 		let arg = tg::runner::control::Arg {
 			heartbeat,
 			host,
 			id: id.clone(),
 			location,
 			sandboxes,
-			registration_index,
 			scheduler_ttl,
 		};
 		let output = self

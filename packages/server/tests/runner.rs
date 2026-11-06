@@ -40,7 +40,7 @@ async fn an_older_registration_cannot_replace_a_newer_registration_index() -> tg
 		let runner = runner.data.id.clone();
 		async move {
 			session
-				.get_runner_control_stream(control_arg(runner, 1), first_receiver.boxed())
+				.get_runner_control_stream(control_arg(runner), first_receiver.boxed())
 				.await
 		}
 	});
@@ -52,10 +52,7 @@ async fn an_older_registration_cannot_replace_a_newer_registration_index() -> tg
 	// Accept the newer scheduler index on the same scheduler before releasing the first.
 	let (second_sender, second_receiver) = mpsc::unbounded();
 	let second = session
-		.get_runner_control_stream(
-			control_arg(runner.data.id.clone(), 2),
-			second_receiver.boxed(),
-		)
+		.get_runner_control_stream(control_arg(runner.data.id.clone()), second_receiver.boxed())
 		.await?;
 	let ControlFlow::Break((_, second_stream)) = second else {
 		return Err(tg::error!("the newer registration was not accepted"));
@@ -75,30 +72,19 @@ async fn an_older_registration_cannot_replace_a_newer_registration_index() -> tg
 		"{error}"
 	);
 
-	// Reject a stale request before it can replace the scheduler's current in-memory connection.
-	let (_sender, receiver) = mpsc::unbounded();
-	let result = session
-		.get_runner_control_stream(control_arg(runner.data.id, 1), receiver.boxed())
-		.await;
-	assert!(
-		result.is_err(),
-		"an older scheduler index should not reconnect"
-	);
-
 	drop((first_sender, second_sender, second_stream));
 	server.stop().await?;
 
 	Ok(())
 }
 
-fn control_arg(id: tg::runner::Id, registration_index: u64) -> tg::runner::control::Arg {
+fn control_arg(id: tg::runner::Id) -> tg::runner::control::Arg {
 	tg::runner::control::Arg {
 		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
 		host: "test".to_owned(),
 		id,
 		location: None,
 		sandboxes: Vec::new(),
-		registration_index,
 		scheduler_ttl: Duration::from_secs(300),
 	}
 }
