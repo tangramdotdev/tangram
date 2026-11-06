@@ -38,14 +38,21 @@ pub(super) fn exports(
 			Statement::ExportAllDeclaration(export)
 				if export.export_kind == ImportOrExportKind::Value =>
 			{
-				return Err(super::located_error(
-					module,
-					text,
-					export.span.start as usize..export.span.end as usize,
-					tg::error!(
-						"cross-language imports require named re-exports instead of export *"
-					),
-				));
+				let Some(name) = &export.exported else {
+					return Err(super::located_error(
+						module,
+						text,
+						export.span.start as usize..export.span.end as usize,
+						tg::error!(
+							"cross-language imports require named re-exports instead of export *"
+						),
+					));
+				};
+				let span = name.span();
+				ranges.insert(
+					name.name().to_string(),
+					span.start as usize..span.end as usize,
+				);
 			},
 			Statement::ExportDeclaration(export) => match &export.declaration {
 				Declaration::ClassDeclaration(class) if !class.declare => {
