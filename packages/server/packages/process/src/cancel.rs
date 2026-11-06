@@ -116,9 +116,7 @@ impl Component {
 		id: &tg::process::Id,
 		lease: tg::process::Lease,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
-		let mut wakeups = self
-			.create_process_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
-			.await?;
+		let mut wakeups = None;
 		loop {
 			let Some((scheduler, sandbox)) =
 				self.try_get_starting_process_owner(session, id).await?
@@ -135,6 +133,20 @@ impl Component {
 				let output = tg::process::cancel::Output { released };
 				return Ok(Some(output));
 			}
+
+			// Subscribe only for a process that is starting, and read again after subscribing, so that no change is missed.
+			let Some(wakeups) = &mut wakeups else {
+				let stream = self
+					.create_process_status_wakeup_stream(
+						session,
+						id,
+						session.context.stopper.clone(),
+						None,
+					)
+					.await?;
+				wakeups = Some(stream);
+				continue;
+			};
 			if wakeups.next().await.is_none() {
 				return Err(tg::error!("the process status wakeup stream ended"));
 			}
