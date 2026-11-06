@@ -728,7 +728,7 @@ impl Converter<'_> {
 		}
 	}
 
-	/// Convert an object type to a record, or to a map when it only has a string index signature.
+	/// Convert an object type to a record, or to a map with one value type for its string and optional number indexes.
 	fn record(
 		&mut self,
 		type_: P<tsrs_checker::Type>,
@@ -740,8 +740,23 @@ impl Converter<'_> {
 			.get_index_infos_of_type_exported(type_)
 			.to_vec();
 		match (properties.is_empty(), infos.as_slice()) {
-			(true, [info]) if info.key_type().flags.get().intersects(TypeFlags::String) => {
+			(true, [info, rest @ ..])
+				if infos
+					.iter()
+					.any(|info| info.key_type().flags.get().intersects(TypeFlags::String))
+					&& infos.iter().all(|info| {
+						info.key_type()
+							.flags
+							.get()
+							.intersects(TypeFlags::String | TypeFlags::Number)
+					}) =>
+			{
 				let value = self.type_(info.value_type(), mode)?;
+				for info in rest {
+					if self.type_(info.value_type(), mode)? != value {
+						return Err(self.error(type_));
+					}
+				}
 				Ok(tg::interface::Type::Map {
 					value: Box::new(value),
 				})
