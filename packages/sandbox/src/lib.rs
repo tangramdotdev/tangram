@@ -57,6 +57,8 @@ pub mod configure;
 #[cfg(target_os = "linux")]
 pub mod cpu;
 #[cfg(target_os = "linux")]
+pub mod guest;
+#[cfg(target_os = "linux")]
 pub mod gvisor;
 #[cfg(target_os = "linux")]
 pub mod host;

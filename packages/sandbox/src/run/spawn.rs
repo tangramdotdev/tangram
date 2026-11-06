@@ -229,6 +229,12 @@ pub(crate) async fn spawn(
 		add_mount(mount.source.clone(), mount.target.clone(), mount.readonly);
 	}
 
+	// Mount the root filesystem directories that the user mounts cover.
+	for target in crate::guest::covered_rootfs_directories(&arg.rootfs_path, &arg.mounts) {
+		let source = crate::guest::rootfs_path(&arg.rootfs_path, &target);
+		add_mount(source, target, true);
+	}
+
 	// Create the network launch configuration.
 	let network_arg = match network.as_deref() {
 		None => None,

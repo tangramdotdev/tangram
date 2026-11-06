@@ -857,6 +857,8 @@ impl Component {
 		if session.server.config.runner.backend.harden() {
 			validate_hardened_sandbox(&arg)?;
 		}
+		#[cfg(target_os = "linux")]
+		validate_native_mounts(&self.resolve_sandbox_backend(&session.server)?, &arg)?;
 		if let Some(task) = self.sandbox_pool.take(&arg, self, session) {
 			match task.wait().await {
 				Ok(Ok(mut output)) => {
@@ -987,6 +989,8 @@ impl Component {
 		{
 			validate_hardened_sandbox(&arg)?;
 		}
+		#[cfg(target_os = "linux")]
+		validate_native_mounts(&isolation, &arg)?;
 
 		#[cfg(target_os = "linux")]
 		self.sandbox_assets
@@ -3034,6 +3038,20 @@ fn validate_hardened_sandbox(arg: &tg::sandbox::create::Arg) -> tg::Result<()> {
 		return Err(tg::error!(
 			"writable mounts are not allowed for hardened container isolation"
 		));
+	}
+	Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_native_mounts(
+	backend: &tangram_sandbox::Backend,
+	arg: &tg::sandbox::create::Arg,
+) -> tg::Result<()> {
+	if matches!(
+		backend,
+		tangram_sandbox::Backend::Builtin | tangram_sandbox::Backend::Bubblewrap { .. }
+	) {
+		tangram_sandbox::guest::validate_mounts(&arg.mounts)?;
 	}
 	Ok(())
 }
