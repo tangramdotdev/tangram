@@ -14,4 +14,4 @@ assert equal (tg sandbox get $sandbox | from json | get data.status) starting
 # Destroying a queued sandbox removes it from the queue.
 tg sandbox destroy --wait $sandbox
 assert equal (tg sandbox get $sandbox | from json | get data.status) destroyed
-failure (tg sandbox destroy $sandbox | complete) "a destroyed sandbox should not be destroyed again"
+success (tg sandbox destroy $sandbox | complete) "destroying a destroyed sandbox should have no effect"

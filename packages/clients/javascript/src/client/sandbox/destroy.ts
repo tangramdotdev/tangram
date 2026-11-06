@@ -10,8 +10,6 @@ export async function destroySandbox(
 	let destroyed = await tryDestroySandbox(client, id, arg);
 	if (destroyed === null) {
 		throw new Error("failed to find the sandbox");
-	} else if (!destroyed) {
-		throw new Error("the sandbox was already destroyed");
 	}
 }
 

@@ -1,7 +1,7 @@
 use {
 	super::local::Output,
 	crate::Component,
-	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
@@ -247,14 +247,24 @@ impl Component {
 		{
 			control_sender.request(request).await
 		} else {
-			Self::check_sandbox_started(session, &sandbox).await?;
-			let result = session
+			// Send the request right away, and let the sandbox's status decide what happens if nobody answers.
+			let check = Self::create_check_sandbox_started_future(session, &sandbox);
+			let hold = check.clone().map(|_| ()).boxed();
+			let request_future = session
 				.server
 				.components
 				.sandbox
-				.request_sandbox_control(session, &sandbox, request, options)
-				.boxed()
-				.await;
+				.request_sandbox_control_with_hold(session, &sandbox, request, options, Some(hold));
+			let check_future = async move {
+				match check.await {
+					Ok(()) => future::pending().await,
+					Err(error) => error,
+				}
+			};
+			let result = match future::select(request_future, pin!(check_future)).await {
+				future::Either::Left((result, _)) => result,
+				future::Either::Right((error, _)) => return Err(error),
+			};
 			match result {
 				Ok(response) => response,
 				Err(error) => {
@@ -305,7 +315,18 @@ impl Component {
 		Ok(connected_event)
 	}
 
-	/// Wait for a sandbox that is starting to connect, and fail at once if the index records that the sandbox is not running, waiting for pending indexing before trusting a stopped status, because a start that just finished may not be indexed yet.
+	/// Create a future that waits for a sandbox that is starting to connect, and fails if the index records that the sandbox is not running, waiting for pending indexing before trusting a stopped status, because a start that just finished may not be indexed yet.
+	fn create_check_sandbox_started_future(
+		session: &Session,
+		sandbox: &tg::sandbox::Id,
+	) -> future::Shared<future::BoxFuture<'static, tg::Result<()>>> {
+		let session = session.clone();
+		let sandbox = sandbox.clone();
+		async move { Self::check_sandbox_started(&session, &sandbox).await }
+			.boxed()
+			.shared()
+	}
+
 	async fn check_sandbox_started(session: &Session, sandbox: &tg::sandbox::Id) -> tg::Result<()> {
 		let mut wakeups = session
 			.server
