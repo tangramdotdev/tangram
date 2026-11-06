@@ -23,7 +23,7 @@ let artifact = artifact {
 					}
 				]
 			});
-			return tg.symlink({
+			return tg.directory({
 				graph,
 				index: 0,
 				kind: "directory"

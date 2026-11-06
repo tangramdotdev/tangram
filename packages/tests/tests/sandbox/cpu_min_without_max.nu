@@ -12,11 +12,18 @@ while not ($cgroup | path join cpuset.cpus.effective | path exists) {
 	}
 	$cgroup = $cgroup | path dirname
 }
-let cpus = open --raw ($cgroup | path join cpuset.cpus.effective)
+def cpu_list [list: string] {
+	$list
 	| str trim
 	| split row ','
-	| each {|range| let bounds = $range | split row '-' | into int; ($bounds | last) - ($bounds | first) + 1 }
-	| math sum
+	| each {|range| let bounds = $range | split row '-' | into int; seq ($bounds | first) ($bounds | last) }
+	| flatten
+}
+let cpuset = cpu_list (open --raw ($cgroup | path join cpuset.cpus.effective))
+
+# Count the CPUs in the cpuset that are also in the inherited affinity. An unlimited sandbox sees at least these, and sees the whole cpuset if moving to its cgroup resets the affinity.
+let affinity = cpu_list (open --raw /proc/self/status | parse --regex 'Cpus_allowed_list:\s*(?<list>\S+)' | first | get list)
+let cpus = $cpuset | where {|cpu| $cpu in $affinity } | length
 if $cpus < 3 {
 	skip_test 'this test requires at least three CPUs'
 }
@@ -39,8 +46,9 @@ def nproc [path: string, export: string] {
 
 # Without a configured default, an omitted maximum is unlimited.
 let local = server spawn --busybox
-assert equal (nproc $path unlimited) $cpus 'a sandbox without a CPU maximum should see every CPU'
-assert equal (nproc $path minimum) $cpus 'a CPU minimum without a maximum should see every CPU'
+let unlimited = nproc $path unlimited
+assert ($unlimited >= $cpus and $unlimited <= ($cpuset | length)) 'a sandbox without a CPU maximum should see every CPU'
+assert equal (nproc $path minimum) $unlimited 'a CPU minimum without a maximum should see every CPU'
 server stop $local
 
 # With a configured default maximum, an omitted maximum takes the default, raised to the minimum.
