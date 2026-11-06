@@ -46,6 +46,15 @@ pub(super) struct Sandboxes {
 	stops: HashMap<tg::sandbox::Id, future::AbortHandle, tg::id::BuildHasher>,
 }
 
+/// A destroy of a sandbox on a runner. The request is present if the sandbox has a record to finish.
+pub(super) struct DestroySandbox {
+	pub error: tg::error::Data,
+	pub registration_index: u64,
+	pub request: Option<EnqueueSandboxRequestArg>,
+	pub runner: tg::runner::Id,
+	pub sandbox: tg::sandbox::Id,
+}
+
 pub(super) struct Placed {
 	pub generation: u64,
 	pub registration_index: u64,
@@ -573,25 +582,23 @@ impl SchedulerState {
 	}
 
 	/// Ask a runner to destroy a sandbox that it holds.
-	pub(super) fn send_destroy_sandbox(
-		&mut self,
-		scheduler: &Scheduler,
-		runner: tg::runner::Id,
-		registration_index: u64,
-		sandbox: tg::sandbox::Id,
-		error: tg::error::Data,
-	) {
+	pub(super) fn send_destroy_sandbox(&mut self, scheduler: &Scheduler, destroy: DestroySandbox) {
 		let session = scheduler.server.session(&scheduler.server.context);
 		let scheduler_id = scheduler.id.clone();
-		let retry = scheduler.server.config.control.request_retry.clone().into();
+
+		// Make one attempt, because the scheduler decides whether to try again from the runner's state.
+		let retry = tangram_futures::retry::Options {
+			max_retries: 0,
+			..tangram_futures::retry::Options::default()
+		};
 		let timeout = scheduler.server.config.control.request_timeout;
 		let options = tangram_server_core::control::Options { retry, timeout };
 		self.operations.push(
 			async move {
 				let arg = tg::runner::control::ServerRequestArg::DestroySandbox(
 					tg::runner::control::DestroySandboxServerRequestArg {
-						error: Some(error),
-						sandbox,
+						error: Some(destroy.error.clone()),
+						sandbox: destroy.sandbox.clone(),
 					},
 				);
 				let result = session
@@ -600,22 +607,57 @@ impl SchedulerState {
 					.runner
 					.send_runner_control_request(
 						&session,
-						&runner,
+						&destroy.runner,
 						&scheduler_id,
-						registration_index,
+						destroy.registration_index,
 						arg,
 						options,
 					)
 					.await
 					.and_then(std::convert::identity)
-					.map(|_| ());
-				Operation::Publish {
-					context: "failed to destroy the sandbox on its runner",
-					result,
+					.and_then(|output| {
+						output
+							.try_unwrap_destroy_sandbox()
+							.map_err(|_| tg::error!("expected a destroy sandbox response"))
+					})
+					.map(|output| output.destroyed);
+
+				// Wait before the scheduler tries again, which it does until the runner answers or is gone.
+				if let Err(error) = &result {
+					tracing::warn!(error = %error.trace(), sandbox = %destroy.sandbox, "failed to destroy the sandbox on its runner");
+					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
 				}
+				Operation::DestroySandbox { destroy, result }
 			}
 			.boxed(),
 		);
+	}
+
+	/// Finish a destroy that the runner did not carry out. A runner that does not have the sandbox, or that is gone, will never report it, so the scheduler records it as destroyed.
+	pub(super) fn handle_destroy_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		mut destroy: DestroySandbox,
+		result: tg::Result<bool>,
+	) {
+		let current = self
+			.runners
+			.entries
+			.get(&destroy.runner)
+			.map(|runner| runner.registration_index);
+		match (result, current) {
+			(Ok(true), _) => (),
+			(Err(_), Some(registration_index)) => {
+				destroy.registration_index = registration_index;
+				self.send_destroy_sandbox(scheduler, destroy);
+			},
+			(Ok(false), _) | (Err(_), None) => {
+				if let Some(request) = destroy.request {
+					let error = Some(tg::Either::Left(destroy.error));
+					self.finish_destroy_sandbox(scheduler, request, error);
+				}
+			},
+		}
 	}
 
 	/// Record a sandbox that never reached a runner as destroyed, which removes its key.
@@ -690,13 +732,14 @@ impl SchedulerState {
 					self.remove_reservation(&sandbox, &placement, true);
 					let request = self.sandboxes.entries.remove(&sandbox).unwrap().request;
 					let runner = placement.runner().clone();
-					self.send_destroy_sandbox(
-						scheduler,
-						runner.id,
-						runner.registration_index,
+					let destroy = DestroySandbox {
+						error: error.clone().unwrap_or_default(),
+						registration_index: runner.registration_index,
+						request: Some(request.clone()),
+						runner: runner.id,
 						sandbox,
-						error.clone().unwrap_or_default(),
-					);
+					};
+					self.send_destroy_sandbox(scheduler, destroy);
 					let status = tg::sandbox::Status::Destroying;
 					self.put_end_status(scheduler, vec![id], request, status, error);
 				},
@@ -706,13 +749,14 @@ impl SchedulerState {
 
 		// Tear down a sandbox that a runner holds, whose control connection may not be established.
 		if !stop && let Some(placed) = self.sandboxes.placed.remove(&sandbox) {
-			self.send_destroy_sandbox(
-				scheduler,
-				placed.runner,
-				placed.registration_index,
+			let destroy = DestroySandbox {
+				error: error.clone().unwrap_or_default(),
+				registration_index: placed.registration_index,
+				request: Some(placed.request.clone()),
+				runner: placed.runner,
 				sandbox,
-				error.clone().unwrap_or_default(),
-			);
+			};
+			self.send_destroy_sandbox(scheduler, destroy);
 			let status = tg::sandbox::Status::Destroying;
 			self.put_end_status(scheduler, vec![id], placed.request, status, error);
 			return;
@@ -721,13 +765,14 @@ impl SchedulerState {
 		// End a sandbox whose request is held for recovery.
 		if !stop && let Some((request, runner)) = self.take_recovering_request(&sandbox) {
 			let status = if let Some((runner, registration_index)) = runner {
-				self.send_destroy_sandbox(
-					scheduler,
-					runner,
+				let destroy = DestroySandbox {
+					error: error.clone().unwrap_or_default(),
 					registration_index,
+					request: Some(request.clone()),
+					runner,
 					sandbox,
-					error.clone().unwrap_or_default(),
-				);
+				};
+				self.send_destroy_sandbox(scheduler, destroy);
 				tg::sandbox::Status::Destroying
 			} else {
 				tg::sandbox::Status::Destroyed
@@ -1019,13 +1064,14 @@ impl SchedulerState {
 			return;
 		};
 		let status = if let Some(runner) = placed {
-			self.send_destroy_sandbox(
-				scheduler,
-				runner.id,
-				runner.registration_index,
-				request.sandbox.clone(),
-				error.clone().unwrap_or_default(),
-			);
+			let destroy = DestroySandbox {
+				error: error.clone().unwrap_or_default(),
+				registration_index: runner.registration_index,
+				request: Some(request.clone()),
+				runner: runner.id,
+				sandbox: request.sandbox.clone(),
+			};
+			self.send_destroy_sandbox(scheduler, destroy);
 			tg::sandbox::Status::Destroying
 		} else {
 			tg::sandbox::Status::Destroyed
@@ -1182,13 +1228,14 @@ impl SchedulerState {
 			message: Some("failed to record the accepted sandbox".to_owned()),
 			..Default::default()
 		};
-		self.send_destroy_sandbox(
-			scheduler,
-			runner.id,
-			runner.registration_index,
-			sandbox,
+		let destroy = DestroySandbox {
 			error,
-		);
+			registration_index: runner.registration_index,
+			request: None,
+			runner: runner.id,
+			sandbox,
+		};
+		self.send_destroy_sandbox(scheduler, destroy);
 	}
 
 	pub(super) fn handle_borrowable_capacity(
