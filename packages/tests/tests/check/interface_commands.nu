@@ -42,3 +42,37 @@ let path = artifact {
 let output = tg check $path | complete
 failure $output
 assert ($output.stderr | str contains 'tangram.ts:5:') $output.stderr
+
+# Command arguments are contravariant and outputs are covariant.
+let path = artifact {
+	tangram.py: '
+		def default(command: tg.Command[tuple[str | float], str]) -> tg.Command[tuple[str], str | float]:
+		    return command
+	'
+}
+success (tg check $path | complete)
+for types in [
+	'tg.Command[tuple[str | float], str | float]'
+	'tg.Command[tuple[str], str]'
+] {
+	let source = "def default(command: tg.Command[tuple[str], str | float]) -> " + $types + ":\n    return command\n"
+	let path = artifact { tangram.py: $source }
+	let output = tg check $path | complete
+	failure $output
+	assert ($output.stderr | str contains 'tangram.py:2:') $output.stderr
+}
+
+# All invocation methods use the receiver's record type to check dictionary literals.
+for method in [build run spawn exec] {
+	for value in ['"value"' '42'] {
+		let source = "from typing import TypedDict\nclass Arg(TypedDict, closed=True):\n    text: str\ndef default(command: tg.Command[tuple[Arg], str]):\n    command." + $method + "({\"text\": " + $value + "})\n"
+		let path = artifact { tangram.py: $source }
+		let output = tg check $path | complete
+		if $value == '"value"' {
+			success $output
+		} else {
+			failure $output
+			assert ($output.stderr | str contains 'tangram.py:5:') $output.stderr
+		}
+	}
+}
