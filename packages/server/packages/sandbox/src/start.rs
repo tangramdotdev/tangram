@@ -103,11 +103,38 @@ impl Component {
 			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
 			.await?;
 
-		// Get the sandbox's state, which its control connection reports while it is running.
-		let output = self
-			.try_get_sandbox(session, id, tg::sandbox::get::Arg::default())
-			.await?
-			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+		// Get the sandbox's state, which its control connection reports while it is running, and cancel a stop that its scheduler holds, because this start came after it. If the scheduler no longer holds the sandbox, then wait for the status to show why.
+		let output = loop {
+			let output = self
+				.try_get_sandbox(session, id, tg::sandbox::get::Arg::default())
+				.await?
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+			if !output.data.status.is_starting() {
+				break output;
+			}
+			let scheduler = self
+				.try_get_sandbox_from_index(session, id)
+				.await?
+				.and_then(|sandbox| sandbox.scheduler);
+			let Some(scheduler) = scheduler else {
+				break output;
+			};
+			let held = session
+				.server
+				.components
+				.scheduler
+				.cancel_sandbox_stop(session, &scheduler, id)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, %scheduler, "failed to cancel the stop"),
+				)?;
+			if held {
+				break output;
+			}
+			if wakeups.next().await.is_none() {
+				return Err(tg::error!("the sandbox status wakeup stream ended"));
+			}
+		};
 		match output.data.status {
 			tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
 				return Err(tg::error!(%id, "the sandbox was destroyed"));

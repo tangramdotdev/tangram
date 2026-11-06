@@ -17,14 +17,14 @@ use {
 	tangram_server_core::{Server, Session},
 	tangram_server_scheduler_core::{
 		Ack, AcquireProcessLeaseRequestArg, AcquireProcessLeaseResponseOutput, AddRunnerRequestArg,
-		AddRunnerResponseOutput, BorrowableCapacityNotification, DequeueSandboxRequestArg,
-		DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
-		DestroyRunnerSandboxResponseOutput, EndSandboxRequestArg, EndSandboxResponseOutput,
-		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatAcknowledgement,
-		HeartbeatNotification, Message, Notification, ReleaseProcessLeaseRequestArg,
-		ReleaseProcessLeaseResponseOutput, RemoveRunnerRequestArg, RemoveRunnerResponseOutput,
-		Request, RequestArg, Response, ResponseOutput, runner_heartbeat_subject,
-		scheduler_server_subject,
+		AddRunnerResponseOutput, BorrowableCapacityNotification, CancelSandboxStopRequestArg,
+		CancelSandboxStopResponseOutput, DequeueSandboxRequestArg, DequeueSandboxResponseOutput,
+		DestroyRunnerSandboxRequestArg, DestroyRunnerSandboxResponseOutput, EndSandboxRequestArg,
+		EndSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
+		HeartbeatAcknowledgement, HeartbeatNotification, Message, Notification,
+		ReleaseProcessLeaseRequestArg, ReleaseProcessLeaseResponseOutput, RemoveRunnerRequestArg,
+		RemoveRunnerResponseOutput, Request, RequestArg, Response, ResponseOutput,
+		runner_heartbeat_subject, scheduler_server_subject,
 	},
 };
 
@@ -94,6 +94,7 @@ struct Requests {
 enum RequestKind {
 	AcquireProcessLease,
 	AddRunner,
+	CancelSandboxStop,
 	DequeueSandbox,
 	DestroyRunnerSandbox,
 	EndSandbox,
@@ -124,6 +125,10 @@ enum Operation {
 	},
 	ExpireRequest {
 		id: String,
+	},
+	FinishSandboxStop {
+		result: tg::Result<()>,
+		sandbox: tg::sandbox::Id,
 	},
 	LoadOwnerAncestors {
 		owner: tg::Id,
@@ -323,6 +328,26 @@ impl Component {
 			.map_err(|_| tg::error!("expected a release process lease response"))?;
 
 		Ok(output.released)
+	}
+
+	/// Ask the scheduler that owns a sandbox to cancel a stop that it holds, returning whether the scheduler holds the sandbox.
+	pub(crate) async fn cancel_sandbox_stop(
+		&self,
+		session: &Session,
+		scheduler: &tg::scheduler::Id,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<bool> {
+		let arg = CancelSandboxStopRequestArg {
+			sandbox: sandbox.clone(),
+		};
+		let output = self
+			.send_scheduler_request_to(session, scheduler, RequestArg::CancelSandboxStop(arg))
+			.boxed()
+			.await??
+			.try_unwrap_cancel_sandbox_stop()
+			.map_err(|_| tg::error!("expected a cancel sandbox stop response"))?;
+
+		Ok(output.held)
 	}
 
 	/// Ask the scheduler that owns a sandbox to stop or destroy it before its runner connects, returning whether the scheduler owns it.
@@ -782,6 +807,7 @@ impl Scheduler {
 		let kind = match &request.arg {
 			RequestArg::AcquireProcessLease(_) => RequestKind::AcquireProcessLease,
 			RequestArg::AddRunner(_) => RequestKind::AddRunner,
+			RequestArg::CancelSandboxStop(_) => RequestKind::CancelSandboxStop,
 			RequestArg::DequeueSandbox(_) => RequestKind::DequeueSandbox,
 			RequestArg::DestroyRunnerSandbox(_) => RequestKind::DestroyRunnerSandbox,
 			RequestArg::EndSandbox(_) => RequestKind::EndSandbox,
@@ -883,6 +909,9 @@ impl Scheduler {
 			RequestArg::DestroyRunnerSandbox(request) => {
 				state.handle_destroy_runner_sandbox_request(self, id, request);
 			},
+			RequestArg::CancelSandboxStop(request) => {
+				state.handle_cancel_sandbox_stop_request(self, id, &request);
+			},
 			RequestArg::EndSandbox(request) => {
 				state.handle_end_sandbox_request(self, id, request);
 			},
@@ -978,6 +1007,12 @@ impl Scheduler {
 			},
 			Operation::PlacedSandboxes { lost, result } => {
 				state.handle_placed_sandboxes(self, lost, result);
+			},
+			Operation::FinishSandboxStop { result, sandbox } => {
+				state.sandboxes.finish_stop(&sandbox);
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), %sandbox, "failed to stop the sandbox once it started");
+				}
 			},
 			Operation::Publish { context, result } => {
 				if let Err(error) = result {
@@ -1277,6 +1312,16 @@ impl tangram_server_core::scheduler::Component for Component {
 		lease: tg::process::Lease,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
 		self.release_process_lease(session, scheduler, sandbox, lease)
+			.boxed()
+	}
+
+	fn cancel_sandbox_stop<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		scheduler: &'a tg::scheduler::Id,
+		sandbox: &'a tg::sandbox::Id,
+	) -> BoxFuture<'a, tg::Result<bool>> {
+		self.cancel_sandbox_stop(session, scheduler, sandbox)
 			.boxed()
 	}
 

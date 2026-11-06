@@ -65,6 +65,7 @@ pub struct HeartbeatNotification {
 pub enum RequestArg {
 	AcquireProcessLease(AcquireProcessLeaseRequestArg),
 	AddRunner(AddRunnerRequestArg),
+	CancelSandboxStop(CancelSandboxStopRequestArg),
 	DequeueSandbox(DequeueSandboxRequestArg),
 	DestroyRunnerSandbox(DestroyRunnerSandboxRequestArg),
 	EndSandbox(EndSandboxRequestArg),
@@ -79,6 +80,7 @@ pub enum ResponseOutput {
 	AcquireProcessLease(AcquireProcessLeaseResponseOutput),
 	AddRunner(AddRunnerResponseOutput),
 	Busy,
+	CancelSandboxStop(CancelSandboxStopResponseOutput),
 	DequeueSandbox(DequeueSandboxResponseOutput),
 	DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput),
 	EndSandbox(EndSandboxResponseOutput),
@@ -163,6 +165,18 @@ pub struct DestroyRunnerSandboxRequestArg {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DestroyRunnerSandboxResponseOutput {
 	pub destroyed: bool,
+}
+
+/// A cancellation of a stop that the scheduler holds for a sandbox that has not started.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CancelSandboxStopRequestArg {
+	pub sandbox: tg::sandbox::Id,
+}
+
+/// The output is `false` if this scheduler does not hold the sandbox.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CancelSandboxStopResponseOutput {
+	pub held: bool,
 }
 
 /// A stop or destroy of a sandbox that the scheduler owns, because its runner has not connected.

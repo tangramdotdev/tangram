@@ -1,14 +1,15 @@
 use {
 	super::{
 		AcquireProcessLeaseRequestArg, AcquireProcessLeaseResponseOutput,
-		BorrowableCapacityNotification, Config, DequeueSandboxRequestArg,
+		BorrowableCapacityNotification, CancelSandboxStopRequestArg,
+		CancelSandboxStopResponseOutput, Config, DequeueSandboxRequestArg,
 		DequeueSandboxResponseOutput, EndSandboxRequestArg, EndSandboxResponseOutput,
 		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatNotification, Operation,
 		OwnerAncestors, PendingEnqueue, ReleaseProcessLeaseRequestArg,
 		ReleaseProcessLeaseResponseOutput, ResponseOutput, Scheduler, SchedulerState,
 		runner::{Reservation, ReservationState, Runner},
 	},
-	futures::{FutureExt as _, StreamExt as _},
+	futures::{FutureExt as _, StreamExt as _, future},
 	std::{
 		collections::{HashMap, HashSet},
 		sync::Arc,
@@ -35,6 +36,9 @@ pub(super) struct Sandboxes {
 
 	/// The sandboxes that a runner holds whose control connections may not be established yet.
 	placed: HashMap<tg::sandbox::Id, Placed, tg::id::BuildHasher>,
+
+	/// The handles of the tasks that stop sandboxes once they start.
+	stops: HashMap<tg::sandbox::Id, future::AbortHandle, tg::id::BuildHasher>,
 }
 
 pub(super) struct Placed {
@@ -240,6 +244,7 @@ impl Sandboxes {
 			entries: HashMap::default(),
 			loading: 0,
 			placed: HashMap::default(),
+			stops: HashMap::default(),
 		}
 	}
 }
@@ -274,6 +279,13 @@ impl Borrowable {
 			heartbeat_index,
 			runner: notification.runner,
 		}
+	}
+}
+
+impl Sandboxes {
+	/// Forget the task that stopped a sandbox.
+	pub(super) fn finish_stop(&mut self, sandbox: &tg::sandbox::Id) {
+		self.stops.remove(sandbox);
 	}
 }
 
@@ -725,11 +737,26 @@ impl SchedulerState {
 		&mut self,
 		sandbox: &tg::sandbox::Id,
 	) -> Option<&mut EnqueueSandboxRequestArg> {
+		let queued_restart = self.sandboxes.entries.get(sandbox).is_some_and(|entry| {
+			matches!(entry.state, SandboxState::Pending) && entry.request.boot > 0
+		});
+		if queued_restart {
+			return None;
+		}
+		self.try_get_request_mut(sandbox)
+	}
+
+	/// Get the request of a sandbox that this scheduler holds.
+	fn try_get_request_mut(
+		&mut self,
+		sandbox: &tg::sandbox::Id,
+	) -> Option<&mut EnqueueSandboxRequestArg> {
 		if self.sandboxes.entries.contains_key(sandbox) {
-			let entry = self.sandboxes.entries.get_mut(sandbox).unwrap();
-			let queued_restart =
-				matches!(entry.state, SandboxState::Pending) && entry.request.boot > 0;
-			return (!queued_restart).then_some(&mut entry.request);
+			return self
+				.sandboxes
+				.entries
+				.get_mut(sandbox)
+				.map(|entry| &mut entry.request);
 		}
 		if self.sandboxes.placed.contains_key(sandbox) {
 			return self
@@ -772,13 +799,52 @@ impl SchedulerState {
 		sandbox: tg::sandbox::Id,
 	) {
 		let scheduler = scheduler.clone();
+		let id = sandbox.clone();
+		let (future, handle) =
+			future::abortable(async move { scheduler.wait_and_stop_sandbox(&id).await });
+		if let Some(previous) = self.sandboxes.stops.insert(sandbox.clone(), handle) {
+			previous.abort();
+		}
 		self.operations.push(
 			async move {
-				let result = scheduler.wait_and_stop_sandbox(&sandbox).await;
-				Operation::Publish {
-					context: "failed to stop the sandbox once it started",
-					result,
-				}
+				let result = future.await.unwrap_or(Ok(()));
+				Operation::FinishSandboxStop { result, sandbox }
+			}
+			.boxed(),
+		);
+	}
+
+	/// Cancel a held stop, because a start of the sandbox came after it.
+	pub(super) fn handle_cancel_sandbox_stop_request(
+		&mut self,
+		scheduler: &Scheduler,
+		id: String,
+		arg: &CancelSandboxStopRequestArg,
+	) {
+		if let Some(handle) = self.sandboxes.stops.remove(&arg.sandbox) {
+			handle.abort();
+		}
+
+		// Respond once the cancellation is durable, so that a restarted scheduler does not carry out the stop.
+		let request = self.try_get_request_mut(&arg.sandbox).map(|request| {
+			let stop = std::mem::take(&mut request.stop);
+			(stop, request.clone())
+		});
+		let held = request.is_some();
+		let Some((true, request)) = request else {
+			let output = CancelSandboxStopResponseOutput { held };
+			let output = ResponseOutput::CancelSandboxStop(output);
+			let response = scheduler.response(id, Ok(output));
+			scheduler.send_response(self, response);
+			return;
+		};
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let result = scheduler.persist_sandbox(&request).await.map(|()| {
+					ResponseOutput::CancelSandboxStop(CancelSandboxStopResponseOutput { held })
+				});
+				Operation::Respond { id, result }
 			}
 			.boxed(),
 		);
