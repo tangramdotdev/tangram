@@ -325,6 +325,17 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 			};
 			writeln!(output, "    from {module} import {name} as {module}_{name}").unwrap();
 		}
+		for (name, module) in &imports {
+			if interface.imports[name].kind == tg::module::Kind::Python {
+				continue;
+			}
+			writeln!(
+				output,
+				"    from {module} import {} as {module}_inputs",
+				python::INPUTS
+			)
+			.unwrap();
+		}
 	}
 	let client = if bindings.contains_key("tg") {
 		writeln!(output, "import tangram as {prefix}_client").unwrap();
@@ -339,7 +350,10 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		.keys()
 		.enumerate()
 		.map(|(index, name)| {
-			let alias = if python::is_identifier(name) && !bindings.contains_key(name) {
+			let alias = if python::is_identifier(name)
+				&& !bindings.contains_key(name)
+				&& name != python::INPUTS
+			{
 				name.clone()
 			} else {
 				format!("{prefix}_type_{index}")
@@ -351,6 +365,18 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		client: client.clone(),
 		definitions,
 		imports,
+		input_definitions: interface
+			.definitions
+			.keys()
+			.enumerate()
+			.map(|(index, name)| (name.clone(), format!("{prefix}_input_{index}")))
+			.collect(),
+		input_imports: interface
+			.imports
+			.iter()
+			.filter(|(_, module)| module.kind != tg::module::Kind::Python)
+			.map(|(name, _)| name.clone())
+			.collect(),
 		literals: std::cell::RefCell::default(),
 		prefix: prefix.clone(),
 		typing: typing.clone(),
@@ -360,7 +386,21 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 	let definitions = interface
 		.definitions
 		.iter()
-		.map(|(name, type_)| python::definition(&names.definitions[name], type_, &names))
+		.map(|(name, type_)| {
+			python::definition(&names.definitions[name], type_, &names, python::View::Value)
+		})
+		.collect::<Vec<_>>();
+	let inputs = interface
+		.definitions
+		.iter()
+		.map(|(name, type_)| {
+			python::definition(
+				&names.input_definitions[name],
+				type_,
+				&names,
+				python::View::Input,
+			)
+		})
 		.collect::<Vec<_>>();
 	let types = bindings
 		.values()
@@ -371,6 +411,21 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 	}
 	for definition in &definitions {
 		writeln!(output, "{definition}").unwrap();
+	}
+	for input in inputs {
+		writeln!(output, "{input}").unwrap();
+	}
+	writeln!(output, "class {}:", python::INPUTS).unwrap();
+	if names.definitions.is_empty() {
+		writeln!(output, "    pass").unwrap();
+	}
+	for (name, alias) in &names.definitions {
+		writeln!(
+			output,
+			"    type {alias} = {}",
+			names.input_definitions[name]
+		)
+		.unwrap();
 	}
 
 	for (index, ((binding, (name, export)), type_)) in bindings.iter().zip(types).enumerate() {
@@ -637,7 +692,7 @@ mod tests {
 			"{text}"
 		);
 		assert!(
-			text.contains("greeting = _tg_typing.cast(\"tg.Command[tuple[str, *tuple[Options, ...]], tg.File]\", tg.command(_tg_function_0))\n"),
+			text.contains("greeting = _tg_typing.cast(\"tg.Command[tuple[str, *tuple[_tg_input_0, ...]], tg.File]\", tg.command(_tg_function_0))\n"),
 			"{text}"
 		);
 	}
