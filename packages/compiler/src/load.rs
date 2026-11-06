@@ -105,6 +105,25 @@ pub fn module(
 	Ok(text.to_owned())
 }
 
+/// Replace a diagnostic's message with the reason that an export is not a value, if the message refers to the type that carries the reason.
+#[cfg(any(feature = "javascript", feature = "python"))]
+pub(crate) fn non_value_message(message: String) -> String {
+	let reason = message.split_once("NonValue").and_then(|(_, rest)| {
+		if let Some(rest) = rest.strip_prefix("<\"") {
+			let (reason, _) = rest.split_once("\">")?;
+			serde_json::from_str::<String>(&format!("\"{reason}\"")).ok()
+		} else {
+			let rest = rest.strip_prefix("[Literal[\"")?;
+			let (reason, _) = rest.split_once("\"]]")?;
+			Some(reason.to_owned())
+		}
+	});
+	match reason {
+		Some(reason) => format!("cannot use the export: {reason}"),
+		None => message,
+	}
+}
+
 /// Get the source of the export that contains an offset in bindings.
 pub(crate) fn source(text: &str, offset: usize) -> Option<Source> {
 	let text = text.get(..offset)?;
@@ -334,7 +353,6 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		imports,
 		literals: std::cell::RefCell::default(),
 		prefix: prefix.clone(),
-		records: std::cell::RefCell::default(),
 		typing: typing.clone(),
 	};
 
@@ -350,9 +368,6 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		.collect::<Vec<_>>();
 	for literal in names.literals.borrow().iter() {
 		writeln!(output, "{literal}").unwrap();
-	}
-	for record in names.records.borrow().iter() {
-		writeln!(output, "{record}").unwrap();
 	}
 	for definition in &definitions {
 		writeln!(output, "{definition}").unwrap();

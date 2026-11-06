@@ -13176,7 +13176,7 @@ dependencies = [
 [[package]]
 name = "tsrs_ast"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "bitflags 2.13.2",
  "hashbrown 0.17.1",
@@ -13190,7 +13190,7 @@ dependencies = [
 [[package]]
 name = "tsrs_astnav"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "tsrs_ast",
  "tsrs_core",
@@ -13200,7 +13200,7 @@ dependencies = [
 [[package]]
 name = "tsrs_binder"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "bitflags 2.13.2",
  "rustc-hash 2.1.3",
@@ -13213,7 +13213,7 @@ dependencies = [
 [[package]]
 name = "tsrs_checker"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "bitflags 2.13.2",
  "hashbrown 0.17.1",
@@ -13238,7 +13238,7 @@ dependencies = [
 [[package]]
 name = "tsrs_compiler"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "rayon",
  "rustc-hash 2.1.3",
@@ -13264,7 +13264,7 @@ dependencies = [
 [[package]]
 name = "tsrs_contentmapper"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "rustc-hash 2.1.3",
  "tsrs_ast",
@@ -13280,7 +13280,7 @@ dependencies = [
 [[package]]
 name = "tsrs_core"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "dragonbox_ecma",
  "hashbrown 0.17.1",
@@ -13298,7 +13298,7 @@ dependencies = [
 [[package]]
 name = "tsrs_declarations"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "rustc-hash 2.1.3",
  "tsrs_ast",
@@ -13315,7 +13315,7 @@ dependencies = [
 [[package]]
 name = "tsrs_diagnostics"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "rustc-hash 2.1.3",
 ]
@@ -13323,7 +13323,7 @@ dependencies = [
 [[package]]
 name = "tsrs_ipc"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "rustc-hash 2.1.3",
  "tsrs_core",
@@ -13332,7 +13332,7 @@ dependencies = [
 [[package]]
 name = "tsrs_ls"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "bitflags 2.13.2",
  "indexmap 2.14.2",
@@ -13360,7 +13360,7 @@ dependencies = [
 [[package]]
 name = "tsrs_lsproto"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "rustc-hash 2.1.3",
  "tsrs_core",
@@ -13370,7 +13370,7 @@ dependencies = [
 [[package]]
 name = "tsrs_module"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "bitflags 2.13.2",
  "hashbrown 0.17.1",
@@ -13384,7 +13384,7 @@ dependencies = [
 [[package]]
 name = "tsrs_modulespecifiers"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "regex",
  "rustc-hash 2.1.3",
@@ -13397,7 +13397,7 @@ dependencies = [
 [[package]]
 name = "tsrs_parser"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "bitflags 2.13.2",
  "rustc-hash 2.1.3",
@@ -13410,7 +13410,7 @@ dependencies = [
 [[package]]
 name = "tsrs_printer"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "bitflags 2.13.2",
  "rustc-hash 2.1.3",
@@ -13423,7 +13423,7 @@ dependencies = [
 [[package]]
 name = "tsrs_project"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "rustc-hash 2.1.3",
  "tsrs_ast",
@@ -13446,7 +13446,7 @@ dependencies = [
 [[package]]
 name = "tsrs_projectutil"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "rustc-hash 2.1.3",
  "tsrs_core",
@@ -13455,7 +13455,7 @@ dependencies = [
 [[package]]
 name = "tsrs_pseudochecker"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "tsrs_ast",
  "tsrs_core",
@@ -13464,7 +13464,7 @@ dependencies = [
 [[package]]
 name = "tsrs_scanner"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "bitflags 2.13.2",
  "memchr",
@@ -13477,7 +13477,7 @@ dependencies = [
 [[package]]
 name = "tsrs_sourcemap"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "rustc-hash 2.1.3",
  "tsrs_ast",
@@ -13488,7 +13488,7 @@ dependencies = [
 [[package]]
 name = "tsrs_spanmap"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "bitflags 2.13.2",
  "tsrs_core",
@@ -13497,7 +13497,7 @@ dependencies = [
 [[package]]
 name = "tsrs_transformers"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "bitflags 2.13.2",
  "rustc-hash 2.1.3",
@@ -13513,7 +13513,7 @@ dependencies = [
 [[package]]
 name = "tsrs_tsoptions"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "rustc-hash 2.1.3",
  "tsrs_ast",
@@ -13529,7 +13529,7 @@ dependencies = [
 [[package]]
 name = "tsrs_vfs"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/tsrs#99dd817bc864c55d5f59ac7dedb0992c2df467c7"
+source = "git+https://github.com/tangramdotdev/tsrs#7b66b428dee9b252a1920f99788f402a53072be3"
 dependencies = [
  "bitflags 2.13.2",
  "rayon",

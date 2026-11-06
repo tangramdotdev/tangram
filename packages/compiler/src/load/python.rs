@@ -24,9 +24,6 @@ pub(super) struct Names {
 	/// The prefix of the names of generated helpers.
 	pub(super) prefix: String,
 
-	/// The statements that define the typed dicts of records, which are printed before the types that use them.
-	pub(super) records: RefCell<Vec<String>>,
-
 	/// The name of the typing module.
 	pub(super) typing: String,
 }
@@ -62,22 +59,11 @@ pub(super) fn is_identifier(name: &str) -> bool {
 /// Print the type of an export as a Python type expression, giving an export that is not a value a type that carries the reason.
 pub(super) fn export(export: &tg::interface::Export, names: &Names) -> String {
 	let Some(type_) = &export.type_ else {
-		let client = &names.client;
-		let typing = &names.typing;
-		// Replace the characters that a string annotation cannot contain without an escape sequence.
 		let error = export
 			.error
 			.as_deref()
-			.unwrap_or("the export is not a value")
-			.chars()
-			.map(|character| match character {
-				'"' | '\'' => '`',
-				'\\' => '/',
-				character if character.is_control() => ' ',
-				character => character,
-			})
-			.collect::<String>();
-		return format!("{client}.NonValue[{typing}.Literal['{error}']]");
+			.unwrap_or("the export is not a value");
+		return non_value(error, names);
 	};
 	self::type_(type_, names)
 }
@@ -173,11 +159,9 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 		tg::interface::Type::Number => "float".to_owned(),
 		tg::interface::Type::Object => format!("{client}.Object"),
 		tg::interface::Type::Placeholder => format!("{client}.Placeholder"),
-		tg::interface::Type::Record { fields } => {
-			let record = format!("{}_record_{}", names.prefix, names.records.borrow().len());
-			let statement = typed_dict(&record, fields, names);
-			names.records.borrow_mut().push(statement);
-			record
+		// Widen a record without a name to a value, because Python has no inline record type.
+		tg::interface::Type::Record { .. } | tg::interface::Type::Value => {
+			format!("{client}.Value.Type")
 		},
 		tg::interface::Type::Reference { import: None, name } => names
 			.definitions
@@ -233,8 +217,26 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 				.collect::<Vec<_>>();
 			format!("({})", types.join(" | "))
 		},
-		tg::interface::Type::Value => format!("{client}.Value.Type"),
 	}
+}
+
+/// Print the type of something that is not a value, which carries the reason.
+fn non_value(reason: &str, names: &Names) -> String {
+	let client = &names.client;
+	let typing = &names.typing;
+
+	// Replace the characters that a string annotation cannot contain without an escape sequence.
+	let reason = reason
+		.chars()
+		.map(|character| match character {
+			'"' | '\'' => '`',
+			'\\' => '/',
+			character if character.is_control() => ' ',
+			character => character,
+		})
+		.collect::<String>();
+
+	format!("{client}.NonValue[{typing}.Literal['{reason}']]")
 }
 
 /// Print the statement that defines a closed typed dict, whose field types are forward references because the functional syntax evaluates its fields.
