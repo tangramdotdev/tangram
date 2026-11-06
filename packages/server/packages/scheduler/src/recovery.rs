@@ -7,6 +7,9 @@ use {
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 };
 
+/// How long to wait before trying a read again that the scheduler must not give up.
+pub(super) const READ_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// The requests that a restarted scheduler holds until its runners report what they have placed.
 pub(super) struct Recovery {
 	claimed: HashMap<tg::sandbox::Id, Claim, tg::id::BuildHasher>,
@@ -217,29 +220,29 @@ impl SchedulerState {
 		let server = scheduler.server.clone();
 		self.operations.push(
 			async move {
-				// Read the sandboxes' statuses, because a destroy may have arrived before the restart.
-				let result = server.index.try_get_sandboxes(&ids).await.map(|sandboxes| {
-					std::iter::zip(ids, sandboxes)
-						.filter_map(|(id, sandbox)| Some((id, sandbox?.data?.data)))
-						.collect()
-				});
-				Operation::Recovered { result }
+				// Read the sandboxes' statuses, because a destroy may have arrived before the restart. Keep trying, because the held requests are lost if the read is given up.
+				let sandboxes = loop {
+					match server.index.try_get_sandboxes(&ids).await {
+						Ok(sandboxes) => break sandboxes,
+						Err(error) => {
+							tracing::error!(error = %error.trace(), "failed to read the recovered sandboxes");
+							tokio::time::sleep(READ_RETRY_INTERVAL).await;
+						},
+					}
+				};
+				let statuses = std::iter::zip(ids, sandboxes)
+					.filter_map(|(id, sandbox)| Some((id, sandbox?.data?.data)))
+					.collect();
+				Operation::Recovered { statuses }
 			}
 			.boxed(),
 		);
 	}
 
 	/// Tear down the requests that are being destroyed, and queue the rest of the requests that no runner claimed.
-	pub(super) fn handle_recovered(&mut self, scheduler: &Scheduler, result: tg::Result<Statuses>) {
+	pub(super) fn handle_recovered(&mut self, scheduler: &Scheduler, mut statuses: Statuses) {
 		let Some(recovery) = self.recovery.take() else {
 			return;
-		};
-		let mut statuses = match result {
-			Ok(statuses) => statuses,
-			Err(error) => {
-				tracing::error!(error = %error.trace(), "failed to read the recovered sandboxes");
-				return;
-			},
 		};
 		for (id, claim) in recovery.claimed {
 			let data = statuses.remove(&id);
@@ -263,6 +266,7 @@ impl SchedulerState {
 					self.stop_sandbox_when_started(scheduler, id.clone());
 				}
 				let placed = super::sandbox::Placed {
+					generation: 0,
 					registration_index: claim.registration_index,
 					request: claim.request,
 					runner: claim.runner,

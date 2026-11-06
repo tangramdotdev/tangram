@@ -15,6 +15,7 @@ use {
 		sync::Arc,
 	},
 	tangram_client::prelude::*,
+	tangram_futures::stream::TryExt as _,
 	tangram_index::prelude::*,
 	tangram_server_core::Session,
 };
@@ -32,6 +33,10 @@ pub(super) struct Queue {
 pub(super) struct Sandboxes {
 	attempts: usize,
 	entries: HashMap<tg::sandbox::Id, Sandbox, tg::id::BuildHasher>,
+
+	/// The generation of the most recently placed sandbox.
+	generation: u64,
+
 	loading: usize,
 
 	/// The sandboxes that a runner holds whose control connections may not be established yet.
@@ -42,6 +47,7 @@ pub(super) struct Sandboxes {
 }
 
 pub(super) struct Placed {
+	pub generation: u64,
 	pub registration_index: u64,
 	pub request: EnqueueSandboxRequestArg,
 	pub runner: tg::runner::Id,
@@ -242,6 +248,7 @@ impl Sandboxes {
 		Self {
 			attempts: 0,
 			entries: HashMap::default(),
+			generation: 0,
 			loading: 0,
 			placed: HashMap::default(),
 			stops: HashMap::default(),
@@ -1027,7 +1034,9 @@ impl SchedulerState {
 	}
 
 	/// Record a sandbox that a restarted scheduler found on a runner.
-	pub(super) fn insert_placed_sandbox(&mut self, sandbox: tg::sandbox::Id, placed: Placed) {
+	pub(super) fn insert_placed_sandbox(&mut self, sandbox: tg::sandbox::Id, mut placed: Placed) {
+		self.sandboxes.generation += 1;
+		placed.generation = self.sandboxes.generation;
 		self.sandboxes.placed.insert(sandbox, placed);
 	}
 
@@ -1097,21 +1106,25 @@ impl SchedulerState {
 		scheduler: &Scheduler,
 		lost: Vec<EnqueueSandboxRequestArg>,
 	) {
-		let server = scheduler.server.clone();
-		let id = scheduler.id.clone();
+		let generation = self.sandboxes.generation;
+		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
-				let result = server
-					.index
-					.get_scheduler_sandboxes(&id)
-					.await
-					.map(|sandboxes| {
-						sandboxes
-							.into_iter()
-							.map(|sandbox| sandbox.id)
-							.collect::<Vec<_>>()
-					});
-				Operation::PlacedSandboxes { lost, result }
+				// Keep trying, because the lost sandboxes are gone if the read is given up.
+				let keys = loop {
+					match scheduler.read_scheduler_sandbox_keys().await {
+						Ok(keys) => break keys,
+						Err(error) => {
+							tracing::error!(error = %error.trace(), "failed to read the scheduler's sandboxes");
+							tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+						},
+					}
+				};
+				Operation::PlacedSandboxes {
+					generation,
+					keys,
+					lost,
+				}
 			}
 			.boxed(),
 		);
@@ -1121,19 +1134,18 @@ impl SchedulerState {
 	pub(super) fn handle_placed_sandboxes(
 		&mut self,
 		scheduler: &Scheduler,
+		generation: u64,
+		keys: Vec<tg::sandbox::Id>,
 		lost: Vec<EnqueueSandboxRequestArg>,
-		result: tg::Result<Vec<tg::sandbox::Id>>,
 	) {
-		let keys = match result {
-			Ok(keys) => keys
-				.into_iter()
-				.collect::<HashSet<_, tg::id::BuildHasher>>(),
-			Err(error) => {
-				tracing::error!(error = %error.trace(), "failed to read the scheduler's sandboxes");
-				return;
-			},
-		};
-		self.sandboxes.placed.retain(|id, _| keys.contains(id));
+		let keys = keys
+			.into_iter()
+			.collect::<HashSet<_, tg::id::BuildHasher>>();
+
+		// Keep the sandboxes placed after the read began, whose keys the read may not include.
+		self.sandboxes
+			.placed
+			.retain(|id, placed| placed.generation > generation || keys.contains(id));
 		for request in lost {
 			if !keys.contains(&request.sandbox) {
 				continue;
@@ -1393,11 +1405,12 @@ impl SchedulerState {
 					held.placed = Some(runner_ref.clone());
 				} else {
 					let placed = Placed {
+						generation: 0,
 						registration_index: runner_ref.registration_index,
 						request,
 						runner: runner_ref.id.clone(),
 					};
-					self.sandboxes.placed.insert(id.clone(), placed);
+					self.insert_placed_sandbox(id.clone(), placed);
 				}
 				DequeueSandboxResponseOutput { dequeued: false }
 			},
@@ -1856,6 +1869,27 @@ impl SchedulerState {
 
 impl Scheduler {
 	/// Write the starting record and the key that associates the sandbox with this scheduler.
+	/// Read the sandboxes that this scheduler has keys for, after pending indexing, so that every key written before the read is included.
+	async fn read_scheduler_sandbox_keys(&self) -> tg::Result<Vec<tg::sandbox::Id>> {
+		let session = self.server.session(&self.server.context);
+		self.server
+			.components
+			.indexer
+			.index(&session, tg::index::Arg::default())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?
+			.try_last()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?;
+		let sandboxes = self.server.index.get_scheduler_sandboxes(&self.id).await?;
+		let keys = sandboxes
+			.into_iter()
+			.map(|sandbox| sandbox.id)
+			.collect::<Vec<_>>();
+
+		Ok(keys)
+	}
+
 	async fn wait_and_stop_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<()> {
 		let session = self.server.session(&self.server.context);
 		let component = &self.server.components.sandbox;
