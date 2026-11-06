@@ -302,19 +302,21 @@ impl Host {
 		length: Option<usize>,
 		stopper: Option<usize>,
 	) -> tg::Result<Option<Bytes>> {
+		// Get the file descriptor on this thread, so that a close that follows the read cannot remove it first.
+		let fd_ = self.0.fds.get(&fd).map(|fd_| fd_.value().clone());
 		let host = self.clone();
-		self.run(async move { host.read_inner(fd, length, stopper).await })
+		self.run(async move { host.read_inner(fd, fd_, length, stopper).await })
 			.await
 	}
 
 	async fn read_inner(
 		&self,
 		fd: i32,
+		fd_: Option<Arc<AsyncFd<OwnedFd>>>,
 		length: Option<usize>,
 		stopper: Option<usize>,
 	) -> tg::Result<Option<Bytes>> {
 		let stopper = self.get_stopper(stopper).await?;
-		let fd_ = self.0.fds.get(&fd).map(|fd_| fd_.value().clone());
 		let Some(fd_) = fd_ else {
 			let length = length.unwrap_or(64 * 1024);
 			return match stopper {
@@ -558,13 +560,16 @@ impl Host {
 	}
 
 	pub async fn write(&self, fd: i32, bytes: Bytes) -> tg::Result<()> {
-		let host = self.clone();
-		self.run(async move { host.write_inner(fd, bytes).await })
-			.await
+		// Get the file descriptor on this thread, so that a close that follows the write cannot remove it first.
+		let fd_ = self.0.fds.get(&fd).map(|fd_| fd_.value().clone());
+		self.run(Self::write_inner(fd, fd_, bytes)).await
 	}
 
-	async fn write_inner(&self, fd: i32, bytes: Bytes) -> tg::Result<()> {
-		let fd_ = self.0.fds.get(&fd).map(|fd_| fd_.value().clone());
+	async fn write_inner(
+		fd: i32,
+		fd_: Option<Arc<AsyncFd<OwnedFd>>>,
+		bytes: Bytes,
+	) -> tg::Result<()> {
 		let Some(fd_) = fd_ else {
 			let bytes = bytes.clone();
 			return tokio::task::spawn_blocking(move || Self::write_sync(fd, bytes.as_ref()))
