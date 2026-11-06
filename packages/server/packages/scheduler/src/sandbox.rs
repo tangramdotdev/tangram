@@ -2066,13 +2066,16 @@ impl Scheduler {
 			stopped_usage: None,
 			touched_at: now,
 		};
-		let mut items = vec![tangram_index::Item::PutSandbox(Box::new(arg))];
-		if status.is_starting()
+
+		// Put a starting process with its sandbox in one item, so that the two are written together.
+		let item = if status.is_starting()
 			&& let Some(process) = &request.process
 		{
-			items.push(self.starting_process_item(process, now)?);
-		}
-		let arg = tangram_index::write::Arg { items };
+			self.starting_process_item(process, arg, now)?
+		} else {
+			tangram_index::Item::PutSandbox(Box::new(arg))
+		};
+		let arg = tangram_index::write::Arg { items: vec![item] };
 		self.server
 			.components
 			.indexer
@@ -2101,6 +2104,7 @@ impl Scheduler {
 	fn starting_process_item(
 		&self,
 		process: &tg::runner::control::Process,
+		sandbox: tangram_index::sandbox::put::Arg,
 		now: i64,
 	) -> tg::Result<tangram_index::Item> {
 		let id = process
@@ -2141,7 +2145,7 @@ impl Scheduler {
 			permissions: Vec::new(),
 			principal: tg::Principal::Process(id),
 			registration: None,
-			sandbox: None,
+			sandbox: Some(tangram_index::process::put::Sandbox::Put(sandbox)),
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
