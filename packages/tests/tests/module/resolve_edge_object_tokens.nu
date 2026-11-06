@@ -41,7 +41,7 @@ let path = artifact {
 			await command.store();
 			a.state.tokens = {};
 			module.referent.options ??= {};
-			module.referent.options.tokens = command.state.tokens;
+			module.referent.options.tokens = command.state.tokens.toData();
 			return {
 				a: a.id,
 				b: bModule.id,

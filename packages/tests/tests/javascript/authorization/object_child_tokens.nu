@@ -21,9 +21,9 @@ let path = artifact {
 				const children = await directory.state.children;
 				tokens.local[0] = "mutated";
 				return {
-					children: children.map((child) => child.state.tokens),
-					entries: Object.values(entries).map((child) => child.state.tokens),
-					parent: directory.state.tokens,
+					children: children.map((child) => child.state.tokens.toData()),
+					entries: Object.values(entries).map((child) => child.state.tokens.toData()),
+					parent: directory.state.tokens.toData(),
 				};
 			} finally {
 				tg.client.getObject = getObject;

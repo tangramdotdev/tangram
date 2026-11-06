@@ -734,7 +734,10 @@ export class Printer {
 	}
 
 	private objectId(state: tg.Object.State): string {
-		let referent = tg.Referent.withNodeAndTokens(state.id, state.tokens);
+		let referent = tg.Referent.withNodeAndTokens(
+			state.id,
+			state.tokens.toData(),
+		);
 		let string = tg.Referent.toDataString(referent, (id) => id);
 		let index = string.indexOf("?");
 		if (index === -1) {

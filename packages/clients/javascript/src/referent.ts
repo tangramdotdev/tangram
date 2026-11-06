@@ -13,22 +13,25 @@ export namespace Referent {
 		name?: string | null;
 		path?: string | null;
 		tag?: tg.Tag | null;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Authorization.Tokens.Data | null;
 	};
 
 	export let withNodeAndLocalTokens = <T>(
 		node: T,
-		tokens: Array<tg.Authorization.Token>,
+		tokens: Array<tg.Authorization.Token.Data>,
 	): tg.Referent<T> => {
-		return withNodeAndTokens(node, tg.Authorization.Tokens.withLocal(tokens));
+		return withNodeAndTokens(
+			node,
+			tg.Authorization.Tokens.Data.withLocal(tokens),
+		);
 	};
 
 	export let withNodeAndTokens = <T>(
 		node: T,
-		tokens: tg.Authorization.Tokens,
+		tokens: tg.Authorization.Tokens.Data,
 	): tg.Referent<T> => {
 		let referent: tg.Referent<T> = { node };
-		if (!tg.Authorization.Tokens.isEmpty(tokens)) {
+		if (!tg.Authorization.Tokens.Data.isEmpty(tokens)) {
 			referent.options = { tokens };
 		}
 		return referent;
@@ -259,7 +262,7 @@ export namespace Referent {
 			name?: string | null;
 			path?: string | null;
 			tag?: tg.Tag | null;
-			tokens?: tg.Authorization.Tokens | null;
+			tokens?: tg.Authorization.Tokens.Data | null;
 		};
 	}
 }

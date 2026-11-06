@@ -110,7 +110,7 @@ class Module:
         tokens = options["tokens"] or {}
         for child in self.children():
             child_options = child.to_referent().options or {}
-            options["tokens"] = authorization.inherit(
+            options["tokens"] = authorization.Tokens.Data.inherit(
                 tokens, child_options.get("tokens") or {}, child.id
             )
             if options.get("location") is None:

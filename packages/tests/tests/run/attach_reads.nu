@@ -16,7 +16,7 @@ let path = artifact {
 			let attached = await tg.Process.attach(process.id, {
 				lease: process.lease,
 				location: process.location,
-				tokens: process.tokens,
+				tokens: process.tokens.toData(),
 				reads,
 			});
 			let output = { stdout: "", stderr: "" };

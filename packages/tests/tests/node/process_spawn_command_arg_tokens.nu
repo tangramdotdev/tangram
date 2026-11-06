@@ -20,7 +20,7 @@ let producer = artifact {
 			const executable = await tg.file("#!/bin/sh\nif [ \"$FAST\" = 1 ]; then exit 0; fi\nIFS= read -r input\n[ \"$input\" = \"input data\" ]", { executable: true });
 			await tg.Value.store(executable);
 			return {
-				executable: { node: executable.id, options: { tokens: executable.state.tokens } },
+				executable: { node: executable.id, options: { tokens: executable.state.tokens.toData() } },
 			};
 		}
 	'

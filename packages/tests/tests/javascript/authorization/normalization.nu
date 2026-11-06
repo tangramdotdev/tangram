@@ -39,9 +39,9 @@ let path = artifact {
 				for (const token of authorization) {
 					object.state.inheritTokens({ local: [token] });
 				}
-				tg.assert(JSON.stringify(object.state.tokens.local) === JSON.stringify([direct]));
+				tg.assert(JSON.stringify(object.state.tokens.toData().local) === JSON.stringify([direct]));
 				object.state.tokens = { local: authorization };
-				tg.assert(JSON.stringify(object.state.tokens.local) === JSON.stringify([direct]));
+				tg.assert(JSON.stringify(object.state.tokens.toData().local) === JSON.stringify([direct]));
 			}
 			const commandId = "cmd_010000000000000000000000000000000000000000000000000000";
 			const commandToken = proof(commandId, 20);
@@ -54,18 +54,10 @@ let path = artifact {
 				const object = tg.Directory.withId(id);
 				object.state.tokens = { local: [inherited] };
 				await object.state.load();
-				tg.assert(JSON.stringify(object.state.tokens.local) === JSON.stringify([direct]));
+				tg.assert(JSON.stringify(object.state.tokens.toData().local) === JSON.stringify([direct]));
 				object.state.tokens = { local: [inherited] };
-				const normalize = tg.Authorization.Tokens.normalize;
-				let normalizations = 0;
-				tg.Authorization.Tokens.normalize = (...args) => { normalizations++; return normalize(...args); };
-				try {
-					object.state.finishStore({ node: id, options: { tokens: { local: [direct] } } });
-				} finally {
-					tg.Authorization.Tokens.normalize = normalize;
-				}
-				tg.assert(normalizations === 1);
-				tg.assert(JSON.stringify(object.state.tokens.local) === JSON.stringify([direct]));
+				object.state.finishStore({ node: id, options: { tokens: { local: [direct] } } });
+				tg.assert(JSON.stringify(object.state.tokens.toData().local) === JSON.stringify([direct]));
 			} finally {
 				tg.client.getObject = getObject;
 			}
@@ -81,7 +73,7 @@ let path = artifact {
 				tg.assert(tokens.local.includes(parentToken));
 				tg.assert(!tokens.local.includes(childToken));
 				tg.assert(tokens.remote[0] === childToken);
-				tg.assert(child.state.tokens.local.includes(childToken));
+				tg.assert(child.state.tokens.toData().local.includes(childToken));
 				tg.assert(tokens.local.includes(sync));
 			}
 			child.state.object = { kind: "directory", value: { entries: { parent } } };

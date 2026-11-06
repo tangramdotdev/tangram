@@ -12,8 +12,7 @@ from typing import TYPE_CHECKING, Literal, cast, overload
 
 import tangram as tg
 
-from .. import host
-from ..authorization import inherit
+from .. import authorization, host
 from ..client import last_output
 from ..command import (
     Command,
@@ -49,7 +48,7 @@ async def _spawn_arg_from_resolved_with_sandbox(arg, sandbox, client):
     if command is not None:
         commands.append(command)
         if isinstance(command, Command):
-            options["tokens"] = inherit(
+            options["tokens"] = authorization.Tokens.Data.inherit(
                 options.get("tokens") or {}, command.state.tokens
             )
     if "name" in arg:
@@ -225,7 +224,10 @@ async def spawn_sandboxed(
                 command_id = await command.store(client)
                 state["command"] = Referent(
                     command_id,
-                    {**(referent.options or {}), "tokens": command.state.tokens},
+                    {
+                        **(referent.options or {}),
+                        "tokens": command.state.tokens.to_data(),
+                    },
                 )
         else:
             command_env = dict(referent.node.get("env", {}))
@@ -475,7 +477,7 @@ async def prepare_local(command, client, output_path, options=None):
         referents = []
         for child in artifacts.values():
             referent = child.to_referent()
-            inherit(
+            authorization.Tokens.Data.inherit(
                 referent.options.setdefault("tokens", {}),
                 options.get("tokens", {}),
                 child.id,

@@ -324,7 +324,10 @@ class Writer:
             if process.connection is not None
             else default_client
         )
-        arg: WriteOptions = {"streams": [self.stream], "tokens": process.tokens}
+        arg: WriteOptions = {
+            "streams": [self.stream],
+            "tokens": process.tokens.to_data(),
+        }
         if location is not None:
             arg["location"] = location
 

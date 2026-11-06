@@ -26,12 +26,12 @@ let path = artifact {
 				tg.assert(output.objects.length === 2);
 				for (const object of output.objects) {
 					tg.assert(object.node === id);
-					tg.assert(object.options.tokens.local.some((token) => tg.Authorization.Token.authorizesObjectSubtree(token, id)));
+					tg.assert(object.options.tokens.local.some((token) => tg.Authorization.Token.fromData(token).authorizesObjectSubtree(id)));
 				}
 				const missing = { children: [tg.Object.toReferent(a), { node: b.id }], data, id };
 				const denied = await tg.client.postObjectBatch({ objects: [missing, missing] });
 				for (const object of denied.objects) {
-					tg.assert(!object.options.tokens.local.some((token) => tg.Authorization.Token.authorizesObjectSubtree(token, id)));
+					tg.assert(!object.options.tokens.local.some((token) => tg.Authorization.Token.fromData(token).authorizesObjectSubtree(id)));
 				}
 			}
 			return true;

@@ -309,8 +309,8 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#stdout = arg.stdout;
 		this.#stderr = arg.stderr;
 		this.#stopper = arg.stopper ?? null;
-		this.#tokens = tg.Authorization.Tokens.clone(arg.tokens);
-		tg.Authorization.Tokens.normalize(this.#tokens);
+		this.#tokens = tg.Authorization.Tokens.fromData(arg.tokens);
+		this.#tokens.normalize();
 		this.#outcome = arg.outcome ?? null;
 		this.#owned =
 			this.#outcome === null &&
@@ -354,15 +354,15 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
-		arg.tokens = this.#tokens;
+		arg.tokens = this.#tokens.toData();
 		let output = await client.getProcess(this.#id, arg);
 		if (
 			output.tokens !== undefined &&
 			output.tokens !== null &&
-			!tg.Authorization.Tokens.isEmpty(output.tokens)
+			!tg.Authorization.Tokens.Data.isEmpty(output.tokens)
 		) {
-			let tokens = tg.Authorization.Tokens.clone(output.tokens);
-			tg.Authorization.Tokens.inherit(tokens, this.#tokens);
+			let tokens = tg.Authorization.Tokens.fromData(output.tokens);
+			tokens.inherit(this.#tokens);
 			this.#tokens = tokens;
 		}
 		this.#location =
@@ -407,12 +407,12 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	get tokens(): tg.Authorization.Tokens {
-		return tg.Authorization.Tokens.clone(this.#tokens);
+		return this.#tokens.clone();
 	}
 
-	set tokens(tokens: tg.Authorization.Tokens) {
-		this.#tokens = tg.Authorization.Tokens.clone(tokens);
-		tg.Authorization.Tokens.normalize(this.#tokens);
+	set tokens(tokens: tg.Authorization.Tokens | tg.Authorization.Tokens.Data) {
+		this.#tokens = tg.Authorization.Tokens.fromData(tokens);
+		this.#tokens.normalize();
 	}
 
 	inheritLocation(location: tg.Location.Arg | null): void {
@@ -421,8 +421,10 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 	}
 
-	inheritTokens(tokens: tg.Authorization.Tokens): void {
-		tg.Authorization.Tokens.inherit(this.#tokens, tokens);
+	inheritTokens(
+		tokens: tg.Authorization.Tokens | tg.Authorization.Tokens.Data,
+	): void {
+		this.#tokens.inherit(tg.Authorization.Tokens.fromData(tokens));
 	}
 
 	/** Get this process's command. */
@@ -434,7 +436,7 @@ export class Process<O extends tg.Value = tg.Value> {
 				...referent.options,
 				tokens: { ...referent.options?.tokens },
 			};
-			tg.Authorization.Tokens.inherit(options.tokens, this.#tokens);
+			tg.Authorization.Tokens.Data.inherit(options.tokens, this.#tokens);
 			if (typeof referent.node === "string") {
 				return tg.Command.withReferent({ node: referent.node, options });
 			}
@@ -650,7 +652,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (location !== null) {
 			arg.location = location;
 		}
-		arg.tokens = this.#tokens;
+		arg.tokens = this.#tokens.toData();
 		if (this.#connection !== null) {
 			await this.#connection.signal(arg);
 		} else {
@@ -695,7 +697,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
-		arg.tokens = this.#tokens;
+		arg.tokens = this.#tokens.toData();
 		let waitPromise;
 		if (this.#connection !== null) {
 			waitPromise = this.#connection.wait();
@@ -729,7 +731,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			let error = outcome.error;
 			const options = {
 				...this.#options,
-				tokens: error.state.tokens,
+				tokens: error.state.tokens.toData(),
 			};
 			const source = {
 				node: error,
@@ -817,7 +819,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		let arg = {
 			...options,
 			location: options.location ?? this.#location,
-			tokens: this.#tokens,
+			tokens: this.#tokens.toData(),
 		};
 		return tg.client.tryReadProcessStdio(this.#id, arg);
 	}
@@ -838,7 +840,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (location !== null) {
 			arg.location = location;
 		}
-		arg.tokens = this.#tokens;
+		arg.tokens = this.#tokens.toData();
 		if (this.#connection !== null) {
 			await this.#connection.tty(arg);
 		} else {
@@ -891,7 +893,7 @@ export namespace Process {
 			export type Arg = {
 				location?: tg.Location.Arg | null;
 				size: tg.Process.Tty.Size;
-				tokens?: tg.Authorization.Tokens | null;
+				tokens?: tg.Authorization.Tokens.Data | null;
 			};
 		}
 	}
@@ -1287,7 +1289,7 @@ export namespace Process {
 		stdioPromise?: Promise<void> | null;
 		stopper?: tg.Host.Stopper | null;
 		stdout: tg.Process.Stdio.Reader;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Authorization.Tokens.Data | null;
 	};
 
 	export type PreparedUnsandboxedCommandOutput = {
@@ -1444,7 +1446,7 @@ export namespace Process {
 				value.process.location === null
 					? null
 					: tg.Location.Arg.toLocation(value.process.location);
-			let tokens = value.process.tokens;
+			let tokens = value.process.tokens.toData();
 			let options = {
 				...value.options,
 				...(location === null ? {} : { location }),
@@ -1520,11 +1522,11 @@ export namespace Process {
 
 		export let inheritTokens = (
 			state: State,
-			tokens: tg.Authorization.Tokens,
+			tokens: tg.Authorization.Tokens | tg.Authorization.Tokens.Data,
 		): void => {
 			state.command.options ??= {};
 			state.command.options.tokens ??= {};
-			tg.Authorization.Tokens.inherit(
+			tg.Authorization.Tokens.Data.inherit(
 				state.command.options.tokens,
 				tokens,
 				typeof state.command.node === "string" ? state.command.node : undefined,

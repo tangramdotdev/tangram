@@ -33,7 +33,7 @@ for location in [local remote] {
 				const directory = await tg.directory({ shared: tg.file("output inherited"), private: tg.file("private") });
 				await directory.store();
 				const file = await directory.get("shared");
-				tg.assert(file.state.tokens.local?.some((token) => tg.Authorization.Token.authorizesObjectSubtree(token, file.id)));
+				tg.assert(file.state.tokens.toData().local?.some((token) => tg.Authorization.Token.fromData(token).authorizesObjectSubtree(file.id)));
 				console.log("runner log");
 				return file;
 			};'

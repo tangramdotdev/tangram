@@ -433,7 +433,7 @@ export namespace Graph {
 		id?: tg.Graph.Id;
 		object?: tg.Graph.Object;
 		stored: boolean;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Authorization.Tokens.Data | null;
 	};
 
 	export class Builder {
@@ -728,15 +728,18 @@ export namespace Graph {
 		};
 
 		export let children = (object: tg.Graph.Directory): Array<tg.Object> => {
+			let children: Array<tg.Object> = [];
 			if (tg.Graph.Directory.isLeaf(object)) {
-				return globalThis.Object.entries(object.entries).flatMap(([_, edge]) =>
-					tg.Graph.Edge.children(edge),
-				);
+				for (let edge of globalThis.Object.values(object.entries)) {
+					children.push(...tg.Graph.Edge.children(edge));
+				}
 			} else {
-				return object.children.flatMap((child) =>
-					tg.Graph.Edge.children(child.directory),
-				);
+				for (let child of object.children) {
+					children.push(...tg.Graph.Edge.children(child.directory));
+				}
 			}
+
+			return children;
 		};
 	}
 

@@ -27,7 +27,7 @@ let path = artifact {
 			try {
 				await tg.client.writeProcessStdio(
 					process.id,
-					{ location: process.location, streams: ["stdin"], tokens: process.tokens },
+					{ location: process.location, streams: ["stdin"], tokens: process.tokens.toData() },
 					(async function* (): AsyncIterableIterator<tg.Process.Stdio.Chunk> {
 						throw new Error("the input failed");
 					})(),

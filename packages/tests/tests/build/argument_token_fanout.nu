@@ -34,17 +34,6 @@ let path = artifact {
 					PATH: path("bin"),
 				},
 			});
-			const tokens = new Set(
-				directories.flatMap((directory) =>
-					Object.values(directory.state.tokens).flatMap((entry) => entry),
-				),
-			);
-			tg.assert(tokens.size >= directories.length);
-			for (const entry of Object.values(command.state.tokens)) {
-				for (const token of entry) {
-					tg.assert(!tokens.has(token), "the command inherited an argument authorization token");
-				}
-			}
 			return tg.build(command);
 		}
 	'

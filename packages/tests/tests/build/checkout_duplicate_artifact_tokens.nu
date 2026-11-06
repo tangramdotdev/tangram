@@ -17,12 +17,12 @@ let path = artifact {
 		export default async function () {
 			const directory = await tg.directory({});
 			await directory.store();
-			tg.assert(directory.state.tokens.local?.some((token) =>
-				tg.Authorization.Token.authorizesObjectSubtree(token, directory.id)
+			tg.assert(directory.state.tokens.toData().local?.some((token) =>
+				tg.Authorization.Token.fromData(token).authorizesObjectSubtree(directory.id)
 			));
 			await tg.build`tg --version`.env({ AUTHORIZED: directory });
 			const bare = tg.Directory.withId(directory.id);
-			tg.assert(tg.Authorization.Tokens.isEmpty(bare.state.tokens));
+			tg.assert(tg.Authorization.Tokens.Data.isEmpty(bare.state.tokens.toData()));
 			for (const env of [
 				{ AUTHORIZED: directory, BARE: bare },
 				{ A_BARE: bare, Z_AUTHORIZED: directory },

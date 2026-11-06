@@ -25,7 +25,7 @@ let path = artifact {
 
 			// Queue enough attaches to expose the race with the idle connection closing.
 			let attaches = Array.from({ length: 50 }, () => {
-				return tg.Process.attach(spawned.id, { tokens: spawned.tokens });
+				return tg.Process.attach(spawned.id, { tokens: spawned.tokens.toData() });
 			});
 			let spawns = commands.map((command) => {
 				return tg.spawn(command).sandbox().then((process) => process);

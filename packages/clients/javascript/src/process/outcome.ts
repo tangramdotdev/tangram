@@ -51,7 +51,7 @@ export namespace Outcome {
 
 	export let inheritTokens = (
 		outcome: tg.Process.Outcome,
-		tokens: tg.Authorization.Tokens,
+		tokens: tg.Authorization.Tokens | tg.Authorization.Tokens.Data,
 	): void => {
 		if (outcome.error !== null) {
 			tg.Object.inheritTokens(outcome.error, tokens);

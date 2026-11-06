@@ -20,7 +20,7 @@ let path = artifact {
 			const chain = await tg.symlink({ artifact: symlink });
 			await chain.store();
 			const bare = tg.Symlink.withId(chain.id);
-			tg.assert(tg.Authorization.Tokens.isEmpty(bare.state.tokens));
+			tg.assert(tg.Authorization.Tokens.Data.isEmpty(bare.state.tokens.toData()));
 			for (const env of [
 				{ A_BARE: bare, INPUT: chain },
 				{ INPUT: chain, Z_BARE: bare },

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, NotRequired, TypedDict
 if TYPE_CHECKING:
     from ..command import CommandValueData
 
-from ..authorization import Tokens
+from .. import authorization
 from ..module import Module
 from ..referent import Referent
 from ..value import Value
@@ -86,7 +86,7 @@ def inherit_referent(data, options, resource=None):
     if tokens is None:
         tokens = {}
         referent.options["tokens"] = tokens
-    Tokens.inherit(tokens, options.get("tokens") or {}, resource)
+    authorization.Tokens.Data.inherit(tokens, options.get("tokens") or {}, resource)
     return referent.to_data()
 
 
@@ -102,7 +102,9 @@ def inherit_string(data, options):
     if tokens is None:
         tokens = {}
         referent.options["tokens"] = tokens
-    Tokens.inherit(tokens, options.get("tokens") or {}, referent.node)
+    authorization.Tokens.Data.inherit(
+        tokens, options.get("tokens") or {}, referent.node
+    )
     return referent.to_data_string()
 
 
