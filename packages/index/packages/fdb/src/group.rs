@@ -1,7 +1,4 @@
-use {
-	crate::{Index, Request, Response},
-	tangram_client::prelude::*,
-};
+use {crate::Index, tangram_client::prelude::*};
 
 mod delete;
 mod get;
@@ -33,11 +30,14 @@ impl Index {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let request = Request::PutGroups(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
+		let items = args
+			.iter()
+			.cloned()
+			.map(|arg| tangram_index::Item::PutGroup(Box::new(arg)))
+			.collect();
+		let arg = tangram_index::write::Arg { items };
+		self.write(arg).await??;
+
 		Ok(())
 	}
 
@@ -45,11 +45,16 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(());
 		}
-		let request = Request::DeleteGroups(ids.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
+		let items = ids
+			.iter()
+			.map(|id| {
+				let arg = tangram_index::group::delete::Arg { id: id.clone() };
+				tangram_index::Item::DeleteGroup(Box::new(arg))
+			})
+			.collect();
+		let arg = tangram_index::write::Arg { items };
+		self.write(arg).await??;
+
 		Ok(())
 	}
 
@@ -60,11 +65,14 @@ impl Index {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let request = Request::PutGroupMembers(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
+		let items = args
+			.iter()
+			.cloned()
+			.map(|arg| tangram_index::Item::PutGroupMember(Box::new(arg)))
+			.collect();
+		let arg = tangram_index::write::Arg { items };
+		self.write(arg).await??;
+
 		Ok(())
 	}
 
@@ -75,11 +83,14 @@ impl Index {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let request = Request::DeleteGroupMembers(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
+		let items = args
+			.iter()
+			.cloned()
+			.map(|arg| tangram_index::Item::DeleteGroupMember(Box::new(arg)))
+			.collect();
+		let arg = tangram_index::write::Arg { items };
+		self.write(arg).await??;
+
 		Ok(())
 	}
 }

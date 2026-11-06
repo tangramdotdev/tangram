@@ -14,15 +14,7 @@ pub(super) enum Request {
 	Clean(Clean),
 	ExpireUsage(tangram_index::usage::expire::Arg),
 	CompletePermissionCapture(tangram_index::permission::capture::Entry),
-	DeletePermissions(Vec<tangram_index::permission::delete::Arg>),
-	DeleteGroupMembers(Vec<tangram_index::group::member::delete::Arg>),
-	DeleteGroups(Vec<tg::group::Id>),
 	DeleteIndexer(tangram_index::indexer::delete::Arg),
-	DeleteOrganizationMembers(Vec<tangram_index::organization::member::delete::Arg>),
-	DeleteOrganizations(Vec<tg::organization::Id>),
-	DeleteSandboxes(Vec<tg::sandbox::Id>),
-	DeleteTags(Vec<tg::tag::Id>),
-	DeleteUsers(Vec<tg::user::Id>),
 	GetUsage {
 		account: tangram_index::usage::Account,
 		delta_time_to_live: std::time::Duration,
@@ -30,18 +22,7 @@ pub(super) enum Request {
 		period: tangram_index::usage::Period,
 	},
 	NextRunnerRegistrationIndex(tg::runner::Id),
-	PutCheckouts(Vec<tangram_index::checkout::put::Arg>),
-	PutPermissions(Vec<tangram_index::permission::put::Arg>),
-	PutGroupMembers(Vec<tangram_index::group::member::put::Arg>),
-	PutGroups(Vec<tangram_index::group::put::Arg>),
 	PutIndexer(tangram_index::indexer::put::Arg),
-	PutObjects(Vec<tangram_index::object::put::Arg>),
-	PutOrganizationMembers(Vec<tangram_index::organization::member::put::Arg>),
-	PutOrganizations(Vec<tangram_index::organization::put::Arg>),
-	PutProcesses(Vec<tangram_index::process::put::Arg>),
-	PutSandboxes(Vec<tangram_index::sandbox::put::Arg>),
-	PutTags(Vec<tangram_index::tag::put::Arg>),
-	PutUsers(Vec<tangram_index::user::put::Arg>),
 	TouchCheckouts(TouchCheckouts),
 	TouchObjects(TouchObjects),
 	TouchProcesses(TouchProcesses),
@@ -89,30 +70,11 @@ pub(super) struct Update {
 	pub kind: tangram_index::update::Kind,
 }
 
-pub(super) enum Item {
+pub(super) enum Operation {
 	AggregateUsage,
 	Clean,
 	ExpireUsage,
-	DeletePermission(tangram_index::permission::delete::Arg),
-	DeleteGroup(tg::group::Id),
-	DeleteGroupMember(tangram_index::group::member::delete::Arg),
-	DeleteOrganization(tg::organization::Id),
-	DeleteOrganizationMember(tangram_index::organization::member::delete::Arg),
-	DeleteSandbox(tg::sandbox::Id),
-	DeleteTag(tg::tag::Id),
-	DeleteUser(tg::user::Id),
 	GetUsage,
-	PutCheckout(tangram_index::checkout::put::Arg),
-	PutPermission(tangram_index::permission::put::Arg),
-	PutGroup(tangram_index::group::put::Arg),
-	PutGroupMember(tangram_index::group::member::put::Arg),
-	PutObject(tangram_index::object::put::Arg),
-	PutOrganization(tangram_index::organization::put::Arg),
-	PutOrganizationMember(tangram_index::organization::member::put::Arg),
-	PutProcess(tangram_index::process::put::Arg),
-	PutSandbox(tangram_index::sandbox::put::Arg),
-	PutTag(tangram_index::tag::put::Arg),
-	PutUser(tangram_index::user::put::Arg),
 	TouchCheckout(tg::Id),
 	TouchObject(tg::object::Id),
 	TouchProcess(tg::process::Id),
@@ -128,31 +90,12 @@ pub(super) enum Kind {
 		now: i64,
 	},
 	ExpireUsage(tangram_index::usage::expire::Arg),
-	DeletePermissions,
-	DeleteGroupMembers,
-	DeleteGroups,
-	DeleteOrganizationMembers,
-	DeleteOrganizations,
-	DeleteSandboxes,
-	DeleteTags,
-	DeleteUsers,
 	GetUsage {
 		account: tangram_index::usage::Account,
 		delta_time_to_live: std::time::Duration,
 		now: jiff::Timestamp,
 		period: tangram_index::usage::Period,
 	},
-	PutCheckouts,
-	PutPermissions,
-	PutGroupMembers,
-	PutGroups,
-	PutObjects,
-	PutOrganizationMembers,
-	PutOrganizations,
-	PutProcesses,
-	PutSandboxes,
-	PutTags,
-	PutUsers,
 	TouchCheckouts {
 		time_to_touch: std::time::Duration,
 		touched_at: i64,
@@ -178,35 +121,37 @@ impl Request {
 	#[must_use]
 	pub(super) fn priority(&self) -> Priority {
 		match self {
-			Self::Write(_)
-			| Self::PutCheckouts(_)
-			| Self::PutPermissions(_)
-			| Self::PutGroupMembers(_)
-			| Self::PutGroups(_)
-			| Self::PutObjects(_)
-			| Self::PutOrganizationMembers(_)
-			| Self::PutOrganizations(_)
-			| Self::PutProcesses(_)
-			| Self::PutSandboxes(_)
-			| Self::PutUsers(_) => Priority::Medium,
+			Self::Write(arg) => {
+				// Apply deletes and tag puts ahead of other writes, because readers wait for them.
+				let urgent = arg.items.iter().all(|item| {
+					matches!(
+						item,
+						tangram_index::Item::DeleteGroup(_)
+							| tangram_index::Item::DeleteGroupMember(_)
+							| tangram_index::Item::DeleteOrganization(_)
+							| tangram_index::Item::DeleteOrganizationMember(_)
+							| tangram_index::Item::DeletePermission(_)
+							| tangram_index::Item::DeleteSandbox(_)
+							| tangram_index::Item::DeleteTag(_)
+							| tangram_index::Item::DeleteUser(_)
+							| tangram_index::Item::PutTag(_)
+					)
+				});
+				if urgent {
+					Priority::High
+				} else {
+					Priority::Medium
+				}
+			},
 			Self::AggregateUsage(_)
 			| Self::Clean(_)
 			| Self::CompletePermissionCapture(_)
 			| Self::ExpireUsage(_)
 			| Self::Update(_) => Priority::Low,
-			Self::DeletePermissions(_)
-			| Self::DeleteGroupMembers(_)
-			| Self::DeleteGroups(_)
-			| Self::DeleteIndexer(_)
-			| Self::DeleteOrganizationMembers(_)
-			| Self::DeleteOrganizations(_)
-			| Self::DeleteSandboxes(_)
-			| Self::DeleteTags(_)
-			| Self::DeleteUsers(_)
+			Self::DeleteIndexer(_)
 			| Self::GetUsage { .. }
 			| Self::NextRunnerRegistrationIndex(_)
 			| Self::PutIndexer(_)
-			| Self::PutTags(_)
 			| Self::TouchCheckouts(_)
 			| Self::TouchObjects(_)
 			| Self::TouchProcesses(_)
