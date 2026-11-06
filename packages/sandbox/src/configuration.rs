@@ -228,6 +228,11 @@ impl Sandbox {
 							})
 					})
 					.cloned()
+					.chain(
+						crate::guest::covered_rootfs_directories(&arg.rootfs_path, mounts)
+							.into_iter()
+							.map(|target| (target, true)),
+					)
 					.collect(),
 				uid: namespaces.uid,
 			};
