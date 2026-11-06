@@ -176,6 +176,7 @@ async fn destroy_sandbox(
 		id: runner.data.id.clone(),
 		location: None,
 		sandboxes: Vec::new(),
+		registration_index: 1,
 		scheduler_ttl: std::time::Duration::from_secs(300),
 	};
 	let (_, stream) = match session

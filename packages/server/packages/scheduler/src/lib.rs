@@ -30,6 +30,9 @@ use {
 mod runner;
 mod sandbox;
 
+/// The ID of the only scheduler of a single server, which multi-server mode replaces with a configured ID.
+const SINGLE_SERVER_ID: &str = "sch_0000000000000000000000000000";
+
 type Operations = FuturesUnordered<BoxFuture<'static, Operation>>;
 
 type MessageStream =
@@ -97,7 +100,7 @@ enum Operation {
 		result: tg::Result<()>,
 	},
 	AddRunner {
-		connection_index: u64,
+		registration_index: u64,
 		id: String,
 		result: tg::Result<(AddRunnerResponseOutput, Option<tg::Id>)>,
 		runner: tg::runner::Id,
@@ -690,7 +693,13 @@ impl Scheduler {
 		server: &Server,
 		config: &tangram_server_core::config::Scheduler,
 	) -> tg::Result<Owned> {
-		let id = tg::scheduler::Id::new();
+		// Get the scheduler's ID, which is the same across restarts.
+		let id = match &config.id {
+			Some(id) => id.clone(),
+			None => SINGLE_SERVER_ID
+				.parse()
+				.map_err(|error| tg::error!(!error, "failed to parse the scheduler ID"))?,
+		};
 
 		// Create the config.
 		let config = Config {
@@ -959,7 +968,7 @@ impl Scheduler {
 				self.handle_acknowledged_request(state, request);
 			},
 			Operation::AddRunner {
-				connection_index,
+				registration_index,
 				id,
 				result,
 				runner,
@@ -968,7 +977,7 @@ impl Scheduler {
 					.runners
 					.entries
 					.get(&runner)
-					.is_some_and(|runner| runner.connection_index == connection_index);
+					.is_some_and(|runner| runner.registration_index == registration_index);
 				let result = match result {
 					Ok((output, owner)) => {
 						if current {
@@ -1045,10 +1054,10 @@ impl Scheduler {
 	fn handle_cleaner_tick(&self, state: &mut SchedulerState) {
 		let now = self.server.clock.instant();
 		let expired = state.runners.expired(now, self.config.runner_ttl);
-		for (runner, connection_index) in expired {
-			tracing::warn!(%runner, connection_index, ttl_ms = self.config.runner_ttl.as_millis(), "the runner heartbeat expired");
+		for (runner, registration_index) in expired {
+			tracing::warn!(%runner, registration_index, ttl_ms = self.config.runner_ttl.as_millis(), "the runner heartbeat expired");
 			let request = RemoveRunnerRequestArg {
-				connection_index,
+				registration_index,
 				runner,
 			};
 			state.handle_remove_runner_request(self, None, request);
@@ -1161,7 +1170,7 @@ impl Scheduler {
 	) {
 		let subject = runner_heartbeat_subject(&self.id, &notification.runner);
 		let acknowledgement = HeartbeatAcknowledgement {
-			connection_index: notification.connection_index,
+			registration_index: notification.registration_index,
 			heartbeat_index: notification.heartbeat_index,
 		};
 		let server = self.server.clone();

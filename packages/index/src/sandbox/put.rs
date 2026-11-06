@@ -34,6 +34,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 7)]
 	pub processes: Option<Vec<tg::process::Id>>,
 
+	/// The registration that must still own the runner when this mutation is applied.
+	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
+	pub registration: Option<crate::runner::Registration>,
+
 	#[tangram_serialize(id = 4)]
 	pub runner: Option<tg::runner::Id>,
 

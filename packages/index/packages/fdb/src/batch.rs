@@ -257,6 +257,14 @@ impl Index {
 						return Ok(ControlFlow::Break(Err(error)));
 					}
 				},
+				tangram_index::batch::Item::PutRunner(arg) => {
+					let result = crate::propagate!(
+						Self::put_runner_with_transaction(txn, subspace, arg).await
+					);
+					if let Err(error) = result {
+						return Ok(ControlFlow::Break(Err(error)));
+					}
+				},
 				tangram_index::batch::Item::PutSandbox(arg) => {
 					let result = crate::propagate!(
 						Self::put_sandboxes_with_transaction(

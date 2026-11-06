@@ -753,6 +753,11 @@ impl Config {
 
 		if self.roles.contains(&super::Role::Scheduler) {
 			let scheduler = &self.scheduler;
+			if self.advanced.multi_server && scheduler.id.is_none() {
+				return Err(tg::error!(
+					"the scheduler ID is required in multi-server mode"
+				));
+			}
 			if scheduler.create_sandbox_queue_capacity == 0 {
 				return Err(tg::error!(
 					"the scheduler create sandbox queue capacity must be greater than zero"

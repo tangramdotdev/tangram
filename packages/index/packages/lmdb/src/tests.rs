@@ -10,6 +10,7 @@ mod object;
 mod page;
 mod process;
 mod reader;
+mod runner;
 mod storage;
 mod sync;
 mod tag;

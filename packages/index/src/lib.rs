@@ -12,6 +12,7 @@ pub mod permission;
 pub mod process;
 #[doc(hidden)]
 pub mod read;
+pub mod runner;
 pub mod sandbox;
 pub mod sync;
 pub mod tag;
