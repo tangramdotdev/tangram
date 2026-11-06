@@ -6,7 +6,8 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_server_core::Session,
+	tangram_index::prelude::*,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 };
 
 impl Component {
@@ -36,37 +37,52 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(id) = &id
-				&& let Some(output) = self
-					.try_cancel_process_local(session, id, arg.clone())
-					.await
-					.map_err(|error| tg::error!(!error, %id, "failed to cancel the process"))?
-			{
-				return Ok(Some(output));
-			}
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-			if let Some(output) = self
-				.try_cancel_process_regions(session, process, arg.clone(), &local.regions)
+		// Cancel the process locally without a search.
+		if current
+			&& let Some(id) = &id
+			&& let Some(output) = self
+				.try_cancel_process_local(session, id, arg.clone(), false)
 				.await
-				.map_err(
-					|error| tg::error!(!error, %process, "failed to cancel the process in another region"),
-				)? {
-				return Ok(Some(output));
-			}
-		}
-
-		if let Some(output) = self
-			.try_cancel_process_remotes(session, process, arg, &locations.remotes)
-			.await
-			.map_err(
-				|error| tg::error!(!error, %process, "failed to cancel the process in a remote"),
-			)? {
+				.map_err(|error| tg::error!(!error, %id, "failed to cancel the process"))?
+		{
 			return Ok(Some(output));
 		}
 
-		Ok(None)
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			let (true, Some(id)) = (current, &id) else {
+				return Ok(None);
+			};
+			self.try_cancel_process_local(session, id, arg.clone(), true)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to cancel the process"))
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(output) = self
+					.try_cancel_process_regions(session, process, arg.clone(), &local.regions)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %process, "failed to cancel the process in another region"),
+					)? {
+				return Ok(Some(output));
+			}
+			self.try_cancel_process_remotes(session, process, arg.clone(), &locations.remotes)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %process, "failed to cancel the process in a remote"),
+				)
+		};
+		let output = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+
+		Ok(output)
 	}
 
 	async fn try_cancel_process_runner(
@@ -96,7 +112,22 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
+		exhaustive: bool,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
+		// Leave a process that this server does not hold for the search.
+		if !exhaustive {
+			let process = session.server.index.try_get_process(id).await?;
+			let held = process.is_some_and(|process| {
+				!process
+					.location
+					.as_ref()
+					.is_some_and(tg::Location::is_remote)
+			});
+			if !held {
+				return Ok(None);
+			}
+		}
+
 		// Release a process that is starting at its sandbox's scheduler, because it has no control connection.
 		if let Some(output) = self
 			.try_cancel_starting_process(session, id, arg.lease)

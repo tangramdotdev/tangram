@@ -9,7 +9,9 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tangram_server_core::{Server, Session},
+	tangram_server_core::{
+		Server, Session, location::await_local_future_over_regions_remotes_futures,
+	},
 };
 
 impl Component {
@@ -92,36 +94,53 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(output) = self
-					.try_destroy_sandbox_local(session, id, &arg)
-					.boxed()
-					.await
-					.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?
-			{
-				return Ok(Some(output));
-			}
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-			if let Some(output) = self
-				.try_destroy_sandbox_regions(session, id, &arg, &local.regions)
+		// Destroy the sandbox locally without a search.
+		if current
+			&& let Some(output) = self
+				.try_destroy_sandbox_local(session, id, &arg, false)
+				.boxed()
 				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to destroy the sandbox in another region"),
-				)? {
-				return Ok(Some(output));
-			}
-		}
-
-		if let Some(output) = self
-			.try_destroy_sandbox_remotes(session, id, &arg, &locations.remotes)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox in a remote"))?
+				.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?
 		{
 			return Ok(Some(output));
 		}
 
-		Ok(None)
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			if !current {
+				return Ok(None);
+			}
+			self.try_destroy_sandbox_local(session, id, &arg, true)
+				.boxed()
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(output) = self
+					.try_destroy_sandbox_regions(session, id, &arg, &local.regions)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to destroy the sandbox in another region"),
+					)? {
+				return Ok(Some(output));
+			}
+			self.try_destroy_sandbox_remotes(session, id, &arg, &locations.remotes)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to destroy the sandbox in a remote"),
+				)
+		};
+		let output = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+
+		Ok(output)
 	}
 
 	async fn try_destroy_sandbox_runner(
@@ -230,13 +249,14 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		arg: &tg::sandbox::destroy::Arg,
+		exhaustive: bool,
 	) -> tg::Result<Option<bool>> {
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Parent,
 		);
 		let resource = tg::Referent::with_node_and_tokens(id.clone(), arg.tokens.clone());
-		let authorize_future = session.authorize(resource, permission);
-		let get_future = self.try_get_sandbox_from_index(session, id);
+		let authorize_future = session.authorize_with_exhaustive(resource, permission, exhaustive);
+		let get_future = self.try_get_sandbox_from_index_with_exhaustive(session, id, exhaustive);
 		let (authorized, sandbox) = future::try_join(authorize_future, get_future).await?;
 		let authorized = authorized.check_exhaustion()?;
 		let Some(sandbox) = sandbox else {
