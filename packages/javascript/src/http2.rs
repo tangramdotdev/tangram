@@ -362,6 +362,12 @@ impl Http2 {
 	}
 }
 
+impl Drop for Stream {
+	fn drop(&mut self) {
+		self.task.abort();
+	}
+}
+
 impl Stream {
 	async fn close(&self, error: Option<&str>) {
 		self.task.abort();

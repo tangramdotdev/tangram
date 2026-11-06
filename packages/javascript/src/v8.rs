@@ -131,7 +131,7 @@ impl Runtime {
 		// Create the state.
 		let global_source_map = OnceCell::new();
 		let instance = arg.instance.clone();
-		let host = crate::host::Host::default();
+		let host = crate::host::Host::new(arg.main_runtime_handle.clone());
 		let http2 = Arc::new(crate::http2::Http2::new(
 			arg.http.coalescing_target_size,
 			arg.http.connect_timeout,
