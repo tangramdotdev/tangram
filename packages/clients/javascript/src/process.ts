@@ -1692,7 +1692,7 @@ export namespace Process {
 		USR2: "USR2",
 	} as const;
 
-	export type Status = "started" | "finished";
+	export type Status = "starting" | "started" | "finished";
 
 	export type Data = {
 		cacheable?: boolean;

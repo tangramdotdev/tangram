@@ -8,7 +8,6 @@ let instance = instance --cloud --config {
 }
 let api = server spawn --instance $instance --name api --config {
 	roles: [api indexer scheduler],
-	scheduler: { max_create_sandbox_attempts: 64 },
 }
 let created = tg --url $api.url --token $root_token runner create | from json
 # Give the runner enough capacity for every concurrent request.

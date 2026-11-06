@@ -60,8 +60,10 @@ impl Component {
 						.ok_or_else(|| tg::error!("missing the scheduler"))?;
 					sender.send(scheduler).ok();
 				}
-				self.wait_process_start(session, &id, &sandbox, &mut sandbox_connection_future)
-					.await?;
+				if arg.wait {
+					self.wait_process_start(session, &id, &sandbox, &mut sandbox_connection_future)
+						.await?;
+				}
 				process.lease = Some(lease);
 			},
 			Some(tg::Either::Right(_)) => {
@@ -173,7 +175,9 @@ impl Component {
 			.try_get_process(id)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
-		let started = process.is_some_and(|process| process.status.is_some());
+		let started = process
+			.and_then(|process| process.status)
+			.is_some_and(|status| !status.is_starting());
 
 		Ok(started)
 	}

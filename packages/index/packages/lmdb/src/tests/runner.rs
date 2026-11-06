@@ -275,7 +275,7 @@ async fn a_scheduler_lists_its_runners() {
 		index.batch(arg).await.unwrap().unwrap();
 	}
 	let runners = index.get_scheduler_runners(&first).await.unwrap();
-	assert!(runners.is_empty());
+	assert_eq!(runners.len(), 0);
 	assert_eq!(
 		index.get_scheduler_runners(&second).await.unwrap(),
 		vec![runner]

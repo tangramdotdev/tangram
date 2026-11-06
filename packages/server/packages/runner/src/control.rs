@@ -920,6 +920,7 @@ impl Component {
 					}
 				},
 				client_subject: format!("runners.{runner}.control.client.{id}"),
+				hold: None,
 				is_ack: |message: &ClientMessage| {
 					matches!(&message.0, tg::runner::control::ClientMessage::Ack(_))
 				},

@@ -15,7 +15,8 @@ let path = artifact {
 		}
 	',
 }
+let command = tg build $'($path)#hello' | str trim
 let sandbox = tg sandbox create --no-tokens | referent node
-let output = tg run --no-tokens $'--sandbox=($sandbox)' $'($path)#hello' | complete
+let output = tg run --no-tokens $'--sandbox=($sandbox)' $command | complete
 success $output
 assert ($output.stdout | str contains 'hello')

@@ -440,10 +440,12 @@ impl Component {
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Output> {
-		// Create the index future, which reads only the process record.
+		// Create the index future, which reads only the process record, and which is complete for a process that is starting, because it has no children yet.
 		let get_index = || async {
 			let indexed = self.try_get_process_from_index(session, id).await?;
-			let indexed = indexed.filter(|process| process.set.children);
+			let indexed = indexed.filter(|process| {
+				process.set.children || process.status.is_some_and(|status| status.is_starting())
+			});
 			Ok::<_, tg::Error>(indexed)
 		};
 		let index_future = async {

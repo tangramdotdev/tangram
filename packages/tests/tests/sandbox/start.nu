@@ -25,11 +25,11 @@ let path = artifact {
 let write = tg build $'($path)#write' | str trim
 let read = tg build $'($path)#read' | str trim
 
-let sandbox = tg sandbox create --no-tokens | referent node
+let sandbox = tg sandbox create --wait --no-tokens | referent node
 success (tg run $'--sandbox=($sandbox)' $write | complete) "the write should succeed"
 
-tg sandbox stop $sandbox
-tg sandbox start $sandbox
+tg sandbox stop --wait $sandbox
+tg sandbox start --wait $sandbox
 assert equal (tg sandbox get $sandbox | from json | get data.status) started "the sandbox should be started"
 
 # A process spawned as soon as the start returns reads the file written before the stop.

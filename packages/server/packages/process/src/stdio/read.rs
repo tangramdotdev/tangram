@@ -23,6 +23,9 @@ mod relay;
 
 type Acks = tokio::sync::watch::Receiver<u64>;
 
+/// A future that waits for a starting process to leave the starting status, and resolves to whether it started.
+pub(crate) type Start = future::Shared<future::BoxFuture<'static, tg::Result<bool>>>;
+
 enum Source {
 	Log(BTreeSet<tg::process::stdio::Stream>),
 	Null,
@@ -37,6 +40,7 @@ struct ReadProcessStdioRelayAttemptArg<'a> {
 	open: Option<String>,
 	position: &'a mut u64,
 	sender: &'a tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>,
+	start: Option<Start>,
 	stdio_arg: tg::process::stdio::read::Arg,
 }
 
@@ -317,7 +321,14 @@ impl Component {
 			))
 			.boxed(),
 			Source::Pipe(streams) => {
-				self.try_read_process_stdio_pipe_local(session, id, &arg, streams, acks, open)
+				let start = output
+					.data
+					.status
+					.is_starting()
+					.then(|| self.create_wait_process_start_future(session, id));
+				self.try_read_process_stdio_pipe_local(
+					session, id, &arg, streams, acks, open, start,
+				)
 			},
 		};
 
@@ -580,6 +591,7 @@ impl Component {
 		Ok(())
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	fn try_read_process_stdio_pipe_local(
 		&self,
 		session: &Session,
@@ -588,6 +600,7 @@ impl Component {
 		streams: BTreeSet<tg::process::stdio::Stream>,
 		acks: &Acks,
 		open: Option<String>,
+		start: Option<Start>,
 	) -> BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>> {
 		let arg = tg::process::stdio::read::Arg {
 			streams: streams.into_iter().collect(),
@@ -601,7 +614,7 @@ impl Component {
 			let acks = acks.clone();
 			move |_| async move {
 				let result = component
-					.read_process_stdio_relay(&session, &id, arg, &sender, acks, open)
+					.read_process_stdio_relay(&session, &id, arg, &sender, acks, open, start)
 					.boxed()
 					.await;
 				if let Err(error) = result {
@@ -612,6 +625,7 @@ impl Component {
 		ReceiverStream::new(receiver).attach(task).boxed()
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	async fn read_process_stdio_relay(
 		&self,
 		session: &Session,
@@ -620,6 +634,7 @@ impl Component {
 		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>,
 		acks: Acks,
 		mut open: Option<String>,
+		process_start: Option<Start>,
 	) -> tg::Result<()> {
 		for stream in &arg.streams {
 			tangram_server_core::checkpoint!(session.server, "process.stdio.read.request", process = %id, stream = %stream).await;
@@ -662,6 +677,7 @@ impl Component {
 				open: open.take(),
 				position: &mut position,
 				sender,
+				start: process_start.clone(),
 				stdio_arg: arg,
 			};
 			let result = self
@@ -700,6 +716,7 @@ impl Component {
 			open,
 			position,
 			sender,
+			mut start,
 			stdio_arg,
 		} = arg;
 		// Open the relay before the read, so the runner's first bytes are not missed. A claimed open names the relay that the runner opened when the process started.
@@ -709,13 +726,17 @@ impl Component {
 		let send_subject = super::relay::ack_subject(id, &request_id);
 		let receive_subject = super::relay::data_subject(id, &request_id);
 		let options = session.server.config.process.stdio_relay;
-		let result = tangram_messenger::relay::open::<super::relay::Ack, super::relay::Data, _>(
-			&session.server.messenger,
-			send_subject,
-			receive_subject,
-			options,
-		)
-		.await;
+		let streams = stdio_arg.streams.clone();
+		let hold = start.clone().map(|start| start.map(|_| ()).boxed());
+		let result =
+			tangram_messenger::relay::open_with_hold::<super::relay::Ack, super::relay::Data, _>(
+				&session.server.messenger,
+				send_subject,
+				receive_subject,
+				options,
+				hold,
+			)
+			.await;
 		let (relay_sender, receiver) = super::relay::attempt!(result);
 		let mut items = receiver;
 
@@ -734,7 +755,9 @@ impl Component {
 				arg: tg::process::control::ServerRequestArg::Open(open),
 				id: request_id.clone(),
 			};
-			self.send_process_control_open(session, id, request).await?
+			let hold = start.clone().map(|start| start.map(|_| ()).boxed());
+			self.send_process_control_open(session, id, request, hold)
+				.await?
 		};
 
 		// Forward the relayed chunks until the relay ends.
@@ -753,6 +776,22 @@ impl Component {
 					result?;
 					opened = true;
 					continue;
+				},
+				result = async { start.as_mut().unwrap().await }, if start.is_some() => {
+					start = None;
+					if result? {
+						continue;
+					}
+
+					// End the read of a process that finished without starting, because no runner will write to it.
+					let end = tg::process::stdio::End {
+						combined_position: *position,
+						stream_positions: streams.iter().map(|stream| (*stream, *position)).collect(),
+					};
+					let output = tg::process::stdio::read::Output::End(end);
+					let message = tg::process::stdio::read::ServerMessage::Response(output);
+					sender.send(Ok(message)).await.ok();
+					return Ok(ControlFlow::Break(()));
 				},
 				() = sender.closed() => return Ok(ControlFlow::Break(())),
 			};
@@ -860,6 +899,7 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		request: tg::process::control::ServerRequest,
+		hold: Option<futures::future::BoxFuture<'static, ()>>,
 	) -> tg::Result<futures::future::BoxFuture<'static, tg::Result<()>>> {
 		let request_id = request.id.clone();
 		let request =
@@ -881,6 +921,7 @@ impl Component {
 				))
 			},
 			client_subject: format!("processes.{id}.control.client.{request_id}"),
+			hold,
 			is_ack: |message: &crate::control::ClientMessage| {
 				matches!(message.0, tg::process::control::ClientMessage::Ack(_))
 			},

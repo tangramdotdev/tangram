@@ -4,6 +4,7 @@ use ../../util/test.nu *
 let local = server spawn --config {
 	advanced: { checkpoints: true, multi_server: true },
 	indexer: { request: { timeout: 0.05 } },
+	roles: [api indexer],
 }
 let receive_watch = tg checkpoint watch indexer.request.receive | from json | get watch
 let wait_watch = tg checkpoint watch indexer.request.wait | from json | get watch

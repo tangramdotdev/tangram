@@ -10,7 +10,7 @@ if $nu.os-info.name != 'linux' {
 let directory = project_quota_directory
 let local = server spawn --directory $directory
 
-let id = tg sandbox create --no-tokens --cpu 1 --memory 268435456 | referent node
+let id = tg sandbox create --wait --no-tokens --cpu 1 --memory 268435456 | referent node
 
 let sandbox = tg sandbox get $id | from json | get data
 assert equal $sandbox.cpu { max: 1 } "the cpu option should be reflected"

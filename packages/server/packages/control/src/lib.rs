@@ -99,6 +99,10 @@ pub struct StreamOptions {
 pub struct SendControlRequestArg<I, O, Response, AckFn, IsAckFn, ResponseFn> {
 	pub ack: AckFn,
 	pub client_subject: String,
+
+	/// While this future is pending, no peer is expected, so the retries are not spent.
+	pub hold: Option<futures::future::BoxFuture<'static, ()>>,
+
 	pub is_ack: IsAckFn,
 	pub marker: PhantomData<fn() -> (I, Response)>,
 	pub options: Options,

@@ -31,6 +31,9 @@ pub enum Status {
 
 	#[tangram_serialize(id = 1)]
 	Finished,
+
+	#[tangram_serialize(id = 2)]
+	Starting,
 }
 
 #[serde_as]

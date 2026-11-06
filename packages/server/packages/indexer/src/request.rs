@@ -198,6 +198,7 @@ impl Component {
 		let arg = tangram_server_core::control::SendControlRequestArg {
 			ack: |id| ServerMessage::Ack(Ack { id }),
 			client_subject: Indexer::client_subject(id),
+			hold: None,
 			is_ack: |message: &ClientMessage| matches!(message, ClientMessage::Ack(_)),
 			marker: std::marker::PhantomData,
 			options,

@@ -11,7 +11,7 @@ let local = server spawn --directory $directory --config {
 }
 let sandbox = tg sandbox create --no-tokens --no-ttl --cpu 2 --memory 268435456 | referent node
 sleep 2sec
-tg sandbox destroy $sandbox
+tg sandbox destroy --wait $sandbox
 tg sandbox wait $sandbox | ignore
 let data = tg sandbox get $sandbox | from json | get data
 assert ($data.usage.cpu.consumption < 1000) 'an idle sandbox must not accrue allocated CPU-time'

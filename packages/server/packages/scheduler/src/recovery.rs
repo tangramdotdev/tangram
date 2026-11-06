@@ -250,9 +250,7 @@ impl SchedulerState {
 				.is_some_and(|data| data.status.is_destroying());
 			match (destroying, claim) {
 				(true, Some(claim)) => {
-					let error = data
-						.and_then(|data| data.error)
-						.and_then(tg::Either::left);
+					let error = data.and_then(|data| data.error).and_then(tg::Either::left);
 					let error = error.unwrap_or_default();
 					self.send_destroy_sandbox(
 						scheduler,

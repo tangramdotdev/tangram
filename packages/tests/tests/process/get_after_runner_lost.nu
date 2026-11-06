@@ -47,7 +47,7 @@ let path = artifact {
 	'
 }
 
-let id = tg --url $local.url build --no-tokens --remote --detach $path | referent node
+let id = tg --url $local.url build --wait --no-tokens --remote --detach $path | referent node
 let started = tg --url $remote.url --token $root_token get --no-tokens $id | from json
 assert ($started.status == 'started') "the process must be started"
 

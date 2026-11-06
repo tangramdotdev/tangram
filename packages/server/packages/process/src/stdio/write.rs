@@ -315,11 +315,16 @@ impl Component {
 			&& control_sender.is_none()
 			&& wait.clone().now_or_never().is_none()
 		{
+			let start = data
+				.status
+				.is_starting()
+				.then(|| self.create_wait_process_start_future(session, id));
 			let arg = relay::WriteProcessStdioRelayTaskArg {
 				id,
 				input,
 				open,
 				sender,
+				start,
 				streams,
 				wait,
 			};
