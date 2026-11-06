@@ -1,22 +1,24 @@
 use {
 	crate::Component,
 	futures::{StreamExt as _, stream::FuturesUnordered},
-	std::{
-		collections::{HashMap, VecDeque},
-		sync::Mutex,
-	},
+	std::{collections::VecDeque, sync::Mutex},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_server_core::{Session, Shutdown, temp::Temp},
 };
 
 pub struct Pool {
-	pub inner: Mutex<HashMap<Key, VecDeque<Task<tg::Result<CreateSandboxOutput>>>>>,
+	pub inner: Mutex<Option<Queue>>,
 	pub size: usize,
 }
 
+pub struct Queue {
+	key: Key,
+	tasks: VecDeque<Task<tg::Result<CreateSandboxOutput>>>,
+}
+
 /// The settings fixed when a sandbox is warmed; `None` is configurable and `Some(None)` requires an absent request value.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(
 	clippy::option_option,
 	reason = "the outer option marks configurable settings and the inner option preserves absent request values"
@@ -87,7 +89,7 @@ impl Pool {
 	#[must_use]
 	pub fn new(size: usize) -> Self {
 		Self {
-			inner: Mutex::new(HashMap::new()),
+			inner: Mutex::new(None),
 			size,
 		}
 	}
@@ -97,9 +99,9 @@ impl Pool {
 			.inner
 			.lock()
 			.unwrap()
-			.drain()
-			.flat_map(|(_, tasks)| tasks)
-			.collect::<Vec<_>>();
+			.take()
+			.map(|queue| queue.tasks)
+			.unwrap_or_default();
 		match shutdown {
 			Shutdown::Interrupt => {},
 			Shutdown::Terminate => {
@@ -135,8 +137,8 @@ impl Pool {
 	}
 
 	pub(crate) fn start(&self, component: &Component, session: &Session) {
-		let mut tasks = self.inner.lock().unwrap();
-		assert!(tasks.is_empty(), "the sandbox pool was already started");
+		let mut queue = self.inner.lock().unwrap();
+		assert!(queue.is_none(), "the sandbox pool was already started");
 		let Ok(backend) = component.resolve_sandbox_backend(&session.server) else {
 			return;
 		};
@@ -146,10 +148,8 @@ impl Pool {
 			&backend,
 			session.server.config.runner.backend.storage_limits(),
 		);
-		let queue = tasks
-			.entry(key)
-			.or_insert_with(|| VecDeque::with_capacity(self.size));
-		queue.extend((0..self.size).map(|_| spawn(component, session)));
+		let tasks = (0..self.size).map(|_| spawn(component, session)).collect();
+		*queue = Some(Queue { key, tasks });
 		if self.size > 0 {
 			tracing::debug!(size = self.size, "started the sandbox pool");
 		}
@@ -167,10 +167,10 @@ impl Pool {
 			&backend,
 			session.server.config.runner.backend.storage_limits(),
 		);
-		let mut tasks = self.inner.lock().unwrap();
-		let queue = tasks.get_mut(&key)?;
-		let task = queue.pop_front()?;
-		queue.push_back(spawn(component, session));
+		let mut queue = self.inner.lock().unwrap();
+		let queue = queue.as_mut().filter(|queue| queue.key == key)?;
+		let task = queue.tasks.pop_front()?;
+		queue.tasks.push_back(spawn(component, session));
 
 		Some(task)
 	}
@@ -258,17 +258,10 @@ mod tests {
 		request.mounts.push(mount);
 		request.network = Some(tg::sandbox::Network::Default);
 		request.storage = Some(134_217_728.into());
-		let mut queues = HashMap::new();
-		queues.insert(Key::new(&warm, &backend, true), VecDeque::from([1]));
-		assert_eq!(
-			queues
-				.get_mut(&Key::new(&request, &backend, true))
-				.unwrap()
-				.pop_front(),
-			Some(1)
-		);
+		let key = Key::new(&warm, &backend, true);
+		assert_eq!(key, Key::new(&request, &backend, true));
 		request.network = Some(tg::sandbox::Network::Host);
-		assert!(!queues.contains_key(&Key::new(&request, &backend, true)));
+		assert_ne!(key, Key::new(&request, &backend, true));
 	}
 
 	#[test]

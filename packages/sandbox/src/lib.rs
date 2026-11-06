@@ -588,13 +588,19 @@ impl Sandbox {
 				.await
 				.map_err(|error| tg::error!(!error, "the namespace receive task panicked"))?
 			};
-			Some(
-				tokio::time::timeout_at(deadline, receive)
-					.await
-					.map_err(|error| {
-						tg::error!(!error, "timed out receiving the sandbox namespaces")
-					})??,
-			)
+			let result = tokio::time::timeout_at(deadline, receive)
+				.await
+				.map_err(|error| tg::error!(!error, "timed out receiving the sandbox namespaces"))
+				.and_then(|result| result);
+			match result {
+				Ok(namespaces) => Some(namespaces),
+				Err(error) => {
+					// Kill the sandbox process and wait for it, so that its resources are released after it exits.
+					drop(kill_sender);
+					exit.clone().wait_for(Option::is_some).await.ok();
+					return Err(error);
+				},
+			}
 		} else {
 			None
 		};

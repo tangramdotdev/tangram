@@ -623,7 +623,7 @@ fn prepare_user_namespace(
 	Ok(output)
 }
 
-fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
+pub(crate) fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
 	// SAFETY: The pre_exec closure only calls async-signal-safe operations.
 	unsafe {
 		command.pre_exec(move || {
@@ -764,26 +764,36 @@ fn prepare_etc_files(
 			std::fs::copy("/etc/resolv.conf", path)
 				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
 		},
-		Some(crate::network::Network::Pasta(_)) => {
-			let contents = format!("nameserver {}\n", crate::network::pasta::DNS_FORWARD_IP);
-			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
-			std::fs::write(path, contents)
-				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+		Some(network) => {
+			if let Some(contents) = resolv_conf(network) {
+				let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
+				std::fs::write(path, contents)
+					.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+			}
 		},
-		Some(crate::network::Network::Veth(network)) => {
+		None => (),
+	}
+
+	Ok(user)
+}
+
+/// Render the resolver configuration of a network that provides its own DNS servers.
+pub(crate) fn resolv_conf(network: &crate::network::Network) -> Option<String> {
+	match network {
+		crate::network::Network::Pasta(_) => Some(format!(
+			"nameserver {}\n",
+			crate::network::pasta::DNS_FORWARD_IP
+		)),
+		crate::network::Network::Veth(network) => {
 			let mut contents = String::new();
 			for server in network.dns() {
 				use std::fmt::Write as _;
 				writeln!(&mut contents, "nameserver {server}").unwrap();
 			}
-			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
-			std::fs::write(path, contents)
-				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+			Some(contents)
 		},
-		_ => (),
+		_ => None,
 	}
-
-	Ok(user)
 }
 
 fn render_passwd(user: &User) -> String {

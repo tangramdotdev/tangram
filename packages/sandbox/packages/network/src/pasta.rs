@@ -4,7 +4,7 @@ use {
 		net::Ipv4Addr,
 		os::{
 			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
-			unix::ffi::OsStrExt as _,
+			unix::{ffi::OsStrExt as _, process::CommandExt as _},
 		},
 		path::{Path, PathBuf},
 		process::{Child, Command},
@@ -131,6 +131,24 @@ impl Network {
 			format!("/proc/{pid}/fd/{}", user.as_raw_fd()),
 			"--no-netns-quit".to_owned(),
 		];
+		let parent = std::process::id();
+		let pre_exec = move |command: &mut Command| {
+			pre_exec(command);
+
+			// Stop pasta when the runner dies, because `--no-netns-quit` keeps it from following the namespace.
+			// SAFETY: The closure only calls the async-signal-safe functions prctl and getppid.
+			unsafe {
+				command.pre_exec(move || {
+					if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM, 0, 0, 0) != 0 {
+						return Err(std::io::Error::last_os_error());
+					}
+					if libc::getppid().cast_unsigned() != parent {
+						return Err(std::io::Error::from_raw_os_error(libc::ESRCH));
+					}
+					Ok(())
+				});
+			}
+		};
 		self.start(&target, pre_exec).await?;
 		drop((network, user));
 		Ok(())

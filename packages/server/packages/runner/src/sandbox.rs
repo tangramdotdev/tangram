@@ -855,16 +855,7 @@ impl Component {
 	) -> tg::Result<CreateSandboxOutput> {
 		// Validate the sandbox's network and mounts before claiming a warm sandbox.
 		if session.server.config.runner.backend.harden() {
-			if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
-				return Err(tg::error!(
-					"host networking is not allowed for hardened container isolation"
-				));
-			}
-			if arg.mounts.iter().any(|mount| !mount.readonly) {
-				return Err(tg::error!(
-					"writable mounts are not allowed for hardened container isolation"
-				));
-			}
+			validate_hardened_sandbox(&arg)?;
 		}
 		if let Some(task) = self.sandbox_pool.take(&arg, self, session) {
 			match task.wait().await {
@@ -872,16 +863,20 @@ impl Component {
 					#[cfg(target_os = "linux")]
 					{
 						let mut configure = arg.clone();
-						if !session.server.config.runner.backend.storage_limits() {
-							configure.storage = None;
-						} else if configure.storage.is_none() {
+						if session.server.config.runner.backend.storage_limits() {
 							let resources = session
 								.server
 								.config
 								.runner
 								.backend
 								.resources(&session.server.config.runner.resources);
-							configure.storage = resources.max_filesystem_size.map(Into::into);
+							let storage = tg::sandbox::Resource {
+								max: resources.max_filesystem_size,
+								min: 0,
+							};
+							configure.storage.get_or_insert(storage);
+						} else {
+							configure.storage = None;
 						}
 						tangram_server_core::checkpoint!(
 							session.server,
@@ -895,9 +890,9 @@ impl Component {
 							)
 							.await;
 							tracing::warn!(error = %error.trace(), "failed to configure a pooled sandbox; falling back to cold creation");
-							self::pool::destroy(output).await.map_err(|error| {
-								tg::error!(!error, "failed to destroy a rejected pooled sandbox")
-							})?;
+							if let Err(error) = self::pool::destroy(output).await {
+								tracing::warn!(error = %error.trace(), "failed to destroy a rejected pooled sandbox");
+							}
 							let path = Self::sandbox_path(session, id);
 							let directory = Directory::New { path };
 							return self
@@ -990,16 +985,7 @@ impl Component {
 				| tangram_sandbox::Backend::Gvisor { .. }
 		) && session.server.config.runner.backend.harden()
 		{
-			if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
-				return Err(tg::error!(
-					"host networking is not allowed for hardened container isolation"
-				));
-			}
-			if arg.mounts.iter().any(|mount| !mount.readonly) {
-				return Err(tg::error!(
-					"writable mounts are not allowed for hardened container isolation"
-				));
-			}
+			validate_hardened_sandbox(&arg)?;
 		}
 
 		#[cfg(target_os = "linux")]
@@ -1010,14 +996,14 @@ impl Component {
 		let rootfs_path = self.sandbox_assets.root.clone();
 
 		// Enforce the sandbox storage maximum only when storage limits are enabled, because enforcement requires a filesystem with project quotas.
-		if !session.server.config.runner.backend.storage_limits() {
-			arg.storage = None;
-		} else if prepare {
+		if session.server.config.runner.backend.storage_limits() {
 			let storage = tg::sandbox::Resource {
 				max: resources.max_filesystem_size,
 				min: 0,
 			};
 			arg.storage.get_or_insert(storage);
+		} else {
+			arg.storage = None;
 		}
 
 		// Apply the sandbox storage maximum.
@@ -3038,6 +3024,20 @@ impl Teardown {
 }
 
 /// Compute the storage usage of a stopped directory of a size in bytes over a number of seconds, in mebibyte-milliseconds, as consumption without a reservation, because a stopped sandbox holds none.
+fn validate_hardened_sandbox(arg: &tg::sandbox::create::Arg) -> tg::Result<()> {
+	if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
+		return Err(tg::error!(
+			"host networking is not allowed for hardened container isolation"
+		));
+	}
+	if arg.mounts.iter().any(|mount| !mount.readonly) {
+		return Err(tg::error!(
+			"writable mounts are not allowed for hardened container isolation"
+		));
+	}
+	Ok(())
+}
+
 fn stopped_storage_usage(size: u64, seconds: i64) -> tg::sandbox::Usage {
 	let milliseconds = u128::try_from(seconds).unwrap_or_default() * 1000;
 	let consumption = (u128::from(size) * milliseconds).div_ceil(1_048_576);

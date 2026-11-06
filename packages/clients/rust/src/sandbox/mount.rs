@@ -4,7 +4,6 @@ use {crate::prelude::*, std::path::PathBuf};
 	Clone,
 	Debug,
 	Eq,
-	Hash,
 	PartialEq,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,

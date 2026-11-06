@@ -10,7 +10,10 @@ use {
 		process::{ExitCode, Stdio},
 	},
 	tangram_client::prelude::*,
-	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
+	tokio::{
+		io::{AsyncReadExt as _, AsyncWriteExt as _},
+		time::Instant,
+	},
 };
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -50,14 +53,7 @@ pub fn run() -> tg::Result<ExitCode> {
 	if let Some(network) = &arg.network {
 		enter_user(arg.fds[5])?;
 		enter(arg.fds[1], libc::CLONE_NEWNET)?;
-
-		let mut netlink = crate::network::netlink::Netlink::new()?;
-		netlink.link_rename(&network.name, "eth0")?;
-		crate::network::host::disable_ipv6("eth0")?;
-		netlink.addr_add_v4("eth0", network.guest, 16)?;
-		netlink.link_set_up("eth0")?;
-		netlink.link_set_up("lo")?;
-		netlink.route_add_default_v4(network.gateway)?;
+		crate::run::configure_guest_interface(&network.name, network.guest, network.gateway)?;
 	}
 	if arg.hostname.is_some() || !arg.mounts.is_empty() {
 		enter_user(arg.fds[3])?;
@@ -107,13 +103,20 @@ pub fn run() -> tg::Result<ExitCode> {
 	if let Some(hostname) = &arg.hostname {
 		crate::linux::set_hostname(hostname)?;
 	}
-	let mut mounts = arg.mounts.iter().zip(&sources).collect::<Vec<_>>();
-	mounts.sort_by_key(|(mount, _)| mount.target.components().count());
-	for (mount, source) in mounts {
-		crate::mount::bind_descriptor(source, arg.fds[2], &mount.target, mount.readonly)?;
-	}
-	for (source, target, readonly) in restore {
-		crate::mount::bind_descriptor(&source, arg.fds[2], target, readonly)?;
+	let mut mounts = arg
+		.mounts
+		.iter()
+		.zip(&sources)
+		.map(|(mount, source)| (source, &mount.target, mount.readonly))
+		.chain(
+			restore
+				.iter()
+				.map(|(source, target, readonly)| (source, *target, *readonly)),
+		)
+		.collect::<Vec<_>>();
+	mounts.sort_by_key(|(_, target, _)| target.components().count());
+	for (source, target, readonly) in mounts {
+		crate::mount::bind_descriptor(source, arg.fds[2], target, readonly)?;
 	}
 
 	Ok(ExitCode::SUCCESS)
@@ -142,7 +145,7 @@ pub fn hold(network: i32, user: i32) -> tg::Result<ExitCode> {
 	Ok(ExitCode::SUCCESS)
 }
 
-pub(crate) async fn command(path: &Path, arg: &Arg) -> tg::Result<()> {
+pub(crate) async fn command(path: &Path, arg: &Arg, deadline: Instant) -> tg::Result<()> {
 	let contents = serde_json::to_vec(arg)
 		.map_err(|error| tg::error!(!error, "failed to serialize the sandbox configuration"))?;
 	let mut command = tokio::process::Command::new(path);
@@ -152,33 +155,28 @@ pub(crate) async fn command(path: &Path, arg: &Arg) -> tg::Result<()> {
 		.stdin(Stdio::piped())
 		.stdout(Stdio::null())
 		.stderr(Stdio::piped());
-	let fds = arg.fds;
-	// SAFETY: The descriptors remain owned by the sandbox, and the closure only invokes async-signal-safe fcntl calls.
-	unsafe {
-		command.pre_exec(move || {
-			for fd in fds {
-				if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
-					return Err(std::io::Error::last_os_error());
-				}
-			}
-			Ok(())
-		});
+	for fd in arg.fds {
+		crate::run::inherit_fd(&mut command, fd);
 	}
 	let mut child = command
 		.spawn()
 		.map_err(|error| tg::error!(!error, "failed to start the sandbox configuration helper"))?;
 	let mut stdin = child.stdin.take().unwrap();
-	stdin
-		.write_all(&contents)
-		.await
-		.map_err(|error| tg::error!(!error, "failed to write the sandbox configuration"))?;
-	drop(stdin);
-	let output = child.wait_with_output().await.map_err(|error| {
-		tg::error!(
-			!error,
-			"failed to wait for the sandbox configuration helper"
-		)
-	})?;
+	let output = tokio::time::timeout_at(deadline, async move {
+		stdin
+			.write_all(&contents)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to write the sandbox configuration"))?;
+		drop(stdin);
+		child.wait_with_output().await.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to wait for the sandbox configuration helper"
+			)
+		})
+	})
+	.await
+	.map_err(|error| tg::error!(!error, "timed out configuring the warm sandbox"))??;
 	if !output.status.success() {
 		let stderr = String::from_utf8_lossy(&output.stderr);
 		return Err(
@@ -192,6 +190,7 @@ pub(crate) async fn hold_command(
 	path: &Path,
 	network: &OwnedFd,
 	user: &OwnedFd,
+	deadline: Instant,
 ) -> tg::Result<tokio::process::Child> {
 	let mut command = tokio::process::Command::new(path);
 	command
@@ -208,24 +207,17 @@ pub(crate) async fn hold_command(
 		.stdin(Stdio::piped())
 		.stdout(Stdio::piped())
 		.stderr(Stdio::piped());
-	let fds = [network.as_raw_fd(), user.as_raw_fd()];
-	// SAFETY: The namespace descriptors remain owned until the helper is ready, and the closure only calls fcntl.
-	unsafe {
-		command.pre_exec(move || {
-			for fd in fds {
-				if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
-					return Err(std::io::Error::last_os_error());
-				}
-			}
-			Ok(())
-		});
-	}
+	crate::run::inherit_fd(&mut command, network.as_raw_fd());
+	crate::run::inherit_fd(&mut command, user.as_raw_fd());
 	let mut child = command
 		.spawn()
 		.map_err(|error| tg::error!(!error, "failed to start the namespace holder"))?;
 	let mut stdout = child.stdout.take().unwrap();
 	let mut byte = [0];
-	if let Err(error) = stdout.read_exact(&mut byte).await {
+	let result = tokio::time::timeout_at(deadline, stdout.read_exact(&mut byte))
+		.await
+		.map_err(|error| tg::error!(!error, "timed out preparing the namespace holder"))?;
+	if let Err(error) = result {
 		drop(child.stdin.take());
 		let output = child
 			.wait_with_output()
@@ -280,4 +272,33 @@ fn map_identity(pid: u32, name: &str, id: u32) -> tg::Result<u32> {
 		}
 	}
 	Err(tg::error!("the runtime identity is absent from its map"))
+}
+
+#[cfg(test)]
+mod tests {
+	use {super::*, std::os::unix::fs::PermissionsExt as _};
+
+	#[tokio::test]
+	async fn command_stops_a_hung_helper_at_the_deadline() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let path = temp.path().join("helper");
+		std::fs::write(&path, "#!/bin/sh\nexec sleep 60\n").unwrap();
+		std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+		let arg = Arg {
+			fds: [0; 6],
+			gid: 0,
+			hostname: None,
+			mounts: Vec::new(),
+			network: None,
+			pid: None,
+			restore: Vec::new(),
+			uid: 0,
+		};
+		let start = Instant::now();
+		let deadline = start + std::time::Duration::from_millis(100);
+		let error = command(&path, &arg, deadline).await.unwrap_err();
+		assert!(start.elapsed() < std::time::Duration::from_secs(10));
+		assert!(error.to_string().contains("timed out"));
+	}
 }

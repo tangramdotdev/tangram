@@ -1,7 +1,6 @@
 use {
 	crate::{Sandbox, configure},
 	std::{
-		fmt::Write as _,
 		io::{Read as _, Write as _},
 		os::{
 			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
@@ -104,6 +103,9 @@ impl Sandbox {
 			storage.set_resource(arg.storage.unwrap_or_default())?;
 		}
 
+		// Bound the helpers like a cold start, so that a hung mount source leads to rejection.
+		let deadline = tokio::time::Instant::now() + arg.connect_timeout;
+
 		// Configure the isolated network and retain its resources before running a helper.
 		let mut network_arg = None;
 		if let Some(network) = &arg.network {
@@ -134,17 +136,6 @@ impl Sandbox {
 						guest: network.guest_ip(),
 						name: pair.guest_name.clone(),
 					});
-					let mut contents = String::new();
-					for dns in network.dns() {
-						writeln!(contents, "nameserver {dns}").unwrap();
-					}
-					std::fs::write(
-						Sandbox::host_resolv_conf_path_from_root(&arg.path),
-						contents,
-					)
-					.map_err(|error| {
-						tg::error!(!error, "failed to configure the sandbox resolver")
-					})?;
 				},
 				crate::network::Network::Pasta(network) => {
 					let cgroup = state
@@ -167,7 +158,8 @@ impl Sandbox {
 						tg::error!(!error, "failed to clone the user namespace")
 					})?;
 					let mut holder =
-						configure::hold_command(&arg.tangram_path, &namespace, &user).await?;
+						configure::hold_command(&arg.tangram_path, &namespace, &user, deadline)
+							.await?;
 					let pid = holder.id().ok_or_else(|| {
 						tg::error!("the namespace holder exited before configuration")
 					})?;
@@ -186,19 +178,17 @@ impl Sandbox {
 					if !status.success() {
 						return Err(tg::error!(%status, "the namespace holder failed"));
 					}
-					let contents =
-						format!("nameserver {}\n", crate::network::pasta::DNS_FORWARD_IP);
-					std::fs::write(
-						Sandbox::host_resolv_conf_path_from_root(&arg.path),
-						contents,
-					)
-					.map_err(|error| {
-						tg::error!(!error, "failed to configure the sandbox resolver")
-					})?;
 				},
 				crate::network::Network::Host
 				| crate::network::Network::Passt(_)
 				| crate::network::Network::Tap(_) => unreachable!(),
+			}
+			if let Some(contents) = crate::run::resolv_conf(&network) {
+				std::fs::write(
+					Sandbox::host_resolv_conf_path_from_root(&arg.path),
+					contents,
+				)
+				.map_err(|error| tg::error!(!error, "failed to configure the sandbox resolver"))?;
 			}
 			*state.network.get_mut().unwrap() = Some(network);
 		}
@@ -229,9 +219,13 @@ impl Sandbox {
 					.mounts
 					.iter()
 					.filter(|(target, _)| {
-						mounts.iter().any(|mount| {
-							target != &mount.target && target.starts_with(&mount.target)
-						})
+						// Leave out the mounts that only a warm sandbox has, so that custom mounts match a cold start.
+						let warm = *target == crate::configuration_socket_path()
+							|| (arg.network.is_none() && target == Path::new("/etc/resolv.conf"));
+						!warm
+							&& mounts.iter().any(|mount| {
+								target != &mount.target && target.starts_with(&mount.target)
+							})
 					})
 					.cloned()
 					.collect(),
@@ -257,11 +251,11 @@ impl Sandbox {
 						restore: Vec::new(),
 						uid: namespaces.uid,
 					};
-					configure::command(&arg.tangram_path, &network).await?;
+					configure::command(&arg.tangram_path, &network, deadline).await?;
 				}
 			}
 			if input.hostname.is_some() || !input.mounts.is_empty() || input.network.is_some() {
-				configure::command(&arg.tangram_path, &input).await?;
+				configure::command(&arg.tangram_path, &input, deadline).await?;
 			}
 		}
 		drop(state.namespaces.get_mut().unwrap().take());
