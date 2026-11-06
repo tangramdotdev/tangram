@@ -41,6 +41,7 @@ impl Component {
 			location: Some(location),
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(id.clone()),
+			process: None,
 			processes: Some(arg.processes),
 			registration: None,
 			runner,

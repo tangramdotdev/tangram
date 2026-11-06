@@ -95,3 +95,15 @@ impl Item {
 		}
 	}
 }
+
+impl Item {
+	/// Get the process that this item puts, either directly or carried by a sandbox.
+	#[must_use]
+	pub fn process(&self) -> Option<&crate::process::put::Arg> {
+		match self {
+			Self::PutProcess(arg) => Some(arg),
+			Self::PutSandbox(arg) => arg.process.as_deref(),
+			_ => None,
+		}
+	}
+}

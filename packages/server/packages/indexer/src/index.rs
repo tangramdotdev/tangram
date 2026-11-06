@@ -39,13 +39,11 @@ impl Component {
 						&& arg.subject.is_process()
 			)
 		});
-		let finished_process = arg.items.iter().any(|item| {
-			matches!(
-				item,
-				index::Item::PutProcess(arg)
-					if arg.output.is_some()
-			)
-		});
+		let finished_process = arg
+			.items
+			.iter()
+			.filter_map(index::Item::process)
+			.any(|arg| arg.output.is_some());
 		let destroyed_sandbox = arg.items.iter().any(|item| {
 			matches!(item, index::Item::PutSandbox(arg)
 				if arg.data.as_ref().is_some_and(|data| data.data.status.is_destroyed()))
@@ -53,11 +51,17 @@ impl Component {
 		let child_process = arg
 			.items
 			.iter()
-			.any(|item| matches!(item, index::Item::PutProcess(arg) if arg.parent.is_some()));
-		let started_process = arg.items.iter().any(|item| {
-			matches!(item, index::Item::PutProcess(arg)
-				if arg.data.as_ref().is_some_and(|data| data.status.is_started()))
-		});
+			.filter_map(index::Item::process)
+			.any(|arg| arg.parent.is_some());
+		let started_process = arg
+			.items
+			.iter()
+			.filter_map(index::Item::process)
+			.any(|arg| {
+				arg.data
+					.as_ref()
+					.is_some_and(|data| data.status.is_started())
+			});
 		self.index_tasks
 			.spawn({
 				let component = self.clone();
@@ -108,13 +112,8 @@ impl Component {
 			.items
 			.iter()
 			.filter_map(|item| {
-				let arg = match item {
-					index::Item::PutProcess(arg) => match &arg.sandbox {
-						Some(index::process::put::Sandbox::Put(arg)) => arg,
-						_ => return None,
-					},
-					index::Item::PutSandbox(arg) => arg,
-					_ => return None,
+				let index::Item::PutSandbox(arg) = item else {
+					return None;
 				};
 				arg.data.is_some().then(|| arg.id.clone())
 			})
@@ -122,10 +121,9 @@ impl Component {
 		let processes = arg
 			.items
 			.iter()
-			.filter_map(|item| match item {
-				index::Item::PutProcess(arg) if arg.data.is_some() => Some(arg.id.clone()),
-				_ => None,
-			})
+			.filter_map(index::Item::process)
+			.filter(|arg| arg.data.is_some())
+			.map(|arg| arg.id.clone())
 			.collect::<Vec<_>>();
 		let result = server.index.write(arg).await?;
 		for id in sandboxes {

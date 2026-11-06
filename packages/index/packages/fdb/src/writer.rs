@@ -1438,9 +1438,14 @@ impl Index {
 				Response::Mutation(result)
 			},
 			Request::PutSandboxes(args) => {
-				let result =
-					Self::put_sandboxes_with_transaction(txn, subspace, args, partition_totals)
-						.await;
+				let result = Self::put_sandboxes_with_transaction(
+					txn,
+					subspace,
+					args,
+					partition_totals,
+					config.process_data_fragment_size,
+				)
+				.await;
 				let result = crate::propagate!(result);
 				Response::Mutation(result)
 			},

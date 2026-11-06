@@ -1035,6 +1035,7 @@ impl Component {
 				location: None,
 				permissions,
 				principal: session.context.principal.clone(),
+				process: None,
 				processes: Some(message.processes),
 				registration: None,
 				runner: None,

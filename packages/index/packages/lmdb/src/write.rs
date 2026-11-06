@@ -235,6 +235,7 @@ impl Index {
 						subspace,
 						transaction,
 						std::slice::from_ref(arg),
+						process_data_fragment_size,
 						usage_partition_total,
 					)?;
 					if let Err(error) = result {

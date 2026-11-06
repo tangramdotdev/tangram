@@ -613,6 +613,7 @@ impl Component {
 					location: None,
 					permissions: Vec::new(),
 					principal: tg::Principal::Sandbox(id.clone()),
+					process: None,
 					processes: Some(processes),
 					registration: registration.cloned(),
 					runner: indexed.runner,
