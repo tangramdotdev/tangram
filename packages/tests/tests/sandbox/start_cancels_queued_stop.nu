@@ -17,7 +17,10 @@ success (tg sandbox start $queued | complete) "the start should return on accept
 
 # Releasing the capacity lets the sandbox start, and it stays started.
 tg sandbox destroy --wait $running
-success (tg sandbox start --wait $queued | complete) "the sandbox should start"
-sleep 1sec
+loop {
+	if (tg sandbox get $queued | from json | get data.status) == started { break }
+	sleep 100ms
+}
+sleep 2sec
 assert equal (tg sandbox get $queued | from json | get data.status) started
 tg sandbox destroy $queued
