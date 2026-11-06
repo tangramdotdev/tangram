@@ -139,15 +139,16 @@ enum Operation {
 		sandbox: tg::sandbox::Id,
 	},
 	PlacedSandboxes {
+		generation: u64,
+		keys: Vec<tg::sandbox::Id>,
 		lost: Vec<EnqueueSandboxRequestArg>,
-		result: tg::Result<Vec<tg::sandbox::Id>>,
 	},
 	Publish {
 		context: &'static str,
 		result: tg::Result<()>,
 	},
 	Recovered {
-		result: tg::Result<recovery::Statuses>,
+		statuses: recovery::Statuses,
 	},
 	RecoveryExpired,
 	RemoveRunner {
@@ -1005,8 +1006,12 @@ impl Scheduler {
 			Operation::PersistSandbox { result, sandbox } => {
 				state.handle_persist_sandbox_completion(self, &sandbox, result);
 			},
-			Operation::PlacedSandboxes { lost, result } => {
-				state.handle_placed_sandboxes(self, lost, result);
+			Operation::PlacedSandboxes {
+				generation,
+				keys,
+				lost,
+			} => {
+				state.handle_placed_sandboxes(self, generation, keys, lost);
 			},
 			Operation::FinishSandboxStop { result, sandbox } => {
 				state.sandboxes.finish_stop(&sandbox);
@@ -1019,8 +1024,8 @@ impl Scheduler {
 					tracing::error!(error = %error.trace(), "{context}");
 				}
 			},
-			Operation::Recovered { result } => {
-				state.handle_recovered(self, result);
+			Operation::Recovered { statuses } => {
+				state.handle_recovered(self, statuses);
 			},
 			Operation::RecoveryExpired => {
 				state.handle_recovery_expired(self);
