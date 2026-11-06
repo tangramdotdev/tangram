@@ -1142,7 +1142,12 @@ impl SchedulerState {
 
 	/// Forget the placed sandboxes that have connected, whose keys are gone.
 	pub(super) fn prune_placed_sandboxes(&mut self, scheduler: &Scheduler) {
-		if !self.sandboxes.placed.is_empty() {
+		let uncertain = self
+			.sandboxes
+			.entries
+			.values()
+			.any(|entry| matches!(entry.state, SandboxState::Uncertain { .. }));
+		if !self.sandboxes.placed.is_empty() || uncertain {
 			self.read_scheduler_sandboxes(scheduler, Vec::new());
 		}
 	}
@@ -1192,6 +1197,23 @@ impl SchedulerState {
 		self.sandboxes
 			.placed
 			.retain(|id, placed| placed.generation > generation || keys.contains(id));
+
+		// Forget the uncertain sandboxes whose keys are gone, because they connected, so that their creates succeeded.
+		let connected = self
+			.sandboxes
+			.entries
+			.iter()
+			.filter_map(|(id, entry)| match &entry.state {
+				SandboxState::Uncertain { placement } if !keys.contains(id) => {
+					Some((id.clone(), placement.clone()))
+				},
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+		for (id, placement) in connected {
+			self.remove_reservation(&id, &placement, true);
+			self.sandboxes.entries.remove(&id);
+		}
 		for request in lost {
 			if !keys.contains(&request.sandbox) {
 				continue;
@@ -1778,8 +1800,16 @@ impl SchedulerState {
 		if runner.registration_index != runner_ref.registration_index {
 			return;
 		}
-		runner.requests = runner.requests.saturating_sub(1);
-		let Some(reservation) = runner.reservations.remove(id) else {
+
+		// An uncertain reservation stopped counting as a request when it became uncertain.
+		let reservation = runner.reservations.remove(id);
+		let uncertain = reservation
+			.as_ref()
+			.is_some_and(|reservation| matches!(reservation.state, ReservationState::Uncertain));
+		if !uncertain {
+			runner.requests = runner.requests.saturating_sub(1);
+		}
+		let Some(reservation) = reservation else {
 			return;
 		};
 		subtract(&mut runner.reserved, reservation.capacity);
