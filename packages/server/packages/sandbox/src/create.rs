@@ -123,7 +123,6 @@ impl Component {
 			boot: 0,
 			created_at: session.server.clock.unix_timestamp(),
 			creator,
-			declinable: false,
 			owner,
 			parent: None,
 			process: None,

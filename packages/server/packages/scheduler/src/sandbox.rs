@@ -312,7 +312,7 @@ impl SchedulerState {
 		let ids = id.into_iter().collect::<Vec<_>>();
 		if self.sandboxes.entries.contains_key(&request.sandbox) {
 			let sandbox = request.sandbox;
-			self.finish_enqueue(scheduler, ids, &sandbox, Ok(true));
+			self.finish_enqueue(scheduler, ids, &sandbox, Ok(()));
 			return;
 		}
 		if let Some(pending) = self.pending_enqueues.get_mut(&request.sandbox) {
@@ -416,9 +416,9 @@ impl SchedulerState {
 		scheduler: &Scheduler,
 		ids: Vec<String>,
 		sandbox: &tg::sandbox::Id,
-		result: tg::Result<bool>,
+		result: tg::Result<()>,
 	) {
-		if matches!(result, Ok(true))
+		if result.is_ok()
 			&& let Some(entry) = self.sandboxes.entries.get(sandbox)
 			&& !entry.persisted
 		{
@@ -448,11 +448,10 @@ impl SchedulerState {
 		&mut self,
 		scheduler: &Scheduler,
 		ids: Vec<String>,
-		result: tg::Result<bool>,
+		result: tg::Result<()>,
 	) {
-		let result = result.map(|enqueued| {
-			ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput { enqueued })
-		});
+		let result =
+			result.map(|()| ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput {}));
 		for id in ids {
 			let response = scheduler.response(id, result.clone());
 			scheduler.send_response(self, response);
@@ -479,7 +478,7 @@ impl SchedulerState {
 				sandbox.abandoned = true;
 			}
 		}
-		self.send_enqueue_responses(scheduler, ids, result.map(|()| true));
+		self.send_enqueue_responses(scheduler, ids, result);
 	}
 
 	fn enqueue_sandbox(
@@ -488,9 +487,9 @@ impl SchedulerState {
 		mut request: EnqueueSandboxRequestArg,
 		owner_ancestors: OwnerAncestors,
 		recovered: bool,
-	) -> tg::Result<bool> {
+	) -> tg::Result<()> {
 		if self.sandboxes.entries.contains_key(&request.sandbox) {
-			return Ok(true);
+			return Ok(());
 		}
 		// Resolve the sandbox's resources, so that the runner creates the sandbox with the bounds that the scheduler admits.
 		tangram_server_sandbox_common::resolve_sandbox_resources(
@@ -528,14 +527,12 @@ impl SchedulerState {
 			unplaceable_since: None,
 		};
 
-		// Decline a request that this scheduler's runners could never fit if another scheduler may take it, and otherwise reject it if the configuration does not wait for a runner.
-		if !recovered && !self.placeable(&sandbox) {
-			if sandbox.request.declinable {
-				return Ok(false);
-			}
-			if scheduler.config.unplaceable_timeout == Some(std::time::Duration::ZERO) {
-				return Err(tg::error!(sandbox = %id, "no runners available"));
-			}
+		// Reject a request that no runner could ever fit if the configuration does not wait for one.
+		if !recovered
+			&& scheduler.config.unplaceable_timeout == Some(std::time::Duration::ZERO)
+			&& !self.placeable(&sandbox)
+		{
+			return Err(tg::error!(sandbox = %id, "no runners available"));
 		}
 		self.sandboxes.entries.insert(id.clone(), sandbox);
 		self.queue.insert(id.clone());
@@ -551,7 +548,7 @@ impl SchedulerState {
 				.insert(id);
 		}
 
-		Ok(true)
+		Ok(())
 	}
 
 	/// Ask a runner to destroy a sandbox that it holds.

@@ -30,9 +30,6 @@ mod recovery;
 mod runner;
 mod sandbox;
 
-/// The number of schedulers that an enqueue tries before the last one accepts a sandbox that its runners cannot fit.
-const ENQUEUE_ATTEMPTS: usize = 32;
-
 /// The ID of the only scheduler of a single server, which multi-server mode replaces with a configured ID.
 const SINGLE_SERVER_ID: &str = "sch_0000000000000000000000000000";
 
@@ -313,39 +310,25 @@ impl Component {
 		} else {
 			None
 		};
-		// Try other schedulers while a scheduler's runners cannot fit the sandbox, and let the last scheduler accept it.
-		let mut request = request;
-		for attempt in 1.. {
-			request.declinable = target.is_none() && attempt < ENQUEUE_ATTEMPTS;
-			let arg = RequestArg::EnqueueSandbox(request.clone());
-			let (scheduler, response) = match &target {
-				Some(scheduler) => {
-					let response = self
-						.send_scheduler_request_to(session, scheduler, arg)
-						.boxed()
-						.await?;
-					(scheduler.clone(), response)
-				},
-				None => self.send_scheduler_request(session, arg).boxed().await?,
-			};
-			let output = response?
-				.try_unwrap_enqueue_sandbox()
-				.map_err(|_| tg::error!("expected an enqueue sandbox response"))?;
-			if output.enqueued {
-				tracing::info!(%sandbox, %scheduler, "enqueued the sandbox");
-				tangram_server_core::checkpoint!(session.server, "scheduler.sandbox.enqueued", sandbox = %sandbox)
-					.await;
-				return Ok(scheduler);
-			}
-			tangram_server_core::checkpoint!(
-				session.server,
-				"scheduler.sandbox.declined",
-				sandbox = %sandbox,
-				scheduler = %scheduler,
-			)
+		let arg = RequestArg::EnqueueSandbox(request);
+		let (scheduler, response) = match target {
+			Some(scheduler) => {
+				let response = self
+					.send_scheduler_request_to(session, &scheduler, arg)
+					.boxed()
+					.await?;
+				(scheduler, response)
+			},
+			None => self.send_scheduler_request(session, arg).boxed().await?,
+		};
+		response?
+			.try_unwrap_enqueue_sandbox()
+			.map_err(|_| tg::error!("expected an enqueue sandbox response"))?;
+		tracing::info!(%sandbox, %scheduler, "enqueued the sandbox");
+		tangram_server_core::checkpoint!(session.server, "scheduler.sandbox.enqueued", sandbox = %sandbox)
 			.await;
-		}
-		unreachable!()
+
+		Ok(scheduler)
 	}
 
 	pub(crate) async fn send_scheduler_request(
