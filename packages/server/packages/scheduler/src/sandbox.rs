@@ -652,6 +652,11 @@ impl SchedulerState {
 					held.ids.push(id);
 				},
 				SandboxState::Pending => {
+					// A first boot has nothing to stop until it starts, so the caller waits for it.
+					if stop && entry.request.boot == 0 {
+						self.send_end_sandbox_response(scheduler, id, false);
+						return;
+					}
 					self.remove_queued_sandbox(&sandbox);
 					let request = self.sandboxes.entries.remove(&sandbox).unwrap().request;
 					self.queue.wake();
