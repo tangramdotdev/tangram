@@ -24,6 +24,7 @@ class DataArgObject(TypedDict, total=False):
     owner: str | None
     time_to_live: int | float | None
     time_to_stop: int | float | None
+    wait: bool
 
 
 class WireOutput(TypedDict):

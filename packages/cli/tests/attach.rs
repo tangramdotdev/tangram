@@ -789,6 +789,7 @@ fn spawn_arg(
 		stdin: tg::process::Stdio::Null,
 		stdout: tg::process::Stdio::Null,
 		tty: None,
+		wait: false,
 	}
 }
 

@@ -88,6 +88,10 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]
 	pub tty: Option<tg::Either<bool, tg::process::Tty>>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 15, skip_serializing_if = "is_false")]
+	pub wait: bool,
 }
 
 #[derive(
@@ -353,6 +357,7 @@ where
 		stdin: process_stdin,
 		stdout,
 		tty,
+		wait: arg.wait,
 	};
 
 	Ok(spawn_arg)
@@ -1393,6 +1398,7 @@ fn normalize_sandbox(
 				storage: None,
 				time_to_live: Some(Duration::ZERO),
 				time_to_stop: None,
+				wait: false,
 			};
 			Ok(Some(tg::Either::Left(sandbox)))
 		},
@@ -1414,6 +1420,7 @@ fn normalize_sandbox_create_arg(
 		storage: sandbox.storage,
 		time_to_live: sandbox.time_to_live.unwrap_or(Some(Duration::ZERO)),
 		time_to_stop: sandbox.time_to_stop.flatten(),
+		wait: false,
 	}
 }
 
