@@ -20,13 +20,13 @@ use {
 	tokio::io::{Interest, unix::AsyncFd},
 };
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Host(Arc<State>);
 
-#[derive(Default)]
 pub struct State {
 	fds: FileDescriptors,
 	processes: Processes,
+	runtime: tokio::runtime::Handle,
 	signals: Signals,
 	stoppers: Stoppers,
 	termios: Termios,
@@ -89,6 +89,33 @@ struct Signal {
 }
 
 impl Host {
+	#[must_use]
+	pub fn new(runtime: tokio::runtime::Handle) -> Self {
+		let state = State {
+			fds: FileDescriptors::default(),
+			processes: Processes::default(),
+			runtime,
+			signals: Signals::default(),
+			stoppers: Stoppers::default(),
+			termios: Termios::default(),
+			next_token: AtomicUsize::new(0),
+		};
+		Self(Arc::new(state))
+	}
+
+	/// Run a future on the main runtime, so that the resources it registers keep making progress while JavaScript is busy.
+	async fn run<F, T>(&self, future: F) -> tg::Result<T>
+	where
+		F: Future<Output = tg::Result<T>> + Send + 'static,
+		T: Send + 'static,
+	{
+		self.0
+			.runtime
+			.spawn(future)
+			.await
+			.map_err(|error| tg::error!(!error, "the host task failed"))?
+	}
+
 	pub async fn close(&self, fd: i32) -> tg::Result<()> {
 		let removed = self.0.fds.remove(&fd);
 		if removed.is_none() {
@@ -207,6 +234,12 @@ impl Host {
 	}
 
 	pub async fn listen_signal_open(&self, kind: SignalKind) -> tg::Result<usize> {
+		let host = self.clone();
+		self.run(async move { host.listen_signal_open_inner(kind).await })
+			.await
+	}
+
+	async fn listen_signal_open_inner(&self, kind: SignalKind) -> tg::Result<usize> {
 		let signal_kind = match kind {
 			SignalKind::Sigwinch => tokio::signal::unix::SignalKind::window_change(),
 		};
@@ -223,6 +256,12 @@ impl Host {
 	}
 
 	pub async fn listen_signal_read(&self, token: usize) -> tg::Result<Option<()>> {
+		let host = self.clone();
+		self.run(async move { host.listen_signal_read_inner(token).await })
+			.await
+	}
+
+	async fn listen_signal_read_inner(&self, token: usize) -> tg::Result<Option<()>> {
 		let signal = self
 			.0
 			.signals
@@ -258,6 +297,17 @@ impl Host {
 	}
 
 	pub async fn read(
+		&self,
+		fd: i32,
+		length: Option<usize>,
+		stopper: Option<usize>,
+	) -> tg::Result<Option<Bytes>> {
+		let host = self.clone();
+		self.run(async move { host.read_inner(fd, length, stopper).await })
+			.await
+	}
+
+	async fn read_inner(
 		&self,
 		fd: i32,
 		length: Option<usize>,
@@ -339,6 +389,11 @@ impl Host {
 	}
 
 	pub async fn spawn(&self, arg: SpawnArg) -> tg::Result<SpawnOutput> {
+		let host = self.clone();
+		self.run(async move { host.spawn_inner(arg).await }).await
+	}
+
+	async fn spawn_inner(&self, arg: SpawnArg) -> tg::Result<SpawnOutput> {
 		let executable = resolve_executable(&arg.executable, &arg.env)?;
 		let mut command = tokio::process::Command::new(&executable);
 		command.args(&arg.args);
@@ -462,6 +517,12 @@ impl Host {
 	}
 
 	pub async fn wait(&self, pid: u32, stopper: Option<usize>) -> tg::Result<Outcome> {
+		let host = self.clone();
+		self.run(async move { host.wait_inner(pid, stopper).await })
+			.await
+	}
+
+	async fn wait_inner(&self, pid: u32, stopper: Option<usize>) -> tg::Result<Outcome> {
 		let stopper = self.get_stopper(stopper).await?;
 		let child = self
 			.0
@@ -497,6 +558,12 @@ impl Host {
 	}
 
 	pub async fn write(&self, fd: i32, bytes: Bytes) -> tg::Result<()> {
+		let host = self.clone();
+		self.run(async move { host.write_inner(fd, bytes).await })
+			.await
+	}
+
+	async fn write_inner(&self, fd: i32, bytes: Bytes) -> tg::Result<()> {
 		let fd_ = self.0.fds.get(&fd).map(|fd_| fd_.value().clone());
 		let Some(fd_) = fd_ else {
 			let bytes = bytes.clone();

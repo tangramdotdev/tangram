@@ -7,7 +7,7 @@ pub fn base64_decode(value: String) -> Result<Uint8Array> {
 	let result = (|| {
 		let bytes = data_encoding::BASE64
 			.decode(value.as_bytes())
-			.map_err(|error| tg::error!(!error, "failed to decode base64"))?;
+			.map_err(|error| tg::error!(!error, "failed to decode the bytes"))?;
 		Ok(Uint8Array::from(bytes))
 	})();
 	Result(result)
@@ -21,7 +21,7 @@ pub fn hex_decode(value: String) -> Result<Uint8Array> {
 	let result = (|| {
 		let bytes = data_encoding::HEXLOWER
 			.decode(value.as_bytes())
-			.map_err(|error| tg::error!(!error, "failed to decode hex"))?;
+			.map_err(|error| tg::error!(!error, "failed to decode the string as hex"))?;
 		Ok(Uint8Array::from(bytes))
 	})();
 	Result(result)
@@ -44,7 +44,7 @@ pub fn json_encode(value: Serde<serde_json::Value>) -> Result<String> {
 	let Serde(value) = value;
 	let result = (|| {
 		let string = serde_json::to_string(&value)
-			.map_err(|error| tg::error!(!error, "failed to encode json"))?;
+			.map_err(|error| tg::error!(!error, "failed to encode the value"))?;
 		Ok(string)
 	})();
 	Result(result)
@@ -52,8 +52,8 @@ pub fn json_encode(value: Serde<serde_json::Value>) -> Result<String> {
 
 pub fn toml_decode(value: String) -> Result<Serde<toml::Value>> {
 	let result = (|| {
-		let value: toml::Value =
-			toml::from_str(&value).map_err(|error| tg::error!(!error, "failed to decode toml"))?;
+		let value: toml::Value = toml::from_str(&value)
+			.map_err(|error| tg::error!(!error, "failed to decode the string as toml"))?;
 		Ok(value)
 	})();
 	Result(result.map(Serde))
@@ -62,8 +62,8 @@ pub fn toml_decode(value: String) -> Result<Serde<toml::Value>> {
 pub fn toml_encode(value: Serde<toml::Value>) -> Result<String> {
 	let Serde(value) = value;
 	let result = (|| {
-		let string =
-			toml::to_string(&value).map_err(|error| tg::error!(!error, "failed to encode toml"))?;
+		let string = toml::to_string(&value)
+			.map_err(|error| tg::error!(!error, "failed to encode the value"))?;
 		Ok(string)
 	})();
 	Result(result)
@@ -72,7 +72,7 @@ pub fn toml_encode(value: Serde<toml::Value>) -> Result<String> {
 pub fn utf8_decode(value: Uint8Array) -> Result<String> {
 	let result = (|| {
 		let string = String::from_utf8(value.0.into())
-			.map_err(|error| tg::error!(!error, "failed to decode utf8"))?;
+			.map_err(|error| tg::error!(!error, "failed to decode the bytes as UTF-8"))?;
 		Ok(string)
 	})();
 	Result(result)
@@ -85,7 +85,7 @@ pub fn utf8_encode(value: String) -> Uint8Array {
 pub fn yaml_decode(value: String) -> Result<Serde<serde_yaml::Value>> {
 	let result = (|| {
 		let value: serde_yaml::Value = serde_yaml::from_str(&value)
-			.map_err(|error| tg::error!(!error, "failed to decode yaml"))?;
+			.map_err(|error| tg::error!(!error, "failed to decode the string as yaml"))?;
 		Ok(value)
 	})();
 	Result(result.map(Serde))
@@ -95,7 +95,7 @@ pub fn yaml_encode(value: Serde<serde_yaml::Value>) -> Result<String> {
 	let Serde(value) = value;
 	let result = (|| {
 		let string = serde_yaml::to_string(&value)
-			.map_err(|error| tg::error!(!error, "failed to encode yaml"))?;
+			.map_err(|error| tg::error!(!error, "failed to encode the value"))?;
 		Ok(string)
 	})();
 	Result(result)

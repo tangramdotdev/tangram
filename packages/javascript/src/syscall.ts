@@ -178,6 +178,7 @@ declare global {
 	): Promise<number>;
 
 	function syscall(syscall: "http2_session_close", session: number): Promise<void>;
+	function syscall(syscall: "http2_session_closed", session: number): boolean;
 
 	function syscall(
 		syscall: "http2_session_destroy",

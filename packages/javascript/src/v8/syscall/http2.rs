@@ -13,6 +13,15 @@ pub async fn session_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
 	state.http2.session_close(session).await
 }
 
+pub fn session_closed(
+	state: Rc<State>,
+	_scope: &mut v8::PinScope<'_, '_>,
+	args: (usize,),
+) -> tg::Result<bool> {
+	let (session,) = args;
+	Ok(state.http2.session_closed(session))
+}
+
 pub async fn session_destroy(state: Rc<State>, args: (usize, Option<String>)) -> tg::Result<()> {
 	let (session, error) = args;
 	state.http2.session_destroy(session, error).await
