@@ -258,6 +258,46 @@ async fn a_scheduler_owns_a_sandbox_until_its_runner_connects() {
 }
 
 #[tokio::test]
+async fn a_second_scheduler_takes_over_the_sandbox_key() {
+	let (_directory, index) = new_index();
+	let first = tg::scheduler::Id::new();
+	let second = tg::scheduler::Id::new();
+	let id = tg::sandbox::Id::new();
+	let scheduled = |scheduler: &tg::scheduler::Id| tangram_index::sandbox::put::Scheduled {
+		request: b"request".to_vec(),
+		scheduler: scheduler.clone(),
+	};
+
+	// A second scheduler accepts the same boot, so that it alone holds the key.
+	let arg = sandbox_arg(&id, tg::sandbox::Status::Starting, Some(scheduled(&first)));
+	put_sandbox(&index, arg).await;
+	let arg = sandbox_arg(&id, tg::sandbox::Status::Starting, Some(scheduled(&second)));
+	put_sandbox(&index, arg).await;
+	assert!(
+		index
+			.get_scheduler_sandboxes(&first)
+			.await
+			.unwrap()
+			.is_empty()
+	);
+	assert_eq!(
+		index.get_scheduler_sandboxes(&second).await.unwrap().len(),
+		1
+	);
+
+	// The runner's connection removes the key.
+	let arg = sandbox_arg(&id, tg::sandbox::Status::Started, None);
+	put_sandbox(&index, arg).await;
+	assert!(
+		index
+			.get_scheduler_sandboxes(&second)
+			.await
+			.unwrap()
+			.is_empty()
+	);
+}
+
+#[tokio::test]
 async fn a_scheduler_lists_its_runners() {
 	let (_directory, index) = new_index();
 	let first = tg::scheduler::Id::new();

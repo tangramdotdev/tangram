@@ -150,10 +150,10 @@ impl Index {
 			txn.set(&key, &value);
 
 			// Update the key that associates the sandbox with its scheduler, in the same transaction as the sandbox's status.
-			if sandbox.scheduler.is_none()
-				&& let Some(scheduler) = existing
-					.as_ref()
-					.and_then(|sandbox| sandbox.scheduler.clone())
+			if let Some(scheduler) = existing
+				.as_ref()
+				.and_then(|sandbox| sandbox.scheduler.clone())
+				.filter(|scheduler| sandbox.scheduler.as_ref() != Some(scheduler))
 			{
 				let key = Key::Runner(crate::runner::Key::SchedulerSandbox {
 					sandbox: arg.id.clone(),
