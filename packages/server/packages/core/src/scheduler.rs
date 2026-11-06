@@ -43,6 +43,13 @@ pub trait Component: crate::component::Lifecycle {
 		lease: tg::process::Lease,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
 
+	fn cancel_sandbox_stop<'a>(
+		&'a self,
+		session: &'a Session,
+		scheduler: &'a tg::scheduler::Id,
+		sandbox: &'a tg::sandbox::Id,
+	) -> BoxFuture<'a, tg::Result<bool>>;
+
 	fn end_sandbox<'a>(
 		&'a self,
 		session: &'a Session,

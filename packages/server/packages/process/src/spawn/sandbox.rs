@@ -464,6 +464,7 @@ impl Component {
 			runner: None,
 			sandbox: sandbox.clone(),
 			scheduler: output.scheduler.clone(),
+			stop: false,
 			token: output.sandbox_token.clone(),
 		};
 		let scheduler = session.server.components.scheduler.enqueue_sandbox(session, request).await.map_err(|error| {

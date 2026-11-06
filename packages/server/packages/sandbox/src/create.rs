@@ -129,6 +129,7 @@ impl Component {
 			runner: None,
 			sandbox: id.clone(),
 			scheduler: None,
+			stop: false,
 			token: Some(token),
 		};
 		let data =

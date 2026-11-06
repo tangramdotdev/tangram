@@ -1,14 +1,15 @@
 use {
 	super::{
 		AcquireProcessLeaseRequestArg, AcquireProcessLeaseResponseOutput,
-		BorrowableCapacityNotification, Config, DequeueSandboxRequestArg,
+		BorrowableCapacityNotification, CancelSandboxStopRequestArg,
+		CancelSandboxStopResponseOutput, Config, DequeueSandboxRequestArg,
 		DequeueSandboxResponseOutput, EndSandboxRequestArg, EndSandboxResponseOutput,
 		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatNotification, Operation,
 		OwnerAncestors, PendingEnqueue, ReleaseProcessLeaseRequestArg,
 		ReleaseProcessLeaseResponseOutput, ResponseOutput, Scheduler, SchedulerState,
 		runner::{Reservation, ReservationState, Runner},
 	},
-	futures::FutureExt as _,
+	futures::{FutureExt as _, StreamExt as _, future},
 	std::{
 		collections::{HashMap, HashSet},
 		sync::Arc,
@@ -35,6 +36,9 @@ pub(super) struct Sandboxes {
 
 	/// The sandboxes that a runner holds whose control connections may not be established yet.
 	placed: HashMap<tg::sandbox::Id, Placed, tg::id::BuildHasher>,
+
+	/// The handles of the tasks that stop sandboxes once they start.
+	stops: HashMap<tg::sandbox::Id, future::AbortHandle, tg::id::BuildHasher>,
 }
 
 pub(super) struct Placed {
@@ -240,6 +244,7 @@ impl Sandboxes {
 			entries: HashMap::default(),
 			loading: 0,
 			placed: HashMap::default(),
+			stops: HashMap::default(),
 		}
 	}
 }
@@ -274,6 +279,13 @@ impl Borrowable {
 			heartbeat_index,
 			runner: notification.runner,
 		}
+	}
+}
+
+impl Sandboxes {
+	/// Forget the task that stopped a sandbox.
+	pub(super) fn finish_stop(&mut self, sandbox: &tg::sandbox::Id) {
+		self.stops.remove(sandbox);
 	}
 }
 
@@ -634,14 +646,19 @@ impl SchedulerState {
 			stop,
 		} = arg;
 
+		// Record the stop of a sandbox that has nothing to stop until it starts.
+		if stop && let Some(request) = self.try_get_unstarted_request_mut(&sandbox) {
+			let armed = !request.stop;
+			request.stop = true;
+			let request = request.clone();
+			self.hold_sandbox_stop(scheduler, id, request, armed);
+			return;
+		}
+
 		// Remove a request that is not placed, and hold the end of a placement that is in flight.
 		if let Some(entry) = self.sandboxes.entries.get_mut(&sandbox) {
 			match &entry.state {
 				SandboxState::Creating { .. } => {
-					if stop {
-						self.send_end_sandbox_response(scheduler, id, false);
-						return;
-					}
 					let held = entry.held_end.get_or_insert(HeldEnd {
 						error,
 						ids: Vec::new(),
@@ -651,11 +668,6 @@ impl SchedulerState {
 					held.ids.push(id);
 				},
 				SandboxState::Pending => {
-					// A first boot has nothing to stop until it starts, so the caller waits for it.
-					if stop && entry.request.boot == 0 {
-						self.send_end_sandbox_response(scheduler, id, false);
-						return;
-					}
 					self.remove_queued_sandbox(&sandbox);
 					let request = self.sandboxes.entries.remove(&sandbox).unwrap().request;
 					self.queue.wake();
@@ -667,10 +679,6 @@ impl SchedulerState {
 					self.put_end_status(scheduler, vec![id], request, status, error);
 				},
 				SandboxState::Uncertain { placement } => {
-					if stop {
-						self.send_end_sandbox_response(scheduler, id, false);
-						return;
-					}
 					let placement = placement.clone();
 					self.remove_reservation(&sandbox, &placement, true);
 					let request = self.sandboxes.entries.remove(&sandbox).unwrap().request;
@@ -722,6 +730,124 @@ impl SchedulerState {
 		}
 
 		self.send_end_sandbox_response(scheduler, id, false);
+	}
+
+	/// Get the request of a sandbox that has not started, except for a queued restart, which a stop cancels because the sandbox is already stopped.
+	fn try_get_unstarted_request_mut(
+		&mut self,
+		sandbox: &tg::sandbox::Id,
+	) -> Option<&mut EnqueueSandboxRequestArg> {
+		let queued_restart = self.sandboxes.entries.get(sandbox).is_some_and(|entry| {
+			matches!(entry.state, SandboxState::Pending) && entry.request.boot > 0
+		});
+		if queued_restart {
+			return None;
+		}
+		self.try_get_request_mut(sandbox)
+	}
+
+	/// Get the request of a sandbox that this scheduler holds.
+	fn try_get_request_mut(
+		&mut self,
+		sandbox: &tg::sandbox::Id,
+	) -> Option<&mut EnqueueSandboxRequestArg> {
+		if self.sandboxes.entries.contains_key(sandbox) {
+			return self
+				.sandboxes
+				.entries
+				.get_mut(sandbox)
+				.map(|entry| &mut entry.request);
+		}
+		if self.sandboxes.placed.contains_key(sandbox) {
+			return self
+				.sandboxes
+				.placed
+				.get_mut(sandbox)
+				.map(|placed| &mut placed.request);
+		}
+		self.try_get_recovering_request_mut(sandbox)
+	}
+
+	/// Accept a stop once it is durable, so that a restarted scheduler carries it out.
+	fn hold_sandbox_stop(
+		&mut self,
+		scheduler: &Scheduler,
+		id: String,
+		request: EnqueueSandboxRequestArg,
+		armed: bool,
+	) {
+		if armed {
+			self.stop_sandbox_when_started(scheduler, request.sandbox.clone());
+		}
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let result = scheduler
+					.persist_sandbox(&request)
+					.await
+					.map(|()| ResponseOutput::EndSandbox(EndSandboxResponseOutput { ended: true }));
+				Operation::Respond { id, result }
+			}
+			.boxed(),
+		);
+	}
+
+	/// Stop a sandbox once it starts, because it has no control connection until then.
+	pub(super) fn stop_sandbox_when_started(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: tg::sandbox::Id,
+	) {
+		let scheduler = scheduler.clone();
+		let id = sandbox.clone();
+		let (future, handle) =
+			future::abortable(async move { scheduler.wait_and_stop_sandbox(&id).await });
+		if let Some(previous) = self.sandboxes.stops.insert(sandbox.clone(), handle) {
+			previous.abort();
+		}
+		self.operations.push(
+			async move {
+				let result = future.await.unwrap_or(Ok(()));
+				Operation::FinishSandboxStop { result, sandbox }
+			}
+			.boxed(),
+		);
+	}
+
+	/// Cancel a held stop, because a start of the sandbox came after it.
+	pub(super) fn handle_cancel_sandbox_stop_request(
+		&mut self,
+		scheduler: &Scheduler,
+		id: String,
+		arg: &CancelSandboxStopRequestArg,
+	) {
+		if let Some(handle) = self.sandboxes.stops.remove(&arg.sandbox) {
+			handle.abort();
+		}
+
+		// Respond once the cancellation is durable, so that a restarted scheduler does not carry out the stop.
+		let request = self.try_get_request_mut(&arg.sandbox).map(|request| {
+			let stop = std::mem::take(&mut request.stop);
+			(stop, request.clone())
+		});
+		let held = request.is_some();
+		let Some((true, request)) = request else {
+			let output = CancelSandboxStopResponseOutput { held };
+			let output = ResponseOutput::CancelSandboxStop(output);
+			let response = scheduler.response(id, Ok(output));
+			scheduler.send_response(self, response);
+			return;
+		};
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let result = scheduler.persist_sandbox(&request).await.map(|()| {
+					ResponseOutput::CancelSandboxStop(CancelSandboxStopResponseOutput { held })
+				});
+				Operation::Respond { id, result }
+			}
+			.boxed(),
+		);
 	}
 
 	/// Add a lease to a queued process. The assignment carries the leases, so a process whose request was sent to a runner takes leases over process control once it connects.
@@ -1692,6 +1818,39 @@ impl SchedulerState {
 
 impl Scheduler {
 	/// Write the starting record and the key that associates the sandbox with this scheduler.
+	async fn wait_and_stop_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<()> {
+		let session = self.server.session(&self.server.context);
+		let component = &self.server.components.sandbox;
+		let mut wakeups = component
+			.create_sandbox_status_wakeup_stream(
+				&session,
+				id,
+				session.context.stopper.clone(),
+				None,
+			)
+			.await?;
+		loop {
+			let status = component
+				.try_get_sandbox_from_index(&session, id)
+				.await?
+				.and_then(|sandbox| sandbox.data)
+				.map(|data| data.data.status);
+			match status {
+				Some(tg::sandbox::Status::Started) => break,
+				Some(tg::sandbox::Status::Starting) => {
+					if wakeups.next().await.is_none() {
+						return Ok(());
+					}
+				},
+				_ => return Ok(()),
+			}
+		}
+		let arg = tg::sandbox::stop::Arg::default();
+		component.try_stop_sandbox(&session, id, arg).await?;
+
+		Ok(())
+	}
+
 	pub(super) async fn persist_sandbox(
 		&self,
 		request: &EnqueueSandboxRequestArg,
