@@ -97,6 +97,12 @@ impl SchedulerState {
 		);
 		let completions = self.remove_runner(&request.runner);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
+		self.reconcile_placed_sandboxes(
+			scheduler,
+			&request.runner,
+			registration_index,
+			&request.sandboxes,
+		);
 		let runner = Runner {
 			borrowable: HashSet::default(),
 			capacity: request.capacity,

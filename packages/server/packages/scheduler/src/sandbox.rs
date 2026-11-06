@@ -1051,6 +1051,40 @@ impl SchedulerState {
 		self.read_scheduler_sandboxes(scheduler, lost);
 	}
 
+	/// Compare the sandboxes placed on a runner that registered again with the sandboxes that it reports. Keep a reported sandbox under the new registration, and treat the others as lost.
+	pub(super) fn reconcile_placed_sandboxes(
+		&mut self,
+		scheduler: &Scheduler,
+		runner: &tg::runner::Id,
+		registration_index: u64,
+		reported: &[tg::runner::control::ArgSandbox],
+	) {
+		let ids = self
+			.sandboxes
+			.placed
+			.iter()
+			.filter(|(_, placed)| placed.runner == *runner)
+			.map(|(id, _)| id.clone())
+			.collect::<Vec<_>>();
+		let mut lost = Vec::new();
+		for id in ids {
+			let placed = self.sandboxes.placed.get_mut(&id).unwrap();
+			let boot = placed.request.boot;
+			if reported
+				.iter()
+				.any(|sandbox| sandbox.id == id && sandbox.boot == boot)
+			{
+				placed.registration_index = registration_index;
+			} else {
+				let placed = self.sandboxes.placed.remove(&id).unwrap();
+				lost.push(placed.request);
+			}
+		}
+		if !lost.is_empty() {
+			self.read_scheduler_sandboxes(scheduler, lost);
+		}
+	}
+
 	/// Forget the placed sandboxes that have connected, whose keys are gone.
 	pub(super) fn prune_placed_sandboxes(&mut self, scheduler: &Scheduler) {
 		if !self.sandboxes.placed.is_empty() {
@@ -1105,8 +1139,12 @@ impl SchedulerState {
 				continue;
 			}
 
-			// A boot that must run on the lost runner cannot move, so it fails.
-			if let Some(runner) = request.runner.clone() {
+			// A boot that must run on a runner that is gone cannot move, so it fails.
+			if let Some(runner) = request
+				.runner
+				.clone()
+				.filter(|runner| !self.runners.entries.contains_key(runner))
+			{
 				let sandbox = request.sandbox.clone();
 				let error = tg::error!(%sandbox, %runner, "the sandbox's runner is unavailable");
 				let discarded = DiscardedSandbox {
