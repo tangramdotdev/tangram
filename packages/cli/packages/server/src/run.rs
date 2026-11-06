@@ -60,10 +60,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 
 	// Set the URL.
 	if let Some(url) = &cli.args.url {
-		let listener = tangram_server::config::HttpListener {
-			url: url.clone(),
-			tls: None,
-		};
+		let url = Cli::absolute_url(url)?;
+		let listener = tangram_server::config::HttpListener { url, tls: None };
 		config.http.listeners = vec![listener];
 	}
 

@@ -228,19 +228,26 @@ impl Cli {
 	}
 
 	pub fn directory_path(&self) -> tg::Result<PathBuf> {
-		self.args
-			.directory
-			.clone()
-			.or_else(|| {
-				self.config
-					.as_ref()
-					.and_then(|config| config.directory.clone())
-			})
-			.or_else(|| {
-				let path = std::env::home_dir()?.join(".tangram");
-				Some(path)
-			})
-			.ok_or_else(|| tg::error!("failed to get the home directory, pass --directory"))
+		if let Some(directory) = &self.args.directory {
+			return Ok(directory.clone());
+		}
+		let directory = self
+			.config
+			.as_ref()
+			.and_then(|config| config.directory.as_ref());
+		if let Some(directory) = directory {
+			if !directory.is_absolute() {
+				return Err(tg::error!(
+					path = %directory.display(),
+					"the config directory path must be absolute"
+				));
+			}
+			return Ok(directory.clone());
+		}
+		let home = std::env::home_dir()
+			.ok_or_else(|| tg::error!("failed to get the home directory, pass --directory"))?;
+		let path = home.join(".tangram");
+		Ok(path)
 	}
 
 	/// Initialize miette.
