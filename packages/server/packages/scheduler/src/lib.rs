@@ -119,6 +119,10 @@ enum Operation {
 		id: String,
 		result: tg::Result<bool>,
 	},
+	DestroySandbox {
+		destroy: sandbox::DestroySandbox,
+		result: tg::Result<bool>,
+	},
 	EndSandbox {
 		ids: Vec<String>,
 		result: tg::Result<()>,
@@ -987,6 +991,9 @@ impl Scheduler {
 				});
 				let response = self.response(id, result);
 				self.send_response(state, response);
+			},
+			Operation::DestroySandbox { destroy, result } => {
+				state.handle_destroy_sandbox(self, destroy, result);
 			},
 			Operation::EndSandbox { ids, result } => {
 				for id in ids {

@@ -254,13 +254,14 @@ impl SchedulerState {
 					.and_then(|data| data.error)
 					.and_then(tg::Either::left)
 					.unwrap_or_default();
-				self.send_destroy_sandbox(
-					scheduler,
-					claim.runner,
-					claim.registration_index,
-					id,
+				let destroy = super::sandbox::DestroySandbox {
 					error,
-				);
+					registration_index: claim.registration_index,
+					request: Some(claim.request),
+					runner: claim.runner,
+					sandbox: id,
+				};
+				self.send_destroy_sandbox(scheduler, destroy);
 			} else {
 				if claim.request.stop {
 					self.stop_sandbox_when_started(scheduler, id.clone());
