@@ -28,7 +28,7 @@ async def main():
                 {
                     "executable": {
                         "node": {"artifact": executable.id},
-                        "options": {"tokens": executable.tokens},
+                        "options": {"tokens": executable.tokens.to_data()},
                     },
                     "host": tg.host.current,
                 }

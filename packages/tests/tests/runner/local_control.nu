@@ -54,7 +54,7 @@ let path = artifact {
 					} else {
 						await child.detach();
 						const process = await tg.Process.attach(child.id, {
-							lease: child.lease, location: child.location, tokens: child.tokens,
+							lease: child.lease, location: child.location, tokens: child.tokens.toData(),
 						});
 						tg.assert(tg.Location.Arg.toDataString(process.location) === "remote");
 						if (operation === "cancel") await process.cancel();

@@ -60,7 +60,7 @@ async def main():
         blobs = [tg.Blob(str(index)) for index in range(8)]
         await asyncio.gather(*(blob.store(client) for blob in blobs))
         assert await asyncio.gather(
-            *(client.read(blob.id, tokens=blob.tokens) for blob in blobs)
+            *(client.read(blob.id, tokens=blob.tokens.to_data()) for blob in blobs)
         ) == [str(index).encode() for index in range(8)]
     print("hello from the Python client")
 

@@ -478,7 +478,7 @@ export namespace Directory {
 		id?: tg.Directory.Id;
 		object?: tg.Directory.Object;
 		stored: boolean;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Authorization.Tokens.Data | null;
 	};
 
 	export class Builder {

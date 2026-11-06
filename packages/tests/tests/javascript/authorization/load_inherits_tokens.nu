@@ -31,7 +31,7 @@ let path = artifact {
 						const child = children[0]!;
 						tg.assert(child.state.location !== null, "missing inherited location");
 						tg.assert(tg.Location.toDataString(child.state.location) === "remote");
-						const tokens = child.state.tokens.remote!;
+						const tokens = child.state.tokens.toData().remote!;
 						for (const expected of ["child", "parent", "returned", "first", token]) {
 							tg.assert(tokens.includes(expected));
 						}

@@ -17,8 +17,8 @@ let producer = artifact {
 			const stdin = await tg.blob("input data");
 			await tg.Value.store([executable, stdin]);
 			return {
-				executable: { node: executable.id, options: { tokens: executable.state.tokens } },
-				stdin: { node: stdin.id, options: { tokens: stdin.state.tokens } },
+				executable: { node: executable.id, options: { tokens: executable.state.tokens.toData() } },
+				stdin: { node: stdin.id, options: { tokens: stdin.state.tokens.toData() } },
 			};
 		}
 	'

@@ -58,12 +58,14 @@ export namespace Module {
 			node: value.referent.node,
 			options: {
 				...value.referent.options,
-				tokens: tg.Authorization.Tokens.clone(value.referent.options?.tokens),
+				tokens: tg.Authorization.Tokens.Data.clone(
+					value.referent.options?.tokens,
+				),
 			},
 		};
 		for (let child of children(value)) {
 			let options = tg.Object.toReferent(child).options;
-			tg.Authorization.Tokens.inherit(
+			tg.Authorization.Tokens.Data.inherit(
 				referent.options.tokens,
 				options?.tokens ?? {},
 				child.id,

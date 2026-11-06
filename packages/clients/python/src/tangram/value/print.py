@@ -702,7 +702,9 @@ class Printer:
         return self.style(value, colors["blue"])
 
     def object_id(self, state: ObjectState) -> str:
-        string = Referent.with_node_and_tokens(state.id, state.tokens).to_data_string()
+        string = Referent.with_node_and_tokens(
+            state.id, state.tokens.to_data()
+        ).to_data_string()
         id_, separator, query = string.partition("?")
         if not separator:
             return self.id(string)

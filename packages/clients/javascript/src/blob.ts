@@ -214,7 +214,7 @@ export class Blob {
 	): Promise<Uint8Array> {
 		let id = await this.store(client);
 		let arg: tg.Read.Arg = { blob: id, ...options };
-		arg.tokens = this.state.tokens;
+		arg.tokens = this.state.tokens.toData();
 		return await client.read(arg);
 	}
 
@@ -239,7 +239,7 @@ export namespace Blob {
 		id?: tg.Blob.Id;
 		object?: tg.Blob.Object;
 		stored: boolean;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Authorization.Tokens.Data | null;
 	};
 
 	export class Builder {

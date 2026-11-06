@@ -12,10 +12,12 @@ export class Sandbox {
 		this.#location = arg.location ?? null;
 		this.#owned = arg.owned ?? false;
 		this.#state = arg.state ?? null;
-		this.#tokens = tg.Authorization.Tokens.clone(arg.tokens);
-		tg.Authorization.Tokens.normalize(this.#tokens);
+		this.#tokens = tg.Authorization.Tokens.fromData(arg.tokens);
+		this.#tokens.normalize();
 		if (this.#state !== null) {
-			tg.Authorization.Tokens.inherit(this.#tokens, this.#state.tokens ?? {});
+			this.#tokens.inherit(
+				tg.Authorization.Tokens.fromData(this.#state.tokens),
+			);
 		}
 	}
 
@@ -46,7 +48,7 @@ export class Sandbox {
 
 	/** Load the sandbox's state. */
 	async load(client = tg.client): Promise<void> {
-		let arg: tg.Sandbox.Get.Arg = { tokens: this.#tokens };
+		let arg: tg.Sandbox.Get.Arg = { tokens: this.#tokens.toData() };
 		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
@@ -54,10 +56,10 @@ export class Sandbox {
 		if (
 			output.tokens !== undefined &&
 			output.tokens !== null &&
-			!tg.Authorization.Tokens.isEmpty(output.tokens)
+			!tg.Authorization.Tokens.Data.isEmpty(output.tokens)
 		) {
-			let tokens = tg.Authorization.Tokens.clone(output.tokens);
-			tg.Authorization.Tokens.inherit(tokens, this.#tokens);
+			let tokens = tg.Authorization.Tokens.fromData(output.tokens);
+			tokens.inherit(this.#tokens);
 			this.#tokens = tokens;
 		}
 		this.#location =
@@ -136,7 +138,7 @@ export class Sandbox {
 	}
 
 	get tokens(): tg.Authorization.Tokens {
-		return tg.Authorization.Tokens.clone(this.#tokens);
+		return this.#tokens.clone();
 	}
 
 	run<A extends tg.UnresolvedArgs<Array<tg.Value>>, O extends tg.ReturnValue>(
@@ -252,13 +254,13 @@ export namespace Sandbox {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
 			source?: Source | undefined;
-			tokens?: tg.Authorization.Tokens | undefined;
+			tokens?: tg.Authorization.Tokens.Data | undefined;
 		};
 
 		export type Output = {
 			data: tg.Sandbox.Data;
 			location?: tg.Location | null;
-			tokens?: tg.Authorization.Tokens | null;
+			tokens?: tg.Authorization.Tokens.Data | null;
 		};
 	}
 
@@ -521,7 +523,7 @@ export namespace Sandbox {
 		location?: tg.Location.Arg | null;
 		owned?: boolean;
 		state?: tg.Sandbox.Get.Output | null;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Authorization.Tokens.Data | null;
 	};
 
 	export namespace Create {
@@ -530,7 +532,7 @@ export namespace Sandbox {
 		export type Output = {
 			data: tg.Sandbox.Data;
 			location?: tg.Location | null;
-			tokens?: tg.Authorization.Tokens | null;
+			tokens?: tg.Authorization.Tokens.Data | null;
 		};
 	}
 

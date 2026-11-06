@@ -1,93 +1,213 @@
 """Authorization proof normalization; the server verifies signatures and expiration."""
 
+from __future__ import annotations
+
 from collections.abc import Mapping, Sequence
-from typing import TypedDict
+from dataclasses import dataclass, field
 
 
-class TokenBody(TypedDict):
+@dataclass(frozen=True)
+class Token:
+    Data = str
+
+    body: Body | None
+    secret_id: int | None
+    signature: bytes
+    _data: str = field(repr=False)
+
+    @classmethod
+    def from_data(cls, data: str) -> Token:
+        try:
+            return decode(data)
+        except ValueError:
+            # Retain opaque tokens for the server to validate.
+            return cls(None, None, b"", data)
+
+    def to_data(self) -> str:
+        return self._data
+
+    def covers(self, other: Token) -> bool:
+        a, b = self.body, other.body
+        return self._data == other._data or (
+            a is not None
+            and b is not None
+            and a.resource == b.resource
+            and all(self.authorizes(b.resource, needed) for needed in b.permissions)
+        )
+
+    def authorizes(self, resource: str, permission: str) -> bool:
+        return (
+            self.body is not None
+            and self.body.resource == resource
+            and any(implies(granted, permission) for granted in self.body.permissions)
+        )
+
+    def authorizes_object_subtree(self, resource: str) -> bool:
+        return self.authorizes(resource, "object_subtree")
+
+
+@dataclass(frozen=True)
+class Body:
     expires_at: int
-    permissions: list[str]
+    permissions: tuple[str, ...]
     resource: str
 
 
-_cache: dict[str, TokenBody | None] = {}
+@dataclass
+class Entry:
+    authorization: list[Token] = field(default_factory=list)
+
+    def is_empty(self) -> bool:
+        return not self.authorization
+
+    def inherit(self, parent: Entry) -> None:
+        self.authorization.extend(parent.authorization)
+        self.normalize()
+
+    def normalize(self, resource: str | None = None) -> None:
+        # Keep the latest equivalent proofs per resource.
+        resources: dict[str, list[Token]] = {}
+        authorization = []
+        distinct = {token.to_data(): token for token in self.authorization}
+        for token in sorted(distinct.values(), key=compare):
+            if token.body is None:
+                authorization.append(token)
+                continue
+            token_resource = token.body.resource
+            proofs = resources.get(token_resource, [])
+            if any(existing.covers(token) for existing in proofs):
+                continue
+            proofs = [existing for existing in proofs if not token.covers(existing)]
+            proofs.append(token)
+            resources[token_resource] = proofs
+        for proofs in resources.values():
+            authorization.extend(proofs)
+        # Keep sync proofs so readers can wait for objects still being transferred.
+        if resource is not None and any(
+            token.authorizes_object_subtree(resource) for token in authorization
+        ):
+            authorization = [
+                token
+                for token in authorization
+                if (token.body is not None and token.body.resource.startswith("syn_"))
+                or token.authorizes_object_subtree(resource)
+            ]
+        authorization.sort(key=lambda token: token.to_data())
+        self.authorization = authorization
 
 
-def covers(token: str, other: str) -> bool:
-    """Compare resources and permissions without verifying signatures or expiration."""
-    if token == other:
-        return True
-    a, b = parse(token), parse(other)
-    return (
-        a is not None
-        and b is not None
-        and a["resource"] == b["resource"]
-        and all(authorizes(token, b["resource"], needed) for needed in b["permissions"])
-    )
+class TokensData(dict[str, list[str]]):
+    @staticmethod
+    def clone(
+        tokens: Tokens | Mapping[str, Sequence[str]] | None,
+    ) -> dict[str, list[str]]:
+        if isinstance(tokens, Tokens):
+            return tokens.to_data()
+        return {location: list(entry) for location, entry in (tokens or {}).items()}
+
+    @staticmethod
+    def is_empty(tokens: Tokens | Mapping[str, Sequence[str]]) -> bool:
+        if isinstance(tokens, Tokens):
+            return tokens.is_empty()
+        return all(not entry for entry in tokens.values())
+
+    @staticmethod
+    def local(tokens: dict[str, list[str]]) -> list[str] | None:
+        return tokens.get("local")
+
+    @staticmethod
+    def with_local(entry: list[str] | None) -> dict[str, list[str]]:
+        tokens = {} if not entry else {"local": list(entry)}
+        TokensData.normalize(tokens)
+        return tokens
+
+    @staticmethod
+    def inherit(
+        tokens: dict[str, list[str]],
+        parent: Tokens | Mapping[str, Sequence[str]],
+        resource: str | None = None,
+    ) -> dict[str, list[str]]:
+        parsed = Tokens.from_data(tokens)
+        parsed.inherit(Tokens.from_data(parent), resource)
+        tokens.clear()
+        tokens.update(parsed.to_data())
+        return tokens
+
+    @staticmethod
+    def normalize(
+        tokens: dict[str, list[str]], resource: str | None = None
+    ) -> dict[str, list[str]]:
+        parsed = Tokens.from_data(tokens)
+        parsed.normalize(resource)
+        tokens.clear()
+        tokens.update(parsed.to_data())
+        return tokens
 
 
-def authorizes(
-    token: str,
-    resource: str,
-    permission: str,
-    cache: dict[str, TokenBody | None] | None = None,
-) -> bool:
-    data = parse(token, cache)
-    return (
-        data is not None
-        and data["resource"] == resource
-        and any(implies(granted, permission) for granted in data["permissions"])
-    )
+class Tokens:
+    Data = TokensData
+    Entry = Entry
+
+    def __init__(self):
+        self._map: dict[str, Entry] = {}
+
+    @classmethod
+    def from_data(cls, data: Tokens | Mapping[str, Sequence[str]] | None) -> Tokens:
+        if isinstance(data, Tokens):
+            return data.clone()
+        tokens = cls()
+        for location, entry in (data or {}).items():
+            tokens._map[location] = Entry([Token.from_data(token) for token in entry])
+        return tokens
+
+    def to_data(self) -> dict[str, list[str]]:
+        return {
+            location: [token.to_data() for token in entry.authorization]
+            for location, entry in self._map.items()
+        }
+
+    def clone(self) -> Tokens:
+        tokens = Tokens()
+        for location, entry in self._map.items():
+            tokens._map[location] = Entry(list(entry.authorization))
+        return tokens
+
+    def iter(self):
+        return self._map.items()
+
+    def get(self, location: str) -> Entry | None:
+        return self._map.get(location)
+
+    def is_empty(self) -> bool:
+        return all(entry.is_empty() for entry in self._map.values())
+
+    def set(self, location: str, entry: Entry) -> None:
+        entry.normalize()
+        self._map[location] = entry
+
+    def inherit(self, parent: Tokens, resource: str | None = None) -> None:
+        for location, entry in parent.iter():
+            previous = self.get(location)
+            authorization = [
+                *(previous.authorization if previous is not None else []),
+                *entry.authorization,
+            ]
+            self._map[location] = Entry(authorization)
+        self.normalize(resource)
+
+    def normalize(self, resource: str | None = None) -> None:
+        for location, entry in list(self._map.items()):
+            entry.normalize(resource)
+            if entry.is_empty():
+                del self._map[location]
 
 
-def authorizes_object_subtree(
-    token: str, resource: str, cache: dict[str, TokenBody | None] | None = None
-) -> bool:
-    return authorizes(token, resource, "object_subtree", cache)
+def compare(token: Token) -> tuple[int, str]:
+    return (-(token.body.expires_at if token.body is not None else -1), token.to_data())
 
 
-def resource(
-    token: str, cache: dict[str, TokenBody | None] | None = None
-) -> str | None:
-    data = parse(token, cache)
-    return data["resource"] if data is not None else None
-
-
-def expires_at(token: str) -> int | None:
-    data = parse(token)
-    return data["expires_at"] if data is not None else None
-
-
-def parse(
-    token: str, cache: dict[str, TokenBody | None] | None = None
-) -> TokenBody | None:
-    """Parse a token, caching it in a cache that the object holding it owns."""
-    # Look up the token in the given cache.
-    if cache is not None and token in cache:
-        return cache[token]
-
-    # Look up the token in the bounded cache, or decode it.
-    if token in _cache:
-        output = _cache[token]
-    else:
-        output = None
-        try:
-            output = decode(token)
-        except ValueError:
-            # Opaque tokens are retained for the server to validate.
-            pass
-        if len(_cache) >= 1024:
-            _cache.clear()
-        _cache[token] = output
-
-    # Cache the token in the given cache.
-    if cache is not None:
-        cache[token] = output
-    return output
-
-
-def decode(token: str) -> TokenBody:
-    """Decode the body that precedes the secret ID and the signature."""
+def decode(token: str) -> Token:
+    """Decode the body, secret ID, and signature."""
     data = decode_base32(token)
     position = 0
     if data[position : position + 1] != b"\x00":
@@ -107,10 +227,11 @@ def decode(token: str) -> TokenBody:
             if id >= len(names):
                 raise ValueError("invalid permissions")
             permissions.append(f"{kind}_{names[id]}")
-    _, position = read_uvarint(data, position)
+    secret_id, position = read_uvarint(data, position)
     if position >= len(data):
         raise ValueError("missing the signature")
-    return {"expires_at": expiration, "permissions": permissions, "resource": resource}
+    body = Body(expiration, tuple(permissions), resource)
+    return Token(body, secret_id, data[position:], token)
 
 
 _symbols = "0123456789abcdefghjkmnpqrstvwxyz"
@@ -280,112 +401,7 @@ def implies(granted: str, needed: str) -> bool:
     return False
 
 
-def clone(tokens: Mapping[str, Sequence[str]] | None) -> dict[str, list[str]]:
-    return {location: list(entry) for location, entry in (tokens or {}).items()}
-
-
-def is_empty(tokens: dict[str, list[str]]) -> bool:
-    return all(not entry for entry in tokens.values())
-
-
-def local(tokens: dict[str, list[str]]) -> list[str] | None:
-    return tokens.get("local")
-
-
-def with_local(entry: list[str] | None) -> dict[str, list[str]]:
-    tokens = {} if not entry else {"local": list(entry)}
-    normalize(tokens)
-    return tokens
-
-
-def inherit(
-    tokens: dict[str, list[str]],
-    parent: Mapping[str, Sequence[str]],
-    resource: str | None = None,
-) -> dict[str, list[str]]:
-    for location, entry in parent.items():
-        tokens[location] = [*tokens.get(location, []), *entry]
-    normalize(tokens, resource)
-    return tokens
-
-
-def compare(token: str) -> tuple[int, str]:
-    expiration = expires_at(token)
-    return (-(expiration if expiration is not None else -1), token)
-
-
-def normalize(
-    tokens: dict[str, list[str]], resource: str | None = None
-) -> dict[str, list[str]]:
-    # Compare proofs per location and resource, keeping the latest of equivalent proofs.
-    for location, entry in list(tokens.items()):
-        resources: dict[str, list[str]] = {}
-        authorization = []
-        for token in sorted(set(entry), key=compare):
-            token_resource = Token.resource(token)
-            if token_resource is None:
-                authorization.append(token)
-                continue
-            proofs = resources.get(token_resource, [])
-            if any(covers(existing, token) for existing in proofs):
-                continue
-            proofs = [existing for existing in proofs if not covers(token, existing)]
-            proofs.append(token)
-            resources[token_resource] = proofs
-        for proofs in resources.values():
-            authorization.extend(proofs)
-        # Keep sync proofs so readers can wait for objects still being transferred.
-        if resource is not None and any(
-            authorizes_object_subtree(token, resource) for token in authorization
-        ):
-            authorization = [
-                token
-                for token in authorization
-                if (Token.resource(token) or "").startswith("syn_")
-                or authorizes_object_subtree(token, resource)
-            ]
-        authorization.sort()
-        if not authorization:
-            del tokens[location]
-            continue
-        tokens[location] = authorization
-    return tokens
-
-
-def _inherit(
-    tokens: dict[str, list[str]],
-    parent: Mapping[str, Sequence[str]],
-    resource: str | None = None,
-) -> None:
-    inherit(tokens, parent, resource)
-
-
-def _normalize(tokens: dict[str, list[str]], resource: str | None = None) -> None:
-    normalize(tokens, resource)
-
-
-# Preserve the public namespaces while retaining module functions for internal callers.
-class Token(str):
-    covers = staticmethod(covers)
-    authorizes = staticmethod(authorizes)
-    authorizes_object_subtree = staticmethod(authorizes_object_subtree)
-    resource = staticmethod(resource)
-    expires_at = staticmethod(expires_at)
-
-
-class Tokens(dict[str, list[str]]):
-    clone = staticmethod(clone)
-    is_empty = staticmethod(is_empty)
-    local = staticmethod(local)
-    with_local = staticmethod(with_local)
-    inherit = staticmethod(_inherit)
-    normalize = staticmethod(_normalize)
-
-
 class Authorization:
+    Body = Body
     Token = Token
     Tokens = Tokens
-
-
-# Existing internal callers can use the shorter spelling.
-authorizes_subtree = authorizes_object_subtree

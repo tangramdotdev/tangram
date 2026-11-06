@@ -436,7 +436,9 @@ async def _store_states(states, client):
             raise ValueError("invalid object batch output")
     for states, node in zip(state_groups, nodes):
         for state in states:
-            tokens = authorization.clone(node.options.get("tokens"))
-            state.tokens = authorization.inherit(tokens, state.tokens, state.id)
+            tokens = authorization.Tokens.Data.clone(node.options.get("tokens"))
+            state.tokens = authorization.Tokens.Data.inherit(
+                tokens, state.tokens, state.id
+            )
             state._location = node.options.get("location")
             state._stored = True

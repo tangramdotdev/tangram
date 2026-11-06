@@ -178,18 +178,20 @@ class Sandbox:
             if state is not None
             else ({"data": data} if data is not None else None)
         )
-        self._tokens = authorization.clone(tokens)
-        authorization.normalize(self._tokens)
+        self._tokens = authorization.Tokens.from_data(tokens)
+        self._tokens.normalize()
         if self.state is not None:
-            authorization.inherit(self._tokens, self.state.get("tokens") or {})
+            self._tokens.inherit(
+                authorization.Tokens.from_data(self.state.get("tokens"))
+            )
 
     @property
     def data(self) -> SandboxData | None:
         return self.state["data"] if self.state is not None else None
 
     @property
-    def tokens(self) -> dict[str, list[str]]:
-        return authorization.clone(self._tokens)
+    def tokens(self) -> authorization.Tokens:
+        return self._tokens.clone()
 
     @classmethod
     def create(
@@ -212,15 +214,15 @@ class Sandbox:
 
     async def load(self, client: Client | None = None) -> None:
         client = client or self.client
-        arg: SandboxGetArg = {"tokens": self._tokens}
+        arg: SandboxGetArg = {"tokens": self._tokens.to_data()}
         if self.location is not None:
             arg["location"] = self.location
         output = await client.get_sandbox(self.id, **arg)
-        if output.get("tokens") is not None and not authorization.is_empty(
+        if output.get("tokens") is not None and not authorization.Tokens.Data.is_empty(
             output["tokens"] or {}
         ):
-            tokens = authorization.clone(output["tokens"])
-            authorization.inherit(tokens, self._tokens)
+            tokens = authorization.Tokens.from_data(output["tokens"])
+            tokens.inherit(self._tokens)
             self._tokens = tokens
         self.location = _location_arg(output.get("location"))
         self.state = output

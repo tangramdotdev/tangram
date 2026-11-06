@@ -14,17 +14,17 @@ export namespace Object {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
 			metadata?: boolean;
-			tokens?: tg.Authorization.Tokens | null;
+			tokens?: tg.Authorization.Tokens.Data | null;
 		};
 
 		export type Output = {
 			children?: Partial<Record<tg.Object.Id, Child>>;
 			data: tg.Object.Data;
-			tokens?: tg.Authorization.Tokens | null;
+			tokens?: tg.Authorization.Tokens.Data | null;
 		};
 
 		export type Child = {
-			tokens?: tg.Authorization.Tokens | null;
+			tokens?: tg.Authorization.Tokens.Data | null;
 		};
 	}
 
@@ -117,9 +117,9 @@ export namespace Object {
 			this.#object = arg.object ?? null;
 			this.#stored = arg.stored;
 			this.#storePromise = null;
-			this.#tokens = tg.Authorization.Tokens.clone(arg.tokens);
-			if (!tg.Authorization.Tokens.isEmpty(this.#tokens)) {
-				tg.Authorization.Tokens.normalize(this.#tokens, this.id);
+			this.#tokens = tg.Authorization.Tokens.fromData(arg.tokens);
+			if (!this.#tokens.isEmpty()) {
+				this.#tokens.normalize(this.id);
 			}
 		}
 
@@ -185,8 +185,8 @@ export namespace Object {
 			}
 			this.location = object.options?.location ?? null;
 			this.#stored = true;
-			let tokens = tg.Authorization.Tokens.clone(object.options?.tokens);
-			tg.Authorization.Tokens.inherit(tokens, this.#tokens, this.id);
+			let tokens = tg.Authorization.Tokens.fromData(object.options?.tokens);
+			tokens.inherit(this.#tokens, this.id);
 			this.#tokens = tokens;
 		}
 
@@ -197,21 +197,30 @@ export namespace Object {
 		}
 
 		get tokens(): tg.Authorization.Tokens {
-			return tg.Authorization.Tokens.clone(this.#tokens);
+			return this.#tokens.clone();
 		}
 
-		set tokens(tokens: tg.Authorization.Tokens) {
-			this.#tokens = tg.Authorization.Tokens.clone(tokens);
-			if (!tg.Authorization.Tokens.isEmpty(this.#tokens)) {
-				tg.Authorization.Tokens.normalize(this.#tokens, this.id);
+		set tokens(tokens: tg.Authorization.Tokens | tg.Authorization.Tokens.Data) {
+			this.#tokens = tg.Authorization.Tokens.fromData(tokens);
+			if (!this.#tokens.isEmpty()) {
+				this.#tokens.normalize(this.id);
 			}
 		}
 
-		inheritTokens(tokens: tg.Authorization.Tokens): void {
+		inheritTokens(
+			tokens: tg.Authorization.Tokens | tg.Authorization.Tokens.Data,
+		): void {
 			// Inherit the tokens.
-			let previous = JSON.stringify(this.#tokens);
-			tg.Authorization.Tokens.inherit(this.#tokens, tokens, this.id);
-			if (this.#object === null || JSON.stringify(this.#tokens) === previous) {
+			let previous = JSON.stringify(this.#tokens.toData());
+			tokens =
+				tokens instanceof tg.Authorization.Tokens
+					? tokens
+					: tg.Authorization.Tokens.fromData(tokens);
+			this.#tokens.inherit(tokens, this.id);
+			if (
+				this.#object === null ||
+				JSON.stringify(this.#tokens.toData()) === previous
+			) {
 				return;
 			}
 
@@ -233,7 +242,7 @@ export namespace Object {
 					continue;
 				}
 				visited.add(state);
-				for (let location of globalThis.Object.keys(state.#tokens)) {
+				for (let [location] of state.#tokens.iter()) {
 					locations.add(location);
 				}
 				if (state.#object !== null) {
@@ -246,7 +255,7 @@ export namespace Object {
 			}
 
 			// Collect uncovered authorization proofs and authorization tokens for pending syncs.
-			let tokens: tg.Authorization.Tokens = {};
+			let tokens = new tg.Authorization.Tokens();
 			for (let location of locations) {
 				let visitedCovered = new Set<tg.Object.State>();
 				let visitedUncovered = new Set<tg.Object.State>();
@@ -258,25 +267,19 @@ export namespace Object {
 						continue;
 					}
 					visited.add(state);
-					let entry = state.#tokens[location];
+					let entry = state.#tokens.get(location);
 					if (entry !== undefined) {
-						let collected = (tokens[location] ??= []);
+						let collected = tokens.get(location);
+						if (collected === undefined) {
+							collected = new tg.Authorization.Tokens.Entry();
+							tokens.set(location, collected);
+						}
 						let inherited = covered;
-						// Decode the tokens with the entry that holds them, so that later walks over the same handle reuse the decoded tokens.
-						for (let token of entry) {
-							if (
-								!inherited ||
-								tg.Authorization.Token.resource(token, entry)?.startsWith(
-									"syn_",
-								)
-							) {
-								collected.push(token);
+						for (let token of entry.authorization) {
+							if (!inherited || token.body?.resource.startsWith("syn_")) {
+								collected.authorization.push(token);
 							}
-							covered ||= tg.Authorization.Token.authorizesObjectSubtree(
-								token,
-								state.id,
-								entry,
-							);
+							covered ||= token.authorizesObjectSubtree(state.id);
 						}
 					}
 					for (let child of children.get(state) ?? []) {
@@ -285,7 +288,7 @@ export namespace Object {
 				}
 			}
 
-			tg.Authorization.Tokens.normalize(tokens);
+			tokens.normalize();
 			return tokens;
 		}
 
@@ -318,16 +321,16 @@ export namespace Object {
 					this.#location === null
 						? null
 						: tg.Location.Arg.fromLocation(this.#location),
-				tokens: tg.Authorization.Tokens.clone(this.#tokens),
+				tokens: this.#tokens.toData(),
 			};
 			let output = await client.getObject(this.#id!, arg);
 			if (
 				output.tokens !== undefined &&
 				output.tokens !== null &&
-				!tg.Authorization.Tokens.isEmpty(output.tokens)
+				!tg.Authorization.Tokens.Data.isEmpty(output.tokens)
 			) {
-				let tokens = tg.Authorization.Tokens.clone(output.tokens);
-				tg.Authorization.Tokens.inherit(tokens, this.#tokens, this.id);
+				let tokens = tg.Authorization.Tokens.fromData(output.tokens);
+				tokens.inherit(this.#tokens, this.id);
 				this.#tokens = tokens;
 			}
 			this.#object = tg.Object.Object.fromData(output.data);
@@ -372,7 +375,7 @@ export namespace Object {
 			location?: tg.Location | null;
 			object?: tg.Object.Object | null;
 			stored: boolean;
-			tokens?: tg.Authorization.Tokens | null;
+			tokens?: tg.Authorization.Tokens.Data | null;
 		};
 	}
 
@@ -557,7 +560,7 @@ export namespace Object {
 	): tg.Referent<T["id"]> => {
 		let options = {
 			location: object.state.location,
-			tokens: object.state.collectTokens(),
+			tokens: object.state.collectTokens().toData(),
 		};
 		return { node: object.id, options };
 	};
@@ -609,7 +612,7 @@ export namespace Object {
 
 	export let inheritTokens = (
 		object: tg.Object,
-		tokens: tg.Authorization.Tokens,
+		tokens: tg.Authorization.Tokens | tg.Authorization.Tokens.Data,
 	): void => {
 		object.state.inheritTokens(tokens);
 	};

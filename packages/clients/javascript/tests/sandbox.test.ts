@@ -12,7 +12,9 @@ test("sandbox reads send authorization tokens and the requested source", async (
 	};
 	try {
 		let client = new Client();
-		let tokens: tg.Authorization.Tokens = { local: ["sandbox-read-token"] };
+		let tokens: tg.Authorization.Tokens.Data = {
+			local: ["sandbox-read-token"],
+		};
 		let requests = 0;
 		client.sendWithRetry = async (request) => {
 			requests++;

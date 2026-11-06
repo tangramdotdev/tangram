@@ -399,7 +399,7 @@ export namespace Command {
 		id?: tg.Command.Id;
 		object?: tg.Command.Object;
 		stored: boolean;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Authorization.Tokens.Data | null;
 	};
 
 	export class Value {

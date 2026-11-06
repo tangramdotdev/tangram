@@ -44,7 +44,7 @@ let path = artifact {
 			await command.store();
 			graph.state.tokens = {};
 			module.referent.options ??= {};
-			module.referent.options.tokens = command.state.tokens;
+			module.referent.options.tokens = command.state.tokens.toData();
 			return {
 				dependencyGraph: dependencyGraph.id,
 				graph: graph.id,

@@ -115,7 +115,7 @@ export namespace Spawn {
 		location?: tg.Location | null;
 		outcome?: tg.Process.Outcome.Data | null;
 		process: number | tg.Process.Id;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Authorization.Tokens.Data | null;
 	};
 
 	export namespace Output {

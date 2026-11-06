@@ -45,7 +45,7 @@ let path = artifact {
 				let attached = await tg.Process.attach(spawned.id, {
 					lease: spawned.lease,
 					location,
-					tokens: spawned.tokens,
+					tokens: spawned.tokens.toData(),
 				});
 				tg.assert(
 					JSON.stringify(attached.location) === JSON.stringify(spawned.location),
@@ -55,7 +55,7 @@ let path = artifact {
 			let attached = await tg.Process.attach(spawned.id, {
 				lease: spawned.lease,
 				location: spawned.location,
-				tokens: spawned.tokens,
+				tokens: spawned.tokens.toData(),
 			});
 			let [, text, outcome] = await Promise.all([
 				attached.stdin.writeAll(tg.encoding.utf8.encode("attached\n")),

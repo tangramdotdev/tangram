@@ -42,7 +42,7 @@ let path = artifact {
 			let attached = await tg.Process.attach(spawned.id, {
 				lease: spawned.lease,
 				location: spawned.location,
-				tokens: spawned.tokens,
+				tokens: spawned.tokens.toData(),
 			});
 			tg.assert((await attached.stdout.text()) === "attached\n");
 			tg.assert((await attached.wait()).exit === 0);

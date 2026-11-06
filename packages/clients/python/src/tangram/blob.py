@@ -202,7 +202,7 @@ class Blob(Object):
             position=options.get("position"),
             length=options.get("length"),
             size=options.get("size"),
-            tokens=self.tokens,
+            tokens=self.tokens.to_data(),
         )
 
     @tg.property

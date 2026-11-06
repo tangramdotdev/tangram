@@ -48,8 +48,8 @@ let path = artifact {
 			const proof = (resource, expires_at, permission) => token(resource, expires_at, [permission]);
 			const inputs = [id, other].flatMap((resource) => [120, 179, 180, 181].flatMap((expiration) => ["object_node", "object_subtree"].map((permission) => ({ local: [proof(resource, expiration, permission)] }))));
 			const merge = (a, b, resource) => {
-				const output = tg.Authorization.Tokens.clone(a);
-				tg.Authorization.Tokens.inherit(output, b, resource);
+				const output = tg.Authorization.Tokens.Data.clone(a);
+				tg.Authorization.Tokens.Data.inherit(output, b, resource);
 				return output;
 			};
 			const equal = (a, b) => tg.assert(JSON.stringify(a.local.toSorted()) === JSON.stringify(b.local.toSorted()));
@@ -67,19 +67,19 @@ let path = artifact {
 			const processId = "pcs_010000000000000000000000000000000000000000000000000000";
 			for (const [resource, granted, needed, unrelated] of [[id, "object_subtree", "object_node", "process_node"], [processId, "process_subtree", "process_node", "process_node_output_objects"]]) {
 				const token = proof(resource, 120, granted);
-				tg.assert(tg.Authorization.Token.authorizes(token, resource, granted));
-				tg.assert(tg.Authorization.Token.authorizes(token, resource, needed));
-				tg.assert(!tg.Authorization.Token.authorizes(token, other, needed));
-				tg.assert(!tg.Authorization.Token.authorizes(token, resource, unrelated));
-				tg.assert(tg.Authorization.Token.authorizesObjectSubtree(token, resource) === (resource === id));
+				tg.assert(tg.Authorization.Token.fromData(token).authorizes(resource, granted));
+				tg.assert(tg.Authorization.Token.fromData(token).authorizes(resource, needed));
+				tg.assert(!tg.Authorization.Token.fromData(token).authorizes(other, needed));
+				tg.assert(!tg.Authorization.Token.fromData(token).authorizes(resource, unrelated));
+				tg.assert(tg.Authorization.Token.fromData(token).authorizesObjectSubtree(resource) === (resource === id));
 			}
 			const chain = [proof(processId, 120, "process_parent"), proof(processId, 179, "process_subtree"), proof(processId, 238, "process_node")];
 			for (const order of [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]) {
 				const tokens = { local: order.map((index) => chain[index]) };
-				tg.Authorization.Tokens.normalize(tokens);
+				tg.Authorization.Tokens.Data.normalize(tokens);
 				tg.assert(JSON.stringify(tokens.local) === JSON.stringify([chain[0]]));
 				const sequential = {};
-				for (const index of order) tg.Authorization.Tokens.inherit(sequential, { local: [chain[index]] });
+				for (const index of order) tg.Authorization.Tokens.Data.inherit(sequential, { local: [chain[index]] });
 				equal(sequential, tokens);
 			}
 			const earlier = { local: [proof(id, 120, "object_subtree")] };

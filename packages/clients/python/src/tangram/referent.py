@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import ClassVar, NotRequired, Self, TypedDict, cast, overload
 from urllib.parse import quote, unquote
 
-from .authorization import Tokens
+from . import authorization
 from .location import Location, LocationObject
 
 _NAMES = ("artifact", "id", "location", "name", "path", "tag", "tokens")
@@ -56,13 +56,20 @@ class Referent[T]:
 
     @classmethod
     def with_node_and_local_tokens[U](cls, node: U, tokens: list[str]) -> Referent[U]:
-        return cls.with_node_and_tokens(node, Tokens.with_local(tokens))
+        return cls.with_node_and_tokens(
+            node, authorization.Tokens.Data.with_local(tokens)
+        )
 
     @classmethod
     def with_node_and_tokens[U](
         cls, node: U, tokens: dict[str, list[str]]
     ) -> Referent[U]:
-        return Referent(node, {"tokens": tokens} if not Tokens.is_empty(tokens) else {})
+        return Referent(
+            node,
+            {"tokens": tokens}
+            if not authorization.Tokens.Data.is_empty(tokens)
+            else {},
+        )
 
     @overload
     def to_data(self) -> ReferentData[T]: ...

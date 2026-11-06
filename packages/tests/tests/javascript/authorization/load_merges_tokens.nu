@@ -63,9 +63,9 @@ let path = artifact {
 				inherited.remote[0] = "mutated";
 
 				return {
-					object: object.state.tokens,
-					process: process.tokens,
-					sandbox: sandbox.tokens,
+					object: object.state.tokens.toData(),
+					process: process.tokens.toData(),
+					sandbox: sandbox.tokens.toData(),
 				};
 			} finally {
 				tg.client.getObject = getObject;

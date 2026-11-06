@@ -18,7 +18,7 @@ let path = artifact {
 
 		export default async function (sync: string) {
 			const file = await tg.build(producer);
-			const tokens = file.state.tokens;
+			const tokens = file.state.tokens.toData();
 			tokens.local = [...(tokens.local ?? []), sync];
 			file.state.tokens = tokens;
 			const bare = tg.File.withId(file.id);

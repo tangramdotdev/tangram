@@ -16,7 +16,7 @@ async def main():
             {
                 "executable": {
                     "node": {"artifact": executable.id},
-                    "options": {"tokens": executable.tokens},
+                    "options": {"tokens": executable.tokens.to_data()},
                 },
                 "host": tg.host.current,
             }
@@ -38,7 +38,7 @@ async def main():
             spawned.id,
             client=client,
             location=spawned.location,
-            tokens=spawned.tokens,
+            tokens=spawned.tokens.to_data(),
         )
         async with process:
             id, lease = process.id, process.lease

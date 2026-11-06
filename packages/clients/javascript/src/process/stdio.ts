@@ -80,7 +80,7 @@ export namespace Stdio {
 			size?: number | null;
 			streams: Array<tg.Process.Stdio.Stream>;
 			timeout?: number | null;
-			tokens?: tg.Authorization.Tokens | null;
+			tokens?: tg.Authorization.Tokens.Data | null;
 		};
 
 		export type Event =
@@ -150,7 +150,7 @@ export namespace Stdio {
 			export type Arg = {
 				location?: tg.Location.Arg | null;
 				streams: Array<tg.Process.Stdio.Stream>;
-				tokens?: tg.Authorization.Tokens | null;
+				tokens?: tg.Authorization.Tokens.Data | null;
 			};
 		}
 	}
@@ -232,7 +232,7 @@ export namespace Stdio {
 						? { location: this.#process.location }
 						: {}),
 					streams: [this.#stream],
-					tokens: this.#process.tokens,
+					tokens: this.#process.tokens.toData(),
 				});
 				if (input === null) {
 					throw new Error(`${this.#stream} is not available`);
@@ -406,7 +406,7 @@ export namespace Stdio {
 				{
 					...(location !== null ? { location } : {}),
 					streams: [this.#stream],
-					tokens: process.tokens,
+					tokens: process.tokens.toData(),
 				},
 				chunks,
 				(chunk) => input.complete(chunk),

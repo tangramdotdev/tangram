@@ -198,7 +198,7 @@ class Finder(importlib.abc.MetaPathFinder):
     def inherit_tokens(self, module: Module, tokens: dict[str, list[str]]) -> None:
         if tokens:
             options = module.data["referent"].setdefault("options", {})
-            self.tg.Authorization.Tokens.inherit(
+            self.tg.Authorization.Tokens.Data.inherit(
                 options.setdefault("tokens", {}), tokens
             )
 

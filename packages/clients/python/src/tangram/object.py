@@ -51,14 +51,12 @@ class Object:
         self._id = id
         self._value = value
         self._location = deepcopy(location)
-        self.tokens = deepcopy(tokens or {})
-        # Cache decoded tokens per location, releasing them with the object.
-        self._decoded_tokens: dict[str, dict[str, authorization.TokenBody | None]] = {}
+        self._tokens = authorization.Tokens.from_data(tokens)
         self._stored = id is not None
         self._loading: asyncio.Task | None = None
         self._storing: asyncio.Task | None = None
-        if self.tokens:
-            authorization.normalize(self.tokens, self.id)
+        if not self._tokens.is_empty():
+            self._tokens.normalize(self.id)
 
     @property
     def _object_kind(self):
@@ -180,7 +178,7 @@ class Object:
             self.id,
             {
                 "location": self.state.location,
-                "tokens": self.state.collect_tokens(),
+                "tokens": self.state.collect_tokens().to_data(),
             },
         )
 
@@ -208,19 +206,20 @@ class Object:
         if client is None:
             from .client import client
         output = await client.get_object(
-            self.id, location=self._location, tokens=self.tokens
+            self.id, location=self._location, tokens=self._tokens.to_data()
         )
         if output["data"]["kind"] != self._object_kind:
             raise ValueError("unexpected object kind")
         if output.get("tokens"):
-            tokens = authorization.clone(output["tokens"])
-            self.tokens = authorization.inherit(tokens, self.tokens, self.id)
+            tokens = authorization.Tokens.from_data(output["tokens"])
+            tokens.inherit(self._tokens, self.id)
+            self._tokens = tokens
         self._value = self._decode(output["data"]["value"])
         for child in self._children():
             child._inherit_tokens(
                 ((output.get("children") or {}).get(child.id) or {}).get("tokens")
             )
-            child._inherit_tokens(self.tokens)
+            child._inherit_tokens(self._tokens)
         return self._value
 
     async def store(self, client: Client | None = None) -> str:
@@ -231,14 +230,16 @@ class Object:
 
     def _inherit_tokens(self, tokens):
         # Inherit the tokens.
-        previous = authorization.clone(self.tokens)
-        self.tokens = authorization.inherit(self.tokens, tokens or {}, self.id)
-        if self._value is None or self.tokens == previous:
+        previous = self._tokens.to_data()
+        if not isinstance(tokens, authorization.Tokens):
+            tokens = authorization.Tokens.from_data(tokens)
+        self._tokens.inherit(tokens, self.id)
+        if self._value is None or self._tokens.to_data() == previous:
             return
 
         # Pass the tokens to the children, which inherit tokens gained after a load.
         for child in self._children():
-            child._inherit_tokens(self.tokens)
+            child._inherit_tokens(self._tokens)
 
     @tg.property
     async def children(self, client: Client | None = None) -> list[Object]:
@@ -251,15 +252,15 @@ class Object:
     def _children(self):
         return objects(self._value)
 
-    def _decoded(self, location: str, entry: list[str]):
-        # Keep only the decoded tokens that the entry holds once the cache outgrows it.
-        decoded = self._decoded_tokens.get(location)
-        if decoded is None or len(decoded) > len(entry):
-            previous = decoded or {}
-            decoded = {token: previous[token] for token in entry if token in previous}
-            self._decoded_tokens[location] = decoded
+    @property
+    def tokens(self):
+        return self._tokens.clone()
 
-        return decoded
+    @tokens.setter
+    def tokens(self, tokens):
+        self._tokens = authorization.Tokens.from_data(tokens)
+        if not self._tokens.is_empty():
+            self._tokens.normalize(self.id)
 
     @property
     def state(self) -> ObjectState:
@@ -293,8 +294,6 @@ class ObjectState:
             object_._location = deepcopy(arg.get("location"))
             object_.tokens = deepcopy(arg.get("tokens") or {})
         self._object = object_
-        if object_.tokens:
-            authorization.normalize(object_.tokens, self.id)
 
     @property
     def id(self):
@@ -332,13 +331,11 @@ class ObjectState:
 
     @property
     def tokens(self):
-        return authorization.clone(self._object.tokens)
+        return self._object._tokens.clone()
 
     @tokens.setter
     def tokens(self, value):
-        self._object.tokens = authorization.clone(value)
-        if self._object.tokens:
-            authorization.normalize(self._object.tokens, self.id)
+        self._object.tokens = value
 
     def inherit_location(self, location):
         Object.inherit_location(self._object, location)
@@ -357,19 +354,13 @@ class ObjectState:
             if id(state) in visited:
                 continue
             visited.add(id(state))
-            locations.update(state.tokens)
-            if state._decoded_tokens.keys() - state.tokens.keys():
-                state._decoded_tokens = {
-                    location: decoded
-                    for location, decoded in state._decoded_tokens.items()
-                    if location in state.tokens
-                }
+            locations.update(location for location, _ in state._tokens.iter())
             if state._value is not None:
                 children[id(state)] = state._children()
                 stack.extend(children[id(state)])
 
         # Collect uncovered proofs and tokens for pending syncs.
-        tokens = {}
+        tokens = authorization.Tokens()
         for location in locations:
             visited = set()
             stack = [(self._object, False)]
@@ -380,20 +371,22 @@ class ObjectState:
                     continue
                 visited.add(key)
                 inherited = covered
-                entry = state.tokens.get(location)
+                entry = state._tokens.get(location)
                 if entry is not None:
-                    decoded = state._decoded(location, entry)
-                    for token in entry:
+                    for token in entry.authorization:
                         if not inherited or (
-                            authorization.Token.resource(token, decoded) or ""
-                        ).startswith("syn_"):
-                            tokens.setdefault(location, []).append(token)
-                        covered |= authorization.Token.authorizes_object_subtree(
-                            token, state.id, decoded
-                        )
+                            token.body is not None
+                            and token.body.resource.startswith("syn_")
+                        ):
+                            collected = tokens.get(location)
+                            if collected is None:
+                                collected = authorization.Tokens.Entry()
+                                tokens.set(location, collected)
+                            collected.authorization.append(token)
+                        covered |= token.authorizes_object_subtree(state.id)
                 for child in children.get(id(state), []):
                     stack.append((child, covered))
-        authorization.normalize(tokens)
+        tokens.normalize()
 
         return tokens
 
@@ -415,10 +408,9 @@ class ObjectState:
             raise ValueError("invalid object batch output")
         self.location = (referent.options or {}).get("location")
         self.stored = True
-        tokens = authorization.clone((referent.options or {}).get("tokens"))
-        self._object.tokens = authorization.inherit(
-            tokens, self._object.tokens, self.id
-        )
+        tokens = authorization.Tokens.from_data((referent.options or {}).get("tokens"))
+        tokens.inherit(self._object._tokens, self.id)
+        self._object._tokens = tokens
 
     def clear_store_promise(self, promise):
         if self.store_promise is promise:

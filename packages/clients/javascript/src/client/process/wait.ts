@@ -7,7 +7,7 @@ export namespace Wait {
 		lease?: string | null;
 		location?: tg.Location.Arg | null;
 		source?: tg.Process.Source;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Authorization.Tokens.Data | null;
 	};
 }
 

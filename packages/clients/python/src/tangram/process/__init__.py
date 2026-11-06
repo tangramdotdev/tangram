@@ -410,25 +410,23 @@ class Process[O: ValueType]:
 
     @property
     def tokens(self):
-        from ..authorization import Tokens
-
-        return Tokens.clone(self._tokens)
+        return self._tokens.clone()
 
     @tokens.setter
     def tokens(self, tokens):
-        from ..authorization import Tokens
+        from .. import authorization
 
-        self._tokens = Tokens.clone(tokens)
-        Tokens.normalize(self._tokens)
+        self._tokens = authorization.Tokens.from_data(tokens)
+        self._tokens.normalize()
 
     def inherit_location(self, location):
         if self.location is None:
             self.location = location
 
     def inherit_tokens(self, tokens):
-        from ..authorization import Tokens
+        from .. import authorization
 
-        Tokens.inherit(self._tokens, tokens)
+        self._tokens.inherit(authorization.Tokens.from_data(tokens))
 
     async def load(self, client: Client | None = None):
         client = client or self.client
@@ -437,9 +435,11 @@ class Process[O: ValueType]:
         from .. import authorization
 
         output = await client.get_process(
-            self.id, location=self.location, tokens=self.tokens
+            self.id, location=self.location, tokens=self.tokens.to_data()
         )
-        self.tokens = authorization.inherit(output.get("tokens") or {}, self.tokens)
+        tokens = authorization.Tokens.from_data(output.get("tokens"))
+        tokens.inherit(self._tokens)
+        self._tokens = tokens
         location = output.get("location")
         self.location = (
             None if location is None else LocationArg.from_location(location)
@@ -576,7 +576,7 @@ class Process[O: ValueType]:
         arg: ReadArgObject = {"streams": ["stdout"], **(options or {}), **kwargs}
         if arg.get("location") is None:
             arg["location"] = self.location
-        arg["tokens"] = self.tokens
+        arg["tokens"] = self.tokens.to_data()
         return await self.client.try_read_process_stdio(self.id, arg)
 
     async def read_stdio(
@@ -630,7 +630,7 @@ class Process[O: ValueType]:
                     self.id,
                     lease=self.lease,
                     location=self.location,
-                    tokens=self.tokens,
+                    tokens=self.tokens.to_data(),
                 )
         if self._wait_result is None:
             raise ValueError("failed to find the process")
@@ -646,7 +646,10 @@ class Process[O: ValueType]:
             values["name"] = self.options["name"]
         error = outcome.get("error")
         if error is not None:
-            options: ReferentOptions = {**self.options, "tokens": error.state.tokens}
+            options: ReferentOptions = {
+                **self.options,
+                "tokens": error.state.tokens.to_data(),
+            }
             raise await Error.new(
                 "the child process failed",
                 {"source": Referent(error, options), "values": values},
@@ -679,7 +682,7 @@ class Process[O: ValueType]:
         arg: _Signal.Arg = {
             "signal": signal,
             "location": self.location,
-            "tokens": self.tokens,
+            "tokens": self.tokens.to_data(),
         }
         if self.connection is not None and not self.connection.closed:
             await self.connection.request("signal", arg)
@@ -720,7 +723,7 @@ class Process[O: ValueType]:
         arg: TtyArg = {
             "size": size if size is not None else cast("Tty.Size", kwargs),
             "location": self.location,
-            "tokens": self.tokens,
+            "tokens": self.tokens.to_data(),
         }
         if self.connection is not None and not self.connection.closed:
             await self.connection.request("tty", arg)
@@ -1122,7 +1125,7 @@ class Child:
             raise ValueError("expected a sandboxed process id")
         options: ReferentOptions = {
             **value.get("options", {}),
-            "tokens": process.tokens,
+            "tokens": process.tokens.to_data(),
         }
         if process.location is not None:
             options["location"] = LocationArg.to_location(process.location)
@@ -1175,12 +1178,12 @@ class State:
 
     @staticmethod
     def inherit_tokens(state, tokens):
-        from ..authorization import Tokens
+        from .. import authorization
 
         referent = state["command"]
         if (referent.options or {}).get("tokens") is None:
             referent.options["tokens"] = {}
-        Tokens.inherit(
+        authorization.Tokens.Data.inherit(
             referent.options["tokens"],
             tokens,
             referent.node if isinstance(referent.node, str) else None,

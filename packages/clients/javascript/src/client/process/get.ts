@@ -7,7 +7,7 @@ export namespace Get {
 		location?: tg.Location.Arg | null;
 		metadata?: boolean;
 		source?: tg.Process.Source;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Authorization.Tokens.Data | null;
 	};
 
 	export type Output = {
@@ -16,7 +16,7 @@ export namespace Get {
 		location?: tg.Location | null;
 		metadata?: unknown;
 		source?: tg.Process.Source;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Authorization.Tokens.Data | null;
 	};
 }
 
