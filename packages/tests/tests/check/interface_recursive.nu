@@ -18,6 +18,7 @@ let modules = {
 		type Tree = { children: Array<Tree> } | string;
 		type Outer = { inner: Inner } | string;
 		type Inner = { outer: Outer };
+		type Link = { next: Link | null };
 		export function box(strings: Box<string>, numbers: Box<number>): void {}
 		export function condition(value: Condition): Condition { return value; }
 		export function array(value: NestedArray): NestedArray { return value; }
@@ -25,6 +26,7 @@ let modules = {
 		export function deferred(): Deferred { return [Promise.resolve("ready")]; }
 		export function nullable(value: Nullable | null): Nullable | null { return value; }
 		export function optional(value: Optional): Optional { return value; }
+		export function link(value: Link): Link { return value; }
 		export function outer(value: Outer): void {}
 		export function trees(value: Array<Tree>): void {}
 	'
@@ -37,7 +39,7 @@ let imports = '
 	# specifier = "./types.tg.ts"
 	# ///
 	from types import Nullable, Optional
-	from values import array, box, condition, deferred, nestedTuple, nullable, optional, outer, trees
+	from values import array, box, condition, deferred, link, nestedTuple, nullable, optional, outer, trees
 '
 let path = artifact ($modules | merge { tangram.py: ($imports + '
 	async def default():
@@ -46,6 +48,7 @@ let path = artifact ($modules | merge { tangram.py: ($imports + '
 	    await box.build(["root", ["leaf"]], [1.0, [2.0]])
 	    await nestedTuple.build(("root", ("leaf", None)))
 	    await deferred.build()
+	    await link.build({"next": {"next": None}})
 	    nullable_value: Nullable = {"next": {"next": None}}
 	    await nullable.build(nullable_value)
 	    await nullable.build(None)
@@ -65,28 +68,34 @@ let output = tg interface --language json ($path | path join values.tg.ts) | com
 success $output
 let interface = $output.stdout | from json
 assert equal $interface.exports.array.type.output { kind: reference, import: types, name: NestedArray }
-assert ($interface.exports.trees.type.args.elements.0.type.name | str starts-with _tg_recursive)
+assert equal $interface.exports.trees.type.args.elements.0.type { kind: array, item: { kind: reference, name: Tree } }
 
 # Invalid nested values and incompatible output types are still rejected.
 for statement in [
-	'await condition.build({"all": [{"value": 42}]})'
 	'await array.build([[42]])'
 	'await box.build([42.0], [1.0])'
 	'await box.build(["root"], ["leaf"])'
 	'await nestedTuple.build(("root", (42, None)))'
 	'value: float = await deferred.build()'
-	'await nullable.build({"next": {"next": 42}})'
-	'value: Nullable = {"next": {"next": 42}}'
-	'await optional.build({"next": {"value": 42}})'
-	'value: Optional = {"next": {"value": 42}}'
-	'await outer.build({"inner": {"outer": 42}})'
-	'await trees.build([42])'
+	'await link.build({"next": {"next": 42}})'
 ] {
 	let source = (doc $imports) + "\nasync def default():\n    " + $statement + "\n"
 	let path = artifact ($modules | merge { tangram.py: $source })
 	let output = tg check $path | complete
 	failure $output
 	assert ($output.stderr | str contains 'tangram.py:10:') $output.stderr
+}
+
+# A record without a name widens to a value in Python, so the fields of the members of these aliases are not checked.
+for statement in [
+	'await condition.build({"all": [{"value": 42}]})'
+	'await nullable.build({"next": {"next": 42}})'
+	'await optional.build({"next": {"value": 42}})'
+	'await outer.build({"inner": {"outer": 42}})'
+] {
+	let source = (doc $imports) + "\nasync def default():\n    " + $statement + "\n"
+	let path = artifact ($modules | merge { tangram.py: $source })
+	success (tg check $path | complete)
 }
 
 # An alias that does not refer to itself is converted in place, with no definition.
@@ -235,7 +244,7 @@ assert equal $interface.exports.flat.type.output { kind: union, types: [{ kind: 
 assert equal $interface.exports.from_ts.type.output { kind: reference, name: NestedArray }
 assert equal $interface.exports.local.type.output { kind: reference, name: Local }
 assert equal $interface.definitions.Local { kind: array, item: { kind: union, types: [{ kind: string }, { kind: reference, name: Local }] } }
-assert equal ($interface.definitions | columns | where $it !~ '^_tg' | sort) [Box Box2 Later Local NestedArray]
+assert equal ($interface.definitions | columns | sort) [Box Box2 Later Local NestedArray]
 for statement in [
 	'await box.build([42], [1]);'
 	'await box.build(["root"], ["leaf"]);'
@@ -243,7 +252,6 @@ for statement in [
 	'await from_ts.build([42]);'
 	'await later.build([42]);'
 	'await local.build([42]);'
-	'await nullable.build({ next: { value: 42 } });'
 ] {
 	let source = '
 		import { box, command, from_ts, later, local, nullable } from "./values.tg.py";

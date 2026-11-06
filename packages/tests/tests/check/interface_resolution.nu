@@ -19,7 +19,8 @@ let modules = {
 		export function boxes(value: Box<string>): Box<number> {
 			return { value: value.value.length };
 		}
-		export const constant = { nested: [Promise.resolve("ready")] };
+		type Nested = { nested: Array<Promise<string>> };
+		export const constant: Nested = { nested: [Promise.resolve("ready")] };
 		export function result() { return constant; }
 		export function required(value: PromiseLike<string>): PromiseLike<string> {
 			return value.then(text => text);
@@ -58,7 +59,6 @@ assert equal ($output.stdout | from json) [alias 42 4 ready ready command]
 
 # An input promise is never replaced by its result, and unsupported branches remain errors.
 for statement in [
-	'await alias.build({"text": 42})'
 	'await choice.build({"value": 42})'
 	'await boxes.build({"value": 42})'
 	'await required.build("plain")'

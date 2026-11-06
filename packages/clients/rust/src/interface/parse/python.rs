@@ -70,6 +70,13 @@ pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
 		} else {
 			let name_range = parser.position_range();
 			let name = parser.expect_identifier()?;
+			if parser.eat_punctuation("=") {
+				let type_ = typed_dict(&mut parser, &name)?;
+				end(&parser)?;
+				let range = start..parser.range().start;
+				super::insert(&mut interface.definitions, name, type_, range, "type")?;
+				continue;
+			}
 			parser.expect_punctuation(":")?;
 			let export = export(&mut parser, name_range)?;
 			end(&parser)?;
@@ -185,6 +192,36 @@ fn class(parser: &mut Parser) -> Result<(String, tg::interface::Type), Error> {
 	Ok((name, tg::interface::Type::Record { fields }))
 }
 
+/// Parse a call to `TypedDict` after `=`, whose fields are a record.
+fn typed_dict(parser: &mut Parser, name: &str) -> Result<tg::interface::Type, Error> {
+	parser.expect_keyword("TypedDict")?;
+	parser.expect_punctuation("(")?;
+	if parser.expect_string()? != name {
+		return parser.error("expected the typed dict's name to match its declaration");
+	}
+	parser.expect_punctuation(",")?;
+	parser.expect_punctuation("{")?;
+	let mut fields = BTreeMap::new();
+	while !parser.eat_punctuation("}") {
+		let range = parser.range();
+		let name = parser.expect_string()?;
+		parser.expect_punctuation(":")?;
+		let field = field(parser)?;
+		super::insert(&mut fields, name, field, range, "field")?;
+		if !parser.eat_punctuation(",") {
+			parser.expect_punctuation("}")?;
+			break;
+		}
+	}
+	parser.expect_punctuation(",")?;
+	parser.expect_keyword("closed")?;
+	parser.expect_punctuation("=")?;
+	parser.expect_keyword("True")?;
+	parser.eat_punctuation(",");
+	parser.expect_punctuation(")")?;
+	Ok(tg::interface::Type::Record { fields })
+}
+
 /// Parse the type of an export, with a docstring on the line after it, and `tg.NonValue["reason"]` for an export that is not a value, with the range of its name.
 fn export(parser: &mut Parser, range: Option<tg::Range>) -> Result<tg::interface::Export, Error> {
 	let non_value = parser.is_keyword("tg")
@@ -273,24 +310,6 @@ fn primary(parser: &mut Parser) -> Result<tg::interface::Type, Error> {
 		},
 		"Never" => tg::interface::Type::Union { types: Vec::new() },
 		"None" => tg::interface::Type::Null,
-		"TypedDict" => {
-			parser.expect_punctuation("[")?;
-			parser.expect_punctuation("{")?;
-			let mut fields = BTreeMap::new();
-			while !parser.eat_punctuation("}") {
-				let range = parser.range();
-				let name = parser.expect_string()?;
-				parser.expect_punctuation(":")?;
-				let field = field(parser)?;
-				super::insert(&mut fields, name, field, range, "field")?;
-				if !parser.eat_punctuation(",") {
-					parser.expect_punctuation("}")?;
-					break;
-				}
-			}
-			parser.expect_punctuation("]")?;
-			tg::interface::Type::Record { fields }
-		},
 		"bool" => tg::interface::Type::Boolean,
 		"bytes" => tg::interface::Type::Bytes,
 		"dict" => {

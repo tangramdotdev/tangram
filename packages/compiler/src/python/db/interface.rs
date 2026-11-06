@@ -463,9 +463,9 @@ impl<'db> Converter<'_, 'db> {
 		name
 	}
 
-	/// Refer to a typed dict class that another module declares at its top level, importing that module, unless the name is one that bindings generate, which the module does not export.
+	/// Refer to a typed dict class that another module declares at its top level, importing that module.
 	fn try_import(&mut self, file: File, name: &str) -> Option<tg::interface::Type> {
-		if file == self.file || self.is_library(file) || name.starts_with("_tg") {
+		if file == self.file || self.is_library(file) {
 			return None;
 		}
 		let program_file = self.program.program_file(self.database, file);
