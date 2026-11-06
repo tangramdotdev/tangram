@@ -3498,9 +3498,9 @@ impl Cli {
 	}
 
 	pub async fn read_config_with_path(path: Option<PathBuf>) -> tg::Result<Option<Config>> {
-		let path = path.unwrap_or_else(|| {
-			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
-		});
+		let Some(path) = path.or_else(Self::default_config_path) else {
+			return Ok(None);
+		};
 		let config = match tokio::fs::read_to_string(&path).await {
 			Ok(config) => config,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -3508,7 +3508,7 @@ impl Cli {
 			},
 			Err(error) => {
 				return Err(
-					tg::error!(!error, directory = %path.display(), "failed to read the config file"),
+					tg::error!(!error, path = %path.display(), "failed to read the config file"),
 				);
 			},
 		};
@@ -3518,7 +3518,9 @@ impl Cli {
 	}
 
 	pub fn read_config(&self) -> tg::Result<Config> {
-		let path = self.config_path();
+		let Some(path) = self.config_path() else {
+			return Ok(Config::default());
+		};
 		let config = match std::fs::read_to_string(&path) {
 			Ok(config) => config,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -3538,7 +3540,9 @@ impl Cli {
 	}
 
 	pub fn write_config(&self, config: &Config) -> tg::Result<()> {
-		let path = self.config_path();
+		let path = self
+			.config_path()
+			.ok_or_else(|| tg::error!("failed to get the home directory, pass --config"))?;
 		let format = Format::from_path(&path);
 		let config = config.serialize(format)?;
 		if let Some(parent) = path.parent() {

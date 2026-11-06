@@ -127,7 +127,7 @@ pub(crate) async fn spawn(
 fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {
 	// Resolve the host paths.
 	let tangram_parent = arg.tangram_path.parent();
-	let home_path = std::env::var_os("HOME").map(std::path::PathBuf::from);
+	let home_path = std::env::home_dir();
 	let tangram_socket_path = arg
 		.tangram_socket_path
 		.as_ref()

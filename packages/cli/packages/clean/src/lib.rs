@@ -48,7 +48,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 }
 
 pub async fn run_force(cli: &mut Cli) -> tg::Result<()> {
-	let path = cli.directory_path();
+	let path = cli.directory_path()?;
 	let store_path = path.join("store");
 
 	// Stop the server if it is running.

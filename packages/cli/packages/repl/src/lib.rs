@@ -88,7 +88,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	});
 
 	// Set up reedline.
-	let history_path = cli.directory_path().join("history");
+	let history_path = cli.directory_path()?.join("history");
 	let history_size = cli.repl_config().history_size;
 	let history = reedline::FileBackedHistory::with_file(history_size, history_path)
 		.map_err(|error| tg::error!(!error, "failed to initialize the repl history"))?;
