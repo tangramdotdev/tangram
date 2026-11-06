@@ -186,7 +186,7 @@ export const testE2e = async (arg: E2eArg = {}) => {
 	);
 
 	// Create the environment for the tests.
-	const env = std.env.arg(
+	const env = await std.env.arg(
 		std.sdk(),
 		pythonArtifact,
 		std.utils.attr.build(),
