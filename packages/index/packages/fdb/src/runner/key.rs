@@ -7,4 +7,12 @@ pub enum Key {
 		runner: tg::runner::Id,
 		sandbox: tg::sandbox::Id,
 	},
+	SchedulerRunner {
+		runner: tg::runner::Id,
+		scheduler: tg::scheduler::Id,
+	},
+	SchedulerSandbox {
+		sandbox: tg::sandbox::Id,
+		scheduler: tg::scheduler::Id,
+	},
 }

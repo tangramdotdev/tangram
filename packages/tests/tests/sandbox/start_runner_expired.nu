@@ -22,7 +22,7 @@ let running = tg --url $remote.url --token $root_token sandbox create --no-token
 let enqueued = checkpoint watch scheduler.sandbox.enqueued --params { sandbox: $stopped } --token $root_token --url $remote.url
 let start = job spawn {
 	let job_id = job id
-	tg --url $remote.url --token $root_token sandbox start $stopped | complete | job send --tag $job_id 0
+	tg --url $remote.url --token $root_token sandbox start --wait $stopped | complete | job send --tag $job_id 0
 }
 checkpoint pass $enqueued
 checkpoint unwatch $enqueued

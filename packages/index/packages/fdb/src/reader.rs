@@ -400,6 +400,23 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::GetRunnerSandboxes(output)
 			},
+			tangram_index::read::Request::GetSchedulerRunners { scheduler } => {
+				let result =
+					Self::get_scheduler_runners_with_transaction(transaction, subspace, scheduler)
+						.await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::GetSchedulerRunners(output)
+			},
+			tangram_index::read::Request::GetSchedulerSandboxes { scheduler } => {
+				let result = Self::get_scheduler_sandboxes_with_transaction(
+					transaction,
+					subspace,
+					scheduler,
+				)
+				.await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::GetSchedulerSandboxes(output)
+			},
 			tangram_index::read::Request::GetSubjectsForPrincipal { principal } => {
 				let result = Self::get_subjects_for_principal_with_transaction(
 					transaction,

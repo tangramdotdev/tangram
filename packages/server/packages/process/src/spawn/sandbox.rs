@@ -60,35 +60,8 @@ impl Component {
 						.ok_or_else(|| tg::error!("missing the scheduler"))?;
 					sender.send(scheduler).ok();
 				}
-				let scheduler = process
-					.scheduler
-					.clone()
-					.ok_or_else(|| tg::error!("missing the scheduler"))?;
-				let started = self
-					.try_wait_process_start(
-						session,
-						&id,
-						&scheduler,
-						&sandbox,
-						&mut sandbox_connection_future,
-					)
+				self.wait_process_start(session, &id, &sandbox, &mut sandbox_connection_future)
 					.await?;
-				let Some(()) = started else {
-					Self::spawn_process_sandbox_cleanup_after_scheduler_heartbeat_expiration(
-						session,
-						id.clone(),
-						sandbox.clone(),
-						scheduler.clone(),
-						sandbox_connection_future,
-					);
-					return Err(tg::error!(
-						code = tg::error::Code::HeartbeatExpiration,
-						process = %id,
-						%sandbox,
-						%scheduler,
-						"the scheduler heartbeat expired"
-					));
-				};
 				process.lease = Some(lease);
 			},
 			Some(tg::Either::Right(_)) => {
@@ -103,14 +76,13 @@ impl Component {
 		Ok(output)
 	}
 
-	async fn try_wait_process_start(
+	async fn wait_process_start(
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
-		scheduler: &tg::scheduler::Id,
 		sandbox: &tg::sandbox::Id,
 		sandbox_connection_future: &mut tangram_server_core::sandbox::ConnectionFuture,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<()> {
 		// Watch the process's status, whose wakeups poll, so that a lost notification only delays the spawn.
 		let wakeups = self
 			.create_process_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
@@ -120,9 +92,8 @@ impl Component {
 
 		// The scheduler only governs startup until the sandbox connects.
 		tokio::select! {
-			result = started_future.as_mut() => return result.map(Some),
+			result = started_future.as_mut() => return result,
 			result = sandbox_connection_future.as_mut() => result?,
-			result = session.server.components.scheduler.scheduler_heartbeat_expired(session, scheduler) => return result.map(|()| None),
 		}
 		tangram_server_core::checkpoint!(session.server, "process.spawn.connection.wait", %sandbox)
 			.await;
@@ -150,10 +121,12 @@ impl Component {
 						tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
 							return Err(tg::error!(%sandbox, "the sandbox was destroyed"));
 						},
-						tg::sandbox::Status::Starting | tg::sandbox::Status::Stopped => {
+						tg::sandbox::Status::Stopped => {
 							return Err(tg::error!(%sandbox, "the sandbox is not started"));
 						},
-						tg::sandbox::Status::Started | tg::sandbox::Status::Stopping => {},
+						tg::sandbox::Status::Started
+						| tg::sandbox::Status::Starting
+						| tg::sandbox::Status::Stopping => {},
 					}
 				}
 			}
@@ -161,11 +134,11 @@ impl Component {
 		};
 		let destroyed_future = pin!(destroyed_future);
 		tokio::select! {
-			result = started_future.as_mut() => result.map(Some),
+			result = started_future.as_mut() => result,
 			result = destroyed_future => {
 				// Treat a process that started before its sandbox ended as started.
 				if Self::try_get_process_start_from_index(session, id).await? {
-					return Ok(Some(()));
+					return Ok(());
 				}
 				result
 			},
@@ -203,45 +176,6 @@ impl Component {
 		let started = process.is_some_and(|process| process.status.is_some());
 
 		Ok(started)
-	}
-
-	fn spawn_process_sandbox_cleanup_after_scheduler_heartbeat_expiration(
-		session: &Session,
-		process: tg::process::Id,
-		sandbox: tg::sandbox::Id,
-		scheduler: tg::scheduler::Id,
-		connection_future: tangram_server_core::sandbox::ConnectionFuture,
-	) {
-		let error = tg::error::Data {
-			code: Some(tg::error::Code::HeartbeatExpiration),
-			message: Some("the scheduler heartbeat expired".into()),
-			..Default::default()
-		};
-		let arg = tg::sandbox::destroy::Arg {
-			error: Some(tg::Either::Left(error)),
-			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
-			tokens: tg::authorization::Tokens::default(),
-			wait: false,
-		};
-		let session = session.server.session(&session.server.context);
-		tokio::spawn(async move {
-			session
-				.server
-				.components
-				.sandbox
-				.destroy_sandbox_when_available(&session, &sandbox, arg, connection_future)
-				.await
-				.inspect_err(|error| {
-					tracing::error!(
-						error = %error.trace(),
-						%process,
-						%sandbox,
-						%scheduler,
-						"failed to destroy the sandbox after the scheduler heartbeat expired"
-					);
-				})
-				.ok();
-		});
 	}
 
 	fn spawn_process_apply_connected(
@@ -366,8 +300,19 @@ impl Component {
 		Ok(connected_event)
 	}
 
-	/// Fail at once if the index records that the sandbox is not running, waiting for pending indexing before trusting a stopped status, because a start that just finished may not be indexed yet.
+	/// Wait for a sandbox that is starting to connect, and fail at once if the index records that the sandbox is not running, waiting for pending indexing before trusting a stopped status, because a start that just finished may not be indexed yet.
 	async fn check_sandbox_started(session: &Session, sandbox: &tg::sandbox::Id) -> tg::Result<()> {
+		let mut wakeups = session
+			.server
+			.components
+			.sandbox
+			.create_sandbox_status_wakeup_stream(
+				session,
+				sandbox,
+				session.context.stopper.clone(),
+				None,
+			)
+			.await?;
 		let mut indexed = true;
 		loop {
 			let status = session
@@ -395,7 +340,12 @@ impl Component {
 				Some(tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping) => {
 					return Err(tg::error!(%sandbox, "the sandbox is not started"));
 				},
-				Some(tg::sandbox::Status::Started | tg::sandbox::Status::Starting) | None => {
+				Some(tg::sandbox::Status::Starting) => {
+					if wakeups.next().await.is_none() {
+						return Err(tg::error!("the sandbox status wakeup stream ended"));
+					}
+				},
+				Some(tg::sandbox::Status::Started) | None => {
 					return Ok(());
 				},
 			}
@@ -466,7 +416,9 @@ impl Component {
 		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
 			boot: 0,
+			created_at: session.server.clock.unix_timestamp(),
 			creator: session.context.principal.clone(),
+			declinable: false,
 			owner,
 			parent: output.parent_sandbox.clone(),
 			process: Some(process),

@@ -1078,7 +1078,9 @@ impl Component {
 			.map(|sandbox| (sandbox.id.clone(), sandbox.boot))
 			.collect::<BTreeMap<_, _>>();
 		for entry in &self.state.booting {
-			sandboxes.entry(entry.key().clone()).or_insert(*entry.value());
+			sandboxes
+				.entry(entry.key().clone())
+				.or_insert(*entry.value());
 		}
 		let sandboxes = sandboxes
 			.into_iter()
@@ -1535,8 +1537,15 @@ impl tangram_server_core::runner::Component for Component {
 		arg: tg::runner::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::runner::control::ClientResponseOutput>>> {
-		self.send_runner_control_request(session, runner, scheduler, registration_index, arg, options)
-			.boxed()
+		self.send_runner_control_request(
+			session,
+			runner,
+			scheduler,
+			registration_index,
+			arg,
+			options,
+		)
+		.boxed()
 	}
 
 	fn spawn_sandbox_task<'a>(

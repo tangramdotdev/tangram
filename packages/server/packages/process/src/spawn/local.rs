@@ -194,6 +194,12 @@ impl Component {
 		drop(sandbox);
 
 		loop {
+			let connection = session
+				.server
+				.components
+				.runner
+				.state()
+				.scheduler_connection();
 			let scheduler = session
 				.server
 				.components
@@ -254,7 +260,7 @@ impl Component {
 				.components
 				.runner
 				.state()
-				.wait_for_scheduler_change(&scheduler);
+				.wait_for_scheduler_connection_change(connection);
 			let scheduler_change_future = pin!(scheduler_change_future);
 			future::select(wait_future, scheduler_change_future).await;
 		}

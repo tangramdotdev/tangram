@@ -2150,9 +2150,6 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	if let Some(source) = source.message_retry {
 		target.message_retry = resolve_retry_with_default(source, target.message_retry);
 	}
-	if let Some(source) = source.enqueue_retry {
-		target.enqueue_retry = resolve_retry_with_default(source, target.enqueue_retry);
-	}
 	if let Some(value) = source.restart_delay {
 		target.restart_delay = value;
 	}
@@ -2171,11 +2168,8 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	if let Some(value) = source.default_storage {
 		target.default_storage = value;
 	}
-	if let Some(value) = source.heartbeat_interval {
-		target.heartbeat_interval = value;
-	}
-	if let Some(value) = source.heartbeat_ttl {
-		target.heartbeat_ttl = value;
+	if let Some(value) = source.unplaceable_timeout {
+		target.unplaceable_timeout = value.map(|value| value.0);
 	}
 	if let Some(value) = source.inbox_ttl {
 		target.inbox_ttl = value;

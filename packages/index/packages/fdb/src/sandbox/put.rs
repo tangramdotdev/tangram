@@ -113,6 +113,11 @@ impl Index {
 			let touched_at = existing.as_ref().map_or(arg.touched_at, |sandbox| {
 				sandbox.touched_at.max(arg.touched_at)
 			});
+			let scheduler = arg.scheduler(existing.as_ref(), data.as_ref());
+			let scheduled = data
+				.as_ref()
+				.and_then(|data| arg.scheduled(&data.data))
+				.cloned();
 			let sandbox = tangram_index::sandbox::Sandbox {
 				account,
 				created_at: existing
@@ -124,6 +129,7 @@ impl Index {
 					.as_ref()
 					.map_or(0, |sandbox| sandbox.reference_count),
 				runner,
+				scheduler,
 				set: tangram_index::sandbox::Set {
 					processes: arg.processes.is_some()
 						|| existing
@@ -142,6 +148,26 @@ impl Index {
 			}
 			let value = sandbox.serialize()?;
 			txn.set(&key, &value);
+
+			// Update the key that associates the sandbox with its scheduler, in the same transaction as the sandbox's status.
+			if sandbox.scheduler.is_none()
+				&& let Some(scheduler) = existing
+					.as_ref()
+					.and_then(|sandbox| sandbox.scheduler.clone())
+			{
+				let key = Key::Runner(crate::runner::Key::SchedulerSandbox {
+					sandbox: arg.id.clone(),
+					scheduler,
+				});
+				txn.clear(&Self::pack(subspace, &key));
+			}
+			if let Some(scheduled) = &scheduled {
+				let key = Key::Runner(crate::runner::Key::SchedulerSandbox {
+					sandbox: arg.id.clone(),
+					scheduler: scheduled.scheduler.clone(),
+				});
+				txn.set(&Self::pack(subspace, &key), &scheduled.request);
+			}
 
 			let destroyed = existing
 				.as_ref()

@@ -234,7 +234,9 @@ class Sandbox:
     async def reload(self, client: Client | None = None) -> None:
         await self.load(client)
 
-    async def destroy(self, client: Client | None = None, *, wait: bool = False) -> None:
+    async def destroy(
+        self, client: Client | None = None, *, wait: bool = False
+    ) -> None:
         client = client or self.client
         arg: SandboxDestroyArg = {}
         if self.location is not None:

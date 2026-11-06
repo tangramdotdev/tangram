@@ -1305,12 +1305,6 @@ pub struct Scheduler {
 	/// The storage bounds for a sandbox that omits them, where an omitted maximum means no limit.
 	pub default_storage: tg::sandbox::Resource<u64>,
 
-	pub enqueue_retry: Retry,
-
-	pub heartbeat_interval: Duration,
-
-	pub heartbeat_ttl: Duration,
-
 	/// The scheduler's ID, which stays the same when the scheduler restarts.
 	pub id: Option<tg::scheduler::Id>,
 
@@ -1334,6 +1328,9 @@ pub struct Scheduler {
 	pub restart_delay: Duration,
 
 	pub runner_ttl: Duration,
+
+	/// How long a request that no runner could fit stays queued before it fails, where zero rejects the request and `None` waits indefinitely.
+	pub unplaceable_timeout: Option<Duration>,
 }
 
 #[derive(Clone, Debug)]
@@ -3043,9 +3040,6 @@ impl Default for Scheduler {
 			default_cpu: tg::sandbox::Cpu::default(),
 			default_memory: tg::sandbox::Resource::default(),
 			default_storage: tg::sandbox::Resource::default(),
-			enqueue_retry: message_retry_default(),
-			heartbeat_interval: Duration::from_secs(1),
-			heartbeat_ttl: Duration::from_secs(10),
 			id: None,
 			inbox_ttl: Duration::from_mins(1),
 			max_create_sandbox_attempts: default_scheduler_max_create_sandbox_attempts(),
@@ -3058,6 +3052,7 @@ impl Default for Scheduler {
 			request_concurrency: 1024,
 			restart_delay: Duration::from_secs(1),
 			runner_ttl: Duration::from_secs(20),
+			unplaceable_timeout: Some(Duration::from_secs(10)),
 		}
 	}
 }

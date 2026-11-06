@@ -243,6 +243,24 @@ impl Index {
 				)?;
 				tangram_index::read::Response::GetRunnerSandboxes(output)
 			},
+			tangram_index::read::Request::GetSchedulerRunners { scheduler } => {
+				let output = Self::get_scheduler_runners_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&scheduler,
+				)?;
+				tangram_index::read::Response::GetSchedulerRunners(output)
+			},
+			tangram_index::read::Request::GetSchedulerSandboxes { scheduler } => {
+				let output = Self::get_scheduler_sandboxes_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&scheduler,
+				)?;
+				tangram_index::read::Response::GetSchedulerSandboxes(output)
+			},
 			tangram_index::read::Request::GetSubjectsForPrincipal { principal } => {
 				let output = Self::get_subjects_for_principal_with_transaction(
 					db,

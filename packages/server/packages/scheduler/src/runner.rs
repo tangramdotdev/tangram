@@ -64,7 +64,6 @@ impl Runners {
 			.map(|(id, runner)| (id.clone(), runner.registration_index))
 			.collect()
 	}
-
 }
 
 impl SchedulerState {
@@ -90,6 +89,12 @@ impl SchedulerState {
 		}
 		let registration_index = request.registration_index;
 		tracing::info!(runner = %request.runner, registration_index, "registering the runner");
+		self.handle_recovery_report(
+			scheduler,
+			&request.runner,
+			registration_index,
+			&request.sandboxes,
+		);
 		let completions = self.remove_runner(&request.runner);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
 		let runner = Runner {
@@ -194,9 +199,7 @@ impl SchedulerState {
 			.runners
 			.entries
 			.get(&request.runner)
-			.is_some_and(|runner| {
-				runner.registration_index == request.registration_index
-			});
+			.is_some_and(|runner| runner.registration_index == request.registration_index);
 		if !current {
 			if let Some(id) = id {
 				let output = RemoveRunnerResponseOutput {
@@ -211,6 +214,9 @@ impl SchedulerState {
 		tracing::info!(runner = %request.runner, registration_index = request.registration_index, "removing the runner");
 		let completions = self.remove_runner(&request.runner);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
+
+		// Requeue the sandboxes that the runner held but that never connected.
+		self.handle_lost_runner(scheduler, &request.runner);
 
 		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later.
 		for discarded in self.discard_pinned_sandboxes(&request.runner) {
@@ -276,7 +282,7 @@ impl Scheduler {
 		Ok((output, owner))
 	}
 
-	async fn remove_runner(
+	pub(super) async fn remove_runner(
 		&self,
 		request: RemoveRunnerRequestArg,
 	) -> tg::Result<RemoveRunnerResponseOutput> {
@@ -412,7 +418,7 @@ impl Component {
 			.index
 			.try_get_sandbox_processes_count(id)
 			.await?
-			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox in the index"))?;
+			.unwrap_or_default();
 		let processes = server
 			.index
 			.get_sandbox_processes(id, std::io::SeekFrom::Start(0), length)
@@ -553,12 +559,12 @@ impl Component {
 			.index
 			.try_get_sandbox_processes_count(id)
 			.await?
-			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox in the index"))?;
+			.unwrap_or_default();
 		let processes = server
 			.index
 			.try_get_sandbox_processes(id, std::io::SeekFrom::Start(0), length)
 			.await?
-			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox processes in the index"))?;
+			.unwrap_or_default();
 
 		let mut indexed = server
 			.index
@@ -602,6 +608,7 @@ impl Component {
 					processes: Some(processes),
 					registration: registration.cloned(),
 					runner: indexed.runner,
+					scheduled: None,
 					stopped_usage: None,
 					touched_at: now,
 				},

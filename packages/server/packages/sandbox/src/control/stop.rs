@@ -44,6 +44,7 @@ impl Component {
 			processes: Some(arg.processes),
 			registration: None,
 			runner,
+			scheduled: None,
 			stopped_usage: None,
 			touched_at: now,
 		};

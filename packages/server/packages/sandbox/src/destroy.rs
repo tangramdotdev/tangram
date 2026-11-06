@@ -165,9 +165,64 @@ impl Component {
 		}
 		tangram_server_core::checkpoint!(session.server, "sandbox.destroy.runner", sandbox = %id)
 			.await;
-		self.destroy_sandbox_with_control(session, id, arg.error.clone(), Some(control_sender))
+		let output = self
+			.destroy_sandbox_with_control(session, id, arg.error.clone(), Some(control_sender))
 			.boxed()
+			.await?;
+		if arg.wait {
+			self.wait_for_sandbox_destroy(session, id).await?;
+		}
+
+		Ok(output)
+	}
+
+	/// Wait for a sandbox's teardown to finish.
+	async fn wait_for_sandbox_destroy(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<()> {
+		let wakeups = self
+			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
+			.await?;
+		self.wait_for_sandbox_destroy_local(session, id, wakeups)
+			.await?;
+
+		Ok(())
+	}
+
+	/// Ask the scheduler that owns a sandbox to destroy it, which returns `None` if the sandbox's runner owns it.
+	async fn try_destroy_sandbox_with_scheduler(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		scheduler: &tg::scheduler::Id,
+		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	) -> tg::Result<Option<bool>> {
+		let error = match error {
+			Some(tg::Either::Left(data)) => Some(data),
+			Some(tg::Either::Right(id)) => Some(
+				tg::Error::with_id(id)
+					.data_with_instance(session)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
+			),
+			None => None,
+		};
+		let arg = tangram_server_scheduler_core::EndSandboxRequestArg {
+			error,
+			sandbox: id.clone(),
+			stop: false,
+		};
+		let ended = session
+			.server
+			.components
+			.scheduler
+			.end_sandbox(session, scheduler, arg)
 			.await
+			.map_err(|error| tg::error!(!error, %id, %scheduler, "failed to end the sandbox"))?;
+
+		Ok(ended.then_some(true))
 	}
 
 	pub(crate) async fn try_destroy_sandbox_local(
@@ -194,6 +249,23 @@ impl Component {
 			|| !authorized.permissions.contains(permission)
 		{
 			return Ok(None);
+		}
+
+		// Send the destroy to the sandbox's scheduler if its runner has not connected.
+		let status = sandbox.data.as_ref().map(|data| data.data.status);
+		let output = match (&sandbox.scheduler, status) {
+			(Some(_), Some(tg::sandbox::Status::Destroying)) => Some(false),
+			(Some(scheduler), Some(tg::sandbox::Status::Starting)) => {
+				self.try_destroy_sandbox_with_scheduler(session, id, scheduler, arg.error.clone())
+					.await?
+			},
+			_ => None,
+		};
+		if let Some(output) = output {
+			if arg.wait {
+				self.wait_for_sandbox_destroy(session, id).await?;
+			}
+			return Ok(Some(output));
 		}
 
 		// Destroy a stopped sandbox without its runner, because it has no control connection. Confirm the stop after pending indexing, because a start may not be indexed yet.
@@ -224,12 +296,21 @@ impl Component {
 		if stopped && !running {
 			self.destroy_stopped_sandbox(session, id, arg.error.clone(), sandbox.runner.as_ref())
 				.await?;
+			if arg.wait {
+				self.wait_for_sandbox_destroy(session, id).await?;
+			}
 			return Ok(Some(true));
 		}
 
-		self.destroy_sandbox_with_control(session, id, arg.error.clone(), None)
+		let output = self
+			.destroy_sandbox_with_control(session, id, arg.error.clone(), None)
 			.boxed()
-			.await
+			.await?;
+		if arg.wait && output.is_some() {
+			self.wait_for_sandbox_destroy(session, id).await?;
+		}
+
+		Ok(output)
 	}
 
 	async fn destroy_stopped_sandbox(

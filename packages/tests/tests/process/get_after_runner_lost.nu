@@ -10,7 +10,6 @@ let remote = server spawn --name remote --config {
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 	scheduler: {
-		heartbeat_ttl: 10.0,
 		runner_ttl: 10.0,
 	},
 }
