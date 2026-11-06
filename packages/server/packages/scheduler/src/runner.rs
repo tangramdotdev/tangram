@@ -374,7 +374,8 @@ impl Component {
 			.and_then(|sandbox| sandbox.data)
 			.is_some_and(|data| match status {
 				tg::sandbox::Status::Destroyed => data.data.status.is_destroyed(),
-				tg::sandbox::Status::Started
+				tg::sandbox::Status::Destroying
+				| tg::sandbox::Status::Started
 				| tg::sandbox::Status::Starting
 				| tg::sandbox::Status::Stopped
 				| tg::sandbox::Status::Stopping => data.data.status.is_stopped_or_destroyed(),

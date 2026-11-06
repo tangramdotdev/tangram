@@ -2395,6 +2395,7 @@ impl Component {
 				Some(Some(data)) => {
 					let teardown = match data.data.status {
 						tg::sandbox::Status::Destroyed => None,
+						tg::sandbox::Status::Destroying => Some(Teardown::Destroy),
 						tg::sandbox::Status::Started
 						| tg::sandbox::Status::Starting
 						| tg::sandbox::Status::Stopping => Some(Teardown::with_time_to_live(data.data.time_to_live)),

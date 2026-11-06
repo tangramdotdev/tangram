@@ -605,6 +605,7 @@ export namespace Sandbox {
 
 	export type Status =
 		| "destroyed"
+		| "destroying"
 		| "started"
 		| "starting"
 		| "stopped"

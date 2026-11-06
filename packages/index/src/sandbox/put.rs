@@ -169,7 +169,7 @@ impl Arg {
 	}
 }
 
-/// The position of the sandbox data in its lifecycle, which orders writes that may be applied out of order. A destroyed sandbox is after every boot.
+/// The position of the sandbox data in its lifecycle, which orders writes that may be applied out of order. A destroying or destroyed sandbox is after every boot.
 #[must_use]
 fn position(data: &tg::sandbox::Data) -> (u64, u8) {
 	match data.status {
@@ -177,7 +177,8 @@ fn position(data: &tg::sandbox::Data) -> (u64, u8) {
 		tg::sandbox::Status::Started => (data.boot, 1),
 		tg::sandbox::Status::Stopping => (data.boot, 2),
 		tg::sandbox::Status::Stopped => (data.boot, 3),
-		tg::sandbox::Status::Destroyed => (u64::MAX, 4),
+		tg::sandbox::Status::Destroying => (u64::MAX, 4),
+		tg::sandbox::Status::Destroyed => (u64::MAX, 5),
 	}
 }
 

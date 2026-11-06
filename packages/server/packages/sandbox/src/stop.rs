@@ -164,7 +164,7 @@ impl Component {
 
 		// Request the stop unless the sandbox is already stopping or stopped.
 		let stopped = match status {
-			tg::sandbox::Status::Destroyed => {
+			tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
 				return Err(tg::error!(%id, "the sandbox was destroyed"));
 			},
 			tg::sandbox::Status::Stopped => return Ok(Some(false)),
@@ -220,7 +220,7 @@ impl Component {
 				.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox"))?
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 			match output.data.status {
-				tg::sandbox::Status::Destroyed => {
+				tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
 					return Err(tg::error!(%id, "the sandbox was destroyed"));
 				},
 				tg::sandbox::Status::Stopped => return Ok(()),
