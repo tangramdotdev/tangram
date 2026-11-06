@@ -218,14 +218,17 @@ impl Cli {
 		}
 	}
 
-	fn config_path(&self) -> PathBuf {
-		self.args.config.clone().unwrap_or_else(|| {
-			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
-		})
+	fn config_path(&self) -> Option<PathBuf> {
+		self.args.config.clone().or_else(Self::default_config_path)
 	}
 
-	#[must_use]
-	pub fn directory_path(&self) -> PathBuf {
+	fn default_config_path() -> Option<PathBuf> {
+		let home = std::env::var_os("HOME")?;
+		let path = PathBuf::from(home).join(".config/tangram/config.json");
+		Some(path)
+	}
+
+	pub fn directory_path(&self) -> tg::Result<PathBuf> {
 		self.args
 			.directory
 			.clone()
@@ -234,7 +237,12 @@ impl Cli {
 					.as_ref()
 					.and_then(|config| config.directory.clone())
 			})
-			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"))
+			.or_else(|| {
+				let home = std::env::var_os("HOME")?;
+				let path = PathBuf::from(home).join(".tangram");
+				Some(path)
+			})
+			.ok_or_else(|| tg::error!("failed to get the directory, set HOME or pass --directory"))
 	}
 
 	/// Initialize miette.

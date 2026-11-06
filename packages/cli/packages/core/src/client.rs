@@ -106,16 +106,20 @@ impl Cli {
 					.and_then(|listeners| listeners.first())
 					.and_then(|listener| listener.url.clone())
 			})
-			.unwrap_or_else(|| {
-				let path = self.directory_path().join("socket");
-				let path = path.to_str().unwrap();
-				tangram_uri::Uri::builder()
-					.scheme("http+unix")
-					.authority(path)
-					.path("")
-					.build()
-					.unwrap()
-			});
+			.map_or_else(
+				|| {
+					let path = self.directory_path()?.join("socket");
+					let path = path.to_str().unwrap();
+					let url = tangram_uri::Uri::builder()
+						.scheme("http+unix")
+						.authority(path)
+						.path("")
+						.build()
+						.unwrap();
+					Ok::<_, tg::Error>(url)
+				},
+				Ok,
+			)?;
 
 		// Get the token.
 		let token = self.user_token();

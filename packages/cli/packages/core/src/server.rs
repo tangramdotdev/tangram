@@ -1,15 +1,14 @@
 use {
-	crate::Cli,
-	byteorder::ReadBytesExt as _,
-	std::{os::fd::AsRawFd as _, path::PathBuf},
-	tangram_client::prelude::*,
+	crate::Cli, byteorder::ReadBytesExt as _, std::os::fd::AsRawFd as _, tangram_client::prelude::*,
 };
 
 impl Cli {
 	/// Spawn a server.
 	pub async fn spawn_server(&self, client: &tg::Client) -> tg::Result<()> {
 		// Ensure the directory exists.
-		let directory = self.directory_path();
+		let directory = self.directory_path()?;
+		let directory = std::path::absolute(&directory)
+			.map_err(|error| tg::error!(!error, "failed to get the absolute directory path"))?;
 		tokio::fs::create_dir_all(&directory)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
@@ -100,13 +99,13 @@ impl Cli {
 
 		let mut args = vec![];
 		if let Some(config) = &self.args.config {
+			let config = std::path::absolute(config)
+				.map_err(|error| tg::error!(!error, "failed to get the absolute config path"))?;
 			args.push("-c".to_owned());
 			args.push(config.to_string_lossy().into_owned());
 		}
-		if let Some(directory) = &self.args.directory {
-			args.push("-d".to_owned());
-			args.push(directory.to_string_lossy().into_owned());
-		}
+		args.push("-d".to_owned());
+		args.push(directory.to_string_lossy().into_owned());
 		if let Some(remotes) = self.args.remotes.values() {
 			if remotes.is_empty() {
 				args.push("--no-remotes".to_owned());
@@ -130,16 +129,9 @@ impl Cli {
 		args.push("serve".to_owned());
 		args.push("--ready-fd".to_owned());
 		args.push(ready_fd.to_string());
-
-		// Run the server in the home directory, or in the root directory if the home directory does not exist.
-		let current_dir = std::env::var_os("HOME")
-			.map(PathBuf::from)
-			.filter(|path| path.is_dir())
-			.unwrap_or_else(|| PathBuf::from("/"));
-
 		command
 			.args(args)
-			.current_dir(current_dir)
+			.current_dir("/")
 			.stdin(std::process::Stdio::null())
 			.stdout(stdout)
 			.stderr(stderr);
@@ -194,7 +186,7 @@ impl Cli {
 	/// Stop the server.
 	pub async fn stop_server(&self) -> tg::Result<()> {
 		// Read the PID from the lock file.
-		let lock_path = self.directory_path().join("lock");
+		let lock_path = self.directory_path()?.join("lock");
 		let lock = match tokio::fs::read_to_string(&lock_path).await {
 			Ok(lock) => lock,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

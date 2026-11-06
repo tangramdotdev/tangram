@@ -66,12 +66,14 @@ pub(super) fn get_shell_directory(
 }
 
 pub(super) fn shell_state_path() -> tg::Result<PathBuf> {
-	let path = std::env::var("XDG_STATE_HOME")
+	let path = std::env::var_os("XDG_STATE_HOME")
 		.map(PathBuf::from)
-		.or_else(|_| {
-			Ok::<_, tg::Error>(PathBuf::from(std::env::var("HOME").unwrap()).join(".local/state"))
+		.or_else(|| {
+			let home = std::env::var_os("HOME")?;
+			let path = PathBuf::from(home).join(".local/state");
+			Some(path)
 		})
-		.map_err(|error| tg::error!(!error, "failed to get the state directory"))?
+		.ok_or_else(|| tg::error!("failed to get the state directory, set HOME or XDG_STATE_HOME"))?
 		.join("tangram/shell/state");
 	std::fs::create_dir_all(&path)
 		.map_err(|error| tg::error!(!error, "failed to create the state directory"))?;

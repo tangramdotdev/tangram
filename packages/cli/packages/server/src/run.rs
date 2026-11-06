@@ -52,7 +52,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let mut config = crate::config::resolve_config(cli)?;
 
 	// Get the directory.
-	let directory = cli.directory_path();
+	let directory = cli.directory_path()?;
 
 	// Set the directory and version.
 	config.directory = Some(directory);
