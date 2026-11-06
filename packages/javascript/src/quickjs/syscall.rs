@@ -1,7 +1,8 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
 use {
-	rquickjs::{self as qjs, function::Async},
+	super::StateHandle,
+	rquickjs::{self as qjs, CatchResultExt as _, function::Async},
 	tangram_client::prelude::*,
 };
 
@@ -112,11 +113,24 @@ pub fn syscall<'javascript>(
 	}?;
 
 	// Call the function with the args.
-	let mut call_args = qjs::function::Args::new_unsized(ctx);
+	let mut call_args = qjs::function::Args::new_unsized(ctx.clone());
 	call_args.push_args(syscall_args)?;
-	let output = call_args.apply(&func)?;
+	let output = call_args.apply(&func).catch(&ctx);
 
-	Ok(output)
+	// Handle the result.
+	match output {
+		Ok(output) => Ok(output),
+
+		Err(error) => {
+			// Throw an exception.
+			let state = ctx.userdata::<StateHandle>().unwrap().clone();
+			let error = super::error::from_catch(&state, &ctx, error);
+			let error = tg::error!(!error, %name, "the syscall failed");
+			let exception = super::error::to_exception(&ctx, &error)
+				.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
+			Err(ctx.throw(exception))
+		},
+	}
 }
 
 impl<T> From<tg::Result<T>> for Result<T> {
