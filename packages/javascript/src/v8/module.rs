@@ -77,46 +77,28 @@ pub fn host_import_module_dynamically_callback<'s>(
 	// Parse the import.
 	let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
 
-	// Resolve the module.
+	// Preload the module on the main runtime, so that a connection the instance creates does not depend on this thread.
 	let promise = state.create_promise(scope, {
-		let graphs = state.graphs.clone();
-		let instance = state.instance.clone();
-		let import = import.clone();
-		let main_runtime_handle = state.main_runtime_handle.clone();
+		let arg = crate::module::Arg {
+			graphs: state.graphs.clone(),
+			import,
+			instance: state.instance.clone(),
+			known: state.preloaded.borrow().known(),
+			referrer,
+		};
+		let state = state.clone();
 		async move {
-			// Resolve the module on the main runtime, so that a connection the instance creates does not depend on this thread.
-			let task = main_runtime_handle.spawn(async move {
-				// Resolve the module without the instance if possible.
-				if let Some(referrer) = &referrer
-					&& let Some(module) = graphs
-						.try_resolve_module(&instance, referrer, &import)
-						.await
-				{
-					return Ok(module);
-				}
-
-				let arg = tg::module::resolve::Arg {
-					referrer: referrer.clone(),
-					import: import.clone(),
-				};
-				let output = instance.resolve_module(arg).await.map_err(|error| {
-					tg::error!(
-						!error,
-						import = ?import.without_token(),
-						referrer = ?referrer.as_ref().map(tg::module::Data::without_token),
-						"failed to resolve the module"
-					)
-				})?;
-				Ok::<_, tg::Error>(output.module)
-			});
-			let module = task
+			let output = state
+				.main_runtime_handle
+				.spawn(crate::module::preload(arg))
 				.await
-				.map_err(|error| tg::error!(!error, "the module resolution task failed"))??;
-			Ok(Serde(module))
+				.map_err(|error| tg::error!(!error, "the module preload task failed"))??;
+			state.preloaded.borrow_mut().extend(output.modules);
+			Ok(Serde(output.module))
 		}
 	});
 
-	// Load the module if necessary.
+	// Compile, instantiate, and evaluate the module.
 	let handler = v8::Function::builder(
 		|scope: &mut v8::PinScope,
 		 args: v8::FunctionCallbackArguments,
@@ -128,100 +110,19 @@ pub fn host_import_module_dynamically_callback<'s>(
 			let value: v8::Local<v8::Value> = unsafe { std::mem::transmute(args.get(0)) };
 			let Serde(module) = Serde::<tg::module::Data>::deserialize(scope, value).unwrap();
 
-			// Check if the module already exists.
-			let index = state.module_index(&module);
-
-			if let Some(index) = index {
-				state.modules.borrow_mut()[index]
-					.data
-					.referent
-					.options
-					.tokens
-					.inherit(&module.referent.options.tokens);
-				let index = v8::Integer::new(scope, index.to_i32().unwrap());
-				return_value.set(index.into());
+			// Get the module if it already exists. Otherwise, compile and instantiate it.
+			let v8_module = if let Some(v8_module) = existing_module(scope, &state, &module) {
+				v8_module
 			} else {
-				let promise = state.create_promise(scope, {
-					let graphs = state.graphs.clone();
-					let instance = state.instance.clone();
-					let main_runtime_handle = state.main_runtime_handle.clone();
-					async move {
-						// Load the module on the main runtime, so that a connection the instance creates does not depend on this thread.
-						let task = main_runtime_handle.spawn({
-							let module = module.clone();
-							async move {
-								if let Some(output) = graphs
-									.try_load_module(
-										&instance,
-										&module,
-										tg::module::load::Language::JavaScript,
-									)
-									.await
-								{
-									return Ok(output);
-								}
-								let arg = tg::module::load::Arg {
-									language: Some(tg::module::load::Language::JavaScript),
-									module: module.clone(),
-								};
-								instance.load_module(arg).await.map_err(|error| {
-									tg::error!(
-										!error,
-										module = ?module.without_token(),
-										"failed to load the module"
-									)
-								})
-							}
-						});
-						let output = task
-							.await
-							.map_err(|error| tg::error!(!error, "the module load task failed"))??;
-						let mut module = module;
-						module.referent.options.tokens.inherit(&output.tokens);
-						Ok(Serde((module, output.text)))
-					}
-				});
-				return_value.set(promise.into());
-			}
-		},
-	)
-	.build(scope)
-	.unwrap();
-	let promise = promise.then(scope, handler).unwrap();
-
-	// Compile, instantiate, and evaluate the module.
-	let handler = v8::Function::builder(
-		|scope: &mut v8::PinScope,
-		 args: v8::FunctionCallbackArguments,
-		 mut return_value: v8::ReturnValue| {
-			let arg = args.get(0);
-			let context = scope.get_current_context();
-			let state = context.get_slot::<State>().unwrap().clone();
-
-			let v8_module = if let Ok(index) = v8::Local::<v8::Integer>::try_from(arg) {
-				let index = index.value().to_usize().unwrap();
-				let modules = state.modules.borrow();
-				let module = &modules[index];
-				let v8_module = module.v8.as_ref().unwrap();
-				v8::Local::new(scope, v8_module)
-			} else {
-				let value: v8::Local<v8::Value> = unsafe { std::mem::transmute(arg) };
-				let Serde((module, text)) =
-					Serde::<(tg::module::Data, String)>::deserialize(scope, value).unwrap();
-
-				// Compile the module.
-				let Some(v8_module) = compile_module(scope, &module, &text) else {
+				let Some(v8_module) = compile_preloaded_module(scope, &state, &module) else {
 					return;
 				};
-
-				// Instantiate the module.
 				if v8_module
 					.instantiate_module(scope, resolve_module_callback)
 					.is_none()
 				{
 					return;
 				}
-
 				v8_module
 			};
 
@@ -301,158 +202,74 @@ fn resolve_module_callback<'s>(
 	// Parse the import.
 	let import = parse_import(scope, specifier, attributes, ImportKind::Static)?;
 
-	// Resolve the module.
-	let mut module = resolve_module_sync(scope, &module, &import)?;
-
-	// Get the module if it already exists. Otherwise, load and compile it.
-	let index = state.module_index(&module);
-	let module = if let Some(index) = index {
-		let v8_module = {
-			let mut modules = state.modules.borrow_mut();
-			let entry = &mut modules[index];
-			entry
-				.data
-				.referent
-				.options
-				.tokens
-				.inherit(&module.referent.options.tokens);
-			entry.v8.as_ref().unwrap().clone()
-		};
-		let module = v8::Local::new(scope, v8_module);
-		Some(module)
-	} else {
-		// Load the module.
-		let text = load_module_sync(scope, &mut module)?;
-
-		// Compile the module.
-		let module = compile_module(scope, &module, &text)?;
-
-		Some(module)
-	}?;
-
-	Some(module)
-}
-
-/// Resolve a module synchronously.
-fn resolve_module_sync(
-	scope: &mut v8::PinScope,
-	referrer: &tg::module::Data,
-	import: &tg::module::Import,
-) -> Option<tg::module::Data> {
-	let context = scope.get_current_context();
-	let state = context.get_slot::<State>().unwrap().clone();
-	let (sender, receiver) = std::sync::mpsc::channel();
-	state.main_runtime_handle.spawn({
-		let graphs = state.graphs.clone();
-		let instance = state.instance.clone();
-		let referrer = referrer.clone();
-		let import = import.clone();
-		async move {
-			// Resolve the module without the instance if possible.
-			let result = if let Some(module) = graphs
-				.try_resolve_module(&instance, &referrer, &import)
-				.await
-			{
-				Ok(module)
-			} else {
-				let arg = tg::module::resolve::Arg {
-					referrer: Some(referrer),
-					import,
-				};
-				instance
-					.resolve_module(arg)
-					.await
-					.map(|output| output.module)
-			};
-			sender.send(result).unwrap();
-		}
-	});
-	let result = receiver.recv().unwrap().map_err(|error| {
-		tg::error!(
-			!error,
+	// Get the module that the preload resolved the import to.
+	let resolution = state.preloaded.borrow().resolution(Some(&module), &import);
+	let Some(module) = resolution else {
+		let error = tg::error!(
 			import = ?import.without_token(),
-			referrer = ?referrer.without_token(),
-			"failed to resolve"
-		)
-	});
-	let module = match result {
-		Ok(module) => module,
-		Err(error) => {
-			let exception = error::to_exception(scope, &error)?;
-			scope.throw_exception(exception);
-			return None;
-		},
+			referrer = ?module.without_token(),
+			"failed to find the preloaded import"
+		);
+		let exception = error::to_exception(scope, &error)?;
+		scope.throw_exception(exception);
+		return None;
 	};
-	Some(module)
+
+	// Get the module if it already exists. Otherwise, compile it.
+	if let Some(v8_module) = existing_module(scope, &state, &module) {
+		return Some(v8_module);
+	}
+	compile_preloaded_module(scope, &state, &module)
 }
 
-// Load a module synchronously.
-fn load_module_sync(scope: &mut v8::PinScope, module: &mut tg::module::Data) -> Option<String> {
-	let context = scope.get_current_context();
-	let state = context.get_slot::<State>().unwrap().clone();
-	let (sender, receiver) = std::sync::mpsc::channel();
-	state.main_runtime_handle.spawn({
-		let graphs = state.graphs.clone();
-		let instance = state.instance.clone();
-		let module = module.clone();
-		async move {
-			// Load the module without the instance if possible.
-			let result = if let Some(output) = graphs
-				.try_load_module(&instance, &module, tg::module::load::Language::JavaScript)
-				.await
-			{
-				Ok(output)
-			} else {
-				let arg = tg::module::load::Arg {
-					language: Some(tg::module::load::Language::JavaScript),
-					module,
-				};
-				instance.load_module(arg).await
-			};
-			sender.send(result).unwrap();
-		}
-	});
-	let result = receiver.recv().unwrap().map_err(
-		|error| tg::error!(!error, module = ?module.without_token(), "failed to load the module"),
-	);
-	let output = match result {
-		Ok(output) => output,
-		Err(error) => {
-			let exception = error::to_exception(scope, &error)?;
-			scope.throw_exception(exception);
-			return None;
-		},
+/// Get a compiled module, adding the tokens of the given module to it.
+fn existing_module<'s>(
+	scope: &mut v8::PinScope<'s, '_>,
+	state: &State,
+	module: &tg::module::Data,
+) -> Option<v8::Local<'s, v8::Module>> {
+	let index = state.module_index(module)?;
+	let mut modules = state.modules.borrow_mut();
+	let entry = &mut modules[index];
+	entry
+		.data
+		.referent
+		.options
+		.tokens
+		.inherit(&module.referent.options.tokens);
+	let v8_module = entry.v8.as_ref().unwrap().clone();
+	Some(v8::Local::new(scope, v8_module))
+}
+
+/// Compile a preloaded module.
+fn compile_preloaded_module<'s>(
+	scope: &mut v8::PinScope<'s, '_>,
+	state: &State,
+	module: &tg::module::Data,
+) -> Option<v8::Local<'s, v8::Module>> {
+	let entry = state.preloaded.borrow().entry(module);
+	let Some(entry) = entry else {
+		let error =
+			tg::error!(module = ?module.without_token(), "failed to find the preloaded module");
+		let exception = error::to_exception(scope, &error)?;
+		scope.throw_exception(exception);
+		return None;
 	};
-	module.referent.options.tokens.inherit(&output.tokens);
-	Some(output.text)
+	compile_module(scope, &entry)
 }
 
 /// Compile a module.
 fn compile_module<'s>(
 	scope: &mut v8::PinScope<'s, '_>,
-	module: &tg::module::Data,
-	text: &str,
+	entry: &crate::module::Entry,
 ) -> Option<v8::Local<'s, v8::Module>> {
 	// Get the context and state.
 	let context = scope.get_current_context();
 	let state = context.get_slot::<State>().unwrap().clone();
-
-	// Transpile the module.
-	let output = tangram_compiler::Compiler::transpile(text, module);
-	if !output.diagnostics.is_empty() {
-		let diagnostics = output
-			.diagnostics
-			.into_iter()
-			.filter_map(|diagnostic| diagnostic.try_into().ok())
-			.collect();
-		let error = tg::error!(diagnostics = diagnostics, "failed to transpile the module");
-		let exception = error::to_exception(scope, &error)?;
-		scope.throw_exception(exception);
-		return None;
-	}
+	let module = &entry.module;
 
 	// Parse the source map.
-	let source_map = match SourceMap::from_slice(output.source_map.as_bytes())
+	let source_map = match SourceMap::from_slice(entry.source_map.as_bytes())
 		.map_err(|error| tg::error!(!error, "failed to parse the error map"))
 	{
 		Ok(source_map) => source_map,
@@ -484,14 +301,14 @@ fn compile_module<'s>(
 	let resource_column_offset = 0;
 	let resource_is_shared_cross_origin = false;
 	let script_id = id.to_i32().unwrap();
-	let source_map_url = if output.text == text {
-		None
-	} else {
+	let source_map_url = if entry.transpiled {
 		let source_map_url = format!(
 			"data:application/json;charset=utf-8;base64,{}",
-			BASE64.encode(output.source_map.as_bytes())
+			BASE64.encode(entry.source_map.as_bytes())
 		);
 		v8::String::new(scope, &source_map_url).map(Into::into)
+	} else {
+		None
 	};
 	let resource_is_opaque = false;
 	let is_wasm = false;
@@ -512,7 +329,7 @@ fn compile_module<'s>(
 	);
 
 	// Compile the module.
-	let source = v8::String::new(scope, &output.text).unwrap();
+	let source = v8::String::new(scope, &entry.text).unwrap();
 	let mut source = v8::script_compiler::Source::new(source, Some(&origin));
 	let module = v8::script_compiler::compile_module(scope, &mut source)?;
 	let module_global = v8::Global::new(scope, module);

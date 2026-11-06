@@ -51,6 +51,7 @@ struct State {
 	module_indices: RefCell<HashMap<String, usize>>,
 	module_indices_with_v8: RefCell<HashMap<NonZeroI32, Vec<usize>>>,
 	modules: RefCell<Vec<Module>>,
+	preloaded: RefCell<crate::module::Modules>,
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, self::promise::Output>>>,
 	rejections: RefCell<Vec<Rejection>>,
 }
@@ -140,6 +141,7 @@ impl Runtime {
 		));
 		let main_runtime_handle = arg.main_runtime_handle.clone();
 		let modules = RefCell::new(Vec::new());
+		let preloaded = RefCell::default();
 		let promises = RefCell::new(FuturesUnordered::new());
 		let rejections = RefCell::new(Vec::new());
 		let state = Rc::new(State {
@@ -153,6 +155,7 @@ impl Runtime {
 			module_indices: RefCell::new(HashMap::new()),
 			module_indices_with_v8: RefCell::new(HashMap::new()),
 			modules,
+			preloaded,
 			promises,
 			rejections,
 		});

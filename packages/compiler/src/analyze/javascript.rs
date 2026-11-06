@@ -16,6 +16,7 @@ struct Visitor<'a> {
 	diagnostics: Vec<tg::diagnostic::Data>,
 	imports: HashSet<tg::module::Import, fnv::FnvBuildHasher>,
 	module: &'a tg::module::Data,
+	static_imports: HashSet<tg::module::Import, fnv::FnvBuildHasher>,
 	text: &'a str,
 }
 
@@ -36,10 +37,12 @@ pub(super) fn analyze(module: &tg::module::Data, text: &str) -> Analysis {
 	visitor.visit_program(&output.program);
 	diagnostics.extend(visitor.diagnostics);
 	let imports = visitor.imports;
+	let static_imports = visitor.static_imports;
 
 	Analysis {
 		diagnostics,
 		imports,
+		static_imports,
 	}
 }
 
@@ -49,6 +52,7 @@ impl<'a> Visitor<'a> {
 			diagnostics: Vec::new(),
 			imports: HashSet::default(),
 			module,
+			static_imports: HashSet::default(),
 			text,
 		}
 	}
@@ -122,12 +126,23 @@ impl<'a> Visitor<'a> {
 		None
 	}
 
-	fn add_import(
+	fn add_static_import(
 		&mut self,
 		specifier: Option<&str>,
 		attributes: Option<&BTreeMap<String, String>>,
 		span: Span,
 	) {
+		if let Some(import) = self.add_import(specifier, attributes, span) {
+			self.static_imports.insert(import);
+		}
+	}
+
+	fn add_import(
+		&mut self,
+		specifier: Option<&str>,
+		attributes: Option<&BTreeMap<String, String>>,
+		span: Span,
+	) -> Option<tg::module::Import> {
 		let result = specifier
 			.ok_or_else(|| tg::error!("the import specifier must be valid unicode"))
 			.and_then(|specifier| {
@@ -135,7 +150,8 @@ impl<'a> Visitor<'a> {
 			});
 		match result {
 			Ok(import) => {
-				self.imports.insert(import);
+				self.imports.insert(import.clone());
+				Some(import)
 			},
 			Err(error) => {
 				let byte_range = span.start as usize..span.end as usize;
@@ -166,6 +182,7 @@ impl<'a> Visitor<'a> {
 					severity: tg::diagnostic::Severity::Error,
 				};
 				self.diagnostics.push(diagnostic);
+				None
 			},
 		}
 	}
@@ -178,7 +195,11 @@ impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 			.with_clause
 			.as_ref()
 			.map(|with_clause| Self::get_import_attributes_from_with_clause(with_clause));
-		self.add_import(specifier, attributes.as_ref(), declaration.span);
+		if declaration.import_kind.is_type() {
+			self.add_import(specifier, attributes.as_ref(), declaration.span);
+		} else {
+			self.add_static_import(specifier, attributes.as_ref(), declaration.span);
+		}
 	}
 
 	fn visit_export_from_declaration(&mut self, declaration: &ExportFromDeclaration<'a>) {
@@ -187,7 +208,11 @@ impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 			.with_clause
 			.as_ref()
 			.map(|with_clause| Self::get_import_attributes_from_with_clause(with_clause));
-		self.add_import(specifier, attributes.as_ref(), declaration.span);
+		if declaration.export_kind.is_type() {
+			self.add_import(specifier, attributes.as_ref(), declaration.span);
+		} else {
+			self.add_static_import(specifier, attributes.as_ref(), declaration.span);
+		}
 		oxc::ast_visit::walk::walk_export_from_declaration(self, declaration);
 	}
 
@@ -197,7 +222,11 @@ impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 			.with_clause
 			.as_ref()
 			.map(|with_clause| Self::get_import_attributes_from_with_clause(with_clause));
-		self.add_import(specifier, attributes.as_ref(), declaration.span);
+		if declaration.export_kind.is_type() {
+			self.add_import(specifier, attributes.as_ref(), declaration.span);
+		} else {
+			self.add_static_import(specifier, attributes.as_ref(), declaration.span);
+		}
 	}
 
 	fn visit_import_expression(&mut self, expression: &oxc::ast::ast::ImportExpression<'a>) {
@@ -264,7 +293,22 @@ mod tests {
 			kind: tg::module::Kind::TypeScript,
 			referent: tg::Referent::with_node(tg::module::data::Source::Path("test.tg.ts".into())),
 		};
-		let found = Compiler::analyze(&module, text).unwrap().imports;
+		let analysis = Compiler::analyze(&module, text).unwrap();
+		let found = analysis.imports;
+		let found_static = analysis.static_imports;
+		let expected_static = [
+			"default_import",
+			"./named_import.tg.js",
+			"namespace_import",
+			"named_export",
+			"./namespace_export.ts",
+		]
+		.into_iter()
+		.map(|specifier| {
+			tg::module::Import::with_specifier_and_attributes(specifier, None).unwrap()
+		})
+		.collect();
+		assert_eq!(found_static, expected_static);
 		let expected = [
 			"default_import",
 			"./named_import.tg.js",
