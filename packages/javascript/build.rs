@@ -1,6 +1,6 @@
 use {
 	indoc::formatdoc,
-	std::path::{Path, PathBuf},
+	std::path::{Component, Path, PathBuf},
 };
 
 fn main() {
@@ -22,6 +22,8 @@ fn javascript() {
 	// Canonicalize the client path because typescript does not normalize parent components in tsconfig include patterns.
 	let client_path =
 		std::fs::canonicalize(manifest_directory_path.join("../clients/javascript")).unwrap();
+	// Canonicalize the repository path because esbuild resolves symlinks in the source paths.
+	let repository_path = std::fs::canonicalize(manifest_directory_path.join("../..")).unwrap();
 
 	// Install dependencies.
 	println!("cargo:rerun-if-env-changed=NODE_PATH");
@@ -114,10 +116,11 @@ fn javascript() {
 		);
 	}
 	esbuild.status().unwrap().success().then_some(()).unwrap();
-	fixup_source_map(out_dir_path.join("main.js.map"));
+	fixup_source_map(out_dir_path.join("main.js.map"), &repository_path);
 }
 
-fn fixup_source_map(path: impl AsRef<Path>) {
+fn fixup_source_map(path: impl AsRef<Path>, repository_path: &Path) {
+	let directory_path = path.as_ref().parent().unwrap();
 	let bytes = std::fs::read(&path).unwrap();
 	let mut json = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
 	let sources = json.get_mut("sources").unwrap().as_array_mut().unwrap();
@@ -125,6 +128,22 @@ fn fixup_source_map(path: impl AsRef<Path>) {
 		let serde_json::Value::String(source) = source else {
 			panic!();
 		};
+
+		// Make a source in the repository relative to the repository.
+		let mut source_path = directory_path.to_owned();
+		for component in Path::new(source.as_str()).components() {
+			if component == Component::ParentDir {
+				source_path.pop();
+			} else {
+				source_path.push(component);
+			}
+		}
+		if let Ok(relative_path) = source_path.strip_prefix(repository_path) {
+			*source = relative_path.to_str().unwrap().to_owned();
+			continue;
+		}
+
+		// Remove the leading parent components from any other source.
 		let prefix = "../";
 		while source.strip_prefix(prefix).is_some() {
 			source.drain(..prefix.len()).for_each(drop);
