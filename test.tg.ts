@@ -185,7 +185,7 @@ export const testE2e = async (arg: E2eArg = {}) => {
 			filters.some((filter) => new RegExp(filter).test(test)),
 	);
 
-	// Run each test in its own sandbox.
+	// Create the environment for the tests.
 	const env = std.env.arg(
 		std.sdk(),
 		pythonArtifact,
@@ -205,13 +205,18 @@ export const testE2e = async (arg: E2eArg = {}) => {
 			SSL_CERT_FILE: tg`${std.caCertificates()}/cacert.pem`,
 		},
 	);
-	const results = await Promise.allSettled(
-		selected.map((test) => {
+
+	// Run each test in its own sandbox, with a limited number at once, so that the sandboxes fit in the scheduler's queue, which holds 1024 by default.
+	const limit = 512;
+	const failures: Array<string> = [];
+	const remaining = selected.values();
+	const runTests = async () => {
+		for (const test of remaining) {
 			const directory = test.includes("/")
 				? test.slice(0, test.lastIndexOf("/"))
 				: "";
 			const filter = `/packages/tests/tests/${test.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
-			return std.build`
+			await std.build`
 				# Install std's loader at the path that the standalone executables request, and its libraries in /lib, where the loader searches.
 				mkdir -p /lib "$(dirname ${interpreter})"
 				ln -s ${ldso} ${interpreter}
@@ -239,17 +244,18 @@ export const testE2e = async (arg: E2eArg = {}) => {
 				.named(test)
 				.network(!offline)
 				.checksum(offline ? null : "sha256:any")
-				.env(env);
-		}),
-	);
+				.env(env)
+				.then(undefined, () => {
+					failures.push(test);
+				});
+		}
+	};
+	await Promise.all(Array.from({ length: limit }, runTests));
 
 	// Report the failed tests.
-	const failures = selected.filter(
-		(_, index) => results[index]?.status === "rejected",
-	);
 	if (failures.length > 0) {
 		throw new Error(
-			`${failures.length} of ${selected.length} tests failed:\n${failures.join("\n")}`,
+			`${failures.length} of ${selected.length} tests failed:\n${failures.sort().join("\n")}`,
 		);
 	}
 };
