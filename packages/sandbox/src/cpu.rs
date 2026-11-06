@@ -182,6 +182,14 @@ impl Share {
 		self.id
 	}
 
+	pub(crate) fn set_cpu(&self, cpu: tg::sandbox::Cpu) -> tg::Result<()> {
+		let mut entries = self.shares.0.entries.lock().unwrap();
+		let entry = entries.entries.get_mut(&self.id.0).unwrap();
+		entry.cpu = cpu;
+		self.shares.weigh(&entries, self.id)?;
+		Ok(())
+	}
+
 	/// Set the sandbox whose CPU minimum this sandbox borrows from.
 	pub(crate) fn set_lender(&self, lender: Option<ShareId>) -> tg::Result<()> {
 		self.shares.set_lender(self.id, lender)
@@ -297,6 +305,16 @@ mod tests {
 		std::fs::write(temp.path().join("lender").join("cpu.weight"), "     ").unwrap();
 		borrower.set_lender(Some(lender.id())).unwrap();
 		assert_eq!([weight("lender"), weight("borrower")], [1, 5000]);
+
+		// Resizing the borrower preserves its lender and share identity.
+		let id = borrower.id();
+		let cpu = tg::sandbox::Cpu::new(
+			tg::sandbox::Amount::from_millis(1000),
+			tg::sandbox::Amount::from_millis(1000),
+		);
+		borrower.set_cpu(cpu).unwrap();
+		assert_eq!(borrower.id(), id);
+		assert_eq!([weight("lender"), weight("borrower")], [2500, 2500]);
 
 		// Dropping the borrower returns the minimum to the lender.
 		std::fs::write(temp.path().join("lender").join("cpu.weight"), "     ").unwrap();

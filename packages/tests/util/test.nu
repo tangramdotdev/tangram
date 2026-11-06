@@ -510,6 +510,14 @@ export def --env "server spawn" [
 	} else {
 		$config | upsert vfs { kind: 'fskit' }
 	}
+	# Give a server running as root the test's project IDs, because project quotas are shared by every server on the file system.
+	let config = if $root {
+		let project_ids = $env.TANGRAM_TEST_PROJECT_IDS | from json
+		$config | merge deep { runner: { resources: { filesystem_project_ids: $project_ids } } }
+	} else {
+		$config
+	}
+
 	# Start the server's virtual clock at the requested time.
 	let config = if $now == null { $config } else { $config | upsert advanced (($config.advanced? | default {}) | upsert clock { start: $now }) }
 	let config_path = mktemp -d

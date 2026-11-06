@@ -255,6 +255,47 @@ impl Allocation {
 		drop(entries);
 	}
 
+	pub(crate) fn set_resource(&self, resource: tg::sandbox::Resource<u64>) -> tg::Result<()> {
+		resource.validate()?;
+		let max = resource.max.unwrap_or(self.pool.0.capacity);
+		if max < self.pool.0.floor || self.pool.round(resource.min)? > max {
+			return Err(tg::error!(
+				"the resource maximum is smaller than the allocation unit"
+			));
+		}
+		let mut entries = self.pool.0.entries.lock().unwrap();
+		if entries.poisoned {
+			return Err(tg::error!(
+				"the resource pool is unavailable after a failed limit update"
+			));
+		}
+		let entry = &entries.entries[&self.id];
+		if let Some(control) = &entry.control {
+			let usage = (control.usage)()?;
+			if self
+				.pool
+				.round(usage.max(resource.min).max(self.pool.0.floor))?
+				> max
+			{
+				return Err(tg::error!(
+					"the resource maximum is smaller than the occupied space"
+				));
+			}
+		}
+		let previous_limits = limits(&entries);
+		let entry = entries.entries.get_mut(&self.id).unwrap();
+		let previous = (entry.max, entry.min);
+		entry.max = max;
+		entry.min = resource.min;
+		if let Err(error) = self.pool.rebalance(&mut entries) {
+			let entry = entries.entries.get_mut(&self.id).unwrap();
+			(entry.max, entry.min) = previous;
+			restore(&mut entries, previous_limits)?;
+			return Err(error);
+		}
+		Ok(())
+	}
+
 	#[must_use]
 	pub(crate) fn limit(&self) -> u64 {
 		self.pool.0.entries.lock().unwrap().entries[&self.id].limit
@@ -340,6 +381,35 @@ mod tests {
 			Ok(())
 		});
 		Control { limit, usage }
+	}
+
+	#[test]
+	fn resizing_preserves_other_minima_and_rejects_occupied_space() {
+		let pool = Pool::new(100, 0, 1);
+		let first = pool
+			.allocate(tg::sandbox::Resource::new(10, 100), None)
+			.unwrap();
+		let usage = Arc::new(AtomicU64::new(20));
+		let limit = Arc::new(AtomicU64::new(0));
+		first.bind(control(usage.clone(), limit.clone())).unwrap();
+		let second = pool
+			.allocate(tg::sandbox::Resource::new(30, 100), None)
+			.unwrap();
+		first
+			.set_resource(tg::sandbox::Resource::new(40, 50))
+			.unwrap();
+		assert!((40..=50).contains(&first.limit()));
+		assert!(second.limit() >= 30);
+		assert!(first.limit() + second.limit() <= 100);
+		assert!(first.set_resource(10.into()).is_err());
+		assert!((40..=50).contains(&first.limit()));
+		assert!(
+			first
+				.set_resource(tg::sandbox::Resource::new(80, 100))
+				.is_err()
+		);
+		assert!((40..=50).contains(&first.limit()));
+		assert!(second.limit() >= 30);
 	}
 
 	#[test]

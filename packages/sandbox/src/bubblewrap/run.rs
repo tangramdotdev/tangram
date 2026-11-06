@@ -101,8 +101,9 @@ fn command(command_arg: &crate::run::Command, arg: &Arg) -> tg::Result<Command> 
 	if arg.as_pid_1 {
 		command.arg("--as-pid-1");
 	}
+	command.arg("--unshare-uts");
 	if let Some(hostname) = &arg.hostname {
-		command.arg("--unshare-uts").arg("--hostname").arg(hostname);
+		command.arg("--hostname").arg(hostname);
 	}
 
 	// Set the environment and seccomp filter.

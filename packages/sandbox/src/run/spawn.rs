@@ -36,6 +36,7 @@ enum UserQuery {
 
 pub(crate) struct Output {
 	pub filesystem: Option<crate::filesystem::Filesystem>,
+	pub mounts: Vec<(PathBuf, bool)>,
 	pub process: tokio::process::Child,
 	pub storage: Option<crate::budget::Allocation>,
 }
@@ -210,6 +211,16 @@ pub(crate) async fn spawn(
 	}
 
 	// Bind the resolver configuration and user mounts.
+	if arg.prepare {
+		let source = arg.path.join("namespaces.sock");
+		add_mount(source, crate::configuration_socket_path(), true);
+		let resolver = Sandbox::host_resolv_conf_path_from_root(&arg.path);
+		if !resolver.exists() {
+			std::fs::write(&resolver, "").map_err(|error| {
+				tg::error!(!error, "failed to stage the resolver configuration")
+			})?;
+		}
+	}
 	let resolv_conf_path = Sandbox::host_resolv_conf_path_from_root(&arg.path);
 	if resolv_conf_path.exists() {
 		add_mount(resolv_conf_path, "/etc/resolv.conf".into(), true);
@@ -258,6 +269,9 @@ pub(crate) async fn spawn(
 		"--tangram-path".into(),
 		serve_arg.tangram_path.clone().into_os_string(),
 	];
+	if let Some(path) = &serve_arg.namespaces {
+		arguments.extend(["--namespaces".into(), path.clone().into_os_string()]);
+	}
 	arguments.extend(
 		crate::util::http2_args(&serve_arg.http2)
 			.into_iter()
@@ -465,6 +479,21 @@ pub(crate) async fn spawn(
 	// Create the launch output.
 	let output = Output {
 		filesystem,
+		mounts: launch
+			.options
+			.mounts
+			.binds
+			.iter()
+			.map(|mount| (mount.target.clone(), false))
+			.chain(
+				launch
+					.options
+					.mounts
+					.ro_binds
+					.iter()
+					.map(|mount| (mount.target.clone(), true)),
+			)
+			.collect(),
 		process: child,
 		storage,
 	};
@@ -594,7 +623,7 @@ fn prepare_user_namespace(
 	Ok(output)
 }
 
-fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
+pub(crate) fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
 	// SAFETY: The pre_exec closure only calls async-signal-safe operations.
 	unsafe {
 		command.pre_exec(move || {
@@ -735,26 +764,36 @@ fn prepare_etc_files(
 			std::fs::copy("/etc/resolv.conf", path)
 				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
 		},
-		Some(crate::network::Network::Pasta(_)) => {
-			let contents = format!("nameserver {}\n", crate::network::pasta::DNS_FORWARD_IP);
-			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
-			std::fs::write(path, contents)
-				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+		Some(network) => {
+			if let Some(contents) = resolv_conf(network) {
+				let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
+				std::fs::write(path, contents)
+					.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+			}
 		},
-		Some(crate::network::Network::Veth(network)) => {
+		None => (),
+	}
+
+	Ok(user)
+}
+
+/// Render the resolver configuration of a network that provides its own DNS servers.
+pub(crate) fn resolv_conf(network: &crate::network::Network) -> Option<String> {
+	match network {
+		crate::network::Network::Pasta(_) => Some(format!(
+			"nameserver {}\n",
+			crate::network::pasta::DNS_FORWARD_IP
+		)),
+		crate::network::Network::Veth(network) => {
 			let mut contents = String::new();
 			for server in network.dns() {
 				use std::fmt::Write as _;
 				writeln!(&mut contents, "nameserver {server}").unwrap();
 			}
-			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
-			std::fs::write(path, contents)
-				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+			Some(contents)
 		},
-		_ => (),
+		_ => None,
 	}
-
-	Ok(user)
 }
 
 fn render_passwd(user: &User) -> String {
