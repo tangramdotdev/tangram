@@ -2059,6 +2059,7 @@ impl Scheduler {
 			location: Some(location),
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(id.clone()),
+			process: None,
 			processes,
 			registration: None,
 			runner: request.runner.clone(),
@@ -2067,14 +2068,15 @@ impl Scheduler {
 			touched_at: now,
 		};
 
-		// Put a starting process with its sandbox in one item, so that the two are written together.
-		let item = if status.is_starting()
+		// Carry a starting process in the sandbox's item, so that the two are written together.
+		let mut arg = arg;
+		if status.is_starting()
 			&& let Some(process) = &request.process
 		{
-			self.starting_process_item(process, arg, now)?
-		} else {
-			tangram_index::Item::PutSandbox(Box::new(arg))
-		};
+			let process = self.starting_process_arg(process, id, now)?;
+			arg.process = Some(Box::new(process));
+		}
+		let item = tangram_index::Item::PutSandbox(Box::new(arg));
 		let arg = tangram_index::write::Arg { items: vec![item] };
 		self.server
 			.components
@@ -2101,12 +2103,12 @@ impl Scheduler {
 
 impl Scheduler {
 	/// Create the starting record of a process, which is visible until its runner connects.
-	fn starting_process_item(
+	fn starting_process_arg(
 		&self,
 		process: &tg::runner::control::Process,
-		sandbox: tangram_index::sandbox::put::Arg,
+		sandbox: &tg::sandbox::Id,
 		now: i64,
-	) -> tg::Result<tangram_index::Item> {
+	) -> tg::Result<tangram_index::process::put::Arg> {
 		let id = process
 			.id
 			.clone()
@@ -2145,13 +2147,13 @@ impl Scheduler {
 			permissions: Vec::new(),
 			principal: tg::Principal::Process(id),
 			registration: None,
-			sandbox: Some(tangram_index::process::put::Sandbox::Put(sandbox)),
+			sandbox: Some(sandbox.clone()),
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};
 
-		Ok(tangram_index::Item::PutProcess(Box::new(arg)))
+		Ok(arg)
 	}
 
 	/// Record the failure of a process whose sandbox ended before the process started.

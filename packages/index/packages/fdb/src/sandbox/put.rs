@@ -11,6 +11,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::sandbox::put::Arg],
 		partition_totals: crate::PartitionTotals,
+		process_data_fragment_size: usize,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let mut rejection = None;
 		for arg in args {
@@ -19,6 +20,24 @@ impl Index {
 			);
 			if let Err(error) = result {
 				rejection.get_or_insert(error);
+				continue;
+			}
+
+			// Put the process that the sandbox carries. A rejected process leaves the sandbox in place, because the sandbox is valid without it.
+			if let Some(process) = &arg.process {
+				let result = crate::propagate!(
+					Self::put_processes_with_transaction(
+						txn,
+						subspace,
+						std::slice::from_ref(process.as_ref()),
+						partition_totals,
+						process_data_fragment_size,
+					)
+					.await
+				);
+				if let Err(error) = result {
+					rejection.get_or_insert(error);
+				}
 			}
 		}
 

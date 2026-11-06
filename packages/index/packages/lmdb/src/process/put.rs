@@ -199,14 +199,11 @@ impl Index {
 		});
 		let sandbox = arg.data.as_ref().map_or_else(
 			|| {
-				arg.sandbox
-					.as_ref()
-					.map(|sandbox| sandbox.id().clone())
-					.or_else(|| {
-						existing
-							.as_ref()
-							.and_then(|existing| existing.sandbox.clone())
-					})
+				arg.sandbox.clone().or_else(|| {
+					existing
+						.as_ref()
+						.and_then(|existing| existing.sandbox.clone())
+				})
 			},
 			|data| data.sandbox.clone(),
 		);
@@ -411,11 +408,7 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to put the propagation"))?;
 		}
 
-		if let Some(sandbox) = arg
-			.sandbox
-			.as_ref()
-			.map(tangram_index::process::put::Sandbox::id)
-		{
+		if let Some(sandbox) = &arg.sandbox {
 			Self::put_sandbox_process_with_transaction(db, subspace, transaction, sandbox, id)?;
 		}
 
@@ -586,19 +579,6 @@ impl Index {
 	) -> tg::Result<tg::Result<()>> {
 		let mut rejection = None;
 		for process in args {
-			// Put the sandbox, which the process's membership requires.
-			if let Some(tangram_index::process::put::Sandbox::Put(sandbox)) = &process.sandbox
-				&& let Err(error) = Self::put_sandboxes_with_transaction(
-					db,
-					subspace,
-					transaction,
-					std::slice::from_ref(sandbox),
-					usage_partition_total,
-				)? {
-				rejection.get_or_insert(error);
-				continue;
-			}
-
 			// Put the process.
 			if let Err(error) = Self::put_process(
 				db,

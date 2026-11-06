@@ -31,6 +31,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 9)]
 	pub principal: tg::Principal,
 
+	/// The process that the sandbox is created with, which is put after the sandbox, in the same transaction.
+	#[tangram_serialize(default, id = 13, skip_serializing_if = "Option::is_none")]
+	pub process: Option<Box<crate::process::put::Arg>>,
+
 	#[tangram_serialize(id = 7)]
 	pub processes: Option<Vec<tg::process::Id>>,
 

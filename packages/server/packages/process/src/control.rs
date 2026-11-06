@@ -528,10 +528,6 @@ impl Component {
 		let location = tg::Location::Local(tg::location::Local {
 			region: session.server.config.region.clone(),
 		});
-		let sandbox = match sandbox {
-			Some(arg) => tangram_index::process::put::Sandbox::Put(arg),
-			None => tangram_index::process::put::Sandbox::Id(sandbox_id.clone()),
-		};
 		let mut captures = tangram_index::permission::capture::Captures::default();
 		let permission_arg =
 			Self::create_process_sandbox_permission_arg(session, &id, sandbox_id, touched_at)?;
@@ -553,38 +549,45 @@ impl Component {
 			)?;
 			captures.extend(command_captures);
 		}
-		let items = vec![tangram_index::Item::PutProcess(Box::new(
-			tangram_index::process::put::Arg {
-				account,
-				cached: false,
-				captures,
-				children: None,
-				command: Some(
-					data.command
-						.objects()
-						.into_iter()
-						.map(|object| object.node)
-						.collect(),
-				),
-				command_id: data.command.command_id()?.into(),
-				data: Some(data.clone()),
-				error: None,
-				id: id.clone(),
-				location: Some(location),
-				log: None,
-				metadata: tg::process::Metadata::default(),
-				options,
-				output: None,
-				parent: parent.clone(),
-				permissions: Vec::new(),
-				principal: tg::Principal::Process(id.clone()),
-				registration: None,
-				sandbox: Some(sandbox),
-				storage: tg::process::storage::Set::NODE,
-				time_to_touch: session.server.config.process.time_to_touch,
-				touched_at,
-			},
-		))];
+		let process_arg = tangram_index::process::put::Arg {
+			account,
+			cached: false,
+			captures,
+			children: None,
+			command: Some(
+				data.command
+					.objects()
+					.into_iter()
+					.map(|object| object.node)
+					.collect(),
+			),
+			command_id: data.command.command_id()?.into(),
+			data: Some(data.clone()),
+			error: None,
+			id: id.clone(),
+			location: Some(location),
+			log: None,
+			metadata: tg::process::Metadata::default(),
+			options,
+			output: None,
+			parent: parent.clone(),
+			permissions: Vec::new(),
+			principal: tg::Principal::Process(id.clone()),
+			registration: None,
+			sandbox: Some(sandbox_id.clone()),
+			storage: tg::process::storage::Set::NODE,
+			time_to_touch: session.server.config.process.time_to_touch,
+			touched_at,
+		};
+
+		// A sandbox created with the process carries it, and otherwise the process refers to its sandbox.
+		let item = if let Some(mut sandbox) = sandbox {
+			sandbox.process = Some(Box::new(process_arg));
+			tangram_index::Item::PutSandbox(Box::new(sandbox))
+		} else {
+			tangram_index::Item::PutProcess(Box::new(process_arg))
+		};
+		let items = vec![item];
 
 		// Submit the prepared batch without waiting for its index commit, continuing if the index cannot accept it.
 		let index_arg = tangram_index::write::Arg { items };

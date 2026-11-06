@@ -284,6 +284,7 @@ impl Index {
 							subspace,
 							std::slice::from_ref(arg),
 							partition_totals,
+							process_data_fragment_size,
 						)
 						.await
 					);
