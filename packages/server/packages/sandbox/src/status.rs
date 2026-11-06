@@ -26,6 +26,28 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
+		let timeout = arg.timeout;
+		let output = self
+			.try_get_sandbox_status_stream_inner(session, id, arg)
+			.await?
+			.map(|stream| {
+				tangram_server_core::stream::end_after_timeout(
+					stream,
+					timeout,
+					tg::sandbox::status::Event::End,
+					|event| matches!(event, tg::sandbox::status::Event::End),
+				)
+			});
+
+		Ok(output)
+	}
+
+	async fn try_get_sandbox_status_stream_inner(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::status::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		if !arg.source.is_index()
 			&& let Some(stream) = self
 				.try_get_sandbox_status_stream_runner(session, id, &arg)

@@ -41,6 +41,28 @@ impl Component {
 		&self,
 		session: &Session,
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		arg: tg::process::children::get::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
+		let timeout = arg.timeout;
+		let output = self
+			.try_get_process_children_stream_inner(session, process, arg)
+			.await?
+			.map(|stream| {
+				tangram_server_core::stream::end_after_timeout(
+					stream,
+					timeout,
+					tg::process::children::get::Event::End,
+					|event| matches!(event, tg::process::children::get::Event::End),
+				)
+			});
+
+		Ok(output)
+	}
+
+	async fn try_get_process_children_stream_inner(
+		&self,
+		session: &Session,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		mut arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let mut process = process.clone();

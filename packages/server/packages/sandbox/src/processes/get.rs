@@ -40,9 +40,18 @@ impl Component {
 		sandbox: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+		let timeout = arg.timeout;
 		let output = self
 			.try_get_sandbox_processes_stream_inner(session, sandbox, arg)
-			.await?;
+			.await?
+			.map(|stream| {
+				tangram_server_core::stream::end_after_timeout(
+					stream,
+					timeout,
+					tg::sandbox::processes::get::Event::End,
+					|event| matches!(event, tg::sandbox::processes::get::Event::End),
+				)
+			});
 
 		// Let tests observe that the request reached the server before it changes what the request observes.
 		if output.is_some() {

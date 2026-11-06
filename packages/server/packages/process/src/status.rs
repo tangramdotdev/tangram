@@ -26,9 +26,18 @@ impl Component {
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
+		let timeout = arg.timeout;
 		let output = self
 			.try_get_process_status_stream_inner(session, process, arg)
-			.await?;
+			.await?
+			.map(|stream| {
+				tangram_server_core::stream::end_after_timeout(
+					stream,
+					timeout,
+					tg::process::status::Event::End,
+					|event| matches!(event, tg::process::status::Event::End),
+				)
+			});
 
 		// Let tests observe that the request reached the server before it changes what the request observes.
 		if output.is_some() {
