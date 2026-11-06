@@ -36,6 +36,8 @@ impl Network {
 		ports: &[tg::sandbox::Port],
 	) -> tg::Result<Self> {
 		let bridge_name = BRIDGE_NAME.to_owned();
+		let mut netlink = Netlink::new()?;
+		netlink.neigh_delete_v4(&bridge_name, guest.addr)?;
 		let port_forwarding_rules = host::add_port_forwarding_rules(
 			firewall,
 			index,

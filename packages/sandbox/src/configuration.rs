@@ -218,7 +218,7 @@ impl Sandbox {
 			let mut fds = [0; 6];
 			fds[..5].copy_from_slice(&namespaces.files.each_ref().map(OwnedFd::as_raw_fd));
 			fds[5] = namespaces.network_user.as_raw_fd();
-			let input = configure::Arg {
+			let mut input = configure::Arg {
 				fds,
 				gid: namespaces.gid,
 				hostname,
@@ -237,7 +237,32 @@ impl Sandbox {
 					.collect(),
 				uid: namespaces.uid,
 			};
-			configure::command(&arg.tangram_path, &input).await?;
+			// Configure distinct namespace owners in separate helpers because either owner can be an ancestor of the other.
+			if input.network.is_some() {
+				let mount_user = rustix::fs::fstat(&namespaces.files[3]).map_err(|error| {
+					tg::error!(!error, "failed to inspect the mount namespace owner")
+				})?;
+				let network_user =
+					rustix::fs::fstat(&namespaces.network_user).map_err(|error| {
+						tg::error!(!error, "failed to inspect the network namespace owner")
+					})?;
+				if mount_user.st_ino != network_user.st_ino {
+					let network = configure::Arg {
+						fds,
+						gid: namespaces.gid,
+						hostname: None,
+						mounts: Vec::new(),
+						network: input.network.take(),
+						pid: input.pid,
+						restore: Vec::new(),
+						uid: namespaces.uid,
+					};
+					configure::command(&arg.tangram_path, &network).await?;
+				}
+			}
+			if input.hostname.is_some() || !input.mounts.is_empty() || input.network.is_some() {
+				configure::command(&arg.tangram_path, &input).await?;
+			}
 		}
 		drop(state.namespaces.get_mut().unwrap().take());
 		state.arg = arg;

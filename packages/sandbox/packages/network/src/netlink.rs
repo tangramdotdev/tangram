@@ -4,15 +4,17 @@ use {
 		consts::{
 			nl::NlmF,
 			rtnl::{
-				Ifa, Iff, Ifla, IflaInfo, RtAddrFamily, RtScope, RtTable, Rta, Rtm, Rtn, Rtprot,
+				Ifa, Iff, Ifla, IflaInfo, Nda, Nud, RtAddrFamily, RtScope, RtTable, Rta, Rtm, Rtn,
+				Rtprot,
 			},
 			socket::NlFamily,
 		},
+		err::RouterError,
 		nl::NlPayload,
 		router::synchronous::NlRouter,
 		rtnl::{
-			Ifaddrmsg, IfaddrmsgBuilder, Ifinfomsg, IfinfomsgBuilder, Rtattr, RtattrBuilder, Rtmsg,
-			RtmsgBuilder,
+			Ifaddrmsg, IfaddrmsgBuilder, Ifinfomsg, IfinfomsgBuilder, Ndmsg, NdmsgBuilder, Rtattr,
+			RtattrBuilder, Rtmsg, RtmsgBuilder,
 		},
 		types::{Buffer, RtBuffer},
 		utils::Groups,
@@ -300,6 +302,45 @@ impl Netlink {
 			.map_err(|error| tg::error!(!error, "failed to build the rtmsg"))?;
 		self.send::<Rtmsg>(Rtm::Newroute, NlmF::CREATE | NlmF::EXCL | NlmF::ACK, msg)
 			.map_err(|error| tg::error!(!error, "failed to add default"))
+	}
+
+	/// Remove a cached neighbor before assigning its address to a new sandbox interface.
+	pub fn neigh_delete_v4(&mut self, name: &str, addr: Ipv4Addr) -> tg::Result<()> {
+		let index = index_of(name)?;
+		let mut attrs = RtBuffer::<Nda, Buffer>::new();
+		attrs.push(
+			RtattrBuilder::default()
+				.rta_type(Nda::Dst)
+				.rta_payload(addr.octets().to_vec())
+				.build()
+				.map_err(|error| {
+					tg::error!(!error, "failed to build the neighbor address attribute")
+				})?,
+		);
+		let msg = NdmsgBuilder::default()
+			.ndm_family(RtAddrFamily::Inet)
+			.ndm_index(index)
+			.ndm_state(Nud::empty())
+			.ndm_type(Rtn::Unspec)
+			.rtattrs(attrs)
+			.build()
+			.map_err(|error| tg::error!(!error, "failed to build the neighbor message"))?;
+		let recv = self
+			.rtnl
+			.send::<_, _, Rtm, Ndmsg>(Rtm::Delneigh, NlmF::ACK, NlPayload::Payload(msg))
+			.map_err(|error| tg::error!(!error, "failed to send the neighbor deletion request"))?;
+		for response in recv {
+			match response {
+				Err(RouterError::Nlmsgerr(error)) if *error.error() == -libc::ENOENT => {},
+				result => {
+					result.map_err(|error| {
+						tg::error!(!error, "failed to delete the cached neighbor")
+					})?;
+				},
+			}
+		}
+
+		Ok(())
 	}
 
 	fn send<P>(&mut self, msg_type: Rtm, flags: NlmF, payload: P) -> tg::Result<()>

@@ -883,7 +883,17 @@ impl Component {
 								.resources(&session.server.config.runner.resources);
 							configure.storage = resources.max_filesystem_size.map(Into::into);
 						}
+						tangram_server_core::checkpoint!(
+							session.server,
+							"runner.sandbox.pool.configure",
+						)
+						.await;
 						if let Err(error) = output.sandbox.configure(configure).await {
+							tangram_server_core::checkpoint!(
+								session.server,
+								"runner.sandbox.pool.reject",
+							)
+							.await;
 							tracing::warn!(error = %error.trace(), "failed to configure a pooled sandbox; falling back to cold creation");
 							self::pool::destroy(output).await.map_err(|error| {
 								tg::error!(!error, "failed to destroy a rejected pooled sandbox")
