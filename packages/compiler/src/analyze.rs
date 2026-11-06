@@ -10,9 +10,19 @@ pub mod python;
 pub struct Analysis {
 	pub diagnostics: Vec<tg::diagnostic::Data>,
 	pub imports: HashSet<tg::module::Import, fnv::FnvBuildHasher>,
+
+	/// The imports that a JavaScript or TypeScript module loads before it evaluates, which excludes dynamic imports and type imports.
+	pub static_imports: HashSet<tg::module::Import, fnv::FnvBuildHasher>,
 }
 
 impl Compiler {
+	/// Analyze the text of a module as JavaScript, which is the text that a JavaScript engine runs for a module of any kind.
+	#[cfg(feature = "javascript")]
+	#[must_use]
+	pub fn analyze_javascript(module: &tg::module::Data, text: &str) -> Analysis {
+		javascript::analyze(module, text)
+	}
+
 	/// Analyze a module.
 	pub fn analyze(module: &tg::module::Data, text: &str) -> tg::Result<Analysis> {
 		#[cfg(not(any(feature = "javascript", feature = "python")))]
@@ -78,6 +88,7 @@ impl Compiler {
 				let analysis = Analysis {
 					diagnostics: Vec::new(),
 					imports,
+					static_imports: HashSet::default(),
 				};
 				Ok(analysis)
 			},
@@ -111,6 +122,7 @@ impl Compiler {
 				let analysis = Analysis {
 					diagnostics: Vec::new(),
 					imports,
+					static_imports: HashSet::default(),
 				};
 				Ok(analysis)
 			},

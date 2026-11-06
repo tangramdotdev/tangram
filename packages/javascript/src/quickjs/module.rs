@@ -53,39 +53,32 @@ impl qjs::loader::Resolver for Resolver {
 		let import = tg::module::Import::with_specifier_and_attributes(name, attributes)
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 
-		// Resolve the module.
-		let (sender, receiver) = std::sync::mpsc::channel();
-		state.main_runtime_handle.spawn({
-			let graphs = state.graphs.clone();
-			let instance = state.instance.clone();
-			let referrer = referrer.clone();
-			let import = import.clone();
-			async move {
-				// Resolve the module without the instance if possible.
-				if let Some(referrer) = &referrer
-					&& let Some(module) = graphs
-						.try_resolve_module(&instance, referrer, &import)
-						.await
-				{
-					sender.send(Ok(module)).unwrap();
-					return;
-				}
-
-				let arg = tg::module::resolve::Arg {
-					referrer: referrer.clone(),
-					import,
-				};
-				let result = instance
-					.resolve_module(arg)
-					.await
-					.map(|output| output.module);
-				sender.send(result).unwrap();
-			}
-		});
-		let module = receiver
-			.recv()
-			.unwrap()
-			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
+		// Get the module that a preload resolved the import to. QuickJS has no asynchronous hook for dynamic imports, so block on a preload of an import that has not been preloaded.
+		let resolution = state
+			.preloaded
+			.borrow()
+			.resolution(referrer.as_ref(), &import);
+		let module = if let Some(module) = resolution {
+			module
+		} else {
+			let arg = crate::module::Arg {
+				graphs: state.graphs.clone(),
+				import,
+				instance: state.instance.clone(),
+				known: state.preloaded.borrow().known(),
+				referrer,
+			};
+			let (sender, receiver) = std::sync::mpsc::channel();
+			state.main_runtime_handle.spawn(async move {
+				sender.send(crate::module::preload(arg).await).unwrap();
+			});
+			let output = receiver
+				.recv()
+				.unwrap()
+				.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
+			state.preloaded.borrow_mut().extend(output.modules);
+			output.module
+		};
 		let name = module.without_token().to_string();
 		let index = state.module_index(&module);
 		if let Some(index) = index {
@@ -124,46 +117,23 @@ impl qjs::loader::Loader for Loader {
 			.module_index(&module)
 			.map_or(module, |index| state.modules.borrow()[index].module.clone());
 
-		// Load the module.
-		let (sender, receiver) = std::sync::mpsc::channel();
-		state.main_runtime_handle.spawn({
-			let graphs = state.graphs.clone();
-			let instance = state.instance.clone();
-			let module = module_data.clone();
-			async move {
-				// Load the module without the instance if possible.
-				let result = if let Some(output) = graphs
-					.try_load_module(&instance, &module, tg::module::load::Language::JavaScript)
-					.await
-				{
-					Ok(output)
-				} else {
-					let arg = tg::module::load::Arg {
-						language: Some(tg::module::load::Language::JavaScript),
-						module,
-					};
-					instance.load_module(arg).await
-				};
-				sender.send(result).unwrap();
-			}
-		});
-		let loaded = receiver
-			.recv()
-			.unwrap()
-			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
-
-		module_data.referent.options.tokens.inherit(&loaded.tokens);
-
-		// Transpile the module.
-		let output = tangram_compiler::Compiler::transpile(&loaded.text, &module_data);
-		if !output.diagnostics.is_empty() {
-			return Err(qjs::Error::Io(std::io::Error::other(tg::error!(
-				"failed to transpile module"
-			))));
-		}
+		// Get the preloaded module.
+		let entry = state
+			.preloaded
+			.borrow()
+			.entry(&module_data)
+			.ok_or_else(|| {
+				let error = tg::error!(
+					module = ?module_data.without_token(),
+					"failed to find the preloaded module"
+				);
+				qjs::Error::Io(std::io::Error::other(error))
+			})?;
+		let tokens = &entry.module.referent.options.tokens;
+		module_data.referent.options.tokens.inherit(tokens);
 
 		// Parse the source map.
-		let source_map = SourceMap::from_slice(output.source_map.as_bytes()).ok();
+		let source_map = SourceMap::from_slice(entry.source_map.as_bytes()).ok();
 
 		// Register the module.
 		let index = state.module_index(&module_data);
@@ -174,7 +144,7 @@ impl qjs::loader::Loader for Loader {
 				.referent
 				.options
 				.tokens
-				.inherit(&loaded.tokens);
+				.inherit(tokens);
 			modules[index].source_map = source_map;
 		} else {
 			state.push_module(Module {
@@ -184,7 +154,7 @@ impl qjs::loader::Loader for Loader {
 		}
 
 		// Compile the module. Use the module name as the identifier.
-		let module = qjs::Module::declare(ctx.clone(), name, output.text)?;
+		let module = qjs::Module::declare(ctx.clone(), name, entry.text.clone())?;
 
 		// Set import.meta.module.
 		let module_value = Serde(&module_data)

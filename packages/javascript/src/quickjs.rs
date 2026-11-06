@@ -46,6 +46,7 @@ struct State {
 	main_runtime_handle: tokio::runtime::Handle,
 	module_indices: RefCell<HashMap<String, usize>>,
 	modules: RefCell<Vec<Module>>,
+	preloaded: RefCell<crate::module::Modules>,
 	rejections: tokio::sync::watch::Sender<Vec<Rejection>>,
 }
 
@@ -141,6 +142,7 @@ impl Runtime {
 		));
 		let main_runtime_handle = arg.main_runtime_handle.clone();
 		let modules = RefCell::new(Vec::new());
+		let preloaded = RefCell::default();
 		let state = Rc::new(State {
 			arg,
 			global_source_map,
@@ -151,6 +153,7 @@ impl Runtime {
 			main_runtime_handle,
 			module_indices: RefCell::new(HashMap::new()),
 			modules,
+			preloaded,
 			rejections,
 		});
 

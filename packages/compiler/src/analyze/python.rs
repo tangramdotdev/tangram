@@ -156,6 +156,7 @@ pub fn analyze(path: &Path, text: &str) -> tg::Result<Analysis> {
 	let analysis = Analysis {
 		diagnostics: Vec::new(),
 		imports,
+		static_imports: std::collections::HashSet::default(),
 	};
 	Ok(analysis)
 }
