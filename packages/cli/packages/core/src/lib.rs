@@ -223,8 +223,7 @@ impl Cli {
 	}
 
 	fn default_config_path() -> Option<PathBuf> {
-		let home = std::env::var_os("HOME")?;
-		let path = PathBuf::from(home).join(".config/tangram/config.json");
+		let path = std::env::home_dir()?.join(".config/tangram/config.json");
 		Some(path)
 	}
 
@@ -238,11 +237,10 @@ impl Cli {
 					.and_then(|config| config.directory.clone())
 			})
 			.or_else(|| {
-				let home = std::env::var_os("HOME")?;
-				let path = PathBuf::from(home).join(".tangram");
+				let path = std::env::home_dir()?.join(".tangram");
 				Some(path)
 			})
-			.ok_or_else(|| tg::error!("failed to get the directory, set HOME or pass --directory"))
+			.ok_or_else(|| tg::error!("failed to get the home directory, pass --directory"))
 	}
 
 	/// Initialize miette.

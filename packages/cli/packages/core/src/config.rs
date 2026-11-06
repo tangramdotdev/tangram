@@ -3508,7 +3508,7 @@ impl Cli {
 			},
 			Err(error) => {
 				return Err(
-					tg::error!(!error, directory = %path.display(), "failed to read the config file"),
+					tg::error!(!error, path = %path.display(), "failed to read the config file"),
 				);
 			},
 		};
@@ -3540,9 +3540,9 @@ impl Cli {
 	}
 
 	pub fn write_config(&self, config: &Config) -> tg::Result<()> {
-		let path = self.config_path().ok_or_else(|| {
-			tg::error!("failed to get the config path, set HOME or pass --config")
-		})?;
+		let path = self
+			.config_path()
+			.ok_or_else(|| tg::error!("failed to get the home directory, pass --config"))?;
 		let format = Format::from_path(&path);
 		let config = config.serialize(format)?;
 		if let Some(parent) = path.parent() {

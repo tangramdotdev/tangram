@@ -6,8 +6,12 @@ pub fn prepare_command_for_spawn(
 	library_paths: &[std::path::PathBuf],
 ) -> tg::Result<()> {
 	if !command.env.contains_key("HOME") {
-		let home = std::env::var("HOME")
-			.map_err(|error| tg::error!(!error, "failed to get the home directory"))?;
+		let home =
+			std::env::home_dir().ok_or_else(|| tg::error!("failed to get the home directory"))?;
+		let home = home
+			.to_str()
+			.ok_or_else(|| tg::error!("the home directory path is not valid UTF-8"))?
+			.to_owned();
 		command.env.insert("HOME".to_owned(), home);
 	}
 	let mut paths = Vec::new();

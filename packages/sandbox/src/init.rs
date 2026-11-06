@@ -55,7 +55,7 @@ pub fn command(arg: &crate::serve::Arg) -> std::process::Command {
 
 	// Supply the Tangram server environment defaults.
 	command.env("SSL_CERT_DIR", crate::Sandbox::guest_ssl_cert_dir());
-	if let Some(home) = std::env::var_os("HOME") {
+	if let Some(home) = std::env::home_dir() {
 		command.env("HOME", home);
 	}
 

@@ -2088,8 +2088,7 @@ impl Vfs {
 			return Some(PathBuf::from(path));
 		}
 		let identifier = self.app_group_identifier.as_ref()?;
-		let home = std::env::var_os("HOME")?;
-		let socket = PathBuf::from(home)
+		let socket = std::env::home_dir()?
 			.join("Library/Group Containers")
 			.join(identifier)
 			.join("socket");
