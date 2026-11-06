@@ -425,6 +425,20 @@ impl Component {
 			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox in the index"))
 	}
 
+	/// Read a sandbox from the index, awaiting indexing on a miss only if the read is exhaustive.
+	pub(crate) async fn try_get_sandbox_from_index_with_exhaustive(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		exhaustive: bool,
+	) -> tg::Result<Option<tangram_index::sandbox::Sandbox>> {
+		if exhaustive {
+			self.try_get_sandbox_from_index(session, id).await
+		} else {
+			session.server.index.try_get_sandbox(id).await
+		}
+	}
+
 	pub async fn try_get_sandbox_from_index(
 		&self,
 		session: &Session,
