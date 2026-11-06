@@ -69,8 +69,7 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
 			match self.try_destroy_sandbox(id, arg).await? {
-				Some(true) => Ok(()),
-				Some(false) => Err(tg::error!("the sandbox was already destroyed")),
+				Some(_) => Ok(()),
 				None => Err(tg::error!("failed to find the sandbox")),
 			}
 		}

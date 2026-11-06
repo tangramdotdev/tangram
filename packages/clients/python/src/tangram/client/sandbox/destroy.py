@@ -24,8 +24,6 @@ async def destroy_sandbox(
     destroyed = await try_destroy_sandbox(client, id, arg, **options)
     if destroyed is None:
         raise ValueError("failed to find the sandbox")
-    elif not destroyed:
-        raise ValueError("the sandbox was already destroyed")
 
 
 async def try_destroy_sandbox(

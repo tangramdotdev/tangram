@@ -4,7 +4,9 @@ use test.nu *
 def process_reads [process: string, stage: string] {
 	success (tg get $process | complete) $'get should answer when ($stage)'
 	success (tg process status $process | complete) $'status should answer when ($stage)'
+	success (tg process status --timeout 100ms $process | complete) $'status with a timeout should end when ($stage)'
 	success (tg process children $process | complete) $'children should answer when ($stage)'
+	success (tg process children --timeout 100ms $process | complete) $'children with a timeout should end when ($stage)'
 	success (tg process log $process | complete) $'log should answer when ($stage)'
 	success (tg process metadata $process | complete) $'metadata should answer when ($stage)'
 	success (tg process availability $process | complete) $'availability should answer when ($stage)'
@@ -117,11 +119,11 @@ export def --env sandbox_lifecycle [commands: record] {
 	assert equal (tg sandbox get $sandbox | from json | get data.status) started
 	success (spawn_into $sandbox $hello) 'a spawn should run after a restart'
 
-	# The sandbox is destroyed, so everything but a read fails.
+	# The sandbox is destroyed, so a destroy has no effect, and anything else but a read fails.
 	success (tg sandbox destroy --wait $sandbox | complete) 'destroy should destroy the sandbox'
 	assert equal (tg sandbox get $sandbox | from json | get data.status) destroyed
 	sandbox_reads $sandbox destroyed
-	failure (tg sandbox destroy $sandbox | complete) 'destroy should fail when destroyed'
+	success (tg sandbox destroy $sandbox | complete) 'destroy should have no effect when destroyed'
 	failure (tg sandbox stop $sandbox | complete) 'stop should fail when destroyed'
 	failure (tg sandbox start $sandbox | complete) 'start should fail when destroyed'
 	failure (spawn_into $sandbox $hello) 'a spawn should fail when destroyed'
