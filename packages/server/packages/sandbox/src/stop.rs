@@ -1,6 +1,7 @@
 use {
 	crate::Component,
 	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
+	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{
@@ -192,7 +193,7 @@ impl Component {
 		wait: bool,
 	) -> tg::Result<Option<bool>> {
 		// Subscribe before sending the request, so that the stop cannot be missed.
-		let wakeups = self
+		let mut wakeups = self
 			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
 			.await?;
 
@@ -216,9 +217,17 @@ impl Component {
 					let retry = session.server.config.control.request_retry.clone().into();
 					let timeout = session.server.config.control.request_timeout;
 					let options = tangram_server_core::control::Options { retry, timeout };
-					self.request_sandbox_control(session, id, request, options)
-						.boxed()
-						.await
+					let stop_future = self
+						.request_sandbox_control(session, id, request, options)
+						.boxed();
+					let status_future = self.wait_for_sandbox_stop(session, id, &mut wakeups);
+					match future::select(stop_future, pin!(status_future)).await {
+						future::Either::Left((response, _)) => response,
+						future::Either::Right((result, _)) => {
+							result?;
+							return Ok(Some(false));
+						},
+					}
 				};
 				let response = response
 					.map_err(
@@ -236,7 +245,8 @@ impl Component {
 
 		// Wait for the sandbox to be stopped if requested.
 		if wait {
-			self.wait_for_sandbox_stop(session, id, wakeups).await?;
+			self.wait_for_sandbox_stop(session, id, &mut wakeups)
+				.await?;
 		}
 
 		Ok(Some(stopped))
@@ -246,7 +256,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
-		mut wakeups: futures::stream::BoxStream<'static, ()>,
+		wakeups: &mut futures::stream::BoxStream<'static, ()>,
 	) -> tg::Result<()> {
 		loop {
 			let arg = tg::sandbox::get::Arg::default();

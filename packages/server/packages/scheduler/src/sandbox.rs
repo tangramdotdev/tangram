@@ -1862,7 +1862,7 @@ impl Scheduler {
 			principal: tg::Principal::Process(id),
 			registration: None,
 			sandbox: None,
-			storage: tangram_index::process::storage::Set::default(),
+			storage: tg::process::storage::Set::NODE,
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};

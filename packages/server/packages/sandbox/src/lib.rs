@@ -224,14 +224,15 @@ impl tangram_server_core::sandbox::Component for Component {
 		Self::publish_sandbox_process_spawned(server, id).boxed()
 	}
 
-	fn request_sandbox_control<'a>(
+	fn request_sandbox_control_with_hold<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
+		hold: Option<BoxFuture<'static, ()>>,
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>>> {
-		self.request_sandbox_control(session, id, arg, options)
+		self.request_sandbox_control_with_hold(session, id, arg, options, hold)
 			.boxed()
 	}
 

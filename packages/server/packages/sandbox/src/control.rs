@@ -617,7 +617,19 @@ impl Component {
 		arg: tg::sandbox::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 	) -> tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>> {
-		self.send_sandbox_control_request(session, id, arg, options)
+		self.request_sandbox_control_with_hold(session, id, arg, options, None)
+			.await
+	}
+
+	pub async fn request_sandbox_control_with_hold(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::ServerRequestArg,
+		options: tangram_server_core::control::Options,
+		hold: Option<futures::future::BoxFuture<'static, ()>>,
+	) -> tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>> {
+		self.send_sandbox_control_request(session, id, arg, options, hold)
 			.boxed()
 			.await?
 			.await
@@ -629,6 +641,7 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
+		hold: Option<futures::future::BoxFuture<'static, ()>>,
 	) -> tg::Result<
 		futures::future::BoxFuture<
 			'static,
@@ -657,7 +670,7 @@ impl Component {
 				))
 			},
 			client_subject: format!("sandboxes.{id}.control.client.{request_id}"),
-			hold: None,
+			hold,
 			is_ack: |message: &ClientMessage| {
 				matches!(&message.0, tg::sandbox::control::ClientMessage::Ack(_))
 			},
