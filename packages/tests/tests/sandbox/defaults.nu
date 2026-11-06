@@ -16,9 +16,9 @@ let module = artifact {
 }
 
 for case in [
-	{ scheduler: {}, cpu: $cpus, memory: null },
+	{ scheduler: {}, cpu: null, memory: null },
 	{ scheduler: { default_cpu: 1 }, cpu: 1, memory: null },
-	{ scheduler: { default_memory: 268435456 }, cpu: $cpus, memory: 268435456 },
+	{ scheduler: { default_memory: 268435456 }, cpu: null, memory: 268435456 },
 	{ scheduler: { default_cpu: 1, default_memory: 268435456 }, cpu: 1, memory: 268435456 },
 ] {
 	let local = server spawn --busybox --config {
@@ -36,7 +36,13 @@ for case in [
 		let sandbox = tg sandbox create --no-tokens --no-ttl ...$args | referent node
 		let output = tg run --no-tokens $'--sandbox=($sandbox)' $nproc | complete
 		success $output 'the process should report its CPUs'
-		assert equal ($output.stdout | str trim | into int) $cpu 'the process should see the expected number of CPUs'
+		let observed = $output.stdout | str trim | into int
+		if $cpu == null {
+			# An unlimited sandbox sees at least what this test sees, because the test may itself run under a limit that the sandbox does not inherit.
+			assert ($observed >= $cpus) 'the process should see every CPU'
+		} else {
+			assert equal $observed $cpu 'the process should see the expected number of CPUs'
+		}
 		tg sandbox destroy $sandbox
 		tg sandbox wait $sandbox | ignore
 
