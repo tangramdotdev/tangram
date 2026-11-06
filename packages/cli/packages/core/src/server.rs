@@ -119,6 +119,7 @@ impl Cli {
 			args.push(remotes.join(","));
 		}
 		if let Some(url) = &self.args.url {
+			let url = absolute_url(url)?;
 			args.push("-u".to_owned());
 			args.push(url.to_string());
 		}
@@ -268,4 +269,23 @@ impl Cli {
 		// If the server has still not exited, then return an error.
 		Err(tg::error!("failed to terminate the server"))
 	}
+}
+
+fn absolute_url(url: &tangram_uri::Uri) -> tg::Result<tangram_uri::Uri> {
+	if url.scheme() != Some("http+unix") {
+		return Ok(url.clone());
+	}
+	let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+	let path = std::path::absolute(path)
+		.map_err(|error| tg::error!(!error, "failed to get the absolute socket path"))?;
+	let path = path
+		.to_str()
+		.ok_or_else(|| tg::error!("the socket path is not valid UTF-8"))?;
+	let url = url
+		.to_builder()
+		.authority(path)
+		.build()
+		.map_err(|error| tg::error!(!error, "failed to build the URL"))?;
+
+	Ok(url)
 }

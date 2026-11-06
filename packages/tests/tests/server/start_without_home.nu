@@ -24,10 +24,10 @@ do {
 	success $output 'the server should stop'
 }
 
-# Start a server with relative config and directory paths.
+# Start a server with relative config, directory, and socket paths.
 do {
 	cd $directory
-	let tangram = [--config config.json --directory relative --no-remotes]
+	let tangram = [--config config.json --directory relative --no-remotes --url 'http+unix://relative.sock']
 	let output = tangram ...$tangram server start | complete
 	success $output 'the server should start with relative paths'
 	let output = tangram ...$tangram server stop | complete
