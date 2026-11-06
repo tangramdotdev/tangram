@@ -146,10 +146,19 @@ impl Component {
 			return Ok(None);
 		};
 
-		// Send the stop to the sandbox's scheduler if its runner has not connected, and otherwise wait for the connection.
-		if data.data.status.is_starting()
+		// Send the stop to the sandbox's scheduler if its runner has not connected, which accepts it and stops the sandbox once it starts.
+		let mut status = data.data.status;
+		if status.is_starting()
 			&& let Some(scheduler) = &sandbox.scheduler
 		{
+			let mut wakeups = self
+				.create_sandbox_status_wakeup_stream(
+					session,
+					id,
+					session.context.stopper.clone(),
+					None,
+				)
+				.await?;
 			let request = tangram_server_scheduler_core::EndSandboxRequestArg {
 				error: None,
 				sandbox: id.clone(),
@@ -165,22 +174,24 @@ impl Component {
 					|error| tg::error!(!error, %id, %scheduler, "failed to end the sandbox"),
 				)?;
 			if ended {
+				if arg.wait {
+					self.wait_for_sandbox_stop(session, id, &mut wakeups)
+						.await?;
+				}
 				return Ok(Some(true));
 			}
-			let mut wakeups = self
-				.create_sandbox_status_wakeup_stream(
-					session,
-					id,
-					session.context.stopper.clone(),
-					None,
-				)
-				.await?;
-			self.wait_for_sandbox_start(session, id, &mut wakeups)
-				.await?;
+
+			// Read the status again, because the scheduler no longer holds the sandbox.
+			if let Some(data) = self
+				.try_get_sandbox_from_index(session, id)
+				.await?
+				.and_then(|sandbox| sandbox.data)
+			{
+				status = data.data.status;
+			}
 		}
 
 		// Confirm a stop after pending indexing, because a start may not be indexed yet.
-		let mut status = data.data.status;
 		if status.is_stopped() {
 			session
 				.index(tg::index::Arg::default())

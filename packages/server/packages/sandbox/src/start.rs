@@ -183,6 +183,7 @@ impl Component {
 			runner: Some(runner),
 			sandbox: id.clone(),
 			scheduler: None,
+			stop: false,
 			token: Some(token),
 		};
 		session

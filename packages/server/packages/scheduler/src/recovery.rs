@@ -164,6 +164,18 @@ impl SchedulerState {
 		Some((request, None))
 	}
 
+	/// Get a request that is held for recovery.
+	pub(super) fn try_get_recovering_request_mut(
+		&mut self,
+		sandbox: &tg::sandbox::Id,
+	) -> Option<&mut EnqueueSandboxRequestArg> {
+		let recovery = self.recovery.as_mut()?;
+		if let Some(claim) = recovery.claimed.get_mut(sandbox) {
+			return Some(&mut claim.request);
+		}
+		recovery.requests.get_mut(sandbox)
+	}
+
 	/// Expire the runners that did not report in time, and release the held requests.
 	pub(super) fn handle_recovery_expired(&mut self, scheduler: &Scheduler) {
 		let Some(recovery) = &mut self.recovery else {
@@ -247,6 +259,9 @@ impl SchedulerState {
 					error,
 				);
 			} else {
+				if claim.request.stop {
+					self.stop_sandbox_when_started(scheduler, id.clone());
+				}
 				let placed = super::sandbox::Placed {
 					registration_index: claim.registration_index,
 					request: claim.request,
@@ -264,6 +279,9 @@ impl SchedulerState {
 				let error = data.and_then(|data| data.error);
 				self.finish_destroy_sandbox(scheduler, request, error);
 			} else {
+				if request.stop {
+					self.stop_sandbox_when_started(scheduler, id);
+				}
 				self.handle_enqueue_sandbox_request(scheduler, None, request, true);
 			}
 		}
