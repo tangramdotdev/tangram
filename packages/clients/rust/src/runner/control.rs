@@ -304,6 +304,11 @@ pub struct Process {
 	#[tangram_serialize(id = 6)]
 	pub lease: tg::process::Lease,
 
+	/// The leases that callers acquired from the scheduler while the process was queued.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(id = 7, default, skip_serializing_if = "Vec::is_empty")]
+	pub leases: Vec<tg::process::Lease>,
+
 	/// The stdio opens that the runner services when the process starts, as if each arrived over process control.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "Vec::is_empty")]

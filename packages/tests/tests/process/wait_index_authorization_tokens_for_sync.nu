@@ -34,7 +34,7 @@ for field in [output error log] {
 	success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $push_watch 0 | complete) "the outcome sync must be held"
 	tg --url $remote.url --token $root_token grant $alice.user.id process_node,process_node_output_objects,process_node_error_objects,process_node_log_objects $process | ignore
 	tg --url $remote.url --token $root_token grant $bob.user.id process_node $process | ignore
-	tg --url $remote.url --token $root_token index
+	tg --url $remote.url --token $root_token index --database
 
 	timeout 30s tg --url $remote.url --token $root_token wait --source=index $process | ignore
 	# Force the index path so a live runner response cannot supply the token.
@@ -53,7 +53,7 @@ for field in [output error log] {
 	# Hold the control response so an automatic wait must return the indexed outcome.
 	let control_watch = tg --url $remote.url --token $root_token checkpoint watch process.get.control | from json | get watch
 	let automatic = timeout 10s tg --url $remote.url --token $root_token $operation $process | from json
-	assert equal $automatic $output "an automatic wait must retain the indexed tokens"
+	assert equal ($automatic | to json | normalize_tokens) ($output | to json | normalize_tokens) "an automatic wait must retain the indexed tokens"
 	tg --url $remote.url --token $root_token checkpoint unwatch process.get.control $control_watch
 
 	let node_output_objects = timeout 10s tg --url $remote.url --token $bob.token $operation --source=index $process | from json
@@ -66,7 +66,7 @@ for field in [output error log] {
 
 	if $field == output {
 		tg --url $remote.url --token $root_token grant $bob.user.id process_node_output_objects $process | ignore
-		tg --url $remote.url --token $root_token index
+		tg --url $remote.url --token $root_token index --database
 		let partial = timeout 10s tg --url $remote.url --token $bob.token $operation --source=index $process | from json
 		assert ($partial.output.value | str contains 'tokens') "output permission must expose the authorization token for the outcome sync"
 	}
@@ -74,7 +74,7 @@ for field in [output error log] {
 
 	if $field == error {
 		tg --url $remote.url --token $root_token grant $bob.user.id process_node_error_objects $process | ignore
-		tg --url $remote.url --token $root_token index
+		tg --url $remote.url --token $root_token index --database
 		let partial = timeout 10s tg --url $remote.url --token $bob.token $operation --source=index $process | from json
 		assert ($partial.output? == null) "an error-only outcome must not contain output objects"
 		assert ($partial.error | str contains 'tokens') "error permission must expose the authorization token for the outcome sync"

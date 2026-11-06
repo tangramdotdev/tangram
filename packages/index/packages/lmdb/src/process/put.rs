@@ -16,6 +16,17 @@ impl Index {
 		if let Err(error) = arg.validate() {
 			return Ok(Err(error));
 		}
+		if let Some(registration) = &arg.registration {
+			let result = Self::check_runner_registration_with_transaction(
+				db,
+				subspace,
+				transaction,
+				registration,
+			)?;
+			if let Err(error) = result {
+				return Ok(Err(error));
+			}
+		}
 		let id = &arg.id;
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -25,6 +36,18 @@ impl Index {
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			.map(tangram_index::process::Process::deserialize)
 			.transpose()?;
+
+		// Ignore a starting record that arrives after the process started, because writes may be applied out of order.
+		if arg
+			.data
+			.as_ref()
+			.is_some_and(|data| data.status.is_starting())
+			&& existing
+				.as_ref()
+				.is_some_and(|existing| existing.status.is_some())
+		{
+			return Ok(Ok(()));
+		}
 
 		// Get the existing data when the validation compares it, which is for another principal's data or a finished process.
 		let existing_data = if arg.data.is_some()

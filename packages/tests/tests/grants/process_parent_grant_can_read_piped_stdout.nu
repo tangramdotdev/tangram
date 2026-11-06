@@ -20,13 +20,12 @@ timeout 30s tg --token $alice.token log --no-timeout --length 1 $parent.process 
 let child = tg --token $alice.token log $parent.process | str trim
 
 tg --token $alice.token grant $eve.user.id process_node $child
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 let denied = tg --token $eve.token process stdio read $child --stream stdout | complete
 failure $denied "process_node must not permit consuming piped stdout."
 
 tg --token $alice.token grant $eve.user.id process_parent $child
-tg --token $alice.token index
 "\n" | tg --token $alice.token process stdio write $child --stream stdin
 
 let read = tg --token $eve.token process stdio read $child --stream stdout | complete

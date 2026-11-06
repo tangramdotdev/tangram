@@ -331,6 +331,7 @@ fn environment(options: &Options, temp_path: &Path) -> Vec<(String, String)> {
 		),
 		("TANGRAM_TEST_FSKIT".to_owned(), flag(options.fskit)),
 		("TANGRAM_TEST_OFFLINE".to_owned(), flag(options.offline)),
+		("TANGRAM_TEST_PROJECT_IDS".to_owned(), quota::project_ids()),
 		("TANGRAM_TEST_QUICKJS".to_owned(), flag(options.quickjs)),
 		("TANGRAM_TEST_QUOTA".to_owned(), path(&options.quota)),
 		(

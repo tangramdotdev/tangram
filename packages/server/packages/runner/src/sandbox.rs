@@ -259,6 +259,21 @@ impl Component {
 }
 
 impl Component {
+	/// Record that the runner accepted a stop or destroy, so that reads report it before the teardown finishes.
+	fn set_sandbox_status(session: &Session, id: &tg::sandbox::Id, status: tg::sandbox::Status) {
+		if let Some(mut state) = session
+			.server
+			.components
+			.runner
+			.state()
+			.sandboxes
+			.get_mut_by_id(id)
+		{
+			state.status = status;
+			state.changed.send_replace(());
+		}
+	}
+
 	async fn handle_destroyed_sandbox_control_request(
 		&self,
 		session: &Session,
@@ -715,11 +730,7 @@ impl Component {
 
 			usage: None,
 
-			#[cfg(target_os = "linux")]
 			vfs: create_output.vfs.as_ref().map(|vfs| vfs.provider()),
-
-			#[cfg(not(target_os = "linux"))]
-			vfs: None,
 		};
 		self.state.sandboxes.insert(index, entry);
 		let server = session.server.clone();
@@ -740,7 +751,6 @@ impl Component {
 			.await;
 
 		// Bind the pooled VFS to this sandbox before starting any processes.
-		#[cfg(target_os = "linux")]
 		if let Some(vfs) = &create_output.vfs {
 			vfs.provider()
 				.set_principal(tg::Principal::Sandbox(id.clone()));
@@ -843,9 +853,56 @@ impl Component {
 		arg: tg::sandbox::create::Arg,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<CreateSandboxOutput> {
+		// Validate the sandbox's network and mounts before claiming a warm sandbox.
+		if session.server.config.runner.backend.harden() {
+			validate_hardened_sandbox(&arg)?;
+		}
+		#[cfg(target_os = "linux")]
+		validate_native_mounts(&self.resolve_sandbox_backend(&session.server)?, &arg)?;
 		if let Some(task) = self.sandbox_pool.take(&arg, self, session) {
 			match task.wait().await {
 				Ok(Ok(mut output)) => {
+					#[cfg(target_os = "linux")]
+					{
+						let mut configure = arg.clone();
+						if session.server.config.runner.backend.storage_limits() {
+							let resources = session
+								.server
+								.config
+								.runner
+								.backend
+								.resources(&session.server.config.runner.resources);
+							let storage = tg::sandbox::Resource {
+								max: resources.max_filesystem_size,
+								min: 0,
+							};
+							configure.storage.get_or_insert(storage);
+						} else {
+							configure.storage = None;
+						}
+						tangram_server_core::checkpoint!(
+							session.server,
+							"runner.sandbox.pool.configure",
+						)
+						.await;
+						if let Err(error) = output.sandbox.configure(configure).await {
+							tangram_server_core::checkpoint!(
+								session.server,
+								"runner.sandbox.pool.reject",
+							)
+							.await;
+							tracing::warn!(error = %error.trace(), "failed to configure a pooled sandbox; falling back to cold creation");
+							if let Err(error) = self::pool::destroy(output).await {
+								tracing::warn!(error = %error.trace(), "failed to destroy a rejected pooled sandbox");
+							}
+							let path = Self::sandbox_path(session, id);
+							let directory = Directory::New { path };
+							return self
+								.create_sandbox_inner(session, arg, Some(directory))
+								.await;
+						}
+					}
+
 					// Link the sandbox's path to the pooled sandbox's temp and keep the temp, so that a crash or termination leaves the sandbox's files where its next boot finds them.
 					let path = Self::sandbox_path(session, id);
 					let result = async {
@@ -911,6 +968,12 @@ impl Component {
 		directory: Option<Directory>,
 	) -> tg::Result<CreateSandboxOutput> {
 		let isolation = self.resolve_sandbox_backend(&session.server)?;
+		let prepare = directory.is_none()
+			&& matches!(
+				isolation,
+				tangram_sandbox::Backend::Builtin | tangram_sandbox::Backend::Bubblewrap { .. }
+			);
+
 		let mut resources = session
 			.server
 			.config
@@ -924,17 +987,10 @@ impl Component {
 				| tangram_sandbox::Backend::Gvisor { .. }
 		) && session.server.config.runner.backend.harden()
 		{
-			if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
-				return Err(tg::error!(
-					"host networking is not allowed for hardened container isolation"
-				));
-			}
-			if arg.mounts.iter().any(|mount| !mount.readonly) {
-				return Err(tg::error!(
-					"writable mounts are not allowed for hardened container isolation"
-				));
-			}
+			validate_hardened_sandbox(&arg)?;
 		}
+		#[cfg(target_os = "linux")]
+		validate_native_mounts(&isolation, &arg)?;
 
 		#[cfg(target_os = "linux")]
 		self.sandbox_assets
@@ -944,7 +1000,13 @@ impl Component {
 		let rootfs_path = self.sandbox_assets.root.clone();
 
 		// Enforce the sandbox storage maximum only when storage limits are enabled, because enforcement requires a filesystem with project quotas.
-		if !session.server.config.runner.backend.storage_limits() {
+		if session.server.config.runner.backend.storage_limits() {
+			let storage = tg::sandbox::Resource {
+				max: resources.max_filesystem_size,
+				min: 0,
+			};
+			arg.storage.get_or_insert(storage);
+		} else {
 			arg.storage = None;
 		}
 
@@ -965,7 +1027,8 @@ impl Component {
 			backend
 				if backend.uses_linux_namespaces()
 					&& (resources.max_filesystem_inodes.is_some()
-						|| resources.max_filesystem_size.is_some()) =>
+						|| resources.max_filesystem_size.is_some()
+						|| arg.storage.is_some()) =>
 			{
 				let reused = match &directory {
 					Some(Directory::Existing {
@@ -1095,6 +1158,30 @@ impl Component {
 			},
 			_ => (None, None, None, None),
 		};
+		#[cfg(target_os = "macos")]
+		let (vfs, vfs_mount) = if session.server.components.vfs.mounted()
+			&& session.server.config.vfs.as_ref().is_some_and(|config| {
+				matches!(config.kind, tangram_server_core::config::VfsKind::Fskit)
+			}) {
+			let mount_path = temp.path().join("store");
+			let arg = tangram_server_core::vfs::MountArg {
+				kind: tangram_server_core::vfs::Kind::Fskit,
+				options: session.server.config.vfs.clone().unwrap_or_default(),
+				origin: Origin::Sandbox(index),
+				path: &mount_path,
+				principal: None,
+				recvfd: None,
+			};
+			let vfs = session
+				.server
+				.components
+				.vfs
+				.mount(&session.server, arg)
+				.await?;
+			(Some(vfs), Some(mount_path))
+		} else {
+			(None, None)
+		};
 
 		// Create the listener.
 		let listener_port = match &session.server.config.runner.backend {
@@ -1112,10 +1199,9 @@ impl Component {
 
 		// Create the sandbox with a readonly store mount.
 		let store_path = session.server.store_path();
-		#[cfg(target_os = "linux")]
 		let store_source = vfs_mount.clone().unwrap_or_else(|| store_path.clone());
-		#[cfg(not(target_os = "linux"))]
-		let store_source = store_path.clone();
+		#[cfg(target_os = "macos")]
+		let store_path = store_source.clone();
 		let mut mounts = arg.mounts;
 		mounts.push(tg::sandbox::Mount {
 			readonly: true,
@@ -1196,6 +1282,8 @@ impl Component {
 
 			path: temp.path().to_owned(),
 
+			prepare,
+
 			request_timeout: config.request_timeout,
 
 			resources,
@@ -1265,7 +1353,6 @@ impl Component {
 
 			temp,
 
-			#[cfg(target_os = "linux")]
 			vfs,
 		};
 
@@ -1297,7 +1384,6 @@ impl Component {
 			sandbox,
 			serve_task,
 			temp,
-			#[cfg(target_os = "linux")]
 			mut vfs,
 		} = create_output;
 
@@ -1318,16 +1404,12 @@ impl Component {
 			stopper,
 		};
 		let mut temp = Some(temp);
-		#[cfg(target_os = "linux")]
 		let result = self
 			.run_sandbox_task(session, arg, &mut temp, &mut vfs)
 			.boxed()
 			.await;
-		#[cfg(not(target_os = "linux"))]
-		let result = self.run_sandbox_task(session, arg, &mut temp).boxed().await;
 
 		// Stop the VFS after an early sandbox task failure.
-		#[cfg(target_os = "linux")]
 		if let Some(vfs) = vfs {
 			vfs.stop();
 			vfs.wait().await;
@@ -1372,7 +1454,7 @@ impl Component {
 		session: &Session,
 		arg: RunSandboxTaskArg,
 		temp: &mut Option<Temp>,
-		#[cfg(target_os = "linux")] vfs: &mut Option<Box<dyn tangram_server_vfs_core::Server>>,
+		vfs: &mut Option<Box<dyn tangram_server_vfs_core::Server>>,
 	) -> tg::Result<RetainSandboxTaskArg> {
 		let RunSandboxTaskArg {
 			connected,
@@ -1483,6 +1565,7 @@ impl Component {
 						let result = match message.arg {
 							tg::sandbox::control::ServerRequestArg::Destroy(request) => {
 								Self::cancel_sandbox_processes(session, &id, request.error)?;
+								Self::set_sandbox_status(session, &id, tg::sandbox::Status::Destroying);
 								end = true;
 								Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
 									tg::sandbox::control::DestroyClientResponseOutput {
@@ -1527,6 +1610,7 @@ impl Component {
 							},
 							tg::sandbox::control::ServerRequestArg::Stop(_) => {
 								Self::cancel_sandbox_processes(session, &id, None)?;
+								Self::set_sandbox_status(session, &id, tg::sandbox::Status::Stopping);
 								end = true;
 								teardown = Teardown::Stop;
 								Ok(tg::sandbox::control::ClientResponseOutput::Stop(
@@ -1694,7 +1778,6 @@ impl Component {
 			};
 
 			// Stop the VFS while the sandbox still owns its mount namespace.
-			#[cfg(target_os = "linux")]
 			if let Some(vfs) = vfs.take() {
 				vfs.stop();
 				vfs.wait().await;
@@ -1738,7 +1821,7 @@ impl Component {
 				.sandboxes
 				.get_mut_by_id(&id)
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-			state.usage = Some(usage);
+			state.usage = usage;
 			drop(state);
 
 			// Stop and await the serve task.
@@ -2384,6 +2467,7 @@ impl Component {
 				Some(Some(data)) => {
 					let teardown = match data.data.status {
 						tg::sandbox::Status::Destroyed => None,
+						tg::sandbox::Status::Destroying => Some(Teardown::Destroy),
 						tg::sandbox::Status::Started
 						| tg::sandbox::Status::Starting
 						| tg::sandbox::Status::Stopping => Some(Teardown::with_time_to_live(data.data.time_to_live)),
@@ -2894,7 +2978,9 @@ impl Component {
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(id.clone()),
 			processes: processes.map(<[_]>::to_vec),
+			registration: None,
 			runner: None,
+			scheduled: None,
 			stopped_usage: None,
 			touched_at,
 		};
@@ -2942,6 +3028,34 @@ impl Teardown {
 }
 
 /// Compute the storage usage of a stopped directory of a size in bytes over a number of seconds, in mebibyte-milliseconds, as consumption without a reservation, because a stopped sandbox holds none.
+fn validate_hardened_sandbox(arg: &tg::sandbox::create::Arg) -> tg::Result<()> {
+	if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
+		return Err(tg::error!(
+			"host networking is not allowed for hardened container isolation"
+		));
+	}
+	if arg.mounts.iter().any(|mount| !mount.readonly) {
+		return Err(tg::error!(
+			"writable mounts are not allowed for hardened container isolation"
+		));
+	}
+	Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_native_mounts(
+	backend: &tangram_sandbox::Backend,
+	arg: &tg::sandbox::create::Arg,
+) -> tg::Result<()> {
+	if matches!(
+		backend,
+		tangram_sandbox::Backend::Builtin | tangram_sandbox::Backend::Bubblewrap { .. }
+	) {
+		tangram_sandbox::guest::validate_mounts(&arg.mounts)?;
+	}
+	Ok(())
+}
+
 fn stopped_storage_usage(size: u64, seconds: i64) -> tg::sandbox::Usage {
 	let milliseconds = u128::try_from(seconds).unwrap_or_default() * 1000;
 	let consumption = (u128::from(size) * milliseconds).div_ceil(1_048_576);

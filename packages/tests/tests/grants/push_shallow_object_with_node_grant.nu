@@ -30,7 +30,7 @@ let bytes = mktemp -t
 tg --url $local_builder.url object get --bytes $directory | save --force --raw $bytes
 open --raw $bytes | tg --url $local_source.url --token $bob.token object put --no-tokens --bytes $directory | referent node
 tg --url $local_source.url --token $bob.token grant $carol.user.id object_node $directory | ignore
-tg --url $local_source.url --token $bob.token index
+tg --url $local_source.url --token $bob.token index --database
 let local_child = tg --url $local_source.url --token $carol.token object get --bytes --local $child | complete
 failure $local_child "the source must not have the child."
 

@@ -28,7 +28,7 @@ let params = { resource: $file } | to json --raw
 let advance = tg --token $root_token checkpoint watch permission_capture.advance --params $params | from json | get watch
 let advanced = tg --token $root_token checkpoint watch permission_capture.advanced --params $params | from json | get watch
 tg --token $alice.token tag put captured $directory --public
-tg --token $root_token index
+tg --token $root_token index --database
 tg --token $root_token checkpoint wait --timeout 30s permission_capture.advance $advance 0 | ignore
 tg --token $root_token checkpoint continue permission_capture.advance $advance 0
 tg --token $root_token checkpoint wait --timeout 30s permission_capture.advanced $advanced 0 | ignore

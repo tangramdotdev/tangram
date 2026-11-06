@@ -22,7 +22,7 @@ for reverse in [false true] {
 	let without_tokens = (['tg.directory({ "file": ' $file ' })'] | str join)
 	let entries = if $reverse { [$with_tokens $without_tokens] } else { [$without_tokens $with_tokens] }
 	let directory = tg --token $alice.token put --no-tokens (['tg.directory({ "a": ' $entries.0 ', "b": ' $entries.1 ' })'] | str join) | referent node
-	tg --token $alice.token index
+	tg --token $alice.token index --database
 	let output = http get --headers { Accept: application/json, Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($directory)'
 	assert equal ($output.children | columns | length) 1
 }

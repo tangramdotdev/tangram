@@ -20,6 +20,7 @@ impl Component {
 		Self::spawn_publish_sandbox_status_task(&session.server, id);
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.stop", sandbox = %id)
 			.await;
+		Self::warn_missing_sandbox_usage(session, &arg.data.data);
 
 		// Submit the stopped sandbox with the processes of its boot, which the index merges with those of earlier boots.
 		let account = session
@@ -41,7 +42,9 @@ impl Component {
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(id.clone()),
 			processes: Some(arg.processes),
+			registration: None,
 			runner,
+			scheduled: None,
 			stopped_usage: None,
 			touched_at: now,
 		};

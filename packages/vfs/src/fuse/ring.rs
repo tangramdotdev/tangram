@@ -16,7 +16,7 @@ pub(super) struct RingConfig {
 }
 
 pub(super) struct RingStartupContext<'a> {
-	pub(super) abort: &'a OwnedFd,
+	pub(super) abort: Option<&'a OwnedFd>,
 	pub(super) event_receiver: &'a mut tokio::sync::mpsc::UnboundedReceiver<WorkerEvent>,
 	pub(super) event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
 	pub(super) fd: Arc<OwnedFd>,

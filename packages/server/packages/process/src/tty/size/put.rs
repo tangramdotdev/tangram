@@ -1,11 +1,11 @@
 use {
 	crate::Component,
-	futures::{StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 };
 
 impl Component {
@@ -57,41 +57,57 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(id) = &id
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
+
+		// Set the size locally without a search.
+		if current
+			&& let Some(id) = &id
+			&& let Some(output) = self
+				.try_set_process_tty_size_local(
+					session,
+					id,
+					arg.size,
+					arg.tokens.local_authorization(),
+					false,
+				)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to set the process tty size"))?
+		{
+			return Ok(Some(output));
+		}
+
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			let (true, Some(id)) = (current, &id) else {
+				return Ok(None);
+			};
+			self.try_set_process_tty_size_local(
+				session,
+				id,
+				arg.size,
+				arg.tokens.local_authorization(),
+				true,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to set the process tty size"))
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
 				&& let Some(output) = self
-					.try_set_process_tty_size_local(
+					.try_set_process_tty_size_regions(
 						session,
-						id,
+						process,
 						arg.size,
-						arg.tokens.local_authorization(),
+						&local.regions,
+						&arg.tokens,
 					)
 					.await
 					.map_err(
-						|error| tg::error!(!error, %id, "failed to set the process tty size"),
+						|error| tg::error!(!error, %process, "failed to set the process tty size in another region"),
 					)? {
 				return Ok(Some(output));
 			}
-
-			if let Some(output) = self
-				.try_set_process_tty_size_regions(
-					session,
-					process,
-					arg.size,
-					&local.regions,
-					&arg.tokens,
-				)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %process, "failed to set the process tty size in another region"),
-				)? {
-				return Ok(Some(output));
-			}
-		}
-
-		if let Some(output) = self
-			.try_set_process_tty_size_remotes(
+			self.try_set_process_tty_size_remotes(
 				session,
 				process,
 				arg.size,
@@ -101,11 +117,16 @@ impl Component {
 			.await
 			.map_err(
 				|error| tg::error!(!error, %process, "failed to set the process tty size in a remote"),
-			)? {
-			return Ok(Some(output));
-		}
+			)
+		};
+		let output = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
 
-		Ok(None)
+		Ok(output)
 	}
 
 	pub(crate) async fn try_set_process_tty_size_local(
@@ -114,9 +135,19 @@ impl Component {
 		id: &tg::process::Id,
 		size: tg::process::tty::Size,
 		tokens: &[tg::authorization::Token],
+		exhaustive: bool,
 	) -> tg::Result<Option<()>> {
 		let Some(output) = self
-			.try_get_process_local(session, id, false, false, tokens, tg::process::Source::Auto)
+			.try_get_process_local(
+				session,
+				id,
+				false,
+				false,
+				tokens,
+				tg::process::Source::Auto,
+				None,
+				exhaustive,
+			)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 		else {
@@ -135,7 +166,7 @@ impl Component {
 		);
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let authorized = session
-			.authorize(resource, permission)
+			.authorize_with_exhaustive(resource, permission, exhaustive)
 			.await?
 			.check_exhaustion()?;
 		if !authorized.permissions.contains(permission) {
@@ -181,8 +212,9 @@ impl Component {
 		let response = if let Some(control_sender) = control_sender {
 			control_sender.request(request).await?
 		} else {
+			let starting = data.status.is_starting();
 			let Some(response) = self
-				.try_request_process_control(session, id, request, options)
+				.try_request_process_control(session, id, request, options, starting)
 				.await?
 			else {
 				return Ok(Some(()));

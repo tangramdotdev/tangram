@@ -10,7 +10,6 @@ let path = artifact { tangram.ts: 'export default async () => { await tg.sleep(3
 let process = tg --token $alice.token run --no-tokens --network=true --detach $path | referent node
 
 tg --token $alice.token grant $eve.user.id process_parent $process
-tg --token $alice.token index
 
 let signaled = tg --token $eve.token process signal $process --signal KILL | complete
 success $signaled "a process_parent grant should permit signaling the process."

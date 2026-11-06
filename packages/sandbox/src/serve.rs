@@ -5,12 +5,17 @@ pub struct Arg {
 	pub http2: tangram_http::http2::Config,
 	pub library_paths: Vec<PathBuf>,
 	pub listen: bool,
+	pub namespaces: Option<PathBuf>,
 	pub output_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub url: Uri,
 }
 
 pub async fn run(arg: &Arg) -> tg::Result<()> {
+	#[cfg(target_os = "linux")]
+	if let Some(path) = &arg.namespaces {
+		crate::configuration::Namespaces::send(path)?;
+	}
 	#[cfg(target_os = "linux")]
 	// Prevent same-UID workloads from inspecting the server through /proc.
 	crate::util::set_dumpable(false)?;

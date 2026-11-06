@@ -2,15 +2,24 @@ use {
 	num::ToPrimitive as _,
 	std::path::{Path, PathBuf},
 	tangram_client::prelude::*,
+	tangram_futures::task::Task,
+	tangram_server_core::context::Origin,
 	tokio::{
 		io::{AsyncBufReadExt as _, AsyncWriteExt as _},
 		net::UnixStream,
 	},
 };
 
-#[derive(Clone)]
+#[cfg(test)]
+mod tests;
+
 pub struct Server {
+	task: Option<Task<()>>,
+}
+
+struct Mount {
 	path: PathBuf,
+	proxy: Option<Task<()>>,
 }
 
 #[derive(serde::Serialize)]
@@ -62,14 +71,99 @@ impl Server {
 		server: &tangram_server_core::Server,
 		path: &Path,
 		principal: tg::Principal,
+		origin: Origin,
+		provider: crate::Provider,
+	) -> tg::Result<Self> {
+		let server = server.clone();
+		let path = path.to_owned();
+		let start = async move {
+			let result = Mount::start(&server, &path, principal, origin, provider).await;
+			let mount = match result {
+				Err(error) => {
+					Mount::unmount(&path).await.ok();
+					return Err(error);
+				},
+				Ok(mount) => mount,
+			};
+
+			Ok(mount.wait())
+		};
+
+		Self::start_inner(start).await
+	}
+
+	async fn start_inner<F>(
+		start: impl Future<Output = tg::Result<F>> + Send + 'static,
+	) -> tg::Result<Self>
+	where
+		F: Future<Output = ()> + Send + 'static,
+	{
+		// Keep startup and cleanup alive when the caller is cancelled.
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let mut task = Task::spawn(move |stopper| async move {
+			let cleanup = match start.await {
+				Err(error) => {
+					sender.send(Err(error)).ok();
+					return;
+				},
+				Ok(cleanup) => cleanup,
+			};
+			if sender.send(Ok(())).is_ok() {
+				stopper.wait().await;
+			}
+			cleanup.await;
+		});
+		task.detach();
+		let server = Self { task: Some(task) };
+		receiver
+			.await
+			.map_err(|error| tg::error!(!error, "the fskit mount task exited during startup"))??;
+
+		Ok(server)
+	}
+
+	pub fn stop(&self) {
+		if let Some(task) = &self.task {
+			task.stop();
+		}
+	}
+
+	pub async fn wait(mut self) {
+		let task = self.task.take().unwrap();
+		task.stop();
+		if let Err(error) = task.wait().await {
+			tracing::error!(?error, "the fskit mount task panicked");
+		}
+	}
+
+	pub async fn unmount(path: &Path) -> tg::Result<()> {
+		Mount::unmount(path).await?;
+		Ok(())
+	}
+}
+
+impl Mount {
+	async fn start(
+		server: &tangram_server_core::Server,
+		path: &Path,
+		principal: tg::Principal,
+		origin: Origin,
+		provider: crate::Provider,
 	) -> tg::Result<Self> {
 		Self::unmount(path).await.ok();
+		if matches!(origin, Origin::Sandbox(_)) {
+			let (proxy, socket) = Self::start_proxy(provider).await?;
+			let mut server = Self::start_with_mount(server, path, principal, Some(&socket)).await?;
+			server.proxy = Some(proxy);
+
+			return Ok(server);
+		}
 
 		// Ask the app to mount if the app started this server, because only the app can prompt for the file system extension's approval. Otherwise mount directly, which is the path the test harness takes.
 		if std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some() {
 			Self::start_with_app(server, path, principal).await
 		} else {
-			Self::start_with_mount(server, path, principal).await
+			Self::start_with_mount(server, path, principal, None).await
 		}
 	}
 
@@ -133,6 +227,7 @@ impl Server {
 
 		Ok(Self {
 			path: path.to_path_buf(),
+			proxy: None,
 		})
 	}
 
@@ -140,17 +235,30 @@ impl Server {
 		server: &tangram_server_core::Server,
 		path: &Path,
 		principal: tg::Principal,
+		proxy: Option<&Path>,
 	) -> tg::Result<Self> {
-		let group_socket = Self::group_socket(server)?;
+		let group_socket = match proxy {
+			Some(path) => path.to_path_buf(),
+			None => Self::group_socket(server)?,
+		};
 		let cache = Self::cache(server);
-		let options = Self::options(cache.as_ref(), &group_socket, &principal);
+		let mut options = Self::options(cache.as_ref(), &group_socket, &principal);
+		if proxy.is_some() {
+			options.push_str(",proxy=1");
+		}
+		let resource = if proxy.is_some() {
+			path.parent()
+				.ok_or_else(|| tg::error!("the VFS mount has no parent"))?
+		} else {
+			&server.path
+		};
 		let output = tokio::process::Command::new("/sbin/mount")
 			.arg("-F")
 			.arg("-t")
 			.arg("tangram")
 			.arg("-o")
 			.arg(options)
-			.arg(&server.path)
+			.arg(resource)
 			.arg(path)
 			.output()
 			.await
@@ -162,15 +270,69 @@ impl Server {
 		}
 		Ok(Self {
 			path: path.to_path_buf(),
+			proxy: None,
 		})
 	}
 
-	#[must_use]
-	pub fn path(&self) -> &Path {
-		&self.path
+	async fn start_proxy(provider: crate::Provider) -> tg::Result<(Task<()>, PathBuf)> {
+		// Create the socket directory.
+		let home =
+			std::env::var_os("HOME").ok_or_else(|| tg::error!("missing the home directory"))?;
+		let directory = PathBuf::from(home).join(".tangram/vfs");
+		tokio::fs::create_dir_all(&directory)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the VFS socket directory"))?;
+
+		// Bind the listener.
+		let socket = directory.join(format!("{}.sock", uuid::Uuid::now_v7().simple()));
+		let (listener, guard) = tangram_util::io::unix::bind_listener(&socket)
+			.map_err(|error| tg::error!(!error, "failed to bind the VFS socket"))?;
+
+		// Serve the sandbox's VFS requests.
+		let task = Task::spawn(move |stopper| async move {
+			let _guard = guard;
+			let mut tasks = tokio::task::JoinSet::new();
+			loop {
+				tokio::select! {
+					() = stopper.wait() => break,
+					Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+						if let Err(error) = result {
+							tracing::error!(%error, "the VFS request task failed");
+						}
+					},
+					result = listener.accept() => {
+						let (stream, _) = match result {
+							Ok(output) => output,
+							Err(error) => {
+								tracing::error!(%error, "failed to accept the VFS connection");
+								break;
+							},
+						};
+						let provider = provider.clone();
+						tasks.spawn(async move {
+							if let Err(error) = tangram_vfs::proxy::serve(stream, &provider).await {
+								tracing::debug!(%error, "failed to serve the VFS request");
+							}
+						});
+					},
+				}
+			}
+		});
+
+		Ok((task, socket))
 	}
 
-	pub async fn unmount(path: &Path) -> tg::Result<()> {
+	async fn wait(self) {
+		if let Err(error) = Self::unmount(&self.path).await {
+			tracing::error!(?error, "failed to unmount the fskit vfs");
+		}
+		if let Some(proxy) = self.proxy {
+			proxy.stop();
+			proxy.wait().await.ok();
+		}
+	}
+
+	async fn unmount(path: &Path) -> tg::Result<()> {
 		let output = tokio::process::Command::new("/sbin/umount")
 			.arg(path)
 			.output()
@@ -258,5 +420,11 @@ impl Server {
 			}
 		}
 		options.join(",")
+	}
+}
+
+impl Drop for Server {
+	fn drop(&mut self) {
+		self.stop();
 	}
 }

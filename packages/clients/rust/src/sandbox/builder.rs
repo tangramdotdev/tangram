@@ -50,6 +50,12 @@ impl Builder {
 	}
 
 	#[must_use]
+	pub fn wait(mut self, wait: bool) -> Self {
+		self.arg.wait = wait;
+		self
+	}
+
+	#[must_use]
 	pub fn location(mut self, location: impl Into<Option<tg::location::Arg>>) -> Self {
 		self.arg.location = location.into();
 		self

@@ -147,7 +147,43 @@ impl Component {
 		})
 	}
 
-	fn spawn_indexer_task(&self, server: &Server) -> Option<Task<()>> {
+	async fn register_indexer(
+		server: &Server,
+	) -> tg::Result<Option<tangram_index::indexer::Indexer>> {
+		if !server.config.advanced.multi_server
+			|| !server
+				.config
+				.roles
+				.contains(&tangram_server_core::config::Role::Indexer)
+		{
+			return Ok(None);
+		}
+		let id = server
+			.config
+			.indexer
+			.id
+			.clone()
+			.ok_or_else(|| tg::error!("the indexer ID is required in multi-server mode"))?;
+		let arg = tangram_index::indexer::get::Arg { id: id.clone() };
+		let indexer = if let Some(mut indexer) = server.index.try_get_indexer(arg).await? {
+			indexer.available = false;
+			indexer
+		} else {
+			tangram_index::indexer::Indexer::new(id)
+		};
+		let arg = tangram_index::indexer::put::Arg {
+			indexer: indexer.clone(),
+		};
+		server.index.put_indexer(arg).await?;
+
+		Ok(Some(indexer))
+	}
+
+	fn spawn_indexer_task(
+		&self,
+		server: &Server,
+		indexer_state: Option<tangram_index::indexer::Indexer>,
+	) -> Option<Task<()>> {
 		if !server
 			.config
 			.roles
@@ -159,7 +195,9 @@ impl Component {
 		let component = self.clone();
 		let server = server.clone();
 		let task = Task::spawn(|stopper| async move {
-			let result = component.indexer_task(&server, &config, stopper).await;
+			let result = component
+				.indexer_task(&server, &config, indexer_state, stopper)
+				.await;
 			if let Err(error) = result {
 				tracing::error!(error = %error.trace(), "the indexer failed; exiting for crash recovery");
 				std::process::exit(1);
@@ -173,40 +211,10 @@ impl Component {
 		&self,
 		server: &Server,
 		config: &tangram_server_core::config::Indexer,
+		indexer_state: Option<tangram_index::indexer::Indexer>,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		let id = if server.config.advanced.multi_server {
-			Some(
-				config
-					.id
-					.clone()
-					.ok_or_else(|| tg::error!("the indexer ID is required in multi-server mode"))?,
-			)
-		} else {
-			None
-		};
-		let indexer_state = if let Some(id) = &id {
-			let arg = tangram_index::indexer::get::Arg { id: id.clone() };
-			Some(
-				if let Some(mut indexer) = server.index.try_get_indexer(arg).await? {
-					indexer.available = false;
-					let arg = tangram_index::indexer::put::Arg {
-						indexer: indexer.clone(),
-					};
-					server.index.put_indexer(arg).await?;
-					indexer
-				} else {
-					let indexer = tangram_index::indexer::Indexer::new(id.clone());
-					let arg = tangram_index::indexer::put::Arg {
-						indexer: indexer.clone(),
-					};
-					server.index.put_indexer(arg).await?;
-					indexer
-				},
-			)
-		} else {
-			None
-		};
+		let id = indexer_state.as_ref().map(|state| state.id.clone());
 		let indexer = Indexer {
 			component: self.clone(),
 			id,
@@ -881,8 +889,11 @@ impl tangram_server_core::component::Lifecycle for Component {
 			let task = self.spawn_indexer_cache_task(server);
 			self.indexer_cache_task.lock().unwrap().replace(task);
 
+			// Register the indexer before the server accepts requests, because a wait fails when no indexers are registered.
+			let indexer = Self::register_indexer(server).await?;
+
 			// Spawn the indexer task.
-			let task = self.spawn_indexer_task(server);
+			let task = self.spawn_indexer_task(server, indexer);
 			*self.indexer_task.lock().unwrap() = task;
 
 			Ok(())

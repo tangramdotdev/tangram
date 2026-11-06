@@ -135,6 +135,15 @@ impl Component {
 		Ok(())
 	}
 
+	pub(crate) fn remote_principal_id(principal: &tg::Principal) -> tg::Result<tg::Id> {
+		match principal {
+			tg::Principal::Group(id) => Ok(id.clone().into()),
+			tg::Principal::Organization(id) => Ok(id.clone().into()),
+			tg::Principal::User(id) => Ok(id.clone().into()),
+			_ => Err(tg::error!("invalid remote principal")),
+		}
+	}
+
 	async fn is_remote_principal_authorized(
 		session: &Session,
 		principal: Option<&tg::Principal>,
@@ -143,12 +152,7 @@ impl Component {
 			let authorized = matches!(session.context.principal, tg::Principal::Root);
 			return Ok(authorized);
 		};
-		let id: tg::Id = match principal {
-			tg::Principal::Group(id) => id.clone().into(),
-			tg::Principal::Organization(id) => id.clone().into(),
-			tg::Principal::User(id) => id.clone().into(),
-			_ => return Err(tg::error!("invalid remote principal")),
-		};
+		let id = Self::remote_principal_id(principal)?;
 		let permission = tangram_server_grant_common::write_permission_for_resource(&id)?;
 		let authorization = session
 			.authorize(id, permission)

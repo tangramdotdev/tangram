@@ -1,7 +1,7 @@
 use {
 	crate::{Messenger, Payload},
 	bytes::{Buf as _, BufMut as _, Bytes, BytesMut},
-	futures::{Stream, StreamExt as _, stream::BoxStream},
+	futures::{Stream, StreamExt as _, future::BoxFuture, stream::BoxStream},
 	std::{
 		collections::VecDeque,
 		marker::PhantomData,
@@ -95,6 +95,7 @@ enum SendEvent {
 
 struct Connection<M, T> {
 	heard: Instant,
+	hold: Option<oneshot::Receiver<()>>,
 	messenger: M,
 	options: Options,
 	receive: Incoming<T>,
@@ -158,6 +159,22 @@ where
 	R: Payload,
 	M: Messenger + Clone + Send + Sync + 'static,
 {
+	open_with_hold(messenger, send_subject, receive_subject, options, None).await
+}
+
+/// Open one end of a relay that waits for its peer without timing out until the hold completes or the peer is heard.
+pub async fn open_with_hold<S, R, M>(
+	messenger: &M,
+	send_subject: impl Into<String>,
+	receive_subject: impl Into<String>,
+	options: Options,
+	hold: Option<BoxFuture<'static, ()>>,
+) -> Result<(Sender<S>, Receiver<R>), Error>
+where
+	S: Payload,
+	R: Payload,
+	M: Messenger + Clone + Send + Sync + 'static,
+{
 	// Validate the options.
 	options.validate()?;
 
@@ -187,6 +204,20 @@ where
 		events: receive_events,
 		last: None,
 	};
+
+	// Watch the hold outside of the connection, and stop watching if the connection ends first.
+	let hold = hold.map(|hold| {
+		let (mut hold_sender, hold_receiver) = oneshot::channel();
+		tokio::spawn(async move {
+			tokio::select! {
+				() = hold => {
+					hold_sender.send(()).ok();
+				},
+				() = hold_sender.closed() => (),
+			}
+		});
+		hold_receiver
+	});
 
 	// Run the connection.
 	let now = Instant::now();
@@ -221,6 +252,7 @@ where
 	};
 	let connection = Connection {
 		heard: now,
+		hold,
 		messenger: messenger.clone(),
 		options,
 		receive,
@@ -425,10 +457,15 @@ where
 					self.receive.ack_deadline = None;
 					self.flush().await?;
 				},
-				() = sleep_until(peer_deadline), if self.receive.end.is_none() => return Err(Error::Timeout),
+				() = sleep_until(peer_deadline), if self.receive.end.is_none() && self.hold.is_none() => return Err(Error::Timeout),
 				() = sleep_until(peer_deadline), if !sending && received => {
 					// Linger until the peer is silent once both halves are done, so that a peer whose acknowledgment of its end was lost receives it again.
 					return Ok(());
+				},
+				() = released(&mut self.hold), if self.hold.is_some() => {
+					// Give the peer the full timeout from the moment that the hold ends.
+					self.heard = Instant::now();
+					self.send.attempts = 0;
 				},
 			}
 		}
@@ -436,6 +473,7 @@ where
 
 	async fn handle(&mut self, message: Message) -> Result<(), Error> {
 		self.heard = Instant::now();
+		self.hold = None;
 		match message {
 			Message::Abort { payload, sequence } => self.receive_abort(payload, sequence).await?,
 			Message::Ack {
@@ -580,9 +618,11 @@ where
 		}
 
 		// Resend what the peer has not received, or probe it, so that both sides know the other is alive.
-		self.send.attempts += 1;
-		if self.send.attempts > self.options.max_retransmits {
-			return Err(Error::Timeout);
+		if self.hold.is_none() {
+			self.send.attempts += 1;
+			if self.send.attempts > self.options.max_retransmits {
+				return Err(Error::Timeout);
+			}
 		}
 		let resent = self.resend().await?;
 		if resent == 0 {
@@ -879,6 +919,11 @@ async fn recv_ack(acks: &mut Option<mpsc::UnboundedReceiver<u64>>) -> Option<u64
 async fn dropped(alive: &mut Option<oneshot::Receiver<()>>) {
 	alive.as_mut().unwrap().await.ok();
 	alive.take();
+}
+
+async fn released(hold: &mut Option<oneshot::Receiver<()>>) {
+	hold.as_mut().unwrap().await.ok();
+	hold.take();
 }
 
 async fn sleep_until_some(deadline: Option<Instant>) {

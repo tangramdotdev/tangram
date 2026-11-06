@@ -31,6 +31,7 @@ pub(crate) struct Http2 {
 	config: tangram_http::http2::Config,
 	connect_timeout: Duration,
 	next: AtomicUsize,
+	runtime: tokio::runtime::Handle,
 	sessions: DashMap<usize, Arc<Session>>,
 	streams: DashMap<usize, Arc<Stream>>,
 }
@@ -94,6 +95,7 @@ impl Http2 {
 		coalescing_target_size: usize,
 		connect_timeout: Duration,
 		config: tangram_http::http2::Config,
+		runtime: tokio::runtime::Handle,
 	) -> Self {
 		assert!(
 			coalescing_target_size > 0,
@@ -104,6 +106,7 @@ impl Http2 {
 			config,
 			connect_timeout,
 			next: AtomicUsize::new(0),
+			runtime,
 			sessions: DashMap::new(),
 			streams: DashMap::new(),
 		}
@@ -114,10 +117,21 @@ impl Http2 {
 	}
 
 	pub(crate) async fn connect(
-		&self,
+		self: &Arc<Self>,
 		authority: String,
 		options: ConnectOptions,
 	) -> tg::Result<usize> {
+		// Drive the connection on the main runtime, so that it can read shutdown frames while JavaScript is busy.
+		let http2 = self.clone();
+		let output = self
+			.runtime
+			.spawn(async move { http2.connect_inner(authority, options).await })
+			.await
+			.map_err(|error| tg::error!(!error, "the HTTP/2 connection task failed"))??;
+		Ok(output)
+	}
+
+	async fn connect_inner(&self, authority: String, options: ConnectOptions) -> tg::Result<usize> {
 		// Resolve the HTTP/2 configuration.
 		let http2 = options.http2.unwrap_or(self.config);
 		http2
@@ -203,6 +217,13 @@ impl Http2 {
 		token
 	}
 
+	#[must_use]
+	pub(crate) fn session_closed(&self, session: usize) -> bool {
+		self.sessions
+			.get(&session)
+			.is_none_or(|session| session.sender.is_closed())
+	}
+
 	pub(crate) async fn session_read(&self, session: usize) -> tg::Result<Option<SessionEvent>> {
 		let session = self
 			.sessions
@@ -235,12 +256,14 @@ impl Http2 {
 			self.coalescing_target_size,
 		)?;
 		let token = self.token();
-		let task = tokio::spawn(send_request(
-			session_value.clone(),
-			request,
-			event_tx.clone(),
-		))
-		.abort_handle();
+		let task = self
+			.runtime
+			.spawn(send_request(
+				session_value.clone(),
+				request,
+				event_tx.clone(),
+			))
+			.abort_handle();
 		let stream = Arc::new(Stream {
 			event_tx,
 			events: Mutex::new(event_rx),
@@ -336,6 +359,12 @@ impl Http2 {
 		if let Some(session) = session {
 			session.streams.remove(&stream.token);
 		}
+	}
+}
+
+impl Drop for Stream {
+	fn drop(&mut self) {
+		self.task.abort();
 	}
 }
 

@@ -22,6 +22,18 @@ fn a_destroy_is_not_overwritten_by_a_later_boot() {
 }
 
 #[test]
+fn a_destroying_status_is_after_every_boot_and_before_destroyed() {
+	let existing = sandbox(data(0, tg::sandbox::Status::Destroying, None));
+	let merge = arg(data(1, tg::sandbox::Status::Started, None)).merge(Some(&existing));
+	assert_eq!(status(&merge), tg::sandbox::Status::Destroying);
+	let merge = arg(data(0, tg::sandbox::Status::Destroyed, None)).merge(Some(&existing));
+	assert_eq!(status(&merge), tg::sandbox::Status::Destroyed);
+	let existing = sandbox(data(0, tg::sandbox::Status::Destroyed, None));
+	let merge = arg(data(0, tg::sandbox::Status::Destroying, None)).merge(Some(&existing));
+	assert_eq!(status(&merge), tg::sandbox::Status::Destroyed);
+}
+
+#[test]
 fn the_usage_of_every_boot_is_summed() {
 	let mut existing = sandbox(data(1, tg::sandbox::Status::Started, Some(usage(5))));
 	existing.usages = BTreeMap::from([(1, usage(5))]);
@@ -77,6 +89,7 @@ fn the_stopped_usage_of_every_boot_is_summed_and_only_grows() {
 fn arg(data: tg::sandbox::get::Output) -> Arg {
 	let id = data.data.id.clone();
 	Arg {
+		registration: None,
 		account: None,
 		created_at: 0,
 		data: Some(data),
@@ -86,6 +99,7 @@ fn arg(data: tg::sandbox::get::Output) -> Arg {
 		principal: tg::Principal::Root,
 		processes: None,
 		runner: None,
+		scheduled: None,
 		stopped_usage: None,
 		touched_at: 0,
 	}
@@ -130,6 +144,7 @@ fn sandbox(data: tg::sandbox::get::Output) -> super::super::Sandbox {
 		location: None,
 		reference_count: 0,
 		runner: None,
+		scheduler: None,
 		set: super::super::Set::default(),
 		stopped_usages: BTreeMap::new(),
 		touched_at: 0,

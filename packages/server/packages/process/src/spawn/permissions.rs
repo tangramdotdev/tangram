@@ -64,10 +64,46 @@ impl Component {
 		id: &tg::process::Id,
 	) -> tg::Result<()> {
 		let resource = tg::Id::from(id.clone());
+
+		// Read the grants from the read connection.
+		let options = db::ConnectionOptions::default();
+		let mut missing =
+			Self::get_spawn_process_missing_public_permissions(session, &resource, options).await?;
+
+		// Read the grants from the write connection, because a new grant may not have reached the read connection.
+		if !missing.is_empty() {
+			let options = db::ConnectionOptions {
+				kind: db::ConnectionKind::Write,
+				..Default::default()
+			};
+			missing =
+				Self::get_spawn_process_missing_public_permissions(session, &resource, options)
+					.await?;
+		}
+
+		if !missing.is_empty() {
+			let arg = tg::grant::grant::Arg {
+				create: false,
+				permissions: tg::Either::Left(tg::authorization::permission::Set::Process(missing)),
+				resource: tg::Referent::with_node(tg::Selector::Id(resource)),
+				subject: tg::authorization::subject::Selector::Subject(
+					tg::authorization::Subject::Public,
+				),
+			};
+			session.grant(arg).await?;
+		}
+		Ok(())
+	}
+
+	async fn get_spawn_process_missing_public_permissions(
+		session: &Session,
+		resource: &tg::Id,
+		options: db::ConnectionOptions,
+	) -> tg::Result<tg::authorization::permission::process::Set> {
 		let existing = session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let resource = resource.clone();
 				let session = session.clone();
 				async move {
@@ -89,7 +125,6 @@ impl Component {
 				covered.insert(set);
 			}
 		}
-
 		let mut missing = tg::authorization::permission::process::Set::empty();
 		for permission in [
 			tg::authorization::permission::process::Permission::Subtree,
@@ -103,18 +138,8 @@ impl Component {
 				missing.insert(set);
 			}
 		}
-		if !missing.is_empty() {
-			let arg = tg::grant::grant::Arg {
-				create: false,
-				permissions: tg::Either::Left(tg::authorization::permission::Set::Process(missing)),
-				resource: tg::Referent::with_node(tg::Selector::Id(resource)),
-				subject: tg::authorization::subject::Selector::Subject(
-					tg::authorization::Subject::Public,
-				),
-			};
-			session.grant(arg).await?;
-		}
-		Ok(())
+
+		Ok(missing)
 	}
 
 	async fn list_spawn_process_grants_with_transaction(

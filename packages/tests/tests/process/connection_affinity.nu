@@ -13,7 +13,7 @@ let config = {
 	roles: [api indexer scheduler],
 }
 let first = server spawn --instance $instance --name first --config $config
-let second = server spawn --instance $instance --name second --config $config
+let second = server spawn --instance $instance --name second --config ($config | upsert roles [api indexer])
 let port = port
 let ready = mktemp -d | path join ready
 ^mkfifo $ready

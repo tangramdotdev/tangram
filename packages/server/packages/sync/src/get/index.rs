@@ -928,7 +928,9 @@ impl Component {
 				permissions,
 				principal: session.context.principal.clone(),
 				processes: Some(message.processes),
+				registration: None,
 				runner: None,
+				scheduled: None,
 				stopped_usage: None,
 				touched_at,
 			});
@@ -1245,6 +1247,7 @@ impl Component {
 							parent: None,
 							permissions: Vec::new(),
 							principal: session.context.principal.clone(),
+							registration: None,
 							sandbox: None,
 							storage,
 							time_to_touch: session.server.config.process.time_to_touch,

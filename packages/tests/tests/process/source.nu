@@ -29,11 +29,11 @@ for remote_runner in [false true] {
 		assert equal $output.output done
 		let output = timeout 10s tg --url $url wait --source=runner $process | from json
 		assert equal $output.output done
-		# Wait for the client to index the finished record that it cached.
-		if $url == $local_client.url {
-			tg --url $url index
-		}
 		assert equal (tg --url $url get --source=runner $process | from json | get status) finished
+		# Wait for the client to index the finished record, which a background task caches after the read.
+		if $url == $local_client.url {
+			wait_until { (tg --url $url get --source=index $process | from json | get status) == 'finished' }
+		}
 		let indexed_status = if $url == $local_owner.url { 'started' } else { 'finished' }
 		assert equal (tg --url $url get --source=index $process | from json | get status) $indexed_status
 		assert equal (tg --url $url process status --source=runner $process | from json) [finished]

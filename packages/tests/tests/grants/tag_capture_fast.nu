@@ -19,7 +19,7 @@ let reference = $'($directory)?tokens[local][0]=($token | url encode --all)'
 
 let tagged = tg --token $alice.token tag put fast $reference --public | complete
 success $tagged "tagging with an exact subtree proof must succeed."
-tg --token $root_token index
+tg --token $root_token index --database
 
 # Access must survive the expiration of the token.
 advance_time $local 2min

@@ -34,7 +34,7 @@ tg --token $alice.token process put $parent ($parent_data | to json)
 # These explicit grants prove process_subtree access to the parent.
 tg --token $alice.token grant $eve.user.id process_node $parent | ignore
 tg --token $alice.token grant $eve.user.id process_subtree $child | ignore
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 let metadata = tg --token $eve.token metadata $parent | from json
 assert equal $metadata.subtree.count 2 "the initial grants should confer subtree access"

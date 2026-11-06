@@ -145,11 +145,15 @@ impl Component {
 		if !Self::named_checkout_maintenance_enabled(&session.server) {
 			return Ok(());
 		}
+		let arg = tg::index::Arg {
+			database: true,
+			..Default::default()
+		};
 		session
 			.server
 			.components
 			.indexer
-			.index(session, tg::index::Arg::default())
+			.index(session, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()

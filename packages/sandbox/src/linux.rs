@@ -49,6 +49,72 @@ pub(crate) fn validate_descriptor(fd: RawFd) -> tg::Result<()> {
 	Ok(())
 }
 
+/// Open a pidfd for each descendant of a process, skipping those that exit or that this process cannot inspect.
+pub(crate) fn descendants(pid: u32) -> Vec<OwnedFd> {
+	let mut output = Vec::new();
+	let mut pending = vec![pid];
+	while let Some(pid) = pending.pop() {
+		let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else {
+			continue;
+		};
+		for task in tasks.flatten() {
+			let Ok(children) = std::fs::read_to_string(task.path().join("children")) else {
+				continue;
+			};
+			let children = children
+				.split_ascii_whitespace()
+				.filter_map(|child| child.parse::<u32>().ok());
+			for child in children {
+				// SAFETY: pidfd_open takes scalar arguments and returns a new descriptor.
+				let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, child, 0) };
+				if let Ok(fd) = RawFd::try_from(fd)
+					&& fd >= 0
+				{
+					// SAFETY: The syscall returned a new descriptor that nothing else owns.
+					output.push(unsafe { OwnedFd::from_raw_fd(fd) });
+				}
+				pending.push(child);
+			}
+		}
+	}
+	output
+}
+
+/// Wait for the processes of pidfds to exit.
+pub(crate) fn wait_for_exit(pidfds: &[OwnedFd], timeout: std::time::Duration) -> tg::Result<()> {
+	let deadline = std::time::Instant::now() + timeout;
+	for pidfd in pidfds {
+		loop {
+			let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+			let milliseconds = i32::try_from(remaining.as_millis()).unwrap_or(i32::MAX);
+			let mut poll = libc::pollfd {
+				events: libc::POLLIN,
+				fd: pidfd.as_raw_fd(),
+				revents: 0,
+			};
+
+			// SAFETY: The pointer refers to one valid pollfd for the duration of the call.
+			let ready = unsafe { libc::poll(&raw mut poll, 1, milliseconds) };
+			if ready > 0 {
+				break;
+			}
+			if ready == 0 {
+				return Err(tg::error!(
+					"timed out waiting for the sandbox processes to exit"
+				));
+			}
+			let error = std::io::Error::last_os_error();
+			if error.kind() != std::io::ErrorKind::Interrupted {
+				return Err(tg::error!(
+					!error,
+					"failed to wait for the sandbox processes"
+				));
+			}
+		}
+	}
+	Ok(())
+}
+
 pub(crate) fn open_pidfd() -> tg::Result<OwnedFd> {
 	// SAFETY: Both system calls take only scalar arguments.
 	let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, libc::getpid(), 0) };
@@ -413,5 +479,46 @@ pub(crate) fn wait_for_child(child: libc::pid_t) -> tg::Result<u8> {
 			return Ok((128 + signal).min(255).to_u8().unwrap());
 		}
 		return Ok(1);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn wait_for_descendants() {
+		// Start a process with a child.
+		let mut parent = std::process::Command::new("sh")
+			.args(["-c", "sleep 30 & wait"])
+			.spawn()
+			.unwrap();
+		let mut pidfds = descendants(parent.id());
+		while pidfds.is_empty() {
+			std::thread::sleep(std::time::Duration::from_millis(10));
+			pidfds = descendants(parent.id());
+		}
+
+		// The child outlives its parent.
+		parent.kill().unwrap();
+		parent.wait().unwrap();
+		let timeout = std::time::Duration::from_millis(10);
+		assert!(wait_for_exit(&pidfds, timeout).is_err());
+
+		// The wait ends when the child exits.
+		for pidfd in &pidfds {
+			// SAFETY: The arguments are a valid pidfd and a null signal info.
+			let result = unsafe {
+				libc::syscall(
+					libc::SYS_pidfd_send_signal,
+					pidfd.as_raw_fd(),
+					libc::SIGKILL,
+					std::ptr::null::<libc::siginfo_t>(),
+					0,
+				)
+			};
+			assert_eq!(result, 0);
+		}
+		wait_for_exit(&pidfds, std::time::Duration::from_secs(5)).unwrap();
 	}
 }

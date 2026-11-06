@@ -20,13 +20,13 @@ let params = { resource: $old } | to json --raw
 let advance = tg --token $root_token checkpoint watch permission_capture.advance --params $params | from json | get watch
 let advanced = tg --token $root_token checkpoint watch permission_capture.advanced --params $params | from json | get watch
 tg --token $alice.token tag put race $old --public
-tg --token $root_token index
+tg --token $root_token index --database
 tg --token $root_token checkpoint wait --timeout 30s permission_capture.advance $advance 0 | ignore
 let before = tg --token $alice.token tag get race | from json
 
 # Replace the target while the old job has already computed the permissions it wants to write.
 tg --token $alice.token tag put --force race $replacement --public
-tg --token $root_token index
+tg --token $root_token index --database
 let after = tg --token $alice.token tag get race | from json
 assert equal $after.id $before.id
 assert equal $after.target.id $replacement

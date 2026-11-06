@@ -31,6 +31,9 @@ pub struct Options {
 	#[arg(long)]
 	pub listen: bool,
 
+	#[arg(long, hide = true)]
+	pub namespaces: Option<PathBuf>,
+
 	#[arg(long)]
 	pub output_path: Option<PathBuf>,
 
@@ -128,6 +131,7 @@ impl Options {
 			http2,
 			library_paths: self.library_paths,
 			listen: self.listen,
+			namespaces: self.namespaces,
 			output_path,
 			tangram_path,
 			url,
@@ -166,6 +170,8 @@ mod tests {
 				"test",
 				"--backend",
 				backend,
+				"--namespaces",
+				"/namespaces.sock",
 				"--output-path",
 				"/output",
 				"--tangram-path",
@@ -197,6 +203,7 @@ mod tests {
 			// Verify the server settings.
 			assert_eq!(kind, backend);
 			assert!(!serve.listen);
+			assert_eq!(serve.namespaces, Some(PathBuf::from("/namespaces.sock")));
 			assert_eq!(serve.output_path, PathBuf::from("/output"));
 			assert_eq!(serve.tangram_path, PathBuf::from("/tangram"));
 			assert_eq!(serve.url.to_string(), "http+stdio://localhost");

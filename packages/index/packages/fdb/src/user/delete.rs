@@ -21,9 +21,15 @@ impl Index {
 				.map(|bytes| tangram_index::user::User::deserialize(&bytes))
 				.transpose()?;
 			if let Some(user) = user {
-				let node_key = Key::Node(crate::node::Key::Node(user.specifier));
-				let node_key = Self::pack(subspace, &node_key);
-				txn.clear(&node_key);
+				crate::propagate!(
+					Self::delete_node_with_transaction(
+						txn,
+						subspace,
+						&id.clone().into(),
+						&user.specifier
+					)
+					.await
+				);
 			}
 			txn.clear(&key);
 		}

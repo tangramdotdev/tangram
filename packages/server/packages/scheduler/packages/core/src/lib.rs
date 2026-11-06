@@ -47,14 +47,14 @@ pub struct Response {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct HeartbeatAcknowledgement {
-	pub connection_index: u64,
+	pub registration_index: u64,
 	pub heartbeat_index: u64,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct HeartbeatNotification {
 	pub capacity: tg::runner::control::Capacity,
-	pub connection_index: u64,
+	pub registration_index: u64,
 	pub heartbeat_index: u64,
 	pub runner: tg::runner::Id,
 	pub sandboxes: BTreeSet<tg::sandbox::Id>,
@@ -63,41 +63,78 @@ pub struct HeartbeatNotification {
 #[derive(Clone, Debug, derive_more::TryUnwrap, serde::Serialize, serde::Deserialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum RequestArg {
+	AcquireProcessLease(AcquireProcessLeaseRequestArg),
 	AddRunner(AddRunnerRequestArg),
+	CancelSandboxStop(CancelSandboxStopRequestArg),
 	DequeueSandbox(DequeueSandboxRequestArg),
 	DestroyRunnerSandbox(DestroyRunnerSandboxRequestArg),
+	EndSandbox(EndSandboxRequestArg),
 	EnqueueSandbox(EnqueueSandboxRequestArg),
+	ReleaseProcessLease(ReleaseProcessLeaseRequestArg),
 	RemoveRunner(RemoveRunnerRequestArg),
 }
 
 #[derive(Clone, Debug, derive_more::TryUnwrap, serde::Serialize, serde::Deserialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ResponseOutput {
+	AcquireProcessLease(AcquireProcessLeaseResponseOutput),
 	AddRunner(AddRunnerResponseOutput),
 	Busy,
+	CancelSandboxStop(CancelSandboxStopResponseOutput),
 	DequeueSandbox(DequeueSandboxResponseOutput),
 	DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput),
+	EndSandbox(EndSandboxResponseOutput),
 	EnqueueSandbox(EnqueueSandboxResponseOutput),
+	ReleaseProcessLease(ReleaseProcessLeaseResponseOutput),
 	RemoveRunner(RemoveRunnerResponseOutput),
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AcquireProcessLeaseRequestArg {
+	pub sandbox: tg::sandbox::Id,
+}
+
+/// The lease is `None` if the scheduler no longer holds the process's leases, because the process's request was sent to a runner.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AcquireProcessLeaseResponseOutput {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lease: Option<tg::process::Lease>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ReleaseProcessLeaseRequestArg {
+	pub lease: tg::process::Lease,
+	pub sandbox: tg::sandbox::Id,
+}
+
+/// The output is `None` if the scheduler no longer holds the process's leases, and otherwise whether the lease was released.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ReleaseProcessLeaseResponseOutput {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub released: Option<bool>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AddRunnerRequestArg {
 	pub capacity: tg::runner::control::Capacity,
 	pub host: String,
+	pub registration_index: u64,
 	pub runner: tg::runner::Id,
+
+	/// The sandboxes that the runner is running or booting, which a restarted scheduler treats as placed.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub sandboxes: Vec<tg::runner::control::ArgSandbox>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AddRunnerResponseOutput {
-	pub connection_index: u64,
 	pub runner: tg::runner::Id,
 	pub scheduler: tg::scheduler::Id,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RemoveRunnerRequestArg {
-	pub connection_index: u64,
+	pub registration_index: u64,
 	pub runner: tg::runner::Id,
 }
 
@@ -130,6 +167,37 @@ pub struct DestroyRunnerSandboxResponseOutput {
 	pub destroyed: bool,
 }
 
+/// A cancellation of a stop that the scheduler holds for a sandbox that has not started.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CancelSandboxStopRequestArg {
+	pub sandbox: tg::sandbox::Id,
+}
+
+/// The output is `false` if this scheduler does not hold the sandbox.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CancelSandboxStopResponseOutput {
+	pub held: bool,
+}
+
+/// A stop or destroy of a sandbox that the scheduler owns, because its runner has not connected.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct EndSandboxRequestArg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::error::Data>,
+
+	pub sandbox: tg::sandbox::Id,
+
+	/// Whether to stop the sandbox rather than destroy it. A sandbox that a runner already holds cannot be stopped until it connects.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub stop: bool,
+}
+
+/// The output is `false` if this scheduler does not own the sandbox.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct EndSandboxResponseOutput {
+	pub ended: bool,
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EnqueueSandboxRequestArg {
 	pub arg: tg::sandbox::create::Arg,
@@ -137,6 +205,8 @@ pub struct EnqueueSandboxRequestArg {
 	/// The boot to start, which is zero when the request creates the sandbox.
 	#[serde(default)]
 	pub boot: u64,
+
+	pub created_at: i64,
 
 	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
 	pub creator: tg::Principal,
@@ -159,23 +229,47 @@ pub struct EnqueueSandboxRequestArg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub scheduler: Option<tg::scheduler::Id>,
 
+	/// Whether to stop the sandbox as soon as it starts.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub stop: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct EnqueueSandboxResponseOutput {
-	pub enqueued: bool,
+pub struct EnqueueSandboxResponseOutput {}
+
+/// Create the data of a sandbox from its enqueued request.
+#[must_use]
+pub fn sandbox_data(
+	request: &EnqueueSandboxRequestArg,
+	status: tg::sandbox::Status,
+) -> tg::sandbox::Data {
+	tg::sandbox::Data {
+		boot: request.boot,
+		cpu: request.arg.cpu,
+		creator: request.creator.clone(),
+		error: None,
+		expires_at: None,
+		hostname: request.arg.hostname.clone(),
+		id: request.sandbox.clone(),
+		memory: request.arg.memory,
+		mounts: request.arg.mounts.clone(),
+		network: request.arg.network.clone(),
+		owner: request.owner.clone(),
+		status,
+		stopped_at: None,
+		storage: request.arg.storage,
+		time_to_live: request.arg.time_to_live,
+		time_to_stop: request.arg.time_to_stop,
+		usage: None,
+	}
 }
 
 #[must_use]
 pub fn runner_heartbeat_subject(scheduler: &tg::scheduler::Id, runner: &tg::runner::Id) -> String {
 	format!("schedulers.{scheduler}.runners.{runner}.heartbeat")
-}
-
-#[must_use]
-pub fn scheduler_heartbeat_subject(scheduler: &tg::scheduler::Id) -> String {
-	format!("schedulers.{scheduler}.heartbeat")
 }
 
 #[must_use]

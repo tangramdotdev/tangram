@@ -1,4 +1,4 @@
-use {super::*, crate::test::TestMessenger};
+use {super::*, crate::test::TestMessenger, futures::FutureExt as _};
 
 fn options() -> Options {
 	Options {
@@ -240,6 +240,50 @@ async fn both_halves_time_out_without_a_peer() {
 	.unwrap();
 	assert!(matches!(sent, Err(Error::Timeout)));
 	assert!(matches!(received, Some(Err(Error::Timeout))));
+}
+
+#[tokio::test]
+async fn a_held_end_waits_for_a_peer_that_opens_late() {
+	let messenger = TestMessenger::default();
+	let (release, hold) = tokio::sync::oneshot::channel::<()>();
+	let hold = hold.map(|_| ()).boxed();
+	let (sender, mut receiver) =
+		open_with_hold::<Bytes, Bytes, _>(&messenger, "relay.a", "relay.b", options(), Some(hold))
+			.await
+			.unwrap();
+
+	// The peer opens after the end would have timed out without the hold.
+	tokio::time::sleep(options().peer_timeout() * 2).await;
+	let (peer_sender, peer_receiver) =
+		open::<Bytes, Bytes, _>(&messenger, "relay.b", "relay.a", options())
+			.await
+			.unwrap();
+	let input = futures::stream::iter([Ok::<_, Bytes>(Bytes::from_static(b"a"))]);
+	let peer_sender = tokio::spawn(peer_sender.send_all(input));
+	let item = receiver.next().await.unwrap().unwrap();
+	assert_eq!(item, Bytes::from_static(b"a"));
+	drop(release);
+	drop(receiver);
+	sender.finish().await.unwrap();
+	finished(peer_sender).await;
+	drop(peer_receiver);
+}
+
+#[tokio::test]
+async fn an_end_times_out_after_its_hold_is_released() {
+	let messenger = TestMessenger::default();
+	let (release, hold) = tokio::sync::oneshot::channel::<()>();
+	let hold = hold.map(|_| ()).boxed();
+	let (_sender, mut receiver) =
+		open_with_hold::<Bytes, Bytes, _>(&messenger, "relay.a", "relay.b", options(), Some(hold))
+			.await
+			.unwrap();
+	tokio::time::sleep(options().peer_timeout() * 2).await;
+	release.send(()).unwrap();
+	let item = tokio::time::timeout(Duration::from_secs(10), receiver.next())
+		.await
+		.unwrap();
+	assert!(matches!(item, Some(Err(Error::Timeout))));
 }
 
 #[tokio::test]

@@ -8,7 +8,6 @@ use {
 		collections::{HashMap, HashSet},
 		fmt::Display,
 		ops::ControlFlow,
-		pin::pin,
 		sync::{Arc, Mutex},
 		time::Duration,
 	},
@@ -17,18 +16,24 @@ use {
 	tangram_messenger::Messenger,
 	tangram_server_core::{Server, Session},
 	tangram_server_scheduler_core::{
-		Ack, AddRunnerRequestArg, AddRunnerResponseOutput, BorrowableCapacityNotification,
-		DequeueSandboxRequestArg, DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
-		DestroyRunnerSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
+		Ack, AcquireProcessLeaseRequestArg, AcquireProcessLeaseResponseOutput, AddRunnerRequestArg,
+		AddRunnerResponseOutput, BorrowableCapacityNotification, CancelSandboxStopRequestArg,
+		CancelSandboxStopResponseOutput, DequeueSandboxRequestArg, DequeueSandboxResponseOutput,
+		DestroyRunnerSandboxRequestArg, DestroyRunnerSandboxResponseOutput, EndSandboxRequestArg,
+		EndSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
 		HeartbeatAcknowledgement, HeartbeatNotification, Message, Notification,
-		RemoveRunnerRequestArg, RemoveRunnerResponseOutput, Request, RequestArg, Response,
-		ResponseOutput, runner_heartbeat_subject, scheduler_heartbeat_subject,
-		scheduler_server_subject,
+		ReleaseProcessLeaseRequestArg, ReleaseProcessLeaseResponseOutput, RemoveRunnerRequestArg,
+		RemoveRunnerResponseOutput, Request, RequestArg, Response, ResponseOutput,
+		runner_heartbeat_subject, scheduler_server_subject,
 	},
 };
 
+mod recovery;
 mod runner;
 mod sandbox;
+
+/// The ID of the only scheduler of a single server, which multi-server mode replaces with a configured ID.
+const SINGLE_SERVER_ID: &str = "sch_0000000000000000000000000000";
 
 type Operations = FuturesUnordered<BoxFuture<'static, Operation>>;
 
@@ -64,7 +69,9 @@ struct SchedulerState {
 	owner_ancestors: HashMap<tg::Id, OwnerAncestors, tg::id::BuildHasher>,
 	parents: sandbox::Parents,
 	pending_enqueues: HashMap<tg::sandbox::Id, PendingEnqueue, tg::id::BuildHasher>,
+	persisting: HashMap<tg::sandbox::Id, Vec<String>, tg::id::BuildHasher>,
 	queue: sandbox::Queue,
+	recovery: Option<recovery::Recovery>,
 	requests: Requests,
 	runners: runner::Runners,
 	sandboxes: sandbox::Sandboxes,
@@ -72,6 +79,7 @@ struct SchedulerState {
 
 struct PendingEnqueue {
 	ids: Vec<String>,
+	recovered: bool,
 	request: EnqueueSandboxRequestArg,
 }
 
@@ -84,10 +92,14 @@ struct Requests {
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 enum RequestKind {
+	AcquireProcessLease,
 	AddRunner,
+	CancelSandboxStop,
 	DequeueSandbox,
 	DestroyRunnerSandbox,
+	EndSandbox,
 	EnqueueSandbox,
+	ReleaseProcessLease,
 	RemoveRunner,
 }
 
@@ -97,7 +109,7 @@ enum Operation {
 		result: tg::Result<()>,
 	},
 	AddRunner {
-		connection_index: u64,
+		registration_index: u64,
 		id: String,
 		result: tg::Result<(AddRunnerResponseOutput, Option<tg::Id>)>,
 		runner: tg::runner::Id,
@@ -107,23 +119,52 @@ enum Operation {
 		id: String,
 		result: tg::Result<bool>,
 	},
+	DestroySandbox {
+		destroy: sandbox::DestroySandbox,
+		result: tg::Result<bool>,
+	},
+	EndSandbox {
+		ids: Vec<String>,
+		result: tg::Result<()>,
+	},
 	ExpireRequest {
 		id: String,
+	},
+	FinishSandboxStop {
+		result: tg::Result<()>,
+		sandbox: tg::sandbox::Id,
 	},
 	LoadOwnerAncestors {
 		owner: tg::Id,
 		result: tg::Result<Vec<tg::Id>>,
 	},
+	PersistSandbox {
+		result: tg::Result<()>,
+		sandbox: tg::sandbox::Id,
+	},
+	PlacedSandboxes {
+		generation: u64,
+		keys: Vec<tg::sandbox::Id>,
+		lost: Vec<EnqueueSandboxRequestArg>,
+	},
 	Publish {
 		context: &'static str,
 		result: tg::Result<()>,
 	},
+	Recovered {
+		statuses: recovery::Statuses,
+	},
+	RecoveryExpired,
 	RemoveRunner {
 		id: Option<String>,
 		result: tg::Result<RemoveRunnerResponseOutput>,
 	},
 	Reply {
 		result: tg::Result<()>,
+	},
+	Respond {
+		id: String,
+		result: tg::Result<ResponseOutput>,
 	},
 	Response {
 		id: String,
@@ -139,7 +180,6 @@ enum Event {
 	Message(Message),
 	Operation(Operation),
 	Schedule,
-	SchedulerHeartbeatTick,
 }
 
 #[allow(dead_code)]
@@ -148,13 +188,13 @@ struct Config {
 	create_sandbox_queue_capacity: usize,
 	create_sandbox_timeout: Duration,
 	default_capacity: tg::runner::Capacity,
-	heartbeat_interval: Duration,
 	inbox_ttl: Duration,
 	max_create_sandbox_attempts: usize,
 	max_create_sandbox_requests: usize,
 	max_create_sandbox_requests_per_runner: usize,
 	request_concurrency: usize,
 	runner_ttl: Duration,
+	unplaceable_timeout: Option<Duration>,
 }
 
 struct SchedulerMessageOptions {
@@ -237,22 +277,12 @@ impl Component {
 		let request = RequestArg::DequeueSandbox(DequeueSandboxRequestArg {
 			sandbox: sandbox.clone(),
 		});
-		let response = tokio::select! {
-			result = self.send_scheduler_request_to(session, scheduler, request) => {
-				result.map_err(
-					|source| tg::error!(!source, %sandbox, %scheduler, "failed to send the dequeue sandbox request"),
-				)?
-			},
-			result = self.scheduler_heartbeat_expired(session, scheduler) => {
-				result?;
-				return Err(tg::error!(
-					code = tg::error::Code::HeartbeatExpiration,
-					%sandbox,
-					%scheduler,
-					"the scheduler heartbeat expired while dequeuing the sandbox"
-				));
-			},
-		}
+		let response = self
+			.send_scheduler_request_to(session, scheduler, request)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %sandbox, %scheduler, "failed to send the dequeue sandbox request"),
+			)?
 			.map_err(
 				|source| tg::error!(!source, %sandbox, %scheduler, "the dequeue sandbox request failed"),
 			)?;
@@ -263,53 +293,83 @@ impl Component {
 		Ok(output.dequeued)
 	}
 
-	pub(crate) async fn scheduler_heartbeat_expired(
+	/// Acquire a lease of a queued process from its scheduler, which returns `None` if the process's request was sent to a runner.
+	pub(crate) async fn acquire_process_lease(
 		&self,
 		session: &Session,
 		scheduler: &tg::scheduler::Id,
-	) -> tg::Result<()> {
-		let subject = scheduler_heartbeat_subject(scheduler);
-		let heartbeats = session
-			.server
-			.messenger
-			.subscribe::<()>(subject)
-			.await
-			.map_err(|source| {
-				tg::error!(
-					!source,
-					%scheduler,
-					"failed to subscribe to the scheduler heartbeat"
-				)
-			})?;
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<Option<tg::process::Lease>> {
+		let arg = AcquireProcessLeaseRequestArg {
+			sandbox: sandbox.clone(),
+		};
+		let output = self
+			.send_scheduler_request_to(session, scheduler, RequestArg::AcquireProcessLease(arg))
+			.boxed()
+			.await??
+			.try_unwrap_acquire_process_lease()
+			.map_err(|_| tg::error!("expected an acquire process lease response"))?;
 
-		let mut heartbeats = pin!(heartbeats);
-		let ttl = session.server.config.scheduler.heartbeat_ttl;
-		loop {
-			match session
-				.server
-				.clock
-				.timeout(ttl, heartbeats.try_next())
-				.await
-			{
-				Ok(Ok(Some(_))) => {},
-				Ok(Ok(None)) => {
-					return Err(tg::error!(
-						%scheduler,
-						"the scheduler heartbeat stream ended"
-					));
-				},
-				Ok(Err(source)) => {
-					return Err(tg::error!(
-						!source,
-						%scheduler,
-						"failed to receive a scheduler heartbeat"
-					));
-				},
-				Err(_) => {
-					return Ok(());
-				},
-			}
-		}
+		Ok(output.lease)
+	}
+
+	/// Release a lease of a queued process at its scheduler, which returns `None` if the process's request was sent to a runner.
+	pub(crate) async fn release_process_lease(
+		&self,
+		session: &Session,
+		scheduler: &tg::scheduler::Id,
+		sandbox: &tg::sandbox::Id,
+		lease: tg::process::Lease,
+	) -> tg::Result<Option<bool>> {
+		let arg = ReleaseProcessLeaseRequestArg {
+			lease,
+			sandbox: sandbox.clone(),
+		};
+		let output = self
+			.send_scheduler_request_to(session, scheduler, RequestArg::ReleaseProcessLease(arg))
+			.boxed()
+			.await??
+			.try_unwrap_release_process_lease()
+			.map_err(|_| tg::error!("expected a release process lease response"))?;
+
+		Ok(output.released)
+	}
+
+	/// Ask the scheduler that owns a sandbox to cancel a stop that it holds, returning whether the scheduler holds the sandbox.
+	pub(crate) async fn cancel_sandbox_stop(
+		&self,
+		session: &Session,
+		scheduler: &tg::scheduler::Id,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<bool> {
+		let arg = CancelSandboxStopRequestArg {
+			sandbox: sandbox.clone(),
+		};
+		let output = self
+			.send_scheduler_request_to(session, scheduler, RequestArg::CancelSandboxStop(arg))
+			.boxed()
+			.await??
+			.try_unwrap_cancel_sandbox_stop()
+			.map_err(|_| tg::error!("expected a cancel sandbox stop response"))?;
+
+		Ok(output.held)
+	}
+
+	/// Ask the scheduler that owns a sandbox to stop or destroy it before its runner connects, returning whether the scheduler owns it.
+	pub(crate) async fn end_sandbox(
+		&self,
+		session: &Session,
+		scheduler: &tg::scheduler::Id,
+		arg: EndSandboxRequestArg,
+	) -> tg::Result<bool> {
+		let output = self
+			.send_scheduler_request_to(session, scheduler, RequestArg::EndSandbox(arg))
+			.boxed()
+			.await??
+			.try_unwrap_end_sandbox()
+			.map_err(|_| tg::error!("expected an end sandbox response"))?;
+
+		Ok(output.ended)
 	}
 
 	#[tracing::instrument(name = "sandbox.enqueue", level = "debug", skip_all, fields(sandbox = %request.sandbox), err(level = "debug"))]
@@ -319,128 +379,36 @@ impl Component {
 		request: EnqueueSandboxRequestArg,
 	) -> tg::Result<tg::scheduler::Id> {
 		tracing::info!(sandbox = %request.sandbox, "enqueueing the sandbox");
-		let options = session.server.config.scheduler.enqueue_retry.clone().into();
-		let (declined_sender, declined) = tokio::sync::watch::channel(None);
-		let enqueue = tangram_futures::retry::retry(&options, || {
-			let declined_sender = declined_sender.clone();
-			let request = request.clone();
-			let sandbox = request.sandbox.clone();
-			async move {
-				let target = if let Some(parent) = &request.parent {
-					let scheduler = request.scheduler.clone().ok_or_else(|| {
-						Some(tg::error!(
-							%parent,
-							"missing the scheduler for the parent sandbox"
-						))
-					})?;
-					Some(scheduler)
-				} else {
-					None
-				};
-				let (scheduler, response) = match target.as_ref() {
-					Some(scheduler) => {
-						let response = self
-							.send_scheduler_request_to(
-								session,
-								scheduler,
-								RequestArg::EnqueueSandbox(request),
-							)
-							.boxed()
-							.await
-							.map_err(Some)?;
-						(scheduler.clone(), response)
-					},
-					None => self
-						.send_scheduler_request(session, RequestArg::EnqueueSandbox(request))
-						.boxed()
-						.await
-						.map_err(Some)?,
-				};
-				let response = response.map_err(Some)?;
-				let response = response
-					.try_unwrap_enqueue_sandbox()
-					.map_err(|_| Some(tg::error!("expected an enqueue sandbox response")))?;
-				if response.enqueued {
-					tracing::info!(%sandbox, %scheduler, "enqueued the sandbox");
-					tangram_server_core::checkpoint!(session.server, "scheduler.sandbox.enqueued", sandbox = %sandbox)
-						.await;
-					Ok(ControlFlow::Break(scheduler))
-				} else {
-					tangram_server_core::checkpoint!(
-						session.server,
-						"scheduler.sandbox.declined",
-						sandbox = %sandbox,
-						scheduler = %scheduler,
-					)
-					.await;
-					declined_sender.send_if_modified(|declined| {
-						if declined.as_ref() == Some(&scheduler) {
-							return false;
-						}
-						declined.replace(scheduler);
-						true
-					});
-					Ok(ControlFlow::Continue(None::<tg::Error>))
-				}
-			}
-			.boxed()
-		})
-		.boxed();
+		let sandbox = request.sandbox.clone();
 
-		// Retry while the scheduler declines the sandbox. Fail a targeted enqueue if its scheduler's heartbeat expires, and leave an untargeted enqueue to the schedulers that remain.
-		let result = if request.parent.is_some() {
-			tokio::select! {
-				result = enqueue => result,
-				result = self.declining_scheduler_heartbeat_expired(session, declined, &options) => {
-					let scheduler = result?;
-					return Err(tg::error!(
-						code = tg::error::Code::HeartbeatExpiration,
-						sandbox = %request.sandbox,
-						%scheduler,
-						"the scheduler heartbeat expired"
-					));
-				},
-			}
+		// Send a sandbox with a parent to its parent's scheduler, and any other sandbox to any scheduler.
+		let target = if let Some(parent) = &request.parent {
+			let scheduler = request.scheduler.clone().ok_or_else(
+				|| tg::error!(%parent, "missing the scheduler for the parent sandbox"),
+			)?;
+			Some(scheduler)
 		} else {
-			enqueue.await
+			None
 		};
-		match result {
-			Ok(scheduler) => Ok(scheduler),
-			Err(Some(error)) => Err(error),
-			Err(None) => unreachable!(),
-		}
-	}
+		let arg = RequestArg::EnqueueSandbox(request);
+		let (scheduler, response) = match target {
+			Some(scheduler) => {
+				let response = self
+					.send_scheduler_request_to(session, &scheduler, arg)
+					.boxed()
+					.await?;
+				(scheduler, response)
+			},
+			None => self.send_scheduler_request(session, arg).boxed().await?,
+		};
+		response?
+			.try_unwrap_enqueue_sandbox()
+			.map_err(|_| tg::error!("expected an enqueue sandbox response"))?;
+		tracing::info!(%sandbox, %scheduler, "enqueued the sandbox");
+		tangram_server_core::checkpoint!(session.server, "scheduler.sandbox.enqueued", sandbox = %sandbox)
+			.await;
 
-	async fn declining_scheduler_heartbeat_expired(
-		&self,
-		session: &Session,
-		mut declined: tokio::sync::watch::Receiver<Option<tg::scheduler::Id>>,
-		options: &tangram_futures::retry::Options,
-	) -> tg::Result<tg::scheduler::Id> {
-		let mut retries = tangram_futures::retry::stream(options.clone()).boxed();
-		loop {
-			let scheduler = declined
-				.wait_for(Option::is_some)
-				.await
-				.map_err(|_| tg::error!("the enqueue ended"))?
-				.clone()
-				.unwrap();
-			tokio::select! {
-				result = self.scheduler_heartbeat_expired(session, &scheduler) => match result {
-					Ok(()) => return Ok(scheduler),
-					Err(error) => {
-						// Watch the heartbeat again after a failure, so that a messenger error does not end the enqueue.
-						tracing::warn!(error = %error.trace(), %scheduler, "failed to watch the scheduler heartbeat");
-						if retries.next().await.is_none() {
-							return Err(error);
-						}
-					},
-				},
-				result = declined.changed() => {
-					result.map_err(|_| tg::error!("the enqueue ended"))?;
-				},
-			}
-		}
+		Ok(scheduler)
 	}
 
 	pub(crate) async fn send_scheduler_request(
@@ -690,20 +658,26 @@ impl Scheduler {
 		server: &Server,
 		config: &tangram_server_core::config::Scheduler,
 	) -> tg::Result<Owned> {
-		let id = tg::scheduler::Id::new();
+		// Get the scheduler's ID, which is the same across restarts.
+		let id = match &config.id {
+			Some(id) => id.clone(),
+			None => SINGLE_SERVER_ID
+				.parse()
+				.map_err(|error| tg::error!(!error, "failed to parse the scheduler ID"))?,
+		};
 
 		// Create the config.
 		let config = Config {
 			create_sandbox_queue_capacity: config.create_sandbox_queue_capacity,
 			create_sandbox_timeout: config.create_sandbox_timeout,
 			default_capacity: config.default_capacity(),
-			heartbeat_interval: config.heartbeat_interval,
 			inbox_ttl: config.inbox_ttl,
 			max_create_sandbox_attempts: config.max_create_sandbox_attempts,
 			max_create_sandbox_requests: config.max_create_sandbox_requests,
 			max_create_sandbox_requests_per_runner: config.max_create_sandbox_requests_per_runner,
 			request_concurrency: config.request_concurrency,
 			runner_ttl: config.runner_ttl,
+			unplaceable_timeout: config.unplaceable_timeout,
 		};
 
 		// Create the scheduler.
@@ -735,18 +709,15 @@ impl Scheduler {
 
 	async fn message_handler_task(&self, mut stream: MessageStream) -> tg::Result<()> {
 		let mut state = SchedulerState::new();
+
+		// Recover the accepted requests before handling messages.
+		self.recover(&mut state).await?;
+
 		let mut cleaner_interval = self.server.clock.interval(self.config.runner_ttl);
 		cleaner_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-		let mut heartbeat_interval = tokio::time::interval(self.config.heartbeat_interval);
-		heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
 			let event = self
-				.next_event(
-					&mut state,
-					&mut stream,
-					&mut cleaner_interval,
-					&mut heartbeat_interval,
-				)
+				.next_event(&mut state, &mut stream, &mut cleaner_interval)
 				.await?;
 			match event {
 				Event::CleanerTick => {
@@ -761,9 +732,6 @@ impl Scheduler {
 				Event::Schedule => {
 					state.schedule_one(self);
 				},
-				Event::SchedulerHeartbeatTick => {
-					self.publish_scheduler_heartbeat(&mut state);
-				},
 			}
 		}
 	}
@@ -773,11 +741,9 @@ impl Scheduler {
 		state: &mut SchedulerState,
 		stream: &mut MessageStream,
 		cleaner_interval: &mut tangram_server_core::clock::Interval,
-		heartbeat_interval: &mut tokio::time::Interval,
 	) -> tg::Result<Event> {
 		let event = tokio::select! {
 			_ = cleaner_interval.tick() => Event::CleanerTick,
-			_ = heartbeat_interval.tick() => Event::SchedulerHeartbeatTick,
 			result = Self::receive_message(stream) => Event::Message(result?),
 			operation = state.operations.next(), if !state.operations.is_empty() => Event::Operation(operation.unwrap()),
 			() = tokio::task::yield_now(), if state.can_schedule(self) => Event::Schedule,
@@ -844,10 +810,14 @@ impl Scheduler {
 			return;
 		}
 		let kind = match &request.arg {
+			RequestArg::AcquireProcessLease(_) => RequestKind::AcquireProcessLease,
 			RequestArg::AddRunner(_) => RequestKind::AddRunner,
+			RequestArg::CancelSandboxStop(_) => RequestKind::CancelSandboxStop,
 			RequestArg::DequeueSandbox(_) => RequestKind::DequeueSandbox,
 			RequestArg::DestroyRunnerSandbox(_) => RequestKind::DestroyRunnerSandbox,
+			RequestArg::EndSandbox(_) => RequestKind::EndSandbox,
 			RequestArg::EnqueueSandbox(_) => RequestKind::EnqueueSandbox,
+			RequestArg::ReleaseProcessLease(_) => RequestKind::ReleaseProcessLease,
 			RequestArg::RemoveRunner(_) => RequestKind::RemoveRunner,
 		};
 		if !state
@@ -930,19 +900,31 @@ impl Scheduler {
 
 		let id = request.id;
 		match request.arg {
+			RequestArg::AcquireProcessLease(request) => {
+				state.handle_acquire_process_lease_request(self, id, &request);
+			},
 			RequestArg::AddRunner(request) => {
 				state.handle_add_runner_request(self, id, request);
 			},
 			RequestArg::DequeueSandbox(request) => {
-				if let Some(output) = state.dequeue_sandbox(id.clone(), request) {
+				if let Some(output) = state.dequeue_sandbox(self, id.clone(), request) {
 					self.send_dequeue_sandbox_response(state, id, output);
 				}
 			},
 			RequestArg::DestroyRunnerSandbox(request) => {
 				state.handle_destroy_runner_sandbox_request(self, id, request);
 			},
+			RequestArg::CancelSandboxStop(request) => {
+				state.handle_cancel_sandbox_stop_request(self, id, &request);
+			},
+			RequestArg::EndSandbox(request) => {
+				state.handle_end_sandbox_request(self, id, request);
+			},
 			RequestArg::EnqueueSandbox(request) => {
-				state.handle_enqueue_sandbox_request(self, id, request);
+				state.handle_enqueue_sandbox_request(self, Some(id), request, false);
+			},
+			RequestArg::ReleaseProcessLease(request) => {
+				state.handle_release_process_lease_request(self, id, request);
 			},
 			RequestArg::RemoveRunner(request) => {
 				state.handle_remove_runner_request(self, Some(id), request);
@@ -959,7 +941,7 @@ impl Scheduler {
 				self.handle_acknowledged_request(state, request);
 			},
 			Operation::AddRunner {
-				connection_index,
+				registration_index,
 				id,
 				result,
 				runner,
@@ -968,7 +950,7 @@ impl Scheduler {
 					.runners
 					.entries
 					.get(&runner)
-					.is_some_and(|runner| runner.connection_index == connection_index);
+					.is_some_and(|runner| runner.registration_index == registration_index);
 				let result = match result {
 					Ok((output, owner)) => {
 						if current {
@@ -994,6 +976,12 @@ impl Scheduler {
 				if let Some(discarded) = output.discarded {
 					self.publish_sandbox_discarded(state, discarded);
 				}
+				if let Some(abandoned) = output.abandoned {
+					state.destroy_abandoned_sandbox(self, abandoned);
+				}
+				if let Some(held) = output.held {
+					state.finish_held_end(self, held);
+				}
 			},
 			Operation::DestroyRunnerSandbox { id, result } => {
 				let result = result.map(|destroyed| {
@@ -1004,16 +992,50 @@ impl Scheduler {
 				let response = self.response(id, result);
 				self.send_response(state, response);
 			},
+			Operation::DestroySandbox { destroy, result } => {
+				state.handle_destroy_sandbox(self, destroy, result);
+			},
+			Operation::EndSandbox { ids, result } => {
+				for id in ids {
+					let result = result.clone().map(|()| {
+						ResponseOutput::EndSandbox(EndSandboxResponseOutput { ended: true })
+					});
+					let response = self.response(id, result);
+					self.send_response(state, response);
+				}
+			},
 			Operation::ExpireRequest { id } => {
 				state.requests.inbox.remove(&id);
 			},
 			Operation::LoadOwnerAncestors { owner, result } => {
 				state.handle_load_owner_ancestors_completion(self, owner, result);
 			},
+			Operation::PersistSandbox { result, sandbox } => {
+				state.handle_persist_sandbox_completion(self, &sandbox, result);
+			},
+			Operation::PlacedSandboxes {
+				generation,
+				keys,
+				lost,
+			} => {
+				state.handle_placed_sandboxes(self, generation, keys, lost);
+			},
+			Operation::FinishSandboxStop { result, sandbox } => {
+				state.sandboxes.finish_stop(&sandbox);
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), %sandbox, "failed to stop the sandbox once it started");
+				}
+			},
 			Operation::Publish { context, result } => {
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "{context}");
 				}
+			},
+			Operation::Recovered { statuses } => {
+				state.handle_recovered(self, statuses);
+			},
+			Operation::RecoveryExpired => {
+				state.handle_recovery_expired(self);
 			},
 			Operation::RemoveRunner { id, result } => {
 				if let Some(id) = id {
@@ -1030,6 +1052,10 @@ impl Scheduler {
 					tracing::error!(error = %error.trace(), "failed to reply to a scheduler request");
 				}
 			},
+			Operation::Respond { id, result } => {
+				let response = self.response(id, result);
+				self.send_response(state, response);
+			},
 			Operation::Response { id, result } => {
 				state.requests.active.remove(&id);
 				if let Err(error) = result {
@@ -1043,12 +1069,13 @@ impl Scheduler {
 	}
 
 	fn handle_cleaner_tick(&self, state: &mut SchedulerState) {
+		state.prune_placed_sandboxes(self);
 		let now = self.server.clock.instant();
 		let expired = state.runners.expired(now, self.config.runner_ttl);
-		for (runner, connection_index) in expired {
-			tracing::warn!(%runner, connection_index, ttl_ms = self.config.runner_ttl.as_millis(), "the runner heartbeat expired");
+		for (runner, registration_index) in expired {
+			tracing::warn!(%runner, registration_index, ttl_ms = self.config.runner_ttl.as_millis(), "the runner heartbeat expired");
 			let request = RemoveRunnerRequestArg {
-				connection_index,
+				registration_index,
 				runner,
 			};
 			state.handle_remove_runner_request(self, None, request);
@@ -1080,15 +1107,23 @@ impl Scheduler {
 		discarded: sandbox::DiscardedSandbox,
 	) {
 		let subject = tangram_server_sandbox_common::control::discarded_subject(&discarded.sandbox);
-		let discarded = tangram_server_sandbox_common::control::Discarded {
+		let error = discarded.error.clone();
+		let notification = tangram_server_sandbox_common::control::Discarded {
 			error: discarded.error,
 		};
+		let scheduler = self.clone();
 		let server = self.server.clone();
 		state.operations.push(
 			async move {
+				// Record the failure in the sandbox's error field, and then wake the callers.
+				let request = discarded.request;
+				let result = scheduler.fail_sandbox(&request, error).await;
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), sandbox = %request.sandbox, "failed to record the discarded sandbox");
+				}
 				let result = server
 					.messenger
-					.publish(subject, tangram_messenger::payload::Json(discarded))
+					.publish(subject, tangram_messenger::payload::Json(notification))
 					.await
 					.map_err(|source| {
 						tg::error!(
@@ -1133,27 +1168,6 @@ impl Scheduler {
 		self.send_response(state, response);
 	}
 
-	fn publish_scheduler_heartbeat(&self, state: &mut SchedulerState) {
-		let subject = scheduler_heartbeat_subject(&self.id);
-		let server = self.server.clone();
-		state.operations.push(
-			async move {
-				let result = server
-					.messenger
-					.publish(subject, ())
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to publish the scheduler heartbeat")
-					});
-				Operation::Publish {
-					context: "failed to publish the scheduler heartbeat",
-					result,
-				}
-			}
-			.boxed(),
-		);
-	}
-
 	fn publish_runner_heartbeat_ack(
 		&self,
 		state: &mut SchedulerState,
@@ -1161,7 +1175,7 @@ impl Scheduler {
 	) {
 		let subject = runner_heartbeat_subject(&self.id, &notification.runner);
 		let acknowledgement = HeartbeatAcknowledgement {
-			connection_index: notification.connection_index,
+			registration_index: notification.registration_index,
 			heartbeat_index: notification.heartbeat_index,
 		};
 		let server = self.server.clone();
@@ -1292,20 +1306,52 @@ impl tangram_server_core::scheduler::Component for Component {
 		self.dequeue_sandbox(session, sandbox, scheduler).boxed()
 	}
 
+	fn acquire_process_lease<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		scheduler: &'a tg::scheduler::Id,
+		sandbox: &'a tg::sandbox::Id,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::Lease>>> {
+		self.acquire_process_lease(session, scheduler, sandbox)
+			.boxed()
+	}
+
+	fn release_process_lease<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		scheduler: &'a tg::scheduler::Id,
+		sandbox: &'a tg::sandbox::Id,
+		lease: tg::process::Lease,
+	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
+		self.release_process_lease(session, scheduler, sandbox, lease)
+			.boxed()
+	}
+
+	fn cancel_sandbox_stop<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		scheduler: &'a tg::scheduler::Id,
+		sandbox: &'a tg::sandbox::Id,
+	) -> BoxFuture<'a, tg::Result<bool>> {
+		self.cancel_sandbox_stop(session, scheduler, sandbox)
+			.boxed()
+	}
+
+	fn end_sandbox<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		scheduler: &'a tg::scheduler::Id,
+		arg: EndSandboxRequestArg,
+	) -> BoxFuture<'a, tg::Result<bool>> {
+		self.end_sandbox(session, scheduler, arg).boxed()
+	}
+
 	fn enqueue_sandbox<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
 		request: EnqueueSandboxRequestArg,
 	) -> BoxFuture<'a, tg::Result<tg::scheduler::Id>> {
 		self.enqueue_sandbox(session, request).boxed()
-	}
-
-	fn scheduler_heartbeat_expired<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		scheduler: &'a tg::scheduler::Id,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.scheduler_heartbeat_expired(session, scheduler).boxed()
 	}
 
 	fn send_scheduler_request<'a>(

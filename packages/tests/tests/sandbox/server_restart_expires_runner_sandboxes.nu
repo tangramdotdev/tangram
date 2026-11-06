@@ -13,7 +13,7 @@ let runner = server spawn --name runner --config {
 	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
 }
 
-let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
+let sandbox = tg --url $remote.url --token $root_token sandbox create --wait --no-tokens | referent node
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) started
 
 # Kill the runner and then the remote, and start the remote again without the runner.

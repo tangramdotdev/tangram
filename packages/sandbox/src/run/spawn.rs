@@ -36,6 +36,7 @@ enum UserQuery {
 
 pub(crate) struct Output {
 	pub filesystem: Option<crate::filesystem::Filesystem>,
+	pub mounts: Vec<(PathBuf, bool)>,
 	pub process: tokio::process::Child,
 	pub storage: Option<crate::budget::Allocation>,
 }
@@ -44,7 +45,7 @@ pub(crate) async fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &crate::serve::Arg,
 	network: Option<&mut crate::network::Network>,
-	cgroup: &crate::cgroup::Cgroup,
+	cgroup: Option<&crate::cgroup::Cgroup>,
 ) -> tg::Result<Output> {
 	// Prepare the network pair.
 	let isolation = &arg.resources;
@@ -210,12 +211,28 @@ pub(crate) async fn spawn(
 	}
 
 	// Bind the resolver configuration and user mounts.
+	if arg.prepare {
+		let source = arg.path.join("namespaces.sock");
+		add_mount(source, crate::configuration_socket_path(), true);
+		let resolver = Sandbox::host_resolv_conf_path_from_root(&arg.path);
+		if !resolver.exists() {
+			std::fs::write(&resolver, "").map_err(|error| {
+				tg::error!(!error, "failed to stage the resolver configuration")
+			})?;
+		}
+	}
 	let resolv_conf_path = Sandbox::host_resolv_conf_path_from_root(&arg.path);
 	if resolv_conf_path.exists() {
 		add_mount(resolv_conf_path, "/etc/resolv.conf".into(), true);
 	}
 	for mount in &arg.mounts {
 		add_mount(mount.source.clone(), mount.target.clone(), mount.readonly);
+	}
+
+	// Mount the root filesystem directories that the user mounts cover.
+	for target in crate::guest::covered_rootfs_directories(&arg.rootfs_path, &arg.mounts) {
+		let source = crate::guest::rootfs_path(&arg.rootfs_path, &target);
+		add_mount(source, target, true);
 	}
 
 	// Create the network launch configuration.
@@ -258,6 +275,9 @@ pub(crate) async fn spawn(
 		"--tangram-path".into(),
 		serve_arg.tangram_path.clone().into_os_string(),
 	];
+	if let Some(path) = &serve_arg.namespaces {
+		arguments.extend(["--namespaces".into(), path.clone().into_os_string()]);
+	}
 	arguments.extend(
 		crate::util::http2_args(&serve_arg.http2)
 			.into_iter()
@@ -302,7 +322,7 @@ pub(crate) async fn spawn(
 		cwd: "/".into(),
 		env: environment,
 	};
-	let cgroup_readonly = isolation.cgroup_readonly;
+	let cgroup_readonly = isolation.cgroup_readonly || cgroup.is_none();
 	let options = crate::run::Options {
 		cgroup_delegate: !cgroup_readonly,
 		cgroup_readonly,
@@ -363,12 +383,14 @@ pub(crate) async fn spawn(
 	};
 
 	// Select the launcher cgroup, creating a guest cgroup with the enabled controllers when the guest can create cgroups.
-	let launcher_cgroup = if launch.options.cgroup_delegate {
-		let handle = cgroup.handle()?;
-		handle.enable_controllers()?;
-		cgroup.child(crate::cgroup::GUEST)?
-	} else {
-		cgroup.handle()?
+	let launcher_cgroup = match cgroup {
+		Some(cgroup) if launch.options.cgroup_delegate => {
+			let handle = cgroup.handle()?;
+			handle.enable_controllers()?;
+			Some(cgroup.child(crate::cgroup::GUEST)?)
+		},
+		Some(cgroup) => Some(cgroup.handle()?),
+		None => None,
 	};
 
 	// Create the launcher and inherit the control descriptors.
@@ -400,7 +422,8 @@ pub(crate) async fn spawn(
 		.stderr(std::process::Stdio::piped());
 
 	// Spawn the launcher and install the identity maps.
-	let child = spawn_command(&mut command, &launcher_cgroup, cgroup.affinity())?;
+	let affinity = cgroup.and_then(crate::cgroup::Cgroup::affinity);
+	let child = spawn_command(&mut command, launcher_cgroup.as_ref(), affinity)?;
 	config.finish().await?;
 	if let Some((host, guest, uid_map, gid_map)) = user_namespace {
 		drop(guest);
@@ -420,15 +443,22 @@ pub(crate) async fn spawn(
 			.id()
 			.ok_or_else(|| tg::error!("no child pid available"))?;
 		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
-		let pasta_cgroup = if launch.options.cgroup_delegate {
-			cgroup.child(crate::cgroup::SIDECARS)?
-		} else {
-			cgroup.handle()?
+		let pasta_cgroup = match cgroup {
+			Some(cgroup) if launch.options.cgroup_delegate => {
+				Some(cgroup.child(crate::cgroup::SIDECARS)?)
+			},
+			Some(cgroup) => Some(cgroup.handle()?),
+			None => None,
 		};
-		let directory = pasta_cgroup.open_fd()?;
+		let directory = pasta_cgroup
+			.as_ref()
+			.map(crate::cgroup::Handle::open_fd)
+			.transpose()?;
 		network
 			.start_netns(pid, |command| {
-				crate::cgroup::enter_before_exec(command, directory.as_raw_fd());
+				if let Some(directory) = &directory {
+					crate::cgroup::enter_before_exec(command, directory.as_raw_fd());
+				}
 			})
 			.await?;
 	}
@@ -455,6 +485,21 @@ pub(crate) async fn spawn(
 	// Create the launch output.
 	let output = Output {
 		filesystem,
+		mounts: launch
+			.options
+			.mounts
+			.binds
+			.iter()
+			.map(|mount| (mount.target.clone(), false))
+			.chain(
+				launch
+					.options
+					.mounts
+					.ro_binds
+					.iter()
+					.map(|mount| (mount.target.clone(), true)),
+			)
+			.collect(),
 		process: child,
 		storage,
 	};
@@ -464,11 +509,13 @@ pub(crate) async fn spawn(
 
 pub(crate) fn spawn_command(
 	command: &mut tokio::process::Command,
-	cgroup: &crate::cgroup::Handle,
+	cgroup: Option<&crate::cgroup::Handle>,
 	affinity: Option<&[usize]>,
 ) -> tg::Result<tokio::process::Child> {
-	let directory = cgroup.open_fd()?;
-	crate::cgroup::enter_before_exec(command.as_std_mut(), directory.as_raw_fd());
+	let directory = cgroup.map(crate::cgroup::Handle::open_fd).transpose()?;
+	if let Some(directory) = &directory {
+		crate::cgroup::enter_before_exec(command.as_std_mut(), directory.as_raw_fd());
+	}
 	if let Some(cpus) = affinity {
 		crate::cgroup::set_affinity_before_exec(command.as_std_mut(), cpus);
 	}
@@ -582,7 +629,7 @@ fn prepare_user_namespace(
 	Ok(output)
 }
 
-fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
+pub(crate) fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
 	// SAFETY: The pre_exec closure only calls async-signal-safe operations.
 	unsafe {
 		command.pre_exec(move || {
@@ -723,26 +770,36 @@ fn prepare_etc_files(
 			std::fs::copy("/etc/resolv.conf", path)
 				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
 		},
-		Some(crate::network::Network::Pasta(_)) => {
-			let contents = format!("nameserver {}\n", crate::network::pasta::DNS_FORWARD_IP);
-			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
-			std::fs::write(path, contents)
-				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+		Some(network) => {
+			if let Some(contents) = resolv_conf(network) {
+				let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
+				std::fs::write(path, contents)
+					.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+			}
 		},
-		Some(crate::network::Network::Veth(network)) => {
+		None => (),
+	}
+
+	Ok(user)
+}
+
+/// Render the resolver configuration of a network that provides its own DNS servers.
+pub(crate) fn resolv_conf(network: &crate::network::Network) -> Option<String> {
+	match network {
+		crate::network::Network::Pasta(_) => Some(format!(
+			"nameserver {}\n",
+			crate::network::pasta::DNS_FORWARD_IP
+		)),
+		crate::network::Network::Veth(network) => {
 			let mut contents = String::new();
 			for server in network.dns() {
 				use std::fmt::Write as _;
 				writeln!(&mut contents, "nameserver {server}").unwrap();
 			}
-			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
-			std::fs::write(path, contents)
-				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+			Some(contents)
 		},
-		_ => (),
+		_ => None,
 	}
-
-	Ok(user)
 }
 
 fn render_passwd(user: &User) -> String {

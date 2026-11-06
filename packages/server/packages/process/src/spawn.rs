@@ -276,6 +276,11 @@ impl Component {
 			.await
 		};
 
+		// Wait for a child that may borrow its parent's capacity to start, because the notification of the capacity lasts only as long as the spawn.
+		if notify.is_some() {
+			arg.wait = true;
+		}
+
 		let mut output = if shortcut {
 			self.try_spawn_process_local(
 				session,

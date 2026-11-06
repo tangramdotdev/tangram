@@ -1,8 +1,15 @@
 use {
 	crate::Component,
-	futures::StreamExt as _,
+	futures::{FutureExt as _, StreamExt as _},
 	tangram_client::prelude::*,
-	tangram_server_core::{Session, location::Remote},
+	tangram_futures::stream::TryExt as _,
+	tangram_server_core::{
+		Session,
+		location::{
+			Remote, await_first_found_of_local_regions_remotes_futures,
+			await_local_future_over_regions_remotes_futures,
+		},
+	},
 };
 
 impl Component {
@@ -38,15 +45,52 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = locations.local {
-			if local.current
-				&& let Some(output) = self
-					.try_get_with_selector_local(session, selector, tokens.local_authorization())
-					.await?
-			{
-				return Ok(Some(output));
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
+
+		// Find the node and authorize it without awaiting indexing or searching.
+		let node = if current {
+			self.try_get_with_selector_id_local(session, selector)
+				.await?
+		} else {
+			None
+		};
+		if node.is_some()
+			&& let Some(output) = self
+				.try_get_with_selector_local(
+					session,
+					selector,
+					tokens.local_authorization(),
+					node.clone(),
+					false,
+				)
+				.await?
+		{
+			return Ok(Some(output));
+		}
+
+		// Await indexing and search locally while trying the regions and then the remotes.
+		let local_future = async {
+			if !current {
+				return Ok(None);
 			}
-			for region in local.regions {
+			self.try_get_with_selector_local(
+				session,
+				selector,
+				tokens.local_authorization(),
+				node,
+				true,
+			)
+			.await
+		};
+		let regions = match &locations.local {
+			// Every region has the same names, so a local read of a specifier covers the regions.
+			Some(_) if current && matches!(selector, tg::Selector::Specifier(_)) => Vec::new(),
+			Some(local) => local.regions.clone(),
+			None => Vec::new(),
+		};
+		let remotes = locations.remotes;
+		let regions_and_remotes_future = async {
+			for region in regions {
 				if let Some(output) = self
 					.try_get_with_selector_region(session, selector, &region, tokens)
 					.await?
@@ -54,9 +98,140 @@ impl Component {
 					return Ok(Some(output));
 				}
 			}
+			self.try_get_with_selector_remotes(session, selector, remotes, tokens, cached, ttl)
+				.await
+		};
+
+		// Return the first result for an immutable ID, and prefer the local result for a specifier.
+		let output = match selector {
+			tg::Selector::Id(_) => {
+				await_first_found_of_local_regions_remotes_futures(
+					local_future,
+					regions_and_remotes_future,
+				)
+				.boxed()
+				.await?
+			},
+			tg::Selector::Specifier(_) => {
+				await_local_future_over_regions_remotes_futures(
+					local_future,
+					regions_and_remotes_future,
+				)
+				.boxed()
+				.await?
+			},
+		};
+
+		Ok(output)
+	}
+
+	async fn try_get_with_selector_id_local(
+		&self,
+		session: &Session,
+		selector: &tg::Selector<tg::Id>,
+	) -> tg::Result<Option<tg::Id>> {
+		match selector {
+			tg::Selector::Id(id) => {
+				let mut contains = session
+					.server
+					.components
+					.node
+					.contains_ids_from_index(session, std::slice::from_ref(id))
+					.await?;
+				Ok(contains.pop().unwrap().then(|| id.clone()))
+			},
+			tg::Selector::Specifier(specifier) => {
+				let mut ids = session
+					.server
+					.components
+					.node
+					.try_get_ids_for_specifiers_from_index(session, std::slice::from_ref(specifier))
+					.await?;
+				Ok(ids.pop().unwrap())
+			},
 		}
-		let results = locations
-			.remotes
+	}
+
+	async fn try_get_with_selector_local(
+		&self,
+		session: &Session,
+		selector: &tg::Selector<tg::Id>,
+		tokens: &[tg::authorization::Token],
+		node: Option<tg::Id>,
+		exhaustive: bool,
+	) -> tg::Result<Option<tg::get::Output>> {
+		// Find the node if it was not provided, awaiting indexing for a specifier because a forced push can redirect it.
+		let mut id = node;
+		if id.is_none() && exhaustive {
+			if matches!(selector, tg::Selector::Specifier(_)) {
+				let arg = tg::index::Arg {
+					database: true,
+					..Default::default()
+				};
+				session
+					.server
+					.components
+					.indexer
+					.index(session, arg)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?
+					.try_last()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?;
+			}
+			id = self
+				.try_get_with_selector_id_local(session, selector)
+				.await?;
+		}
+		let Some(id) = id else {
+			return Ok(None);
+		};
+
+		// Authorize the node.
+		let permission = tangram_server_grant_common::read_permission_for_resource(&id)?;
+		let resource =
+			tg::Referent::with_node_and_local_tokens(tg::Selector::Id(id.clone()), tokens.to_vec());
+		let authorized = session
+			.authorize_with_exhaustive(resource, permission, exhaustive)
+			.await?
+			.check_exhaustion()?
+			.permissions
+			.contains(permission);
+		if !authorized {
+			return Ok(None);
+		}
+
+		// Create the output.
+		let mut tokens = tg::authorization::Tokens::with_authorization(tokens.to_vec());
+		if let Some(token) = session
+			.server
+			.components
+			.authorization
+			.create_read_token(session, &id)?
+		{
+			tokens.insert_local_authorization(token);
+		}
+		let options = tg::referent::Options {
+			location: Some(tg::Location::Local(tg::location::Local::default())),
+			tokens,
+			..tg::referent::Options::default()
+		};
+		let referent = tg::Referent::new(tg::get::Node::Id(id), options);
+		let output = tg::get::Output { referent };
+
+		Ok(Some(output))
+	}
+
+	async fn try_get_with_selector_remotes(
+		&self,
+		session: &Session,
+		selector: &tg::Selector<tg::Id>,
+		remotes: Vec<Remote>,
+		tokens: &tg::authorization::Tokens,
+		cached: bool,
+		ttl: tg::remote::cache::Ttl,
+	) -> tg::Result<Option<tg::get::Output>> {
+		let results = remotes
 			.into_iter()
 			.map(|remote| {
 				let selector = selector.clone();
@@ -86,67 +261,6 @@ impl Component {
 		}
 
 		Ok(output)
-	}
-
-	async fn try_get_with_selector_local(
-		&self,
-		session: &Session,
-		selector: &tg::Selector<tg::Id>,
-		tokens: &[tg::authorization::Token],
-	) -> tg::Result<Option<tg::get::Output>> {
-		let id = match selector {
-			tg::Selector::Id(id) => {
-				let mut contains = session
-					.server
-					.components
-					.node
-					.contains_ids_from_index(session, std::slice::from_ref(id))
-					.await?;
-				contains.pop().unwrap().then(|| id.clone())
-			},
-			tg::Selector::Specifier(specifier) => {
-				let mut ids = session
-					.server
-					.components
-					.node
-					.try_get_ids_for_specifiers_from_index(session, std::slice::from_ref(specifier))
-					.await?;
-				ids.pop().unwrap()
-			},
-		};
-		let Some(id) = id else {
-			return Ok(None);
-		};
-		let permission = tangram_server_grant_common::read_permission_for_resource(&id)?;
-		let resource =
-			tg::Referent::with_node_and_local_tokens(tg::Selector::Id(id.clone()), tokens.to_vec());
-		let authorized = session
-			.authorize(resource, permission)
-			.await?
-			.check_exhaustion()?
-			.permissions
-			.contains(permission);
-		if !authorized {
-			return Ok(None);
-		}
-		let mut tokens = tg::authorization::Tokens::with_authorization(tokens.to_vec());
-		if let Some(token) = session
-			.server
-			.components
-			.authorization
-			.create_read_token(session, &id)?
-		{
-			tokens.insert_local_authorization(token);
-		}
-		let options = tg::referent::Options {
-			location: Some(tg::Location::Local(tg::location::Local::default())),
-			tokens,
-			..tg::referent::Options::default()
-		};
-		let referent = tg::Referent::new(tg::get::Node::Id(id), options);
-		let output = tg::get::Output { referent };
-
-		Ok(Some(output))
 	}
 
 	async fn try_get_with_selector_region(

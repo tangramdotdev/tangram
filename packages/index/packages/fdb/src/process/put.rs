@@ -19,6 +19,14 @@ impl Index {
 		if let Err(error) = arg.validate() {
 			return Ok(ControlFlow::Break(Err(error)));
 		}
+		if let Some(registration) = &arg.registration {
+			let result = crate::propagate!(
+				Self::check_runner_registration_with_transaction(txn, subspace, registration).await
+			);
+			if let Err(error) = result {
+				return Ok(ControlFlow::Break(Err(error)));
+			}
+		}
 		let id = &arg.id;
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -41,6 +49,18 @@ impl Index {
 			ControlFlow::Break(existing_data) => existing_data,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
+
+		// Ignore a starting record that arrives after the process started, because writes may be applied out of order.
+		if arg
+			.data
+			.as_ref()
+			.is_some_and(|data| data.status.is_starting())
+			&& existing
+				.as_ref()
+				.is_some_and(|existing| existing.status.is_some())
+		{
+			return Ok(ControlFlow::Break(Ok(())));
+		}
 
 		// Get the existing data when the process rewrites its own finished data, which the validation compares.
 		if arg.data.is_some()

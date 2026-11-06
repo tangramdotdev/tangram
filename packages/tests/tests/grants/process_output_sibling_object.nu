@@ -32,7 +32,7 @@ assert equal $outcome.exit 0 "the parent may return the output it received from 
 # Give Eve access only to the consumer process.
 let consumer = tg --token $alice.token process children $build.process | from json | get 1.process
 tg --token $alice.token grant $eve.user.id process_parent $consumer
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 # Eve can read the consumer's return value, but not the object it merely named.
 let outcome = tg --token $eve.token wait $consumer | from json

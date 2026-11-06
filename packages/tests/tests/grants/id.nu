@@ -42,7 +42,7 @@ failure (tg --token $eve.token grants delete $grant.id | complete) "another user
 tg --token $alice.token grant $eve.user.id admin team
 let eve_grant = tg --token $eve.token grant $bob.user.id read team | from json
 tg --token $alice.token revoke $eve.user.id admin team
-tg index
+tg index --database
 tg --token $eve.token grants delete $eve_grant.id
 failure (tg --token $alice.token grants get $eve_grant.id | complete) "the deleted grant should not be found"
 

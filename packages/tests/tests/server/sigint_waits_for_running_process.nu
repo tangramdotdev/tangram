@@ -2,15 +2,6 @@ use ../../util/test.nu *
 
 # SIGINT waits for running processes and their final index writes in both process modes.
 
-let path = artifact {
-	tangram.ts: '
-		export default async () => {
-			await tg.host.readFile("/target/release");
-			return tg.file("late output");
-		};
-	'
-}
-
 # Trace the shutdown, so that the test can observe when the server begins to wait for its runner.
 $env.TANGRAM_TRACING = 'info,tangram_server[shutdown]=trace'
 
@@ -22,14 +13,21 @@ for multi_server in [false true] {
 	let release = $directory | path join release
 	let held = $directory | path join held
 	mkfifo $release $held
+	let module = '
+		export default async () => {
+			await tg.host.readFile(RELEASE);
+			return tg.file("late output");
+		};
+	' | str replace 'RELEASE' ($release | to json --raw)
+	let path = artifact { tangram.ts: $module }
 	job spawn {
-		bash -c 'exec 3<> "$1"; echo $$ > "$2"; exec sleep 3600' _ $release $held
+		do --ignore-errors { bash -c 'exec 3<> "$1"; echo $$ > "$2"; exec sleep 3600' _ $release $held }
 	} | ignore
 	let holder = open --raw $held | str trim | into int
 
 	# Spawn a process that blocks reading the FIFO in its mount, and wait for it to start.
 	let id = checkin push $local $path
-	let process = tg --url $local.url spawn --sandbox --mount $'($directory):/target' --no-tokens --verbose $id | from json | get process
+	let process = tg --url $local.url spawn --sandbox --mount $'($directory):($directory)' --no-tokens --verbose $id | from json | get process
 	wait_for_log $local 'started the process, command='
 
 	# Send SIGINT to the server and wait for its shutdown to reach the runner.

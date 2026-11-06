@@ -10,8 +10,6 @@ export async function destroySandbox(
 	let destroyed = await tryDestroySandbox(client, id, arg);
 	if (destroyed === null) {
 		throw new Error("failed to find the sandbox");
-	} else if (!destroyed) {
-		throw new Error("the sandbox was already destroyed");
 	}
 }
 
@@ -30,6 +28,7 @@ export async function tryDestroySandbox(
 			arg?.location === undefined || arg.location === null
 				? null
 				: tg.Location.Arg.toDataString(arg.location),
+		wait: arg?.wait ?? false,
 	});
 	let request = new Request({
 		body,

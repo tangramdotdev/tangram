@@ -10,7 +10,7 @@ let artifact = tg --url $local.url --token $alice.token checkin --no-tokens $pat
 let parent = tg --url $local.url --token $alice.token group create --verbose private | from json
 tg --url $local.url --token $alice.token group create private/1.0.0 | ignore
 tg --url $local.url --token $alice.token tag private/1.0.0/latest $artifact
-tg --url $local.url index
+tg --url $local.url index --database
 
 let token = $parent.tokens.local.0 | url encode --all
 let reference = $"private/^1?tokens[local][0]=($token)"

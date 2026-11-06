@@ -431,11 +431,20 @@ impl Component {
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(id.clone()),
 			processes: None,
+			registration: None,
 			runner,
+			scheduled: None,
 			stopped_usage: None,
 			touched_at: created_at,
 		};
 		Ok(arg)
+	}
+
+	/// Log that a runner reported no usage for a sandbox when this server tracks usage.
+	fn warn_missing_sandbox_usage(session: &Session, data: &tg::sandbox::Data) {
+		if session.server.config.usage.enabled && data.usage.is_none() {
+			tracing::warn!(sandbox = %data.id, "the runner reported no usage for the sandbox");
+		}
 	}
 
 	async fn publish_sandbox_control_ack(
@@ -608,7 +617,19 @@ impl Component {
 		arg: tg::sandbox::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 	) -> tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>> {
-		self.send_sandbox_control_request(session, id, arg, options)
+		self.request_sandbox_control_with_hold(session, id, arg, options, None)
+			.await
+	}
+
+	pub async fn request_sandbox_control_with_hold(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::ServerRequestArg,
+		options: tangram_server_core::control::Options,
+		hold: Option<futures::future::BoxFuture<'static, ()>>,
+	) -> tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>> {
+		self.send_sandbox_control_request(session, id, arg, options, hold)
 			.boxed()
 			.await?
 			.await
@@ -620,6 +641,7 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
+		hold: Option<futures::future::BoxFuture<'static, ()>>,
 	) -> tg::Result<
 		futures::future::BoxFuture<
 			'static,
@@ -648,6 +670,7 @@ impl Component {
 				))
 			},
 			client_subject: format!("sandboxes.{id}.control.client.{request_id}"),
+			hold,
 			is_ack: |message: &ClientMessage| {
 				matches!(&message.0, tg::sandbox::control::ClientMessage::Ack(_))
 			},

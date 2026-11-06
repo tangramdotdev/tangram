@@ -1,9 +1,10 @@
-use {super::Config, tangram_client::prelude::*};
+use {super::Config, std::path::Path, tangram_client::prelude::*};
 
 impl Config {
 	/// Validate the configuration.
 	pub fn validate(&self) -> tg::Result<()> {
 		self.validate_general()?;
+		self.validate_paths()?;
 		self.validate_sizes()?;
 		self.validate_sandbox()?;
 		self.validate_pagination()?;
@@ -134,6 +135,83 @@ impl Config {
 		{
 			return Err(tg::error!(
 				"the Stripe webhook tolerance must be greater than zero"
+			));
+		}
+
+		Ok(())
+	}
+
+	fn validate_paths(&self) -> tg::Result<()> {
+		// Get the paths that are not relative to the server directory.
+		let mut paths: Vec<(&str, &Path)> = Vec::new();
+		let secrets = [
+			Some(&self.authentication.tokens.secrets),
+			self.authorization.tokens.as_ref(),
+		];
+		for secrets in secrets.into_iter().flatten() {
+			if let Some(secret) = &secrets.secret
+				&& let Some(path) = &secret.path
+			{
+				paths.push(("token secret", path));
+			}
+			for secret in &secrets.previous_secrets {
+				paths.push(("previous token secret", &secret.path));
+			}
+		}
+		for listener in &self.http.listeners {
+			if let Some(tls) = &listener.tls {
+				paths.push(("TLS certificate", &tls.certificate));
+				paths.push(("TLS key", &tls.key));
+			}
+			if listener.url.scheme() == Some("http+unix")
+				&& let Some(path) = listener.url.host()
+			{
+				paths.push(("HTTP listener socket", Path::new(path)));
+			}
+		}
+		if let super::Index::Fdb(index) = &self.index {
+			paths.push(("FoundationDB cluster", &index.cluster));
+		}
+		if let super::Messenger::Nats(nats) = &self.messenger
+			&& let Some(path) = &nats.credentials
+		{
+			paths.push(("NATS credentials", path));
+		}
+		if let super::RunnerBackend::CloudHypervisor(backend) = &self.runner.backend {
+			if !backend.kernel_path.as_os_str().is_empty() {
+				paths.push(("cloud-hypervisor kernel", &backend.kernel_path));
+			}
+			if let Some(path) = &backend.snapshot {
+				paths.push(("cloud-hypervisor snapshot", path));
+			}
+		}
+
+		// Validate that the paths are absolute.
+		for (name, path) in paths {
+			if !path.is_absolute() {
+				return Err(tg::error!(
+					path = %path.display(),
+					"the {name} path must be absolute"
+				));
+			}
+		}
+
+		// Validate that the sandbox executable is absolute or a name to find in the PATH.
+		let executable = match &self.runner.backend {
+			super::RunnerBackend::Bubblewrap(backend) => Some(&backend.path),
+			super::RunnerBackend::Builtin(_) | super::RunnerBackend::Seatbelt => None,
+			super::RunnerBackend::CloudHypervisor(backend) => {
+				backend.cloud_hypervisor_path.as_ref()
+			},
+			super::RunnerBackend::Gvisor(backend) => Some(&backend.path),
+		};
+		if let Some(path) = executable
+			&& !path.is_absolute()
+			&& path.components().count() > 1
+		{
+			return Err(tg::error!(
+				path = %path.display(),
+				"the sandbox executable path must be absolute or a name"
 			));
 		}
 
@@ -675,6 +753,11 @@ impl Config {
 
 		if self.roles.contains(&super::Role::Scheduler) {
 			let scheduler = &self.scheduler;
+			if self.advanced.multi_server && scheduler.id.is_none() {
+				return Err(tg::error!(
+					"the scheduler ID is required in multi-server mode"
+				));
+			}
 			if scheduler.create_sandbox_queue_capacity == 0 {
 				return Err(tg::error!(
 					"the scheduler create sandbox queue capacity must be greater than zero"

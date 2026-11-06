@@ -7,14 +7,8 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 };
-
-/// The failure of a start, which is unassigned when the start never reached the sandbox's runner.
-enum StartError {
-	Assigned(tg::Error),
-	Unassigned(tg::Error),
-}
 
 impl Component {
 	#[tracing::instrument(name = "sandbox.start_request", level = "info", skip_all, fields(sandbox = %id), err(level = "debug"))]
@@ -29,36 +23,51 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(output) = self
-					.try_start_sandbox_local(session, id, &arg)
-					.boxed()
-					.await
-					.map_err(|error| tg::error!(!error, %id, "failed to start the sandbox"))?
-			{
-				return Ok(Some(output));
-			}
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-			if let Some(output) = self
-				.try_start_sandbox_regions(session, id, &arg, &local.regions)
+		// Start the sandbox locally without a search.
+		if current
+			&& let Some(output) = self
+				.try_start_sandbox_local(session, id, &arg, false)
+				.boxed()
 				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to start the sandbox in another region"),
-				)? {
-				return Ok(Some(output));
-			}
-		}
-
-		if let Some(output) = self
-			.try_start_sandbox_remotes(session, id, &arg, &locations.remotes)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to start the sandbox in a remote"))?
+				.map_err(|error| tg::error!(!error, %id, "failed to start the sandbox"))?
 		{
 			return Ok(Some(output));
 		}
 
-		Ok(None)
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			if !current {
+				return Ok(None);
+			}
+			self.try_start_sandbox_local(session, id, &arg, true)
+				.boxed()
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to start the sandbox"))
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(output) = self
+					.try_start_sandbox_regions(session, id, &arg, &local.regions)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to start the sandbox in another region"),
+					)? {
+				return Ok(Some(output));
+			}
+			self.try_start_sandbox_remotes(session, id, &arg, &locations.remotes)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to start the sandbox in a remote"))
+		};
+		let output = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+
+		Ok(output)
 	}
 
 	async fn try_start_sandbox_local(
@@ -66,14 +75,15 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		arg: &tg::sandbox::start::Arg,
+		exhaustive: bool,
 	) -> tg::Result<Option<bool>> {
 		// Authorize the start and get the indexed sandbox.
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Parent,
 		);
 		let resource = tg::Referent::with_node_and_tokens(id.clone(), arg.tokens.clone());
-		let authorize_future = session.authorize(resource, permission);
-		let get_future = self.try_get_sandbox_from_index(session, id);
+		let authorize_future = session.authorize_with_exhaustive(resource, permission, exhaustive);
+		let get_future = self.try_get_sandbox_from_index_with_exhaustive(session, id, exhaustive);
 		let (authorized, indexed) = future::try_join(authorize_future, get_future).await?;
 		let authorized = authorized.check_exhaustion()?;
 		let Some(indexed) = indexed else {
@@ -93,19 +103,48 @@ impl Component {
 			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
 			.await?;
 
-		// Get the sandbox's state, which its control connection reports while it is running.
-		let output = self
-			.try_get_sandbox(session, id, tg::sandbox::get::Arg::default())
-			.await?
-			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+		// Get the sandbox's state, which its control connection reports while it is running, and cancel a stop that its scheduler holds, because this start came after it. If the scheduler no longer holds the sandbox, then wait for the status to show why.
+		let output = loop {
+			let output = self
+				.try_get_sandbox(session, id, tg::sandbox::get::Arg::default())
+				.await?
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+			if !output.data.status.is_starting() {
+				break output;
+			}
+			let scheduler = self
+				.try_get_sandbox_from_index(session, id)
+				.await?
+				.and_then(|sandbox| sandbox.scheduler);
+			let Some(scheduler) = scheduler else {
+				break output;
+			};
+			let held = session
+				.server
+				.components
+				.scheduler
+				.cancel_sandbox_stop(session, &scheduler, id)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, %scheduler, "failed to cancel the stop"),
+				)?;
+			if held {
+				break output;
+			}
+			if wakeups.next().await.is_none() {
+				return Err(tg::error!("the sandbox status wakeup stream ended"));
+			}
+		};
 		match output.data.status {
-			tg::sandbox::Status::Destroyed => {
+			tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
 				return Err(tg::error!(%id, "the sandbox was destroyed"));
 			},
 			tg::sandbox::Status::Started => return Ok(Some(false)),
 			tg::sandbox::Status::Starting => {
-				self.wait_for_sandbox_start(session, id, &mut wakeups)
-					.await?;
+				if arg.wait {
+					self.wait_for_sandbox_start(session, id, &mut wakeups)
+						.await?;
+				}
 				return Ok(Some(false));
 			},
 			tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping => (),
@@ -115,8 +154,15 @@ impl Component {
 		let runner = indexed
 			.runner
 			.ok_or_else(|| tg::error!(%id, "the sandbox has no runner"))?;
+		let boot = output.data.boot + 1;
 		self.start_sandbox_with_runner(session, id, output, runner, indexed.created_at)
 			.await?;
+
+		// Wait for the boot to start if requested, because a connection alone does not identify the boot.
+		if arg.wait {
+			self.wait_for_sandbox_boot(session, id, boot, &mut wakeups)
+				.await?;
+		}
 
 		Ok(Some(true))
 	}
@@ -144,168 +190,41 @@ impl Component {
 			storage: data.storage,
 			time_to_live: data.time_to_live,
 			time_to_stop: data.time_to_stop,
+			wait: false,
 		};
 		let token = session
 			.server
 			.components
 			.authentication
 			.create_sandbox_authentication_token(&session.server, id.clone())?;
-		let mut wakeups = self
-			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
-			.await?;
-		let connection_future = self.subscribe_sandbox_connection(session, id).await?;
 
-		// Record the start concurrently with enqueuing it, because the index orders the write before the runner's report of the boot.
-		let starting = tg::sandbox::Data {
-			boot,
-			error: None,
-			status: tg::sandbox::Status::Starting,
-			usage: None,
-			..data.clone()
-		};
-		let index_future = self.put_sandbox(session, id, starting, runner.clone(), created_at);
+		// Enqueue the boot, which the scheduler accepts once its record is durable.
 		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
 			boot,
+			created_at,
 			creator: data.creator.clone(),
 			owner: data.owner.clone(),
 			parent: None,
 			process: None,
-			runner: Some(runner.clone()),
+			runner: Some(runner),
 			sandbox: id.clone(),
 			scheduler: None,
+			stop: false,
 			token: Some(token),
 		};
-		let enqueue_future = session
-			.server
-			.components
-			.scheduler
-			.enqueue_sandbox(session, request);
-		let (index_result, enqueue_result) = future::join(index_future, enqueue_future).await;
-		if let Err(error) = index_result {
-			tracing::warn!(error = %error.trace(), sandbox = %id, "failed to record the starting sandbox");
-		}
-
-		// Wait for the boot to start.
-		let result = async {
-			let scheduler = enqueue_result.map_err(|error| {
-				StartError::Unassigned(tg::error!(!error, %id, "failed to enqueue the sandbox"))
-			})?;
-			let timeout = session.server.config.scheduler.create_sandbox_timeout;
-			let heartbeat = session
-				.server
-				.components
-				.scheduler
-				.scheduler_heartbeat_expired(session, &scheduler);
-			let boot_future = self.wait_for_sandbox_boot(session, id, boot, &mut wakeups);
-
-			// Fail if the scheduler discards the start, and otherwise wait for the boot, because a connection alone does not identify the boot.
-			let discarded_future = async {
-				connection_future.await?;
-				future::pending::<tg::Result<()>>().await
-			};
-			tokio::select! {
-				result = discarded_future => result.map_err(StartError::Unassigned),
-				result = tokio::time::timeout(timeout, boot_future) => {
-					let result = result
-						.map_err(|_| tg::error!(%id, "timed out waiting for the sandbox to start"))
-						.and_then(std::convert::identity);
-					result.map_err(StartError::Assigned)
-				},
-				result = heartbeat => {
-					let error = match result {
-						Ok(()) => tg::error!(%id, %scheduler, "the scheduler heartbeat expired"),
-						Err(error) => error,
-					};
-					Err(StartError::Assigned(error))
-				},
-			}
-		}
-		.await;
-
-		// Record the sandbox as stopped with the error if the start never reached its runner. Otherwise the runner reports the outcome, because it is the sandbox's source of truth.
-		match result {
-			Ok(()) => {},
-			Err(StartError::Assigned(error)) => return Err(error),
-			Err(StartError::Unassigned(error)) => {
-				// Count the start as a use, so that the failed boot is stopped and expires from now.
-				let stopped_at = session.server.clock.unix_timestamp();
-				let expires_at = data.time_to_live.map(|time_to_live| {
-					stopped_at.saturating_add(time_to_live.as_secs().try_into().unwrap_or(i64::MAX))
-				});
-				let stopped = tg::sandbox::Data {
-					boot,
-					error: Some(error_data(session, &error)),
-					expires_at,
-					status: tg::sandbox::Status::Stopped,
-					stopped_at: Some(stopped_at),
-					usage: None,
-					..data
-				};
-				if let Err(error) = self
-					.put_sandbox(session, id, stopped, runner, created_at)
-					.await
-				{
-					tracing::warn!(error = %error.trace(), sandbox = %id, "failed to record the failed start");
-				}
-				return Err(error);
-			},
-		}
-
-		Ok(())
-	}
-
-	async fn put_sandbox(
-		&self,
-		session: &Session,
-		id: &tg::sandbox::Id,
-		data: tg::sandbox::Data,
-		runner: tg::runner::Id,
-		created_at: i64,
-	) -> tg::Result<()> {
-		let location = tg::Location::Local(tg::location::Local {
-			region: session.server.config.region.clone(),
-		});
-		let data = tg::sandbox::get::Output {
-			data,
-			location: Some(location.clone()),
-			tokens: tg::authorization::Tokens::default(),
-		};
-		let account = session
-			.server
-			.components
-			.usage
-			.usage_account(session, &data.data.owner)
-			.await?;
-		let touched_at = session.server.clock.unix_timestamp();
-		let put_sandbox = tangram_index::sandbox::put::Arg {
-			account,
-			created_at,
-			data: Some(data),
-			id: id.clone(),
-			location: Some(location),
-			permissions: Vec::new(),
-			principal: tg::Principal::Sandbox(id.clone()),
-			processes: None,
-			runner: Some(runner),
-			stopped_usage: None,
-			touched_at,
-		};
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(put_sandbox)],
-		};
-		Self::spawn_publish_sandbox_status_task(&session.server, id);
 		session
 			.server
 			.components
-			.indexer
-			.index_batch(&session.server, arg)
+			.scheduler
+			.enqueue_sandbox(session, request)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to put the sandbox in the index"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
+
 		Ok(())
 	}
 
-	async fn wait_for_sandbox_boot(
+	pub(crate) async fn wait_for_sandbox_boot(
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
@@ -320,8 +239,17 @@ impl Component {
 				.await?
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 			let data = output.data;
-			if data.status.is_destroyed() {
-				return Err(tg::error!(%id, "the sandbox was destroyed"));
+			if data.status.is_destroyed() || data.status.is_destroying() {
+				let error = match data.error {
+					Some(tg::Either::Left(data)) => tg::Error::try_from(data).ok(),
+					Some(tg::Either::Right(_)) | None => None,
+				};
+				let error = if let Some(error) = error {
+					tg::error!(!error, %id, "the sandbox was destroyed")
+				} else {
+					tg::error!(%id, "the sandbox was destroyed")
+				};
+				return Err(error);
 			}
 			if data.boot == boot {
 				match data.status {
@@ -338,7 +266,9 @@ impl Component {
 						};
 						return Err(error);
 					},
-					tg::sandbox::Status::Destroyed | tg::sandbox::Status::Starting => {},
+					tg::sandbox::Status::Destroyed
+					| tg::sandbox::Status::Destroying
+					| tg::sandbox::Status::Starting => {},
 				}
 			}
 			tokio::select! {
@@ -352,7 +282,7 @@ impl Component {
 		}
 	}
 
-	async fn wait_for_sandbox_start(
+	pub(crate) async fn wait_for_sandbox_start(
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
@@ -364,7 +294,7 @@ impl Component {
 				.await?
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 			match output.data.status {
-				tg::sandbox::Status::Destroyed => {
+				tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
 					return Err(tg::error!(%id, "the sandbox was destroyed"));
 				},
 				tg::sandbox::Status::Started => return Ok(()),
@@ -425,6 +355,7 @@ impl Component {
 		let arg = tg::sandbox::start::Arg {
 			location: Some(location.clone().into()),
 			tokens: arg.tokens.for_location(&location),
+			wait: arg.wait,
 		};
 		let Some(started) = client
 			.try_start_sandbox(id, arg)
@@ -493,6 +424,7 @@ impl Component {
 				}),
 			])),
 			tokens: arg.tokens.for_location(&location),
+			wait: arg.wait,
 		};
 		let Some(started) = client.try_start_sandbox(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to start the sandbox"),
@@ -555,14 +487,4 @@ impl Component {
 
 		Ok(response)
 	}
-}
-
-fn error_data(session: &Session, error: &tg::Error) -> tg::Either<tg::error::Data, tg::error::Id> {
-	let mut error = error.to_data_or_id();
-	if !session.server.config.advanced.internal_error_locations
-		&& let tg::Either::Left(error) = &mut error
-	{
-		error.remove_internal_locations();
-	}
-	error
 }

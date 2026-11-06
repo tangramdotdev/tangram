@@ -38,7 +38,7 @@ success (tg --token $root_token checkpoint wait --timeout 10s permission_capture
 tg --token $root_token checkpoint unwatch permission_capture.written $watch
 tg --token $alice.token put --no-tokens 'tg.file("remove")' | referent node
 tg --token $bob.token put --no-tokens 'tg.file("remove")' | referent node
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 # Expiration in the next hour preserves the completed hour and records the new storage gauges.
 advance_time $local 1hr

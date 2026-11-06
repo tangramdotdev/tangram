@@ -20,7 +20,7 @@ sleep 10sec
 tg checkpoint continue runner.sandbox.pool.take $watch 0
 tg checkpoint unwatch runner.sandbox.pool.take $watch
 let sandbox = job recv --tag $job | referent node
-tg sandbox destroy $sandbox
+tg sandbox destroy --wait $sandbox
 let usage = tg sandbox get $sandbox | from json | get data.usage
 assert ($usage.cpu.consumption < 1000) 'startup CPU must be excluded from the assigned usage'
 assert ($usage.memory.consumption < 25000) 'pool wait time must be excluded from the assigned memory usage'

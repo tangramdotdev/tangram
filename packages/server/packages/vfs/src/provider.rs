@@ -224,13 +224,11 @@ impl Provider {
 		Ok(provider)
 	}
 
-	#[cfg(target_os = "linux")]
 	#[must_use]
 	pub fn downgrade(&self) -> Weak {
 		Weak(Arc::downgrade(&self.0))
 	}
 
-	#[cfg(target_os = "linux")]
 	pub fn set_principal(&self, principal: tg::Principal) {
 		self.principal.lock().unwrap().replace(principal);
 	}
@@ -4756,7 +4754,6 @@ impl tangram_server_vfs_core::Provider for Weak {
 		}
 	}
 
-	#[cfg(target_os = "linux")]
 	fn set_principal(&self, principal: tg::Principal) {
 		if let Some(provider) = self.upgrade() {
 			provider.set_principal(principal);

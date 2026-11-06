@@ -15,6 +15,7 @@ from tangram.location import ArgObject as LocationArgObject
 
 class ArgObject(TypedDict, total=False):
     location: LocationArgObject | None
+    wait: bool
 
 
 async def start_sandbox(
@@ -34,6 +35,7 @@ async def try_start_sandbox(
             "location": None
             if options.get("location") is None
             else LocationArg.to_data_string(options["location"]),
+            "wait": options.get("wait", False),
         }
     )
     request = Request(

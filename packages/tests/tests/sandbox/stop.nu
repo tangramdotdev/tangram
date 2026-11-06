@@ -4,8 +4,8 @@ use ../../util/test.nu *
 
 let local = server spawn
 
-let sandbox = tg sandbox create --no-tokens | referent node
-tg sandbox stop $sandbox
+let sandbox = tg sandbox create --wait --no-tokens | referent node
+tg sandbox stop --wait $sandbox
 
 let data = tg sandbox get $sandbox | from json | get data
 assert equal $data.status stopped "the sandbox should be stopped"
@@ -27,4 +27,4 @@ failure $output "spawning into a stopped sandbox should fail"
 assert ($output.stderr | str contains "the sandbox is not started")
 
 # Stopping a stopped sandbox succeeds.
-tg sandbox stop $sandbox
+tg sandbox stop --wait $sandbox

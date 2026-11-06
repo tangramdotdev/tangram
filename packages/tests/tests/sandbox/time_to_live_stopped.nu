@@ -5,7 +5,7 @@ use ../../util/test.nu *
 let local = server spawn --now '2026-01-01T00:00:00Z' --config { runner: { stopped_sandbox_interval: 1 } }
 
 let sandbox = tg sandbox create --no-tokens --time-to-live 5s | referent node
-tg sandbox stop $sandbox
+tg sandbox stop --wait $sandbox
 let data = tg sandbox get $sandbox | from json | get data
 assert equal $data.status stopped
 assert ($data.expires_at? | is-not-empty) "the stopped sandbox should record when it expires"

@@ -718,7 +718,7 @@ extern "system" fn tg_provider_readdir_sync(
 	)
 }
 
-/// Reads the entries of an open directory handle with their attributes.
+/// Reads the entries of an open directory handle with their attributes. Each returned entry owns a lookup reference that the caller must forget, including entries it does not consume.
 #[unsafe(no_mangle)]
 extern "system" fn tg_provider_readdirplus_sync(
 	provider: TgVfsProvider,
@@ -833,6 +833,26 @@ extern "system" fn tg_provider_lookup_async(
 	)
 }
 
+/// Looks up a node and acquires a lookup reference, returning its attributes with the response.
+#[unsafe(no_mangle)]
+extern "system" fn tg_provider_lookup_and_remember_async(
+	provider: TgVfsProvider,
+	id: u64,
+	name: *const u8,
+	name_len: usize,
+	callback: TgBatchCallback,
+	user_data: *mut c_void,
+) -> i32 {
+	// SAFETY: The caller guarantees that the name pointer addresses `name_len` readable bytes or is null for an empty name.
+	let name = unsafe { name_arg(name, name_len) };
+	submit(
+		provider,
+		vec![Request::LookupAndRemember { id, name }],
+		callback,
+		user_data,
+	)
+}
+
 /// Looks up a node's parent.
 #[unsafe(no_mangle)]
 extern "system" fn tg_provider_lookup_parent_async(
@@ -915,7 +935,7 @@ extern "system" fn tg_provider_readdir_async(
 	)
 }
 
-/// Reads the entries of an open directory handle with their attributes.
+/// Reads the entries of an open directory handle with their attributes. Each returned entry owns a lookup reference that the caller must forget, including entries it does not consume.
 #[unsafe(no_mangle)]
 extern "system" fn tg_provider_readdirplus_async(
 	provider: TgVfsProvider,
@@ -984,7 +1004,7 @@ extern "system" fn tg_response_kind(response: TgResponse, out_kind: *mut TgRespo
 	})
 }
 
-/// Gets the attributes from a `GetAttr` response.
+/// Gets the attributes from a `GetAttr` or `LookupAndRemember` response.
 #[unsafe(no_mangle)]
 extern "system" fn tg_response_attrs(response: TgResponse, out_attrs: *mut TgAttrs) -> i32 {
 	guard(move || {
@@ -994,7 +1014,10 @@ extern "system" fn tg_response_attrs(response: TgResponse, out_attrs: *mut TgAtt
 		// SAFETY: The response handle contract guarantees a live response of the expected allocation type.
 		let response = unsafe { &*response.cast::<Response>() };
 		match response {
-			Response::GetAttr { attrs } => {
+			Response::GetAttr { attrs }
+			| Response::Lookup {
+				attrs: Some(attrs), ..
+			} => {
 				// SAFETY: The null check guarantees that the output pointer is writable under the C API contract.
 				unsafe { *out_attrs = attrs_to_c(*attrs) };
 				Status::Ok

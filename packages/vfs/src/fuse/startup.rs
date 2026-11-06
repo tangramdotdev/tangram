@@ -104,7 +104,7 @@ where
 				.ring_config
 				.ok_or_else(|| Error::other("missing the io_uring transport configuration"))?;
 			let context = RingStartupContext {
-				abort: &connection.abort,
+				abort: connection.abort.as_ref(),
 				event_receiver: &mut event_receiver,
 				event_sender: event_sender.clone(),
 				fd: connection.fd.clone(),
@@ -195,7 +195,7 @@ where
 			} = transport;
 			shutdown_server.cancel_async_requests();
 			let disconnected = shutdown_server
-				.disconnect_transport(&connection.abort, &path)
+				.disconnect_transport(connection.abort.as_ref(), &path)
 				.await;
 			Self::join_transport_threads(&mut threads, disconnected);
 			if let Some(dispatcher) = dispatcher {

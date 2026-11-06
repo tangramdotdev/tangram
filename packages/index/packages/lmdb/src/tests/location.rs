@@ -23,6 +23,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 			parent: None,
 			permissions: Vec::new(),
 			principal: tg::Principal::Process(id.clone()),
+			registration: None,
 			sandbox: None,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: std::time::Duration::from_secs(60),
@@ -84,7 +85,9 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(id.clone()),
 			processes: None,
+			registration: None,
 			runner: None,
+			scheduled: None,
 			stopped_usage: None,
 			touched_at: 1,
 		};

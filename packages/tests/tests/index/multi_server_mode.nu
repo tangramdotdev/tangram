@@ -21,7 +21,7 @@ let local = server spawn --config {
 	},
 }
 let group = tg --url $local.url group create project | from json
-tg --url $local.url index
+tg --url $local.url index --database
 let indexed = tg --url $local.url group get project | from json
 assert equal $indexed.id $group.id
 let path = artifact {

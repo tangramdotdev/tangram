@@ -15,7 +15,7 @@ let child = tg --token $alice.token object children $directory | from json | get
 # These explicit grants prove object_subtree access to the directory.
 tg --token $alice.token grant $eve.user.id object_node $directory | ignore
 tg --token $alice.token grant $eve.user.id object_subtree $child | ignore
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 let metadata = tg --token $eve.token metadata $directory | from json
 assert equal $metadata.subtree.count 3 "the initial grants should confer subtree access"

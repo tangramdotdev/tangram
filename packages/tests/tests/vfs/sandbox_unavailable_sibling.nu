@@ -8,5 +8,15 @@ let source = server spawn --name source
 let missing = tg --url $source.url put --no-tokens 'tg.file("missing\n")' | referent node
 let local = server spawn --name local --config { vfs: true }
 let directory = tg put --no-tokens ('tg.directory({ "missing": ' + $missing + ', "present": tg.file("hello\n") })') | referent node
-let output = tg run --sandbox --executable /bin/sh --arg-string '-c' --arg-string 'IFS= read -r value < "/opt/tangram/store/$1/present"; test "$value" = hello' --arg-string sh --arg-value $directory | complete
+let module = artifact {
+	tangram.ts: '
+		export default (directory: tg.Directory) => tg.command({
+			args: ["-c", "IFS= read -r value < \"$1/present\"; test \"$value\" = hello", "sh", tg`${directory}`],
+			executable: "/bin/sh",
+			host: tg.host.current,
+		});
+	',
+}
+let command = tg build $module --arg-value $directory
+let output = tg run --sandbox $command | complete
 success $output 'the sandbox should read the available entry'

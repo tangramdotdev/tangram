@@ -128,6 +128,6 @@ impl Project {
 fn normalize_message(code: Option<i32>, message: String) -> String {
 	match code {
 		Some(2732 | 2792) => "cannot find the module".into(),
-		_ => message,
+		_ => crate::load::non_value_message(message),
 	}
 }

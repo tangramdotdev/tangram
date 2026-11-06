@@ -15,6 +15,7 @@ from tangram.location import ArgObject as LocationArgObject
 
 class ArgObject(TypedDict, total=False):
     location: LocationArgObject | None
+    wait: bool
 
 
 async def destroy_sandbox(
@@ -23,8 +24,6 @@ async def destroy_sandbox(
     destroyed = await try_destroy_sandbox(client, id, arg, **options)
     if destroyed is None:
         raise ValueError("failed to find the sandbox")
-    elif not destroyed:
-        raise ValueError("the sandbox was already destroyed")
 
 
 async def try_destroy_sandbox(
@@ -36,6 +35,7 @@ async def try_destroy_sandbox(
             "location": None
             if options.get("location") is None
             else LocationArg.to_data_string(options["location"]),
+            "wait": options.get("wait", False),
         }
     )
     request = Request(

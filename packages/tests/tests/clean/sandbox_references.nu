@@ -37,7 +37,7 @@ tg clean
 tg process get --source=index $process | ignore
 
 # Destroying and cleaning the sandbox releases its process.
-tg sandbox destroy $sandbox
+tg sandbox destroy --wait $sandbox
 tg sandbox wait --source=index $sandbox | ignore
 tg clean
 failure (tg sandbox get --source=index $sandbox | complete)

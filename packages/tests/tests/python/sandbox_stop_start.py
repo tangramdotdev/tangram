@@ -9,10 +9,10 @@ async def main():
     async with tg.Client() as client:
         sandbox = await tg.Sandbox.create(client=client)
         try:
-            await sandbox.stop(client)
+            await sandbox.stop(client, wait=True)
             await sandbox.reload(client)
             assert sandbox.data["status"] == "stopped"
-            await sandbox.start(client)
+            await sandbox.start(client, wait=True)
             await sandbox.reload(client)
             assert sandbox.data["status"] == "started"
         finally:

@@ -41,7 +41,7 @@ tg --url $local_auth.url --token $alice.token group create b-visible | ignore
 tg --url $local_auth.url --token $alice.token group create c-visible | ignore
 tg --url $local_auth.url --token $alice.token grant $bob.user.id read b-visible | ignore
 tg --url $local_auth.url --token $alice.token grant $bob.user.id read c-visible | ignore
-tg --url $local_auth.url index
+tg --url $local_auth.url index --database
 let first = tg --url $local_auth.url --token $bob.token list --limit 1 --local --no-organizations --no-tags --no-users --verbose | from json
 let visible = (
 	tg --url $local_auth.url --token $bob.token list --limit 1 --local --no-organizations --no-tags --no-users --cursor $first.cursor

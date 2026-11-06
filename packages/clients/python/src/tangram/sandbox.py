@@ -76,6 +76,8 @@ class SandboxArg(TypedDict, total=False):
     time_to_stop: Unresolved[int | float | Mutation | None]
     # An alias for `time_to_live`.
     ttl: Unresolved[int | float | Mutation | None]
+    # Wait for the sandbox to start.
+    wait: Unresolved[bool | Mutation | None]
 
 
 type SandboxInput = Unresolved[
@@ -96,7 +98,9 @@ class SandboxUsage(TypedDict):
 
 class SandboxData(TypedDict, total=False):
     id: Required[str]
-    status: Required[Literal["destroyed", "started", "starting", "stopped", "stopping"]]
+    status: Required[
+        Literal["destroyed", "destroying", "started", "starting", "stopped", "stopping"]
+    ]
     boot: int
     cpu: Cpu | None
     creator: str
@@ -145,7 +149,9 @@ class Sandbox:
     Stop: ClassVar[type[Stop]]
     ConstructorArg = SandboxConstructorArg
     Source = dict
-    Status = Literal["destroyed", "started", "starting", "stopped", "stopping"]
+    Status = Literal[
+        "destroyed", "destroying", "started", "starting", "stopped", "stopping"
+    ]
     Usage = SandboxUsage
     __tangram_atomic__ = True
 
@@ -230,28 +236,36 @@ class Sandbox:
     async def reload(self, client: Client | None = None) -> None:
         await self.load(client)
 
-    async def destroy(self, client: Client | None = None) -> None:
+    async def destroy(
+        self, client: Client | None = None, *, wait: bool = False
+    ) -> None:
         client = client or self.client
         arg: SandboxDestroyArg = {}
         if self.location is not None:
             arg["location"] = self.location
+        if wait:
+            arg["wait"] = wait
         await client.destroy_sandbox(self.id, **arg)
         self.detach()
 
-    async def start(self, client: Client | None = None) -> None:
+    async def start(self, client: Client | None = None, *, wait: bool = False) -> None:
         """Start this sandbox if it is stopped."""
         client = client or self.client
         arg: SandboxStartArg = {}
         if self.location is not None:
             arg["location"] = self.location
+        if wait:
+            arg["wait"] = wait
         await client.start_sandbox(self.id, **arg)
 
-    async def stop(self, client: Client | None = None) -> None:
+    async def stop(self, client: Client | None = None, *, wait: bool = False) -> None:
         """Stop this sandbox, keeping its files so that it can start again."""
         client = client or self.client
         arg: SandboxStopArg = {}
         if self.location is not None:
             arg["location"] = self.location
+        if wait:
+            arg["wait"] = wait
         await client.stop_sandbox(self.id, **arg)
 
     def detach(self) -> None:
@@ -344,6 +358,9 @@ class Builder:
     def time_to_stop(self, value: Unresolved[int | float | Mutation | None]) -> Self:
         return self._push("time_to_stop", value)
 
+    def wait(self, value: Unresolved[bool | Mutation | None]) -> Self:
+        return self._push("wait", value)
+
     # An alias for `time_to_live`.
     def ttl(self, value: Unresolved[int | float | Mutation | None]) -> Self:
         return self.time_to_live(value)
@@ -435,6 +452,8 @@ def arg_to_data(arg):
         )
         if key in arg
     }
+    if arg.get("wait"):
+        output["wait"] = arg["wait"]
 
     # Copy the time to live, which `ttl` aliases.
     time_to_live = normalize_time_to_live(arg)

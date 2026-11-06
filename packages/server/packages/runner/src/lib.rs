@@ -5,6 +5,7 @@ use {
 		stream::{BoxStream, FuturesUnordered},
 	},
 	std::{
+		collections::BTreeMap,
 		ops::ControlFlow,
 		pin::pin,
 		sync::{Arc, Mutex, atomic::Ordering},
@@ -13,6 +14,7 @@ use {
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::{Stopper, Task},
 	tangram_http::body::Boxed as BoxBody,
+	tangram_index::prelude::*,
 	tangram_server_core::{Server, Session, Shutdown},
 };
 
@@ -332,11 +334,32 @@ impl Component {
 		session: &Session,
 		runner: &tg::runner::Id,
 	) -> tg::Result<Option<tg::runner::Data>> {
-		let runner = runner.clone();
+		// Read the runner from the read connection.
+		let options = db::ConnectionOptions::default();
+		let data = Self::try_get_runner_data_with_options(session, runner, options).await?;
+		if data.is_some() {
+			return Ok(data);
+		}
+
+		// Read the runner from the write connection, because a new runner may not have reached the read connection.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
+		let data = Self::try_get_runner_data_with_options(session, runner, options).await?;
+
+		Ok(data)
+	}
+
+	async fn try_get_runner_data_with_options(
+		session: &Session,
+		runner: &tg::runner::Id,
+		options: db::ConnectionOptions,
+	) -> tg::Result<Option<tg::runner::Data>> {
 		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let runner = runner.clone();
 				async move { Self::try_get_runner_data_with_transaction(transaction, &runner).await }
 					.boxed()
@@ -379,88 +402,23 @@ impl Component {
 		Ok(ControlFlow::Break(data))
 	}
 
-	pub async fn try_get_runner_scheduler(
-		&self,
-		session: &Session,
-		runner: &tg::runner::Id,
-	) -> tg::Result<Option<tg::scheduler::Id>> {
-		let runner = runner.clone();
-		session
-			.server
-			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
-				let runner = runner.clone();
-				async move {
-					Self::try_get_runner_scheduler_with_transaction(transaction, &runner).await
-				}
-				.boxed()
-			})
-			.await
-	}
-
-	async fn try_get_runner_scheduler_with_transaction(
-		transaction: &tangram_server_core::database::Transaction<'_>,
-		runner: &tg::runner::Id,
-	) -> tg::Result<ControlFlow<Option<tg::scheduler::Id>, tangram_server_core::database::Error>> {
-		#[derive(tangram_database::row::Deserialize)]
-		struct Row {
-			#[tangram_database(as = "Option<tangram_database::value::FromStr>")]
-			scheduler: Option<tg::scheduler::Id>,
-		}
-
-		let p = transaction.p();
-		let statement = format!("select scheduler from runners where id = {p}1;");
-		let result = transaction
-			.query_optional_into::<Row>(
-				statement.into(),
-				tangram_database::params![runner.to_string()],
-			)
-			.await;
-		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
-		let scheduler = row.and_then(|row| row.scheduler);
-
-		Ok(ControlFlow::Break(scheduler))
-	}
-
 	pub async fn set_runner_scheduler(
 		&self,
 		session: &Session,
 		runner: &tg::runner::Id,
 		scheduler: &tg::scheduler::Id,
+		registration_index: u64,
 	) -> tg::Result<()> {
-		let runner = runner.clone();
-		let scheduler = scheduler.clone();
-		session
-			.server
-			.database
-			.run(|transaction| {
-				let runner = runner.clone();
-				let scheduler = scheduler.clone();
-				async move {
-					Self::set_runner_scheduler_with_transaction(transaction, &runner, &scheduler)
-						.await
-				}
-				.boxed()
-			})
-			.await
-	}
-
-	async fn set_runner_scheduler_with_transaction(
-		transaction: &tangram_server_core::database::Transaction<'_>,
-		runner: &tg::runner::Id,
-		scheduler: &tg::scheduler::Id,
-	) -> tg::Result<ControlFlow<(), tangram_server_core::database::Error>> {
-		let p = transaction.p();
-		let statement = format!("update runners set scheduler = {p}1 where id = {p}2;");
-		let result = transaction
-			.execute(
-				statement.into(),
-				tangram_database::params![scheduler.to_string(), runner.to_string()],
-			)
-			.await;
-		tangram_server_core::database::retry!(result, "failed to execute the statement");
-
-		Ok(ControlFlow::Break(()))
+		let arg = tangram_index::runner::put::Arg {
+			id: runner.clone(),
+			registration: registration_index,
+			scheduler: scheduler.clone(),
+		};
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutRunner(arg)],
+		};
+		session.server.index.batch(arg).await??;
+		Ok(())
 	}
 
 	pub(crate) fn runner_owner_from_id(owner: tg::Id) -> tg::Result<tg::Principal> {
@@ -1110,15 +1068,23 @@ impl Component {
 		let heartbeat = Self::create_runner_heartbeat(session, 0, cleanup);
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
-		let sandboxes = self
+
+		// Report every sandbox that is running or booting, so that a restarted scheduler can tell which requests it already placed.
+		let mut sandboxes = self
 			.state
 			.sandboxes
 			.iter()
 			.filter(|sandbox| !sandbox.status.is_stopped_or_destroyed())
-			.map(|sandbox| tg::runner::control::ArgSandbox {
-				boot: sandbox.boot,
-				id: sandbox.id.clone(),
-			})
+			.map(|sandbox| (sandbox.id.clone(), sandbox.boot))
+			.collect::<BTreeMap<_, _>>();
+		for entry in &self.state.booting {
+			sandboxes
+				.entry(entry.key().clone())
+				.or_insert(*entry.value());
+		}
+		let sandboxes = sandboxes
+			.into_iter()
+			.map(|(id, boot)| tg::runner::control::ArgSandbox { boot, id })
 			.collect();
 		let scheduler_ttl = session.server.config.runner.scheduler_ttl;
 		let arg = tg::runner::control::Arg {
@@ -1220,17 +1186,16 @@ impl Component {
 				requested.storage = request.arg.storage.unwrap_or_default();
 			}
 
-			// Join a start of a boot that this runner is already starting or running, because concurrent starts of a sandbox are not deduplicated before they reach its runner.
+			// Join a boot that this runner is already starting or running, because a scheduler that restarted can send the same boot again and concurrent starts of a sandbox are not deduplicated before they reach its runner.
 			let state = session.server.components.runner.state();
-			let joined = request.boot > 0
-				&& (state
-					.booting
-					.get(&request.sandbox)
-					.is_some_and(|boot| *boot == request.boot)
-					|| state
-						.sandboxes
-						.get_by_id(&request.sandbox)
-						.is_some_and(|sandbox| sandbox.boot == request.boot));
+			let joined = state
+				.booting
+				.get(&request.sandbox)
+				.is_some_and(|boot| *boot == request.boot)
+				|| state
+					.sandboxes
+					.get_by_id(&request.sandbox)
+					.is_some_and(|sandbox| sandbox.boot == request.boot);
 			if joined {
 				let output =
 					tg::runner::control::CreateSandboxClientResponseOutput { created: true };
@@ -1298,9 +1263,7 @@ impl Component {
 			};
 
 			// Spawn the sandbox task.
-			if request.boot > 0 {
-				state.booting.insert(sandbox.clone(), request.boot);
-			}
+			state.booting.insert(sandbox.clone(), request.boot);
 			let _ = self.spawn_sandbox_task(
 				&session.server,
 				tangram_server_runner_core::sandbox::SpawnSandboxTaskArg {
@@ -1512,21 +1475,14 @@ impl tangram_server_core::runner::Component for Component {
 		self.try_get_runner_data(session, runner).boxed()
 	}
 
-	fn try_get_runner_scheduler<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		runner: &'a tg::runner::Id,
-	) -> BoxFuture<'a, tg::Result<Option<tg::scheduler::Id>>> {
-		self.try_get_runner_scheduler(session, runner).boxed()
-	}
-
 	fn set_runner_scheduler<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
 		runner: &'a tg::runner::Id,
 		scheduler: &'a tg::scheduler::Id,
+		registration_index: u64,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.set_runner_scheduler(session, runner, scheduler)
+		self.set_runner_scheduler(session, runner, scheduler, registration_index)
 			.boxed()
 	}
 
@@ -1571,12 +1527,19 @@ impl tangram_server_core::runner::Component for Component {
 		session: &'a tangram_server_core::Session,
 		runner: &'a tg::runner::Id,
 		scheduler: &'a tg::scheduler::Id,
-		connection_index: u64,
+		registration_index: u64,
 		arg: tg::runner::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::runner::control::ClientResponseOutput>>> {
-		self.send_runner_control_request(session, runner, scheduler, connection_index, arg, options)
-			.boxed()
+		self.send_runner_control_request(
+			session,
+			runner,
+			scheduler,
+			registration_index,
+			arg,
+			options,
+		)
+		.boxed()
 	}
 
 	fn spawn_sandbox_task<'a>(

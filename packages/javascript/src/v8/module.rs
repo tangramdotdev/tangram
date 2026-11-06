@@ -82,29 +82,36 @@ pub fn host_import_module_dynamically_callback<'s>(
 		let graphs = state.graphs.clone();
 		let instance = state.instance.clone();
 		let import = import.clone();
+		let main_runtime_handle = state.main_runtime_handle.clone();
 		async move {
-			// Resolve the module without the instance if possible.
-			if let Some(referrer) = &referrer
-				&& let Some(module) = graphs
-					.try_resolve_module(&instance, referrer, &import)
-					.await
-			{
-				return Ok(Serde(module));
-			}
+			// Resolve the module on the main runtime, so that a connection the instance creates does not depend on this thread.
+			let task = main_runtime_handle.spawn(async move {
+				// Resolve the module without the instance if possible.
+				if let Some(referrer) = &referrer
+					&& let Some(module) = graphs
+						.try_resolve_module(&instance, referrer, &import)
+						.await
+				{
+					return Ok(module);
+				}
 
-			let arg = tg::module::resolve::Arg {
-				referrer: referrer.clone(),
-				import: import.clone(),
-			};
-			let output = instance.resolve_module(arg).await.map_err(|error| {
-				tg::error!(
-					!error,
-					import = ?import.without_token(),
-					referrer = ?referrer.as_ref().map(tg::module::Data::without_token),
-					"failed to resolve the module"
-				)
-			})?;
-			let module = output.module;
+				let arg = tg::module::resolve::Arg {
+					referrer: referrer.clone(),
+					import: import.clone(),
+				};
+				let output = instance.resolve_module(arg).await.map_err(|error| {
+					tg::error!(
+						!error,
+						import = ?import.without_token(),
+						referrer = ?referrer.as_ref().map(tg::module::Data::without_token),
+						"failed to resolve the module"
+					)
+				})?;
+				Ok::<_, tg::Error>(output.module)
+			});
+			let module = task
+				.await
+				.map_err(|error| tg::error!(!error, "the module resolution task failed"))??;
 			Ok(Serde(module))
 		}
 	});
@@ -137,29 +144,38 @@ pub fn host_import_module_dynamically_callback<'s>(
 				let promise = state.create_promise(scope, {
 					let graphs = state.graphs.clone();
 					let instance = state.instance.clone();
+					let main_runtime_handle = state.main_runtime_handle.clone();
 					async move {
-						let output = if let Some(output) = graphs
-							.try_load_module(
-								&instance,
-								&module,
-								tg::module::load::Language::JavaScript,
-							)
+						// Load the module on the main runtime, so that a connection the instance creates does not depend on this thread.
+						let task = main_runtime_handle.spawn({
+							let module = module.clone();
+							async move {
+								if let Some(output) = graphs
+									.try_load_module(
+										&instance,
+										&module,
+										tg::module::load::Language::JavaScript,
+									)
+									.await
+								{
+									return Ok(output);
+								}
+								let arg = tg::module::load::Arg {
+									language: Some(tg::module::load::Language::JavaScript),
+									module: module.clone(),
+								};
+								instance.load_module(arg).await.map_err(|error| {
+									tg::error!(
+										!error,
+										module = ?module.without_token(),
+										"failed to load the module"
+									)
+								})
+							}
+						});
+						let output = task
 							.await
-						{
-							output
-						} else {
-							let arg = tg::module::load::Arg {
-								language: Some(tg::module::load::Language::JavaScript),
-								module: module.clone(),
-							};
-							instance.load_module(arg).await.map_err(|error| {
-								tg::error!(
-									!error,
-									module = ?module.without_token(),
-									"failed to load the module"
-								)
-							})?
-						};
+							.map_err(|error| tg::error!(!error, "the module load task failed"))??;
 						let mut module = module;
 						module.referent.options.tokens.inherit(&output.tokens);
 						Ok(Serde((module, output.text)))

@@ -20,13 +20,12 @@ timeout 30s tg --token $alice.token log --no-timeout --length 1 $parent.process 
 let child = tg --token $alice.token log $parent.process | str trim
 
 tg --token $alice.token grant $eve.user.id process_node $child
-tg --token $alice.token index
+tg --token $alice.token index --database
 
 let denied = "hello\n" | tg --token $eve.token process stdio write $child --stream stdin | complete
 failure $denied "process_node must not permit writing piped stdin."
 
 tg --token $alice.token grant $eve.user.id process_parent $child
-tg --token $alice.token index
 
 let wrote = "hello\n" | tg --token $eve.token process stdio write $child --stream stdin | complete
 success $wrote "process_parent should permit writing piped stdin."

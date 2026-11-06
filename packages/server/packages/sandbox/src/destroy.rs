@@ -9,7 +9,9 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tangram_server_core::{Server, Session},
+	tangram_server_core::{
+		Server, Session, location::await_local_future_over_regions_remotes_futures,
+	},
 };
 
 impl Component {
@@ -92,36 +94,53 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(output) = self
-					.try_destroy_sandbox_local(session, id, &arg)
-					.boxed()
-					.await
-					.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?
-			{
-				return Ok(Some(output));
-			}
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-			if let Some(output) = self
-				.try_destroy_sandbox_regions(session, id, &arg, &local.regions)
+		// Destroy the sandbox locally without a search.
+		if current
+			&& let Some(output) = self
+				.try_destroy_sandbox_local(session, id, &arg, false)
+				.boxed()
 				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to destroy the sandbox in another region"),
-				)? {
-				return Ok(Some(output));
-			}
-		}
-
-		if let Some(output) = self
-			.try_destroy_sandbox_remotes(session, id, &arg, &locations.remotes)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox in a remote"))?
+				.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?
 		{
 			return Ok(Some(output));
 		}
 
-		Ok(None)
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			if !current {
+				return Ok(None);
+			}
+			self.try_destroy_sandbox_local(session, id, &arg, true)
+				.boxed()
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(output) = self
+					.try_destroy_sandbox_regions(session, id, &arg, &local.regions)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to destroy the sandbox in another region"),
+					)? {
+				return Ok(Some(output));
+			}
+			self.try_destroy_sandbox_remotes(session, id, &arg, &locations.remotes)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to destroy the sandbox in a remote"),
+				)
+		};
+		let output = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+
+		Ok(output)
 	}
 
 	async fn try_destroy_sandbox_runner(
@@ -165,9 +184,64 @@ impl Component {
 		}
 		tangram_server_core::checkpoint!(session.server, "sandbox.destroy.runner", sandbox = %id)
 			.await;
-		self.destroy_sandbox_with_control(session, id, arg.error.clone(), Some(control_sender))
+		let output = self
+			.destroy_sandbox_with_control(session, id, arg.error.clone(), Some(control_sender))
 			.boxed()
+			.await?;
+		if arg.wait {
+			self.wait_for_sandbox_destroy(session, id).await?;
+		}
+
+		Ok(output)
+	}
+
+	/// Wait for a sandbox's teardown to finish.
+	async fn wait_for_sandbox_destroy(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<()> {
+		let wakeups = self
+			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
+			.await?;
+		self.wait_for_sandbox_destroy_local(session, id, wakeups)
+			.await?;
+
+		Ok(())
+	}
+
+	/// Ask the scheduler that owns a sandbox to destroy it, which returns `None` if the sandbox's runner owns it.
+	async fn try_destroy_sandbox_with_scheduler(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		scheduler: &tg::scheduler::Id,
+		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	) -> tg::Result<Option<bool>> {
+		let error = match error {
+			Some(tg::Either::Left(data)) => Some(data),
+			Some(tg::Either::Right(id)) => Some(
+				tg::Error::with_id(id)
+					.data_with_instance(session)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
+			),
+			None => None,
+		};
+		let arg = tangram_server_scheduler_core::EndSandboxRequestArg {
+			error,
+			sandbox: id.clone(),
+			stop: false,
+		};
+		let ended = session
+			.server
+			.components
+			.scheduler
+			.end_sandbox(session, scheduler, arg)
 			.await
+			.map_err(|error| tg::error!(!error, %id, %scheduler, "failed to end the sandbox"))?;
+
+		Ok(ended.then_some(true))
 	}
 
 	pub(crate) async fn try_destroy_sandbox_local(
@@ -175,13 +249,14 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		arg: &tg::sandbox::destroy::Arg,
+		exhaustive: bool,
 	) -> tg::Result<Option<bool>> {
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Parent,
 		);
 		let resource = tg::Referent::with_node_and_tokens(id.clone(), arg.tokens.clone());
-		let authorize_future = session.authorize(resource, permission);
-		let get_future = self.try_get_sandbox_from_index(session, id);
+		let authorize_future = session.authorize_with_exhaustive(resource, permission, exhaustive);
+		let get_future = self.try_get_sandbox_from_index_with_exhaustive(session, id, exhaustive);
 		let (authorized, sandbox) = future::try_join(authorize_future, get_future).await?;
 		let authorized = authorized.check_exhaustion()?;
 		let Some(sandbox) = sandbox else {
@@ -194,6 +269,23 @@ impl Component {
 			|| !authorized.permissions.contains(permission)
 		{
 			return Ok(None);
+		}
+
+		// Send the destroy to the sandbox's scheduler if its runner has not connected.
+		let status = sandbox.data.as_ref().map(|data| data.data.status);
+		let output = match (&sandbox.scheduler, status) {
+			(Some(_), Some(tg::sandbox::Status::Destroying)) => Some(false),
+			(Some(scheduler), Some(tg::sandbox::Status::Starting)) => {
+				self.try_destroy_sandbox_with_scheduler(session, id, scheduler, arg.error.clone())
+					.await?
+			},
+			_ => None,
+		};
+		if let Some(output) = output {
+			if arg.wait {
+				self.wait_for_sandbox_destroy(session, id).await?;
+			}
+			return Ok(Some(output));
 		}
 
 		// Destroy a stopped sandbox without its runner, because it has no control connection. Confirm the stop after pending indexing, because a start may not be indexed yet.
@@ -224,12 +316,21 @@ impl Component {
 		if stopped && !running {
 			self.destroy_stopped_sandbox(session, id, arg.error.clone(), sandbox.runner.as_ref())
 				.await?;
+			if arg.wait {
+				self.wait_for_sandbox_destroy(session, id).await?;
+			}
 			return Ok(Some(true));
 		}
 
-		self.destroy_sandbox_with_control(session, id, arg.error.clone(), None)
+		let output = self
+			.destroy_sandbox_with_control(session, id, arg.error.clone(), None)
 			.boxed()
-			.await
+			.await?;
+		if arg.wait && output.is_some() {
+			self.wait_for_sandbox_destroy(session, id).await?;
+		}
+
+		Ok(output)
 	}
 
 	async fn destroy_stopped_sandbox(
@@ -517,47 +618,6 @@ impl Component {
 			return Ok(None);
 		};
 		Ok(Some(destroyed))
-	}
-
-	pub async fn destroy_sandbox_when_available(
-		&self,
-		session: &Session,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::destroy::Arg,
-		connection_future: super::ConnectionFuture,
-	) -> tg::Result<()> {
-		match self.try_destroy_sandbox(session, id, arg.clone()).await {
-			Ok(Some(_)) => return Ok(()),
-			Ok(None) => {},
-			Err(error) => {
-				tracing::error!(
-					error = %error.trace(),
-					%id,
-					"failed to destroy the sandbox before its control connection"
-				);
-			},
-		}
-		let timeout = session.server.config.scheduler.create_sandbox_timeout;
-		tokio::time::timeout(timeout, connection_future)
-			.await
-			.map_err(|_| {
-				tg::error!(
-					%id,
-					"timed out waiting for the sandbox control connection before destroying it"
-				)
-			})??;
-		let output = self
-			.try_destroy_sandbox(session, id, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?;
-		if output.is_none() {
-			return Err(tg::error!(
-				%id,
-				"failed to find the sandbox after its control connection"
-			));
-		}
-
-		Ok(())
 	}
 
 	pub(crate) async fn try_destroy_sandbox_request(

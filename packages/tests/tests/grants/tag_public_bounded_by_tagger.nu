@@ -23,7 +23,7 @@ failure $bob_child "Bob should not read the child the node grant does not confer
 
 # Bob publishes the directory with a public tag; the recorded permission is bounded by his node-only access.
 tg --token $bob.token tag put bobtag $dir --public
-tg --token $bob.token index
+tg --token $bob.token index --database
 
 # Eve, a third party, resolves the public tag and reads the published directory node.
 let eve_tag = tg --token $eve.token tag get bobtag | complete

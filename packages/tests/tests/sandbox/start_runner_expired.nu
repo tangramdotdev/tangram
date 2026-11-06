@@ -17,12 +17,12 @@ let runner = server spawn --name runner --config {
 
 # Stop one sandbox, then fill the runner with another, so that a start of the first waits in the queue.
 let stopped = tg --url $remote.url --token $root_token sandbox create --no-tokens --cpu 1 | referent node
-tg --url $remote.url --token $root_token sandbox stop $stopped
+tg --url $remote.url --token $root_token sandbox stop --wait $stopped
 let running = tg --url $remote.url --token $root_token sandbox create --no-tokens --cpu 1 | referent node
 let enqueued = checkpoint watch scheduler.sandbox.enqueued --params { sandbox: $stopped } --token $root_token --url $remote.url
 let start = job spawn {
 	let job_id = job id
-	tg --url $remote.url --token $root_token sandbox start $stopped | complete | job send --tag $job_id 0
+	tg --url $remote.url --token $root_token sandbox start --wait $stopped | complete | job send --tag $job_id 0
 }
 checkpoint pass $enqueued
 checkpoint unwatch $enqueued

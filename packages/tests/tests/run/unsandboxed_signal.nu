@@ -10,7 +10,7 @@ let path = artifact {
 
 		export default async function () {
 			const process = await tg.spawn`
-				sleep 1000
+				exec sleep 1000
 			`
 				.env(tg.build(busybox))
 				.stderr("null")

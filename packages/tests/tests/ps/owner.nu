@@ -18,7 +18,7 @@ let path = artifact {
 let output = tg --token $alice.token build --detach --verbose --organization acme $path | from json
 let process = $output.process | split row '?' | first
 tg --token $alice.token process wait $process | ignore
-tg index
+tg index --database
 
 let data = tg --token $alice.token process get $process | from json
 assert equal $data.creator $alice.user.id "the process creator should be the user who spawned it"

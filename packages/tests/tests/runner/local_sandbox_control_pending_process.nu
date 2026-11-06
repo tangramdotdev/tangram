@@ -12,9 +12,7 @@ let spawn = job spawn {
 }
 tg checkpoint wait --timeout 30s runner.process.control.connect $watch 0 | ignore
 success (timeout 10s tg sandbox destroy $sandbox | complete) "destruction must not wait for a pending process connection"
-let output = timeout 10s tg sandbox destroy $sandbox | complete
-failure $output
-assert ($output.exit_code != 124) "the repeated destroy request must also remain responsive"
+success (timeout 10s tg sandbox destroy $sandbox | complete) "the repeated destroy request must also remain responsive"
 tg checkpoint unwatch runner.process.control.connect $watch
 failure (job recv --tag $spawn --timeout 30sec)
 assert equal (timeout 30s tg sandbox wait $sandbox | from json) {}

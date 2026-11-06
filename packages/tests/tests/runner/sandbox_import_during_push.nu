@@ -27,7 +27,7 @@ let path = artifact {
 	tangram.ts: ('
 		import data from "./data.txt" with { type: "file" };
 		import "./other.txt" with { type: "file" };
-		export default () => tg.build`value=; read value < ${data}; test "$value" = hello && ! test -e /opt/tangram/store/OTHER`;
+		export default () => tg.build`path=${data}; value=; read value < "$path"; test "$value" = hello && ! test -e "\${path%/*}/OTHER"`;
 	' | str replace 'OTHER' $other),
 	data.txt: 'hello',
 	other.txt: 'other',

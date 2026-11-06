@@ -21,14 +21,14 @@ let directory = tg --url $local.url put --no-tokens 'tg.directory({"file":tg.fil
 let params = { resource: $directory } | to json --raw
 let advanced = tg --url $remote.url --token $root_token checkpoint watch permission_capture.advanced --params $params | from json | get watch
 tg --url $remote.url --token $alice.token tag put later $directory
-tg --url $remote.url --token $root_token index
+tg --url $remote.url --token $root_token index --database
 tg --url $remote.url --token $root_token checkpoint wait --timeout 30s permission_capture.advanced $advanced 0 | from json | ignore
 tg --url $remote.url --token $root_token checkpoint continue permission_capture.advanced $advanced 0
 tg --url $remote.url --token $root_token checkpoint unwatch permission_capture.advanced $advanced
 let before = tg --url $remote.url --token $alice.token tag get later | from json
 assert equal $before.target.id $directory
 tg --url $remote.url --token $alice.token grant $bob.user.id tag_read $before.id | ignore
-tg --url $remote.url --token $root_token index
+tg --url $remote.url --token $root_token index --database
 failure (tg --url $remote.url --token $bob.token get --bytes $directory | complete) "the directory must not be readable before it is pushed."
 
 # Push the directory, then put the tag again with the same target.
@@ -36,7 +36,7 @@ tg --url $local.url push $directory | ignore
 tg --url $remote.url --token $root_token index
 let written = tg --url $remote.url --token $root_token checkpoint watch permission_capture.written --params $params | from json | get watch
 tg --url $remote.url --token $alice.token tag put later $directory
-tg --url $remote.url --token $root_token index
+tg --url $remote.url --token $root_token index --database
 tg --url $remote.url --token $root_token checkpoint wait --timeout 30s permission_capture.written $written 0 | ignore
 tg --url $remote.url --token $root_token checkpoint unwatch permission_capture.written $written
 let after = tg --url $remote.url --token $alice.token tag get later | from json

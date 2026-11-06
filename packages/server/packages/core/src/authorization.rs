@@ -204,6 +204,19 @@ impl Session {
 		Ok(outputs.pop().unwrap())
 	}
 
+	pub async fn authorize_with_exhaustive(
+		&self,
+		resource: impl IntoAuthorizationResource,
+		permissions: impl Into<tg::authorization::permission::Set>,
+		exhaustive: bool,
+	) -> tg::Result<Output> {
+		let args = [(resource, permissions.into(), None)];
+		let mut outputs = self
+			.authorize_batch_inner(args, None, None, exhaustive)
+			.await?;
+		Ok(outputs.pop().unwrap())
+	}
+
 	pub async fn authorize_batch<R, I>(
 		&self,
 		args: I,
@@ -216,7 +229,9 @@ impl Session {
 		let args = args
 			.into_iter()
 			.map(|(resource, permissions)| (resource, permissions, None));
-		let outputs = self.authorize_batch_inner(args, None, current_sync).await?;
+		let outputs = self
+			.authorize_batch_inner(args, None, current_sync, true)
+			.await?;
 		let outputs = outputs
 			.into_iter()
 			.map(|output| Output {
@@ -259,6 +274,23 @@ impl Session {
 		Ok(outputs)
 	}
 
+	pub async fn authorize_batch_with_required_with_exhaustive<R, I>(
+		&self,
+		args: I,
+		required: tg::authorization::permission::Set,
+		exhaustive: bool,
+	) -> tg::Result<Vec<Output>>
+	where
+		R: IntoAuthorizationResource,
+		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
+	{
+		let args = args
+			.into_iter()
+			.map(|(resource, permissions)| (resource, permissions, None));
+		self.authorize_batch_inner(args, Some(required), None, exhaustive)
+			.await
+	}
+
 	pub async fn authorize_batch_with_required_without_search<R, I>(
 		&self,
 		args: I,
@@ -278,7 +310,7 @@ impl Session {
 			)
 		});
 		let outputs = self
-			.verify_batch_inner_with_subject(args, Some(required), None, current_sync, false)
+			.verify_batch_inner_with_subject(args, Some(required), None, current_sync, false, false)
 			.await?;
 		let outputs = outputs
 			.into_iter()
@@ -295,15 +327,27 @@ impl Session {
 		&self,
 		resource: impl IntoAuthorizationResource,
 	) -> tg::Result<Output> {
-		let mut outputs = self.authorize_object_read_batch([resource]).await?;
+		self.authorize_object_read_with_exhaustive(resource, true)
+			.await
+	}
+
+	pub async fn authorize_object_read_with_exhaustive(
+		&self,
+		resource: impl IntoAuthorizationResource,
+		exhaustive: bool,
+	) -> tg::Result<Output> {
+		let mut outputs = self
+			.authorize_object_read_batch([resource], exhaustive)
+			.await?;
 		let output = outputs.pop().unwrap();
 
 		Ok(output)
 	}
 
-	pub(crate) async fn authorize_object_read_batch<R, I>(
+	async fn authorize_object_read_batch<R, I>(
 		&self,
 		resources: I,
+		exhaustive: bool,
 	) -> tg::Result<Vec<Output>>
 	where
 		R: IntoAuthorizationResource,
@@ -321,7 +365,7 @@ impl Session {
 			.into_iter()
 			.map(|resource| (resource, requested, None));
 
-		self.authorize_batch_inner(args, Some(required.into()), None)
+		self.authorize_batch_inner(args, Some(required.into()), None, exhaustive)
 			.await
 	}
 
@@ -333,9 +377,29 @@ impl Session {
 		proven: tg::authorization::permission::Set,
 		current_sync: Option<&tg::sync::Id>,
 	) -> tg::Result<Output> {
+		self.authorize_with_permissions_with_exhaustive(
+			resource,
+			requested,
+			required,
+			proven,
+			current_sync,
+			true,
+		)
+		.await
+	}
+
+	pub async fn authorize_with_permissions_with_exhaustive(
+		&self,
+		resource: impl IntoAuthorizationResource,
+		requested: tg::authorization::permission::Set,
+		required: tg::authorization::permission::Set,
+		proven: tg::authorization::permission::Set,
+		current_sync: Option<&tg::sync::Id>,
+		exhaustive: bool,
+	) -> tg::Result<Output> {
 		let args = [(resource, requested, Some(proven))];
 		let mut outputs = self
-			.authorize_batch_inner(args, Some(required), current_sync)
+			.authorize_batch_inner(args, Some(required), current_sync, exhaustive)
 			.await?;
 		Ok(outputs.pop().unwrap())
 	}
@@ -345,6 +409,7 @@ impl Session {
 		args: I,
 		required: Option<tg::authorization::permission::Set>,
 		current_sync: Option<&tg::sync::Id>,
+		exhaustive: bool,
 	) -> tg::Result<Vec<Output>>
 	where
 		R: IntoAuthorizationResource,
@@ -365,7 +430,14 @@ impl Session {
 			)
 		});
 		let outputs = self
-			.verify_batch_inner(args, required, current_sync)
+			.verify_batch_inner_with_subject(
+				args,
+				required,
+				None,
+				current_sync,
+				exhaustive,
+				!exhaustive,
+			)
 			.await?;
 		let outputs = outputs
 			.into_iter()

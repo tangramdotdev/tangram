@@ -14,7 +14,7 @@ use {
 		response::{Ext as _, builder::Ext as _},
 	},
 	tangram_messenger::prelude::*,
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 	tokio_util::task::AbortOnDropHandle,
 };
@@ -22,6 +22,9 @@ use {
 mod relay;
 
 type Acks = tokio::sync::watch::Receiver<u64>;
+
+/// A future that waits for a starting process to leave the starting status, and resolves to whether it started.
+pub(crate) type Start = future::Shared<future::BoxFuture<'static, tg::Result<bool>>>;
 
 enum Source {
 	Log(BTreeSet<tg::process::stdio::Stream>),
@@ -37,6 +40,7 @@ struct ReadProcessStdioRelayAttemptArg<'a> {
 	open: Option<String>,
 	position: &'a mut u64,
 	sender: &'a tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>,
+	start: Option<Start>,
 	stdio_arg: tg::process::stdio::read::Arg,
 }
 
@@ -116,6 +120,7 @@ impl Component {
 
 		let Some(source) = self
 			.try_read_process_stdio_source(session, id.as_ref(), process, arg.clone(), &acks, open)
+			.boxed()
 			.await?
 		else {
 			return Ok(ControlFlow::Break(None));
@@ -156,6 +161,7 @@ impl Component {
 						id,
 						&source,
 						arg.tokens.local_authorization(),
+						true,
 					)
 					.await?
 			{
@@ -179,34 +185,57 @@ impl Component {
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(id) = id
-				&& let Some(stream) = self
-					.try_read_process_stdio_local(session, id, arg.clone(), acks, open)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to read local process stdio"))?
-			{
-				return Ok(Some(stream));
-			}
-			if let Some(stream) = self
-				.try_read_process_stdio_regions(session, process, arg.clone(), &local.regions, acks)
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
+
+		// Read the local stdio without a search.
+		if current
+			&& let Some(id) = id
+			&& let Some(stream) = self
+				.try_read_process_stdio_local(session, id, arg.clone(), acks, open.clone(), false)
 				.await
-				.map_err(|error| {
-					tg::error!(!error, "failed to read process stdio from another region")
-				})? {
-				return Ok(Some(stream));
-			}
-		}
-		if let Some(stream) = self
-			.try_read_process_stdio_remotes(session, process, arg, &locations.remotes, acks)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to read process stdio from a remote"))?
+				.map_err(|error| tg::error!(!error, "failed to read local process stdio"))?
 		{
 			return Ok(Some(stream));
 		}
 
-		Ok(None)
+		// Search locally before trying the regions and remotes, because two readers of a pipe would split its bytes.
+		let local = async {
+			let (true, Some(id)) = (current, id) else {
+				return Ok(None);
+			};
+			self.try_read_process_stdio_local(session, id, arg.clone(), acks, open, true)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to read local process stdio"))
+		}
+		.await;
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(stream) = self
+					.try_read_process_stdio_regions(
+						session,
+						process,
+						arg.clone(),
+						&local.regions,
+						acks,
+					)
+					.await
+					.map_err(|error| {
+						tg::error!(!error, "failed to read process stdio from another region")
+					})? {
+				return Ok(Some(stream));
+			}
+			self.try_read_process_stdio_remotes(session, process, arg, &locations.remotes, acks)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to read process stdio from a remote"))
+		};
+		let stream = await_local_future_over_regions_remotes_futures(
+			future::ready(local),
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+
+		Ok(stream)
 	}
 
 	fn read_process_stdio_protocol(
@@ -228,6 +257,7 @@ impl Component {
 		arg: tg::process::stdio::read::Arg,
 		acks: &Acks,
 		open: Option<String>,
+		exhaustive: bool,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
 		let output = self
@@ -238,6 +268,8 @@ impl Component {
 				false,
 				arg.tokens.local_authorization(),
 				tg::process::Source::Auto,
+				None,
+				exhaustive,
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
@@ -254,9 +286,18 @@ impl Component {
 			return Ok(None);
 		}
 		if !self
-			.authorize_process_stdio_read(session, id, &source, arg.tokens.local_authorization())
+			.authorize_process_stdio_read(
+				session,
+				id,
+				&source,
+				arg.tokens.local_authorization(),
+				exhaustive,
+			)
 			.await?
 		{
+			if !exhaustive {
+				return Ok(None);
+			}
 			return Err(tg::error!("unauthorized"));
 		}
 		let mut arg = arg;
@@ -280,7 +321,14 @@ impl Component {
 			))
 			.boxed(),
 			Source::Pipe(streams) => {
-				self.try_read_process_stdio_pipe_local(session, id, &arg, streams, acks, open)
+				let start = output
+					.data
+					.status
+					.is_starting()
+					.then(|| self.create_wait_process_start_future(session, id));
+				self.try_read_process_stdio_pipe_local(
+					session, id, &arg, streams, acks, open, start,
+				)
 			},
 		};
 
@@ -293,6 +341,7 @@ impl Component {
 		id: &tg::process::Id,
 		source: &Source,
 		tokens: &[tg::authorization::Token],
+		exhaustive: bool,
 	) -> tg::Result<bool> {
 		let Source::Pipe(streams) = source else {
 			return Ok(true);
@@ -313,7 +362,7 @@ impl Component {
 				let resource =
 					tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 				let authorized = session
-					.authorize(resource, permission)
+					.authorize_with_exhaustive(resource, permission, exhaustive)
 					.await?
 					.check_exhaustion()?;
 				Ok(authorized.permissions.contains(permission))
@@ -542,6 +591,7 @@ impl Component {
 		Ok(())
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	fn try_read_process_stdio_pipe_local(
 		&self,
 		session: &Session,
@@ -550,6 +600,7 @@ impl Component {
 		streams: BTreeSet<tg::process::stdio::Stream>,
 		acks: &Acks,
 		open: Option<String>,
+		start: Option<Start>,
 	) -> BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>> {
 		let arg = tg::process::stdio::read::Arg {
 			streams: streams.into_iter().collect(),
@@ -563,7 +614,7 @@ impl Component {
 			let acks = acks.clone();
 			move |_| async move {
 				let result = component
-					.read_process_stdio_relay(&session, &id, arg, &sender, acks, open)
+					.read_process_stdio_relay(&session, &id, arg, &sender, acks, open, start)
 					.boxed()
 					.await;
 				if let Err(error) = result {
@@ -574,6 +625,7 @@ impl Component {
 		ReceiverStream::new(receiver).attach(task).boxed()
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	async fn read_process_stdio_relay(
 		&self,
 		session: &Session,
@@ -582,6 +634,7 @@ impl Component {
 		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>,
 		acks: Acks,
 		mut open: Option<String>,
+		process_start: Option<Start>,
 	) -> tg::Result<()> {
 		for stream in &arg.streams {
 			tangram_server_core::checkpoint!(session.server, "process.stdio.read.request", process = %id, stream = %stream).await;
@@ -624,6 +677,7 @@ impl Component {
 				open: open.take(),
 				position: &mut position,
 				sender,
+				start: process_start.clone(),
 				stdio_arg: arg,
 			};
 			let result = self
@@ -662,6 +716,7 @@ impl Component {
 			open,
 			position,
 			sender,
+			mut start,
 			stdio_arg,
 		} = arg;
 		// Open the relay before the read, so the runner's first bytes are not missed. A claimed open names the relay that the runner opened when the process started.
@@ -671,13 +726,17 @@ impl Component {
 		let send_subject = super::relay::ack_subject(id, &request_id);
 		let receive_subject = super::relay::data_subject(id, &request_id);
 		let options = session.server.config.process.stdio_relay;
-		let result = tangram_messenger::relay::open::<super::relay::Ack, super::relay::Data, _>(
-			&session.server.messenger,
-			send_subject,
-			receive_subject,
-			options,
-		)
-		.await;
+		let streams = stdio_arg.streams.clone();
+		let hold = start.clone().map(|start| start.map(|_| ()).boxed());
+		let result =
+			tangram_messenger::relay::open_with_hold::<super::relay::Ack, super::relay::Data, _>(
+				&session.server.messenger,
+				send_subject,
+				receive_subject,
+				options,
+				hold,
+			)
+			.await;
 		let (relay_sender, receiver) = super::relay::attempt!(result);
 		let mut items = receiver;
 
@@ -696,7 +755,9 @@ impl Component {
 				arg: tg::process::control::ServerRequestArg::Open(open),
 				id: request_id.clone(),
 			};
-			self.send_process_control_open(session, id, request).await?
+			let hold = start.clone().map(|start| start.map(|_| ()).boxed());
+			self.send_process_control_open(session, id, request, hold)
+				.await?
 		};
 
 		// Forward the relayed chunks until the relay ends.
@@ -715,6 +776,22 @@ impl Component {
 					result?;
 					opened = true;
 					continue;
+				},
+				result = async { start.as_mut().unwrap().await }, if start.is_some() => {
+					start = None;
+					if result? {
+						continue;
+					}
+
+					// End the read of a process that finished without starting, because no runner will write to it.
+					let end = tg::process::stdio::End {
+						combined_position: *position,
+						stream_positions: streams.iter().map(|stream| (*stream, *position)).collect(),
+					};
+					let output = tg::process::stdio::read::Output::End(end);
+					let message = tg::process::stdio::read::ServerMessage::Response(output);
+					sender.send(Ok(message)).await.ok();
+					return Ok(ControlFlow::Break(()));
 				},
 				() = sender.closed() => return Ok(ControlFlow::Break(())),
 			};
@@ -822,6 +899,7 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		request: tg::process::control::ServerRequest,
+		hold: Option<futures::future::BoxFuture<'static, ()>>,
 	) -> tg::Result<futures::future::BoxFuture<'static, tg::Result<()>>> {
 		let request_id = request.id.clone();
 		let request =
@@ -843,6 +921,7 @@ impl Component {
 				))
 			},
 			client_subject: format!("processes.{id}.control.client.{request_id}"),
+			hold,
 			is_ack: |message: &crate::control::ClientMessage| {
 				matches!(message.0, tg::process::control::ClientMessage::Ack(_))
 			},

@@ -28,17 +28,40 @@ pub trait Component: crate::component::Lifecycle {
 		scheduler: &'a tg::scheduler::Id,
 	) -> BoxFuture<'a, tg::Result<bool>>;
 
+	fn acquire_process_lease<'a>(
+		&'a self,
+		session: &'a Session,
+		scheduler: &'a tg::scheduler::Id,
+		sandbox: &'a tg::sandbox::Id,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::Lease>>>;
+
+	fn release_process_lease<'a>(
+		&'a self,
+		session: &'a Session,
+		scheduler: &'a tg::scheduler::Id,
+		sandbox: &'a tg::sandbox::Id,
+		lease: tg::process::Lease,
+	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
+
+	fn cancel_sandbox_stop<'a>(
+		&'a self,
+		session: &'a Session,
+		scheduler: &'a tg::scheduler::Id,
+		sandbox: &'a tg::sandbox::Id,
+	) -> BoxFuture<'a, tg::Result<bool>>;
+
+	fn end_sandbox<'a>(
+		&'a self,
+		session: &'a Session,
+		scheduler: &'a tg::scheduler::Id,
+		arg: tangram_server_scheduler_core::EndSandboxRequestArg,
+	) -> BoxFuture<'a, tg::Result<bool>>;
+
 	fn enqueue_sandbox<'a>(
 		&'a self,
 		session: &'a Session,
 		request: tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 	) -> BoxFuture<'a, tg::Result<tg::scheduler::Id>>;
-
-	fn scheduler_heartbeat_expired<'a>(
-		&'a self,
-		session: &'a Session,
-		scheduler: &'a tg::scheduler::Id,
-	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn send_scheduler_request<'a>(
 		&'a self,

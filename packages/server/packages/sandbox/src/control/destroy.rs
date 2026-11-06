@@ -20,6 +20,7 @@ impl Component {
 		Self::spawn_publish_sandbox_status_task(&session.server, id);
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.destroy", sandbox = %id)
 			.await;
+		Self::warn_missing_sandbox_usage(session, &arg.data.data);
 
 		let account = session
 			.server
@@ -40,7 +41,9 @@ impl Component {
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(id.clone()),
 			processes: Some(arg.processes),
+			registration: None,
 			runner,
+			scheduled: None,
 			stopped_usage: None,
 			touched_at: now,
 		};

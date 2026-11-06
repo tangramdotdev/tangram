@@ -15,7 +15,7 @@ use {
 mod spawn;
 
 #[cfg(target_os = "linux")]
-pub(crate) use self::spawn::{spawn, spawn_command};
+pub(crate) use self::spawn::{inherit_fd, resolv_conf, spawn, spawn_command};
 pub use crate::command::Command;
 
 #[cfg(target_os = "linux")]
@@ -723,13 +723,7 @@ fn setup_network(arg: &Options) -> tg::Result<()> {
 			if let Some(Network::Veth { gateway, guest, .. }) = &arg.network {
 				let suffix = format!("{:09}", arg.index % 1_000_000_000);
 				let name = format!("tg-vc-{suffix}");
-				let mut nl = crate::network::netlink::Netlink::new()?;
-				nl.link_rename(&name, "eth0")?;
-				crate::network::host::disable_ipv6("eth0")?;
-				nl.addr_add_v4("eth0", *guest, 16)?;
-				nl.link_set_up("eth0")?;
-				nl.link_set_up("lo")?;
-				nl.route_add_default_v4(*gateway)?;
+				configure_guest_interface(&name, *guest, *gateway)?;
 			}
 		},
 		None => {
@@ -744,6 +738,22 @@ fn setup_network(arg: &Options) -> tg::Result<()> {
 		},
 	}
 
+	Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn configure_guest_interface(
+	name: &str,
+	guest: std::net::Ipv4Addr,
+	gateway: std::net::Ipv4Addr,
+) -> tg::Result<()> {
+	let mut netlink = crate::network::netlink::Netlink::new()?;
+	netlink.link_rename(name, "eth0")?;
+	crate::network::host::disable_ipv6("eth0")?;
+	netlink.addr_add_v4("eth0", guest, 16)?;
+	netlink.link_set_up("eth0")?;
+	netlink.link_set_up("lo")?;
+	netlink.route_add_default_v4(gateway)?;
 	Ok(())
 }
 

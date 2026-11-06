@@ -194,6 +194,12 @@ impl Component {
 		drop(sandbox);
 
 		loop {
+			let connection = session
+				.server
+				.components
+				.runner
+				.state()
+				.scheduler_connection();
 			let scheduler = session
 				.server
 				.components
@@ -254,7 +260,7 @@ impl Component {
 				.components
 				.runner
 				.state()
-				.wait_for_scheduler_change(&scheduler);
+				.wait_for_scheduler_connection_change(connection);
 			let scheduler_change_future = pin!(scheduler_change_future);
 			future::select(wait_future, scheduler_change_future).await;
 		}
@@ -401,7 +407,7 @@ impl Component {
 				.await
 				.map(Some);
 		}
-		self.try_get_cached_process_local(session, arg, command)
+		self.try_get_cached_process_local(session, arg, command, None)
 			.boxed()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a cached process"))
@@ -583,7 +589,7 @@ impl Component {
 			owner: owner.clone(),
 			retry: spawn_arg.retry,
 			sandbox: Some(sandbox.clone()),
-			started_at: Some(now),
+			started_at: None,
 			status: tg::process::Status::Started,
 			stderr: spawn_arg.stderr.clone(),
 			stdin: spawn_arg.stdin.clone(),

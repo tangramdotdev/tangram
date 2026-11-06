@@ -16,20 +16,16 @@ let path = artifact {
 
 let output = tg build $path $'($http.url)/does-not-exist' | complete
 failure $output
-snapshot --normalize --redact [$path $http.url] $output.stderr '
+
+# Remove the source context, because the position of the frame depends on the JavaScript engine.
+let stderr = $output.stderr | lines | where $it !~ '[╭│·╰]' | str join "\n"
+snapshot --normalize --redact [$path $http.url] $"($stderr)\n" '
 	error an error occurred
 	-> the process failed
 	   id = pcs_0000000000000000000000000000
 	-> the child process failed
 	   id = pcs_0011111111111111111111111111
 	   name = download
-	   ╭─[<redacted>/tangram.ts:2:9]
-	 1 │ export default async function (url: string) {
-	 2 │     return await tg.download(url);
-	   ·            ▲
-	   ·            ╰── the child process failed
-	 3 │ }
-	   ╰────
 	-> expected a success status
 	   url = <redacted>/does-not-exist
 	-> HTTP status client error (404 Not Found) for url (<redacted>/does-not-exist)

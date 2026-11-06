@@ -147,6 +147,7 @@ int32_t tg_provider_open_sync(TgVfsProvider provider, uint64_t id, TgResponse *o
 int32_t tg_provider_opendir_sync(TgVfsProvider provider, uint64_t id, TgResponse *out_response);
 int32_t tg_provider_read_sync(TgVfsProvider provider, uint64_t handle, uint64_t position, uint64_t length, TgResponse *out_response);
 int32_t tg_provider_readdir_sync(TgVfsProvider provider, uint64_t handle, uint64_t offset, uint64_t length, TgResponse *out_response);
+// Each returned entry owns one lookup reference; forget every entry after use, including entries that were not consumed.
 int32_t tg_provider_readdirplus_sync(TgVfsProvider provider, uint64_t handle, uint64_t offset, uint64_t length, TgResponse *out_response);
 int32_t tg_provider_readlink_sync(TgVfsProvider provider, uint64_t id, TgResponse *out_response);
 
@@ -156,11 +157,13 @@ int32_t tg_provider_getattr_async(TgVfsProvider provider, uint64_t id, TgBatchCa
 int32_t tg_provider_getxattr_async(TgVfsProvider provider, uint64_t id, const uint8_t *name, size_t name_len, TgBatchCallback callback, void *user_data);
 int32_t tg_provider_listxattrs_async(TgVfsProvider provider, uint64_t id, TgBatchCallback callback, void *user_data);
 int32_t tg_provider_lookup_async(TgVfsProvider provider, uint64_t id, const uint8_t *name, size_t name_len, TgBatchCallback callback, void *user_data);
+int32_t tg_provider_lookup_and_remember_async(TgVfsProvider provider, uint64_t id, const uint8_t *name, size_t name_len, TgBatchCallback callback, void *user_data);
 int32_t tg_provider_lookup_parent_async(TgVfsProvider provider, uint64_t id, TgBatchCallback callback, void *user_data);
 int32_t tg_provider_open_async(TgVfsProvider provider, uint64_t id, TgBatchCallback callback, void *user_data);
 int32_t tg_provider_opendir_async(TgVfsProvider provider, uint64_t id, TgBatchCallback callback, void *user_data);
 int32_t tg_provider_read_async(TgVfsProvider provider, uint64_t handle, uint64_t position, uint64_t length, TgBatchCallback callback, void *user_data);
 int32_t tg_provider_readdir_async(TgVfsProvider provider, uint64_t handle, uint64_t offset, uint64_t length, TgBatchCallback callback, void *user_data);
+// Each returned entry owns one lookup reference; forget every entry after use, including entries that were not consumed.
 int32_t tg_provider_readdirplus_async(TgVfsProvider provider, uint64_t handle, uint64_t offset, uint64_t length, TgBatchCallback callback, void *user_data);
 int32_t tg_provider_readlink_async(TgVfsProvider provider, uint64_t id, TgBatchCallback callback, void *user_data);
 

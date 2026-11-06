@@ -1067,6 +1067,7 @@ impl Database {
 				}
 			}
 		}
+		let message = crate::load::non_value_message(message);
 		let diagnostic = tg::diagnostic::Data {
 			location,
 			message,

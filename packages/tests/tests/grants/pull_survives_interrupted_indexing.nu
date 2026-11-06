@@ -21,7 +21,7 @@ kill --signal 9 $pid
 wait_for_exit $pid
 
 let indexer = server start $local_producer
-tg --url $indexer.url --token $root_token index
+tg --url $indexer.url --token $root_token index --database
 let local = server spawn --name local --config {
 	remotes: { default: { url: $indexer.url } },
 }

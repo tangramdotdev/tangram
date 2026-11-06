@@ -2,6 +2,8 @@ use ../../util/test.nu *
 
 # A sandbox whose process exits after it is created is destroyed with the error that describes the exit.
 
+if $nu.os-info.name != 'linux' { skip_test 'this test requires linux bind mounts' }
+
 let local = server spawn
 
 let sandbox = tg sandbox create --no-tokens --mount /nonexistent:/target,ro | referent node

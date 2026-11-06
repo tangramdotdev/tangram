@@ -42,7 +42,7 @@ let pointer_path = artifact {
 let pointer = tg build $pointer_path | str trim
 tg tag -p dependency/1.0.0 $dependency
 tg tag -p pointer/1.0.0 $pointer
-tg index
+tg index --database
 
 let metadata = tg object metadata $graph | from json
 assert equal $metadata.node.solvable true "the graph should be solvable"

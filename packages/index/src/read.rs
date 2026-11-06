@@ -16,6 +16,12 @@ pub enum Request {
 	GetRunnerSandboxes {
 		runner: tg::runner::Id,
 	},
+	GetSchedulerRunners {
+		scheduler: tg::scheduler::Id,
+	},
+	GetSchedulerSandboxes {
+		scheduler: tg::scheduler::Id,
+	},
 	GetSubjectsForPrincipal {
 		principal: tg::Principal,
 	},
@@ -91,6 +97,9 @@ pub enum Request {
 	TryGetProcessesWithData {
 		ids: Vec<tg::process::Id>,
 	},
+	TryGetRunner {
+		runner: tg::runner::Id,
+	},
 	TryGetSandboxProcesses {
 		id: tg::sandbox::Id,
 		length: u64,
@@ -130,6 +139,8 @@ pub enum Response {
 	GetIndexers(Vec<crate::indexer::Indexer>),
 	GetPermissions(Vec<Vec<tg::authorization::Permission>>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
+	GetSchedulerRunners(Vec<tg::runner::Id>),
+	GetSchedulerSandboxes(Vec<crate::runner::SchedulerSandbox>),
 	GetSubjectsForPrincipal(Vec<tg::authorization::Subject>),
 	GetTransactionId(u64),
 	ListProcesses(crate::process::list::Output),
@@ -152,6 +163,7 @@ pub enum Response {
 	TryGetProcessChildrenAndObjects(Option<crate::process::NodeChildren>),
 	TryGetProcesses(Vec<Option<crate::process::Process>>),
 	TryGetProcessesWithData(Vec<Option<(crate::process::Process, Option<tg::process::Data>)>>),
+	TryGetRunner(Option<crate::runner::Runner>),
 	TryGetSandboxProcesses(Option<Vec<tg::process::Id>>),
 	TryGetSandboxProcessesCount(Option<u64>),
 	TryGetSandboxes(Vec<Option<crate::sandbox::Sandbox>>),

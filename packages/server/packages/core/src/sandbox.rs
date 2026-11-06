@@ -126,14 +126,6 @@ pub trait Component: crate::component::Lifecycle {
 		timeout: Option<Duration>,
 	) -> BoxFuture<'a, tg::Result<BoxStream<'static, ()>>>;
 
-	fn destroy_sandbox_when_available<'a>(
-		&'a self,
-		session: &'a Session,
-		id: &'a tg::sandbox::Id,
-		arg: tg::sandbox::destroy::Arg,
-		connection_future: ConnectionFuture,
-	) -> BoxFuture<'a, tg::Result<()>>;
-
 	fn get_sandbox_from_index<'a>(
 		&'a self,
 		session: &'a Session,
@@ -153,12 +145,13 @@ pub trait Component: crate::component::Lifecycle {
 		id: &'a tg::sandbox::Id,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn request_sandbox_control<'a>(
+	fn request_sandbox_control_with_hold<'a>(
 		&'a self,
 		session: &'a Session,
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::control::ServerRequestArg,
 		options: crate::control::Options,
+		hold: Option<BoxFuture<'static, ()>>,
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>>>;
 
 	fn spawn_publish_sandbox_status_task(&self, server: &Server, id: &tg::sandbox::Id);

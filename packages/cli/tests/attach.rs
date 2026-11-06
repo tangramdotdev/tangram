@@ -490,7 +490,9 @@ async fn attach_control_authorization() -> tg::Result<()> {
 				["grant", &alice_id, "process_node", &process_string],
 			)
 			.await?;
-		runner.tg(Some(runner_root), ["index"]).await?;
+		runner
+			.tg(Some(runner_root), ["index", "--database"])
+			.await?;
 		let session = runner
 			.client()?
 			.session(&tg::Context::new(Some(alice.token.clone())));
@@ -541,7 +543,9 @@ async fn attach_control_authorization() -> tg::Result<()> {
 					["grant", &alice_id, "process_parent", &process_string],
 				)
 				.await?;
-			runner.tg(Some(runner_root), ["index"]).await?;
+			runner
+				.tg(Some(runner_root), ["index", "--database"])
+				.await?;
 		}
 		let mut attach = attach_with_tokens(&runner, &alice.token, &process, tokens).await?;
 		attach
@@ -785,6 +789,7 @@ fn spawn_arg(
 		stdin: tg::process::Stdio::Null,
 		stdout: tg::process::Stdio::Null,
 		tty: None,
+		wait: false,
 	}
 }
 

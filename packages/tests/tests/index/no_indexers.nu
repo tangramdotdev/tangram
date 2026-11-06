@@ -7,7 +7,7 @@ let local = server spawn --config {
 }
 tg --url $local.url group create project | ignore
 
-let output = tg --url $local.url index | complete
+let output = tg --url $local.url index --database | complete
 failure $output 'indexing must fail when no indexers are registered'
 snapshot --normalize $output.stderr '
 	error an error occurred

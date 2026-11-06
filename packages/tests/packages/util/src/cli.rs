@@ -28,7 +28,7 @@ pub struct Server {
 impl Server {
 	/// Start a server with the `tangram` binary at the path, such as `env!("CARGO_BIN_EXE_tangram")`, in a new temporary directory.
 	pub async fn start(tangram: impl Into<PathBuf>, mut config: Config) -> tg::Result<Self> {
-		crate::instance::assign_indexer_id(&mut config);
+		crate::instance::assign_ids(&mut config);
 		let semaphores = config.semaphore_names();
 		crate::semaphore::record(&semaphores);
 		Self::start_inner(tangram.into(), config, None, semaphores).await
@@ -40,7 +40,7 @@ impl Server {
 		mut config: Config,
 		path: impl Into<PathBuf>,
 	) -> tg::Result<Self> {
-		crate::instance::assign_indexer_id(&mut config);
+		crate::instance::assign_ids(&mut config);
 		let semaphores = config.semaphore_names();
 		crate::semaphore::record(&semaphores);
 		Self::start_inner(tangram.into(), config, Some(path.into()), semaphores).await

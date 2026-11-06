@@ -1,15 +1,14 @@
 use {
-	crate::Cli,
-	byteorder::ReadBytesExt as _,
-	std::{os::fd::AsRawFd as _, path::PathBuf},
-	tangram_client::prelude::*,
+	crate::Cli, byteorder::ReadBytesExt as _, std::os::fd::AsRawFd as _, tangram_client::prelude::*,
 };
 
 impl Cli {
 	/// Spawn a server.
 	pub async fn spawn_server(&self, client: &tg::Client) -> tg::Result<()> {
 		// Ensure the directory exists.
-		let directory = self.directory_path();
+		let directory = self.directory_path()?;
+		let directory = std::path::absolute(&directory)
+			.map_err(|error| tg::error!(!error, "failed to get the absolute directory path"))?;
 		tokio::fs::create_dir_all(&directory)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
@@ -100,13 +99,13 @@ impl Cli {
 
 		let mut args = vec![];
 		if let Some(config) = &self.args.config {
+			let config = std::path::absolute(config)
+				.map_err(|error| tg::error!(!error, "failed to get the absolute config path"))?;
 			args.push("-c".to_owned());
 			args.push(config.to_string_lossy().into_owned());
 		}
-		if let Some(directory) = &self.args.directory {
-			args.push("-d".to_owned());
-			args.push(directory.to_string_lossy().into_owned());
-		}
+		args.push("-d".to_owned());
+		args.push(directory.to_string_lossy().into_owned());
 		if let Some(remotes) = self.args.remotes.values() {
 			if remotes.is_empty() {
 				args.push("--no-remotes".to_owned());
@@ -120,6 +119,7 @@ impl Cli {
 			args.push(remotes.join(","));
 		}
 		if let Some(url) = &self.args.url {
+			let url = Self::absolute_url(url)?;
 			args.push("-u".to_owned());
 			args.push(url.to_string());
 		}
@@ -132,7 +132,7 @@ impl Cli {
 		args.push(ready_fd.to_string());
 		command
 			.args(args)
-			.current_dir(PathBuf::from(std::env::var("HOME").unwrap()))
+			.current_dir("/")
 			.stdin(std::process::Stdio::null())
 			.stdout(stdout)
 			.stderr(stderr);
@@ -184,10 +184,30 @@ impl Cli {
 		Ok(())
 	}
 
+	/// Make a unix socket URL absolute.
+	pub fn absolute_url(url: &tangram_uri::Uri) -> tg::Result<tangram_uri::Uri> {
+		if url.scheme() != Some("http+unix") {
+			return Ok(url.clone());
+		}
+		let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+		let path = std::path::absolute(path)
+			.map_err(|error| tg::error!(!error, "failed to get the absolute socket path"))?;
+		let path = path
+			.to_str()
+			.ok_or_else(|| tg::error!("the socket path is not valid UTF-8"))?;
+		let url = url
+			.to_builder()
+			.authority(path)
+			.build()
+			.map_err(|error| tg::error!(!error, "failed to build the URL"))?;
+
+		Ok(url)
+	}
+
 	/// Stop the server.
 	pub async fn stop_server(&self) -> tg::Result<()> {
 		// Read the PID from the lock file.
-		let lock_path = self.directory_path().join("lock");
+		let lock_path = self.directory_path()?.join("lock");
 		let lock = match tokio::fs::read_to_string(&lock_path).await {
 			Ok(lock) => lock,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

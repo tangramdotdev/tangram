@@ -173,7 +173,16 @@ impl Component {
 			tokens,
 		} = arg;
 		let Some(tg::process::get::Output { data, location, .. }) = self
-			.try_get_process_local(session, id, false, false, tokens, tg::process::Source::Auto)
+			.try_get_process_local(
+				session,
+				id,
+				false,
+				false,
+				tokens,
+				tg::process::Source::Auto,
+				None,
+				true,
+			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?
 		else {
@@ -306,11 +315,16 @@ impl Component {
 			&& control_sender.is_none()
 			&& wait.clone().now_or_never().is_none()
 		{
+			let start = data
+				.status
+				.is_starting()
+				.then(|| self.create_wait_process_start_future(session, id));
 			let arg = relay::WriteProcessStdioRelayTaskArg {
 				id,
 				input,
 				open,
 				sender,
+				start,
 				streams,
 				wait,
 			};

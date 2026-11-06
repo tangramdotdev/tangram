@@ -808,6 +808,7 @@ impl Options {
 					http2,
 					library_paths: Vec::new(),
 					listen: false,
+					namespaces: None,
 					output_path: tangram_sandbox::Sandbox::guest_output_path_from_root(&arg.path),
 					tangram_path,
 					url: url.ok_or_else(|| tg::error!("the url is required"))?,

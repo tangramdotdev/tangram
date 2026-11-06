@@ -17,6 +17,8 @@ pub(crate) const SIDECARS: &CStr = c"sidecars";
 
 const INIT: &CStr = c"init";
 
+const ROOT: &str = "/sys/fs/cgroup";
+
 pub struct Cgroup {
 	cleanup: Arc<Cleanup>,
 	cleanup_interval: Duration,
@@ -53,29 +55,31 @@ pub struct Options {
 }
 
 pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
-	let resources = &arg.resources;
-	let options = Options {
-		cleanup_interval: arg.cgroup_cleanup_interval,
-		cleanup_timeout: arg.cgroup_cleanup_timeout,
-		cpu: arg
-			.cpu
-			.map(tg::sandbox::Cpu::threads)
-			.transpose()?
-			.flatten(),
-		cpu_affinity: arg.cpu_affinity,
-		cpu_request: arg.cpu,
-		cpu_shares: arg.cpu_shares.clone(),
-		cpu_threads: arg.cpu_threads.clone(),
-		memory: arg.memory,
-		memory_oom_group: true,
-		pids: resources.max_pids,
-	};
-	let name = arg
-		.path
-		.file_name()
-		.and_then(|name| name.to_str())
-		.unwrap_or("sandbox");
-	let cgroup = Cgroup::new(name, &options)?;
+	let options = options(arg)?;
+	let cgroup = Cgroup::new(name(arg), &options)?;
+	Ok(cgroup)
+}
+
+/// Create the cgroup of a sandbox, or return `None` when the sandbox has no resource limits, is not hardened, and no cgroup parent is writable.
+pub(crate) fn try_create(arg: &crate::Arg) -> tg::Result<Option<Cgroup>> {
+	// Require a cgroup for a sandbox with resource limits or hardening.
+	let options = options(arg)?;
+	if options.limited() || arg.resources.cgroup_readonly {
+		let cgroup = Cgroup::new(name(arg), &options)?;
+		return Ok(Some(cgroup));
+	}
+
+	// Create the cgroup if a parent is writable.
+	let cgroup = Cgroup::try_new(name(arg), &options)?;
+	if cgroup.is_none() {
+		static WARNING: std::sync::Once = std::sync::Once::new();
+		WARNING.call_once(|| {
+			tracing::warn!(
+				"no cgroup parent is writable, so unlimited sandboxes will run without a cgroup and report no usage"
+			);
+		});
+	}
+
 	Ok(cgroup)
 }
 
@@ -131,26 +135,32 @@ pub(crate) fn enter_before_exec(command: &mut std::process::Command, cgroup: lib
 
 impl Cgroup {
 	pub fn new(name: &str, options: &Options) -> tg::Result<Self> {
+		let current = current(Path::new(ROOT))?;
+		Self::try_new(name, options)?.ok_or_else(|| {
+			tg::error!(
+				controllers = %options.controllers().join(", "),
+				path = %current.display(),
+				"no writable cgroup parent has the required controllers enabled; launch tangram in a leaf of a delegated cgroup with the required controllers enabled"
+			)
+		})
+	}
+
+	/// Create a cgroup, or return `None` if cgroup v2 is not available or no cgroup parent is writable.
+	pub fn try_new(name: &str, options: &Options) -> tg::Result<Option<Self>> {
 		use std::os::unix::fs::OpenOptionsExt as _;
 
 		// Resolve the current cgroup.
-		let root = Path::new("/sys/fs/cgroup");
+		let root = Path::new(ROOT);
+		if !root.join("cgroup.controllers").exists() {
+			return Ok(None);
+		}
 		let current = current(root)?;
 
-		// Select the required resource controllers.
-		let mut controllers = Vec::new();
-		if options.cpu.is_some() || options.cpu_request.is_some() {
-			controllers.push("cpu");
-		}
-		if options.memory.is_some() || options.memory_oom_group {
-			controllers.push("memory");
-		}
-		if options.pids.is_some() {
-			controllers.push("pids");
-		}
-
 		// Select the parent cgroup.
-		let current = resolve_parent(root, &current, &controllers)?;
+		let controllers = options.controllers();
+		let Some(current) = resolve_parent(root, &current, &controllers)? else {
+			return Ok(None);
+		};
 
 		// Open the parent cgroup.
 		let name = sanitize_name(name);
@@ -301,7 +311,75 @@ impl Cgroup {
 			})?;
 		}
 
-		Ok(cgroup)
+		Ok(Some(cgroup))
+	}
+
+	pub(crate) fn set_cpu(
+		&mut self,
+		arg: &crate::Arg,
+		previous: Option<tg::sandbox::Cpu>,
+	) -> tg::Result<()> {
+		if arg.cpu.and_then(|cpu| cpu.max) != previous.and_then(|cpu| cpu.max) {
+			let handle = self.handle()?;
+			let quota = arg
+				.cpu
+				.and_then(|cpu| cpu.max)
+				.map(|max| {
+					max.millis()
+						.checked_mul(1000)
+						.ok_or_else(|| tg::error!("the sandbox CPU is too large"))
+				})
+				.transpose()?
+				.map_or_else(|| "max".to_owned(), |quota| quota.to_string());
+			handle.write(c"cpu.max", format!("{quota} 1000000\n").as_bytes())?;
+		}
+		if let Some(share) = &self.share {
+			share.set_cpu(arg.cpu.unwrap_or_default())?;
+		}
+		if arg.cpu_affinity {
+			let width = arg
+				.cpu
+				.and_then(|cpu| cpu.max)
+				.map(tg::sandbox::Amount::threads);
+			if width != self.pin.as_ref().map(|pin| pin.cpus().len() as u64) {
+				let available = available_cpus()?;
+				drop(self.pin.take());
+				if let Some(width) = width {
+					let width = usize::try_from(width)
+						.map_err(|error| tg::error!(!error, "the CPU affinity is too wide"))?;
+					let threads = arg.cpu_threads.clone().unwrap_or_default();
+					self.pin = Some(threads.pin(&available, width)?);
+				}
+				let cpus = self.affinity().unwrap_or(&available);
+				set_affinity(&self.cleanup.directory, cpus)?;
+			}
+		}
+		Ok(())
+	}
+
+	pub(crate) fn set_memory(
+		&self,
+		memory: Option<tg::sandbox::Resource<u64>>,
+		previous: Option<tg::sandbox::Resource<u64>>,
+	) -> tg::Result<()> {
+		let handle = self.handle()?;
+		let memory = memory.unwrap_or_default();
+		let previous = previous.unwrap_or_default();
+		if memory.min != previous.min {
+			handle.write(c"memory.min", memory.min.to_string().as_bytes())?;
+		}
+		if memory.max != previous.max {
+			let max = memory
+				.max
+				.map_or_else(|| "max".to_owned(), |max| max.to_string());
+			handle.write(c"memory.max", max.as_bytes())?;
+			if self.oom_kill()? > 0 {
+				return Err(tg::error!(
+					"the warm sandbox exceeded the requested memory maximum"
+				));
+			}
+		}
+		Ok(())
 	}
 
 	/// Get the hardware threads that the sandbox's processes are pinned to.
@@ -479,6 +557,33 @@ impl Handle {
 	}
 }
 
+impl Options {
+	/// Select the controllers that the options require.
+	#[must_use]
+	fn controllers(&self) -> Vec<&'static str> {
+		let mut controllers = Vec::new();
+		if self.cpu.is_some() || self.cpu_request.is_some() {
+			controllers.push("cpu");
+		}
+		if self.memory.is_some() || self.memory_oom_group {
+			controllers.push("memory");
+		}
+		if self.pids.is_some() {
+			controllers.push("pids");
+		}
+		controllers
+	}
+
+	/// Determine whether the options set a resource limit, which only a cgroup can enforce.
+	#[must_use]
+	fn limited(&self) -> bool {
+		self.cpu.is_some()
+			|| self.cpu_request.is_some()
+			|| self.memory.is_some()
+			|| self.pids.is_some()
+	}
+}
+
 impl Default for Options {
 	fn default() -> Self {
 		Self {
@@ -519,6 +624,79 @@ impl Drop for Cleanup {
 	}
 }
 
+/// Update the affinity of every sandbox thread.
+fn set_affinity(directory: &OwnedFd, cpus: &[usize]) -> tg::Result<()> {
+	// Update every thread, including threads created while the affinity is changing.
+	let path = PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
+	let mut directories = vec![path];
+	let mut processes = Vec::new();
+	while let Some(path) = directories.pop() {
+		let contents = std::fs::read_to_string(path.join("cgroup.procs"))
+			.map_err(|error| tg::error!(!error, "failed to read the sandbox processes"))?;
+		processes.extend(contents.split_ascii_whitespace().map(str::to_owned));
+		for entry in std::fs::read_dir(&path)
+			.map_err(|error| tg::error!(!error, "failed to read the sandbox cgroup"))?
+		{
+			let entry = entry
+				.map_err(|error| tg::error!(!error, "failed to read a sandbox cgroup entry"))?;
+			if entry
+				.file_type()
+				.map_err(|error| tg::error!(!error, "failed to inspect a sandbox cgroup entry"))?
+				.is_dir()
+			{
+				directories.push(entry.path());
+			}
+		}
+	}
+	// SAFETY: A zeroed cpu_set_t is an empty CPU set.
+	let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+	for cpu in cpus {
+		// SAFETY: The CPU indices came from the runner's available CPU set.
+		unsafe { libc::CPU_SET(*cpu, &mut set) };
+	}
+	for process in processes {
+		let mut updated = std::collections::BTreeSet::new();
+		loop {
+			let tasks = match std::fs::read_dir(format!("/proc/{process}/task")) {
+				Ok(tasks) => tasks,
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+				Err(error) => return Err(tg::error!(!error, "failed to read the sandbox threads")),
+			};
+			let mut changed = false;
+			for task in tasks {
+				let task =
+					task.map_err(|error| tg::error!(!error, "failed to read a sandbox thread"))?;
+				let tid = task
+					.file_name()
+					.to_string_lossy()
+					.parse::<libc::pid_t>()
+					.map_err(|error| tg::error!(!error, "failed to parse a sandbox thread ID"))?;
+				if !updated.insert(tid) {
+					continue;
+				}
+				// SAFETY: The thread ID and CPU set are valid syscall inputs.
+				if unsafe {
+					libc::sched_setaffinity(tid, std::mem::size_of_val(&set), &raw const set)
+				} != 0
+				{
+					let error = std::io::Error::last_os_error();
+					if error.raw_os_error() != Some(libc::ESRCH) {
+						return Err(tg::error!(
+							!error,
+							"failed to update a sandbox thread's CPU affinity"
+						));
+					}
+				}
+				changed = true;
+			}
+			if !changed {
+				break;
+			}
+		}
+	}
+	Ok(())
+}
+
 /// Get the hardware threads that the current process may run on.
 fn available_cpus() -> tg::Result<Vec<usize>> {
 	// SAFETY: A zeroed cpu_set_t is an empty CPU set, which sched_getaffinity fills.
@@ -537,6 +715,33 @@ fn available_cpus() -> tg::Result<Vec<usize>> {
 		.filter(|cpu| unsafe { libc::CPU_ISSET(*cpu, &set) })
 		.collect();
 	Ok(cpus)
+}
+
+fn options(arg: &crate::Arg) -> tg::Result<Options> {
+	let options = Options {
+		cleanup_interval: arg.cgroup_cleanup_interval,
+		cleanup_timeout: arg.cgroup_cleanup_timeout,
+		cpu: arg
+			.cpu
+			.map(tg::sandbox::Cpu::threads)
+			.transpose()?
+			.flatten(),
+		cpu_affinity: arg.cpu_affinity,
+		cpu_request: arg.cpu,
+		cpu_shares: arg.cpu_shares.clone(),
+		cpu_threads: arg.cpu_threads.clone(),
+		memory: arg.memory,
+		memory_oom_group: true,
+		pids: arg.resources.max_pids,
+	};
+	Ok(options)
+}
+
+fn name(arg: &crate::Arg) -> &str {
+	arg.path
+		.file_name()
+		.and_then(|name| name.to_str())
+		.unwrap_or("sandbox")
 }
 
 fn current(root: &Path) -> tg::Result<PathBuf> {
@@ -636,7 +841,11 @@ fn sanitize_name(name: &str) -> String {
 	output
 }
 
-fn resolve_parent(root: &Path, current: &Path, controllers: &[&str]) -> tg::Result<PathBuf> {
+fn resolve_parent(
+	root: &Path,
+	current: &Path,
+	controllers: &[&str],
+) -> tg::Result<Option<PathBuf>> {
 	// A populated leaf cannot distribute memory to children. Use its delegated parent for sibling sandbox cgroups.
 	let parent = current.parent().filter(|parent| parent.starts_with(root));
 	for path in std::iter::once(current).chain(parent) {
@@ -664,13 +873,9 @@ fn resolve_parent(root: &Path, current: &Path, controllers: &[&str]) -> tg::Resu
 		{
 			continue;
 		}
-		return Ok(path.to_owned());
+		return Ok(Some(path.to_owned()));
 	}
-	Err(tg::error!(
-		controllers = %controllers.join(", "),
-		path = %current.display(),
-		"no writable cgroup parent has the required controllers enabled; launch tangram in a leaf of a delegated cgroup with the required controllers enabled"
-	))
+	Ok(None)
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -733,11 +938,42 @@ mod tests {
 		.unwrap();
 		assert_eq!(
 			resolve_parent(temp.path(), &leaf, &["cpu", "memory", "pids"]).unwrap(),
-			temp.path()
+			Some(temp.path().to_owned())
 		);
-		assert_eq!(resolve_parent(temp.path(), &leaf, &[]).unwrap(), leaf);
+		assert_eq!(
+			resolve_parent(temp.path(), &leaf, &[]).unwrap(),
+			Some(leaf.clone())
+		);
 		std::fs::write(temp.path().join("cgroup.subtree_control"), "cpu pids").unwrap();
+		assert_eq!(
+			resolve_parent(temp.path(), &leaf, &["memory"]).unwrap(),
+			None
+		);
+		std::fs::remove_file(leaf.join("cgroup.subtree_control")).unwrap();
 		assert!(resolve_parent(temp.path(), &leaf, &["memory"]).is_err());
+	}
+
+	#[test]
+	fn options_limited() {
+		let options = Options {
+			cpu_affinity: true,
+			memory_oom_group: true,
+			..Default::default()
+		};
+		assert!(!options.limited());
+		let limited = Options {
+			pids: Some(1),
+			..options.clone()
+		};
+		assert!(limited.limited());
+		let limited = Options {
+			memory: Some(tg::sandbox::Resource {
+				max: Some(1),
+				min: 0,
+			}),
+			..options
+		};
+		assert!(limited.limited());
 	}
 
 	#[test]

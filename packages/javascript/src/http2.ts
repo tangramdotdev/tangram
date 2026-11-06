@@ -101,7 +101,10 @@ export class ClientHttp2Session extends EventEmitter {
 	}
 
 	get closed() {
-		return this.#closed;
+		return (
+			this.#closed ||
+			(this.#token !== null && syscall("http2_session_closed", this.#token))
+		);
 	}
 
 	get destroyed() {
@@ -109,7 +112,7 @@ export class ClientHttp2Session extends EventEmitter {
 	}
 
 	request(headers: Headers, options: RequestOptions = {}) {
-		if (this.#closed) {
+		if (this.closed) {
 			throw sessionClosedError();
 		}
 		let stream = new ClientHttp2Stream(this, headers, options);

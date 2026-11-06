@@ -29,7 +29,7 @@ pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
 		output.push_str("# ///\n");
 	}
 
-	// Print the definitions, as classes for records whose fields are named with identifiers.
+	// Print the definitions, as classes for records whose fields are named with identifiers, and with the functional syntax for other records.
 	for (name, type_) in &interface.definitions {
 		if !super::is_identifier(name, RESERVED) {
 			return Err(tg::error!(%name, "the name of the type is not an identifier"));
@@ -48,6 +48,21 @@ pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
 				for (name, field) in fields {
 					writeln!(output, "    {name}: {}", self::field(field)?).unwrap();
 				}
+			},
+			tg::interface::Type::Record { fields } => {
+				let quoted = super::string(name);
+				let fields = fields
+					.iter()
+					.map(|(name, field)| {
+						Ok(format!("{}: {}", super::string(name), self::field(field)?))
+					})
+					.collect::<tg::Result<Vec<_>>>()?
+					.join(", ");
+				writeln!(
+					output,
+					"{name} = TypedDict({quoted}, {{{fields}}}, closed=True)"
+				)
+				.unwrap();
 			},
 			_ => writeln!(output, "type {name} = {}", self::type_(type_)?).unwrap(),
 		}
@@ -119,15 +134,8 @@ fn type_(type_: &tg::interface::Type) -> tg::Result<String> {
 		tg::interface::Type::Number => "float".to_owned(),
 		tg::interface::Type::Object => "tg.Object".to_owned(),
 		tg::interface::Type::Placeholder => "tg.Placeholder".to_owned(),
-		tg::interface::Type::Record { fields } => {
-			let fields = fields
-				.iter()
-				.map(|(name, field)| {
-					Ok(format!("{}: {}", super::string(name), self::field(field)?))
-				})
-				.collect::<tg::Result<Vec<_>>>()?;
-			format!("TypedDict[{{{}}}]", fields.join(", "))
-		},
+		// Widen a record without a name to a value, because Python has no inline record type.
+		tg::interface::Type::Record { .. } | tg::interface::Type::Value => "tg.Value".to_owned(),
 		tg::interface::Type::Reference { import, name } => {
 			if !super::is_identifier(name, RESERVED) {
 				return Err(tg::error!(%name, "the name of the type is not an identifier"));
@@ -181,7 +189,6 @@ fn type_(type_: &tg::interface::Type) -> tg::Result<String> {
 				.collect::<tg::Result<Vec<_>>>()?
 				.join(" | ")
 		},
-		tg::interface::Type::Value => "tg.Value".to_owned(),
 	};
 	Ok(output)
 }

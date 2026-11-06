@@ -20,7 +20,10 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Index.
-	let arg = tg::index::Arg::default();
+	let arg = tg::index::Arg {
+		database: true,
+		..Default::default()
+	};
 	let stream = client
 		.index(arg)
 		.await
@@ -45,7 +48,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 }
 
 pub async fn run_force(cli: &mut Cli) -> tg::Result<()> {
-	let path = cli.directory_path();
+	let path = cli.directory_path()?;
 	let store_path = path.join("store");
 
 	// Stop the server if it is running.

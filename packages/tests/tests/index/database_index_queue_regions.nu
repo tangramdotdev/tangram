@@ -22,8 +22,8 @@ server stop $remote_west
 
 let remote_east = server spawn --instance $instance --region east --name remote-east --directory $remote_east.directory --url (instance region url $instance east)
 let remote_west = server spawn --instance $instance --region west --name remote-west --directory $remote_west.directory --url (instance region url $instance west)
-tg --url $remote_east.url index
-tg --url $remote_west.url index
+tg --url $remote_east.url index --database
+tg --url $remote_west.url index --database
 
 let indexed = tg --url $remote_west.url group get east-project | from json
 assert equal $indexed.id $east_group.id

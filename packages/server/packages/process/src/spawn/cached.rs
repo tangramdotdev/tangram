@@ -58,9 +58,10 @@ impl Component {
 		session: &Session,
 		arg: &tg::process::spawn::Arg,
 		command: &tg::Referent<tg::command::Id>,
+		candidate: Option<&tg::process::Id>,
 	) -> tg::Result<Option<super::local::Output>> {
 		match self
-			.try_get_cached_process_local_inner(session, arg, command)
+			.try_get_cached_process_local_inner(session, arg, command, candidate)
 			.await
 		{
 			Ok(output) => Ok(output),
@@ -79,6 +80,7 @@ impl Component {
 		session: &Session,
 		arg: &tg::process::spawn::Arg,
 		command: &tg::Referent<tg::command::Id>,
+		candidate: Option<&tg::process::Id>,
 	) -> tg::Result<Option<super::local::Output>> {
 		let public = arg.public && arg.cached == Some(true);
 
@@ -100,6 +102,14 @@ impl Component {
 					.as_ref()
 					.is_some_and(tg::Location::is_remote)
 					|| data.status.is_finished()
+			})
+			.collect::<Vec<_>>();
+
+		// Two spawns that are starting must not each cancel themselves for the other, so only the older process counts as a cache hit.
+		let candidates = candidates
+			.into_iter()
+			.filter(|(id, _, data)| {
+				!data.status.is_starting() || candidate.is_none_or(|candidate| id < candidate)
 			})
 			.collect::<Vec<_>>();
 		let mut cycle = None;
@@ -430,6 +440,37 @@ impl Component {
 		if output.data.status.is_finished() {
 			return Ok(Some(output));
 		}
+
+		// Acquire a lease of a process that is starting from its scheduler, and wait for the process to connect once its request is sent to a runner.
+		if output.data.status.is_starting() {
+			let mut wakeups = self
+				.create_process_status_wakeup_stream(
+					session,
+					&output.id,
+					session.context.stopper.clone(),
+					None,
+				)
+				.await?;
+			while let Some((scheduler, sandbox)) = self
+				.try_get_starting_process_owner(session, &output.id)
+				.await?
+			{
+				let lease = session
+					.server
+					.components
+					.scheduler
+					.acquire_process_lease(session, &scheduler, &sandbox)
+					.await?;
+				if lease.is_some() {
+					output.lease = lease;
+					return Ok(Some(output));
+				}
+				if wakeups.next().await.is_none() {
+					return Err(tg::error!("the process status wakeup stream ended"));
+				}
+			}
+		}
+
 		let request = tg::process::control::ServerRequestArg::AcquireLease(
 			tg::process::control::AcquireLeaseServerRequestArg {},
 		);
@@ -700,6 +741,7 @@ impl Component {
 			defer_index: false,
 			location: Some(location),
 			outcome_sync: None,
+			registration: None,
 			store_data: true,
 		};
 		let output = self

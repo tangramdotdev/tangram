@@ -34,8 +34,16 @@ pub struct Arg {
 	#[tangram_serialize(id = 7)]
 	pub processes: Option<Vec<tg::process::Id>>,
 
+	/// The registration that must still own the runner when this mutation is applied.
+	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
+	pub registration: Option<crate::runner::Registration>,
+
 	#[tangram_serialize(id = 4)]
 	pub runner: Option<tg::runner::Id>,
+
+	/// The request that the scheduler accepted, which it recovers from the index if it restarts before the sandbox's runner connects.
+	#[tangram_serialize(default, id = 12, skip_serializing_if = "Option::is_none")]
+	pub scheduled: Option<Scheduled>,
 
 	/// The storage usage of a boot's stopped directory so far, which only grows.
 	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
@@ -50,6 +58,15 @@ pub struct Merge {
 	pub data: Option<tg::sandbox::get::Output>,
 	pub stopped_usages: BTreeMap<u64, tg::sandbox::Usage>,
 	pub usages: BTreeMap<u64, tg::sandbox::Usage>,
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct Scheduled {
+	#[tangram_serialize(id = 0)]
+	pub request: Vec<u8>,
+
+	#[tangram_serialize(id = 1)]
+	pub scheduler: tg::scheduler::Id,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -104,6 +121,38 @@ impl Arg {
 			}
 		}
 		Ok(Ok(()))
+	}
+
+	/// Get the scheduler that owns the sandbox after this put, given the merged data. A scheduler owns a sandbox that is starting, and keeps a sandbox that it is destroying, until the sandbox's runner connects.
+	#[must_use]
+	pub fn scheduler(
+		&self,
+		existing: Option<&super::Sandbox>,
+		data: Option<&tg::sandbox::get::Output>,
+	) -> Option<tg::scheduler::Id> {
+		let existing = existing.and_then(|sandbox| sandbox.scheduler.clone());
+		let data = &data?.data;
+		match data.status {
+			tg::sandbox::Status::Destroying => existing,
+			tg::sandbox::Status::Starting => self
+				.scheduled(data)
+				.map(|scheduled| scheduled.scheduler.clone())
+				.or(existing),
+			tg::sandbox::Status::Destroyed
+			| tg::sandbox::Status::Started
+			| tg::sandbox::Status::Stopped
+			| tg::sandbox::Status::Stopping => None,
+		}
+	}
+
+	/// Get the accepted request of this put if the merged data is the boot that the request starts.
+	#[must_use]
+	pub fn scheduled(&self, data: &tg::sandbox::Data) -> Option<&Scheduled> {
+		let boot = self.data.as_ref()?.data.boot;
+		if !data.status.is_starting() || data.boot != boot {
+			return None;
+		}
+		self.scheduled.as_ref()
 	}
 
 	/// Merge the arg's data with the existing record, keeping the data that is later in the sandbox lifecycle and combining the usage of every boot.
@@ -169,17 +218,17 @@ impl Arg {
 	}
 }
 
-/// The position of the sandbox data in its lifecycle, which orders writes that may be applied out of order. A destroyed sandbox is after every boot.
+/// The position of the sandbox data in its lifecycle, which orders writes that may be applied out of order. A destroying or destroyed sandbox is after every boot.
 #[must_use]
-fn position(data: &tg::sandbox::Data) -> (bool, u64, u8) {
-	let rank = match data.status {
-		tg::sandbox::Status::Starting => 0,
-		tg::sandbox::Status::Started => 1,
-		tg::sandbox::Status::Stopping => 2,
-		tg::sandbox::Status::Stopped => 3,
-		tg::sandbox::Status::Destroyed => 4,
-	};
-	(data.status.is_destroyed(), data.boot, rank)
+fn position(data: &tg::sandbox::Data) -> (u64, u8) {
+	match data.status {
+		tg::sandbox::Status::Starting => (data.boot, 0),
+		tg::sandbox::Status::Started => (data.boot, 1),
+		tg::sandbox::Status::Stopping => (data.boot, 2),
+		tg::sandbox::Status::Stopped => (data.boot, 3),
+		tg::sandbox::Status::Destroying => (u64::MAX, 4),
+		tg::sandbox::Status::Destroyed => (u64::MAX, 5),
+	}
 }
 
 fn max(a: &tg::sandbox::Usage, b: &tg::sandbox::Usage) -> tg::sandbox::Usage {

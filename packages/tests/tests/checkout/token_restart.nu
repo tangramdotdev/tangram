@@ -33,7 +33,7 @@ for preserve_keys in [true false] {
 		| str replace --all LIBRARY $library
 	let wrapper = tg --token $root_token put --no-tokens $source | referent node
 	tg --token $root_token grant $user object_subtree $wrapper | ignore
-	tg --token $root_token index
+	tg --token $root_token index --database
 
 	# Recover the dependency referent directly from a checkout, as a wrapper consumer would.
 	let path = tg --token $root_token checkout $wrapper | str trim

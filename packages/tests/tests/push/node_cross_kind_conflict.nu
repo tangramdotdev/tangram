@@ -14,7 +14,7 @@ tg --url $remote_destination.url --token $alice.token tag put parent/child $node
 let tag = tg --url $remote_destination.url --token $alice.token tag get parent/child | from json
 tg --url $remote_destination.url --token $alice.token grant $bob.user.id read parent | ignore
 tg --url $remote_destination.url --token $alice.token grant $bob.user.id write parent/child | ignore
-tg --url $remote_destination.url index
+tg --url $remote_destination.url index --database
 
 let local_source = server spawn --name local-source --config {
 	remotes: { default: { token: $bob.token, url: $remote_destination.url } }
@@ -33,7 +33,7 @@ failure $output "tag write without parent write should not authorize a cross-kin
 assert ($output.stderr | str contains "unauthorized")
 
 tg --url $remote_destination.url --token $alice.token grant $bob.user.id write parent | ignore
-tg --url $remote_destination.url index
+tg --url $remote_destination.url index --database
 let output = tg --url $local_source.url push --ancestors=missing parent/child | complete
 failure $output "parent write must not authorize replacing a tag with a group"
 assert ($output.stderr | str contains "the specifier is already in use")
@@ -43,6 +43,7 @@ assert equal (
 success (tg --url $remote_destination.url --token $alice.token tag get $tag.id | complete)
 
 tg --url $local_source.url push --force --ancestors=missing parent/child
+tg --url $remote_destination.url index --database
 assert equal (
 	tg --url $remote_destination.url --token $bob.token group get parent/child | from json | get id
 ) $group.id

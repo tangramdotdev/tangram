@@ -118,12 +118,39 @@ impl Component {
 		principal: Option<tg::Principal>,
 	) -> tg::Result<Option<Row>> {
 		let principal = principal.as_ref().map(ToString::to_string);
-		let remote = remote.clone();
+
+		// Read the row from the read connection.
+		let options = db::ConnectionOptions::default();
+		let row =
+			Self::try_get_remote_row_with_options(session, remote, principal.as_deref(), options)
+				.await?;
+		if row.is_some() {
+			return Ok(row);
+		}
+
+		// Read the row from the write connection, because a new remote may not have reached the read connection.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
+		let row =
+			Self::try_get_remote_row_with_options(session, remote, principal.as_deref(), options)
+				.await?;
+
+		Ok(row)
+	}
+
+	async fn try_get_remote_row_with_options(
+		session: &Session,
+		remote: &tg::remote::Selector,
+		principal: Option<&str>,
+		options: db::ConnectionOptions,
+	) -> tg::Result<Option<Row>> {
 		session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
-				let principal = principal.clone();
+			.run_with_options(options, |transaction| {
+				let principal = principal.map(ToOwned::to_owned);
 				let remote = remote.clone();
 				async move {
 					Self::try_get_remote_row_with_transaction(

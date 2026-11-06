@@ -218,23 +218,36 @@ impl Cli {
 		}
 	}
 
-	fn config_path(&self) -> PathBuf {
-		self.args.config.clone().unwrap_or_else(|| {
-			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
-		})
+	fn config_path(&self) -> Option<PathBuf> {
+		self.args.config.clone().or_else(Self::default_config_path)
 	}
 
-	#[must_use]
-	pub fn directory_path(&self) -> PathBuf {
-		self.args
-			.directory
-			.clone()
-			.or_else(|| {
-				self.config
-					.as_ref()
-					.and_then(|config| config.directory.clone())
-			})
-			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"))
+	fn default_config_path() -> Option<PathBuf> {
+		let path = std::env::home_dir()?.join(".config/tangram/config.json");
+		Some(path)
+	}
+
+	pub fn directory_path(&self) -> tg::Result<PathBuf> {
+		if let Some(directory) = &self.args.directory {
+			return Ok(directory.clone());
+		}
+		let directory = self
+			.config
+			.as_ref()
+			.and_then(|config| config.directory.as_ref());
+		if let Some(directory) = directory {
+			if !directory.is_absolute() {
+				return Err(tg::error!(
+					path = %directory.display(),
+					"the config directory path must be absolute"
+				));
+			}
+			return Ok(directory.clone());
+		}
+		let home = std::env::home_dir()
+			.ok_or_else(|| tg::error!("failed to get the home directory, pass --directory"))?;
+		let path = home.join(".tangram");
+		Ok(path)
 	}
 
 	/// Initialize miette.

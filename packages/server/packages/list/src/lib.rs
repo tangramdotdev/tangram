@@ -404,10 +404,15 @@ impl Component {
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Vec<tg::list::Item>> {
 		// List the items.
+		// Read from the write connection, because these items decide what a delete removes.
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
 		let items = session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				async move { Self::list_local_items_with_transaction(transaction).await }.boxed()
 			})
 			.await?;

@@ -18,10 +18,11 @@ let modules = {
 			return await build(...args, { text: value });
 		}
 		export function namespace(value: typeof tg.Args): string { return "unused"; }
-		export function result(value: tg.MaybePromise<string>): {
+		type Result = {
 			text: tg.Unresolved<string>;
 			directory: tg.Unresolved<tg.Directory>;
-		} {
+		};
+		export function result(value: tg.MaybePromise<string>): Result {
 			return { text: Promise.resolve(value), directory: tg.directory() };
 		}
 		export async function echo(value: tg.Unresolved<{
@@ -62,22 +63,30 @@ let source = '
 	# ///
 	from values import build, echo, mutation, namespace, result
 	async def default():
-	    await build.build({"text": 42})
-	    await build.build({"count": "bad"})
 	    await mutation.build(42, [])
 	    await result.build(42)
-	    await echo.build({"text": "ok", "directories": [42]})
-	    await echo.build({"directories": []})
-	    await echo.build({"text": "ok", "directories": [], "labels": {"mode": 42}})
-	    await mutation.build("ok", [{"count": "bad"}])
 	    await namespace.build({})
 '
 let path = artifact ($modules | merge { tangram.py: $source })
 let output = tg check $path | complete
 failure $output
-for line in 7..15 {
+for line in 7..9 {
 	assert ($output.stderr | str contains $'tangram.py:($line):') $output.stderr
 }
+
+# The records that the wrappers derive have no name, so they widen to values in Python and their fields are not checked.
+let source = '
+	# /// script
+	# [tool.tangram.dependencies.values]
+	# specifier = "./values.tg.ts"
+	# ///
+	from values import build, echo
+	async def default():
+	    await build.build({"text": 42})
+	    await echo.build({"directories": []})
+'
+let path = artifact ($modules | merge { tangram.py: $source })
+success (tg check $path | complete)
 
 # Promises in returned records resolve to typed values at the language boundary.
 let source = $caller

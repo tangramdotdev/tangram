@@ -56,10 +56,13 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the tag parent"))?;
-			let key = Key::Node(crate::node::Key::Node(data.specifier.clone()));
-			let key = Self::pack(subspace, &key);
-			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete the node"))?;
+			Self::delete_node_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&id.clone().into(),
+				&data.specifier,
+			)?;
 			match &data.target {
 				tg::Either::Left(id) => {
 					Self::schedule_object_accounts_for_cleaning(db, subspace, transaction, id)?;

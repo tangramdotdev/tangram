@@ -15,12 +15,34 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
 impl Component {
 	pub async fn try_get_sandbox_status_stream(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::status::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
+		let timeout = arg.timeout;
+		let output = self
+			.try_get_sandbox_status_stream_inner(session, id, arg)
+			.await?
+			.map(|stream| {
+				tangram_server_core::stream::end_after_timeout(
+					stream,
+					timeout,
+					tg::sandbox::status::Event::End,
+					|event| matches!(event, tg::sandbox::status::Event::End),
+				)
+			});
+
+		Ok(output)
+	}
+
+	async fn try_get_sandbox_status_stream_inner(
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
@@ -38,60 +60,43 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			let stopper = session.context.stopper.clone();
-			if local.current {
-				let mut wakeups = if arg.timeout == Some(Duration::ZERO) {
-					None
-				} else {
-					Some(
-						self.create_sandbox_status_wakeup_stream(session, id, stopper, arg.timeout)
-							.await?,
-					)
-				};
-				let deadline = session.server.control_read_deadline();
-				let initial = loop {
-					tokio::select! {
-						output = self
-					.try_get_sandbox_observation_local(session, id, arg.tokens.local_authorization(), arg.source, deadline) => break output?,
-						wakeup = async {
-							match &mut wakeups {
-								Some(wakeups) => wakeups.next().await,
-								None => std::future::pending().await,
-							}
-						} => {
-							if wakeup.is_none() { return Ok(None); }
-						},
-					}
-				};
-				if let Some(sandbox) = initial {
-					let initial = Some(sandbox);
-					let stream = self.create_sandbox_status_stream_local_with_wakeups(
-						session, id, initial, wakeups, arg.source,
-					);
-					return Ok(Some(stream));
-				}
-			}
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-			if let Some(status) = self
-				.try_get_sandbox_status_stream_regions(
-					session,
-					id,
-					&local.regions,
-					arg.timeout,
-					&arg.tokens,
-					arg.source,
-				)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to get the sandbox status from another region"),
-				)? {
-				return Ok(Some(status));
-			}
+		// Read the local status without a search.
+		if current
+			&& let Some(stream) = self
+				.try_get_sandbox_status_stream_local(session, id, &arg, false)
+				.await?
+		{
+			return Ok(Some(stream));
 		}
 
-		if let Some(status) = self
-			.try_get_sandbox_status_stream_remotes(
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			if !current {
+				return Ok(None);
+			}
+			self.try_get_sandbox_status_stream_local(session, id, &arg, true)
+				.await
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(status) = self
+					.try_get_sandbox_status_stream_regions(
+						session,
+						id,
+						&local.regions,
+						arg.timeout,
+						&arg.tokens,
+						arg.source,
+					)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to get the sandbox status from another region"),
+					)? {
+				return Ok(Some(status));
+			}
+			self.try_get_sandbox_status_stream_remotes(
 				session,
 				id,
 				&locations.remotes,
@@ -102,11 +107,67 @@ impl Component {
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to get the sandbox status from a remote"),
-			)? {
-			return Ok(Some(status));
-		}
+			)
+		};
+		let stream = await_local_future_over_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
 
-		Ok(None)
+		Ok(stream)
+	}
+
+	async fn try_get_sandbox_status_stream_local(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		arg: &tg::sandbox::status::Arg,
+		exhaustive: bool,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
+		let stopper = session.context.stopper.clone();
+		let mut wakeups = if arg.timeout == Some(Duration::ZERO) {
+			None
+		} else {
+			Some(
+				self.create_sandbox_status_wakeup_stream(session, id, stopper, arg.timeout)
+					.await?,
+			)
+		};
+		let deadline = session.server.control_read_deadline();
+		let initial = loop {
+			tokio::select! {
+				output = self.try_get_sandbox_observation_local(
+					session,
+					id,
+					arg.tokens.local_authorization(),
+					arg.source,
+					deadline,
+					exhaustive,
+				) => break output?,
+				wakeup = async {
+					match &mut wakeups {
+						Some(wakeups) => wakeups.next().await,
+						None => std::future::pending().await,
+					}
+				} => {
+					if wakeup.is_none() { return Ok(None); }
+				},
+			}
+		};
+		let Some(sandbox) = initial else {
+			return Ok(None);
+		};
+		let stream = self.create_sandbox_status_stream_local_with_wakeups(
+			session,
+			id,
+			Some(sandbox),
+			wakeups,
+			arg.source,
+		);
+
+		Ok(Some(stream))
 	}
 
 	async fn try_get_sandbox_status_stream_runner(
@@ -232,12 +293,13 @@ impl Component {
 		tokens: &[tg::authorization::Token],
 		source: tg::sandbox::Source,
 		deadline: tokio::time::Instant,
+		exhaustive: bool,
 	) -> tg::Result<Option<tg::sandbox::Data>> {
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Node,
 		);
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
-		let authorize_future = session.authorize(resource, permission);
+		let authorize_future = session.authorize_with_exhaustive(resource, permission, exhaustive);
 		let get_future = self.try_get_sandbox_data_local(session, id, source, deadline);
 		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
 		let permissions = permissions.check_exhaustion()?;

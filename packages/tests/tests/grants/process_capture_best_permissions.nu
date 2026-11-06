@@ -23,7 +23,7 @@ tg --token $root_token index
 let object = http get --headers { Accept: application/json, Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($file)'
 let node_token = $object.tokens.local.0
 tg --token $root_token grant $alice.user.id object_subtree $directory | ignore
-tg --token $root_token index
+tg --token $root_token index --database
 let object = http get --headers { Accept: application/json, Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($directory)'
 let subtree_token = $object.tokens.local.0
 
@@ -46,7 +46,7 @@ tg --token $root_token checkpoint wait --timeout 30s permission_capture.written 
 # Hold capture before descent, then remove temporary permissions and delegations.
 tg --token $alice.token grant $bob.user.id process_node_output_objects $process | ignore
 tg --token $root_token tag put retained $process
-tg --token $root_token index
+tg --token $root_token index --database
 advance_time $local 2min
 tg --token $root_token clean
 tg --token $root_token index

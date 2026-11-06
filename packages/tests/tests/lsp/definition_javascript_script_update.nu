@@ -25,7 +25,7 @@ assert equal $response.result.0.range.start {line: 0, character: 16}
 let updated = artifact {'tangram.ts': "// The updated package.\n\nexport function greet() { return 43; }"}
 tg tag -p lsp-script/1.1.0 $updated
 rm --recursive $updated
-tg index
+tg index --database
 success (tg update ($path | path join main.tg.ts) | complete)
 $session = lsp send $session (lsp definition 11 $uri 1 16)
 let response = lsp wait_result $session 11

@@ -1,12 +1,14 @@
 use {
 	crate::Component,
-	futures::{StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_index::prelude::*,
-	tangram_server_core::{Server, Session},
+	tangram_server_core::{
+		Server, Session, location::await_first_found_of_local_regions_remotes_futures,
+	},
 };
 
 impl Component {
@@ -21,39 +23,72 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(metadata) = self
-					.try_get_object_metadata_local(session, id, arg.tokens.local_authorization())
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the object metadata"))?
-			{
-				return Ok(Some(metadata));
-			}
+		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-			if let Some(metadata) = self
-				.try_get_object_metadata_regions(session, id, &local.regions, &arg.tokens)
+		// Read the metadata and authorize it without a search.
+		let node = if current {
+			self.try_get_object_metadata_local_with_server(&session.server, id)
+				.await?
+		} else {
+			None
+		};
+		if node.is_some()
+			&& let Some(metadata) = self
+				.try_get_object_metadata_local(
+					session,
+					id,
+					arg.tokens.local_authorization(),
+					node.clone(),
+					false,
+				)
 				.await
-				.map_err(|error| {
-					tg::error!(
-						!error,
-						"failed to get the object metadata from another region"
-					)
-				})? {
-				return Ok(Some(metadata));
-			}
-		}
-
-		if let Some(metadata) = self
-			.try_get_object_metadata_remotes(session, id, &locations.remotes, &arg.tokens)
-			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to get the object metadata from a remote")
-			})? {
+				.map_err(|error| tg::error!(!error, "failed to get the object metadata"))?
+		{
 			return Ok(Some(metadata));
 		}
 
-		Ok(None)
+		// Search locally while trying the regions and then the remotes.
+		let local_future = async {
+			if !current {
+				return Ok(None);
+			}
+			self.try_get_object_metadata_local(
+				session,
+				id,
+				arg.tokens.local_authorization(),
+				node,
+				true,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the object metadata"))
+		};
+		let regions_and_remotes_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(metadata) = self
+					.try_get_object_metadata_regions(session, id, &local.regions, &arg.tokens)
+					.await
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							"failed to get the object metadata from another region"
+						)
+					})? {
+				return Ok(Some(metadata));
+			}
+			self.try_get_object_metadata_remotes(session, id, &locations.remotes, &arg.tokens)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, "failed to get the object metadata from a remote")
+				})
+		};
+		let metadata = await_first_found_of_local_regions_remotes_futures(
+			local_future,
+			regions_and_remotes_future,
+		)
+		.boxed()
+		.await?;
+
+		Ok(metadata)
 	}
 
 	pub(crate) async fn try_get_object_metadata_local(
@@ -61,14 +96,20 @@ impl Component {
 		session: &Session,
 		id: &tg::object::Id,
 		tokens: &[tg::authorization::Token],
+		node: Option<tg::object::Metadata>,
+		exhaustive: bool,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		let Some(metadata) = self
-			.try_get_object_metadata_local_with_server(&session.server, id)
-			.await?
-		else {
+		let metadata = match node {
+			Some(node) => Some(node),
+			None => {
+				self.try_get_object_metadata_local_with_server(&session.server, id)
+					.await?
+			},
+		};
+		let Some(metadata) = metadata else {
 			return Ok(None);
 		};
-		self.mask_object_metadata(session, id, metadata, tokens)
+		self.mask_object_metadata(session, id, metadata, tokens, exhaustive)
 			.await
 	}
 
@@ -78,10 +119,11 @@ impl Component {
 		id: &tg::object::Id,
 		metadata: tg::object::Metadata,
 		tokens: &[tg::authorization::Token],
+		exhaustive: bool,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let authorization = session
-			.authorize_object_read(resource)
+			.authorize_object_read_with_exhaustive(resource, exhaustive)
 			.await?
 			.check_exhaustion()?;
 		let permissions = authorization.permissions;
