@@ -538,9 +538,6 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	#[tangram_serialize(id = 6)]
-	pub registration_index: u64,
-
 	/// The sandboxes that the runner is running.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Vec::is_empty")]
