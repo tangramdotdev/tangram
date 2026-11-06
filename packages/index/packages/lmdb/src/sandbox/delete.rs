@@ -1,5 +1,5 @@
 use {
-	crate::{Db, Index, Key, Request, Response},
+	crate::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
@@ -9,11 +9,15 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(());
 		}
-		let request = Request::DeleteSandboxes(ids.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
+		let items = ids
+			.iter()
+			.map(|id| {
+				let arg = tangram_index::sandbox::delete::Arg { id: id.clone() };
+				tangram_index::Item::DeleteSandbox(Box::new(arg))
+			})
+			.collect();
+		let arg = tangram_index::write::Arg { items };
+		self.write(arg).await??;
 
 		Ok(())
 	}
