@@ -41,7 +41,8 @@ where
 			self.options.read_write_max_reader_count,
 		) {
 			Err(error) => {
-				self.disconnect_transport(&connection.abort, path).await;
+				self.disconnect_transport(connection.abort.as_ref(), path)
+					.await;
 				return Err(error);
 			},
 			Ok(reader_fds) => reader_fds,
@@ -134,7 +135,9 @@ where
 		// Clean up a partial startup.
 		if let Some(error) = startup_error {
 			self.cancel_async_requests();
-			let disconnected = self.disconnect_transport(&connection.abort, path).await;
+			let disconnected = self
+				.disconnect_transport(connection.abort.as_ref(), path)
+				.await;
 			Self::join_transport_threads(&mut thread_handles, disconnected);
 			if !disconnected {
 				dispatcher.abort();
