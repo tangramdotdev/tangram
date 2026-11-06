@@ -2,13 +2,12 @@ use ../../util/test.nu *
 
 # Checking out a file with dependencies writes the dependencies xattr, both when the file is uncached and when the server reflinks it from the checkouts directory.
 #
-# The reflink needs the checkouts directory and the destination on one filesystem which supports FICLONE, so this runs under the repository rather than TMPDIR, which is usually tmpfs.
+# The reflink needs the checkouts directory and the destination on one filesystem which supports FICLONE, so this runs under the repository when it is writable rather than TMPDIR, which is usually tmpfs.
 
 const repository_path = path self '../../../..'
 
 let root = $repository_path | path join 'target' | path join 'tests'
-mkdir $root
-let tmp = mktemp --directory --tmpdir-path $root
+let tmp = try { mkdir $root; mktemp --directory --tmpdir-path $root } catch { mktemp --directory }
 
 # Skip the test unless the filesystem supports reflinks.
 let probe_path = $tmp | path join 'probe'
