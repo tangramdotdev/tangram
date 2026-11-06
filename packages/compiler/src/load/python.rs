@@ -7,6 +7,9 @@ use {
 	tangram_client::prelude::*,
 };
 
+/// The namespace that contains the input views of named types.
+pub(super) const INPUTS: &str = "__tangram_inputs__";
+
 /// The names that printed Python types use.
 pub(super) struct Names {
 	/// The name of the Tangram client module.
@@ -18,6 +21,12 @@ pub(super) struct Names {
 	/// The names of the modules that import the modules that the interface imports.
 	pub(super) imports: BTreeMap<String, String>,
 
+	/// The names of the input views of the interface's definitions.
+	pub(super) input_definitions: BTreeMap<String, String>,
+
+	/// The imported modules that have generated input views.
+	pub(super) input_imports: BTreeSet<String>,
+
 	/// The statements that define string literal aliases without escapes in forward annotations.
 	pub(super) literals: RefCell<Vec<String>>,
 
@@ -28,11 +37,17 @@ pub(super) struct Names {
 	pub(super) typing: String,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum View {
+	Input,
+	Value,
+}
+
 /// Escape keywords without displacing an export that already has a valid Python name.
 pub(super) fn binding(name: &str, exports: &BTreeSet<String>) -> tg::Result<String> {
-	if name == "__all__" {
+	if name == "__all__" || name == INPUTS {
 		return Err(tg::error!(
-			"the export name __all__ is reserved by the python loader"
+			"the export name is reserved by the python loader"
 		));
 	}
 	if is_identifier(name) {
@@ -65,7 +80,10 @@ pub(super) fn export(export: &tg::interface::Export, names: &Names) -> String {
 			.unwrap_or("the export is not a value");
 		return non_value(error, names);
 	};
-	self::type_(type_, names)
+	if let tg::interface::Type::Command { args, output } = type_ {
+		return command(args, output, names, View::Input);
+	}
+	self::type_(type_, names, View::Value)
 }
 
 /// Collect the names that a type refers to in the interfaces of imported modules.
@@ -106,36 +124,31 @@ pub(super) fn references(type_: &tg::interface::Type, references: &mut BTreeSet<
 }
 
 /// Print the statement that defines one of the interface's named types, defining a record as a typed dict with the definition's name.
-pub(super) fn definition(name: &str, type_: &tg::interface::Type, names: &Names) -> String {
+pub(super) fn definition(
+	name: &str,
+	type_: &tg::interface::Type,
+	names: &Names,
+	view: View,
+) -> String {
 	if let tg::interface::Type::Record { fields } = type_ {
-		return typed_dict(name, fields, names);
+		return typed_dict(name, fields, names, view);
 	}
-	format!("type {name} = {}", self::type_(type_, names))
+	format!("type {name} = {}", self::type_(type_, names, view))
 }
 
 /// Print a type as a Python type expression.
-pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
+pub(super) fn type_(type_: &tg::interface::Type, names: &Names, view: View) -> String {
 	let client = &names.client;
 	let typing = &names.typing;
 	match type_ {
-		tg::interface::Type::Array { item } => format!("list[{}]", self::type_(item, names)),
+		tg::interface::Type::Array { item } => {
+			format!("list[{}]", self::type_(item, names, View::Value))
+		},
 		tg::interface::Type::Artifact => format!("{client}.Artifact"),
 		tg::interface::Type::Blob => format!("{client}.Blob"),
 		tg::interface::Type::Boolean => "bool".to_owned(),
 		tg::interface::Type::Bytes => "bytes".to_owned(),
-		tg::interface::Type::Command { args, output } => {
-			let args = match args.as_ref() {
-				tg::interface::Type::Array { item } => {
-					format!("tuple[{}, ...]", self::type_(item, names))
-				},
-				tg::interface::Type::Tuple { elements, rest } => {
-					args_tuple(elements, rest.as_deref(), names)
-				},
-				_ => format!("tuple[{client}.Value.Type, ...]"),
-			};
-			let output = self::type_(output, names);
-			format!("{client}.Command[{args}, {output}]")
-		},
+		tg::interface::Type::Command { args, output } => command(args, output, names, View::Value),
 		tg::interface::Type::Directory => format!("{client}.Directory"),
 		tg::interface::Type::Error => format!("{client}.Error"),
 		tg::interface::Type::File => format!("{client}.File"),
@@ -152,7 +165,9 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 				literal
 			},
 		},
-		tg::interface::Type::Map { value } => format!("dict[str, {}]", self::type_(value, names)),
+		tg::interface::Type::Map { value } => {
+			format!("dict[str, {}]", self::type_(value, names, View::Value))
+		},
 		tg::interface::Type::Module => format!("{client}.Module"),
 		tg::interface::Type::Mutation => format!("{client}.Mutation"),
 		tg::interface::Type::Null => "None".to_owned(),
@@ -163,17 +178,27 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 		tg::interface::Type::Record { .. } | tg::interface::Type::Value => {
 			format!("{client}.Value.Type")
 		},
-		tg::interface::Type::Reference { import: None, name } => names
-			.definitions
-			.get(name)
-			.cloned()
-			.unwrap_or_else(|| format!("{client}.Value.Type")),
+		tg::interface::Type::Reference { import: None, name } => {
+			let definitions = match view {
+				View::Input => &names.input_definitions,
+				View::Value => &names.definitions,
+			};
+			definitions
+				.get(name)
+				.cloned()
+				.unwrap_or_else(|| format!("{client}.Value.Type"))
+		},
 		tg::interface::Type::Reference {
 			import: Some(import),
 			name,
 		} => names.imports.get(import).map_or_else(
 			|| format!("{client}.Value.Type"),
-			|module| format!("{module}_{name}"),
+			|module| match view {
+				View::Input if names.input_imports.contains(import) => {
+					format!("{module}_inputs.{name}")
+				},
+				View::Input | View::Value => format!("{module}_{name}"),
+			},
 		),
 		tg::interface::Type::String => "str".to_owned(),
 		tg::interface::Type::Symlink => format!("{client}.Symlink"),
@@ -186,12 +211,12 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 				.count();
 			let rest = rest
 				.as_ref()
-				.map(|rest| format!("*tuple[{}, ...]", self::type_(rest, names)));
+				.map(|rest| format!("*tuple[{}, ...]", self::type_(rest, names, view)));
 			let mut tuples = Vec::new();
 			for length in required..=elements.len() {
 				let mut items = elements[..length]
 					.iter()
-					.map(|element| self::type_(&element.type_, names))
+					.map(|element| self::type_(&element.type_, names, view))
 					.collect::<Vec<_>>();
 				if length == elements.len()
 					&& let Some(rest) = &rest
@@ -213,11 +238,32 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 			}
 			let types = types
 				.iter()
-				.map(|member| self::type_(member, names))
+				.map(|member| self::type_(member, names, view))
 				.collect::<Vec<_>>();
 			format!("({})", types.join(" | "))
 		},
 	}
+}
+
+/// Print a command, using input views only for the arguments of an exported command.
+fn command(
+	args: &tg::interface::Type,
+	output: &tg::interface::Type,
+	names: &Names,
+	view: View,
+) -> String {
+	let client = &names.client;
+	let args = match args {
+		tg::interface::Type::Array { item } => {
+			format!("tuple[{}, ...]", self::type_(item, names, view))
+		},
+		tg::interface::Type::Tuple { elements, rest } => {
+			args_tuple(elements, rest.as_deref(), names, view)
+		},
+		_ => format!("tuple[{client}.Value.Type, ...]"),
+	};
+	let output = self::type_(output, names, View::Value);
+	format!("{client}.Command[{args}, {output}]")
 }
 
 /// Print the type of something that is not a value, which carries the reason.
@@ -244,13 +290,18 @@ fn typed_dict(
 	name: &str,
 	fields: &BTreeMap<String, tg::interface::Field>,
 	names: &Names,
+	view: View,
 ) -> String {
 	let typing = &names.typing;
 	let fields = fields
 		.iter()
 		.map(|(name, field)| {
 			let name = serde_json::to_string(name).unwrap();
-			let type_ = self::type_(&field.type_, names);
+			let type_ = self::type_(&field.type_, names, view);
+			let type_ = match view {
+				View::Input => format!("{typing}.ReadOnly[{type_}]"),
+				View::Value => type_,
+			};
 			let type_ = if field.optional {
 				format!("{typing}.NotRequired[{type_}]")
 			} else {
@@ -270,6 +321,7 @@ fn args_tuple(
 	elements: &[tg::interface::Element],
 	rest: Option<&tg::interface::Type>,
 	names: &Names,
+	view: View,
 ) -> String {
 	let required = elements
 		.iter()
@@ -277,14 +329,14 @@ fn args_tuple(
 		.count();
 	let mut items = elements[..required]
 		.iter()
-		.map(|element| self::type_(&element.type_, names))
+		.map(|element| self::type_(&element.type_, names, view))
 		.collect::<Vec<_>>();
 	let mut tail = elements[required..]
 		.iter()
-		.map(|element| self::type_(&element.type_, names))
+		.map(|element| self::type_(&element.type_, names, view))
 		.collect::<Vec<_>>();
 	if let Some(rest) = rest {
-		tail.push(self::type_(rest, names));
+		tail.push(self::type_(rest, names, view));
 	}
 	tail.dedup();
 	match tail.as_slice() {
