@@ -39,6 +39,9 @@ pub(super) struct Sandboxes {
 
 	loading: usize,
 
+	/// The held ends of sandboxes whose runners were lost, which the scheduler finishes.
+	lost_ends: Vec<HeldEnd>,
+
 	/// The sandboxes that a runner holds whose control connections may not be established yet.
 	placed: HashMap<tg::sandbox::Id, Placed, tg::id::BuildHasher>,
 
@@ -259,6 +262,7 @@ impl Sandboxes {
 			entries: HashMap::default(),
 			generation: 0,
 			loading: 0,
+			lost_ends: Vec::new(),
 			placed: HashMap::default(),
 			stops: HashMap::default(),
 		}
@@ -299,6 +303,11 @@ impl Borrowable {
 }
 
 impl Sandboxes {
+	/// Take the held ends of sandboxes whose runners were lost.
+	pub(super) fn take_lost_ends(&mut self) -> Vec<HeldEnd> {
+		std::mem::take(&mut self.lost_ends)
+	}
+
 	/// Forget the task that stopped a sandbox.
 	pub(super) fn finish_stop(&mut self, sandbox: &tg::sandbox::Id) {
 		self.stops.remove(sandbox);
@@ -1379,9 +1388,18 @@ impl SchedulerState {
 				Some(DequeueSandboxResponseOutput { dequeued: true })
 			},
 			SandboxState::Uncertain { placement } => {
+				// Keep the placement, because the sandbox may be on the runner, so that a destroy can reach it.
 				let placement = placement.clone();
 				self.remove_reservation(&id, &placement, true);
-				self.sandboxes.entries.remove(&id);
+				let request = self.sandboxes.entries.remove(&id).unwrap().request;
+				let runner = placement.runner().clone();
+				let placed = Placed {
+					generation: 0,
+					registration_index: runner.registration_index,
+					request,
+					runner: runner.id,
+				};
+				self.insert_placed_sandbox(id.clone(), placed);
 				Some(DequeueSandboxResponseOutput { dequeued: false })
 			},
 		};
@@ -1542,8 +1560,16 @@ impl SchedulerState {
 					self.sandboxes.entries.get_mut(&id).unwrap().state =
 						SandboxState::Uncertain { placement };
 				} else {
+					// Keep the placement, because the sandbox may be on the runner, so that a destroy can reach it.
 					self.remove_reservation(&id, &placement, true);
-					self.sandboxes.entries.remove(&id);
+					let request = self.sandboxes.entries.remove(&id).unwrap().request;
+					let placed = Placed {
+						generation: 0,
+						registration_index: runner_ref.registration_index,
+						request,
+						runner: runner_ref.id.clone(),
+					};
+					self.insert_placed_sandbox(id.clone(), placed);
 				}
 				DequeueSandboxResponseOutput { dequeued: false }
 			},
@@ -1594,6 +1620,14 @@ impl SchedulerState {
 		let sandboxes = runner.reservations.into_keys().collect::<Vec<_>>();
 		let mut completions = Vec::new();
 		for sandbox in sandboxes {
+			// Finish a held end now, because the sandbox has no runner to wait for.
+			if self.sandboxes.entries[&sandbox].held_end.is_some() {
+				let mut entry = self.sandboxes.entries.remove(&sandbox).unwrap();
+				let mut held = entry.held_end.take().unwrap();
+				held.request = Some(entry.request);
+				self.sandboxes.lost_ends.push(held);
+				continue;
+			}
 			let dequeue_requests = self.sandboxes.entries[&sandbox].dequeue_requests.clone();
 			if dequeue_requests.is_empty() {
 				self.requeue_sandbox(&sandbox);

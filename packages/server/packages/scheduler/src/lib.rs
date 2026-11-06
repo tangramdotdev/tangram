@@ -1156,6 +1156,9 @@ impl Scheduler {
 		for completion in completions {
 			self.send_dequeue_sandbox_completion(state, completion);
 		}
+		for held in state.sandboxes.take_lost_ends() {
+			state.finish_held_end(self, held);
+		}
 	}
 
 	fn send_dequeue_sandbox_response(
