@@ -9,24 +9,29 @@ async fn deleting_replaced_nodes_preserves_the_replacement() {
 	let specifier: tg::Specifier = "test".parse().unwrap();
 	let nodes = vec![
 		(
-			tangram_index::Item::PutGroup(tangram_index::group::put::Arg {
+			tangram_index::Item::PutGroup(Box::new(tangram_index::group::put::Arg {
 				id: group.clone(),
 				parent: None,
 				specifier: specifier.clone(),
-			}),
-			tangram_index::Item::DeleteGroup(group),
+			})),
+			tangram_index::Item::DeleteGroup(Box::new(tangram_index::group::delete::Arg {
+				id: group,
+			})),
 		),
 		(
-			tangram_index::Item::PutOrganization(tangram_index::organization::put::Arg {
+			tangram_index::Item::PutOrganization(Box::new(tangram_index::organization::put::Arg {
 				billing_ready: None,
 				id: organization.clone(),
 				specifier: specifier.clone(),
-			}),
-			tangram_index::Item::DeleteOrganization(organization),
+			})),
+			tangram_index::Item::DeleteOrganization(Box::new(
+				tangram_index::organization::delete::Arg { id: organization },
+			)),
 		),
 		(
-			tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
+			tangram_index::Item::PutTag(Box::new(tangram_index::tag::put::Arg {
 				account: None,
+				captures: tangram_index::permission::capture::Captures::default(),
 				id: tag.clone(),
 				name: "test".to_owned(),
 				parent: None,
@@ -34,16 +39,18 @@ async fn deleting_replaced_nodes_preserves_the_replacement() {
 				target: tg::Either::Left(tg::file::Id::new(b"target").into()),
 				touched_at: 0,
 				version: "test".to_owned(),
-			}),
-			tangram_index::Item::DeleteTag(tag),
+			})),
+			tangram_index::Item::DeleteTag(Box::new(tangram_index::tag::delete::Arg { id: tag })),
 		),
 		(
-			tangram_index::Item::PutUser(tangram_index::user::put::Arg {
+			tangram_index::Item::PutUser(Box::new(tangram_index::user::put::Arg {
 				billing_ready: None,
 				id: user.clone(),
 				specifier: specifier.clone(),
-			}),
-			tangram_index::Item::DeleteUser(user),
+			})),
+			tangram_index::Item::DeleteUser(Box::new(tangram_index::user::delete::Arg {
+				id: user,
+			})),
 		),
 	];
 	for (put, delete) in nodes {
@@ -52,15 +59,15 @@ async fn deleting_replaced_nodes_preserves_the_replacement() {
 		let batch = tangram_index::write::Arg {
 			items: vec![
 				put,
-				tangram_index::Item::PutGroup(tangram_index::group::put::Arg {
+				tangram_index::Item::PutGroup(Box::new(tangram_index::group::put::Arg {
 					id: replacement.clone(),
 					parent: None,
 					specifier: specifier.clone(),
-				}),
+				})),
 				delete,
 			],
 		};
-		index.batch(batch).await.unwrap().unwrap();
+		index.write(batch).await.unwrap().unwrap();
 		let ids = index
 			.try_get_ids_for_specifiers(std::slice::from_ref(&specifier))
 			.await

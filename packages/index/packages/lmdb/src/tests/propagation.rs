@@ -216,6 +216,7 @@ fn process_arg(
 		parent: None,
 		permissions: Vec::new(),
 		principal: tg::Principal::Process(id),
+		registration: None,
 		sandbox: None,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
