@@ -63,24 +63,53 @@ pub struct HeartbeatNotification {
 #[derive(Clone, Debug, derive_more::TryUnwrap, serde::Serialize, serde::Deserialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum RequestArg {
+	AcquireProcessLease(AcquireProcessLeaseRequestArg),
 	AddRunner(AddRunnerRequestArg),
 	DequeueSandbox(DequeueSandboxRequestArg),
 	DestroyRunnerSandbox(DestroyRunnerSandboxRequestArg),
 	EndSandbox(EndSandboxRequestArg),
 	EnqueueSandbox(EnqueueSandboxRequestArg),
+	ReleaseProcessLease(ReleaseProcessLeaseRequestArg),
 	RemoveRunner(RemoveRunnerRequestArg),
 }
 
 #[derive(Clone, Debug, derive_more::TryUnwrap, serde::Serialize, serde::Deserialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ResponseOutput {
+	AcquireProcessLease(AcquireProcessLeaseResponseOutput),
 	AddRunner(AddRunnerResponseOutput),
 	Busy,
 	DequeueSandbox(DequeueSandboxResponseOutput),
 	DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput),
 	EndSandbox(EndSandboxResponseOutput),
 	EnqueueSandbox(EnqueueSandboxResponseOutput),
+	ReleaseProcessLease(ReleaseProcessLeaseResponseOutput),
 	RemoveRunner(RemoveRunnerResponseOutput),
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AcquireProcessLeaseRequestArg {
+	pub sandbox: tg::sandbox::Id,
+}
+
+/// The lease is `None` if the scheduler no longer holds the process's leases, because the process's request was sent to a runner.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AcquireProcessLeaseResponseOutput {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lease: Option<tg::process::Lease>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ReleaseProcessLeaseRequestArg {
+	pub lease: tg::process::Lease,
+	pub sandbox: tg::sandbox::Id,
+}
+
+/// The output is `None` if the scheduler no longer holds the process's leases, and otherwise whether the lease was released.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ReleaseProcessLeaseResponseOutput {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub released: Option<bool>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

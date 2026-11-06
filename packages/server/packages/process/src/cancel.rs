@@ -98,7 +98,10 @@ impl Component {
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		// Release a process that is starting at its sandbox's scheduler, because it has no control connection.
-		if let Some(output) = self.try_cancel_starting_process(session, id).await? {
+		if let Some(output) = self
+			.try_cancel_starting_process(session, id, arg.lease)
+			.await?
+		{
 			return Ok(Some(output));
 		}
 		self.cancel_process_with_control(session, id, arg.lease, None)
@@ -106,11 +109,56 @@ impl Component {
 			.await
 	}
 
+	/// Release a lease at the scheduler while it holds the process's leases, and wait for the process to connect once its request is sent to a runner.
 	async fn try_cancel_starting_process(
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
+		lease: tg::process::Lease,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
+		let mut wakeups = None;
+		loop {
+			let Some((scheduler, sandbox)) =
+				self.try_get_starting_process_owner(session, id).await?
+			else {
+				return Ok(None);
+			};
+			let released = session
+				.server
+				.components
+				.scheduler
+				.release_process_lease(session, &scheduler, &sandbox, lease)
+				.await?;
+			if let Some(released) = released {
+				let output = tg::process::cancel::Output { released };
+				return Ok(Some(output));
+			}
+
+			// Subscribe only for a process that is starting, and read again after subscribing, so that no change is missed.
+			let Some(wakeups) = &mut wakeups else {
+				let stream = self
+					.create_process_status_wakeup_stream(
+						session,
+						id,
+						session.context.stopper.clone(),
+						None,
+					)
+					.await?;
+				wakeups = Some(stream);
+				continue;
+			};
+			if wakeups.next().await.is_none() {
+				return Err(tg::error!("the process status wakeup stream ended"));
+			}
+		}
+	}
+
+	/// Get the scheduler and sandbox of a process that is starting.
+	pub(crate) async fn try_get_starting_process_owner(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<(tg::scheduler::Id, tg::sandbox::Id)>> {
 		let Some((process, data)) = self
 			.try_get_process_with_data_from_index(session, id)
 			.await?
@@ -123,38 +171,16 @@ impl Component {
 		let Some(sandbox) = data.and_then(|data| data.sandbox) else {
 			return Ok(None);
 		};
-		let Some(scheduler) = session
+		let scheduler = session
 			.server
 			.components
 			.sandbox
 			.try_get_sandbox_from_index(session, &sandbox)
 			.await?
-			.and_then(|sandbox| sandbox.scheduler)
-		else {
-			return Ok(None);
-		};
-		let error = tg::error::Data {
-			code: Some(tg::error::Code::Cancellation),
-			message: Some("the process was canceled".into()),
-			..Default::default()
-		};
-		let arg = tangram_server_scheduler_core::EndSandboxRequestArg {
-			error: Some(error),
-			sandbox,
-			stop: false,
-		};
-		let ended = session
-			.server
-			.components
-			.scheduler
-			.end_sandbox(session, &scheduler, arg)
-			.await?;
-		if !ended {
-			return Ok(None);
-		}
-		let output = tg::process::cancel::Output { released: true };
+			.and_then(|sandbox| sandbox.scheduler);
+		let output = scheduler.map(|scheduler| (scheduler, sandbox));
 
-		Ok(Some(output))
+		Ok(output)
 	}
 
 	async fn cancel_process_with_control(

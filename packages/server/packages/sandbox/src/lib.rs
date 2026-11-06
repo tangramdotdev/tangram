@@ -198,17 +198,6 @@ impl tangram_server_core::sandbox::Component for Component {
 			.boxed()
 	}
 
-	fn destroy_sandbox_when_available<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		id: &'a tg::sandbox::Id,
-		arg: tg::sandbox::destroy::Arg,
-		connection_future: ConnectionFuture,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.destroy_sandbox_when_available(session, id, arg, connection_future)
-			.boxed()
-	}
-
 	fn get_sandbox_from_index<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,

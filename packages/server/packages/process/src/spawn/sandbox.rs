@@ -208,6 +208,7 @@ impl Component {
 			data,
 			id,
 			lease,
+			leases: Vec::new(),
 			open: Vec::new(),
 			options,
 			parent,

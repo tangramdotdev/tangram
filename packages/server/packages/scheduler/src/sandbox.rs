@@ -1,9 +1,11 @@
 use {
 	super::{
+		AcquireProcessLeaseRequestArg, AcquireProcessLeaseResponseOutput,
 		BorrowableCapacityNotification, Config, DequeueSandboxRequestArg,
 		DequeueSandboxResponseOutput, EndSandboxRequestArg, EndSandboxResponseOutput,
 		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatNotification, Operation,
-		OwnerAncestors, PendingEnqueue, ResponseOutput, Scheduler, SchedulerState,
+		OwnerAncestors, PendingEnqueue, ReleaseProcessLeaseRequestArg,
+		ReleaseProcessLeaseResponseOutput, ResponseOutput, Scheduler, SchedulerState,
 		runner::{Reservation, ReservationState, Runner},
 	},
 	futures::FutureExt as _,
@@ -701,14 +703,148 @@ impl SchedulerState {
 			return;
 		}
 
-		// Record the destroy of a sandbox whose request is held for recovery, which the release finishes.
-		if !stop && let Some(request) = self.recovering_request(&sandbox) {
-			let status = tg::sandbox::Status::Destroying;
+		// End a sandbox whose request is held for recovery.
+		if !stop && let Some((request, runner)) = self.take_recovering_request(&sandbox) {
+			let status = if let Some((runner, registration_index)) = runner {
+				self.send_destroy_sandbox(
+					scheduler,
+					runner,
+					registration_index,
+					sandbox,
+					error.clone().unwrap_or_default(),
+				);
+				tg::sandbox::Status::Destroying
+			} else {
+				tg::sandbox::Status::Destroyed
+			};
 			self.put_end_status(scheduler, vec![id], request, status, error);
 			return;
 		}
 
 		self.send_end_sandbox_response(scheduler, id, false);
+	}
+
+	/// Add a lease to a queued process. The assignment carries the leases, so a process whose request was sent to a runner takes leases over process control once it connects.
+	pub(super) fn handle_acquire_process_lease_request(
+		&mut self,
+		scheduler: &Scheduler,
+		id: String,
+		arg: &AcquireProcessLeaseRequestArg,
+	) {
+		let lease = self
+			.sandboxes
+			.entries
+			.get_mut(&arg.sandbox)
+			.filter(|entry| matches!(entry.state, SandboxState::Pending))
+			.and_then(|entry| {
+				let process = entry.request.process.as_mut()?;
+				let lease = tg::process::Lease::new();
+				process.leases.push(lease);
+				Some((lease, entry.request.clone()))
+			});
+		let Some((lease, request)) = lease else {
+			let output = AcquireProcessLeaseResponseOutput { lease: None };
+			let output = ResponseOutput::AcquireProcessLease(output);
+			let response = scheduler.response(id, Ok(output));
+			scheduler.send_response(self, response);
+			return;
+		};
+
+		// Respond once the lease is durable.
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let result = scheduler.persist_sandbox(&request).await.map(|()| {
+					let lease = Some(lease);
+					let output = AcquireProcessLeaseResponseOutput { lease };
+					ResponseOutput::AcquireProcessLease(output)
+				});
+				Operation::Respond { id, result }
+			}
+			.boxed(),
+		);
+	}
+
+	/// Release a lease of a queued process, and end the process and its sandbox if no leases remain.
+	pub(super) fn handle_release_process_lease_request(
+		&mut self,
+		scheduler: &Scheduler,
+		id: String,
+		arg: ReleaseProcessLeaseRequestArg,
+	) {
+		let ReleaseProcessLeaseRequestArg { lease, sandbox } = arg;
+		let output = |released| {
+			let output = ReleaseProcessLeaseResponseOutput { released };
+			ResponseOutput::ReleaseProcessLease(output)
+		};
+
+		// Remove the lease.
+		let process = self
+			.sandboxes
+			.entries
+			.get_mut(&sandbox)
+			.filter(|entry| matches!(entry.state, SandboxState::Pending))
+			.and_then(|entry| entry.request.process.as_mut());
+		let Some(process) = process else {
+			let response = scheduler.response(id, Ok(output(None)));
+			scheduler.send_response(self, response);
+			return;
+		};
+		let position = process.leases.iter().position(|value| *value == lease);
+		let released = if let Some(position) = position {
+			process.leases.remove(position);
+			true
+		} else if process.lease == lease {
+			if let Some(next) = process.leases.pop() {
+				process.lease = next;
+				true
+			} else {
+				// End the process and its sandbox, because this was the last lease.
+				self.remove_queued_sandbox(&sandbox);
+				let request = self.sandboxes.entries.remove(&sandbox).unwrap().request;
+				self.queue.wake();
+				let error = tg::error::Data {
+					code: Some(tg::error::Code::Cancellation),
+					message: Some("the process was canceled".to_owned()),
+					..Default::default()
+				};
+				let scheduler = scheduler.clone();
+				self.operations.push(
+					async move {
+						let status = tg::sandbox::Status::Destroyed;
+						let error = Some(tg::Either::Left(error));
+						let result = scheduler
+							.put_sandbox_status(&request, status, error, None)
+							.await
+							.map(|()| output(Some(true)));
+						Operation::Respond { id, result }
+					}
+					.boxed(),
+				);
+				return;
+			}
+		} else {
+			false
+		};
+		if !released {
+			let response = scheduler.response(id, Ok(output(Some(false))));
+			scheduler.send_response(self, response);
+			return;
+		}
+
+		// Respond once the remaining leases are durable.
+		let request = self.sandboxes.entries[&sandbox].request.clone();
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let result = scheduler
+					.persist_sandbox(&request)
+					.await
+					.map(|()| output(Some(true)));
+				Operation::Respond { id, result }
+			}
+			.boxed(),
+		);
 	}
 
 	fn send_end_sandbox_response(&mut self, scheduler: &Scheduler, id: String, ended: bool) {

@@ -10,6 +10,7 @@ use {
 /// The requests that a restarted scheduler holds until its runners report what they have placed.
 pub(super) struct Recovery {
 	claimed: HashMap<tg::sandbox::Id, Claim, tg::id::BuildHasher>,
+	releasing: bool,
 	requests: HashMap<tg::sandbox::Id, EnqueueSandboxRequestArg, tg::id::BuildHasher>,
 	runners: HashMap<tg::runner::Id, u64, tg::id::BuildHasher>,
 }
@@ -21,11 +22,7 @@ struct Claim {
 	runner: tg::runner::Id,
 }
 
-pub(super) struct Entry {
-	claim: Option<Claim>,
-	data: Option<tg::sandbox::Data>,
-	request: EnqueueSandboxRequestArg,
-}
+pub(super) type Statuses = HashMap<tg::sandbox::Id, tg::sandbox::Data, tg::id::BuildHasher>;
 
 impl Scheduler {
 	/// Reload the accepted requests from the index. A single server does not recover, because its index writes are not durable when it acknowledges them, and it stops its unfinished sandboxes when it starts.
@@ -94,6 +91,7 @@ impl Scheduler {
 		// Hold the requests until the runners report.
 		state.recovery = Some(Recovery {
 			claimed: HashMap::default(),
+			releasing: false,
 			requests,
 			runners,
 		});
@@ -151,17 +149,19 @@ impl SchedulerState {
 		}
 	}
 
-	/// Get the request of a sandbox that is held for recovery.
-	pub(super) fn recovering_request(
-		&self,
+	/// Take the request of a sandbox that is held for recovery, with the runner that claimed it.
+	pub(super) fn take_recovering_request(
+		&mut self,
 		sandbox: &tg::sandbox::Id,
-	) -> Option<EnqueueSandboxRequestArg> {
-		let recovery = self.recovery.as_ref()?;
-		let claimed = recovery
-			.claimed
-			.get(sandbox)
-			.map(|claim| claim.request.clone());
-		claimed.or_else(|| recovery.requests.get(sandbox).cloned())
+	) -> Option<(EnqueueSandboxRequestArg, Option<(tg::runner::Id, u64)>)> {
+		let recovery = self.recovery.as_mut()?;
+		if let Some(claim) = recovery.claimed.remove(sandbox) {
+			let runner = (claim.runner, claim.registration_index);
+			return Some((claim.request, Some(runner)));
+		}
+		let request = recovery.requests.remove(sandbox)?;
+
+		Some((request, None))
 	}
 
 	/// Expire the runners that did not report in time, and release the held requests.
@@ -189,35 +189,26 @@ impl SchedulerState {
 	}
 
 	fn release_recovery(&mut self, scheduler: &Scheduler) {
-		let Some(recovery) = self.recovery.take() else {
+		let Some(recovery) = &mut self.recovery else {
 			return;
 		};
-		let claims = recovery
+		if recovery.releasing {
+			return;
+		}
+		recovery.releasing = true;
+		let ids = recovery
 			.claimed
-			.into_values()
-			.map(|claim| (claim.request.clone(), Some(claim)));
-		let requests = recovery
-			.requests
-			.into_values()
-			.map(|request| (request, None));
-		let entries = claims.chain(requests).collect::<Vec<_>>();
+			.keys()
+			.chain(recovery.requests.keys())
+			.cloned()
+			.collect::<Vec<_>>();
 		let server = scheduler.server.clone();
 		self.operations.push(
 			async move {
 				// Read the sandboxes' statuses, because a destroy may have arrived before the restart.
-				let ids = entries
-					.iter()
-					.map(|(request, _)| request.sandbox.clone())
-					.collect::<Vec<_>>();
 				let result = server.index.try_get_sandboxes(&ids).await.map(|sandboxes| {
-					std::iter::zip(entries, sandboxes)
-						.map(|((request, claim), sandbox)| Entry {
-							claim,
-							data: sandbox
-								.and_then(|sandbox| sandbox.data)
-								.map(|data| data.data),
-							request,
-						})
+					std::iter::zip(ids, sandboxes)
+						.filter_map(|(id, sandbox)| Some((id, sandbox?.data?.data)))
 						.collect()
 				});
 				Operation::Recovered { result }
@@ -226,56 +217,54 @@ impl SchedulerState {
 		);
 	}
 
-	/// Tear down the entries that are being destroyed, and queue the rest of the requests that no runner claimed.
-	pub(super) fn handle_recovered(
-		&mut self,
-		scheduler: &Scheduler,
-		result: tg::Result<Vec<Entry>>,
-	) {
-		let entries = match result {
-			Ok(entries) => entries,
+	/// Tear down the requests that are being destroyed, and queue the rest of the requests that no runner claimed.
+	pub(super) fn handle_recovered(&mut self, scheduler: &Scheduler, result: tg::Result<Statuses>) {
+		let Some(recovery) = self.recovery.take() else {
+			return;
+		};
+		let mut statuses = match result {
+			Ok(statuses) => statuses,
 			Err(error) => {
 				tracing::error!(error = %error.trace(), "failed to read the recovered sandboxes");
 				return;
 			},
 		};
-		for entry in entries {
-			let Entry {
-				claim,
-				data,
-				request,
-			} = entry;
-			let destroying = data
+		for (id, claim) in recovery.claimed {
+			let data = statuses.remove(&id);
+			if data
 				.as_ref()
-				.is_some_and(|data| data.status.is_destroying());
-			match (destroying, claim) {
-				(true, Some(claim)) => {
-					let error = data.and_then(|data| data.error).and_then(tg::Either::left);
-					let error = error.unwrap_or_default();
-					self.send_destroy_sandbox(
-						scheduler,
-						claim.runner,
-						claim.registration_index,
-						request.sandbox,
-						error,
-					);
-				},
-				(true, None) => {
-					let error = data.and_then(|data| data.error);
-					self.finish_destroy_sandbox(scheduler, request, error);
-				},
-				(false, Some(claim)) => {
-					let placed = super::sandbox::Placed {
-						registration_index: claim.registration_index,
-						request,
-						runner: claim.runner,
-					};
-					let sandbox = placed.request.sandbox.clone();
-					self.insert_placed_sandbox(sandbox, placed);
-				},
-				(false, None) => {
-					self.handle_enqueue_sandbox_request(scheduler, None, request, true);
-				},
+				.is_some_and(|data| data.status.is_destroying())
+			{
+				let error = data
+					.and_then(|data| data.error)
+					.and_then(tg::Either::left)
+					.unwrap_or_default();
+				self.send_destroy_sandbox(
+					scheduler,
+					claim.runner,
+					claim.registration_index,
+					id,
+					error,
+				);
+			} else {
+				let placed = super::sandbox::Placed {
+					registration_index: claim.registration_index,
+					request: claim.request,
+					runner: claim.runner,
+				};
+				self.insert_placed_sandbox(id, placed);
+			}
+		}
+		for (id, request) in recovery.requests {
+			let data = statuses.remove(&id);
+			if data
+				.as_ref()
+				.is_some_and(|data| data.status.is_destroying())
+			{
+				let error = data.and_then(|data| data.error);
+				self.finish_destroy_sandbox(scheduler, request, error);
+			} else {
+				self.handle_enqueue_sandbox_request(scheduler, None, request, true);
 			}
 		}
 	}
