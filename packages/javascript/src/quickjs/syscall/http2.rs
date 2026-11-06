@@ -20,6 +20,11 @@ pub async fn session_close(ctx: qjs::Ctx<'_>, session: usize) -> Result<()> {
 	Result(state.http2.session_close(session).await)
 }
 
+pub fn session_closed(ctx: qjs::Ctx<'_>, session: usize) -> bool {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	state.http2.session_closed(session)
+}
+
 pub async fn session_destroy(
 	ctx: qjs::Ctx<'_>,
 	session: usize,

@@ -92,6 +92,7 @@ pub fn syscall<'javascript>(
 		"host_write_sync" => qjs::Function::new(ctx.clone(), self::host::write_sync),
 		"http2_connect" => qjs::Function::new(ctx.clone(), Async(self::http2::connect)),
 		"http2_session_close" => qjs::Function::new(ctx.clone(), Async(self::http2::session_close)),
+		"http2_session_closed" => qjs::Function::new(ctx.clone(), self::http2::session_closed),
 		"http2_session_destroy" => {
 			qjs::Function::new(ctx.clone(), Async(self::http2::session_destroy))
 		},
