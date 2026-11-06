@@ -33,6 +33,7 @@ pub(super) struct WriteProcessStdioRelayTaskArg<'a> {
 	pub(super) input: BoxStream<'static, tg::Result<Data>>,
 	pub(super) open: Option<String>,
 	pub(super) sender: &'a tokio::sync::mpsc::Sender<tg::Result<Output>>,
+	pub(super) start: Option<super::super::read::Start>,
 	pub(super) streams: &'a [tg::process::stdio::Stream],
 	pub(super) wait: future::Shared<BoxFuture<'static, tg::Result<()>>>,
 }
@@ -45,6 +46,7 @@ struct WriteProcessStdioRelayAttemptArg<'a> {
 	open: Option<String>,
 	position: &'a mut u64,
 	sender: &'a tokio::sync::mpsc::Sender<tg::Result<Output>>,
+	start: Option<super::super::read::Start>,
 	streams: &'a [tg::process::stdio::Stream],
 	wait: future::Shared<BoxFuture<'static, tg::Result<()>>>,
 }
@@ -277,6 +279,7 @@ impl Component {
 			mut input,
 			mut open,
 			sender,
+			start: process_start,
 			streams,
 			wait,
 		} = arg;
@@ -307,6 +310,7 @@ impl Component {
 				open: open.take(),
 				position: &mut position,
 				sender,
+				start: process_start.clone(),
 				streams,
 				wait: wait.clone(),
 			};
@@ -344,6 +348,7 @@ impl Component {
 			open,
 			position,
 			sender,
+			start,
 			streams,
 			wait,
 		} = arg;
@@ -353,7 +358,8 @@ impl Component {
 		let send_subject = super::super::relay::data_subject(id, &open);
 		let receive_subject = super::super::relay::ack_subject(id, &open);
 		let options = session.server.config.process.stdio_relay;
-		let result = tangram_messenger::relay::open::<
+		let hold = start.clone().map(|start| start.map(|_| ()).boxed());
+		let result = tangram_messenger::relay::open_with_hold::<
 			super::super::relay::Data,
 			super::super::relay::Ack,
 			_,
@@ -362,6 +368,7 @@ impl Component {
 			send_subject,
 			receive_subject,
 			options,
+			hold,
 		)
 		.await;
 		let (relay_sender, receiver) = super::super::relay::attempt!(result);
@@ -386,7 +393,9 @@ impl Component {
 				),
 				id: open,
 			};
-			self.send_process_control_open(session, id, open).await?
+			let hold = start.map(|start| start.map(|_| ()).boxed());
+			self.send_process_control_open(session, id, open, hold)
+				.await?
 		};
 
 		// Resend the kept data on the new relay, then queue new data behind it. The runner skips the bytes it already wrote.

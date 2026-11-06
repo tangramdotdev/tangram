@@ -960,7 +960,19 @@ impl Component {
 		arg: tg::process::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 	) -> tg::Result<tg::Result<tg::process::control::ClientResponseOutput>> {
-		self.send_process_control_request(session, id, arg, options)
+		self.request_process_control_with_hold(session, id, arg, options, None)
+			.await
+	}
+
+	async fn request_process_control_with_hold(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+		arg: tg::process::control::ServerRequestArg,
+		options: tangram_server_core::control::Options,
+		hold: Option<futures::future::BoxFuture<'static, ()>>,
+	) -> tg::Result<tg::Result<tg::process::control::ClientResponseOutput>> {
+		self.send_process_control_request(session, id, arg, options, hold)
 			.boxed()
 			.await?
 			.await
@@ -973,14 +985,62 @@ impl Component {
 		id: &tg::process::Id,
 		arg: tg::process::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
+		starting: bool,
 	) -> tg::Result<Option<tg::Result<tg::process::control::ClientResponseOutput>>> {
 		let wakeups = self
 			.create_process_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
 			.await?;
+		let hold = starting.then(|| {
+			self.create_wait_process_start_future(session, id)
+				.map(|_| ())
+				.boxed()
+		});
 		tokio::select! {
-			result = self.request_process_control(session, id, arg, options) => result.map(Some),
+			result = self.request_process_control_with_hold(session, id, arg, options, hold) => result.map(Some),
 			result = self.wait_for_process_finish_from_index(session, id, wakeups) => result.map(|()| None),
 		}
+	}
+
+	/// Create a future that waits for a process to leave the starting status, and resolves to whether it started, because a process can finish without starting.
+	pub(crate) fn create_wait_process_start_future(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+	) -> crate::stdio::read::Start {
+		let component = self.clone();
+		let session = session.clone();
+		let id = id.clone();
+		async move {
+			let mut wakeups = component
+				.create_process_status_wakeup_stream(
+					&session,
+					&id,
+					session.context.stopper.clone(),
+					None,
+				)
+				.await?;
+			loop {
+				let Some((process, data)) = component
+					.try_get_process_with_data_from_index(&session, &id)
+					.await?
+				else {
+					return Ok(true);
+				};
+				let Some(status) = process.status else {
+					return Ok(true);
+				};
+				if !status.is_starting() {
+					let started =
+						!status.is_finished() || data.is_some_and(|data| data.started_at.is_some());
+					return Ok(started);
+				}
+				if wakeups.next().await.is_none() {
+					return Err(tg::error!("the process status wakeup stream ended"));
+				}
+			}
+		}
+		.boxed()
+		.shared()
 	}
 
 	async fn wait_for_process_finish_from_index(
@@ -1011,6 +1071,7 @@ impl Component {
 		id: &tg::process::Id,
 		arg: tg::process::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
+		hold: Option<futures::future::BoxFuture<'static, ()>>,
 	) -> tg::Result<
 		futures::future::BoxFuture<
 			'static,
@@ -1031,6 +1092,7 @@ impl Component {
 				))
 			},
 			client_subject: format!("processes.{id}.control.client.{request_id}"),
+			hold,
 			is_ack: |message: &ClientMessage| {
 				matches!(&message.0, tg::process::control::ClientMessage::Ack(_))
 			},

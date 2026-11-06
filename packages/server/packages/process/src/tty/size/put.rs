@@ -190,8 +190,9 @@ impl Component {
 		let response = if let Some(control_sender) = control_sender {
 			control_sender.request(request).await?
 		} else {
+			let starting = data.status.is_starting();
 			let Some(response) = self
-				.try_request_process_control(session, id, request, options)
+				.try_request_process_control(session, id, request, options, starting)
 				.await?
 			else {
 				return Ok(Some(()));

@@ -63,6 +63,7 @@ impl Server {
 		let SendControlRequestArg {
 			ack,
 			client_subject,
+			hold,
 			is_ack,
 			marker: _,
 			options,
@@ -84,6 +85,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
 		let future = async move {
+			let mut hold = hold;
 			let mut responses = std::pin::pin!(responses);
 
 			let mut acknowledged = false;
@@ -91,7 +93,7 @@ impl Server {
 			let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
 			loop {
 				if !acknowledged && !initial {
-					if retries.next().await.is_none() {
+					if hold.is_none() && retries.next().await.is_none() {
 						return Err(tg::error!(
 							"timed out waiting for the request acknowledgement"
 						));
@@ -123,7 +125,15 @@ impl Server {
 						return Ok(ReceiveControlRequestOutput::Response { id, response });
 					}
 				};
-				let result = tokio::time::timeout(timeout, receive).await;
+
+				// Resend the request as soon as the hold ends, because its peer may have just started.
+				let result = tokio::select! {
+					result = tokio::time::timeout(timeout, receive) => result,
+					() = async { hold.as_mut().unwrap().await }, if hold.is_some() => {
+						hold = None;
+						continue;
+					},
+				};
 
 				match result {
 					Ok(Ok(ReceiveControlRequestOutput::Ack)) => acknowledged = true,

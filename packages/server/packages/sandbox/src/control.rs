@@ -657,6 +657,7 @@ impl Component {
 				))
 			},
 			client_subject: format!("sandboxes.{id}.control.client.{request_id}"),
+			hold: None,
 			is_ack: |message: &ClientMessage| {
 				matches!(&message.0, tg::sandbox::control::ClientMessage::Ack(_))
 			},
