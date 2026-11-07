@@ -138,11 +138,14 @@ impl Index {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let request = Request::PutPermissions(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
+		let items = args
+			.iter()
+			.cloned()
+			.map(|arg| tangram_index::Item::PutPermission(Box::new(arg)))
+			.collect();
+		let arg = tangram_index::write::Arg { items };
+		self.write(arg).await??;
+
 		Ok(())
 	}
 
@@ -153,11 +156,14 @@ impl Index {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let request = Request::DeletePermissions(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
+		let items = args
+			.iter()
+			.cloned()
+			.map(|arg| tangram_index::Item::DeletePermission(Box::new(arg)))
+			.collect();
+		let arg = tangram_index::write::Arg { items };
+		self.write(arg).await??;
+
 		Ok(())
 	}
 }
