@@ -4,6 +4,7 @@ use {
 		{
 			get::State,
 			graph::{Graph, Requested, UpdateObjectLocalArg, UpdateProcessLocalArg},
+			progress::Progress,
 			queue::{DatabaseNode, ObjectNode, ProcessNode, SandboxNode},
 		},
 	},
@@ -565,6 +566,9 @@ impl Component {
 						&node.remote_tokens,
 					);
 
+					// Increment the progress.
+					Self::sync_get_increment_skipped_process(state, &availability, metadata);
+
 					// Send the available portions of the process.
 					if Graph::process_any_available(&availability) {
 						let message = tg::sync::GetMessage::Available(
@@ -597,6 +601,22 @@ impl Component {
 		}
 
 		Ok(())
+	}
+
+	pub(super) fn sync_get_increment_skipped_process(
+		state: &State,
+		availability: &tg::process::Availability,
+		metadata: &tg::process::Metadata,
+	) {
+		let available = state.graph.lock().unwrap().process_available(availability);
+		let (processes, objects, bytes) = if available {
+			Progress::process_amounts(&state.arg, metadata)
+		} else {
+			(1, 0, 0)
+		};
+		state
+			.progress
+			.increment_skipped(processes.max(1), objects, bytes);
 	}
 
 	pub(super) fn sync_get_enqueue_object_children(
