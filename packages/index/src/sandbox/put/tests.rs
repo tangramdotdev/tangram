@@ -97,6 +97,7 @@ fn arg(data: tg::sandbox::get::Output) -> Arg {
 		location: None,
 		permissions: Vec::new(),
 		principal: tg::Principal::Root,
+		process: None,
 		processes: None,
 		runner: None,
 		scheduled: None,

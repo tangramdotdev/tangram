@@ -115,6 +115,7 @@ fn sandbox_arg(
 		location: None,
 		permissions: Vec::new(),
 		principal: tg::Principal::Sandbox(id),
+		process: None,
 		processes: None,
 		registration: None,
 		runner: None,
@@ -682,7 +683,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	// Permission spawn updates append once in indexed order without finalizing the list.
 	let mut first_membership = process_arg(first.clone(), tg::process::Status::Started);
 	first_membership.data = None;
-	first_membership.sandbox = Some(tangram_index::process::put::Sandbox::Id(sandbox.clone()));
+	first_membership.sandbox = Some(sandbox.clone());
 	let mut second_membership = first_membership.clone();
 	second_membership.id = second.clone();
 	let arg = tangram_index::write::Arg {
@@ -803,7 +804,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	// A delayed spawn update must not change the finalized process list.
 	let mut membership = process_arg(tg::process::Id::new(), tg::process::Status::Started);
 	membership.data = None;
-	membership.sandbox = Some(tangram_index::process::put::Sandbox::Id(sandbox.clone()));
+	membership.sandbox = Some(sandbox.clone());
 	let arg = tangram_index::write::Arg {
 		items: vec![tangram_index::Item::PutProcess(Box::new(membership))],
 	};
@@ -959,7 +960,7 @@ async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
 	let mut membership = process_arg.clone();
 	membership.data = None;
 	membership.id = process.clone();
-	membership.sandbox = Some(tangram_index::process::put::Sandbox::Id(sandbox.clone()));
+	membership.sandbox = Some(sandbox.clone());
 	let arg = tangram_index::write::Arg {
 		items: vec![tangram_index::Item::PutProcess(Box::new(membership))],
 	};
@@ -1698,4 +1699,30 @@ async fn process_acceptance_puts_its_captures() {
 		.await
 		.unwrap();
 	assert!(output[0].permissions.contains(permission));
+}
+
+#[tokio::test]
+async fn a_sandbox_carries_its_initial_process() {
+	let (_directory, index) = super::new_index();
+	let sandbox = tg::sandbox::Id::new();
+	let process = tg::process::Id::new();
+
+	// The sandbox and its process are written by one item.
+	let mut membership = process_arg(process.clone(), tg::process::Status::Started);
+	membership.sandbox = Some(sandbox.clone());
+	let mut arg = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Started);
+	arg.process = Some(Box::new(membership));
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutSandbox(Box::new(arg))],
+	};
+	index.write(arg).await.unwrap().unwrap();
+	assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_some());
+	assert!(index.try_get_process(&process).await.unwrap().is_some());
+	assert_eq!(
+		index
+			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
+			.await
+			.unwrap(),
+		vec![process]
+	);
 }

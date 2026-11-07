@@ -222,14 +222,11 @@ impl Index {
 		});
 		let sandbox = arg.data.as_ref().map_or_else(
 			|| {
-				arg.sandbox
-					.as_ref()
-					.map(|sandbox| sandbox.id().clone())
-					.or_else(|| {
-						existing
-							.as_ref()
-							.and_then(|existing| existing.sandbox.clone())
-					})
+				arg.sandbox.clone().or_else(|| {
+					existing
+						.as_ref()
+						.and_then(|existing| existing.sandbox.clone())
+				})
 			},
 			|data| data.sandbox.clone(),
 		);
@@ -415,11 +412,7 @@ impl Index {
 			txn.set(&key, &[]);
 		}
 
-		if let Some(sandbox) = arg
-			.sandbox
-			.as_ref()
-			.map(tangram_index::process::put::Sandbox::id)
-		{
+		if let Some(sandbox) = &arg.sandbox {
 			crate::propagate!(
 				Self::put_sandbox_process_with_transaction(txn, subspace, sandbox, id).await
 			);
@@ -613,23 +606,6 @@ impl Index {
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let mut rejection = None;
 		for process in args {
-			// Put the sandbox, which the process's membership requires.
-			if let Some(tangram_index::process::put::Sandbox::Put(sandbox)) = &process.sandbox {
-				let result = crate::propagate!(
-					Self::put_sandboxes_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(sandbox),
-						partition_totals,
-					)
-					.await
-				);
-				if let Err(error) = result {
-					rejection.get_or_insert(error);
-					continue;
-				}
-			}
-
 			// Put the process.
 			let result = crate::propagate!(
 				Self::put_process(

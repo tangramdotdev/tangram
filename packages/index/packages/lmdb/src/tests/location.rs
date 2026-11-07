@@ -86,6 +86,7 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 			location: Some(location.clone()),
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(id.clone()),
+			process: None,
 			processes: None,
 			registration: None,
 			runner: None,
