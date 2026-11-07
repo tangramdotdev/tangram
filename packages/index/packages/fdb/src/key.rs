@@ -98,6 +98,7 @@ pub enum Kind {
 	SyncExpiresAt = 78,
 	CreatorProcess = 79,
 	OwnerProcess = 80,
+	Propagation = 81,
 	PermissionCapture = 90,
 	Runner = 91,
 	SchedulerRunner = 92,
@@ -717,6 +718,23 @@ impl fdbt::TuplePack for Key {
 				let mut offset = id.as_ref().pack(w, tuple_depth)?;
 				offset += pack_update_kind(w, tuple_depth, kind)?;
 				Ok(offset)
+			},
+
+			Key::Update(crate::update::Key::Propagation { child, parent }) => {
+				let child = match child {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				let parent = match parent {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				(
+					Kind::Propagation.to_i32().unwrap(),
+					child.as_ref(),
+					parent.as_ref(),
+				)
+					.pack(w, tuple_depth)
 			},
 
 			Key::Update(
@@ -1847,6 +1865,15 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
+			Kind::Propagation => {
+				let (input, child): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let child = unpack_item_id(&child)?;
+				let (input, parent): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let parent = unpack_item_id(&parent)?;
+				let key = Key::Update(crate::update::Key::Propagation { child, parent });
+				Ok((input, key))
+			},
+
 			Kind::UsageUpdatePropagatedVersion | Kind::UsageUpdatePutVersion => {
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id)
@@ -2109,5 +2136,17 @@ impl fdbt::TupleUnpack<'_> for Kind {
 		let (input, value) = i32::unpack(input, tuple_depth)?;
 		let kind = Self::from_i32(value).ok_or(fdbt::PackError::Message("invalid kind".into()))?;
 		Ok((input, kind))
+	}
+}
+
+fn unpack_item_id(bytes: &[u8]) -> fdbt::PackResult<tg::Either<tg::object::Id, tg::process::Id>> {
+	let id =
+		tg::Id::from_slice(bytes).map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+	if let Ok(id) = tg::process::Id::try_from(id.clone()) {
+		Ok(tg::Either::Right(id))
+	} else if let Ok(id) = tg::object::Id::try_from(id) {
+		Ok(tg::Either::Left(id))
+	} else {
+		Err(fdbt::PackError::Message("invalid id".into()))
 	}
 }

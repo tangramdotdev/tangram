@@ -56,13 +56,16 @@ impl Index {
 				else {
 					return Err(tg::error!("expected an update clean key"));
 				};
-				let key = crate::Key::Update(Key::PropagatedVersion { id, kind });
+				let key = crate::Key::Update(Key::PropagatedVersion {
+					id: id.clone(),
+					kind: kind.clone(),
+				});
 				let key = Self::pack(subspace, &key);
-				candidates.push((clean_key.to_vec(), key, version));
+				candidates.push((clean_key.to_vec(), key, version, id, kind));
 			}
 		}
 
-		for (clean_key, key, version) in &candidates {
+		for (clean_key, key, version, id, kind) in &candidates {
 			let value = db.get(transaction, key).map_err(|error| {
 				tg::error!(!error, "failed to get the propagated update version")
 			})?;
@@ -71,6 +74,11 @@ impl Index {
 				db.delete(transaction, key).map_err(|error| {
 					tg::error!(!error, "failed to delete the propagated update version")
 				})?;
+
+				// Delete the propagations from a complete item, since an older update can no longer propagate through it.
+				if *kind == crate::update::Kind::StorageAndMetadata {
+					Self::delete_complete_item_propagations(db, subspace, transaction, id)?;
+				}
 			}
 			db.delete(transaction, clean_key)
 				.map_err(|error| tg::error!(!error, "failed to delete the update clean key"))?;
@@ -78,5 +86,46 @@ impl Index {
 		let count = candidates.len();
 
 		Ok(count)
+	}
+
+	fn delete_complete_item_propagations(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+	) -> tg::Result<()> {
+		// Determine whether the item is complete.
+		let complete = match id {
+			tg::Either::Left(id) => {
+				Self::try_get_object_with_transaction(db, subspace, transaction, id)?
+					.is_some_and(|object| object.complete())
+			},
+			tg::Either::Right(id) => {
+				Self::try_get_process_with_transaction(db, subspace, transaction, id)?
+					.is_some_and(|process| process.complete())
+			},
+		};
+		if !complete {
+			return Ok(());
+		}
+
+		// Delete the propagations from the item.
+		let id_bytes = match id {
+			tg::Either::Left(id) => id.to_bytes(),
+			tg::Either::Right(id) => id.to_bytes(),
+		};
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::Propagation.to_i32().unwrap(), id_bytes.as_ref()),
+		);
+		let (_, end) = fdbt::Subspace::from_bytes(prefix.clone()).range();
+		let range = (
+			Bound::Included(prefix.as_slice()),
+			Bound::Excluded(end.as_slice()),
+		);
+		db.delete_range(transaction, &range)
+			.map_err(|error| tg::error!(!error, "failed to delete the propagations"))?;
+
+		Ok(())
 	}
 }
