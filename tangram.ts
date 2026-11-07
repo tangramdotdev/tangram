@@ -5,6 +5,7 @@ import * as python from "./packages/python";
 import * as tests from "./packages/tests";
 import * as vscode from "./packages/vscode";
 import { context } from "./scripts/context.tg.ts";
+import { task } from "./scripts/task.tg.ts";
 
 export {
 	databases as cloudDatabases,
@@ -48,14 +49,22 @@ export const checkPackages = async () => {
 
 export const checkRust = async () => {
 	const { cwd } = await context();
-	await tg.run`cargo clippy --all-features --all-targets --workspace`.cwd(cwd);
+	await task(
+		"rust",
+		"check",
+		tg.run`cargo clippy --all-features --all-targets --workspace`.cwd(cwd),
+	);
 };
 
 export const checkScripts = async () => {
 	const { cwd, env } = await context();
-	await tg.run`oxlint tangram.ts scripts/canary.ts scripts/context.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff check scripts/version.py`
-		.cwd(cwd)
-		.env(env);
+	await task(
+		"scripts",
+		"check",
+		tg.run`oxlint tangram.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff check scripts/version.py`
+			.cwd(cwd)
+			.env(env),
+	);
 };
 
 export const format = async () => {
@@ -69,14 +78,18 @@ export const formatPackages = async () => {
 
 export const formatRust = async () => {
 	const { cwd } = await context();
-	await tg.run`cargo fmt --all`.cwd(cwd);
+	await task("rust", "format", tg.run`cargo fmt --all`.cwd(cwd));
 };
 
 export const formatScripts = async () => {
 	const { cwd, env } = await context();
-	await tg.run`oxfmt --write tangram.ts scripts/canary.ts scripts/context.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff format scripts/version.py`
-		.cwd(cwd)
-		.env(env);
+	await task(
+		"scripts",
+		"format",
+		tg.run`oxfmt --write tangram.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff format scripts/version.py`
+			.cwd(cwd)
+			.env(env),
+	);
 };
 
 export const build = async (...args: Array<string>) => {

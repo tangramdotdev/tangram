@@ -1,17 +1,26 @@
 import { context } from "../../scripts/context.tg.ts";
+import { task } from "../../scripts/task.tg.ts";
 
 export const check = async () => {
 	const { cwd, env } = await context("packages/tests");
-	await tg.run`uv run --locked --package tangram python -m ruff check tests/python`
-		.cwd(cwd)
-		.env(env);
+	await task(
+		"tests",
+		"check",
+		tg.run`uv run --locked --package tangram python -m ruff check tests/python`
+			.cwd(cwd)
+			.env(env),
+	);
 };
 
 export const format = async () => {
 	const { cwd, env } = await context("packages/tests");
-	await tg.run`uv run --locked --package tangram python -m ruff format tests/python`
-		.cwd(cwd)
-		.env(env);
+	await task(
+		"tests",
+		"format",
+		tg.run`uv run --locked --package tangram python -m ruff format tests/python`
+			.cwd(cwd)
+			.env(env),
+	);
 };
 
 export const clean = async (...args: Array<string>) => {

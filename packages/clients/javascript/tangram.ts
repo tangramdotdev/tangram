@@ -1,13 +1,22 @@
 import { context } from "../../../scripts/context.tg.ts";
+import { task } from "../../../scripts/task.tg.ts";
 
 export const check = async () => {
 	const { cwd, env } = await context("packages/clients/javascript");
-	await tg.run`tsc --noEmit && oxlint build.ts src tests`.cwd(cwd).env(env);
+	await task(
+		"clients/javascript",
+		"check",
+		tg.run`tsc --noEmit && oxlint build.ts src tests`.cwd(cwd).env(env),
+	);
 };
 
 export const format = async () => {
 	const { cwd, env } = await context("packages/clients/javascript");
-	await tg.run`oxfmt --write build.ts src tests`.cwd(cwd).env(env);
+	await task(
+		"clients/javascript",
+		"format",
+		tg.run`oxfmt --write build.ts src tests`.cwd(cwd).env(env),
+	);
 };
 
 export const build = async (...args: Array<string>) => {
