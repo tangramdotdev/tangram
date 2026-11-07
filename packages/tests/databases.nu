@@ -59,6 +59,7 @@ profile=${10}
 target_path=${11}
 started_at=$SECONDS
 build_pid=''
+progress_pid=''
 interrupted=false
 starting=false
 declare -a logs=()
@@ -70,17 +71,23 @@ cleanup() {
 	trap - EXIT
 	# Finish the cleanup even if another interrupt arrives.
 	trap '' HUP INT TERM
+	interrupted=false
+	finish_progress
 	if [ -n "$build_pid" ]; then
+		names+=(scylla_client)
 		pids+=("$build_pid")
 	fi
+	start_progress stopping "${names[@]}"
 	for pid in "${pids[@]}"; do
 		kill -TERM -- "-$pid" 2>/dev/null || true
 	done
 	for ((attempt = 0; attempt < 100; attempt++)); do
 		alive=false
-		for pid in "${pids[@]}"; do
-			if process_running "$pid"; then
+		for index in "${!pids[@]}"; do
+			if process_running "${pids[$index]}"; then
 				alive=true
+			else
+				stopped "$index"
 			fi
 		done
 		if ! $alive; then
@@ -88,18 +95,202 @@ cleanup() {
 		fi
 		sleep 0.05
 	done
-	for pid in "${pids[@]}"; do
+	for index in "${!pids[@]}"; do
+		pid=${pids[$index]}
 		kill -KILL -- "-$pid" 2>/dev/null || true
 		wait "$pid" 2>/dev/null || true
+		stopped "$index"
 	done
-	# Remove the containers after their clients can no longer start them.
+	# Remove the containers concurrently after their clients can no longer start them.
 	if [ "$platform" = macos ]; then
-		docker rm --force "$foundationdb_container" "$scylla_container" >/dev/null 2>&1 || true
+		remove_container foundationdb "$foundationdb_container" &
+		foundationdb_cleanup_pid=$!
+		remove_container scylla "$scylla_container" &
+		scylla_cleanup_pid=$!
+		wait "$foundationdb_cleanup_pid" || true
+		wait "$scylla_cleanup_pid" || true
 	fi
+	finish_progress
+	for name in foundationdb scylla; do
+		if [ -f "$progress_path/$name" ] && [[ $(<"$progress_path/$name") == failed* ]]; then
+			cat "$state_path/logs/$name-cleanup.log" >&2
+		fi
+	done
 	if ! rm -rf -- "$state_path" "$database_pool_path" 2>/dev/null; then
 		echo "warning: failed to remove temporary database state in $state_path" >&2
 	fi
 	exit "$status"
+}
+
+stopped() {
+	name=${names[$1]}
+	if [ "$platform" = macos ] && { [ "$name" = foundationdb ] || [ "$name" = scylla ]; }; then
+		return
+	fi
+	progress_result "$name" success
+}
+
+remove_container() {
+	name=$1
+	container=$2
+	if docker rm --force "$container" >"$state_path/logs/$name-cleanup.log" 2>&1; then
+		progress_result "$name" success
+	elif remaining=$(docker container ls --all --filter "name=^/$container$" --format '{{.Names}}' 2>>"$state_path/logs/$name-cleanup.log") && [ -z "$remaining" ]; then
+		progress_result "$name" success
+	else
+		progress_result "$name" failed
+	fi
+}
+
+start_progress() {
+	progress_phase=$1
+	shift
+	if [ "$#" -eq 0 ]; then
+		return
+	fi
+	progress_path="$state_path/progress/$progress_phase"
+	progress_started_at=$SECONDS
+	mkdir -p "$progress_path"
+	starting=true
+	display_progress "$@" &
+	progress_pid=$!
+	starting=false
+	if $interrupted; then
+		exit 130
+	fi
+}
+
+finish_progress() {
+	if [ -z "$progress_pid" ]; then
+		return
+	fi
+	: >"$progress_path/finished"
+	wait "$progress_pid" 2>/dev/null || true
+	if [ -t 2 ] && [ "${TERM:-dumb}" != dumb ]; then
+		printf '\033[?2026h\r\033[J\033[?25h\033[?2026l' >&2
+	fi
+	progress_pid=''
+}
+
+progress_result() {
+	if [ -f "$progress_path/$1" ] && { [ "$2" != failed ] || [[ $(<"$progress_path/$1") == failed* ]]; }; then
+		return
+	fi
+	# Publish the complete result before the renderer reads it.
+	printf '%s %s\n' "$2" "$((SECONDS - progress_started_at))" >"$progress_path/$1.tmp"
+	mv -f -- "$progress_path/$1.tmp" "$progress_path/$1"
+}
+
+progress_name() {
+	case "$1" in
+		foundationdb) printf FoundationDB ;;
+		nats) printf NATS ;;
+		postgres) printf PostgreSQL ;;
+		scylla) printf ScyllaDB ;;
+		scylla_client) printf 'Scylla client' ;;
+	esac
+}
+
+display_progress() {
+	trap - EXIT
+	trap '' HUP INT TERM
+	local keys=("$@")
+	local reported=()
+	local live=false blue='' green='' red='' reset=''
+	local frame running_frame key name result elapsed index completed failed running filled bar summary text ready state
+	local columns rows width capacity lines size finished
+	if [ -t 2 ] && [ "${TERM:-dumb}" != dumb ]; then
+		live=true
+		if [ -z "${NO_COLOR+x}" ]; then
+			blue=$'\033[34m'
+			green=$'\033[32m'
+			red=$'\033[31m'
+			reset=$'\033[0m'
+		fi
+		printf '\033[?25l' >&2
+	fi
+	# Render the results above the live region in a synchronized update every 100 ms.
+	while true; do
+		frame=''
+		running_frame=''
+		completed=0
+		failed=0
+		lines=0
+		finished=false
+		[ ! -f "$progress_path/finished" ] || finished=true
+		columns=80
+		rows=24
+		if $live; then
+			size=$(stty size <&2 2>/dev/null) && read -r rows columns <<<"$size"
+			frame=$'\033[?2026h\r'
+		fi
+		width=$((columns > 1 ? columns - 1 : 1))
+		capacity=$((rows > 2 ? rows - 2 : 0))
+		for index in "${!keys[@]}"; do
+			key=${keys[$index]}
+			name=$(progress_name "$key")
+			if [ -f "$progress_path/$key" ]; then
+				read -r result elapsed <"$progress_path/$key"
+				completed=$((completed + 1))
+				if [ "$result" = failed ]; then
+					failed=$((failed + 1))
+				fi
+				if [ "${reported[$index]:-}" != "$result" ]; then
+					reported[$index]=$result
+					if [ "$result" = failed ]; then
+						frame+="${red}✗$reset $name failed ${elapsed}s"
+					else
+						result=ready
+						[ "$progress_phase" != stopping ] || result=stopped
+						frame+="${green}✓$reset $name $result ${elapsed}s"
+					fi
+					if $live; then
+						frame+=$'\033[K'
+					fi
+					frame+=$'\n'
+				fi
+			elif $live && ! $finished && [ "$lines" -lt "$capacity" ]; then
+				text="$name $progress_phase $((SECONDS - progress_started_at))s"
+				if [ "${#text}" -gt "$((width - 2))" ]; then
+					text="${text:0:$((width > 3 ? width - 3 : 0))}…"
+				fi
+				running_frame+="${blue}●$reset $text"$'\033[K\n'
+				lines=$((lines + 1))
+			fi
+		done
+		if $live && ! $finished; then
+			running=$((${#keys[@]} - completed))
+			filled=$((completed * 10 / ${#keys[@]}))
+			printf -v bar '%*s' "$filled" ''
+			bar=${bar// /=}
+			printf -v text '%*s' "$((10 - filled))" ''
+			bar+=">$text"
+			ready=$((completed - failed))
+			state=ready
+			[ "$progress_phase" != stopping ] || state=stopped
+			summary="[$bar] $completed/${#keys[@]}: $running running, $ready $state, $failed failed, $((SECONDS - progress_started_at))s"
+			if [ "${#summary}" -gt "$width" ]; then
+				summary="${summary:0:$((width - 1))}…"
+			fi
+			summary=${summary/"$ready $state"/"$green$ready $state$reset"}
+			summary=${summary/"$failed failed"/"$red$failed failed$reset"}
+			frame+="$running_frame$summary"$'\033[K\033[J\r'
+			if [ "$lines" -gt 0 ]; then
+				frame+=$'\033['"$lines"A
+			fi
+		elif $live; then
+			frame+=$'\033[J'
+		fi
+		if $live; then
+			frame+=$'\033[?2026l'
+		fi
+		printf '%s' "$frame" >&2
+		if $finished; then
+			break
+		fi
+		sleep 0.1
+	done
+	exit 0
 }
 
 handle_signal() {
@@ -136,6 +327,8 @@ show_logs() {
 ensure_running() {
 	for index in "${!pids[@]}"; do
 		if ! process_running "${pids[$index]}"; then
+			progress_result "${names[$index]}" failed
+			finish_progress
 			echo "${names[$index]} exited before all databases became ready" >&2
 			show_log "$index"
 			exit 1
@@ -168,12 +361,14 @@ wait_for() {
 	shift 2
 	for ((attempt = 0; attempt < attempts; attempt++)); do
 		if timeout --kill-after=1s 4 "$@" >/dev/null 2>&1; then
-			echo "$name is ready ($((SECONDS - started_at))s since startup)" >&2
+			progress_result "$name" success
 			return
 		fi
 		ensure_running
 		sleep 0.1
 	done
+	progress_result "$name" failed
+	finish_progress
 	echo "timed out waiting for $name" >&2
 	show_logs
 	exit 1
@@ -184,12 +379,11 @@ configure_foundationdb() {
 	for ((attempt = 0; attempt < 600; attempt++)); do
 		if ! $configured && foundationdb_cli 6 --no-status --exec 'configure new single memory' >/dev/null 2>&1; then
 			configured=true
-			echo "FoundationDB is configured ($((SECONDS - started_at))s since startup)" >&2
 		fi
 		if $configured && output=$(foundationdb_cli 2 --no-status --exec 'status minimal' 2>/dev/null); then
 			case "$output" in
 				*'The database is available.'*)
-					echo "FoundationDB is ready ($((SECONDS - started_at))s since startup)" >&2
+					progress_result foundationdb success
 					return
 					;;
 			esac
@@ -197,6 +391,8 @@ configure_foundationdb() {
 		ensure_running
 		sleep 0.1
 	done
+	progress_result foundationdb failed
+	finish_progress
 	echo 'timed out configuring FoundationDB' >&2
 	show_logs
 	exit 1
@@ -232,6 +428,8 @@ mkdir -p \
 	"$state_path/logs" \
 	"$state_path/postgres"
 
+start_progress starting foundationdb nats postgres scylla_client scylla
+
 # Build the Scylla client while the database services start.
 build_args=()
 if [ "$profile" = release ]; then
@@ -240,8 +438,8 @@ fi
 starting=true
 (
 	cd "$repository_path" || exit 1
-	cargo build --package tangram_scylla_client --target-dir "$target_path" "${build_args[@]}" || exit $?
-	echo "Scylla client is built ($((SECONDS - started_at))s since startup)" >&2
+	cargo build --package tangram_scylla_client --target-dir "$target_path" "${build_args[@]}" >"$state_path/logs/scylla_client.log" 2>&1 || exit $?
+	progress_result scylla_client success
 ) &
 build_pid=$!
 starting=false
@@ -319,10 +517,11 @@ else
 fi
 
 initdb --auth=trust --no-instructions --no-sync --pgdata="$state_path/postgres" --username=postgres >"$state_path/logs/initdb.log" 2>&1 || {
+	progress_result postgres failed
+	finish_progress
 	cat "$state_path/logs/initdb.log" >&2
 	exit 1
 }
-echo "PostgreSQL is initialized ($((SECONDS - started_at))s since startup)" >&2
 start postgres \
 	postgres \
 	-D "$state_path/postgres" \
@@ -338,19 +537,23 @@ start postgres \
 set +m
 
 configure_foundationdb
-wait_for NATS 600 bash -c 'exec 3<>/dev/tcp/127.0.0.1/4222; IFS= read -r line <&3; case "$line" in INFO*) exit 0;; *) exit 1;; esac'
-wait_for PostgreSQL 600 pg_isready --host=127.0.0.1 --port=5432 --username=postgres
+wait_for nats 600 bash -c 'exec 3<>/dev/tcp/127.0.0.1/4222; IFS= read -r line <&3; case "$line" in INFO*) exit 0;; *) exit 1;; esac'
+wait_for postgres 600 pg_isready --host=127.0.0.1 --port=5432 --username=postgres
 while process_running "$build_pid"; do
 	ensure_running
 	sleep 0.1
 done
 if ! wait "$build_pid"; then
+	progress_result scylla_client failed
+	finish_progress
 	echo 'failed to build the Scylla client' >&2
+	cat "$state_path/logs/scylla_client.log" >&2
 	exit 1
 fi
 build_pid=''
-wait_for ScyllaDB 1200 tangram_scylla_client 127.0.0.1 9042 -e 'select release_version from system.local'
+wait_for scylla 1200 tangram_scylla_client 127.0.0.1 9042 -e 'select release_version from system.local'
 
+finish_progress
 echo "all cloud databases are ready ($((SECONDS - started_at))s since startup); press Ctrl-C to stop them" >&2
 
 set +e
@@ -448,7 +651,6 @@ def run_databases [profile: string, target_path: string] {
 
 	print -e $"starting the cloud databases with temporary state in ($state_path)"
 	print -e $"database logs will be written to ($state_path | path join 'logs')"
-	print -e 'waiting for FoundationDB, NATS, PostgreSQL, and ScyllaDB to become ready...'
 
 	# Run the supervisor in the foreground.
 	exec bash -c (database_supervisor) _ $nu.os-info.name $state_path $cluster_path $database_pool_path $foundationdb_container_name $foundationdb_image $scylla_container_name $scylla_image $repository_path $profile $target_path
