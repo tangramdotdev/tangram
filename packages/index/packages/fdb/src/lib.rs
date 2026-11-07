@@ -77,6 +77,8 @@ pub struct Options {
 	pub usage_partition_total: u64,
 	pub max_write_operation_batch_size: usize,
 	pub verification: VerificationConfig,
+	/// The maximum number of concurrent transactions that write index items.
+	pub write_item_transaction_concurrency: usize,
 	pub write_operation_batch_size: usize,
 	pub write_transaction_concurrency: usize,
 }
@@ -165,6 +167,7 @@ impl Index {
 		let process_data_fragment_size = options.process_data_fragment_size;
 		let process_permission_time_to_touch = options.process_permission_time_to_touch;
 		let storage_relation_batch_size = options.storage_relation_batch_size;
+		let write_item_transaction_concurrency = options.write_item_transaction_concurrency;
 		let write_operation_batch_size = options.write_operation_batch_size;
 		let write_transaction_concurrency = options.write_transaction_concurrency;
 		tokio::spawn({
@@ -186,6 +189,7 @@ impl Index {
 					receiver_medium: writer_receiver_medium,
 					storage_relation_batch_size,
 					subspace,
+					write_item_transaction_concurrency,
 					write_operation_batch_size,
 					write_transaction_concurrency,
 				};
@@ -269,6 +273,11 @@ impl Index {
 		if options.write_operation_batch_size == 0 {
 			return Err(tg::error!(
 				"the FDB index write operation batch size must be greater than zero"
+			));
+		}
+		if options.write_item_transaction_concurrency == 0 {
+			return Err(tg::error!(
+				"the FDB index write item transaction concurrency must be greater than zero"
 			));
 		}
 		if options.write_transaction_concurrency == 0 {
