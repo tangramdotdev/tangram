@@ -41,10 +41,19 @@ type StopperState = {
 type Native = {
 	blobChunkLengths(bytes: Uint8Array): Array<number>;
 	graphLeafCounts(input: string): Array<number>;
+	isForegroundControllingTty(fd: number): boolean;
 	objectId(input: string): string;
 	parseValue(input: string): string;
 	stringifyValue(input: string): string;
 };
+
+type InterruptState = {
+	count: number;
+	listeners: ReturnType<typeof process.rawListeners>;
+};
+
+let interruptState: InterruptState | undefined;
+let ignoreInterrupt = () => {};
 
 let fileDescriptors = new Map<number, FileDescriptor>();
 let nextToken = 3;
@@ -255,7 +264,7 @@ export let host: Host = {
 	},
 
 	isForegroundControllingTty(fd: number): boolean {
-		return this.isTty(fd);
+		return getNative().isForegroundControllingTty(fd);
 	},
 
 	isTty(fd: number): boolean {
@@ -406,14 +415,23 @@ export let host: Host = {
 			env: arg.env,
 			stdio: [arg.stdin, arg.stdout, arg.stderr].map(nodeStdio),
 		};
-		let child: childProcess.ChildProcess = childProcess.spawn(
-			executable,
-			arg.args,
-			options,
-		);
+		let interrupt = deferInterrupt();
+		let child: childProcess.ChildProcess;
+		try {
+			child = childProcess.spawn(executable, arg.args, options);
+		} catch (error) {
+			interrupt();
+			throw error;
+		}
 		let result = new Promise<ProcessResult>((resolve, reject) => {
-			child.once("error", reject);
-			child.once("exit", (code, signal) => resolve({ code, signal }));
+			child.once("error", (error) => {
+				interrupt();
+				reject(error);
+			});
+			child.once("exit", (code, signal) => {
+				interrupt();
+				resolve({ code, signal });
+			});
 		});
 		result.catch(() => undefined);
 		await new Promise<void>((resolve, reject) => {
@@ -527,6 +545,49 @@ function addFileDescriptor(descriptor: FileDescriptor): number {
 	let token = nextToken++;
 	fileDescriptors.set(token, descriptor);
 	return token;
+}
+
+function deferInterrupt(): () => void {
+	let fd: number;
+	try {
+		fd = fs.openSync("/dev/tty", "r");
+	} catch {
+		return () => {};
+	}
+	let foreground: boolean;
+	try {
+		foreground = host.isForegroundControllingTty(fd);
+	} finally {
+		fs.closeSync(fd);
+	}
+	if (!foreground) {
+		return () => {};
+	}
+	if (interruptState === undefined) {
+		// Use Node's signal API to preserve its default handler's one-shot behavior on macOS.
+		let listeners = process.rawListeners("SIGINT");
+		process.removeAllListeners("SIGINT");
+		process.on("SIGINT", ignoreInterrupt);
+		interruptState = { count: 0, listeners };
+	}
+	let state = interruptState;
+	state.count += 1;
+	let closed = false;
+	return () => {
+		if (closed) {
+			return;
+		}
+		closed = true;
+		state.count -= 1;
+		if (state.count !== 0) {
+			return;
+		}
+		process.off("SIGINT", ignoreInterrupt);
+		for (let listener of state.listeners) {
+			process.on("SIGINT", listener);
+		}
+		interruptState = undefined;
+	};
 }
 
 function getNative(): Native {

@@ -44,7 +44,7 @@ def database_pool_path [] {
 
 def database_supervisor [] {
 	r#'
-set -mu
+set -u
 
 platform=$1
 state_path=$2
@@ -77,8 +77,8 @@ cleanup() {
 		names+=(scylla_client)
 		pids+=("$build_pid")
 	fi
-	start_progress stopping "${names[@]}"
-	for pid in "${pids[@]}"; do
+	start_progress stopping ${names[@]+"${names[@]}"}
+	for pid in ${pids[@]+"${pids[@]}"}; do
 		kill -TERM -- "-$pid" 2>/dev/null || true
 	done
 	for ((attempt = 0; attempt < 100; attempt++)); do
@@ -344,11 +344,14 @@ start() {
 	log_path="$state_path/logs/$name.log"
 	logs+=("$log_path")
 	names+=("$name")
+	# Create a process group without giving foreground polling commands job control.
+	set -m
 	(
 		cd "$state_path"
 		exec "$@"
 	) >"$log_path" 2>&1 &
 	pids+=("$!")
+	set +m
 	starting=false
 	if $interrupted; then
 		exit 130
@@ -436,12 +439,14 @@ if [ "$profile" = release ]; then
 	build_args+=(--release)
 fi
 starting=true
+set -m
 (
 	cd "$repository_path" || exit 1
-	cargo build --package tangram_scylla_client --target-dir "$target_path" "${build_args[@]}" >"$state_path/logs/scylla_client.log" 2>&1 || exit $?
+	cargo build --package tangram_scylla_client --target-dir "$target_path" ${build_args[@]+"${build_args[@]}"} >"$state_path/logs/scylla_client.log" 2>&1 || exit $?
 	progress_result scylla_client success
 ) &
 build_pid=$!
+set +m
 starting=false
 if $interrupted; then
 	exit 130
@@ -532,9 +537,6 @@ start postgres \
 	-c full_page_writes=off \
 	-c max_connections=1024 \
 	-c synchronous_commit=off
-
-# Preserve the database process groups without printing job notifications.
-set +m
 
 configure_foundationdb
 wait_for nats 600 bash -c 'exec 3<>/dev/tcp/127.0.0.1/4222; IFS= read -r line <&3; case "$line" in INFO*) exit 0;; *) exit 1;; esac'

@@ -1,5 +1,23 @@
 use {pyo3::prelude::*, tangram_client as tg};
 
+#[pyclass]
+struct Interrupt {
+	guard: Option<tangram_util::interrupt::Guard>,
+}
+
+#[pymethods]
+impl Interrupt {
+	#[new]
+	fn new() -> std::io::Result<Self> {
+		let guard = tangram_util::interrupt::Guard::new()?;
+		Ok(Self { guard })
+	}
+
+	fn close(&mut self) {
+		self.guard.take();
+	}
+}
+
 #[pyfunction]
 fn blob_chunk_lengths(bytes: &[u8]) -> Vec<usize> {
 	tg::blob::chunks(bytes)
@@ -93,6 +111,7 @@ fn yaml_encode(input: &str) -> PyResult<String> {
 
 #[pymodule]
 pub fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+	module.add_class::<Interrupt>()?;
 	module.add_function(wrap_pyfunction!(blob_chunk_lengths, module)?)?;
 	module.add_function(wrap_pyfunction!(checksum, module)?)?;
 	module.add_function(wrap_pyfunction!(graph_leaf_counts, module)?)?;

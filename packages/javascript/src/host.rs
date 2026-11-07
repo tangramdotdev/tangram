@@ -35,7 +35,7 @@ pub struct State {
 
 type FileDescriptors = DashMap<i32, Arc<AsyncFd<OwnedFd>>, fnv::FnvBuildHasher>;
 
-type Processes = DashMap<u32, tokio::sync::Mutex<tokio::process::Child>, fnv::FnvBuildHasher>;
+type Processes = DashMap<u32, tokio::sync::Mutex<Child>, fnv::FnvBuildHasher>;
 
 type Signals = DashMap<usize, Arc<Signal>, fnv::FnvBuildHasher>;
 
@@ -86,6 +86,11 @@ pub enum SignalKind {
 struct Signal {
 	signal: tokio::sync::Mutex<tokio::signal::unix::Signal>,
 	stop: tokio::sync::watch::Sender<bool>,
+}
+
+struct Child {
+	_interrupt: Option<tangram_util::interrupt::Guard>,
+	process: tokio::process::Child,
 }
 
 impl Host {
@@ -408,6 +413,8 @@ impl Host {
 		command.kill_on_drop(true);
 		command.stdout(arg.stdout.to_std());
 		command.stderr(arg.stderr.to_std());
+		let interrupt = tangram_util::interrupt::Guard::new()
+			.map_err(|error| tg::error!(!error, "failed to defer the terminal interrupt"))?;
 		let mut child = command.spawn().map_err(|error| {
 			tg::error!(
 				!error,
@@ -482,6 +489,10 @@ impl Host {
 		if let Some((fd, stderr)) = stderr_ {
 			self.0.fds.insert(fd, stderr);
 		}
+		let child = Child {
+			_interrupt: interrupt,
+			process: child,
+		};
 		self.0.processes.insert(pid, tokio::sync::Mutex::new(child));
 
 		Ok(SpawnOutput {
@@ -533,6 +544,7 @@ impl Host {
 			.map(|(_, child)| child)
 			.ok_or_else(|| tg::error!(%pid, "failed to find the process"))?;
 		let mut child = child.into_inner();
+		let child = &mut child.process;
 		let status = match stopper {
 			Some(stopper) => {
 				if stopper.stopped() {

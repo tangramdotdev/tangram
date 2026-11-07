@@ -16,6 +16,12 @@ pub fn graph_leaf_counts(input: String) -> napi::Result<Vec<u32>> {
 }
 
 #[napi]
+#[must_use]
+pub fn is_foreground_controlling_tty(fd: i32) -> bool {
+	tangram_util::tty::is_foreground_controlling_tty(fd)
+}
+
+#[napi]
 pub fn object_id(input: String) -> napi::Result<String> {
 	let input = input.into_boxed_str();
 	object_id_inner(&input).map_err(|error| to_napi_error(&error))

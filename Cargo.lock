@@ -10525,6 +10525,7 @@ dependencies = [
  "napi-derive",
  "serde_json",
  "tangram_client",
+ "tangram_util",
 ]
 
 [[package]]
@@ -10605,6 +10606,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tangram_client",
+ "tangram_util",
 ]
 
 [[package]]

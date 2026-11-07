@@ -792,6 +792,8 @@ impl<O: 'static> tg::Process<O> {
 			&arg.stderr,
 			tg::process::stdio::Stream::Stderr,
 		)?);
+		let interrupt = tangram_util::interrupt::Guard::new()
+			.map_err(|error| tg::error!(!error, "failed to defer the terminal interrupt"))?;
 
 		let mut child = command_.spawn().map_err(|error| {
 			tg::error!(
@@ -834,7 +836,7 @@ impl<O: 'static> tg::Process<O> {
 			let stdin = stdin.clone();
 			let temp = prepared.temp;
 			move |_| async move {
-				Self::wait_unsandboxed(instance, child, stdin, output_path, temp).await
+				Self::wait_unsandboxed(instance, child, stdin, output_path, temp, interrupt).await
 			}
 		});
 
@@ -866,11 +868,13 @@ impl<O: 'static> tg::Process<O> {
 		mut stdin: super::stdio::Writer,
 		output_path: PathBuf,
 		_temp: tangram_util::fs::Temp,
+		interrupt: Option<tangram_util::interrupt::Guard>,
 	) -> tg::Result<tg::process::outcome::Data>
 	where
 		I: tg::Instance,
 	{
 		let status = child.wait().await;
+		drop(interrupt);
 
 		// Close stdin and let the output readers close their pipes after draining them.
 		stdin.close_with_instance(&instance).await?;

@@ -50,6 +50,7 @@ def object_id(data: ObjectData) -> str:
 
 @dataclass
 class Child:
+    interrupt: _native.Interrupt
     process: asyncio.subprocess.Process
 
     @property
@@ -69,6 +70,12 @@ class Child:
         return self.process.stderr
 
     async def wait(self, stopper: Stopper | None = None) -> Outcome:
+        try:
+            return await self._wait(stopper)
+        finally:
+            self.interrupt.close()
+
+    async def _wait(self, stopper: Stopper | None = None) -> Outcome:
         if stopper is None:
             status = await self.process.wait()
         else:
@@ -121,16 +128,21 @@ async def spawn(
         raise ValueError("invalid host stdio")
 
     executable = _resolve_executable(executable, os.environ if env is None else env)
-    process = await asyncio.create_subprocess_exec(
-        executable,
-        *args,
-        cwd=cwd,
-        env=env,
-        stdin=stdio(stdin),
-        stdout=stdio(stdout),
-        stderr=stdio(stderr),
-    )
-    child = Child(process)
+    interrupt = _native.Interrupt()
+    try:
+        process = await asyncio.create_subprocess_exec(
+            executable,
+            *args,
+            cwd=cwd,
+            env=env,
+            stdin=stdio(stdin),
+            stdout=stdio(stdout),
+            stderr=stdio(stderr),
+        )
+    except BaseException:
+        interrupt.close()
+        raise
+    child = Child(interrupt=interrupt, process=process)
     _children[child.pid] = child
     return child
 
