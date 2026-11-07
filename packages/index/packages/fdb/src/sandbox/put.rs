@@ -12,283 +12,302 @@ impl Index {
 		args: &[tangram_index::sandbox::put::Arg],
 		partition_totals: crate::PartitionTotals,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
+		let mut rejection = None;
+		for arg in args {
+			let result = crate::propagate!(
+				Self::put_sandbox_with_transaction(txn, subspace, arg, partition_totals).await
+			);
+			if let Err(error) = result {
+				rejection.get_or_insert(error);
+			}
+		}
+
+		// Return the first rejection, since a rejected sandbox does not affect the other sandboxes.
+		let result = rejection.map_or(Ok(()), Err);
+
+		Ok(ControlFlow::Break(result))
+	}
+
+	pub(crate) async fn put_sandbox_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		arg: &tangram_index::sandbox::put::Arg,
+		partition_totals: crate::PartitionTotals,
+	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
 		let usage_partition_total = partition_totals.usage;
-		for arg in args {
-			if let Err(error) = arg.validate() {
+		if let Err(error) = arg.validate() {
+			return Ok(ControlFlow::Break(Err(error)));
+		}
+		if let Some(registration) = &arg.registration {
+			let result = crate::propagate!(
+				Self::check_runner_registration_with_transaction(txn, subspace, registration).await
+			);
+			if let Err(error) = result {
 				return Ok(ControlFlow::Break(Err(error)));
 			}
-			if let Some(registration) = &arg.registration {
-				let result = crate::propagate!(
-					Self::check_runner_registration_with_transaction(txn, subspace, registration)
-						.await
-				);
-				if let Err(error) = result {
-					return Ok(ControlFlow::Break(Err(error)));
-				}
-			}
-			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(arg.id.clone()));
-			let key = Self::pack(subspace, &key);
-			let result = txn.get(&key, false).await;
-			let existing = crate::retry!(result)
-				.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
-				.transpose()?;
+		}
+		let key = Key::Sandbox(crate::sandbox::Key::Sandbox(arg.id.clone()));
+		let key = Self::pack(subspace, &key);
+		let result = txn.get(&key, false).await;
+		let existing = crate::retry!(result)
+			.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
+			.transpose()?;
 
-			// Validate sandbox data and processes against the existing record in this write transaction.
-			if let Some(existing) = &existing {
-				if let Err(error) = arg.validate_existing(existing)? {
-					return Ok(ControlFlow::Break(Err(error)));
-				}
-				if !arg.principal.is_root()
-					&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
-					&& let Some(processes) = &arg.processes
-				{
-					if !existing.set.processes {
-						return Ok(ControlFlow::Break(Err(tg::error!(
-							"cannot verify the existing sandbox processes"
-						))));
-					}
-					let existing = crate::propagate!(
-						Self::try_get_sandbox_processes_page_with_transaction(
-							txn,
-							subspace,
-							&arg.id,
-							std::io::SeekFrom::Start(0),
-							processes.len() as u64 + 1
-						)
-						.await
-					)
-					.unwrap_or_default();
-					if *processes != existing {
-						return Ok(ControlFlow::Break(Err(tg::error!(
-							"cannot replace the existing sandbox processes"
-						))));
-					}
-				}
+		// Validate sandbox data and processes against the existing record in this write transaction.
+		if let Some(existing) = &existing {
+			if let Err(error) = arg.validate_existing(existing)? {
+				return Ok(ControlFlow::Break(Err(error)));
 			}
-
-			if existing.is_none() || (arg.data.is_some() && arg.processes.is_some()) {
-				crate::propagate!(
-					Self::put_permissions_with_transaction(
+			if !arg.principal.is_root()
+				&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
+				&& let Some(processes) = &arg.processes
+			{
+				if !existing.set.processes {
+					return Ok(ControlFlow::Break(Err(tg::error!(
+						"cannot verify the existing sandbox processes"
+					))));
+				}
+				let existing = crate::propagate!(
+					Self::try_get_sandbox_processes_page_with_transaction(
 						txn,
 						subspace,
-						&arg.permissions,
-						partition_totals
+						&arg.id,
+						std::io::SeekFrom::Start(0),
+						processes.len() as u64 + 1
 					)
 					.await
-				);
+				)
+				.unwrap_or_default();
+				if *processes != existing {
+					return Ok(ControlFlow::Break(Err(tg::error!(
+						"cannot replace the existing sandbox processes"
+					))));
+				}
 			}
+		}
 
-			let mut arg = std::borrow::Cow::Borrowed(arg);
-			if let Some(existing) = &existing
-				&& !arg.principal.is_root()
-				&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
-			{
-				let arg = arg.to_mut();
-				arg.account.clone_from(&existing.account);
-				arg.data = None;
-				arg.runner.clone_from(&existing.runner);
-			}
-			let arg = arg.as_ref();
-
-			// Keep the data that is latest in the sandbox lifecycle, because writes may be applied out of order.
-			let tangram_index::sandbox::put::Merge {
-				mut data,
-				stopped_usages,
-				usages,
-			} = arg.merge(existing.as_ref());
-			let location = arg.location.clone().or_else(|| {
-				existing
-					.as_ref()
-					.and_then(|sandbox| sandbox.location.clone())
-			});
-			let account = arg.account.clone();
-			if let Some(data) = &mut data {
-				data.location.clone_from(&location);
-			}
-			let runner = arg
-				.runner
-				.clone()
-				.or_else(|| existing.as_ref().and_then(|sandbox| sandbox.runner.clone()));
-			let touched_at = existing.as_ref().map_or(arg.touched_at, |sandbox| {
-				sandbox.touched_at.max(arg.touched_at)
-			});
-			let scheduler = arg.scheduler(existing.as_ref(), data.as_ref());
-			let scheduled = data
-				.as_ref()
-				.and_then(|data| arg.scheduled(&data.data))
-				.cloned();
-			let sandbox = tangram_index::sandbox::Sandbox {
-				account,
-				created_at: existing
-					.as_ref()
-					.map_or(arg.created_at, |sandbox| sandbox.created_at),
-				data,
-				location,
-				reference_count: existing
-					.as_ref()
-					.map_or(0, |sandbox| sandbox.reference_count),
-				runner,
-				scheduler,
-				set: tangram_index::sandbox::Set {
-					processes: arg.processes.is_some()
-						|| existing
-							.as_ref()
-							.is_some_and(|sandbox| sandbox.set.processes),
-				},
-				stopped_usages,
-				touched_at,
-				usages,
-			};
-			if let Some(processes) = &arg.processes {
-				crate::propagate!(
-					Self::put_sandbox_processes_with_transaction(txn, subspace, &arg.id, processes)
-						.await
-				);
-			}
-			let value = sandbox.serialize()?;
-			txn.set(&key, &value);
-
-			// Update the key that associates the sandbox with its scheduler, in the same transaction as the sandbox's status.
-			if let Some(scheduler) = existing
-				.as_ref()
-				.and_then(|sandbox| sandbox.scheduler.clone())
-				.filter(|scheduler| sandbox.scheduler.as_ref() != Some(scheduler))
-			{
-				let key = Key::Runner(crate::runner::Key::SchedulerSandbox {
-					sandbox: arg.id.clone(),
-					scheduler,
-				});
-				txn.clear(&Self::pack(subspace, &key));
-			}
-			if let Some(scheduled) = &scheduled {
-				let key = Key::Runner(crate::runner::Key::SchedulerSandbox {
-					sandbox: arg.id.clone(),
-					scheduler: scheduled.scheduler.clone(),
-				});
-				txn.set(&Self::pack(subspace, &key), &scheduled.request);
-			}
-
-			let destroyed = existing
-				.as_ref()
-				.and_then(|sandbox| sandbox.data.as_ref())
-				.is_some_and(|data| data.data.status.is_destroyed());
-			if !destroyed
-				&& let (Some(account), Some(data)) = (&sandbox.account, &sandbox.data)
-				&& data.data.status.is_destroyed()
-			{
-				let arg = tangram_index::usage::compute::put::Arg {
-					account,
-					at: touched_at,
-					sandbox_count: 1,
-					usage: data.data.usage.as_ref(),
-				};
-				crate::propagate!(Self::put_compute_usage(
+		if existing.is_none() || (arg.data.is_some() && arg.processes.is_some()) {
+			crate::propagate!(
+				Self::put_permissions_with_transaction(
 					txn,
 					subspace,
-					arg,
-					usage_partition_total,
-				));
-			}
+					&arg.permissions,
+					partition_totals
+				)
+				.await
+			);
+		}
 
-			let id_bytes = arg.id.to_bytes();
-			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			if let Some(existing) = &existing {
-				let key = Key::Clean(crate::clean::Key::Sandbox {
-					id: arg.id.clone(),
-					partition,
-					touched_at: existing.touched_at,
-				});
-				let key = Self::pack(subspace, &key);
-				txn.clear(&key);
-			}
+		let mut arg = std::borrow::Cow::Borrowed(arg);
+		if let Some(existing) = &existing
+			&& !arg.principal.is_root()
+			&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
+		{
+			let arg = arg.to_mut();
+			arg.account.clone_from(&existing.account);
+			arg.data = None;
+			arg.runner.clone_from(&existing.runner);
+		}
+		let arg = arg.as_ref();
 
-			if sandbox
-				.data
+		// Keep the data that is latest in the sandbox lifecycle, because writes may be applied out of order.
+		let tangram_index::sandbox::put::Merge {
+			mut data,
+			stopped_usages,
+			usages,
+		} = arg.merge(existing.as_ref());
+		let location = arg.location.clone().or_else(|| {
+			existing
 				.as_ref()
-				.is_some_and(|data| data.data.status.is_destroyed())
-			{
-				let key = Key::Clean(crate::clean::Key::Sandbox {
-					id: arg.id.clone(),
-					partition,
-					touched_at,
-				});
-				let key = Self::pack(subspace, &key);
-				txn.set(&key, &[]);
-			}
-
-			// Move the creator and owner keys when the creator, owner, or status changes.
-			let previous = existing
+				.and_then(|sandbox| sandbox.location.clone())
+		});
+		let account = arg.account.clone();
+		if let Some(data) = &mut data {
+			data.location.clone_from(&location);
+		}
+		let runner = arg
+			.runner
+			.clone()
+			.or_else(|| existing.as_ref().and_then(|sandbox| sandbox.runner.clone()));
+		let touched_at = existing.as_ref().map_or(arg.touched_at, |sandbox| {
+			sandbox.touched_at.max(arg.touched_at)
+		});
+		let scheduler = arg.scheduler(existing.as_ref(), data.as_ref());
+		let scheduled = data
+			.as_ref()
+			.and_then(|data| arg.scheduled(&data.data))
+			.cloned();
+		let sandbox = tangram_index::sandbox::Sandbox {
+			account,
+			created_at: existing
 				.as_ref()
-				.and_then(|sandbox| sandbox.data.as_ref())
-				.map(|data| {
-					(
-						data.data.creator.clone(),
-						data.data.owner.clone(),
-						data.data.status,
-					)
-				});
-			let current = sandbox.data.as_ref().map(|data| {
+				.map_or(arg.created_at, |sandbox| sandbox.created_at),
+			data,
+			location,
+			reference_count: existing
+				.as_ref()
+				.map_or(0, |sandbox| sandbox.reference_count),
+			runner,
+			scheduler,
+			set: tangram_index::sandbox::Set {
+				processes: arg.processes.is_some()
+					|| existing
+						.as_ref()
+						.is_some_and(|sandbox| sandbox.set.processes),
+			},
+			stopped_usages,
+			touched_at,
+			usages,
+		};
+		if let Some(processes) = &arg.processes {
+			crate::propagate!(
+				Self::put_sandbox_processes_with_transaction(txn, subspace, &arg.id, processes)
+					.await
+			);
+		}
+		let value = sandbox.serialize()?;
+		txn.set(&key, &value);
+
+		// Update the key that associates the sandbox with its scheduler, in the same transaction as the sandbox's status.
+		if let Some(scheduler) = existing
+			.as_ref()
+			.and_then(|sandbox| sandbox.scheduler.clone())
+			.filter(|scheduler| sandbox.scheduler.as_ref() != Some(scheduler))
+		{
+			let key = Key::Runner(crate::runner::Key::SchedulerSandbox {
+				sandbox: arg.id.clone(),
+				scheduler,
+			});
+			txn.clear(&Self::pack(subspace, &key));
+		}
+		if let Some(scheduled) = &scheduled {
+			let key = Key::Runner(crate::runner::Key::SchedulerSandbox {
+				sandbox: arg.id.clone(),
+				scheduler: scheduled.scheduler.clone(),
+			});
+			txn.set(&Self::pack(subspace, &key), &scheduled.request);
+		}
+
+		let destroyed = existing
+			.as_ref()
+			.and_then(|sandbox| sandbox.data.as_ref())
+			.is_some_and(|data| data.data.status.is_destroyed());
+		if !destroyed
+			&& let (Some(account), Some(data)) = (&sandbox.account, &sandbox.data)
+			&& data.data.status.is_destroyed()
+		{
+			let arg = tangram_index::usage::compute::put::Arg {
+				account,
+				at: touched_at,
+				sandbox_count: 1,
+				usage: data.data.usage.as_ref(),
+			};
+			crate::propagate!(Self::put_compute_usage(
+				txn,
+				subspace,
+				arg,
+				usage_partition_total,
+			));
+		}
+
+		let id_bytes = arg.id.to_bytes();
+		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+		if let Some(existing) = &existing {
+			let key = Key::Clean(crate::clean::Key::Sandbox {
+				id: arg.id.clone(),
+				partition,
+				touched_at: existing.touched_at,
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+		}
+
+		if sandbox
+			.data
+			.as_ref()
+			.is_some_and(|data| data.data.status.is_destroyed())
+		{
+			let key = Key::Clean(crate::clean::Key::Sandbox {
+				id: arg.id.clone(),
+				partition,
+				touched_at,
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+		}
+
+		// Move the creator and owner keys when the creator, owner, or status changes.
+		let previous = existing
+			.as_ref()
+			.and_then(|sandbox| sandbox.data.as_ref())
+			.map(|data| {
 				(
 					data.data.creator.clone(),
 					data.data.owner.clone(),
 					data.data.status,
 				)
 			});
-			if previous != current {
-				if let Some((creator, owner, status)) = &previous {
-					for key in crate::sandbox::Key::principals(creator, owner, *status, &arg.id) {
-						let key = Self::pack(subspace, &Key::Sandbox(key));
-						txn.clear(&key);
-					}
+		let current = sandbox.data.as_ref().map(|data| {
+			(
+				data.data.creator.clone(),
+				data.data.owner.clone(),
+				data.data.status,
+			)
+		});
+		if previous != current {
+			if let Some((creator, owner, status)) = &previous {
+				for key in crate::sandbox::Key::principals(creator, owner, *status, &arg.id) {
+					let key = Self::pack(subspace, &Key::Sandbox(key));
+					txn.clear(&key);
 				}
-				if let Some((creator, owner, status)) = &current {
-					for key in crate::sandbox::Key::principals(creator, owner, *status, &arg.id) {
-						let key = Self::pack(subspace, &Key::Sandbox(key));
-						txn.set(&key, &[]);
-					}
+			}
+			if let Some((creator, owner, status)) = &current {
+				for key in crate::sandbox::Key::principals(creator, owner, *status, &arg.id) {
+					let key = Self::pack(subspace, &Key::Sandbox(key));
+					txn.set(&key, &[]);
 				}
 			}
+		}
 
-			if let Some(runner) = existing
-				.as_ref()
-				.and_then(|sandbox| sandbox.runner.as_ref())
-			{
-				let key = Key::Runner(crate::runner::Key::RunnerSandbox {
-					runner: runner.clone(),
-					sandbox: arg.id.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				txn.clear(&key);
+		if let Some(runner) = existing
+			.as_ref()
+			.and_then(|sandbox| sandbox.runner.as_ref())
+		{
+			let key = Key::Runner(crate::runner::Key::RunnerSandbox {
+				runner: runner.clone(),
+				sandbox: arg.id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
 
-				let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
-					runner: runner.clone(),
-					sandbox: arg.id.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				txn.clear(&key);
-			}
+			let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
+				runner: runner.clone(),
+				sandbox: arg.id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+		}
 
-			if sandbox
-				.data
-				.as_ref()
-				.is_some_and(|data| !data.data.status.is_destroyed())
-				&& let Some(runner) = &sandbox.runner
-			{
-				let key = Key::Runner(crate::runner::Key::RunnerSandbox {
-					runner: runner.clone(),
-					sandbox: arg.id.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				txn.set(&key, &[]);
+		if sandbox
+			.data
+			.as_ref()
+			.is_some_and(|data| !data.data.status.is_destroyed())
+			&& let Some(runner) = &sandbox.runner
+		{
+			let key = Key::Runner(crate::runner::Key::RunnerSandbox {
+				runner: runner.clone(),
+				sandbox: arg.id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
 
-				let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
-					runner: runner.clone(),
-					sandbox: arg.id.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				txn.set(&key, &[]);
-			}
+			let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
+				runner: runner.clone(),
+				sandbox: arg.id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
 		}
 		Ok(ControlFlow::Break(Ok(())))
 	}
