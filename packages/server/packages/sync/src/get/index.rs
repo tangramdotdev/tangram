@@ -329,6 +329,23 @@ impl Component {
 					Self::sync_get_index_send_object_available(state, &node.id).await?;
 				}
 
+				// Increment the progress, because the sender did not transfer the verified object.
+				let metadata = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_object_local_metadata(&node.id);
+				let (objects, bytes) = metadata.map_or((1, 0), |metadata| {
+					if availability.subtree {
+						let objects = metadata.subtree.count.unwrap_or(1);
+						let bytes = metadata.subtree.size.unwrap_or(metadata.node.size);
+						(objects, bytes)
+					} else {
+						(1, metadata.node.size)
+					}
+				});
+				state.progress.increment_skipped(0, objects, bytes);
+
 				// If the object's subtree is unavailable, then enqueue the children.
 				if !availability.subtree {
 					// Get the object.
@@ -574,7 +591,7 @@ impl Component {
 				storage: output.as_ref().map(|(process, _)| process.storage),
 			};
 			state.graph.lock().unwrap().update_process_local(arg);
-			let availability = state
+			let mut availability = state
 				.graph
 				.lock()
 				.unwrap()
@@ -584,18 +601,55 @@ impl Component {
 			Self::sync_get_index_send_process_available(state, &node.id, &availability).await?;
 
 			if node.missing {
-				// If the process is not stored, then error.
-				if output.is_none() {
-					return Err(tg::error!(id = %node.id, "failed to find the process"));
-				}
+				// Wait for an incoming sync to supply the missing process.
+				let output = if output.is_none() {
+					tangram_server_core::checkpoint!(session.server, "sync.get.index.process.wait", id = %node.id)
+						.await;
+					let entry = state
+						.graph
+						.lock()
+						.unwrap()
+						.get_node_local_tokens(&tg::Id::from(node.id.clone()));
+					let tokens = tg::authorization::Tokens::with_local_entry(entry);
+					let resource = tg::Referent::with_node_and_tokens(node.id.clone(), tokens);
+					let permissions = Self::sync_get_process_permissions(&state.arg);
+					let storage = tg::storage::Set::Process(tg::process::storage::Set::NODE);
+					let output = session
+						.verify(resource, permissions, storage, Some(&state.id))
+						.await?
+						.check_exhaustion()?;
+					if output.outcome == tangram_server_core::authorization::Outcome::Satisfied {
+						state.graph.lock().unwrap().update_node_local_verified(
+							&node.id.clone().into(),
+							output.permissions,
+							output.storage,
+						)?;
+						self.sync_get_index_touch_process(session, state, &node.id)
+							.await?
+					} else {
+						None
+					}
+				} else {
+					output
+				};
 
-				let data = output.as_ref().map(|(_, data)| data.clone()).ok_or_else(
-					|| tg::error!(id = %node.id, "expected the process data to be set"),
-				)?;
+				// If the process is not stored, then error.
+				let Some((process, data)) = &output else {
+					return Err(tg::error!(id = %node.id, "failed to find the process"));
+				};
+				availability = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_process_local_availability(&node.id);
+				Self::sync_get_index_send_process_available(state, &node.id, &availability).await?;
+
+				// Increment the progress, because the sender did not transfer the verified process.
+				Self::sync_get_increment_skipped_process(state, &availability, &process.metadata);
 
 				// Update the graph.
 				let arg = UpdateProcessLocalArg {
-					data: Some(&data),
+					data: Some(data),
 					id: &node.id,
 					marked: None,
 					metadata: None,
@@ -617,7 +671,7 @@ impl Component {
 				Self::sync_get_enqueue_process_children(
 					state,
 					&node.id,
-					&data,
+					data,
 					Some(&availability),
 					&local_tokens,
 					&remote_tokens,
@@ -628,6 +682,51 @@ impl Component {
 		Self::sync_get_index_close_queue_if_end(state);
 
 		Ok(())
+	}
+
+	async fn sync_get_index_touch_process(
+		&self,
+		session: &Session,
+		state: &State,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<(tangram_index::process::Process, tg::process::Data)>> {
+		let touched_at = session.server.clock.unix_timestamp();
+		let arg = super::SyncGetTouchAuthorizedProcessesWithDataArg {
+			graph: &state.graph,
+			ids: std::slice::from_ref(id),
+			sync: &state.id,
+			sync_arg: &state.arg,
+			time_to_touch: session.server.config.process.time_to_touch,
+			touched_at,
+		};
+		let (mut outputs, mut permissions) = self
+			.sync_get_touch_authorized_processes_with_data(session, arg)
+			.await?;
+		let permissions = permissions.pop().flatten();
+		let Some((process, mut data)) = outputs.pop().flatten() else {
+			return Ok(None);
+		};
+		if state.arg.process_children {
+			session
+				.server
+				.components
+				.process
+				.set_process_children_from_index(session, id, process.set.children, &mut data)
+				.await?;
+		}
+		let arg = UpdateProcessLocalArg {
+			data: Some(&data),
+			id,
+			marked: None,
+			metadata: Some(process.metadata.clone()),
+			permissions,
+			requested: None,
+			storage: Some(process.storage),
+		};
+		state.graph.lock().unwrap().update_process_local(arg);
+		let output = (process, data);
+
+		Ok(Some(output))
 	}
 
 	pub(super) async fn sync_get_index_send_process_available(
@@ -1022,7 +1121,14 @@ impl Component {
 
 		// Create the permission args.
 		let mut put_permission_args = Vec::new();
-		let permission_subject = tg::authorization::Subject::Sync(sync.clone());
+		let mut permission_subjects = vec![tg::authorization::Subject::Sync(sync.clone())];
+		match &session.context.principal {
+			tg::Principal::Anonymous => {
+				permission_subjects.push(tg::authorization::Subject::Public);
+			},
+			tg::Principal::Root => (),
+			principal => permission_subjects.push(principal.try_to_subject()?),
+		}
 		let expires_at = touched_at
 			+ session
 				.server
@@ -1057,20 +1163,24 @@ impl Component {
 					{
 						let permissions = Graph::object_permissions(availability);
 						subtree = availability;
-						put_permission_args.push(tangram_index::permission::put::Arg {
-							created_at: touched_at,
-							creator: Some(session.context.principal.clone()),
-							permissions: tg::authorization::permission::Set::Object(permissions),
-							resource: id.into(),
-							source: tangram_index::permission::Source::Direct {
-								expires_at: Some(expires_at),
-							},
-							subject: permission_subject.clone(),
-							time_to_touch: Some(
-								session.server.config.object.permission_time_to_touch,
-							),
-							version: None,
-						});
+						for subject in &permission_subjects {
+							put_permission_args.push(tangram_index::permission::put::Arg {
+								created_at: touched_at,
+								creator: Some(session.context.principal.clone()),
+								permissions: tg::authorization::permission::Set::Object(
+									permissions,
+								),
+								resource: id.clone().into(),
+								source: tangram_index::permission::Source::Direct {
+									expires_at: Some(expires_at),
+								},
+								subject: subject.clone(),
+								time_to_touch: Some(
+									session.server.config.object.permission_time_to_touch,
+								),
+								version: None,
+							});
+						}
 					}
 					let covered = object_covered[index] || subtree;
 					if covered && let Some(children) = node.children() {
@@ -1090,20 +1200,24 @@ impl Component {
 						process_covered[index],
 					);
 					if !permissions.is_empty() {
-						put_permission_args.push(tangram_index::permission::put::Arg {
-							created_at: touched_at,
-							creator: Some(session.context.principal.clone()),
-							permissions: tg::authorization::permission::Set::Process(permissions),
-							resource: tg::process::Id::try_from(id.clone())?.into(),
-							source: tangram_index::permission::Source::Direct {
-								expires_at: Some(expires_at),
-							},
-							subject: permission_subject.clone(),
-							time_to_touch: Some(
-								session.server.config.process.permission_time_to_touch,
-							),
-							version: None,
-						});
+						for subject in &permission_subjects {
+							put_permission_args.push(tangram_index::permission::put::Arg {
+								created_at: touched_at,
+								creator: Some(session.context.principal.clone()),
+								permissions: tg::authorization::permission::Set::Process(
+									permissions,
+								),
+								resource: tg::process::Id::try_from(id.clone())?.into(),
+								source: tangram_index::permission::Source::Direct {
+									expires_at: Some(expires_at),
+								},
+								subject: subject.clone(),
+								time_to_touch: Some(
+									session.server.config.process.permission_time_to_touch,
+								),
+								version: None,
+							});
+						}
 					}
 					let subtree_permissions =
 						Self::sync_get_index_process_subtree_permissions(permissions);

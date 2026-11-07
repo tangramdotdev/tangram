@@ -1497,6 +1497,13 @@ impl Graph {
 	}
 
 	#[must_use]
+	pub fn get_object_local_metadata(&self, id: &tg::object::Id) -> Option<tg::object::Metadata> {
+		self.nodes
+			.get(&tg::Id::from(id.clone()))
+			.and_then(|node| node.unwrap_object_ref().metadata.clone())
+	}
+
+	#[must_use]
 	pub fn get_object_local_authorization(
 		&self,
 		id: &tg::object::Id,

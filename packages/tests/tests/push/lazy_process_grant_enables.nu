@@ -36,7 +36,9 @@ tg --url $remote.url index
 tg --url $alice_local.url get $parent | tg --url $bob_local.url put --no-tokens --id $parent | referent node
 tg --url $bob_local.url index
 tg --url $remote.url --token $alice.token grant $bob.user.id process_subtree,process_subtree_command_objects,process_subtree_error_objects,process_subtree_log_objects,process_subtree_output_objects $parent | ignore
+tg --url $remote.url index --database
 
 # The grant covers every resident field, so Bob relies on the private child subtree and the recursive lazy push succeeds.
 let output = tg --url $bob_local.url --no-quiet push --lazy $parent --process-children --process-command-objects --process-log-objects | complete
 success $output "Bob should rely on the granted process subtree."
+assert ($output.stderr | str contains 'skipped 2 processes') $output.stderr

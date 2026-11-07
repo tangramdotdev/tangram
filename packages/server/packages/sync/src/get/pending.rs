@@ -166,66 +166,10 @@ impl Component {
 
 		match id.kind() {
 			tg::id::Kind::Process => {
-				let id: tg::process::Id = id.try_into()?;
-				let entry = state
-					.graph
-					.lock()
-					.unwrap()
-					.get_node_local_tokens(&id.clone().into());
-				let tokens = tg::authorization::Tokens::with_local_entry(entry);
-				let tg::authorization::permission::Set::Process(permissions) =
-					Self::sync_get_process_permissions(&state.arg)
-				else {
-					return Err(tg::error!("expected process permissions"));
+				let node = super::index::ProcessNode {
+					id: id.try_into()?,
+					missing: true,
 				};
-
-				let touched_at = session.server.clock.unix_timestamp();
-				let arg = super::SyncGetTouchAuthorizedProcessesArg {
-					graph: &state.graph,
-					ids: std::slice::from_ref(&id),
-					sync: &state.id,
-					sync_arg: &state.arg,
-					time_to_touch: session.server.config.process.time_to_touch,
-					touched_at,
-				};
-				let (mut outputs, _) = self
-					.sync_get_touch_authorized_processes(session, arg)
-					.await?;
-				let mut output = outputs.pop().flatten();
-				if output.is_none() {
-					let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
-					let storage = tg::storage::Set::Process(tg::process::storage::Set::NODE);
-					let verified = session
-						.verify(
-							resource,
-							tg::authorization::permission::Set::Process(permissions),
-							storage,
-							Some(&state.id),
-						)
-						.await?
-						.check_exhaustion()?;
-					if verified.outcome == tangram_server_core::authorization::Outcome::Satisfied {
-						state.graph.lock().unwrap().update_node_local_verified(
-							&id.clone().into(),
-							verified.permissions,
-							verified.storage,
-						)?;
-						let arg = super::SyncGetTouchAuthorizedProcessesArg {
-							graph: &state.graph,
-							ids: std::slice::from_ref(&id),
-							sync: &state.id,
-							sync_arg: &state.arg,
-							time_to_touch: session.server.config.process.time_to_touch,
-							touched_at,
-						};
-						let (mut outputs, _) = self
-							.sync_get_touch_authorized_processes(session, arg)
-							.await?;
-						output = outputs.pop().flatten();
-					}
-				}
-				output.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-				let node = super::index::ProcessNode { id, missing: true };
 				self.sync_get_index_process_batch(session, state, vec![node], None)
 					.await?;
 			},
