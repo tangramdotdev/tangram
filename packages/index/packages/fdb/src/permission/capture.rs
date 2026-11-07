@@ -4,10 +4,85 @@ use {
 	num::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_index::permission::capture::{Entry, enqueue},
+	tangram_index::permission::capture::{Captures, Entry, enqueue},
 };
 
 impl Index {
+	/// Put the permissions, delegations, and capture that a resource's put carries, skipping a grant from a finished process to a process that it does not list as a child.
+	pub(crate) async fn put_captures_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		captures: &Captures,
+		partition_totals: crate::PartitionTotals,
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		// Put the permissions.
+		crate::propagate!(
+			Self::put_permissions_with_transaction(
+				txn,
+				subspace,
+				&captures.permissions,
+				partition_totals,
+			)
+			.await
+		);
+
+		// Put the delegations.
+		for delegation in &captures.delegations {
+			if let Some((source, destination)) = delegation.process_grant() {
+				let accepts = crate::propagate!(
+					Self::try_get_process_accepts_child_with_transaction(
+						txn,
+						subspace,
+						&source,
+						&destination
+					)
+					.await
+				);
+				if accepts == Some(false) {
+					continue;
+				}
+			}
+			crate::propagate!(
+				Self::put_delegation_with_transaction(
+					txn,
+					subspace,
+					delegation,
+					partition_totals.cleaning
+				)
+				.await
+			);
+		}
+
+		// Enqueue the captures.
+		for enqueue in &captures.enqueues {
+			if let Some((source, destination)) = enqueue.process_grant() {
+				let accepts = crate::propagate!(
+					Self::try_get_process_accepts_child_with_transaction(
+						txn,
+						subspace,
+						&source,
+						&destination
+					)
+					.await
+				);
+				if accepts == Some(false) {
+					continue;
+				}
+			}
+			crate::propagate!(
+				Self::enqueue_permission_capture_with_transaction(
+					txn,
+					subspace,
+					enqueue,
+					partition_totals.permission_update
+				)
+				.await
+			);
+		}
+
+		Ok(ControlFlow::Break(()))
+	}
+
 	pub(crate) async fn enqueue_permission_capture_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,

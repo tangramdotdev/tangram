@@ -522,6 +522,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 			tangram_index::batch::Item::PutObject(object_arg(command, [], 7)),
 			tangram_index::batch::Item::PutProcess(process_arg),
 			tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+				captures: tangram_index::permission::capture::Captures::default(),
 				touched_at: 0,
 				version: "initial".into(),
 				account: Some(account.clone()),
@@ -695,6 +696,7 @@ async fn account_storage_is_retained_by_a_tag() {
 			}),
 			tangram_index::batch::Item::PutObject(object_arg(object.clone(), [], 5)),
 			tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+				captures: tangram_index::permission::capture::Captures::default(),
 				touched_at: 0,
 				version: "initial".into(),
 				account: Some(account.clone()),
@@ -833,6 +835,7 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 				stored,
 				tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
 					account: Some(account.clone()),
+					captures: tangram_index::permission::capture::Captures::default(),
 					id: tag.clone(),
 					name: "tag".into(),
 					parent: None,
@@ -1173,6 +1176,7 @@ async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
 			};
 			let mut tag = tangram_index::tag::put::Arg {
 				account: Some(first_account.clone()),
+				captures: tangram_index::permission::capture::Captures::default(),
 				id: tag_id.clone(),
 				name: "tag".into(),
 				parent: None,
@@ -1294,6 +1298,7 @@ async fn tag_storage_follows_captured_object_permissions() {
 					tangram_index::batch::Item::PutObject(object_arg(inaccessible.clone(), [], 4)),
 					tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
 						account: Some(account.clone()),
+						captures: tangram_index::permission::capture::Captures::default(),
 						id: tag.clone(),
 						name: "tag".into(),
 						parent: None,
@@ -1363,6 +1368,7 @@ async fn tag_storage_follows_captured_object_permissions() {
 			let account = tangram_index::usage::Account::User(tg::user::Id::new());
 			let arg = tangram_index::tag::put::Arg {
 				account: Some(account.clone()),
+				captures: tangram_index::permission::capture::Captures::default(),
 				id: tag.clone(),
 				name: "tag".into(),
 				parent: None,
@@ -1522,6 +1528,7 @@ async fn tag_storage_follows_captured_process_permissions() {
 					tangram_index::batch::Item::PutProcess(child_arg),
 					tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
 						account: Some(account.clone()),
+						captures: tangram_index::permission::capture::Captures::default(),
 						id: tag.clone(),
 						name: "tag".into(),
 						parent: None,
@@ -1644,6 +1651,7 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 			tangram_index::batch::Item::PutObject(object_arg(child.clone(), [], 2)),
 			tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
 				account: Some(account.clone()),
+				captures: tangram_index::permission::capture::Captures::default(),
 				id: tag.clone(),
 				name: "tag".into(),
 				parent: None,
@@ -1945,6 +1953,7 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 	for (id, name) in [(&log_tag, "log"), (&output_tag, "output")] {
 		let arg = tangram_index::tag::put::Arg {
 			account: Some(account.clone()),
+			captures: tangram_index::permission::capture::Captures::default(),
 			id: id.clone(),
 			name: name.into(),
 			parent: None,
@@ -2070,6 +2079,7 @@ async fn tag_storage_expands_permissions_during_propagation() {
 	}
 	let arg = tangram_index::tag::put::Arg {
 		account: Some(account.clone()),
+		captures: tangram_index::permission::capture::Captures::default(),
 		id: tag.clone(),
 		name: "tag".into(),
 		parent: None,
@@ -2282,6 +2292,7 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 	for (id, name) in tags {
 		let arg = tangram_index::tag::put::Arg {
 			account: Some(account.clone()),
+			captures: tangram_index::permission::capture::Captures::default(),
 			id: id.clone(),
 			name: name.into(),
 			parent: None,
