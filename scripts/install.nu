@@ -11,7 +11,10 @@ def main [
 	cd $repository_path
 	let profile = if $debug { 'debug' } else { 'release' }
 	let profile_args = if $debug { ['--profile', 'debug'] } else { ['--release'] }
-	cargo build --all-features ...$profile_args --package tangram_cli --bin tangram
+	let commit = git rev-parse HEAD | str trim
+	with-env { TANGRAM_CLI_COMMIT_HASH: $commit } {
+		cargo build --all-features ...$profile_args --package tangram_cli --bin tangram
+	}
 	let target_path = cargo metadata --format-version 1 --no-deps | from json | get target_directory
 	let source_path = $target_path | path join $profile tangram
 
