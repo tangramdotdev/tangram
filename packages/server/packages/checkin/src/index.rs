@@ -24,7 +24,7 @@ impl Component {
 	pub(super) fn checkin_index(
 		session: &Session,
 		arg: CheckinIndexArg<'_>,
-	) -> tg::Result<tangram_index::batch::Arg> {
+	) -> tg::Result<tangram_index::write::Arg> {
 		let CheckinIndexArg {
 			arg,
 			graph,
@@ -73,20 +73,20 @@ impl Component {
 			Self::checkin_index_create_permissions(session, graph, &index_object_args, touched_at)?;
 		let put_index_object_args: Vec<_> = index_object_args.into_values().rev().collect();
 
-		// Create the index batch.
-		let arg = tangram_index::batch::Arg {
+		// Create the index items.
+		let arg = tangram_index::write::Arg {
 			items: put_index_checkout_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutCheckout)
+				.map(tangram_index::Item::PutCheckout)
 				.chain(
 					put_index_object_args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutObject),
+						.map(tangram_index::Item::PutObject),
 				)
 				.chain(
 					put_permission_args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutPermission),
+						.map(tangram_index::Item::PutPermission),
 				)
 				.collect(),
 		};
@@ -214,7 +214,7 @@ impl Component {
 
 	pub(super) fn checkin_index_task(
 		session: &Session,
-		arg: tangram_index::batch::Arg,
+		arg: tangram_index::write::Arg,
 		checkin_arg: &tg::checkin::Arg,
 		root: &Path,
 	) -> tangram_futures::task::Shared<tg::Result<()>> {
@@ -236,7 +236,7 @@ impl Component {
 			.await;
 			let result = server
 				.index
-				.batch(arg)
+				.write(arg)
 				.await
 				.and_then(std::convert::identity)
 				.map_err(|error| tg::error!(!error, "failed to index the checkin"));

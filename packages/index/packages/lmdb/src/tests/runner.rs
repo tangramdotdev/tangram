@@ -20,13 +20,13 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 			..first.clone()
 		};
 		for runner_arg in [&first, &current, &current] {
-			let arg = tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutRunner(runner_arg.clone())],
+			let arg = tangram_index::write::Arg {
+				items: vec![tangram_index::Item::PutRunner(runner_arg.clone())],
 			};
 			index.batch(arg).await.unwrap().unwrap();
 		}
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutRunner(first.clone())],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutRunner(first.clone())],
 		};
 		assert!(index.batch(arg).await.unwrap().is_err());
 		assert_eq!(
@@ -40,8 +40,8 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 			scheduler: tg::scheduler::Id::new(),
 			..current.clone()
 		};
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutRunner(conflicting)],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutRunner(conflicting)],
 		};
 		assert!(index.batch(arg).await.unwrap().is_err());
 		let process = tg::process::Id::new();
@@ -90,10 +90,10 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 				touched_at: 0,
 			};
 			for item in [
-				tangram_index::batch::Item::PutProcess(process_arg),
-				tangram_index::batch::Item::PutSandbox(sandbox_arg),
+				tangram_index::Item::PutProcess(process_arg),
+				tangram_index::Item::PutSandbox(sandbox_arg),
 			] {
-				let arg = tangram_index::batch::Arg { items: vec![item] };
+				let arg = tangram_index::write::Arg { items: vec![item] };
 				let accepted = index.batch(arg).await.unwrap().is_ok();
 				assert_eq!(accepted, registration.index == current.registration);
 			}
@@ -168,8 +168,8 @@ async fn registration_index_allocations_are_unique_and_survive_reopen() {
 		registration: 1,
 		scheduler: tg::scheduler::Id::new(),
 	};
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutRunner(runner_arg)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutRunner(runner_arg)],
 	};
 	index.batch(arg).await.unwrap().unwrap();
 	assert_eq!(
@@ -181,8 +181,8 @@ async fn registration_index_allocations_are_unique_and_survive_reopen() {
 		registration: 100,
 		scheduler: tg::scheduler::Id::new(),
 	};
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutRunner(runner_arg.clone())],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutRunner(runner_arg.clone())],
 	};
 	index.batch(arg).await.unwrap().unwrap();
 	assert_eq!(
@@ -190,16 +190,16 @@ async fn registration_index_allocations_are_unique_and_survive_reopen() {
 		101
 	);
 	// Allocation must leave the accepted registration unchanged.
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutRunner(runner_arg.clone())],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutRunner(runner_arg.clone())],
 	};
 	index.batch(arg).await.unwrap().unwrap();
 	let runner_arg = tangram_index::runner::put::Arg {
 		registration: u64::MAX,
 		..runner_arg
 	};
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutRunner(runner_arg)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutRunner(runner_arg)],
 	};
 	index.batch(arg).await.unwrap().unwrap();
 	assert!(index.next_runner_registration_index(&runner).await.is_err());
@@ -309,8 +309,8 @@ async fn a_scheduler_lists_its_runners() {
 			registration,
 			scheduler: scheduler.clone(),
 		};
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutRunner(arg)],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutRunner(arg)],
 		};
 		index.batch(arg).await.unwrap().unwrap();
 	}
@@ -323,8 +323,8 @@ async fn a_scheduler_lists_its_runners() {
 }
 
 async fn put_sandbox(index: &crate::Index, arg: tangram_index::sandbox::put::Arg) {
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutSandbox(arg)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutSandbox(arg)],
 	};
 	index.batch(arg).await.unwrap().unwrap();
 }

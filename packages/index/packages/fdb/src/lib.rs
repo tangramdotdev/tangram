@@ -9,7 +9,6 @@ use {
 };
 
 mod ancestor;
-mod batch;
 mod checkout;
 mod clean;
 mod delegation;
@@ -38,6 +37,7 @@ mod usage;
 mod user;
 mod verify;
 mod visible;
+mod write;
 mod writer;
 
 pub(crate) use error::{propagate, retry};
@@ -359,8 +359,8 @@ impl tangram_index::Index for Index {
 		self.visible(ids, principal).await
 	}
 
-	async fn batch(&self, arg: tangram_index::batch::Arg) -> tg::Result<tg::Result<()>> {
-		self.batch(arg).await
+	async fn write(&self, arg: tangram_index::write::Arg) -> tg::Result<tg::Result<()>> {
+		self.write(arg).await
 	}
 
 	async fn try_get_ancestors(&self, id: &tg::Id) -> tg::Result<Option<Vec<tg::Id>>> {

@@ -9,23 +9,23 @@ async fn deleting_replaced_nodes_preserves_the_replacement() {
 	let specifier: tg::Specifier = "test".parse().unwrap();
 	let nodes = vec![
 		(
-			tangram_index::batch::Item::PutGroup(tangram_index::group::put::Arg {
+			tangram_index::Item::PutGroup(tangram_index::group::put::Arg {
 				id: group.clone(),
 				parent: None,
 				specifier: specifier.clone(),
 			}),
-			tangram_index::batch::Item::DeleteGroup(group),
+			tangram_index::Item::DeleteGroup(group),
 		),
 		(
-			tangram_index::batch::Item::PutOrganization(tangram_index::organization::put::Arg {
+			tangram_index::Item::PutOrganization(tangram_index::organization::put::Arg {
 				billing_ready: None,
 				id: organization.clone(),
 				specifier: specifier.clone(),
 			}),
-			tangram_index::batch::Item::DeleteOrganization(organization),
+			tangram_index::Item::DeleteOrganization(organization),
 		),
 		(
-			tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+			tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
 				account: None,
 				id: tag.clone(),
 				name: "test".to_owned(),
@@ -35,24 +35,24 @@ async fn deleting_replaced_nodes_preserves_the_replacement() {
 				touched_at: 0,
 				version: "test".to_owned(),
 			}),
-			tangram_index::batch::Item::DeleteTag(tag),
+			tangram_index::Item::DeleteTag(tag),
 		),
 		(
-			tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
+			tangram_index::Item::PutUser(tangram_index::user::put::Arg {
 				billing_ready: None,
 				id: user.clone(),
 				specifier: specifier.clone(),
 			}),
-			tangram_index::batch::Item::DeleteUser(user),
+			tangram_index::Item::DeleteUser(user),
 		),
 	];
 	for (put, delete) in nodes {
 		let (_directory, index) = new_index();
 		let replacement = tg::group::Id::new();
-		let batch = tangram_index::batch::Arg {
+		let batch = tangram_index::write::Arg {
 			items: vec![
 				put,
-				tangram_index::batch::Item::PutGroup(tangram_index::group::put::Arg {
+				tangram_index::Item::PutGroup(tangram_index::group::put::Arg {
 					id: replacement.clone(),
 					parent: None,
 					specifier: specifier.clone(),

@@ -105,7 +105,7 @@ impl Component {
 		group: &tg::group::Selector,
 		member: &tg::group::Member,
 	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		let output = match self
 			.remove_group_member_with_transaction(session, transaction, group, member, &mut batch)
 			.await?
@@ -229,7 +229,7 @@ impl Component {
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		group: &tg::group::Selector,
 		member: &tg::group::Member,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
 		let id = match group {
 			tg::Selector::Id(id) => Some(id.clone()),
@@ -277,14 +277,12 @@ impl Component {
 		if deleted == 0 {
 			return Ok(ControlFlow::Break(None));
 		}
-		batch
-			.items
-			.push(tangram_index::batch::Item::DeleteGroupMember(
-				tangram_index::group::member::delete::Arg {
-					group: group_id.clone().try_into()?,
-					member: member.clone(),
-				},
-			));
+		batch.items.push(tangram_index::Item::DeleteGroupMember(
+			tangram_index::group::member::delete::Arg {
+				group: group_id.clone().try_into()?,
+				member: member.clone(),
+			},
+		));
 		let subject = match member {
 			tg::group::Member::Group(id) => tg::authorization::Subject::Group(id.clone()),
 			tg::group::Member::User(id) => tg::authorization::Subject::User(id.clone()),

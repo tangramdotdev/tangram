@@ -181,7 +181,7 @@ impl Component {
 			},
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		let output = match self
 			.delete_organization_with_transaction(session, transaction, organization, &mut batch)
 			.await?
@@ -301,7 +301,7 @@ impl Component {
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		organization: &tg::organization::Id,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
 		let data =
 			match Self::try_get_organization_with_transaction(transaction, organization).await? {
@@ -355,7 +355,7 @@ impl Component {
 		for row in organization_members {
 			batch
 				.items
-				.push(tangram_index::batch::Item::DeleteOrganizationMember(
+				.push(tangram_index::Item::DeleteOrganizationMember(
 					tangram_index::organization::member::delete::Arg {
 						member: row.member,
 						organization: row.organization,
@@ -372,11 +372,9 @@ impl Component {
 			ControlFlow::Break(()) => (),
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		batch
-			.items
-			.push(tangram_index::batch::Item::DeleteOrganization(
-				id.clone().try_into()?,
-			));
+		batch.items.push(tangram_index::Item::DeleteOrganization(
+			id.clone().try_into()?,
+		));
 		for statement in [
 			format!("delete from organization_members where organization = {p}1;"),
 			format!("delete from organizations where id = {p}1;"),

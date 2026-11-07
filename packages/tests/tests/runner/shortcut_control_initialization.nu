@@ -46,7 +46,7 @@ for order in [process sandbox] {
 	let process = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.index.started $process_watch 0 | from json | get params.process
 	let start_write = if $order == sandbox {
 		let params = { started_process: true } | to json --raw
-		tg --url $remote.url --token $root_token checkpoint watch index.batch --params $params | from json | get watch
+		tg --url $remote.url --token $root_token checkpoint watch index.write --params $params | from json | get watch
 	} else { null }
 
 	# Either stream can submit initialization while the other is still preparing.
@@ -67,23 +67,23 @@ for order in [process sandbox] {
 	tg --url $remote.url --token $root_token checkpoint unwatch process.control.index.submitted $process_submitted
 	tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.index.submitted $sandbox_submitted
 	if $start_write != null {
-		success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s index.batch $start_write 0 | complete)
+		success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s index.write $start_write 0 | complete)
 		let index = job spawn {
 			let job_id = job id
 			let output = tg --url $remote.url --token $root_token index | complete
 			$output | job send --tag $job_id 0
 		}
 		assert equal (try { job recv --tag $index --timeout 1sec } catch { null }) null "tg index must wait for the submitted initialization"
-		tg --url $remote.url --token $root_token checkpoint unwatch index.batch $start_write
+		tg --url $remote.url --token $root_token checkpoint unwatch index.write $start_write
 		success (job recv --tag $index --timeout 30sec)
 	}
 	tg --url $remote.url --token $root_token index
 
 	# Hold terminal writes after submission, without holding their control responses.
 	let params = { finished_process: true } | to json --raw
-	let finish_write = tg --url $remote.url --token $root_token checkpoint watch index.batch --params $params | from json | get watch
+	let finish_write = tg --url $remote.url --token $root_token checkpoint watch index.write --params $params | from json | get watch
 	let params = { destroyed_sandbox: true } | to json --raw
-	let destroy_write = tg --url $remote.url --token $root_token checkpoint watch index.batch --params $params | from json | get watch
+	let destroy_write = tg --url $remote.url --token $root_token checkpoint watch index.write --params $params | from json | get watch
 	let destroyed = tg --url $runner.url checkpoint watch runner.sandbox.destroyed | from json | get watch
 	success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $start_watch 1 | complete)
 	let status = job spawn {
@@ -93,7 +93,7 @@ for order in [process sandbox] {
 	}
 	assert equal (try { job recv --tag $status --timeout 1sec } catch { null }) null "the status stream must remain open while the process is running"
 	tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
-	success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s index.batch $finish_write 0 | complete)
+	success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s index.write $finish_write 0 | complete)
 
 	# Indexing must wait for the process write, but process control may already have closed.
 	let index = job spawn {
@@ -102,10 +102,10 @@ for order in [process sandbox] {
 		$output | job send --tag $job_id 0
 	}
 	assert equal (try { job recv --tag $index --timeout 1sec } catch { null }) null "tg index must wait for the submitted process write"
-	tg --url $remote.url --token $root_token checkpoint unwatch index.batch $finish_write
+	tg --url $remote.url --token $root_token checkpoint unwatch index.write $finish_write
 
 	# Allow process indexing to complete before waiting for sandbox teardown.
-	success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s index.batch $destroy_write 0 | complete)
+	success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s index.write $destroy_write 0 | complete)
 	success (tg --url $runner.url checkpoint wait --timeout 30s runner.sandbox.destroyed $destroyed 0 | complete)
 	let data = timeout 10s tg --url $remote.url --token $root_token sandbox get $sandbox | from json
 	assert equal $data.data.status destroyed
@@ -115,7 +115,7 @@ for order in [process sandbox] {
 		$output | job send --tag $job_id 0
 	}
 	assert equal (try { job recv --tag $sandbox_index --timeout 1sec } catch { null }) null "tg index must wait for the submitted sandbox write"
-	tg --url $remote.url --token $root_token checkpoint unwatch index.batch $destroy_write
+	tg --url $remote.url --token $root_token checkpoint unwatch index.write $destroy_write
 	success (job recv --tag $index --timeout 30sec)
 	success (job recv --tag $sandbox_index --timeout 30sec)
 	tg --url $runner.url checkpoint unwatch runner.sandbox.destroyed $destroyed
