@@ -158,6 +158,24 @@ pub fn source_parser() -> impl clap::builder::TypedValueParser<Value = tg::proce
 		.map(|value| serde_json::from_value(serde_json::Value::String(value)).unwrap())
 }
 
+impl Args {
+	/// Clear the URL and token inherited from the environment if the command line names a server.
+	fn clear_inherited_server(&mut self, matches: &clap::ArgMatches) {
+		let source = |id| matches.value_source(id);
+		let command_line = Some(clap::parser::ValueSource::CommandLine);
+		let environment = Some(clap::parser::ValueSource::EnvVariable);
+		if source("url") != command_line && source("directory") != command_line {
+			return;
+		}
+		if source("url") == environment {
+			self.url = None;
+		}
+		if source("token") == environment {
+			self.token = None;
+		}
+	}
+}
+
 impl RemoteOptions {
 	pub fn overlay(&mut self, options: &Self) {
 		if options.disabled {
@@ -206,7 +224,8 @@ impl Quiet {
 
 impl Cli {
 	#[must_use]
-	pub fn new(args: Args, command: clap::Command, matches: clap::ArgMatches) -> Self {
+	pub fn new(mut args: Args, command: clap::Command, matches: clap::ArgMatches) -> Self {
+		args.clear_inherited_server(&matches);
 		Self {
 			args,
 			client: None,
