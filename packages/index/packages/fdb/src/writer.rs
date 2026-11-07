@@ -969,9 +969,10 @@ impl Index {
 						"failed to execute a request that cannot be split"
 					)),
 					request => {
-						// Split the request in half and execute the halves concurrently.
+						// Split the request in half. The halves of a clean or an update read the same queue, so they execute in order, and the halves of any other request hold distinct operations, so they execute concurrently.
 						let (mut items, kind) = Self::request_into_operations(request);
 						if items.len() > 1 {
+							let ordered = matches!(kind, Kind::Clean { .. } | Kind::Update { .. });
 							let right = items.split_off(items.len() / 2);
 							tracker.lock().unwrap().remaining += 1;
 							let [left, right] = [items, right].map(|items| {
@@ -981,10 +982,16 @@ impl Index {
 									trackers: vec![tracker.clone()],
 								}
 							});
-							futures::join!(
-								Box::pin(Self::execute_batch(database, subspace, left, config)),
-								Box::pin(Self::execute_batch(database, subspace, right, config)),
-							);
+							let left =
+								Box::pin(Self::execute_batch(database, subspace, left, config));
+							let right =
+								Box::pin(Self::execute_batch(database, subspace, right, config));
+							if ordered {
+								left.await;
+								right.await;
+							} else {
+								futures::join!(left, right);
+							}
 							return;
 						}
 						Err(tg::error!(
