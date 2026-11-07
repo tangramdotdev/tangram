@@ -95,6 +95,7 @@ pub(super) struct Update {
 
 pub(super) enum Item {
 	AggregateUsage,
+	Batch(tangram_index::batch::Item),
 	Clean,
 	ExpireUsage,
 	DeletePermission(tangram_index::permission::delete::Arg),
@@ -125,6 +126,7 @@ pub(super) enum Item {
 
 pub(super) enum Kind {
 	AggregateUsage(tangram_index::usage::aggregate::Arg),
+	Batch,
 	Clean {
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
