@@ -4,7 +4,7 @@ use {
 		permission::{PermissionIndexEntry, PermissionSource, PermissionValue},
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	futures::TryStreamExt as _,
+	futures::{TryStreamExt as _, future},
 	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -181,10 +181,17 @@ impl Index {
 				permission: entry.permission,
 			},
 		)))
+		.map(|key| Self::pack(subspace, &key))
 		.collect::<Vec<_>>();
-		for key in keys {
-			let key = Self::pack(subspace, &key);
-			let result = txn.get(&key, false).await;
+
+		// Read the permission entries and the ancestors.
+		let (results, ids) = futures::join!(
+			future::join_all(keys.iter().map(|key| txn.get(key, false))),
+			Self::ancestor_ids_with_transaction(txn, subspace, entry.resource),
+		);
+
+		// Delete the permission entries.
+		for (key, result) in keys.iter().zip(results) {
 			let Some(value) = crate::retry!(result) else {
 				continue;
 			};
@@ -194,10 +201,10 @@ impl Index {
 				continue;
 			}
 			if value.is_empty() {
-				txn.clear(&key);
+				txn.clear(key);
 			} else {
 				let bytes = value.serialize()?;
-				txn.set(&key, &bytes);
+				txn.set(key, &bytes);
 			}
 			Self::update_permission_expiration(
 				txn,
@@ -211,18 +218,25 @@ impl Index {
 			changed = true;
 		}
 
-		for id in crate::propagate!(
-			Self::ancestor_ids_with_transaction(txn, subspace, entry.resource).await
-		) {
-			let key = Key::Permission(crate::permission::Key::Visibility {
-				resource: id,
-				subject: entry.subject.clone(),
-				permission_resource: entry.resource.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
-			});
-			let key = Self::pack(subspace, &key);
-			let result = txn.get(&key, false).await;
+		// Read the visibility entries of the ancestors.
+		let ids = crate::propagate!(ids);
+		let keys = ids
+			.into_iter()
+			.map(|id| {
+				let key = Key::Permission(crate::permission::Key::Visibility {
+					resource: id,
+					subject: entry.subject.clone(),
+					permission_resource: entry.resource.clone(),
+					creator: entry.creator.cloned(),
+					permission: entry.permission,
+				});
+				Self::pack(subspace, &key)
+			})
+			.collect::<Vec<_>>();
+		let results = future::join_all(keys.iter().map(|key| txn.get(key, false))).await;
+
+		// Delete the visibility entries.
+		for (key, result) in keys.iter().zip(results) {
 			let Some(value) = crate::retry!(result) else {
 				continue;
 			};
@@ -231,10 +245,10 @@ impl Index {
 				continue;
 			}
 			if value.is_empty() {
-				txn.clear(&key);
+				txn.clear(key);
 			} else {
 				let bytes = value.serialize()?;
-				txn.set(&key, &bytes);
+				txn.set(key, &bytes);
 			}
 		}
 		Self::update_permission_expiration(

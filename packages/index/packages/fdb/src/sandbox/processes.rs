@@ -14,9 +14,16 @@ impl Index {
 		sandbox: &tg::sandbox::Id,
 		process: &tg::process::Id,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		// Read the sandbox and the process's position.
+		let (indexed, position) = futures::join!(
+			Self::try_get_sandbox_with_transaction(txn, subspace, sandbox),
+			Self::try_get_sandbox_process_position_with_transaction(
+				txn, subspace, sandbox, process
+			),
+		);
+
 		// A replay must not recreate a deleted sandbox or change the list of a destroyed sandbox.
-		let indexed =
-			crate::propagate!(Self::try_get_sandbox_with_transaction(txn, subspace, sandbox).await);
+		let indexed = crate::propagate!(indexed);
 		if indexed.is_none_or(|sandbox| {
 			sandbox
 				.data
@@ -25,66 +32,11 @@ impl Index {
 		}) {
 			return Ok(ControlFlow::Break(()));
 		}
-		crate::propagate!(
-			Self::append_sandbox_process_with_transaction(txn, subspace, sandbox, process).await
-		);
 
-		Ok(ControlFlow::Break(()))
-	}
-
-	async fn append_sandbox_process_with_transaction(
-		txn: &fdb::Transaction,
-		subspace: &fdbt::Subspace,
-		sandbox: &tg::sandbox::Id,
-		process: &tg::process::Id,
-	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		// Preserve the first indexed position when initialization is replayed.
-		let key = Key::Process(crate::process::Key::ProcessSandbox {
-			process: process.clone(),
-			sandbox: sandbox.clone(),
-		});
-		let key = Self::pack(subspace, &key);
-		if {
-			let result = txn.get(&key, false).await;
-			crate::retry!(result)
+		// Append the process.
+		if let Some(position) = crate::propagate!(position) {
+			Self::set_sandbox_process(txn, subspace, sandbox, process, position);
 		}
-		.is_some()
-		{
-			return Ok(ControlFlow::Break(()));
-		}
-
-		// Append after the last indexed process.
-		let prefix = Self::pack(
-			subspace,
-			&(
-				Kind::SandboxProcess.to_i32().unwrap(),
-				sandbox.to_bytes().as_ref(),
-			),
-		);
-		let (begin, end) = fdbt::Subspace::from_bytes(prefix).range();
-		let selector = fdb::KeySelector::last_less_than(end);
-		let result = txn.get_key(&selector, false).await;
-		let last = crate::retry!(result);
-		let position = if last.as_ref() < begin.as_slice() {
-			0
-		} else {
-			let Key::Sandbox(super::Key::SandboxProcess { position, .. }) =
-				Self::unpack(subspace, &last)?
-			else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			position
-				.checked_add(1)
-				.ok_or_else(|| tg::error!("the sandbox has too many processes"))?
-		};
-		txn.set(&key, &position.to_be_bytes());
-		let key = Key::Sandbox(super::Key::SandboxProcess {
-			position,
-			process: process.clone(),
-			sandbox: sandbox.clone(),
-		});
-		let key = Self::pack(subspace, &key);
-		txn.set(&key, &[]);
 
 		Ok(ControlFlow::Break(()))
 	}
@@ -97,13 +49,87 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		// Append the processes that are not indexed, so that the lists reported by each boot merge.
 		for process in processes {
-			crate::propagate!(
-				Self::append_sandbox_process_with_transaction(txn, subspace, sandbox, process)
-					.await
+			let position = crate::propagate!(
+				Self::try_get_sandbox_process_position_with_transaction(
+					txn, subspace, sandbox, process
+				)
+				.await
 			);
+			if let Some(position) = position {
+				Self::set_sandbox_process(txn, subspace, sandbox, process, position);
+			}
 		}
 
 		Ok(ControlFlow::Break(()))
+	}
+
+	/// Get the position to append a process at, or `None` if the process is already indexed, which preserves its first position when initialization is replayed.
+	async fn try_get_sandbox_process_position_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		sandbox: &tg::sandbox::Id,
+		process: &tg::process::Id,
+	) -> tg::Result<ControlFlow<Option<i64>, fdb::FdbError>> {
+		// Read the process's sandbox entry and the last indexed process.
+		let key = Key::Process(crate::process::Key::ProcessSandbox {
+			process: process.clone(),
+			sandbox: sandbox.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		let prefix = Self::pack(
+			subspace,
+			&(
+				Kind::SandboxProcess.to_i32().unwrap(),
+				sandbox.to_bytes().as_ref(),
+			),
+		);
+		let (begin, end) = fdbt::Subspace::from_bytes(prefix).range();
+		let selector = fdb::KeySelector::last_less_than(end);
+		let (existing, last) = futures::join!(txn.get(&key, false), txn.get_key(&selector, false));
+
+		// Skip a process that is already indexed.
+		if crate::retry!(existing).is_some() {
+			return Ok(ControlFlow::Break(None));
+		}
+
+		// Position the process after the last indexed process.
+		let last = crate::retry!(last);
+		let position = if last.as_ref() < begin.as_slice() {
+			0
+		} else {
+			let Key::Sandbox(super::Key::SandboxProcess { position, .. }) =
+				Self::unpack(subspace, &last)?
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			position
+				.checked_add(1)
+				.ok_or_else(|| tg::error!("the sandbox has too many processes"))?
+		};
+
+		Ok(ControlFlow::Break(Some(position)))
+	}
+
+	fn set_sandbox_process(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		sandbox: &tg::sandbox::Id,
+		process: &tg::process::Id,
+		position: i64,
+	) {
+		let key = Key::Process(crate::process::Key::ProcessSandbox {
+			process: process.clone(),
+			sandbox: sandbox.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		txn.set(&key, &position.to_be_bytes());
+		let key = Key::Sandbox(super::Key::SandboxProcess {
+			position,
+			process: process.clone(),
+			sandbox: sandbox.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		txn.set(&key, &[]);
 	}
 
 	pub(crate) async fn delete_sandbox_processes_with_transaction(

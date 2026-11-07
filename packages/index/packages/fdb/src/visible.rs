@@ -58,14 +58,17 @@ impl Index {
 			let results = futures::future::try_join_all(ids.iter().cloned().map(|id| {
 				let subjects = &subjects;
 				async move {
+					let results = futures::future::try_join_all(subjects.iter().map(|subject| {
+						Self::try_get_visibility_with_transaction(txn, subspace, &id, subject)
+					}))
+					.await?;
 					let mut visible = false;
-					for subject in subjects {
-						if crate::propagate!(
-							Self::try_get_visibility_with_transaction(txn, subspace, &id, subject,)
-								.await
-						) {
-							visible = true;
-							break;
+					for result in results {
+						match result {
+							ControlFlow::Break(value) => visible |= value,
+							ControlFlow::Continue(error) => {
+								return Ok(ControlFlow::Continue(error));
+							},
 						}
 					}
 

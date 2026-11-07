@@ -319,14 +319,6 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<ControlFlow<Option<u64>, fdb::FdbError>> {
-		let process = Self::try_get_process_with_transaction(txn, subspace, id).await?;
-		let process = match process {
-			ControlFlow::Break(process) => process,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		if process.is_none() {
-			return Ok(ControlFlow::Break(None));
-		}
 		let bytes = id.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -334,8 +326,14 @@ impl Index {
 		);
 		let (begin, end) = Subspace::from_bytes(prefix).range();
 		let selector = fdb::KeySelector::last_less_than(end);
-		let result = txn.get_key(&selector, false).await;
-		let key = crate::retry!(result);
+		let (process, key) = futures::join!(
+			Self::try_get_process_with_transaction(txn, subspace, id),
+			txn.get_key(&selector, false),
+		);
+		if crate::propagate!(process).is_none() {
+			return Ok(ControlFlow::Break(None));
+		}
+		let key = crate::retry!(key);
 		if key.as_ref() < begin.as_slice() {
 			return Ok(ControlFlow::Break(Some(0)));
 		}
@@ -358,13 +356,27 @@ impl Index {
 		position: std::io::SeekFrom,
 		length: u64,
 	) -> tg::Result<ControlFlow<Option<Vec<tg::process::data::Child>>, fdb::FdbError>> {
-		let Some(_) =
-			crate::propagate!(Self::try_get_process_with_transaction(txn, subspace, id).await)
-		else {
+		let (process, children) = futures::join!(
+			Self::try_get_process_with_transaction(txn, subspace, id),
+			Self::get_process_children_range_with_transaction(txn, subspace, id, position, length),
+		);
+		if crate::propagate!(process).is_none() {
 			return Ok(ControlFlow::Break(None));
-		};
+		}
+		let children = crate::propagate!(children);
+
+		Ok(ControlFlow::Break(Some(children)))
+	}
+
+	async fn get_process_children_range_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::process::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> tg::Result<ControlFlow<Vec<tg::process::data::Child>, fdb::FdbError>> {
 		if length == 0 {
-			return Ok(ControlFlow::Break(Some(Vec::new())));
+			return Ok(ControlFlow::Break(Vec::new()));
 		}
 		let limit = length
 			.to_usize()
@@ -380,7 +392,7 @@ impl Index {
 				.ok_or_else(|| tg::error!("the process child position is too large"))?,
 			std::io::SeekFrom::End(position) => {
 				if position >= 0 {
-					return Ok(ControlFlow::Break(Some(Vec::new())));
+					return Ok(ControlFlow::Break(Vec::new()));
 				}
 				let selector = fdb::KeySelector::last_less_than(end.clone());
 				let result = txn.get_key(&selector, false).await;
@@ -459,7 +471,7 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break(Some(children)))
+		Ok(ControlFlow::Break(children))
 	}
 
 	pub(crate) async fn get_process_parents_page_with_transaction(
@@ -540,12 +552,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<ControlFlow<Option<tangram_index::process::NodeChildren>, fdb::FdbError>> {
-		let Some(process) =
-			crate::propagate!(Self::try_get_process_with_transaction(txn, subspace, id).await)
-		else {
-			return Ok(ControlFlow::Break(None));
-		};
-
+		// Read the process, its children, and its objects.
 		let bytes = id.to_bytes();
 		let key = (Kind::ProcessChild.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -553,11 +560,28 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
 		};
-		let result = txn
-			.get_ranges_keyvalues(range, false)
-			.try_collect::<Vec<_>>()
-			.await;
-		let entries = crate::retry!(result);
+		let (process, entries, objects) = futures::join!(
+			Self::try_get_process_with_transaction(txn, subspace, id),
+			txn.get_ranges_keyvalues(range, false)
+				.try_collect::<Vec<_>>(),
+			crate::page::collect(|after| async move {
+				Self::get_process_objects_page_with_transaction(
+					txn,
+					subspace,
+					id,
+					None,
+					after.as_deref(),
+					crate::page::PAGE_SIZE,
+				)
+				.await
+			}),
+		);
+		let Some(process) = crate::propagate!(process) else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let entries = crate::retry!(entries);
+
+		// Collect the children.
 		let mut children = BTreeMap::new();
 		for entry in &entries {
 			let key = Self::unpack(subspace, entry.key())?;
@@ -581,20 +605,7 @@ impl Index {
 				.or_insert(child);
 		}
 
-		let objects = crate::propagate!(
-			crate::page::collect(|after| async move {
-				Self::get_process_objects_page_with_transaction(
-					txn,
-					subspace,
-					id,
-					None,
-					after.as_deref(),
-					crate::page::PAGE_SIZE,
-				)
-				.await
-			})
-			.await
-		);
+		let objects = crate::propagate!(objects);
 		for (object, _) in objects {
 			let id: tg::Id = object.into();
 			children
