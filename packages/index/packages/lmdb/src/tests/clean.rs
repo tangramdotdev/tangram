@@ -102,6 +102,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 				tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
 					account: None,
 					cached: false,
+					captures: tangram_index::permission::capture::Captures::default(),
 					children: None,
 					command: Some(vec![command.clone()]),
 					command_id: command.clone(),
