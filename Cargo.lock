@@ -9465,7 +9465,6 @@ dependencies = [
 name = "tangram_cli_clean"
 version = "0.0.0"
 dependencies = [
- "byte-unit",
  "clap",
  "num",
  "tangram_cli_core",

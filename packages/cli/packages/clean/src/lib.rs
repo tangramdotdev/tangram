@@ -3,12 +3,15 @@ use {
 	tangram_client::prelude::*, tangram_futures::stream::Ext as _,
 };
 
-/// Remove unused sandboxes, processes, and objects.
+/// Remove unused checkouts, objects, processes, and sandboxes.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[arg(long, short)]
 	force: bool,
+
+	#[command(flatten)]
+	print: tangram_cli_core::print::Options,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -36,13 +39,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.await
 		.map_err(|error| tg::error!(!error, "failed to clean"))?;
 	let output = cli.render_progress_stream(stream).await?;
-	let bytes =
-		byte_unit::Byte::from_u64(output.bytes).get_appropriate_unit(byte_unit::UnitType::Decimal);
-	let message = format!(
-		"cleaned {} objects ({bytes:#.1}), {} processes, {} sandboxes, {} tags",
-		output.objects, output.processes, output.sandboxes, output.tags,
-	);
-	cli.print_info_message(&message);
+	cli.print_serde(output, args.print).await?;
 
 	Ok(())
 }

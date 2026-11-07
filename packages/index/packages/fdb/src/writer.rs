@@ -655,8 +655,10 @@ impl Index {
 				existing.extend(new);
 			},
 			(Response::CleanOutput(existing), Response::CleanOutput(new)) => {
-				existing.bytes += new.bytes;
+				existing.checkout_bytes += new.checkout_bytes;
+				existing.checkout_files += new.checkout_files;
 				existing.checkouts.extend(new.checkouts);
+				existing.object_bytes += new.object_bytes;
 				existing.objects.extend(new.objects);
 				existing.processes.extend(new.processes);
 				existing.sandboxes.extend(new.sandboxes);

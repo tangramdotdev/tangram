@@ -144,7 +144,16 @@ pub async fn remove(path: impl AsRef<Path>) -> std::io::Result<()> {
 }
 
 pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
-	fn inner(path: &Path) -> std::io::Result<()> {
+	remove_sync_with_callback(path, |_| {})?;
+	Ok(())
+}
+
+/// Remove a path recursively, calling the callback with each entry's metadata after deleting it.
+pub fn remove_sync_with_callback(
+	path: impl AsRef<Path>,
+	mut callback: impl FnMut(&std::fs::Metadata),
+) -> std::io::Result<()> {
+	fn inner(path: &Path, callback: &mut impl FnMut(&std::fs::Metadata)) -> std::io::Result<()> {
 		// Get the metadata.
 		let metadata = std::fs::symlink_metadata(path)?;
 
@@ -163,16 +172,20 @@ pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 		// Recurse if necessary.
 		if metadata.is_dir() {
 			for entry in std::fs::read_dir(path)? {
-				inner(&entry?.path())?;
+				inner(&entry?.path(), callback)?;
 			}
 			std::fs::remove_dir(path)?;
 		} else {
 			std::fs::remove_file(path)?;
 		}
+		callback(&metadata);
 
 		Ok(())
 	}
-	inner(path.as_ref())
+
+	inner(path.as_ref(), &mut callback)?;
+
+	Ok(())
 }
 
 /// Atomically exchange two existing files or directories.

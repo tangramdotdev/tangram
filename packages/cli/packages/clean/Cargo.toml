@@ -17,7 +17,6 @@ doctest = false
 workspace = true
 
 [dependencies]
-byte-unit = { workspace = true }
 clap = { workspace = true }
 num = { workspace = true }
 tangram_cli_core = { workspace = true }

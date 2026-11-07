@@ -13,11 +13,13 @@ pub struct Arg {
 
 #[derive(Clone, Debug, Default)]
 pub struct Output {
-	pub bytes: u64,
+	pub checkout_bytes: u64,
+	pub checkout_files: u64,
 	pub checkouts: Vec<tg::Id>,
 	pub done: bool,
-	pub permissions: usize,
+	pub object_bytes: u64,
 	pub objects: Vec<Object>,
+	pub permissions: usize,
 	pub processes: Vec<tg::process::Id>,
 	pub sandboxes: Vec<tg::sandbox::Id>,
 }

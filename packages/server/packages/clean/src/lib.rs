@@ -108,12 +108,14 @@ impl Component {
 			})?;
 
 		let mut output = tg::clean::Output {
-			bytes: 0,
+			cached_responses: 0,
+			checkout_bytes: 0,
+			checkout_files: 0,
 			checkouts: 0,
+			object_bytes: 0,
 			objects: 0,
 			processes: 0,
 			sandboxes: 0,
-			tags: 0,
 		};
 		let batch_size = session.server.config.indexer.cleaning.batch_size;
 		let now = session.server.clock.unix_timestamp();
@@ -178,13 +180,14 @@ impl Component {
 			};
 
 			// Get the number of nodes cleaned.
-			let bytes = inner_output.bytes;
 			let checkouts = inner_output.checkouts.len().to_u64().unwrap();
 			let objects = inner_output.objects.len().to_u64().unwrap();
 			let processes = inner_output.processes.len().to_u64().unwrap();
 			let sandboxes = inner_output.sandboxes.len().to_u64().unwrap();
-			output.bytes += bytes;
+			output.checkout_bytes += inner_output.checkout_bytes;
+			output.checkout_files += inner_output.checkout_files;
 			output.checkouts += checkouts;
+			output.object_bytes += inner_output.object_bytes;
 			output.objects += objects;
 			output.processes += processes;
 			output.sandboxes += sandboxes;
@@ -223,7 +226,7 @@ impl Component {
 		}
 
 		// Delete the remote cache.
-		session
+		output.cached_responses = session
 			.server
 			.database
 			.run(|transaction| {
@@ -236,11 +239,12 @@ impl Component {
 
 	async fn delete_remote_cache_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
-	) -> tg::Result<ControlFlow<(), tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<u64, tangram_server_core::database::Error>> {
 		let statement = "delete from remote_cache;";
 		let result = transaction.execute(statement.into(), db::params![]).await;
-		tangram_server_core::database::retry!(result, "failed to delete the remote cache");
-		Ok(ControlFlow::Break(()))
+		let count =
+			tangram_server_core::database::retry!(result, "failed to delete the remote cache");
+		Ok(ControlFlow::Break(count))
 	}
 
 	pub(crate) async fn clean_request(

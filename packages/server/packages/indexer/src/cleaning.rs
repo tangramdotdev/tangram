@@ -3,7 +3,7 @@ use {
 	crate::Component,
 	futures::future,
 	num::ToPrimitive as _,
-	std::{path::Path, time::Duration},
+	std::{os::unix::fs::PermissionsExt as _, path::Path, time::Duration},
 	tangram_archive::Archive as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
@@ -15,6 +15,12 @@ use {
 struct Capacity {
 	available: u64,
 	total: u64,
+}
+
+#[derive(Default)]
+struct CheckoutOutput {
+	bytes: u64,
+	files: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -161,7 +167,7 @@ impl Component {
 		let max_sandbox_touched_at = now - sandbox_time_to_live.as_secs().to_i64().unwrap();
 
 		// Clean.
-		let output = server
+		let mut output = server
 			.index
 			.clean(tangram_index::clean::Arg {
 				batch_size,
@@ -220,47 +226,100 @@ impl Component {
 			}
 		};
 		let delete_store_future = async {
-			if let Err(error) = server.cache.delete_object_batch(cache_args).await {
-				let error = tg::error!(!error, "failed to delete objects from the cache");
-				tracing::error!(error = %error.trace());
+			match self.delete_cached_objects(server, cache_args).await {
+				Ok(bytes) => bytes,
+				Err(error) => {
+					let error = tg::error!(!error, "failed to delete objects from the cache");
+					tracing::error!(error = %error.trace());
+					0
+				},
 			}
 		};
-		future::join4(
+		let ((), checkouts, (), object_bytes) = future::join4(
 			delete_archive_future,
 			delete_artifact_checkouts_future,
 			delete_named_checkouts_future,
 			delete_store_future,
 		)
 		.await;
+		output.checkout_bytes = checkouts.bytes;
+		output.checkout_files = checkouts.files;
+		output.object_bytes = object_bytes;
 
 		Ok(output)
 	}
 
-	async fn delete_artifact_checkouts(&self, server: &Server, artifacts: Vec<tg::Id>) {
+	async fn delete_cached_objects(
+		&self,
+		server: &Server,
+		args: Vec<tangram_server_core::cache::object::delete::Arg>,
+	) -> tg::Result<u64> {
+		if args.is_empty() {
+			return Ok(0);
+		}
+
+		// Count the cached payloads that match the versions being deleted.
+		let arg = tangram_server_core::cache::object::get::batch::Arg {
+			bytes: true,
+			ids: args.iter().map(|arg| arg.id.clone()).collect(),
+		};
+		let result = server.cache.try_get_object_batch(arg).await.map(|outputs| {
+			std::iter::zip(&args, outputs)
+				.filter_map(|(arg, output)| output.object.filter(|object| object.put == arg.put))
+				.filter_map(|object| object.bytes)
+				.map(|bytes| bytes.len().to_u64().unwrap())
+				.sum()
+		});
+
+		// Delete the objects even if counting their payloads failed.
+		server.cache.delete_object_batch(args).await?;
+		let bytes = result
+			.map_err(|error| tg::error!(!error, "failed to count the cached object bytes"))?;
+
+		Ok(bytes)
+	}
+
+	async fn delete_artifact_checkouts(
+		&self,
+		server: &Server,
+		artifacts: Vec<tg::Id>,
+	) -> CheckoutOutput {
 		if artifacts.is_empty() || !server.checkouts_enabled() {
-			return;
+			return CheckoutOutput::default();
 		}
 		let result = tokio::task::spawn_blocking({
 			let server = server.clone();
 			move || {
+				let mut output = CheckoutOutput::default();
 				let temp = Temp::new(&server);
+				std::fs::create_dir(temp.path())?;
 				let checkout_path = server.checkout_path();
 				for artifact in artifacts {
 					let path = checkout_path.join(artifact.to_string());
 					let temp_path = temp.path().join(artifact.to_string());
-					delete_checkout_path(&path, &temp_path);
+					delete_checkout_path(&path, &temp_path, &mut output);
 
 					for extension in [".tg.js", ".tg.ts"] {
 						let path = checkout_path.join(format!("{artifact}{extension}"));
 						let temp_path = temp.path().join(format!("{artifact}{extension}"));
-						delete_checkout_path(&path, &temp_path);
+						delete_checkout_path(&path, &temp_path, &mut output);
 					}
 				}
+
+				Ok::<_, std::io::Error>(output)
 			}
 		})
 		.await;
-		if let Err(error) = result {
-			tracing::error!(?error, "the artifact checkout clean task panicked");
+		match result {
+			Ok(Ok(output)) => output,
+			Ok(Err(error)) => {
+				tracing::error!(?error, "failed to create the checkout cleanup directory");
+				CheckoutOutput::default()
+			},
+			Err(error) => {
+				tracing::error!(?error, "the artifact checkout clean task panicked");
+				CheckoutOutput::default()
+			},
 		}
 	}
 
@@ -330,10 +389,27 @@ impl CleanMode {
 	}
 }
 
-fn delete_checkout_path(path: &Path, temp_path: &Path) {
-	match std::fs::rename(path, temp_path) {
+fn delete_checkout_path(path: &Path, temp_path: &Path, output: &mut CheckoutOutput) {
+	let result = (|| {
+		// Restore owner access so read-only directories can be moved on macOS.
+		let metadata = std::fs::symlink_metadata(path)?;
+		if metadata.is_dir() {
+			let permissions =
+				std::fs::Permissions::from_mode(metadata.permissions().mode() | 0o700);
+			std::fs::set_permissions(path, permissions)?;
+		}
+		std::fs::rename(path, temp_path)?;
+		Ok::<_, std::io::Error>(())
+	})();
+	match result {
 		Ok(()) => {
-			if let Err(error) = tangram_util::fs::remove_sync(temp_path) {
+			let result = tangram_util::fs::remove_sync_with_callback(temp_path, |metadata| {
+				if metadata.is_file() {
+					output.bytes += metadata.len();
+					output.files += 1;
+				}
+			});
+			if let Err(error) = result {
 				tracing::error!(?error, path = %temp_path.display(), "failed to delete a checkout path");
 			}
 		},

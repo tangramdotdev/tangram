@@ -7,6 +7,8 @@ import * as vscode from "./packages/vscode";
 import { context } from "./scripts/context.tg.ts";
 import { task } from "./scripts/task.tg.ts";
 
+export { cli as tg };
+
 export {
 	databases as cloudDatabases,
 	deinit as cloudDeinit,
@@ -115,7 +117,7 @@ export const clean = async () => {
 	await tg.run`rm -rf .tangram node_modules target`.cwd(cwd);
 };
 
-export const cli = async (...args: Array<string>) => {
+const cli = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
 	const path = tg.path.join(cwd, "target/debug");
 	env.PATH = await tg.Mutation.prefix(

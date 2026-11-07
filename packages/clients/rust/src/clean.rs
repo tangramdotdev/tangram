@@ -6,12 +6,25 @@ use {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub bytes: u64,
+	/// The number of cached remote responses cleared.
+	pub cached_responses: u64,
+
+	/// The total size of regular files deleted from checkouts.
+	pub checkout_bytes: u64,
+
+	/// The number of regular files deleted from checkouts.
+	pub checkout_files: u64,
+
 	pub checkouts: u64,
+
+	/// The number of object payload bytes deleted from the cache.
+	pub object_bytes: u64,
+
 	pub objects: u64,
+
 	pub processes: u64,
+
 	pub sandboxes: u64,
-	pub tags: u64,
 }
 
 impl tg::Session {
