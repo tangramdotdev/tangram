@@ -227,7 +227,7 @@ impl Component {
 				touched_at,
 				version,
 			};
-			batch.items.push(tangram_index::Item::PutTag(arg));
+			batch.items.push(tangram_index::Item::PutTag(Box::new(arg)));
 		}
 		match session
 			.server

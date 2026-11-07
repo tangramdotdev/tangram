@@ -78,7 +78,7 @@ pub(crate) struct PermissionIndexEntry<'a> {
 impl Index {
 	pub async fn enqueue_permission_capture(&self, arg: enqueue::Arg) -> tg::Result<()> {
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::EnqueuePermissionCapture(arg)],
+			items: vec![tangram_index::Item::EnqueuePermissionCapture(Box::new(arg))],
 		};
 		self.write(arg).await??;
 		Ok(())

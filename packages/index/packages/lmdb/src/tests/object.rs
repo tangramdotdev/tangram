@@ -68,13 +68,13 @@ async fn put_updates_put_while_honoring_time_to_touch() {
 	let mut arg = object_arg(id.clone(), None);
 	arg.time_to_touch = std::time::Duration::from_secs(100);
 	let batch = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutObject(arg.clone())],
+		items: vec![tangram_index::Item::PutObject(Box::new(arg.clone()))],
 	};
 	index.write(batch).await.unwrap().unwrap();
 	arg.put = [2; 16];
 	arg.touched_at = 20;
 	let batch = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutObject(arg)],
+		items: vec![tangram_index::Item::PutObject(Box::new(arg))],
 	};
 	index.write(batch).await.unwrap().unwrap();
 
@@ -101,9 +101,12 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 	let tag = tg::tag::Id::new();
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutCheckout(put_checkout_arg(checkout_a.clone())),
-			tangram_index::Item::PutObject(object_arg(object.clone(), Some(checkout_a.clone()))),
-			tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
+			tangram_index::Item::PutCheckout(Box::new(put_checkout_arg(checkout_a.clone()))),
+			tangram_index::Item::PutObject(Box::new(object_arg(
+				object.clone(),
+				Some(checkout_a.clone()),
+			))),
+			tangram_index::Item::PutTag(Box::new(tangram_index::tag::put::Arg {
 				captures: tangram_index::permission::capture::Captures::default(),
 				touched_at: 0,
 				version: "initial".into(),
@@ -113,7 +116,7 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 				parent: None,
 				specifier: "tag".parse().unwrap(),
 				target: tg::Either::Left(object.clone()),
-			}),
+			})),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -134,8 +137,11 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutCheckout(put_checkout_arg(checkout_b.clone())),
-			tangram_index::Item::PutObject(object_arg(object.clone(), Some(checkout_b.clone()))),
+			tangram_index::Item::PutCheckout(Box::new(put_checkout_arg(checkout_b.clone()))),
+			tangram_index::Item::PutObject(Box::new(object_arg(
+				object.clone(),
+				Some(checkout_b.clone()),
+			))),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -166,10 +172,10 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 	assert_eq!(output.checkouts, vec![checkout_a.into()]);
 
 	let arg = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutObject(object_arg(
+		items: vec![tangram_index::Item::PutObject(Box::new(object_arg(
 			object.clone(),
 			None,
-		))],
+		)))],
 	};
 	index.write(arg).await.unwrap().unwrap();
 

@@ -8,7 +8,7 @@ pub fn deleted_users(batch: &tangram_index::write::Arg) -> Vec<tg::user::Id> {
 		.items
 		.iter()
 		.filter_map(|item| match item {
-			tangram_index::Item::DeleteUser(user) => Some(user.clone()),
+			tangram_index::Item::DeleteUser(arg) => Some(arg.id.clone()),
 			_ => None,
 		})
 		.collect()
