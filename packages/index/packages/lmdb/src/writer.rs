@@ -1,7 +1,7 @@
 use {
 	super::{
 		Db, Index, Request, Response,
-		request::{Item, Kind, Priority},
+		request::{Kind, Operation, Priority},
 	},
 	crossbeam_channel as crossbeam, foundationdb_tuple as fdbt, heed as lmdb,
 	std::collections::VecDeque,
@@ -220,61 +220,8 @@ impl Index {
 						usage_partition_total,
 					)
 					.map(Response::ExpireUsageOutput),
-					Request::DeletePermissions(args) => Self::delete_permissions_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&args,
-					)
-					.map(|()| Response::Unit),
-					Request::DeleteGroupMembers(args) => {
-						Self::delete_group_members_with_transaction(
-							db,
-							subspace,
-							&mut transaction,
-							&args,
-						)
-						.map(|()| Response::Unit)
-					},
-					Request::DeleteGroups(ids) => {
-						Self::delete_groups_with_transaction(db, subspace, &mut transaction, &ids)
-							.map(|()| Response::Unit)
-					},
 					Request::DeleteIndexer(arg) => {
 						Self::delete_indexer_with_transaction(db, subspace, &mut transaction, &arg)
-							.map(|()| Response::Unit)
-					},
-					Request::DeleteOrganizationMembers(args) => {
-						Self::delete_organization_members_with_transaction(
-							db,
-							subspace,
-							&mut transaction,
-							&args,
-						)
-						.map(|()| Response::Unit)
-					},
-					Request::DeleteOrganizations(ids) => {
-						Self::delete_organizations_with_transaction(
-							db,
-							subspace,
-							&mut transaction,
-							&ids,
-						)
-						.map(|()| Response::Unit)
-					},
-					Request::DeleteSandboxes(ids) => Self::delete_sandboxes_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&ids,
-					)
-					.map(|()| Response::Unit),
-					Request::DeleteUsers(ids) => {
-						Self::delete_users_with_transaction(db, subspace, &mut transaction, &ids)
-							.map(|()| Response::Unit)
-					},
-					Request::DeleteTags(tags) => {
-						Self::delete_tags_with_transaction(db, subspace, &mut transaction, &tags)
 							.map(|()| Response::Unit)
 					},
 					Request::GetUsage {
@@ -293,80 +240,8 @@ impl Index {
 						usage_partition_total,
 					)
 					.map(Response::Usage),
-					Request::PutCheckouts(args) => {
-						Self::put_checkouts_with_transaction(db, subspace, &mut transaction, &args)
-							.map(|()| Response::Unit)
-					},
-					Request::PutPermissions(args) => Self::put_permissions_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&args,
-					)
-					.map(|()| Response::Unit),
-					Request::PutGroupMembers(args) => Self::put_group_members_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&args,
-					)
-					.map(|()| Response::Unit),
-					Request::PutGroups(args) => {
-						Self::put_groups_with_transaction(db, subspace, &mut transaction, &args)
-							.map(|()| Response::Unit)
-					},
 					Request::PutIndexer(arg) => {
 						Self::put_indexer_with_transaction(db, subspace, &mut transaction, &arg)
-							.map(|()| Response::Unit)
-					},
-					Request::PutObjects(args) => Self::put_objects_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&args,
-						usage_partition_total,
-					)
-					.map(|()| Response::Unit),
-					Request::PutOrganizationMembers(args) => {
-						Self::put_organization_members_with_transaction(
-							db,
-							subspace,
-							&mut transaction,
-							&args,
-						)
-						.map(|()| Response::Unit)
-					},
-					Request::PutOrganizations(args) => Self::put_organizations_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&args,
-					)
-					.map(|()| Response::Unit),
-					Request::PutProcesses(args) => Self::put_processes_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&args,
-						process_data_fragment_size,
-						usage_partition_total,
-					)
-					.map(Response::Mutation),
-					Request::PutSandboxes(args) => Self::put_sandboxes_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&args,
-						process_data_fragment_size,
-						usage_partition_total,
-					)
-					.map(Response::Mutation),
-					Request::PutTags(tags) => {
-						Self::put_tags_with_transaction(db, subspace, &mut transaction, &tags)
-							.map(|()| Response::Unit)
-					},
-					Request::PutUsers(args) => {
-						Self::put_users_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
 					Request::TouchCheckouts(crate::TouchCheckouts {
@@ -605,29 +480,10 @@ impl Index {
 			Request::ExpireUsage(_) => {
 				Response::ExpireUsageOutput(tangram_index::usage::expire::Output::default())
 			},
-			Request::Write(_) | Request::PutProcesses(_) | Request::PutSandboxes(_) => {
-				Response::Mutation(Ok(()))
-			},
+			Request::Write(_) => Response::Mutation(Ok(())),
 			Request::CompletePermissionCapture(_)
-			| Request::DeletePermissions(_)
-			| Request::DeleteGroupMembers(_)
-			| Request::DeleteGroups(_)
 			| Request::DeleteIndexer(_)
-			| Request::DeleteOrganizationMembers(_)
-			| Request::DeleteOrganizations(_)
-			| Request::DeleteSandboxes(_)
-			| Request::DeleteTags(_)
-			| Request::DeleteUsers(_)
-			| Request::PutCheckouts(_)
-			| Request::PutPermissions(_)
-			| Request::PutGroupMembers(_)
-			| Request::PutGroups(_)
 			| Request::PutIndexer(_)
-			| Request::PutObjects(_)
-			| Request::PutOrganizationMembers(_)
-			| Request::PutOrganizations(_)
-			| Request::PutTags(_)
-			| Request::PutUsers(_)
 			| Request::UpdateIndexer(_) => Response::Unit,
 			Request::GetUsage { .. } => Response::Usage(tangram_index::usage::Aggregate::default()),
 			Request::TouchCheckouts(_) => Response::Checkouts(Vec::new()),
@@ -637,9 +493,11 @@ impl Index {
 		}
 	}
 
-	fn request_into_operations(request: Request) -> (Vec<Item>, Kind) {
+	fn request_into_operations(request: Request) -> (Vec<Operation>, Kind) {
 		match request {
-			Request::AggregateUsage(arg) => (vec![Item::AggregateUsage], Kind::AggregateUsage(arg)),
+			Request::AggregateUsage(arg) => {
+				(vec![Operation::AggregateUsage], Kind::AggregateUsage(arg))
+			},
 			Request::Write(_)
 			| Request::CompletePermissionCapture(_)
 			| Request::DeleteIndexer(_)
@@ -653,7 +511,7 @@ impl Index {
 				max_sandbox_touched_at,
 				now,
 			}) => {
-				let items = (0..batch_size).map(|_| Item::Clean).collect();
+				let items = (0..batch_size).map(|_| Operation::Clean).collect();
 				(
 					items,
 					Kind::Clean {
@@ -664,49 +522,14 @@ impl Index {
 					},
 				)
 			},
-			Request::ExpireUsage(arg) => (vec![Item::ExpireUsage], Kind::ExpireUsage(arg)),
-			Request::DeletePermissions(args) => {
-				let items = args.into_iter().map(Item::DeletePermission).collect();
-				(items, Kind::DeletePermissions)
-			},
-			Request::DeleteGroupMembers(args) => {
-				let items = args.into_iter().map(Item::DeleteGroupMember).collect();
-				(items, Kind::DeleteGroupMembers)
-			},
-			Request::DeleteGroups(ids) => {
-				let items = ids.into_iter().map(Item::DeleteGroup).collect();
-				(items, Kind::DeleteGroups)
-			},
-			Request::DeleteOrganizationMembers(args) => {
-				let items = args
-					.into_iter()
-					.map(Item::DeleteOrganizationMember)
-					.collect();
-				(items, Kind::DeleteOrganizationMembers)
-			},
-			Request::DeleteOrganizations(ids) => {
-				let items = ids.into_iter().map(Item::DeleteOrganization).collect();
-				(items, Kind::DeleteOrganizations)
-			},
-			Request::DeleteSandboxes(ids) => {
-				let items = ids.into_iter().map(Item::DeleteSandbox).collect();
-				(items, Kind::DeleteSandboxes)
-			},
-			Request::DeleteTags(tags) => {
-				let items = tags.into_iter().map(Item::DeleteTag).collect();
-				(items, Kind::DeleteTags)
-			},
-			Request::DeleteUsers(ids) => {
-				let items = ids.into_iter().map(Item::DeleteUser).collect();
-				(items, Kind::DeleteUsers)
-			},
+			Request::ExpireUsage(arg) => (vec![Operation::ExpireUsage], Kind::ExpireUsage(arg)),
 			Request::GetUsage {
 				account,
 				delta_time_to_live,
 				now,
 				period,
 			} => (
-				vec![Item::GetUsage],
+				vec![Operation::GetUsage],
 				Kind::GetUsage {
 					account,
 					delta_time_to_live,
@@ -714,56 +537,12 @@ impl Index {
 					period,
 				},
 			),
-			Request::PutCheckouts(args) => {
-				let items = args.into_iter().map(Item::PutCheckout).collect();
-				(items, Kind::PutCheckouts)
-			},
-			Request::PutPermissions(args) => {
-				let items = args.into_iter().map(Item::PutPermission).collect();
-				(items, Kind::PutPermissions)
-			},
-			Request::PutGroupMembers(args) => {
-				let items = args.into_iter().map(Item::PutGroupMember).collect();
-				(items, Kind::PutGroupMembers)
-			},
-			Request::PutGroups(args) => {
-				let items = args.into_iter().map(Item::PutGroup).collect();
-				(items, Kind::PutGroups)
-			},
-			Request::PutObjects(args) => {
-				let items = args.into_iter().map(Item::PutObject).collect();
-				(items, Kind::PutObjects)
-			},
-			Request::PutOrganizationMembers(args) => {
-				let items = args.into_iter().map(Item::PutOrganizationMember).collect();
-				(items, Kind::PutOrganizationMembers)
-			},
-			Request::PutOrganizations(args) => {
-				let items = args.into_iter().map(Item::PutOrganization).collect();
-				(items, Kind::PutOrganizations)
-			},
-			Request::PutProcesses(args) => {
-				let items = args.into_iter().map(Item::PutProcess).collect();
-				(items, Kind::PutProcesses)
-			},
-			Request::PutSandboxes(args) => {
-				let items = args.into_iter().map(Item::PutSandbox).collect();
-				(items, Kind::PutSandboxes)
-			},
-			Request::PutTags(tags) => {
-				let items = tags.into_iter().map(Item::PutTag).collect();
-				(items, Kind::PutTags)
-			},
-			Request::PutUsers(args) => {
-				let items = args.into_iter().map(Item::PutUser).collect();
-				(items, Kind::PutUsers)
-			},
 			Request::TouchCheckouts(crate::TouchCheckouts {
 				ids,
 				time_to_touch,
 				touched_at,
 			}) => {
-				let items = ids.into_iter().map(Item::TouchCheckout).collect();
+				let items = ids.into_iter().map(Operation::TouchCheckout).collect();
 				(
 					items,
 					Kind::TouchCheckouts {
@@ -778,7 +557,7 @@ impl Index {
 				time_to_touch,
 				touched_at,
 			}) => {
-				let items = ids.into_iter().map(Item::TouchObject).collect();
+				let items = ids.into_iter().map(Operation::TouchObject).collect();
 				(
 					items,
 					Kind::TouchObjects {
@@ -796,7 +575,7 @@ impl Index {
 				time_to_touch,
 				touched_at,
 			}) => {
-				let items = ids.into_iter().map(Item::TouchProcess).collect();
+				let items = ids.into_iter().map(Operation::TouchProcess).collect();
 				(
 					items,
 					Kind::TouchProcesses {
@@ -809,17 +588,17 @@ impl Index {
 				)
 			},
 			Request::Update(crate::Update { batch_size, kind }) => {
-				let items = (0..batch_size).map(|_| Item::Update).collect();
+				let items = (0..batch_size).map(|_| Operation::Update).collect();
 				(items, Kind::Update { kind })
 			},
 		}
 	}
 
-	fn request_from_operations(items: Vec<Item>, kind: &Kind) -> Request {
+	fn request_from_operations(items: Vec<Operation>, kind: &Kind) -> Request {
 		match kind {
 			Kind::AggregateUsage(arg) => {
-				let items: [Item; 1] = items.try_into().ok().unwrap();
-				let [Item::AggregateUsage] = items else {
+				let items: [Operation; 1] = items.try_into().ok().unwrap();
+				let [Operation::AggregateUsage] = items else {
 					unreachable!();
 				};
 				Request::AggregateUsage(arg.clone())
@@ -837,91 +616,11 @@ impl Index {
 				now: *now,
 			}),
 			Kind::ExpireUsage(arg) => {
-				let items: [Item; 1] = items.try_into().ok().unwrap();
-				let [Item::ExpireUsage] = items else {
+				let items: [Operation; 1] = items.try_into().ok().unwrap();
+				let [Operation::ExpireUsage] = items else {
 					unreachable!();
 				};
 				Request::ExpireUsage(arg.clone())
-			},
-			Kind::DeletePermissions => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::DeletePermission(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::DeletePermissions(args)
-			},
-			Kind::DeleteGroupMembers => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::DeleteGroupMember(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::DeleteGroupMembers(args)
-			},
-			Kind::DeleteGroups => {
-				let ids = items
-					.into_iter()
-					.map(|item| match item {
-						Item::DeleteGroup(id) => id,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::DeleteGroups(ids)
-			},
-			Kind::DeleteOrganizationMembers => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::DeleteOrganizationMember(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::DeleteOrganizationMembers(args)
-			},
-			Kind::DeleteOrganizations => {
-				let ids = items
-					.into_iter()
-					.map(|item| match item {
-						Item::DeleteOrganization(id) => id,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::DeleteOrganizations(ids)
-			},
-			Kind::DeleteSandboxes => {
-				let ids = items
-					.into_iter()
-					.map(|item| match item {
-						Item::DeleteSandbox(id) => id,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::DeleteSandboxes(ids)
-			},
-			Kind::DeleteTags => {
-				let tags = items
-					.into_iter()
-					.map(|item| match item {
-						Item::DeleteTag(tag) => tag,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::DeleteTags(tags)
-			},
-			Kind::DeleteUsers => {
-				let ids = items
-					.into_iter()
-					.map(|item| match item {
-						Item::DeleteUser(id) => id,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::DeleteUsers(ids)
 			},
 			Kind::GetUsage {
 				account,
@@ -929,8 +628,8 @@ impl Index {
 				now,
 				period,
 			} => {
-				let items: [Item; 1] = items.try_into().ok().unwrap();
-				let [Item::GetUsage] = items else {
+				let items: [Operation; 1] = items.try_into().ok().unwrap();
+				let [Operation::GetUsage] = items else {
 					unreachable!();
 				};
 				Request::GetUsage {
@@ -940,116 +639,6 @@ impl Index {
 					period: *period,
 				}
 			},
-			Kind::PutCheckouts => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutCheckout(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutCheckouts(args)
-			},
-			Kind::PutPermissions => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutPermission(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutPermissions(args)
-			},
-			Kind::PutGroupMembers => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutGroupMember(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutGroupMembers(args)
-			},
-			Kind::PutGroups => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutGroup(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutGroups(args)
-			},
-			Kind::PutObjects => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutObject(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutObjects(args)
-			},
-			Kind::PutOrganizationMembers => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutOrganizationMember(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutOrganizationMembers(args)
-			},
-			Kind::PutOrganizations => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutOrganization(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutOrganizations(args)
-			},
-			Kind::PutProcesses => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutProcess(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutProcesses(args)
-			},
-			Kind::PutSandboxes => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutSandbox(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutSandboxes(args)
-			},
-			Kind::PutTags => {
-				let tags = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutTag(tag) => tag,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutTags(tags)
-			},
-			Kind::PutUsers => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutUser(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutUsers(args)
-			},
 			Kind::TouchCheckouts {
 				time_to_touch,
 				touched_at,
@@ -1057,7 +646,7 @@ impl Index {
 				let ids = items
 					.into_iter()
 					.map(|item| match item {
-						Item::TouchCheckout(id) => id,
+						Operation::TouchCheckout(id) => id,
 						_ => unreachable!(),
 					})
 					.collect();
@@ -1075,7 +664,7 @@ impl Index {
 				let ids = items
 					.into_iter()
 					.map(|item| match item {
-						Item::TouchObject(id) => id,
+						Operation::TouchObject(id) => id,
 						_ => unreachable!(),
 					})
 					.collect();
@@ -1096,7 +685,7 @@ impl Index {
 				let ids = items
 					.into_iter()
 					.map(|item| match item {
-						Item::TouchProcess(id) => id,
+						Operation::TouchProcess(id) => id,
 						_ => unreachable!(),
 					})
 					.collect();

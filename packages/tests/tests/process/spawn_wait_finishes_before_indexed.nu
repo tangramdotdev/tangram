@@ -19,7 +19,7 @@ tg build --detach $first | ignore
 checkpoint wait $finish | ignore
 
 # Hold the index so that the second process does not reach it.
-let batch = checkpoint watch index.batch
+let write = checkpoint watch index.write
 
 # Start a spawn that must wait for capacity, and observe its wait on the index.
 let start = checkpoint watch process.spawn.start.index
@@ -37,7 +37,7 @@ checkpoint unwatch $finish
 checkpoint wait $ended | ignore
 
 # Release the index after the spawn observes the sandbox ending without an indexed process status.
-checkpoint unwatch $batch
+checkpoint unwatch $write
 checkpoint unwatch $ended
 let output = job recv --tag $spawn --timeout 30sec
 success $output "a process that succeeded must not fail its spawn"

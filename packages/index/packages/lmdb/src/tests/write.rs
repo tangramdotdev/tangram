@@ -1363,7 +1363,7 @@ async fn process_rejection_commits_the_other_items_and_requests() {
 	};
 	let requests = vec![
 		crate::Request::Write(batch),
-		crate::Request::PutProcesses(vec![process_arg(
+		put_processes_request(vec![process_arg(
 			unrelated.clone(),
 			tg::process::Status::Finished,
 		)]),
@@ -1397,12 +1397,12 @@ async fn process_rejection_commits_the_other_bulk_writes() {
 	let mut unfinished = process_arg(rejected.clone(), tg::process::Status::Started);
 	unfinished.principal = tg::Principal::User(tg::user::Id::new());
 	let requests = vec![
-		crate::Request::PutProcesses(vec![
+		put_processes_request(vec![
 			process_arg(before.clone(), tg::process::Status::Finished),
 			unfinished,
 			process_arg(after.clone(), tg::process::Status::Finished),
 		]),
-		crate::Request::PutProcesses(vec![process_arg(
+		put_processes_request(vec![process_arg(
 			unrelated.clone(),
 			tg::process::Status::Finished,
 		)]),
@@ -1429,9 +1429,7 @@ async fn unexpected_write_failure_aborts_all_coalesced_requests() {
 	let after = tg::process::Id::new();
 	let requests = [before.clone(), corrupt, after.clone()]
 		.into_iter()
-		.map(|id| {
-			crate::Request::PutProcesses(vec![process_arg(id, tg::process::Status::Finished)])
-		})
+		.map(|id| put_processes_request(vec![process_arg(id, tg::process::Status::Finished)]))
 		.collect();
 	let results = execute_write_requests(&index, requests, 64);
 	assert!(results.iter().all(Result::is_err));
@@ -1468,8 +1466,8 @@ async fn sandbox_rejection_preserves_permissions_and_unrelated_writes() {
 	}];
 	let unrelated = tg::sandbox::Id::new();
 	let requests = vec![
-		crate::Request::PutSandboxes(vec![conflicting]),
-		crate::Request::PutSandboxes(vec![sandbox_arg(
+		put_sandboxes_request(vec![conflicting]),
+		put_sandboxes_request(vec![sandbox_arg(
 			unrelated.clone(),
 			tg::sandbox::Status::Destroyed,
 		)]),
@@ -1725,4 +1723,20 @@ async fn a_sandbox_carries_its_initial_process() {
 			.unwrap(),
 		vec![process]
 	);
+}
+
+fn put_processes_request(args: Vec<tangram_index::process::put::Arg>) -> crate::Request {
+	let items = args
+		.into_iter()
+		.map(|arg| tangram_index::Item::PutProcess(Box::new(arg)))
+		.collect();
+	crate::Request::Write(tangram_index::write::Arg { items })
+}
+
+fn put_sandboxes_request(args: Vec<tangram_index::sandbox::put::Arg>) -> crate::Request {
+	let items = args
+		.into_iter()
+		.map(|arg| tangram_index::Item::PutSandbox(Box::new(arg)))
+		.collect();
+	crate::Request::Write(tangram_index::write::Arg { items })
 }

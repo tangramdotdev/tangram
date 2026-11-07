@@ -1,7 +1,4 @@
-use {
-	crate::{Index, Request, Response},
-	tangram_client::prelude::*,
-};
+use {crate::Index, tangram_client::prelude::*};
 
 mod delete;
 mod get;
@@ -33,11 +30,14 @@ impl Index {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let request = Request::PutTags(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
+		let items = args
+			.iter()
+			.cloned()
+			.map(|arg| tangram_index::Item::PutTag(Box::new(arg)))
+			.collect();
+		let arg = tangram_index::write::Arg { items };
+		self.write(arg).await??;
+
 		Ok(())
 	}
 
@@ -45,11 +45,16 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(());
 		}
-		let request = Request::DeleteTags(ids.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
+		let items = ids
+			.iter()
+			.map(|id| {
+				let arg = tangram_index::tag::delete::Arg { id: id.clone() };
+				tangram_index::Item::DeleteTag(Box::new(arg))
+			})
+			.collect();
+		let arg = tangram_index::write::Arg { items };
+		self.write(arg).await??;
+
 		Ok(())
 	}
 }
