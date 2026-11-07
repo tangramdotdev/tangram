@@ -2066,7 +2066,7 @@ impl Scheduler {
 			stopped_usage: None,
 			touched_at: now,
 		};
-		let mut items = vec![tangram_index::Item::PutSandbox(arg)];
+		let mut items = vec![tangram_index::Item::PutSandbox(Box::new(arg))];
 		if status.is_starting()
 			&& let Some(process) = &request.process
 		{
@@ -2147,7 +2147,7 @@ impl Scheduler {
 			touched_at: now,
 		};
 
-		Ok(tangram_index::Item::PutProcess(arg))
+		Ok(tangram_index::Item::PutProcess(Box::new(arg)))
 	}
 
 	/// Record the failure of a process whose sandbox ended before the process started.

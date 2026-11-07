@@ -557,18 +557,20 @@ impl Component {
 		};
 
 		// Put the permission in the index.
-		batch.items.push(tangram_index::Item::PutPermission(
-			tangram_index::permission::put::Arg {
-				created_at,
-				creator: Some(creator.clone()),
-				permissions,
-				resource: resource.clone(),
-				source: tangram_index::permission::Source::Grant,
-				subject: subject.clone(),
-				time_to_touch: None,
-				version: None,
-			},
-		));
+		batch
+			.items
+			.push(tangram_index::Item::PutPermission(Box::new(
+				tangram_index::permission::put::Arg {
+					created_at,
+					creator: Some(creator.clone()),
+					permissions,
+					resource: resource.clone(),
+					source: tangram_index::permission::Source::Grant,
+					subject: subject.clone(),
+					time_to_touch: None,
+					version: None,
+				},
+			)));
 		let data = tg::grant::Data {
 			created_at,
 			creator,
@@ -681,15 +683,17 @@ impl Component {
 		}
 
 		// Delete the permissions from the index, since none of the creator's grants still hold them.
-		batch.items.push(tangram_index::Item::DeletePermission(
-			tangram_index::permission::delete::Arg {
-				creator: Some(creator),
-				permissions: deleted,
-				resource,
-				source: tangram_index::permission::Source::Grant,
-				subject,
-			},
-		));
+		batch
+			.items
+			.push(tangram_index::Item::DeletePermission(Box::new(
+				tangram_index::permission::delete::Arg {
+					creator: Some(creator),
+					permissions: deleted,
+					resource,
+					source: tangram_index::permission::Source::Grant,
+					subject,
+				},
+			)));
 
 		Ok(ControlFlow::Break(Some(())))
 	}
@@ -1043,15 +1047,17 @@ impl Component {
 
 		// Delete the permissions that no remaining grant holds from the index.
 		let mut batch = tangram_index::write::Arg::default();
-		batch.items.push(tangram_index::Item::DeletePermission(
-			tangram_index::permission::delete::Arg {
-				creator: Some(creator.clone()),
-				permissions,
-				resource: row.resource,
-				source: tangram_index::permission::Source::Grant,
-				subject: row.subject,
-			},
-		));
+		batch
+			.items
+			.push(tangram_index::Item::DeletePermission(Box::new(
+				tangram_index::permission::delete::Arg {
+					creator: Some(creator.clone()),
+					permissions,
+					resource: row.resource,
+					source: tangram_index::permission::Source::Grant,
+					subject: row.subject,
+				},
+			)));
 		match server
 			.components
 			.indexer
@@ -1239,15 +1245,17 @@ impl Component {
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
 		for row in rows {
-			batch.items.push(tangram_index::Item::DeletePermission(
-				tangram_index::permission::delete::Arg {
-					creator: Some(row.creator.unwrap_or_default()),
-					permissions: row.permissions,
-					resource: row.resource,
-					source: tangram_index::permission::Source::Grant,
-					subject: row.subject,
-				},
-			));
+			batch
+				.items
+				.push(tangram_index::Item::DeletePermission(Box::new(
+					tangram_index::permission::delete::Arg {
+						creator: Some(row.creator.unwrap_or_default()),
+						permissions: row.permissions,
+						resource: row.resource,
+						source: tangram_index::permission::Source::Grant,
+						subject: row.subject,
+					},
+				)));
 		}
 		let statement = formatdoc!(
 			"

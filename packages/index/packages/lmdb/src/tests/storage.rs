@@ -115,10 +115,10 @@ async fn command_objects_can_be_empty_or_multiple_without_a_stored_command() {
 			.map(|id| {
 				let mut object = object_arg(id.clone(), [], 1);
 				object.storage.insert(tg::object::storage::Set::SUBTREE);
-				tangram_index::Item::PutObject(object)
+				tangram_index::Item::PutObject(Box::new(object))
 			})
 			.collect::<Vec<_>>();
-		items.push(tangram_index::Item::PutProcess(process));
+		items.push(tangram_index::Item::PutProcess(Box::new(process)));
 		let arg = tangram_index::write::Arg { items };
 		index.write(arg).await.unwrap().unwrap();
 		loop {
@@ -188,7 +188,7 @@ async fn cleans_command_cache_key_without_command_objects() {
 		.unwrap(),
 	);
 	let arg = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutProcess(process)],
+		items: vec![tangram_index::Item::PutProcess(Box::new(process))],
 	};
 	index.write(arg).await.unwrap().unwrap();
 	assert_eq!(
@@ -231,7 +231,7 @@ async fn object_put_touched_at_does_not_regress() {
 		let mut arg = object_arg(id.clone(), [], 1);
 		arg.touched_at = touched_at;
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutObject(arg)],
+			items: vec![tangram_index::Item::PutObject(Box::new(arg))],
 		};
 		index.write(arg).await.unwrap().unwrap();
 		let object = index.try_get_object(&id).await.unwrap().unwrap();
@@ -275,15 +275,17 @@ async fn account_storage_deduplicates_a_diamond_and_cleans() {
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutObject(object_arg(d.clone(), [], 4)),
-			tangram_index::Item::PutObject(object_arg(b.clone(), [d.clone()], 3)),
-			tangram_index::Item::PutObject(object_arg(c.clone(), [d], 2)),
-			tangram_index::Item::PutObject(object_arg(a.clone(), [b, c], 1)),
-			tangram_index::Item::PutAccountObject(tangram_index::usage::storage::put::ObjectArg {
-				account: account.clone(),
-				object: a,
-				touched_at: 1,
-			}),
+			tangram_index::Item::PutObject(Box::new(object_arg(d.clone(), [], 4))),
+			tangram_index::Item::PutObject(Box::new(object_arg(b.clone(), [d.clone()], 3))),
+			tangram_index::Item::PutObject(Box::new(object_arg(c.clone(), [d], 2))),
+			tangram_index::Item::PutObject(Box::new(object_arg(a.clone(), [b, c], 1))),
+			tangram_index::Item::PutAccountObject(Box::new(
+				tangram_index::usage::storage::put::ObjectArg {
+					account: account.clone(),
+					object: a,
+					touched_at: 1,
+				},
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -331,20 +333,24 @@ async fn account_storage_traverses_process_relationships() {
 	let account = tangram_index::usage::Account::Organization(tg::organization::Id::new());
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutObject(object_arg(command.clone(), [], 7)),
-			tangram_index::Item::PutProcess(process_arg(
+			tangram_index::Item::PutObject(Box::new(object_arg(command.clone(), [], 7))),
+			tangram_index::Item::PutProcess(Box::new(process_arg(
 				child.clone(),
 				Vec::new(),
 				command.clone(),
-			)),
-			tangram_index::Item::PutProcess(process_arg(root.clone(), vec![child], command)),
-			tangram_index::Item::PutAccountProcess(
+			))),
+			tangram_index::Item::PutProcess(Box::new(process_arg(
+				root.clone(),
+				vec![child],
+				command,
+			))),
+			tangram_index::Item::PutAccountProcess(Box::new(
 				tangram_index::usage::storage::put::ProcessArg {
 					account: account.clone(),
 					process: root,
 					touched_at: 1,
 				},
-			),
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -396,15 +402,15 @@ async fn account_storage_traverses_new_process_relationships() {
 	};
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutObject(object_arg(command.clone(), [], 7)),
-			tangram_index::Item::PutProcess(partial_root),
-			tangram_index::Item::PutAccountProcess(
+			tangram_index::Item::PutObject(Box::new(object_arg(command.clone(), [], 7))),
+			tangram_index::Item::PutProcess(Box::new(partial_root)),
+			tangram_index::Item::PutAccountProcess(Box::new(
 				tangram_index::usage::storage::put::ProcessArg {
 					account: account.clone(),
 					process: root.clone(),
 					touched_at: 1,
 				},
-			),
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -424,8 +430,8 @@ async fn account_storage_traverses_new_process_relationships() {
 	root_arg.output = None;
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutProcess(process_arg(child, Vec::new(), command)),
-			tangram_index::Item::PutProcess(root_arg),
+			tangram_index::Item::PutProcess(Box::new(process_arg(child, Vec::new(), command))),
+			tangram_index::Item::PutProcess(Box::new(root_arg)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -452,12 +458,18 @@ async fn account_storage_traverses_objects_indexed_after_their_parents() {
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutObject(object_arg(parent.clone(), [child.clone()], 3)),
-			tangram_index::Item::PutAccountObject(tangram_index::usage::storage::put::ObjectArg {
-				account: account.clone(),
-				object: parent,
-				touched_at: 1,
-			}),
+			tangram_index::Item::PutObject(Box::new(object_arg(
+				parent.clone(),
+				[child.clone()],
+				3,
+			))),
+			tangram_index::Item::PutAccountObject(Box::new(
+				tangram_index::usage::storage::put::ObjectArg {
+					account: account.clone(),
+					object: parent,
+					touched_at: 1,
+				},
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -476,7 +488,11 @@ async fn account_storage_traverses_objects_indexed_after_their_parents() {
 
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutObject(object_arg(child, [], 5))],
+			items: vec![tangram_index::Item::PutObject(Box::new(object_arg(
+				child,
+				[],
+				5,
+			)))],
 		})
 		.await
 		.unwrap()
@@ -508,14 +524,14 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 	process_arg.log = Some(Some(log.clone()));
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutUser(tangram_index::user::put::Arg {
+			tangram_index::Item::PutUser(Box::new(tangram_index::user::put::Arg {
 				billing_ready: None,
 				id: user.clone(),
 				specifier: "user".parse().unwrap(),
-			}),
-			tangram_index::Item::PutObject(object_arg(command, [], 7)),
-			tangram_index::Item::PutProcess(process_arg),
-			tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
+			})),
+			tangram_index::Item::PutObject(Box::new(object_arg(command, [], 7))),
+			tangram_index::Item::PutProcess(Box::new(process_arg)),
+			tangram_index::Item::PutTag(Box::new(tangram_index::tag::put::Arg {
 				captures: tangram_index::permission::capture::Captures::default(),
 				touched_at: 0,
 				version: "initial".into(),
@@ -525,8 +541,8 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 				parent: Some(user.into()),
 				specifier: "user/tag".parse().unwrap(),
 				target: tg::Either::Right(process.clone()),
-			}),
-			tangram_index::Item::PutPermission(tangram_index::permission::put::Arg {
+			})),
+			tangram_index::Item::PutPermission(Box::new(tangram_index::permission::put::Arg {
 				created_at: 0,
 				creator: None,
 				permissions: tg::authorization::permission::Set::Process(
@@ -542,14 +558,14 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 				subject: tg::authorization::Subject::Tag(tag),
 				time_to_touch: None,
 				version: Some("initial".into()),
-			}),
-			tangram_index::Item::PutAccountProcess(
+			})),
+			tangram_index::Item::PutAccountProcess(Box::new(
 				tangram_index::usage::storage::put::ProcessArg {
 					account: account.clone(),
 					process,
 					touched_at: 1,
 				},
-			),
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -587,7 +603,11 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutObject(object_arg(log, [], 5))],
+			items: vec![tangram_index::Item::PutObject(Box::new(object_arg(
+				log,
+				[],
+				5,
+			)))],
 		})
 		.await
 		.unwrap()
@@ -616,19 +636,19 @@ async fn account_storage_traverses_processes_indexed_after_their_parents() {
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutObject(object_arg(command.clone(), [], 7)),
-			tangram_index::Item::PutProcess(process_arg(
+			tangram_index::Item::PutObject(Box::new(object_arg(command.clone(), [], 7))),
+			tangram_index::Item::PutProcess(Box::new(process_arg(
 				parent.clone(),
 				vec![child.clone()],
 				command.clone(),
-			)),
-			tangram_index::Item::PutAccountProcess(
+			))),
+			tangram_index::Item::PutAccountProcess(Box::new(
 				tangram_index::usage::storage::put::ProcessArg {
 					account: account.clone(),
 					process: parent,
 					touched_at: 1,
 				},
-			),
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -647,11 +667,11 @@ async fn account_storage_traverses_processes_indexed_after_their_parents() {
 
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutProcess(process_arg(
+			items: vec![tangram_index::Item::PutProcess(Box::new(process_arg(
 				child,
 				Vec::new(),
 				command,
-			))],
+			)))],
 		})
 		.await
 		.unwrap()
@@ -679,13 +699,13 @@ async fn account_storage_is_retained_by_a_tag() {
 	let tag = tg::tag::Id::new();
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutUser(tangram_index::user::put::Arg {
+			tangram_index::Item::PutUser(Box::new(tangram_index::user::put::Arg {
 				billing_ready: None,
 				id: user.clone(),
 				specifier: "user".parse().unwrap(),
-			}),
-			tangram_index::Item::PutObject(object_arg(object.clone(), [], 5)),
-			tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
+			})),
+			tangram_index::Item::PutObject(Box::new(object_arg(object.clone(), [], 5))),
+			tangram_index::Item::PutTag(Box::new(tangram_index::tag::put::Arg {
 				captures: tangram_index::permission::capture::Captures::default(),
 				touched_at: 0,
 				version: "initial".into(),
@@ -695,8 +715,8 @@ async fn account_storage_is_retained_by_a_tag() {
 				parent: Some(user.into()),
 				specifier: "user/tag".parse().unwrap(),
 				target: tg::Either::Left(object.clone()),
-			}),
-			tangram_index::Item::PutPermission(tangram_index::permission::put::Arg {
+			})),
+			tangram_index::Item::PutPermission(Box::new(tangram_index::permission::put::Arg {
 				created_at: 0,
 				creator: None,
 				permissions: tg::authorization::permission::Set::Object(
@@ -707,12 +727,14 @@ async fn account_storage_is_retained_by_a_tag() {
 				subject: tg::authorization::Subject::Tag(tag.clone()),
 				time_to_touch: None,
 				version: Some("initial".into()),
-			}),
-			tangram_index::Item::PutAccountObject(tangram_index::usage::storage::put::ObjectArg {
-				account: account.clone(),
-				object,
-				touched_at: 1,
-			}),
+			})),
+			tangram_index::Item::PutAccountObject(Box::new(
+				tangram_index::usage::storage::put::ObjectArg {
+					account: account.clone(),
+					object,
+					touched_at: 1,
+				},
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -735,7 +757,9 @@ async fn account_storage_is_retained_by_a_tag() {
 
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::DeleteTag(tag)],
+			items: vec![tangram_index::Item::DeleteTag(Box::new(
+				tangram_index::tag::delete::Arg { id: tag },
+			))],
 		})
 		.await
 		.unwrap()
@@ -779,18 +803,18 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 					tg::authorization::permission::Set::Process(
 						tg::authorization::permission::process::Set::SUBTREE,
 					),
-					tangram_index::Item::PutProcess(process_arg(
+					tangram_index::Item::PutProcess(Box::new(process_arg(
 						process.clone(),
 						Vec::new(),
 						object,
-					)),
-					tangram_index::Item::PutAccountProcess(
+					))),
+					tangram_index::Item::PutAccountProcess(Box::new(
 						tangram_index::usage::storage::put::ProcessArg {
 							account: account.clone(),
 							process: process.clone(),
 							touched_at: created_at,
 						},
-					),
+					)),
 					crate::usage::Key::AccountProcess {
 						account: account.clone(),
 						process,
@@ -803,14 +827,14 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 					tg::authorization::permission::Set::Object(
 						tg::authorization::permission::object::Set::SUBTREE,
 					),
-					tangram_index::Item::PutObject(object_arg(object.clone(), [], 5)),
-					tangram_index::Item::PutAccountObject(
+					tangram_index::Item::PutObject(Box::new(object_arg(object.clone(), [], 5))),
+					tangram_index::Item::PutAccountObject(Box::new(
 						tangram_index::usage::storage::put::ObjectArg {
 							account: account.clone(),
 							object: object.clone(),
 							touched_at: created_at,
 						},
-					),
+					)),
 					crate::usage::Key::AccountObject {
 						account: account.clone(),
 						object,
@@ -821,7 +845,7 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 			// Create the tag before the account independently stores its target.
 			let mut items = vec![
 				stored,
-				tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
+				tangram_index::Item::PutTag(Box::new(tangram_index::tag::put::Arg {
 					account: Some(account.clone()),
 					captures: tangram_index::permission::capture::Captures::default(),
 					id: tag.clone(),
@@ -831,7 +855,7 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 					target,
 					touched_at: created_at,
 					version: "initial".into(),
-				}),
+				})),
 			];
 			if has_permissions {
 				let arg = tangram_index::permission::put::Arg {
@@ -844,7 +868,7 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 					time_to_touch: None,
 					version: Some("initial".into()),
 				};
-				items.push(tangram_index::Item::PutPermission(arg));
+				items.push(tangram_index::Item::PutPermission(Box::new(arg)));
 			}
 			let arg = tangram_index::write::Arg { items };
 			index.write(arg).await.unwrap().unwrap();
@@ -899,11 +923,11 @@ async fn touching_does_not_create_a_storage_entry() {
 	let object = object_id(30);
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
 	let arg = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutObject(object_arg(
+		items: vec![tangram_index::Item::PutObject(Box::new(object_arg(
 			object.clone(),
 			[],
 			5,
-		))],
+		)))],
 	};
 	index.write(arg).await.unwrap().unwrap();
 	index
@@ -926,12 +950,14 @@ async fn touching_an_object_with_its_account_updates_both_lifetimes() {
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutObject(object_arg(object.clone(), [], 5)),
-			tangram_index::Item::PutAccountObject(tangram_index::usage::storage::put::ObjectArg {
-				account: account.clone(),
-				object: object.clone(),
-				touched_at: 1,
-			}),
+			tangram_index::Item::PutObject(Box::new(object_arg(object.clone(), [], 5))),
+			tangram_index::Item::PutAccountObject(Box::new(
+				tangram_index::usage::storage::put::ObjectArg {
+					account: account.clone(),
+					object: object.clone(),
+					touched_at: 1,
+				},
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -971,15 +997,19 @@ async fn touching_a_process_with_its_account_updates_both_lifetimes() {
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutObject(object_arg(command.clone(), [], 5)),
-			tangram_index::Item::PutProcess(process_arg(process.clone(), Vec::new(), command)),
-			tangram_index::Item::PutAccountProcess(
+			tangram_index::Item::PutObject(Box::new(object_arg(command.clone(), [], 5))),
+			tangram_index::Item::PutProcess(Box::new(process_arg(
+				process.clone(),
+				Vec::new(),
+				command,
+			))),
+			tangram_index::Item::PutAccountProcess(Box::new(
 				tangram_index::usage::storage::put::ProcessArg {
 					account: account.clone(),
 					process: process.clone(),
 					touched_at: 1,
 				},
-			),
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -1017,12 +1047,14 @@ async fn touching_with_an_account_honors_time_to_touch() {
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutObject(object_arg(object.clone(), [], 5)),
-			tangram_index::Item::PutAccountObject(tangram_index::usage::storage::put::ObjectArg {
-				account: account.clone(),
-				object: object.clone(),
-				touched_at: 1,
-			}),
+			tangram_index::Item::PutObject(Box::new(object_arg(object.clone(), [], 5))),
+			tangram_index::Item::PutAccountObject(Box::new(
+				tangram_index::usage::storage::put::ObjectArg {
+					account: account.clone(),
+					object: object.clone(),
+					touched_at: 1,
+				},
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -1081,7 +1113,7 @@ async fn subtree_storage_requires_node_storage() {
 	let mut object = object_arg(id.clone(), [], 1);
 	object.storage = tg::object::storage::Set::empty();
 	let arg = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutObject(object.clone())],
+		items: vec![tangram_index::Item::PutObject(Box::new(object.clone()))],
 	};
 	index.write(arg).await.unwrap().unwrap();
 	loop {
@@ -1104,7 +1136,7 @@ async fn subtree_storage_requires_node_storage() {
 	);
 	object.storage = tg::object::storage::Set::NODE;
 	let arg = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutObject(object)],
+		items: vec![tangram_index::Item::PutObject(Box::new(object))],
 	};
 	index.write(arg).await.unwrap().unwrap();
 	loop {
@@ -1138,7 +1170,11 @@ async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
 					tg::authorization::permission::Set::Process(
 						tg::authorization::permission::process::Set::SUBTREE,
 					),
-					tangram_index::Item::PutProcess(process_arg(process, Vec::new(), object)),
+					tangram_index::Item::PutProcess(Box::new(process_arg(
+						process,
+						Vec::new(),
+						object,
+					))),
 				)
 			} else {
 				(
@@ -1147,7 +1183,7 @@ async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
 					tg::authorization::permission::Set::Object(
 						tg::authorization::permission::object::Set::SUBTREE,
 					),
-					tangram_index::Item::PutObject(object_arg(object, [], 5)),
+					tangram_index::Item::PutObject(Box::new(object_arg(object, [], 5))),
 				)
 			};
 			let mut tag = tangram_index::tag::put::Arg {
@@ -1161,7 +1197,7 @@ async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
 				touched_at: created_at,
 				version: "initial".into(),
 			};
-			let mut items = vec![stored, tangram_index::Item::PutTag(tag.clone())];
+			let mut items = vec![stored, tangram_index::Item::PutTag(Box::new(tag.clone()))];
 			if has_permissions {
 				let arg = tangram_index::permission::put::Arg {
 					created_at,
@@ -1173,7 +1209,7 @@ async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
 					time_to_touch: None,
 					version: Some("initial".into()),
 				};
-				items.push(tangram_index::Item::PutPermission(arg));
+				items.push(tangram_index::Item::PutPermission(Box::new(arg)));
 			}
 			index
 				.write(tangram_index::write::Arg { items })
@@ -1260,19 +1296,23 @@ async fn tag_storage_follows_captured_object_permissions() {
 			let created_at = 3600;
 			let arg = tangram_index::write::Arg {
 				items: vec![
-					tangram_index::Item::PutObject(object_arg(
+					tangram_index::Item::PutObject(Box::new(object_arg(
 						root.clone(),
 						[captured.clone(), inaccessible.clone()],
 						1,
-					)),
-					tangram_index::Item::PutObject(object_arg(
+					))),
+					tangram_index::Item::PutObject(Box::new(object_arg(
 						captured.clone(),
 						[child.clone()],
 						2,
-					)),
-					tangram_index::Item::PutObject(object_arg(child.clone(), [], 3)),
-					tangram_index::Item::PutObject(object_arg(inaccessible.clone(), [], 4)),
-					tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
+					))),
+					tangram_index::Item::PutObject(Box::new(object_arg(child.clone(), [], 3))),
+					tangram_index::Item::PutObject(Box::new(object_arg(
+						inaccessible.clone(),
+						[],
+						4,
+					))),
+					tangram_index::Item::PutTag(Box::new(tangram_index::tag::put::Arg {
 						account: Some(account.clone()),
 						captures: tangram_index::permission::capture::Captures::default(),
 						id: tag.clone(),
@@ -1282,7 +1322,7 @@ async fn tag_storage_follows_captured_object_permissions() {
 						target: tg::Either::Left(root.clone()),
 						touched_at: created_at,
 						version: "initial".into(),
-					}),
+					})),
 				],
 			};
 			index.write(arg).await.unwrap().unwrap();
@@ -1498,11 +1538,11 @@ async fn tag_storage_follows_captured_process_permissions() {
 			}
 			let arg = tangram_index::write::Arg {
 				items: vec![
-					tangram_index::Item::PutObject(object_arg(command, [], 1)),
-					tangram_index::Item::PutObject(object_arg(child_output, [], 4)),
-					tangram_index::Item::PutProcess(root_arg),
-					tangram_index::Item::PutProcess(child_arg),
-					tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
+					tangram_index::Item::PutObject(Box::new(object_arg(command, [], 1))),
+					tangram_index::Item::PutObject(Box::new(object_arg(child_output, [], 4))),
+					tangram_index::Item::PutProcess(Box::new(root_arg)),
+					tangram_index::Item::PutProcess(Box::new(child_arg)),
+					tangram_index::Item::PutTag(Box::new(tangram_index::tag::put::Arg {
 						account: Some(account.clone()),
 						captures: tangram_index::permission::capture::Captures::default(),
 						id: tag.clone(),
@@ -1512,7 +1552,7 @@ async fn tag_storage_follows_captured_process_permissions() {
 						target: tg::Either::Right(root.clone()),
 						touched_at: created_at,
 						version: "initial".into(),
-					}),
+					})),
 				],
 			};
 			index.write(arg).await.unwrap().unwrap();
@@ -1537,8 +1577,12 @@ async fn tag_storage_follows_captured_process_permissions() {
 			// Index the output subtree after capturing the process permissions.
 			let arg = tangram_index::write::Arg {
 				items: vec![
-					tangram_index::Item::PutObject(object_arg(output, [output_child.clone()], 2)),
-					tangram_index::Item::PutObject(object_arg(output_child, [], 3)),
+					tangram_index::Item::PutObject(Box::new(object_arg(
+						output,
+						[output_child.clone()],
+						2,
+					))),
+					tangram_index::Item::PutObject(Box::new(object_arg(output_child, [], 3))),
 				],
 			};
 			index.write(arg).await.unwrap().unwrap();
@@ -1619,9 +1663,9 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 	let created_at = 3600;
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutObject(object_arg(root.clone(), [child.clone()], 1)),
-			tangram_index::Item::PutObject(object_arg(child.clone(), [], 2)),
-			tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
+			tangram_index::Item::PutObject(Box::new(object_arg(root.clone(), [child.clone()], 1))),
+			tangram_index::Item::PutObject(Box::new(object_arg(child.clone(), [], 2))),
+			tangram_index::Item::PutTag(Box::new(tangram_index::tag::put::Arg {
 				account: Some(account.clone()),
 				captures: tangram_index::permission::capture::Captures::default(),
 				id: tag.clone(),
@@ -1631,12 +1675,14 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 				target: tg::Either::Left(root.clone()),
 				touched_at: created_at,
 				version: "initial".into(),
-			}),
-			tangram_index::Item::PutAccountObject(tangram_index::usage::storage::put::ObjectArg {
-				account: account.clone(),
-				object: root.clone(),
-				touched_at: created_at,
-			}),
+			})),
+			tangram_index::Item::PutAccountObject(Box::new(
+				tangram_index::usage::storage::put::ObjectArg {
+					account: account.clone(),
+					object: root.clone(),
+					touched_at: created_at,
+				},
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -1725,13 +1771,15 @@ async fn account_storage_uses_cached_references_until_a_parent_changes() {
 	let child = object_id(1401);
 	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutObject(object_arg(root.clone(), [child.clone()], 1)),
-			tangram_index::Item::PutObject(object_arg(child.clone(), [], 2)),
-			tangram_index::Item::PutAccountObject(tangram_index::usage::storage::put::ObjectArg {
-				account: account.clone(),
-				object: root.clone(),
-				touched_at: 3600,
-			}),
+			tangram_index::Item::PutObject(Box::new(object_arg(root.clone(), [child.clone()], 1))),
+			tangram_index::Item::PutObject(Box::new(object_arg(child.clone(), [], 2))),
+			tangram_index::Item::PutAccountObject(Box::new(
+				tangram_index::usage::storage::put::ObjectArg {
+					account: account.clone(),
+					object: root.clone(),
+					touched_at: 3600,
+				},
+			)),
 		],
 	};
 	index.write(arg).await.unwrap().unwrap();
@@ -1913,10 +1961,10 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 	process_arg.log = Some(Some(log.clone()));
 	process_arg.output = Some(Some(vec![output.clone()]));
 	let mut items = vec![
-		tangram_index::Item::PutObject(object_arg(command, [], 1)),
-		tangram_index::Item::PutObject(object_arg(log, [], 2)),
-		tangram_index::Item::PutObject(object_arg(output, [], 3)),
-		tangram_index::Item::PutProcess(process_arg),
+		tangram_index::Item::PutObject(Box::new(object_arg(command, [], 1))),
+		tangram_index::Item::PutObject(Box::new(object_arg(log, [], 2))),
+		tangram_index::Item::PutObject(Box::new(object_arg(output, [], 3))),
+		tangram_index::Item::PutProcess(Box::new(process_arg)),
 	];
 	for (id, name) in [(&log_tag, "log"), (&output_tag, "output")] {
 		let arg = tangram_index::tag::put::Arg {
@@ -1930,7 +1978,7 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 			touched_at: created_at,
 			version: "initial".into(),
 		};
-		items.push(tangram_index::Item::PutTag(arg));
+		items.push(tangram_index::Item::PutTag(Box::new(arg)));
 	}
 	let arg = tangram_index::write::Arg { items };
 	index.write(arg).await.unwrap().unwrap();
@@ -2038,12 +2086,12 @@ async fn tag_storage_expands_permissions_during_propagation() {
 		};
 		let mut arg = process_arg((*id).clone(), children, command.clone());
 		arg.log = Some(Some(log.clone()));
-		items.push(tangram_index::Item::PutProcess(arg));
-		items.push(tangram_index::Item::PutObject(object_arg(
+		items.push(tangram_index::Item::PutProcess(Box::new(arg)));
+		items.push(tangram_index::Item::PutObject(Box::new(object_arg(
 			log.clone(),
 			[],
 			position as u64 + 1,
-		)));
+		))));
 	}
 	let arg = tangram_index::tag::put::Arg {
 		account: Some(account.clone()),
@@ -2056,7 +2104,7 @@ async fn tag_storage_expands_permissions_during_propagation() {
 		touched_at: 3600,
 		version: "initial".into(),
 	};
-	items.push(tangram_index::Item::PutTag(arg));
+	items.push(tangram_index::Item::PutTag(Box::new(arg)));
 	let arg = tangram_index::write::Arg { items };
 	index.write(arg).await.unwrap().unwrap();
 	let mut permission = tangram_index::permission::put::Arg {
@@ -2218,17 +2266,17 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 		let leaf = tg::process::Id::new();
 		let command = object_id(1603);
 		let items = vec![
-			tangram_index::Item::PutProcess(process_arg(
+			tangram_index::Item::PutProcess(Box::new(process_arg(
 				root.clone(),
 				vec![child.clone()],
 				command.clone(),
-			)),
-			tangram_index::Item::PutProcess(process_arg(
+			))),
+			tangram_index::Item::PutProcess(Box::new(process_arg(
 				child.clone(),
 				vec![leaf.clone()],
 				command.clone(),
-			)),
-			tangram_index::Item::PutProcess(process_arg(leaf.clone(), vec![], command)),
+			))),
+			tangram_index::Item::PutProcess(Box::new(process_arg(leaf.clone(), vec![], command))),
 		];
 		(
 			tg::Either::Right(root),
@@ -2241,9 +2289,9 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 		let child = object_id(1601);
 		let leaf = object_id(1602);
 		let items = vec![
-			tangram_index::Item::PutObject(object_arg(root.clone(), [child.clone()], 1)),
-			tangram_index::Item::PutObject(object_arg(child.clone(), [leaf.clone()], 2)),
-			tangram_index::Item::PutObject(object_arg(leaf.clone(), [], 3)),
+			tangram_index::Item::PutObject(Box::new(object_arg(root.clone(), [child.clone()], 1))),
+			tangram_index::Item::PutObject(Box::new(object_arg(child.clone(), [leaf.clone()], 2))),
+			tangram_index::Item::PutObject(Box::new(object_arg(leaf.clone(), [], 3))),
 		];
 		(
 			tg::Either::Left(root),
@@ -2269,7 +2317,7 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 			touched_at: 3600,
 			version: "initial".into(),
 		};
-		items.push(tangram_index::Item::PutTag(arg));
+		items.push(tangram_index::Item::PutTag(Box::new(arg)));
 	}
 	let arg = tangram_index::write::Arg { items };
 	index.write(arg).await.unwrap().unwrap();

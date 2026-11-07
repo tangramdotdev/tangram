@@ -1,5 +1,6 @@
 use {futures::FutureExt as _, std::collections::BTreeMap, tangram_client::prelude::*};
 
+pub mod delete;
 pub mod list;
 pub mod put;
 

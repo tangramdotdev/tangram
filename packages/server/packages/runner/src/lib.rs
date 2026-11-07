@@ -415,7 +415,7 @@ impl Component {
 			scheduler: scheduler.clone(),
 		};
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutRunner(arg)],
+			items: vec![tangram_index::Item::PutRunner(Box::new(arg))],
 		};
 		session.server.index.write(arg).await??;
 		Ok(())
