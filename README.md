@@ -24,7 +24,7 @@ To get started, run the install script below, or download the [latest release](h
 curl -fsSL https://tangram.dev/install.sh | sh
 ```
 
-To build and install from a local checkout, run `bun run install:release` or `tg run '.#install'`. This installs the release binary at `~/.local/bin/tangram` and creates a `tg` symlink alongside it. Use `bun run install:dev` to install a debug build instead.
+To build and install from a local checkout, run `tg run .#install`. This installs the release binary at `~/.local/bin/tangram` and creates a `tg` symlink alongside it. Use `tg run .#installDev` to install a dev build instead. If Tangram is not installed yet, bootstrap with `nu scripts/install.nu`.
 
 Create a file at the root of your project called `tangram.ts` with the following content:
 
@@ -93,3 +93,65 @@ $ sqlite3 --version
 
 $ exit
 ```
+
+## Repository scripts
+
+Use Tangram to run repository commands from within the checkout. All exports
+run tools directly on the host, with inherited environment and terminal streams;
+none create a sandbox. Cargo, Nushell, Python, Node, and Bun continue to implement
+the underlying builds, tests, and OS operations.
+
+```nu
+tg run .#check
+tg run .#format
+tg run .#build -- --release
+tg run .#testE2e -- --offline build
+```
+
+Arguments after `--` are forwarded unchanged to the underlying command. Checks
+and formatting run Rust first, then the package tasks in parallel. The full
+`test` export runs JavaScript, Rust, and e2e tests in order; its arguments are
+forwarded to the e2e runner. Use the individual exports for runner-specific flags.
+
+`tg check` checks the selected modules and their imports, then runs the `check`
+exports of only the explicitly selected packages or modules. `tg format`
+formats module files recursively within selected directories, respecting ignores,
+then runs only the selected packages' or modules' `format` exports. Both hooks
+run directly on the host on every invocation; imported and nested modules do not
+have their hooks invoked automatically.
+
+| Root exports | Commands |
+| --- | --- |
+| `check`, `format` | All repository checks and formatters |
+| `checkRust`, `checkPackages`, `checkScripts` | Individual check groups |
+| `formatRust`, `formatPackages`, `formatScripts` | Individual formatter groups |
+| `build` | Cargo workspace build with all features |
+| `install`, `installDev` | Install release or dev CLI binaries and the `tg` symlink |
+| `cli`, `cliRelease`, `cliSudo` | Run the local CLI in debug, release, or elevated mode |
+| `run`, `runRelease` | Build and run a Tangram target with the local CLI |
+| `test`, `testJavascript`, `testRust`, `testE2e` | Full test suite or an individual suite |
+| `testDatabases`, `testClean` | Shared test databases and test-resource cleanup |
+| `cloudDatabases`, `cloudInit`, `cloudDeinit`, `cloudServer`, `cloudRunner` | Local cloud environment |
+| `macosBuild`, `macosCheck`, `macosDoctor`, `macosInstall`, `macosRelease`, `macosRun` | macOS app workflows |
+| `imageBuild`, `imagePush` | Build or publish the container image |
+| `canary` | Build and publish the canary release |
+| `clean` | Remove checkout state, dependencies, and build output |
+
+Packages own their commands in local `tangram.ts` files. For example, run
+`tg run ./packages/clients/javascript#build -- --profile debug` from the root,
+or change into that package and run `tg run .#build -- --profile debug`.
+The e2e package exports `test`, `databases`, and `clean`; the macOS package
+exports `build`, `check`, `doctor`, `install`, `release`, and `run`; cloud
+commands live in `scripts/cloud/tangram.ts`. Root exports compose or reexport
+these package commands.
+
+Each task sets the working directory expected by its underlying tools and adds
+its package and repository `node_modules/.bin` directories to the inherited
+PATH. Bun manifests remain for dependency management and JavaScript packaging;
+repository commands live in Tangram.
+
+Install and canary builds use the HEAD commit hash when source contents are clean.
+With tracked edits or non-ignored untracked files, they use a single Git tree hash
+of the working-tree contents instead. Computing it leaves the staging
+area unchanged. Commands warn when the connected server's version differs;
+automatic local-server mode also restarts the server with the installed binary.

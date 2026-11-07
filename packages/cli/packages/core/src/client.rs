@@ -17,13 +17,31 @@ impl Cli {
 
 		if self.health.is_none() {
 			let arg = tg::health::Arg {
-				fields: Some(vec!["diagnostics".to_owned()]),
+				fields: Some(vec!["version".to_owned(), "diagnostics".to_owned()]),
 			};
 			let health = client
 				.health(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get the health"))?;
 			self.health.replace(health);
+		}
+		if !self.args.quiet.get()
+			&& let Some(server_version) = self
+				.health
+				.as_ref()
+				.and_then(|health| health.version.as_ref())
+			&& server_version != &version()
+		{
+			let diagnostic = tg::Diagnostic {
+				location: None,
+				message: format!(
+					"the server version ({server_version}) differs from the CLI version ({}); restart the server to use the installed version",
+					version()
+				),
+				severity: tg::diagnostic::Severity::Warning,
+			};
+			self.print_diagnostic(tg::Referent::with_node(diagnostic))
+				.await;
 		}
 		if !self.args.quiet.get()
 			&& let Some(diagnostics) = self
@@ -80,12 +98,27 @@ impl Cli {
 				.map_err(|error| tg::error!(!error, "failed to get the health"))?;
 			let server_version = health.version.clone();
 			self.health.replace(health);
-			if server_version.is_some_and(|server_version| version() != server_version) {
+			if let Some(server_version) =
+				server_version.filter(|server_version| version() != *server_version)
+			{
+				if !self.args.quiet.get() {
+					let diagnostic = tg::Diagnostic {
+						location: None,
+						message: format!(
+							"the server version ({server_version}) differs from the CLI version ({}); restarting the local server",
+							version()
+						),
+						severity: tg::diagnostic::Severity::Warning,
+					};
+					self.print_diagnostic(tg::Referent::with_node(diagnostic))
+						.await;
+				}
 				client.disconnect().await;
 				self.stop_server().await?;
 				self.spawn_server(&client).await.map_err(
 					|error| tg::error!(!error, url = %client.url(), "failed to start the server"),
 				)?;
+				self.health.take();
 			}
 		}
 

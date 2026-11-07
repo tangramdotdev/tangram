@@ -2,10 +2,6 @@
 	"name": "@tangramdotdev/javascript",
 	"private": true,
 	"type": "module",
-	"scripts": {
-		"check": "tsc && oxlint ./src/main.ts",
-		"format": "oxfmt --write ./src/tangram.d.ts ./src/main.ts"
-	},
 	"dependencies": {
 		"@tangramdotdev/client": "workspace:*"
 	},

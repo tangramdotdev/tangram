@@ -94,7 +94,7 @@ def main [
 	if $node {
 		let client_profile = if $release { 'release' } else { 'dev' }
 		let client_build_args = if $tangram_path == null { ['--skip-extension-build'] } else { [] }
-		bun run --filter @tangramdotdev/client build --profile $client_profile ...$client_build_args
+		^node packages/clients/javascript/build.ts --profile $client_profile ...$client_build_args
 	}
 
 	# Build the Python client with an installed Python 3.12 or later.

@@ -4,14 +4,14 @@ const repository_path = path self '../'
 
 # Build and install the CLI with a tg symlink.
 def main [
-	--debug # Use a debug build instead of a release build.
+	--dev # Use the dev profile instead of the release profile.
 	--directory: path = ~/.local/bin # The directory in which to install the CLI.
 ] {
 	# Build the CLI.
 	cd $repository_path
-	let profile = if $debug { 'debug' } else { 'release' }
-	let profile_args = if $debug { ['--profile', 'debug'] } else { ['--release'] }
-	let commit = git rev-parse HEAD | str trim
+	let profile = if $dev { 'debug' } else { 'release' }
+	let profile_args = if $dev { ['--profile', 'dev'] } else { ['--release'] }
+	let commit = python3 scripts/version.py | str trim
 	with-env { TANGRAM_CLI_COMMIT_HASH: $commit } {
 		cargo build --all-features ...$profile_args --package tangram_cli --bin tangram
 	}

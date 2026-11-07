@@ -6,7 +6,7 @@ if not ('.tangram/cloud' | path exists --no-symlink) {
 let target = cargo metadata --format-version 1 --no-deps | from json | get target_directory
 let scylla = $target | path join release tangram_scylla_client
 
-# Clear FoundationDB with the cloud:databases container's client on macOS, because the host client may not match its version.
+# Clear FoundationDB with the cloudDatabases container's client on macOS, because the host client may not match its version.
 let cluster = open --raw .tangram/cloud/fdb.cluster | str trim
 let command = 'writemode on; clearrange "tangram_cloud/" "tangram_cloud0"'
 if $nu.os-info.name == 'macos' and $cluster == 'docker:docker@127.0.0.1:4500' and (docker ps --quiet --filter 'name=^tangram_cloud_foundationdb$' | is-not-empty) {
