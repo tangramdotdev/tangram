@@ -2,7 +2,13 @@ use {
 	super::Index,
 	foundationdb as fdb,
 	futures::FutureExt as _,
-	std::{collections::BTreeMap, ops::ControlFlow, panic::AssertUnwindSafe, sync::OnceLock},
+	std::{
+		collections::BTreeMap,
+		ops::ControlFlow,
+		panic::AssertUnwindSafe,
+		sync::{Mutex, OnceLock, mpsc},
+		thread::JoinHandle,
+	},
 	tangram_client::prelude::*,
 };
 
@@ -10,12 +16,31 @@ mod node;
 mod process;
 mod reader;
 
-static NETWORK: OnceLock<fdb::api::NetworkAutoStop> = OnceLock::new();
+static NETWORK: OnceLock<Mutex<Option<Network>>> = OnceLock::new();
+
+struct Network {
+	sender: mpsc::Sender<()>,
+	thread: JoinHandle<()>,
+}
 
 pub(crate) async fn run(options: &crate::Options, test: impl AsyncFnOnce(&Index)) {
 	NETWORK.get_or_init(|| {
-		// SAFETY: The network is initialized once and outlives every test database and runtime.
-		unsafe { fdb::boot() }
+		// Boot and stop the network on one thread, because stopping the network requires the thread local state that booting it creates.
+		let (ready_sender, ready_receiver) = mpsc::channel();
+		let (sender, receiver) = mpsc::channel::<()>();
+		let thread = std::thread::spawn(move || {
+			// SAFETY: The network is initialized once and outlives every test database and runtime.
+			let network = unsafe { fdb::boot() };
+			ready_sender.send(()).unwrap();
+			receiver.recv().ok();
+			drop(network);
+		});
+		ready_receiver.recv().unwrap();
+
+		// SAFETY: The handler is a function that remains valid until the process exits.
+		unsafe { libc::atexit(stop_network) };
+
+		Mutex::new(Some(Network { sender, thread }))
 	});
 	let index = Index::new(options).unwrap();
 	let result = AssertUnwindSafe(test(&index)).catch_unwind().await;
@@ -67,4 +92,16 @@ pub(crate) async fn put(index: &Index, objects: Vec<tangram_index::object::put::
 		.collect();
 	let arg = tangram_index::batch::Arg { items };
 	index.batch(arg).await.unwrap().unwrap();
+}
+
+/// Stop the network when the process exits, so that its thread does not run while the `FoundationDB` client's static state is destroyed.
+extern "C" fn stop_network() {
+	let Some(network) = NETWORK
+		.get()
+		.and_then(|network| network.lock().unwrap().take())
+	else {
+		return;
+	};
+	network.sender.send(()).ok();
+	network.thread.join().ok();
 }

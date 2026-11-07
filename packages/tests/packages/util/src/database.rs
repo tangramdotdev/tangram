@@ -668,6 +668,12 @@ async fn reclaim_in(pool_path: &Path) -> Result<()> {
 			if path.extension().is_none_or(|extension| extension != "lock") {
 				continue;
 			}
+
+			// Skip the temporary lock files of starting runs, which may not be locked yet.
+			if entry.file_name().as_encoded_bytes().starts_with(b".") {
+				continue;
+			}
+
 			let Ok(file) = std::fs::File::open(&path) else {
 				continue;
 			};
@@ -765,6 +771,20 @@ mod tests {
 		tokio::fs::remove_dir_all(&pool_path).await.unwrap();
 		assert!(!lease, "the lease of an exited run must be reclaimed");
 		assert!(!lock, "the lock file of an exited run must be removed");
+	}
+
+	#[tokio::test]
+	async fn reclaim_keeps_the_temporary_lock_file_of_a_starting_run() {
+		let pool_path = pool();
+		let runs_path = pool_path.join("runs");
+		tokio::fs::create_dir_all(&runs_path).await.unwrap();
+		let temporary_path = runs_path.join(".1-1.lock");
+		tokio::fs::write(&temporary_path, "").await.unwrap();
+
+		reclaim_in(&pool_path).await.unwrap();
+		let kept = temporary_path.exists();
+		tokio::fs::remove_dir_all(&pool_path).await.unwrap();
+		assert!(kept, "the lock file of a starting run must not be removed");
 	}
 
 	#[tokio::test]

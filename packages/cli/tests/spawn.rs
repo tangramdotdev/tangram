@@ -106,7 +106,13 @@ async fn lost_messenger_connection() -> tg::Result<()> {
 	spawn
 		.arg("--token")
 		.arg(&alice.token)
-		.args(["spawn", "--no-tokens", "--verbose", "--cached=false"])
+		.args([
+			"spawn",
+			"--no-tokens",
+			"--verbose",
+			"--wait",
+			"--cached=false",
+		])
 		.arg("--sandbox")
 		.arg(command.to_string());
 	let spawn = tokio::spawn(async move { spawn.output().await });

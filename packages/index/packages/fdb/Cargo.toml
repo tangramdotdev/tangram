@@ -40,4 +40,5 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+libc = { workspace = true }
 tangram_tests_util = { workspace = true, features = ["database"] }
