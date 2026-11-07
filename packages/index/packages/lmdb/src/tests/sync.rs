@@ -15,11 +15,11 @@ async fn finished_syncs_are_recorded_until_they_expire() {
 				expires_at,
 				id: id.clone(),
 			};
-			tangram_index::batch::Item::PutSync(arg)
+			tangram_index::Item::PutSync(arg)
 		})
 		.collect();
-	let arg = tangram_index::batch::Arg { items };
-	index.batch(arg).await.unwrap().unwrap();
+	let arg = tangram_index::write::Arg { items };
+	index.write(arg).await.unwrap().unwrap();
 	let ids = [expired.clone(), current.clone(), missing.clone()];
 	let syncs = index.try_get_syncs(&ids).await.unwrap();
 	assert_eq!(syncs[0].as_ref().map(|sync| sync.expires_at), Some(10));

@@ -101,7 +101,7 @@ impl tangram_server_core::group::Component for Component {
 		session: &'a tangram_server_core::Session,
 		transaction: &'a tangram_server_core::database::Transaction<'_>,
 		specifier: &'a tg::Specifier,
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<Option<tg::Id>, tangram_server_core::database::Error>>>
 	{
 		self.create_parent_groups_with_transaction(session, transaction, specifier, batch)

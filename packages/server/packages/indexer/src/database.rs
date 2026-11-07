@@ -11,7 +11,7 @@ impl Component {
 	pub(crate) async fn enqueue_database_index_queue_with_transaction(
 		server: &Server,
 		transaction: &Transaction<'_>,
-		arg: &tangram_index::batch::Arg,
+		arg: &tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<(), tangram_server_core::database::Error>> {
 		tangram_server_core::database::index::queue::enqueue_database_index_queue_with_transaction(
 			&server.config,

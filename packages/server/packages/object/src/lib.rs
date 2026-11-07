@@ -252,7 +252,7 @@ impl tangram_server_core::object::Component for Component {
 		&'a self,
 		server: &'a Server,
 		object: tangram_server_core::cache::object::put::Arg,
-		index: tangram_index::batch::Arg,
+		index: tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.put_object_and_index(server, object, index).boxed()
 	}
@@ -269,7 +269,7 @@ impl tangram_server_core::object::Component for Component {
 		&'a self,
 		server: &'a Server,
 		objects: Vec<tangram_server_core::cache::object::put::Arg>,
-		index: tangram_index::batch::Arg,
+		index: tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.put_object_batch_and_index(server, objects, index)
 			.boxed()

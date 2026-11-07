@@ -63,19 +63,13 @@ impl Captures {
 	}
 
 	/// Convert the captures into independent batch items, for a resource that is already indexed.
-	pub fn into_items(self) -> impl Iterator<Item = crate::batch::Item> {
-		let permissions = self
-			.permissions
-			.into_iter()
-			.map(crate::batch::Item::PutPermission);
-		let delegations = self
-			.delegations
-			.into_iter()
-			.map(crate::batch::Item::PutDelegation);
+	pub fn into_items(self) -> impl Iterator<Item = crate::Item> {
+		let permissions = self.permissions.into_iter().map(crate::Item::PutPermission);
+		let delegations = self.delegations.into_iter().map(crate::Item::PutDelegation);
 		let enqueues = self
 			.enqueues
 			.into_iter()
-			.map(crate::batch::Item::EnqueuePermissionCapture);
+			.map(crate::Item::EnqueuePermissionCapture);
 		permissions.chain(delegations).chain(enqueues)
 	}
 }

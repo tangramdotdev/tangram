@@ -160,9 +160,9 @@ impl Component {
 				time_to_touch: Some(session.server.config.object.permission_time_to_touch),
 				version: None,
 			});
-		let arg = tangram_index::batch::Arg {
-			items: std::iter::once(tangram_index::batch::Item::PutObject(arg))
-				.chain(put_permission.map(tangram_index::batch::Item::PutPermission))
+		let arg = tangram_index::write::Arg {
+			items: std::iter::once(tangram_index::Item::PutObject(arg))
+				.chain(put_permission.map(tangram_index::Item::PutPermission))
 				.collect(),
 		};
 		self.put_object_and_index(&session.server, put_arg, arg)
@@ -320,7 +320,7 @@ impl Component {
 		&self,
 		server: &Server,
 		object: tangram_server_core::cache::object::put::Arg,
-		index: tangram_index::batch::Arg,
+		index: tangram_index::write::Arg,
 	) -> tg::Result<()> {
 		let future = self
 			.put_object_and_index_inner(server, object, index)
@@ -337,7 +337,7 @@ impl Component {
 		&self,
 		server: &Server,
 		object: tangram_server_core::cache::object::put::Arg,
-		index: tangram_index::batch::Arg,
+		index: tangram_index::write::Arg,
 	) -> tg::Result<()> {
 		if !server.config.advanced.multi_server {
 			self.put_object_inner(server, object)
@@ -346,7 +346,7 @@ impl Component {
 			server
 				.components
 				.indexer
-				.index_batch(server, index)
+				.write(server, index)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index the object"))?;
 
@@ -414,7 +414,7 @@ impl Component {
 		&self,
 		server: &Server,
 		objects: Vec<tangram_server_core::cache::object::put::Arg>,
-		index: tangram_index::batch::Arg,
+		index: tangram_index::write::Arg,
 	) -> tg::Result<()> {
 		let future = self
 			.put_object_batch_and_index_inner(server, objects, index)
@@ -433,7 +433,7 @@ impl Component {
 		&self,
 		server: &Server,
 		objects: Vec<tangram_server_core::cache::object::put::Arg>,
-		index: tangram_index::batch::Arg,
+		index: tangram_index::write::Arg,
 	) -> tg::Result<()> {
 		if !server.config.advanced.multi_server {
 			self.put_object_batch_inner(server, objects)
@@ -442,7 +442,7 @@ impl Component {
 			server
 				.components
 				.indexer
-				.index_batch(server, index)
+				.write(server, index)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
 

@@ -1,5 +1,4 @@
 mod ancestor;
-mod batch;
 mod capture;
 mod clean;
 mod delegation;
@@ -18,6 +17,7 @@ mod update;
 mod usage;
 mod verify;
 mod versions;
+mod write;
 
 use super::{Config, Index};
 

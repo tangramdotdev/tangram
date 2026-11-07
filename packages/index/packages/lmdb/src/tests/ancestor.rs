@@ -15,26 +15,26 @@ async fn try_get_ancestors() {
 	let organization = tg::organization::Id::new();
 	let parent = tg::group::Id::new();
 	let child = tg::group::Id::new();
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutOrganization(tangram_index::organization::put::Arg {
+			tangram_index::Item::PutOrganization(tangram_index::organization::put::Arg {
 				billing_ready: None,
 				id: organization.clone(),
 				specifier: tg::Specifier::from_str("organization").unwrap(),
 			}),
-			tangram_index::batch::Item::PutGroup(tangram_index::group::put::Arg {
+			tangram_index::Item::PutGroup(tangram_index::group::put::Arg {
 				id: parent.clone(),
 				parent: Some(organization.clone().into()),
 				specifier: tg::Specifier::from_str("organization/parent").unwrap(),
 			}),
-			tangram_index::batch::Item::PutGroup(tangram_index::group::put::Arg {
+			tangram_index::Item::PutGroup(tangram_index::group::put::Arg {
 				id: child.clone(),
 				parent: Some(parent.clone().into()),
 				specifier: tg::Specifier::from_str("organization/parent/child").unwrap(),
 			}),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 
 	let ancestors = index
 		.try_get_ancestors(&child.clone().into())

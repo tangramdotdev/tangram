@@ -28,9 +28,9 @@ let start_watch = tg --url $remote.url --token $root_token checkpoint watch proc
 let reply_watch = tg --url $runner.url checkpoint watch runner.process.control.start.succeeded | from json | get watch
 tg --url $runner.url checkpoint continue runner.process.start $run_watch 0
 success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.start.received $start_watch 0 | complete)
-let write_watch = tg --url $remote.url --token $root_token checkpoint watch index.batch | from json | get watch
+let write_watch = tg --url $remote.url --token $root_token checkpoint watch index.write | from json | get watch
 tg --url $remote.url --token $root_token checkpoint unwatch process.control.start.received $start_watch
-success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s index.batch $write_watch 0 | complete)
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s index.write $write_watch 0 | complete)
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.start.succeeded $reply_watch 0 | complete)
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $run_watch 1 | complete)
 

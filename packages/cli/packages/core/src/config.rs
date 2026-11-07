@@ -944,9 +944,6 @@ pub struct LmdbIndex {
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub batch: Option<IndexerBatch>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub billing_cleanup: Option<IndexerBillingCleanup>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -957,6 +954,9 @@ pub struct Indexer {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database_index_queue: Option<BoolOr<IndexerDatabaseIndexQueue>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub enqueue: Option<IndexerEnqueue>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::indexer::Id>,
@@ -995,7 +995,7 @@ pub struct Indexer {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct IndexerBatch {
+pub struct IndexerEnqueue {
 	/// The maximum number of fragment payload bytes in each indexer request.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request_size: Option<usize>,

@@ -516,8 +516,8 @@ impl Component {
 				// Remove the tokens before updating the index.
 				let data = data.without_location_and_tokens_except_sync();
 
-				let arg = tangram_index::batch::Arg {
-					items: std::iter::once(tangram_index::batch::Item::PutProcess(
+				let arg = tangram_index::write::Arg {
+					items: std::iter::once(tangram_index::Item::PutProcess(
 						tangram_index::process::put::Arg {
 							account: None,
 							cached: false,
@@ -553,7 +553,7 @@ impl Component {
 				};
 				server
 					.index
-					.batch(arg)
+					.write(arg)
 					.await
 					.and_then(std::convert::identity)
 					.map_err(
@@ -603,8 +603,8 @@ impl Component {
 		} else {
 			None
 		};
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(
 				tangram_index::sandbox::put::Arg {
 					account,
 					created_at: indexed.created_at,
@@ -624,7 +624,7 @@ impl Component {
 		};
 		server
 			.index
-			.batch(arg)
+			.write(arg)
 			.await
 			.and_then(std::convert::identity)
 			.map_err(

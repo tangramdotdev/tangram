@@ -104,7 +104,7 @@ impl Component {
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
 	) -> tg::Result<ControlFlow<(), tangram_server_core::database::Error>> {
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		match self
 			.add_organization_member_with_transaction(
 				session,
@@ -231,7 +231,7 @@ impl Component {
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<(), tangram_server_core::database::Error>> {
 		let id = match organization {
 			tg::Selector::Id(id) => Some(id.clone()),
@@ -292,14 +292,12 @@ impl Component {
 		if inserted == 0 {
 			return Err(tg::error!("the member is already in the organization"));
 		}
-		batch
-			.items
-			.push(tangram_index::batch::Item::PutOrganizationMember(
-				tangram_index::organization::member::put::Arg {
-					member: member.clone(),
-					organization: organization_id.clone().try_into()?,
-				},
-			));
+		batch.items.push(tangram_index::Item::PutOrganizationMember(
+			tangram_index::organization::member::put::Arg {
+				member: member.clone(),
+				organization: organization_id.clone().try_into()?,
+			},
+		));
 		let subject = match member {
 			tg::organization::Member::Group(id) => tg::authorization::Subject::Group(id.clone()),
 			tg::organization::Member::User(id) => tg::authorization::Subject::User(id.clone()),

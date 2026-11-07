@@ -528,7 +528,7 @@ impl Component {
 		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 		permission_expires_at: i64,
-	) -> tg::Result<tangram_index::batch::Arg> {
+	) -> tg::Result<tangram_index::write::Arg> {
 		// Create the index args.
 		let (put_checkout_args, mut put_object_args, put_permission_args) = Self::write_index_args(
 			blob,
@@ -559,19 +559,19 @@ impl Component {
 		}
 
 		// Create the batch.
-		let arg = tangram_index::batch::Arg {
+		let arg = tangram_index::write::Arg {
 			items: put_checkout_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutCheckout)
+				.map(tangram_index::Item::PutCheckout)
 				.chain(
 					put_object_args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutObject),
+						.map(tangram_index::Item::PutObject),
 				)
 				.chain(
 					put_permission_args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutPermission),
+						.map(tangram_index::Item::PutPermission),
 				)
 				.collect(),
 		};

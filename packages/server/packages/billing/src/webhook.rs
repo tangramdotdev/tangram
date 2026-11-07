@@ -87,7 +87,7 @@ impl Component {
 			.components
 			.indexer
 			.spawn_publish_database_index_queue_notification_task(&session.server);
-		session.server.index.batch(batch).await??;
+		session.server.index.write(batch).await??;
 
 		Ok(())
 	}
@@ -100,7 +100,7 @@ impl Component {
 		update: Option<&CustomerUpdate>,
 	) -> tg::Result<
 		ControlFlow<
-			Option<(tangram_index::batch::Arg, Vec<tg::user::Id>)>,
+			Option<(tangram_index::write::Arg, Vec<tg::user::Id>)>,
 			tangram_server_core::database::Error,
 		>,
 	> {
@@ -119,7 +119,7 @@ impl Component {
 			return Ok(ControlFlow::Break(None));
 		}
 
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		let mut affected_users = Vec::new();
 		if let Some(update) = update {
 			#[derive(db::row::Deserialize)]
@@ -164,14 +164,14 @@ impl Component {
 			affected_users.extend(users.iter().map(|row| row.id.clone()));
 			let billing_ready = update.ready;
 			batch.items.extend(organizations.into_iter().map(|row| {
-				tangram_index::batch::Item::PutOrganization(tangram_index::organization::put::Arg {
+				tangram_index::Item::PutOrganization(tangram_index::organization::put::Arg {
 					billing_ready: Some(billing_ready),
 					id: row.id,
 					specifier: row.specifier,
 				})
 			}));
 			batch.items.extend(users.into_iter().map(|row| {
-				tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
+				tangram_index::Item::PutUser(tangram_index::user::put::Arg {
 					billing_ready: Some(billing_ready),
 					id: row.id,
 					specifier: row.specifier,

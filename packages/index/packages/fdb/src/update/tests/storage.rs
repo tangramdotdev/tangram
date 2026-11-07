@@ -258,10 +258,10 @@ async fn associate(
 		object: object.clone(),
 		touched_at,
 	};
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutAccountObject(arg)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutAccountObject(arg)],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 }
 
 async fn associated(
