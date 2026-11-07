@@ -1947,7 +1947,7 @@ impl Component {
 			permissions: Vec::new(),
 			principal: tg::Principal::Process(id.clone()),
 			registration: None,
-			sandbox: Some(sandbox.clone()),
+			sandbox: Some(tangram_index::process::put::Sandbox::Id(sandbox.clone())),
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,

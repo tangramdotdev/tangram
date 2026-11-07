@@ -111,7 +111,15 @@ impl Component {
 			.items
 			.iter()
 			.filter_map(|item| match item {
-				index::batch::Item::PutSandbox(arg) if arg.data.is_some() => Some(arg.id.clone()),
+				index::batch::Item::PutProcess(index::process::put::Arg {
+					sandbox: Some(index::process::put::Sandbox::Put(arg)),
+					..
+				})
+				| index::batch::Item::PutSandbox(arg)
+					if arg.data.is_some() =>
+				{
+					Some(arg.id.clone())
+				},
 				_ => None,
 			})
 			.collect::<Vec<_>>();
