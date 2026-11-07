@@ -445,9 +445,14 @@ class LocalProcess(Process):
         return None
 
     async def close(self):
-        if not self._wait.done():
-            await self.cancel()
-        await self.wait()
+        try:
+            if not self._wait.done():
+                await self.cancel()
+            await self.wait()
+        finally:
+            await asyncio.gather(
+                self.stdin.close(), self.stdout.close(), self.stderr.close()
+            )
 
     async def __aenter__(self):
         return self
@@ -657,8 +662,8 @@ async def wait_unsandboxed(
         if error is None:
             error = exception
     try:
-        for name in ("stdin", "stdout", "stderr"):
-            await stdio[name].close()
+        # Close stdin and let the output readers close their pipes after draining them.
+        await stdio["stdin"].close()
         await host.remove(temp_path)
     except BaseException as exception:
         if error is None:

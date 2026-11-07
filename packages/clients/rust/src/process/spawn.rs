@@ -831,8 +831,11 @@ impl<O: 'static> tg::Process<O> {
 		let task = tangram_futures::task::Shared::spawn({
 			let instance = instance.clone();
 			let output_path = prepared.output_path;
+			let stdin = stdin.clone();
 			let temp = prepared.temp;
-			move |_| async move { Self::wait_unsandboxed(instance, child, output_path, temp).await }
+			move |_| async move {
+				Self::wait_unsandboxed(instance, child, stdin, output_path, temp).await
+			}
 		});
 
 		let inner = Arc::new(super::handle::Inner {
@@ -853,9 +856,6 @@ impl<O: 'static> tg::Process<O> {
 			tokens: RwLock::new(tg::authorization::Tokens::default()),
 		});
 		let process = Self(inner, std::marker::PhantomData);
-		process.stdin().set_process(Arc::downgrade(&process.0));
-		process.stdout().set_process(Arc::downgrade(&process.0));
-		process.stderr().set_process(Arc::downgrade(&process.0));
 
 		Ok(process)
 	}
@@ -863,16 +863,19 @@ impl<O: 'static> tg::Process<O> {
 	async fn wait_unsandboxed<I>(
 		instance: I,
 		mut child: tokio::process::Child,
+		mut stdin: super::stdio::Writer,
 		output_path: PathBuf,
 		_temp: tangram_util::fs::Temp,
 	) -> tg::Result<tg::process::outcome::Data>
 	where
 		I: tg::Instance,
 	{
-		let status = child
-			.wait()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to wait for the process"))?;
+		let status = child.wait().await;
+
+		// Close stdin and let the output readers close their pipes after draining them.
+		stdin.close_with_instance(&instance).await?;
+		let status =
+			status.map_err(|error| tg::error!(!error, "failed to wait for the process"))?;
 		let exit = exit_status_to_code(status)?;
 		let mut outcome = tg::process::outcome::Data {
 			checksum: None,

@@ -622,6 +622,13 @@ export class Process<O extends tg.Value = tg.Value> {
 			}
 		} finally {
 			await this.#closeConnection();
+			if (typeof this.#id === "number") {
+				await Promise.all([
+					this.#stdin.close(),
+					this.#stdout.close(),
+					this.#stderr.close(),
+				]);
+			}
 		}
 	}
 

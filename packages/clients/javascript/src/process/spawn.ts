@@ -463,9 +463,8 @@ export let waitUnsandboxed = async (
 		}
 	}
 	try {
-		for (let name of ["stdin", "stdout", "stderr"] as const) {
-			await stdio[name].close();
-		}
+		// Close stdin and let the output readers close their pipes after draining them.
+		await stdio.stdin.close();
 		await tg.host.remove(tempPath);
 	} catch (error) {
 		if (!waitFailed) {
