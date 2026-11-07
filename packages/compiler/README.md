@@ -72,7 +72,7 @@ The integration has remaining limitations:
 Run the repository checks and relevant CLI tests with Nushell:
 
 ```nu
-bun run format
-bun run check
-nu packages/tests/test.nu '(check|document|lsp)/'
+tg run .#format
+tg run .#check
+tg run .#testE2e -- '(check|document|lsp)/'
 ```

@@ -15,11 +15,6 @@
 	},
 	"publisher": "tangramdotdev",
 	"main": "./extension.js",
-	"scripts": {
-		"build": "esbuild --bundle --outfile=extension.js --format=cjs --sourcemap --platform=node --external:vscode extension.ts && vsce package --no-dependencies --no-update-package-json --no-git-tag-version",
-		"check": "tsc && oxlint extension.ts",
-		"format": "oxfmt --write extension.ts"
-	},
 	"dependencies": {
 		"vscode-languageclient": "^11.0.0"
 	},

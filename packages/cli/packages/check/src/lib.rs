@@ -51,7 +51,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		return Err(tg::error!("type checking failed"));
 	}
 
-	// Build the check exports, echoing their stdio.
+	// Run the selected modules' check exports on the host.
 	for module in output.checks {
 		let module = tg::Module::try_from_data(module)?;
 		let command =
@@ -59,16 +59,13 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		let command = tg::Referent::with_node(tg::Either::Right(command));
 		let arg = tg::process::Arg {
 			command: Some(command),
-			echo: true,
-			stderr: tg::process::Stdio::Log,
-			stdin: tg::process::Stdio::Null,
-			stdout: tg::process::Stdio::Log,
+			sandbox: Some(tg::process::SandboxArg::Bool(false)),
 			..Default::default()
 		};
-		tg::Process::<tg::Value>::build_with_instance(&client, arg)
+		tg::Process::<tg::Value>::run_with_instance(&client, arg)
 			.boxed_local()
 			.await
-			.map_err(|error| tg::error!(!error, "failed to build the check export"))?;
+			.map_err(|error| tg::error!(!error, "failed to run the check export"))?;
 	}
 
 	Ok(())

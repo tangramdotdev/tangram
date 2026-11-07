@@ -9593,8 +9593,11 @@ name = "tangram_cli_format"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "futures",
  "tangram_cli_core",
+ "tangram_cli_reference",
  "tangram_client",
+ "tangram_compiler",
  "tangram_util",
 ]
 

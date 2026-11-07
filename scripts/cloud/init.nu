@@ -1,7 +1,7 @@
 # Initialize the local cloud stores. Run once while the databases are running.
 def main [--fdb-cluster: path] {
 	if ('.tangram/cloud' | path exists --no-symlink) {
-		error make { msg: 'local cloud state already exists; run cloud:deinit before initializing again' }
+		error make { msg: 'local cloud state already exists; run `tg run .#cloudDeinit` before initializing again' }
 	}
 	let cluster = if $fdb_cluster != null {
 		open --raw $fdb_cluster

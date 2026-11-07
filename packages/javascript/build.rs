@@ -85,8 +85,15 @@ fn javascript() {
 			.then_some(())
 			.unwrap();
 	} else {
-		std::process::Command::new("bun")
-			.args(["run", "check"])
+		std::process::Command::new("bunx")
+			.arg("tsc")
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+		std::process::Command::new("bunx")
+			.args(["oxlint", "./src/main.ts"])
 			.status()
 			.unwrap()
 			.success()

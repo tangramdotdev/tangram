@@ -4,7 +4,7 @@ import path from "node:path";
 
 await $`rm -rf release && mkdir release`;
 
-const hash = (await $`git rev-parse HEAD`).text().trim();
+const hash = (await $`python3 scripts/version.py`).text().trim();
 
 await $`cargo build --release --target aarch64-apple-darwin --target aarch64-unknown-linux-gnu --target x86_64-apple-darwin --target x86_64-unknown-linux-gnu`.env(
 	{

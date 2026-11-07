@@ -1,19 +1,20 @@
-# CLI tests
+# E2e tests
 
 These are the end-to-end tests for tangram. Each `.nu`
 file in `tests/` is one self-contained test, and `util/` holds the shared helpers. The `packages/tests/test.nu` script builds
 Tangram and the test runner in `packages/tests/packages/runner`, then runs the tests with it.
-Run them with `bun run test:cli [pattern]`, which runs
+From the repository root, run them with `tg run .#testE2e -- [pattern]`, which runs
 `nu packages/tests/test.nu [pattern]`, where `pattern` is an optional regex
-matched against each test's path. Pass `--accept` to accept new or changed
-snapshots. Pass `--preserve-failing-temps` to keep the temporary
+matched against each test's path. From this package, use
+`tg run .#test -- [pattern]`. Pass `--accept` to accept new or changed snapshots.
+Pass `--preserve-failing-temps` to keep the temporary
 directories for failed tests, or `--preserve-temps` to keep them for every
 test. Pass `--no-progress-details` to show only the aggregate progress bar
 during highly concurrent runs.
 
 On Linux, pass `--cpus` and `--memory` to run the build and the tests in a
 systemd user scope limited to that many CPUs and that much memory without swap,
-for example `nu packages/tests/test.nu --cpus 8 --memory 20GiB sandbox`. Every
+for example `tg run .#testE2e -- --cpus 8 --memory 20GiB sandbox`. Every
 server and sandbox that the tests start inherits the limits, and `--cpus` also
 sets the default number of jobs.
 
@@ -24,8 +25,8 @@ FoundationDB, PostgreSQL, ScyllaDB 2026.3 or later, and `nats-server`. On macOS,
 install Docker, PostgreSQL, and `nats-server`. Then start the shared databases in
 a separate terminal:
 
-```sh
-bun run test:databases
+```nu
+tg run .#testDatabases
 ```
 
 The command runs every database as a native process on Linux. On macOS, it runs
@@ -47,8 +48,8 @@ The runner builds and uses `tangram_scylla_client` from
 On Linux and macOS, the normal test command runs cloud tests against the shared
 databases:
 
-```sh
-nu packages/tests/test.nu [pattern]
+```nu
+tg run .#testE2e -- [pattern]
 ```
 
 A Tangram instance contains servers directly or is divided into regions, each
@@ -255,8 +256,8 @@ tagging busybox with `server spawn --busybox` — must call `skip_test --offline
 top. Running the suite with `--offline` skips these tests, so the rest of the
 suite is hermetic:
 
-```sh
-nu packages/tests/test.nu --offline
+```nu
+tg run .#testE2e -- --offline
 ```
 
 The `server spawn --busybox` helper calls `skip_test --offline` itself, so a test only
@@ -343,8 +344,8 @@ in this list.
 To flush out rare races, run a test repeatedly with the worker pool kept full
 until it fails:
 
-```sh
-nu packages/tests/test.nu --stress 'run/sandbox_dequeue_finish_deadlock'
+```nu
+tg run .#testE2e -- --stress 'run/sandbox_dequeue_finish_deadlock'
 ```
 
 Pass `--stress-count N` to bound the number of rounds instead of running until

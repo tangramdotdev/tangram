@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Checking a config module validates the config and its interface, and builds its check export when its interface has one, which passes or fails with its error.
+# Checking a config module validates the config and its interface, and runs its check export when its interface has one, which passes or fails with its error.
 
 let local = server spawn
 
@@ -58,7 +58,7 @@ let path = artifact {
 }
 success (tg check $path | complete)
 
-# A config whose interface has no check export checks without building one.
+# A config whose interface has no check export checks without running one.
 let path = artifact {
 	env.tg.json: '{ "runtime": "./runtime", "args": ["fail"] }'
 	runtime: { tangram.ts: $runtime }
@@ -84,7 +84,7 @@ let output = tg check ($path | path join env.tg.json) | complete
 failure $output
 assert ($output.stderr | str contains 'unknown field') $output.stderr
 
-# Checking a TypeScript package builds its check export, and a package without one checks without it.
+# Checking a TypeScript package runs its check export, and a package without one checks without it.
 let path = artifact {
 	tangram.ts: '
 		export default () => "Hello!";
