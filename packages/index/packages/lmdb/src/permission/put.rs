@@ -38,7 +38,6 @@ impl Index {
 			let mut permissions_changed = false;
 			for permission in arg.permissions.iter() {
 				let entry = PermissionIndexEntry {
-					creator: arg.creator.as_ref(),
 					expires_at,
 					permission,
 					subject: &arg.subject,
@@ -108,16 +107,12 @@ impl Index {
 			crate::permission::Key::ResourcePermission {
 				resource: entry.resource.clone(),
 				subject: entry.subject.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
 			},
 		))
 		.chain(std::iter::once(Key::Permission(
 			crate::permission::Key::SubjectPermission {
 				subject: entry.subject.clone(),
 				resource: entry.resource.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
 			},
 		)))
 		.collect::<Vec<_>>();
@@ -130,8 +125,8 @@ impl Index {
 					|| Ok(PermissionValue::default()),
 					PermissionValue::deserialize,
 				)?;
-			let old_expires_at = value.source_expires_at(source).flatten();
-			if value.put(source, entry.expires_at, time_to_touch) {
+			let old_expires_at = value.source_expires_at(entry.permission, source).flatten();
+			if value.put(entry.permission, source, entry.expires_at, time_to_touch) {
 				let bytes = value.serialize()?;
 				db.put(transaction, &key, &bytes)
 					.map_err(|error| tg::error!(!error, "failed to put the permission entry"))?;
@@ -151,29 +146,19 @@ impl Index {
 			return Ok(false);
 		}
 
+		// Put the visibility entries of the ancestors.
 		let ids = Self::ancestor_ids_with_transaction(db, subspace, transaction, entry.resource)?;
 		for id in ids {
 			let key = Key::Permission(crate::permission::Key::Visibility {
 				resource: id,
 				subject: entry.subject.clone(),
 				permission_resource: entry.resource.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
 			});
 			let key = Self::pack(subspace, &key);
-			let mut value = db
-				.get(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to get the visibility entry"))?
-				.map_or_else(
-					|| Ok(PermissionValue::default()),
-					PermissionValue::deserialize,
-				)?;
-			if value.put(source, entry.expires_at, time_to_touch) {
-				let bytes = value.serialize()?;
-				db.put(transaction, &key, &bytes)
-					.map_err(|error| tg::error!(!error, "failed to put the visibility entry"))?;
-			}
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the visibility entry"))?;
 		}
+
 		Ok(changed)
 	}
 
@@ -191,7 +176,6 @@ impl Index {
 				expires_at,
 				resource: entry.resource.clone(),
 				subject: entry.subject.clone(),
-				creator: entry.creator.cloned(),
 				permission: entry.permission,
 				source,
 			});
@@ -205,7 +189,6 @@ impl Index {
 				expires_at,
 				resource: entry.resource.clone(),
 				subject: entry.subject.clone(),
-				creator: entry.creator.cloned(),
 				permission: entry.permission,
 				source,
 			});

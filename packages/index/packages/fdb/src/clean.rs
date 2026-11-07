@@ -476,7 +476,6 @@ impl Index {
 					expires_at,
 					resource,
 					subject,
-					creator,
 					permission,
 					source,
 					..
@@ -484,13 +483,12 @@ impl Index {
 				else {
 					return Err(tg::error!("expected a permission expiration key"));
 				};
-				args.push((creator, expires_at, permission, resource, source, subject));
+				args.push((expires_at, permission, resource, source, subject));
 			}
 		}
 		let count = args.len();
-		for (creator, expires_at, permission, resource, source, subject) in args {
+		for (expires_at, permission, resource, source, subject) in args {
 			let entry = crate::permission::PermissionIndexEntry {
-				creator: creator.as_ref(),
 				expires_at: Some(expires_at),
 				permission,
 				subject: &subject,
@@ -1125,8 +1123,6 @@ impl Index {
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let crate::Key::Permission(crate::permission::Key::SubjectPermission {
-					creator,
-					permission,
 					resource,
 					..
 				}) = key
@@ -1134,24 +1130,13 @@ impl Index {
 					return Err(tg::error!("expected a subject permission key"));
 				};
 				let value = crate::permission::PermissionValue::deserialize(entry.value())?;
-				let entries = [
-					crate::permission::PermissionSource::Grant,
-					crate::permission::PermissionSource::Direct,
-					crate::permission::PermissionSource::Materialized,
-				]
-				.into_iter()
-				.filter_map(|source| {
-					value.source_expires_at(source).map(|expires_at| {
-						(
-							creator.clone(),
-							expires_at,
-							permission,
-							resource.clone(),
-							source,
-						)
+				let entries = value
+					.source_expirations()
+					.into_iter()
+					.map(|(permission, source, expires_at)| {
+						(expires_at, permission, resource.clone(), source)
 					})
-				})
-				.collect::<Vec<_>>();
+					.collect::<Vec<_>>();
 				Ok(entries)
 			})
 			.collect::<tg::Result<Vec<_>>>()?
@@ -1159,13 +1144,12 @@ impl Index {
 			.flatten()
 			.collect::<Vec<_>>();
 
-		for (creator, expires_at, permission, resource, source) in entries {
+		for (expires_at, permission, resource, source) in entries {
 			crate::propagate!(
 				Self::delete_permission_index_entry(
 					txn,
 					subspace,
 					&crate::permission::PermissionIndexEntry {
-						creator: creator.as_ref(),
 						expires_at,
 						permission,
 						resource: &resource,
@@ -1224,8 +1208,6 @@ impl Index {
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let crate::Key::Permission(crate::permission::Key::ResourcePermission {
-					creator,
-					permission,
 					subject,
 					..
 				}) = key
@@ -1233,10 +1215,15 @@ impl Index {
 					return Err(tg::error!("expected a resource permission key"));
 				};
 				let value = crate::permission::PermissionValue::deserialize(entry.value())?;
-				let entry = value
-					.source_expires_at(crate::permission::PermissionSource::Materialized)
-					.map(|expires_at| (creator, expires_at, permission, subject));
-				Ok(entry)
+				let entries = value
+					.source_expirations()
+					.into_iter()
+					.filter(|(_, source, _)| {
+						*source == crate::permission::PermissionSource::Materialized
+					})
+					.map(|(permission, _, expires_at)| (expires_at, permission, subject.clone()))
+					.collect::<Vec<_>>();
+				Ok(entries)
 			})
 			.collect::<tg::Result<Vec<_>>>()?
 			.into_iter()
@@ -1244,13 +1231,12 @@ impl Index {
 			.collect::<Vec<_>>();
 
 		// Delete the materialized permissions.
-		for (creator, expires_at, permission, subject) in entries {
+		for (expires_at, permission, subject) in entries {
 			crate::propagate!(
 				Self::delete_permission_index_entry(
 					txn,
 					subspace,
 					&crate::permission::PermissionIndexEntry {
-						creator: creator.as_ref(),
 						expires_at,
 						permission,
 						subject: &subject,

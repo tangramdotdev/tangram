@@ -608,7 +608,6 @@ impl Index {
 				process,
 			} => {
 				let value = {
-					let creator = Some(tg::Principal::Process(process.clone()));
 					let permission = tg::authorization::Permission::Object(*permission);
 					let resource = object.clone().into();
 					let subject = tg::authorization::Subject::Process(process.clone());
@@ -616,12 +615,11 @@ impl Index {
 						db,
 						subspace,
 						transaction,
-						creator.as_ref(),
 						permission,
 						&resource,
 						&subject,
 					)?;
-					permission.is_some_and(|permission| permission.is_process_direct())
+					permission.is_some_and(|permission| permission.direct)
 				};
 				Output::Bool(value)
 			},
@@ -756,8 +754,6 @@ impl Index {
 					.into_iter()
 					.map(|(key, value)| {
 						let crate::Key::Permission(crate::permission::Key::ResourcePermission {
-							creator,
-							permission,
 							subject,
 							..
 						}) = key
@@ -765,17 +761,14 @@ impl Index {
 							return Err(tg::error!("unexpected key type"));
 						};
 						let value = crate::permission::PermissionValue::deserialize(&value)?;
-						let permission = tangram_index::permission::Fact {
-							creator,
-							direct: value.direct.is_some(),
-							permission,
-							resource: resource.clone(),
-							subject,
-						};
+						let facts = value.facts(resource, &subject);
 
-						Ok(permission)
+						Ok(facts)
 					})
-					.collect::<tg::Result<Vec<_>>>()?;
+					.collect::<tg::Result<Vec<_>>>()?
+					.into_iter()
+					.flatten()
+					.collect();
 
 				Output::Permissions { next, permissions }
 			},
@@ -855,14 +848,11 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
-		creator: Option<&tg::Principal>,
 		permission: tg::authorization::Permission,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
 	) -> tg::Result<Option<tangram_index::permission::Fact>> {
 		let key = crate::Key::Permission(crate::permission::Key::ResourcePermission {
-			creator: creator.cloned(),
-			permission,
 			resource: resource.clone(),
 			subject: subject.clone(),
 		});
@@ -870,21 +860,14 @@ impl Index {
 		let value = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get a verification fact"))?;
-		let permission = match value {
-			Some(value) => {
-				let value = crate::permission::PermissionValue::deserialize(value)?;
-				let permission = tangram_index::permission::Fact {
-					creator: creator.cloned(),
-					direct: value.direct.is_some(),
-					permission,
-					resource: resource.clone(),
-					subject: subject.clone(),
-				};
-
-				Some(permission)
-			},
-			None => None,
-		};
+		let value = value
+			.map(crate::permission::PermissionValue::deserialize)
+			.transpose()?;
+		let permission = value.and_then(|value| {
+			let sources = value.permissions.get(&permission)?;
+			let fact = sources.fact(permission, resource, subject);
+			Some(fact)
+		});
 
 		Ok(permission)
 	}
@@ -977,8 +960,6 @@ impl Index {
 			.into_iter()
 			.map(|(key, value)| {
 				let crate::Key::Permission(crate::permission::Key::SubjectPermission {
-					creator,
-					permission,
 					resource,
 					subject,
 				}) = key
@@ -986,17 +967,14 @@ impl Index {
 					return Err(tg::error!("unexpected key type"));
 				};
 				let value = crate::permission::PermissionValue::deserialize(&value)?;
-				let permission = tangram_index::permission::Fact {
-					creator,
-					direct: value.direct.is_some(),
-					permission,
-					resource,
-					subject,
-				};
+				let facts = value.facts(&resource, &subject);
 
-				Ok(permission)
+				Ok(facts)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?
+			.into_iter()
+			.flatten()
+			.collect();
 
 		Ok((next, permissions))
 	}

@@ -77,7 +77,6 @@ mod tests {
 					id: tag.clone().into(),
 				})),
 				crate::Item::DeletePermission(Box::new(crate::permission::delete::Arg {
-					creator: Some(tg::Principal::Root),
 					permissions: tg::authorization::permission::Set::Group(
 						tg::authorization::permission::group::Set::READ,
 					),
@@ -93,7 +92,6 @@ mod tests {
 				crate::Item::DeleteUser(Box::new(crate::user::delete::Arg { id: user.clone() })),
 				crate::Item::PutPermission(Box::new(crate::permission::put::Arg {
 					created_at: 1,
-					creator: Some(tg::Principal::Root),
 					permissions: tg::authorization::permission::Set::Group(
 						tg::authorization::permission::group::Set::READ,
 					),

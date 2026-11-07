@@ -344,22 +344,18 @@ fn permission_args(
 	permissions: Vec<(tg::Id, tg::authorization::permission::Set)>,
 ) -> Vec<tangram_index::permission::put::Arg> {
 	let (resource, version) = destination;
-	let (creator, subject) = if resource.kind() == tg::id::Kind::Process {
+	let subject = if resource.kind() == tg::id::Kind::Process {
 		let id = tg::process::Id::try_from(resource).unwrap();
-		(
-			Some(tg::Principal::Process(id.clone())),
-			tg::authorization::Subject::Process(id),
-		)
+		tg::authorization::Subject::Process(id)
 	} else {
 		let id = tg::tag::Id::try_from(resource).unwrap();
-		(None, tg::authorization::Subject::Tag(id))
+		tg::authorization::Subject::Tag(id)
 	};
 	permissions
 		.into_iter()
 		.map(
 			|(resource, permissions)| tangram_index::permission::put::Arg {
 				created_at,
-				creator: creator.clone(),
 				permissions,
 				resource,
 				source: tangram_index::permission::Source::Direct { expires_at: None },

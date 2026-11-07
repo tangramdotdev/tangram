@@ -126,7 +126,6 @@ async fn bounded(kind: Kind) {
 							.saturating_add(1);
 						let permissions = (0..limit)
 							.map(|_| tangram_index::permission::Fact {
-								creator: None,
 								direct: true,
 								permission: node,
 								resource: resource.clone(),

@@ -1077,7 +1077,7 @@ impl Search {
 		let mut dependencies = Vec::new();
 		let mut direct_processes = HashSet::new();
 		for entry in &facts.permissions {
-			if !entry.is_process_direct() || !entry.permission.implies(*permission) {
+			if !entry.direct || !entry.permission.implies(*permission) {
 				continue;
 			}
 			let tg::authorization::Subject::Process(process) = &entry.subject else {

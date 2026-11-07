@@ -196,7 +196,6 @@ async fn propagation_versions_reset_and_repeated_updates_stop() {
 	// Give the subject a permission on the parent so that permission updates propagate to it.
 	let permission = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(subject.try_to_principal().unwrap()),
 		permissions: tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		)

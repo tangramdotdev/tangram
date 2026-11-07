@@ -150,7 +150,6 @@ impl Component {
 		let put_permission =
 			permission_subject.map(|permission_subject| tangram_index::permission::put::Arg {
 				created_at: now,
-				creator: Some(session.context.principal.clone()),
 				permissions: tg::authorization::Permission::Object(permission).into(),
 				resource: id.clone().into(),
 				source: tangram_index::permission::Source::Direct {

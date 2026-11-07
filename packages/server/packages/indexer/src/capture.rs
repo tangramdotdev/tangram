@@ -200,23 +200,19 @@ impl Indexer {
 				resource,
 			)
 			.await;
-			let (creator, subject) = match arg.resource.kind() {
+			let subject = match arg.resource.kind() {
 				tg::id::Kind::Process => {
 					let process = tg::process::Id::try_from(arg.resource.clone())?;
-					(
-						Some(tg::Principal::Process(process.clone())),
-						tg::authorization::Subject::Process(process),
-					)
+					tg::authorization::Subject::Process(process)
 				},
 				tg::id::Kind::Tag => {
 					let tag = tg::tag::Id::try_from(arg.resource.clone())?;
-					(None, tg::authorization::Subject::Tag(tag))
+					tg::authorization::Subject::Tag(tag)
 				},
 				_ => return Err(tg::error!("invalid permission capture resource")),
 			};
 			let permission = tangram_index::permission::put::Arg {
 				created_at: self.server.clock.unix_timestamp(),
-				creator,
 				permissions,
 				resource: resource.clone(),
 				source: tangram_index::permission::Source::Direct { expires_at: None },

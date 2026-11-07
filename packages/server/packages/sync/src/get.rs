@@ -361,7 +361,6 @@ impl Component {
 		};
 		let arg = tangram_index::permission::put::Arg {
 			created_at,
-			creator: Some(session.context.principal.clone()),
 			permissions,
 			resource: id.clone(),
 			source: tangram_index::permission::Source::Direct {

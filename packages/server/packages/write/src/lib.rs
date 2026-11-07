@@ -641,7 +641,6 @@ impl Component {
 		let put_permission_args = principal
 			.map(|principal| tangram_index::permission::put::Arg {
 				created_at: touched_at,
-				creator: Some(principal.clone()),
 				permissions: tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
 				)

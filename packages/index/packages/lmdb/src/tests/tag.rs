@@ -21,7 +21,6 @@ async fn target_versions_clear_subject_permissions() {
 	index.put_tags(std::slice::from_ref(&tag)).await.unwrap();
 	let permission = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: None,
 		permissions: tg::authorization::permission::Set::Object(
 			tg::authorization::permission::object::Set::NODE,
 		),

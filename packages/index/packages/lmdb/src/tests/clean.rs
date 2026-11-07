@@ -76,7 +76,6 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 	let command = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
 	let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![1].into());
 	let process = tg::process::Id::new();
-	let creator = tg::Principal::Process(process.clone());
 	let subject = tg::authorization::Subject::Process(process.clone());
 	let subtree = tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Subtree,
@@ -125,7 +124,6 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 				})),
 				tangram_index::Item::PutPermission(Box::new(tangram_index::permission::put::Arg {
 					created_at: 0,
-					creator: Some(creator.clone()),
 					permissions: subtree.into(),
 					resource: command.into(),
 					source: tangram_index::permission::Source::Direct { expires_at: None },
@@ -135,7 +133,6 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 				})),
 				tangram_index::Item::PutPermission(Box::new(tangram_index::permission::put::Arg {
 					created_at: 0,
-					creator: Some(creator),
 					permissions: subtree.into(),
 					resource: object.into(),
 					source: tangram_index::permission::Source::Direct {

@@ -1,5 +1,6 @@
 use {
 	crate::{Index, Request, Response},
+	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 	tangram_index::permission::capture::{Entry, enqueue},
 };
@@ -33,8 +34,22 @@ pub(crate) enum PermissionSource {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[allow(clippy::option_option)]
 pub(crate) struct PermissionValue {
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "BTreeMap::is_empty")]
+	pub permissions: BTreeMap<tg::authorization::Permission, PermissionSources>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[allow(clippy::option_option)]
+pub(crate) struct PermissionSources {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "tangram_util::serde::is_false")]
 	pub grant: bool,
 
@@ -58,7 +73,6 @@ pub(crate) struct PermissionValue {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::option_option)]
 pub(crate) struct PermissionEntry {
-	pub creator: Option<tg::Principal>,
 	pub grant: bool,
 	pub direct: Option<Option<i64>>,
 	pub materialized: Option<Option<i64>>,
@@ -68,7 +82,6 @@ pub(crate) struct PermissionEntry {
 
 #[derive(Clone)]
 pub(crate) struct PermissionIndexEntry<'a> {
-	pub creator: Option<&'a tg::Principal>,
 	pub expires_at: Option<i64>,
 	pub permission: tg::authorization::Permission,
 	pub subject: &'a tg::authorization::Subject,
@@ -175,12 +188,116 @@ impl PermissionValue {
 	}
 
 	pub(crate) fn is_empty(&self) -> bool {
-		!self.grant && self.direct.is_none() && self.materialized.is_none()
+		self.permissions.is_empty()
 	}
 
 	pub(crate) fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
 			.map_err(|error| tg::error!(!error, "failed to serialize the permission value"))
+	}
+
+	#[allow(clippy::option_option)]
+	pub(crate) fn source_expires_at(
+		&self,
+		permission: tg::authorization::Permission,
+		source: PermissionSource,
+	) -> Option<Option<i64>> {
+		self.permissions
+			.get(&permission)
+			.and_then(|sources| sources.source_expires_at(source))
+	}
+
+	pub(crate) fn put(
+		&mut self,
+		permission: tg::authorization::Permission,
+		source: PermissionSource,
+		expires_at: Option<i64>,
+		time_to_touch: Option<std::time::Duration>,
+	) -> bool {
+		self.permissions
+			.entry(permission)
+			.or_default()
+			.put(source, expires_at, time_to_touch)
+	}
+
+	pub(crate) fn delete(
+		&mut self,
+		permission: tg::authorization::Permission,
+		source: PermissionSource,
+		expires_at: Option<i64>,
+	) -> bool {
+		let Some(sources) = self.permissions.get_mut(&permission) else {
+			return false;
+		};
+		let changed = sources.delete(source, expires_at);
+		if sources.is_empty() {
+			self.permissions.remove(&permission);
+		}
+		changed
+	}
+
+	pub(crate) fn source_expirations(
+		&self,
+	) -> Vec<(tg::authorization::Permission, PermissionSource, Option<i64>)> {
+		self.permissions
+			.iter()
+			.flat_map(|(permission, sources)| {
+				[
+					PermissionSource::Direct,
+					PermissionSource::Grant,
+					PermissionSource::Materialized,
+				]
+				.into_iter()
+				.filter_map(|source| {
+					let expires_at = sources.source_expires_at(source)?;
+					Some((*permission, source, expires_at))
+				})
+			})
+			.collect()
+	}
+
+	pub(crate) fn entries(&self, subject: &tg::authorization::Subject) -> Vec<PermissionEntry> {
+		self.permissions
+			.iter()
+			.map(|(permission, sources)| PermissionEntry {
+				grant: sources.grant,
+				direct: sources.direct,
+				materialized: sources.materialized,
+				permission: *permission,
+				subject: subject.clone(),
+			})
+			.collect()
+	}
+
+	pub(crate) fn facts(
+		&self,
+		resource: &tg::Id,
+		subject: &tg::authorization::Subject,
+	) -> Vec<tangram_index::permission::Fact> {
+		self.permissions
+			.iter()
+			.map(|(permission, sources)| sources.fact(*permission, resource, subject))
+			.collect()
+	}
+}
+
+impl PermissionSources {
+	pub(crate) fn is_empty(&self) -> bool {
+		!self.grant && self.direct.is_none() && self.materialized.is_none()
+	}
+
+	pub(crate) fn fact(
+		&self,
+		permission: tg::authorization::Permission,
+		resource: &tg::Id,
+		subject: &tg::authorization::Subject,
+	) -> tangram_index::permission::Fact {
+		tangram_index::permission::Fact {
+			direct: self.direct.is_some(),
+			permission,
+			resource: resource.clone(),
+			subject: subject.clone(),
+		}
 	}
 
 	#[allow(clippy::option_option)]
@@ -310,15 +427,6 @@ impl PermissionEntry {
 				.direct
 				.is_some_and(|direct| max_expires_at(direct, expires_at) == direct)
 	}
-
-	pub(crate) fn is_non_expiring_process_direct(&self) -> bool {
-		self.direct == Some(None)
-			&& tangram_index::permission::is_process_direct(
-				self.creator.as_ref(),
-				self.direct.is_some(),
-				&self.subject,
-			)
-	}
 }
 
 pub(crate) fn max_expires_at(left: Option<i64>, right: Option<i64>) -> Option<i64> {
@@ -377,7 +485,7 @@ impl tangram_index::permission::Index for Index {
 
 #[cfg(test)]
 mod tests {
-	use super::{PermissionSource, PermissionValue};
+	use super::{PermissionSource, PermissionSources};
 
 	#[test]
 	fn permission_source_ids_are_stable() {
@@ -397,7 +505,7 @@ mod tests {
 
 	#[test]
 	fn direct_permissions_upgrade_to_non_expiring() {
-		let mut value = PermissionValue::default();
+		let mut value = PermissionSources::default();
 		assert!(value.put(PermissionSource::Direct, Some(10), None));
 		assert_eq!(value.direct, Some(Some(10)));
 		assert!(value.put(PermissionSource::Direct, None, None));

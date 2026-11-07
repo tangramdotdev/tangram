@@ -693,17 +693,14 @@ impl Component {
 		principal: tg::Principal,
 		created_at: i64,
 	) -> tg::Result<tangram_index::permission::capture::Captures> {
-		let (creator, subject) = match resource.kind() {
+		let subject = match resource.kind() {
 			tg::id::Kind::Process if version.is_none() => {
 				let process = tg::process::Id::try_from(resource.clone())?;
-				(
-					Some(tg::Principal::Process(process.clone())),
-					tg::authorization::Subject::Process(process),
-				)
+				tg::authorization::Subject::Process(process)
 			},
 			tg::id::Kind::Tag if version.is_some() => {
 				let tag = tg::tag::Id::try_from(resource.clone())?;
-				(None, tg::authorization::Subject::Tag(tag))
+				tg::authorization::Subject::Tag(tag)
 			},
 			_ => return Err(tg::error!("invalid permission capture resource or version")),
 		};
@@ -751,7 +748,6 @@ impl Component {
 			if !proven.is_empty() {
 				let arg = tangram_index::permission::put::Arg {
 					created_at,
-					creator: creator.clone(),
 					permissions: proven,
 					resource: resource.node.clone(),
 					source: tangram_index::permission::Source::Direct { expires_at: None },

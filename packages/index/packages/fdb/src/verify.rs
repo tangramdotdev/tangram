@@ -591,22 +591,16 @@ impl Index {
 				process,
 			} => {
 				let value = {
-					let creator = Some(tg::Principal::Process(process.clone()));
 					let permission = tg::authorization::Permission::Object(*permission);
 					let resource = object.clone().into();
 					let subject = tg::authorization::Subject::Process(process.clone());
 					let permission = crate::propagate!(
 						Self::get_verification_permission_with_transaction(
-							txn,
-							subspace,
-							creator.as_ref(),
-							permission,
-							&resource,
-							&subject
+							txn, subspace, permission, &resource, &subject
 						)
 						.await
 					);
-					permission.is_some_and(|permission| permission.is_process_direct())
+					permission.is_some_and(|permission| permission.direct)
 				};
 				Output::Bool(value)
 			},
@@ -739,8 +733,6 @@ impl Index {
 					.into_iter()
 					.map(|(key, value)| {
 						let Key::Permission(crate::permission::Key::ResourcePermission {
-							creator,
-							permission,
 							subject,
 							..
 						}) = key
@@ -748,17 +740,14 @@ impl Index {
 							return Err(tg::error!("unexpected key type"));
 						};
 						let value = crate::permission::PermissionValue::deserialize(&value)?;
-						let permission = tangram_index::permission::Fact {
-							creator,
-							direct: value.direct.is_some(),
-							permission,
-							resource: resource.clone(),
-							subject,
-						};
+						let facts = value.facts(resource, &subject);
 
-						Ok(permission)
+						Ok(facts)
 					})
-					.collect::<tg::Result<Vec<_>>>()?;
+					.collect::<tg::Result<Vec<_>>>()?
+					.into_iter()
+					.flatten()
+					.collect();
 
 				Output::Permissions { next, permissions }
 			},
@@ -844,35 +833,26 @@ impl Index {
 	async fn get_verification_permission_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-		creator: Option<&tg::Principal>,
 		permission: tg::authorization::Permission,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
 	) -> tg::Result<ControlFlow<Option<tangram_index::permission::Fact>, fdb::FdbError>> {
 		let key = Key::Permission(crate::permission::Key::ResourcePermission {
-			creator: creator.cloned(),
-			permission,
 			resource: resource.clone(),
 			subject: subject.clone(),
 		});
 		let key = Self::pack(subspace, &key);
 		let result = txn.get(&key, false).await;
 		let value = crate::retry!(result);
-		let permission = match value {
-			Some(value) => {
-				let value = crate::permission::PermissionValue::deserialize(&value)?;
-				let permission = tangram_index::permission::Fact {
-					creator: creator.cloned(),
-					direct: value.direct.is_some(),
-					permission,
-					resource: resource.clone(),
-					subject: subject.clone(),
-				};
-
-				Some(permission)
-			},
-			None => None,
-		};
+		let value = value
+			.as_deref()
+			.map(crate::permission::PermissionValue::deserialize)
+			.transpose()?;
+		let permission = value.and_then(|value| {
+			let sources = value.permissions.get(&permission)?;
+			let fact = sources.fact(permission, resource, subject);
+			Some(fact)
+		});
 
 		Ok(ControlFlow::Break(permission))
 	}
@@ -960,8 +940,6 @@ impl Index {
 			.into_iter()
 			.map(|(key, value)| {
 				let Key::Permission(crate::permission::Key::SubjectPermission {
-					creator,
-					permission,
 					resource,
 					subject,
 				}) = key
@@ -969,17 +947,14 @@ impl Index {
 					return Err(tg::error!("unexpected key type"));
 				};
 				let value = crate::permission::PermissionValue::deserialize(&value)?;
-				let permission = tangram_index::permission::Fact {
-					creator,
-					direct: value.direct.is_some(),
-					permission,
-					resource,
-					subject,
-				};
+				let facts = value.facts(&resource, &subject);
 
-				Ok(permission)
+				Ok(facts)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?
+			.into_iter()
+			.flatten()
+			.collect();
 
 		Ok(ControlFlow::Break((next, permissions)))
 	}

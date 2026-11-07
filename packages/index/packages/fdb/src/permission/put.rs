@@ -46,7 +46,6 @@ impl Index {
 						txn,
 						subspace,
 						&PermissionIndexEntry {
-							creator: arg.creator.as_ref(),
 							expires_at,
 							permission,
 							subject: &arg.subject,
@@ -113,16 +112,12 @@ impl Index {
 			crate::permission::Key::ResourcePermission {
 				resource: entry.resource.clone(),
 				subject: entry.subject.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
 			},
 		))
 		.chain(std::iter::once(Key::Permission(
 			crate::permission::Key::SubjectPermission {
 				subject: entry.subject.clone(),
 				resource: entry.resource.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
 			},
 		)))
 		.map(|key| Self::pack(subspace, &key))
@@ -133,8 +128,8 @@ impl Index {
 				|| Ok(PermissionValue::default()),
 				PermissionValue::deserialize,
 			)?;
-			let old_expires_at = value.source_expires_at(source).flatten();
-			if value.put(source, entry.expires_at, time_to_touch) {
+			let old_expires_at = value.source_expires_at(entry.permission, source).flatten();
+			if value.put(entry.permission, source, entry.expires_at, time_to_touch) {
 				let bytes = value.serialize()?;
 				txn.set(key, &bytes);
 				Self::update_permission_expiration(
@@ -153,35 +148,18 @@ impl Index {
 			return Ok(ControlFlow::Break(false));
 		}
 
-		// Read the visibility entries of the ancestors.
+		// Put the visibility entries of the ancestors.
 		let ids = crate::propagate!(
 			Self::ancestor_ids_with_transaction(txn, subspace, entry.resource).await
 		);
-		let keys = ids
-			.into_iter()
-			.map(|id| {
-				let key = Key::Permission(crate::permission::Key::Visibility {
-					resource: id,
-					subject: entry.subject.clone(),
-					permission_resource: entry.resource.clone(),
-					creator: entry.creator.cloned(),
-					permission: entry.permission,
-				});
-				Self::pack(subspace, &key)
-			})
-			.collect::<Vec<_>>();
-		let results = future::join_all(keys.iter().map(|key| txn.get(key, false))).await;
-
-		// Update the visibility entries.
-		for (key, result) in keys.iter().zip(results) {
-			let mut value = crate::retry!(result).as_deref().map_or_else(
-				|| Ok(PermissionValue::default()),
-				PermissionValue::deserialize,
-			)?;
-			if value.put(source, entry.expires_at, time_to_touch) {
-				let bytes = value.serialize()?;
-				txn.set(key, &bytes);
-			}
+		for id in ids {
+			let key = Key::Permission(crate::permission::Key::Visibility {
+				resource: id,
+				subject: entry.subject.clone(),
+				permission_resource: entry.resource.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
 		}
 
 		Ok(ControlFlow::Break(changed))
@@ -203,7 +181,6 @@ impl Index {
 				expires_at,
 				resource: entry.resource.clone(),
 				subject: entry.subject.clone(),
-				creator: entry.creator.cloned(),
 				permission: entry.permission,
 				source,
 			});
@@ -216,7 +193,6 @@ impl Index {
 				expires_at,
 				resource: entry.resource.clone(),
 				subject: entry.subject.clone(),
-				creator: entry.creator.cloned(),
 				permission: entry.permission,
 				source,
 			});

@@ -35,12 +35,8 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 		for (key, value) in entries {
-			let Key::Permission(crate::permission::Key::SubjectPermission {
-				creator,
-				permission,
-				resource,
-				subject,
-			}) = key
+			let Key::Permission(crate::permission::Key::SubjectPermission { resource, subject }) =
+				key
 			else {
 				return Err(tg::error!("expected a subject permission key"));
 			};
@@ -61,16 +57,8 @@ impl Index {
 					)?;
 				}
 			}
-			for source in [
-				PermissionSource::Direct,
-				PermissionSource::Grant,
-				PermissionSource::Materialized,
-			] {
-				let Some(expires_at) = value.source_expires_at(source) else {
-					continue;
-				};
+			for (permission, source, expires_at) in value.source_expirations() {
 				let entry = PermissionIndexEntry {
-					creator: creator.as_ref(),
 					expires_at,
 					permission,
 					resource: &resource,
@@ -78,14 +66,16 @@ impl Index {
 				};
 				Self::delete_permission_index_entry(db, subspace, transaction, &entry, source)?;
 			}
-			Self::enqueue_permission_update(
-				db,
-				subspace,
-				transaction,
-				&resource,
-				&subject,
-				permission,
-			)?;
+			for permission in value.permissions.keys() {
+				Self::enqueue_permission_update(
+					db,
+					subspace,
+					transaction,
+					&resource,
+					&subject,
+					*permission,
+				)?;
+			}
 		}
 		Ok(())
 	}
@@ -105,7 +95,6 @@ impl Index {
 					tangram_index::permission::Source::Grant => (None, PermissionSource::Grant),
 				};
 				let entry = PermissionIndexEntry {
-					creator: arg.creator.as_ref(),
 					expires_at,
 					permission,
 					subject: &arg.subject,
@@ -140,19 +129,16 @@ impl Index {
 			crate::permission::Key::ResourcePermission {
 				resource: entry.resource.clone(),
 				subject: entry.subject.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
 			},
 		))
 		.chain(std::iter::once(Key::Permission(
 			crate::permission::Key::SubjectPermission {
 				subject: entry.subject.clone(),
 				resource: entry.resource.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
 			},
 		)))
 		.collect::<Vec<_>>();
+		let mut empty = true;
 		for key in keys {
 			let key = Self::pack(subspace, &key);
 			let Some(value) = db
@@ -162,8 +148,10 @@ impl Index {
 				continue;
 			};
 			let mut value = PermissionValue::deserialize(value)?;
-			let old_expires_at = value.source_expires_at(source).flatten();
-			if !value.delete(source, entry.expires_at) {
+			let old_expires_at = value.source_expires_at(entry.permission, source).flatten();
+			let deleted = value.delete(entry.permission, source, entry.expires_at);
+			empty = empty && value.is_empty();
+			if !deleted {
 				continue;
 			}
 			if value.is_empty() {
@@ -186,35 +174,22 @@ impl Index {
 			changed = true;
 		}
 
-		let ids = Self::ancestor_ids_with_transaction(db, subspace, transaction, entry.resource)?;
-		for id in ids {
-			let key = Key::Permission(crate::permission::Key::Visibility {
-				resource: id,
-				subject: entry.subject.clone(),
-				permission_resource: entry.resource.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
-			});
-			let key = Self::pack(subspace, &key);
-			let Some(value) = db
-				.get(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to get the visibility entry"))?
-			else {
-				continue;
-			};
-			let mut value = PermissionValue::deserialize(value)?;
-			if !value.delete(source, entry.expires_at) {
-				continue;
-			}
-			if value.is_empty() {
+		// Delete the visibility entries of the ancestors if the subject has no remaining permissions on the resource.
+		if empty {
+			let ids =
+				Self::ancestor_ids_with_transaction(db, subspace, transaction, entry.resource)?;
+			for id in ids {
+				let key = Key::Permission(crate::permission::Key::Visibility {
+					resource: id,
+					subject: entry.subject.clone(),
+					permission_resource: entry.resource.clone(),
+				});
+				let key = Self::pack(subspace, &key);
 				db.delete(transaction, &key)
 					.map_err(|error| tg::error!(!error, "failed to delete the visibility entry"))?;
-			} else {
-				let bytes = value.serialize()?;
-				db.put(transaction, &key, &bytes)
-					.map_err(|error| tg::error!(!error, "failed to put the visibility entry"))?;
 			}
 		}
+
 		Self::update_permission_expiration(
 			db,
 			subspace,
