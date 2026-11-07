@@ -281,18 +281,6 @@ impl Component {
 			tg::tag::data::Target::Object(id) => tg::Either::Left(id),
 			tg::tag::data::Target::Process(id) => tg::Either::Right(id),
 		};
-		batch.items.push(tangram_index::batch::Item::PutTag(
-			tangram_index::tag::put::Arg {
-				touched_at,
-				account: account.clone(),
-				id: data.id,
-				name: data.name,
-				parent: data.parent,
-				specifier: data.specifier,
-				target: target.clone(),
-				version: version.clone(),
-			},
-		));
 		let resource = tg::Referent::with_node_and_tokens(
 			match &target {
 				tg::Either::Left(id) => tg::Id::from(id.clone()),
@@ -300,19 +288,26 @@ impl Component {
 			},
 			tokens,
 		);
-		let capture = session
-			.server
-			.components
-			.authorization
-			.create_capture_permissions_batch_items(
-				session,
-				destination,
-				Some(version),
-				vec![resource],
-				session.context.principal.clone(),
-				touched_at,
-			)?;
-		batch.items.extend(capture);
+		let captures = session.server.components.authorization.create_captures(
+			session,
+			destination,
+			Some(version.clone()),
+			vec![resource],
+			session.context.principal.clone(),
+			touched_at,
+		)?;
+		let arg = tangram_index::tag::put::Arg {
+			account: account.clone(),
+			captures,
+			id: data.id,
+			name: data.name,
+			parent: data.parent,
+			specifier: data.specifier,
+			target: target.clone(),
+			touched_at,
+			version,
+		};
+		batch.items.push(tangram_index::batch::Item::PutTag(arg));
 		match session
 			.server
 			.components

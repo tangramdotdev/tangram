@@ -26,12 +26,9 @@ fn capture_entries_stay_bounded_when_roots_share_a_token() {
 	// Enqueue the capture and check the size of each entry.
 	let principal = tg::Principal::Process(tg::process::Id::new());
 	let resource = tg::Id::from(tg::process::Id::new());
-	let items = super::enqueue_permission_capture_items(principal, resource, None, roots);
+	let args = super::enqueue_permission_capture_args(principal, resource, None, roots);
 	let mut count = 0;
-	for item in items {
-		let tangram_index::batch::Item::EnqueuePermissionCapture(arg) = item else {
-			continue;
-		};
+	for arg in args {
 		count += arg.roots.len();
 		let size = tangram_serialize::to_vec(&arg).unwrap().len();
 		assert!(size < 10_000, "a capture entry is {size} bytes");
