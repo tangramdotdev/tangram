@@ -40,7 +40,7 @@ For each fork:
 
 1. If the clone does not exist, run `git clone git@github.com:tangramdotdev/<fork>.git ~/<fork>` and `git -C ~/<fork> remote add upstream <upstream>`.
 2. If the clone exists, make sure its working tree is clean and that it has the `upstream` remote. Stop and ask if there are uncommitted changes.
-3. Run `git fetch --prune origin` and `git fetch upstream`, check out the fork branch, and reset it to `origin/<fork branch>` if it is behind.
+3. Run `git fetch --prune origin` and `git fetch upstream`, check out the fork branch, and reset it to `origin/<fork branch>` if it is behind. Do not create backup branches, because nothing reaches `origin` until the user confirms the push in step 10.
 4. Find the contributing feature branches. For each `origin/<branch>` other than the fork branch, take the commits that are not patch-equivalent to upstream (`git rev-list --no-merges --cherry-pick --right-only upstream/<upstream branch>...origin/<branch>`). The branch contributes when that list is not empty and every commit's `git patch-id --stable` matches a commit in `upstream/<upstream branch>..origin/<fork branch>`. Leave the other branches alone, including mirrors of upstream branches whose commits upstream has already merged.
 5. Rebase each contributing branch onto upstream with `git rebase --onto upstream/<upstream branch> $(git merge-base origin/<branch> upstream/<upstream branch>) <branch>`.
 6. Rebase the fork branch with `git rebase upstream/<upstream branch>`. Resolve conflicts in commits from a feature branch the same way as on the feature branch.
