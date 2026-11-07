@@ -57,6 +57,7 @@ success (tg --url $remote_destination.url --token $alice.token tag get $local_ta
 
 # Authorizing the conflicting root authorizes replacement of its complete subtree.
 tg --url $local_source.url push --force --ancestors=always tree
+tg --url $remote_destination.url index --database
 assert equal (
 	tg --url $remote_destination.url --token $bob.token group get tree | from json | get id
 ) $source_tree.id

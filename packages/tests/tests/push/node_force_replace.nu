@@ -20,6 +20,7 @@ failure $output "a push should not replace a conflicting node without force"
 assert ($output.stderr | str contains "the specifier is already in use")
 
 tg --url $local_source.url push --force --group-children tree
+tg --url $remote_destination.url index --database
 
 assert equal (
 	tg --url $remote_destination.url group get tree | from json | get id
