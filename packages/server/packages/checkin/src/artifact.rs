@@ -1375,7 +1375,6 @@ impl Component {
 			let permissions = tg::authorization::Permission::Object(permission).into();
 			tangram_index::permission::put::Arg {
 				created_at: touched_at,
-				creator: Some(session.context.principal.clone()),
 				permissions,
 				resource: id.clone().into(),
 				source: tangram_index::permission::Source::Direct {

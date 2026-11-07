@@ -20,27 +20,10 @@ pub enum Source {
 
 #[derive(Clone, Debug)]
 pub struct Fact {
-	pub creator: Option<tg::Principal>,
 	pub direct: bool,
 	pub permission: tg::authorization::Permission,
 	pub resource: tg::Id,
 	pub subject: tg::authorization::Subject,
-}
-
-#[must_use]
-pub fn is_process_direct(
-	creator: Option<&tg::Principal>,
-	direct: bool,
-	subject: &tg::authorization::Subject,
-) -> bool {
-	direct
-		&& matches!(
-			(creator, subject),
-			(
-				Some(tg::Principal::Process(creator)),
-				tg::authorization::Subject::Process(subject),
-			) if creator == subject
-		)
 }
 
 pub trait Index {
@@ -80,6 +63,6 @@ pub trait Index {
 impl Fact {
 	#[must_use]
 	pub fn is_process_direct(&self) -> bool {
-		is_process_direct(self.creator.as_ref(), self.direct, &self.subject)
+		self.direct && self.subject.is_process()
 	}
 }

@@ -146,7 +146,6 @@ async fn removing_a_source_permission_does_not_leave_a_materialized_subtree() {
 	drain(&index).await;
 	assert!(verified(&index, &root, &process, true).await);
 	let arg = tangram_index::permission::delete::Arg {
-		creator: None,
 		permissions: tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		)
@@ -253,7 +252,6 @@ async fn process_parent_traverses_delegations_before_propagation() {
 			if has_parent {
 				let arg = tangram_index::permission::put::Arg {
 					created_at: 0,
-					creator: None,
 					permissions: tg::authorization::Permission::Process(
 						tg::authorization::permission::process::Permission::Parent,
 					)
@@ -412,7 +410,6 @@ fn permission(
 	});
 	let arg = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: None,
 		permissions: permission.into(),
 		resource: resource.clone().into(),
 		source: tangram_index::permission::Source::Direct {
@@ -874,7 +871,6 @@ async fn process_output_aspect_preserves_permanent_descendant_node_permissions()
 			unreachable!()
 		};
 		arg.source = tangram_index::permission::Source::Direct { expires_at: None };
-		arg.creator = Some(tg::Principal::Process(process.clone()));
 		items.push(item);
 	}
 	let put = tangram_index::write::Arg { items };
@@ -985,7 +981,6 @@ async fn process_output_aspect_preserves_permanent_descendant_node_permissions()
 	);
 	// The same guard also follows the process's graph-scoped delegation before capture.
 	let delete = tangram_index::permission::delete::Arg {
-		creator: Some(tg::Principal::Process(process.clone())),
 		permissions: node.into(),
 		resource: file.clone().into(),
 		source: tangram_index::permission::Source::Direct { expires_at: None },
@@ -1036,7 +1031,6 @@ async fn process_output_aspect_preserves_permanent_descendant_node_permissions()
 	let scoped = tg::authorization::Subject::Tag(tg::tag::Id::new());
 	let put = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: None,
 		permissions: output.into(),
 		resource: process.into(),
 		source: tangram_index::permission::Source::Direct {

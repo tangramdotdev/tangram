@@ -1,7 +1,7 @@
 use {
 	futures::{FutureExt as _, future::BoxFuture},
 	indoc::formatdoc,
-	std::ops::ControlFlow,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -562,7 +562,6 @@ impl Component {
 			.push(tangram_index::Item::PutPermission(Box::new(
 				tangram_index::permission::put::Arg {
 					created_at,
-					creator: Some(creator.clone()),
 					permissions,
 					resource: resource.clone(),
 					source: tangram_index::permission::Source::Grant,
@@ -682,12 +681,26 @@ impl Component {
 			return Ok(ControlFlow::Break(None));
 		}
 
-		// Delete the permissions from the index, since none of the creator's grants still hold them.
+		// Keep the permissions that any remaining grant for the subject and resource still holds.
+		let remaining =
+			match Self::get_grant_permissions_with_transaction(transaction, &resource, &subject)
+				.await?
+			{
+				ControlFlow::Break(remaining) => remaining,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		for permissions in remaining {
+			deleted.remove(permissions);
+		}
+		if deleted.is_empty() {
+			return Ok(ControlFlow::Break(Some(())));
+		}
+
+		// Delete the permissions that no remaining grant holds from the index.
 		batch
 			.items
 			.push(tangram_index::Item::DeletePermission(Box::new(
 				tangram_index::permission::delete::Arg {
-					creator: Some(creator),
 					permissions: deleted,
 					resource,
 					source: tangram_index::permission::Source::Grant,
@@ -992,12 +1005,6 @@ impl Component {
 			subject: tg::authorization::Subject,
 		}
 
-		#[derive(db::row::Deserialize)]
-		struct RemainingRow {
-			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::authorization::permission::Set,
-		}
-
 		// Delete the grant.
 		let p = transaction.p();
 		let statement = formatdoc!(
@@ -1018,28 +1025,20 @@ impl Component {
 			return Ok(ControlFlow::Break(None));
 		};
 
-		// Get the permissions that the creator's other grants for the subject and resource still hold.
-		let statement = formatdoc!(
-			"
-				select permissions
-				from grants
-				where resource = {p}1 and subject = {p}2 and coalesce(creator, '') = {p}3;
-			"
-		);
-		let result = transaction
-			.query_all_into::<RemainingRow>(
-				statement.into(),
-				db::params![
-					row.resource.to_string(),
-					row.subject.to_string(),
-					creator_key(creator)
-				],
-			)
-			.await;
-		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		// Get the permissions that the remaining grants for the subject and resource still hold.
+		let remaining = match Self::get_grant_permissions_with_transaction(
+			transaction,
+			&row.resource,
+			&row.subject,
+		)
+		.await?
+		{
+			ControlFlow::Break(remaining) => remaining,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let mut permissions = row.permissions;
-		for remaining in rows {
-			permissions.remove(remaining.permissions);
+		for remaining in remaining {
+			permissions.remove(remaining);
 		}
 		if permissions.is_empty() {
 			return Ok(ControlFlow::Break(Some(())));
@@ -1051,7 +1050,6 @@ impl Component {
 			.items
 			.push(tangram_index::Item::DeletePermission(Box::new(
 				tangram_index::permission::delete::Arg {
-					creator: Some(creator.clone()),
 					permissions,
 					resource: row.resource,
 					source: tangram_index::permission::Source::Grant,
@@ -1209,9 +1207,6 @@ impl Component {
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			creator: Option<tg::Principal>,
-
 			#[tangram_database(as = "db::value::FromStr")]
 			permissions: tg::authorization::permission::Set,
 
@@ -1233,7 +1228,7 @@ impl Component {
 			.collect::<Vec<_>>();
 		let statement = formatdoc!(
 			"
-				select creator, resource, permissions, subject
+				select resource, permissions, subject
 				from grants
 				where creator in ({placeholders})
 					or resource in ({placeholders})
@@ -1244,18 +1239,14 @@ impl Component {
 			.query_all_into::<Row>(statement.into(), params.clone())
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let mut deleted = BTreeMap::new();
 		for row in rows {
-			batch
-				.items
-				.push(tangram_index::Item::DeletePermission(Box::new(
-					tangram_index::permission::delete::Arg {
-						creator: Some(row.creator.unwrap_or_default()),
-						permissions: row.permissions,
-						resource: row.resource,
-						source: tangram_index::permission::Source::Grant,
-						subject: row.subject,
-					},
-				)));
+			deleted
+				.entry((row.resource, row.subject))
+				.and_modify(|permissions: &mut tg::authorization::permission::Set| {
+					permissions.insert(row.permissions);
+				})
+				.or_insert(row.permissions);
 		}
 		let statement = formatdoc!(
 			"
@@ -1268,7 +1259,69 @@ impl Component {
 		let result = transaction.execute(statement.into(), params).await;
 		tangram_server_core::database::retry!(result, "failed to execute the statement");
 
+		// Delete the permissions that no remaining grant holds from the index.
+		for ((resource, subject), mut permissions) in deleted {
+			let remaining = match Self::get_grant_permissions_with_transaction(
+				transaction,
+				&resource,
+				&subject,
+			)
+			.await?
+			{
+				ControlFlow::Break(remaining) => remaining,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			for remaining in remaining {
+				permissions.remove(remaining);
+			}
+			if permissions.is_empty() {
+				continue;
+			}
+			batch
+				.items
+				.push(tangram_index::Item::DeletePermission(Box::new(
+					tangram_index::permission::delete::Arg {
+						permissions,
+						resource,
+						source: tangram_index::permission::Source::Grant,
+						subject,
+					},
+				)));
+		}
+
 		Ok(ControlFlow::Break(()))
+	}
+
+	async fn get_grant_permissions_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		resource: &tg::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<
+		ControlFlow<Vec<tg::authorization::permission::Set>, tangram_server_core::database::Error>,
+	> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			permissions: tg::authorization::permission::Set,
+		}
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select permissions
+				from grants
+				where resource = {p}1 and subject = {p}2;
+			"
+		);
+		let result = transaction
+			.query_all_into::<Row>(
+				statement.into(),
+				db::params![resource.to_string(), subject.to_string()],
+			)
+			.await;
+		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let permissions = rows.into_iter().map(|row| row.permissions).collect();
+
+		Ok(ControlFlow::Break(permissions))
 	}
 
 	pub(crate) async fn list_grants(

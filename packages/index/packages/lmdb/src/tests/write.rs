@@ -1159,7 +1159,6 @@ async fn concurrent_identical_process_puts_grant_both_callers() {
 	);
 	let permission_arg = |principal: &tg::Principal| tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(principal.clone()),
 		permissions: permission.into(),
 		resource: id.clone().into(),
 		source: tangram_index::permission::Source::Direct {
@@ -1217,7 +1216,6 @@ async fn identical_sandbox_put_grants_permissions_after_comparison() {
 	);
 	arg.permissions = vec![tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(principal.clone()),
 		permissions: permission.into(),
 		resource: id.clone().into(),
 		source: tangram_index::permission::Source::Direct {
@@ -1454,7 +1452,6 @@ async fn sandbox_rejection_preserves_permissions_and_unrelated_writes() {
 	conflicting.data.as_mut().unwrap().data.hostname = Some("conflict".into());
 	conflicting.permissions = vec![tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(principal.clone()),
 		permissions: permission.into(),
 		resource: existing.clone().into(),
 		source: tangram_index::permission::Source::Direct {
@@ -1614,7 +1611,6 @@ async fn process_rejection_skips_its_captures() {
 		.permissions
 		.push(tangram_index::permission::put::Arg {
 			created_at: 0,
-			creator: Some(principal.clone()),
 			permissions: permission.into(),
 			resource: object.clone().into(),
 			source: tangram_index::permission::Source::Direct {
@@ -1664,7 +1660,6 @@ async fn process_acceptance_puts_its_captures() {
 		.permissions
 		.push(tangram_index::permission::put::Arg {
 			created_at: 0,
-			creator: Some(principal.clone()),
 			permissions: permission.into(),
 			resource: object.clone().into(),
 			source: tangram_index::permission::Source::Direct {

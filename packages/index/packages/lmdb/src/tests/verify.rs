@@ -217,34 +217,44 @@ fn put_resource_permission(
 	subject: tg::authorization::Subject,
 	permission: tg::authorization::Permission,
 ) {
-	let value = super::super::permission::PermissionValue {
-		grant: true,
-		..Default::default()
-	}
-	.serialize()
-	.unwrap();
-	put_value(
+	let source = super::super::permission::PermissionSource::Grant;
+	put_permission_value(
 		index,
 		txn,
 		&Key::Permission(PermissionKey::ResourcePermission {
-			creator: None,
-			permission,
 			resource: resource.clone(),
 			subject: subject.clone(),
 		}),
-		&value,
+		permission,
+		source,
+		None,
 	);
-	put_value(
+	put_permission_value(
 		index,
 		txn,
-		&Key::Permission(PermissionKey::SubjectPermission {
-			creator: None,
-			permission,
-			resource,
-			subject,
-		}),
-		&value,
+		&Key::Permission(PermissionKey::SubjectPermission { resource, subject }),
+		permission,
+		source,
+		None,
 	);
+}
+
+fn put_permission_value(
+	index: &Index,
+	txn: &mut lmdb::RwTxn<'_>,
+	key: &Key,
+	permission: tg::authorization::Permission,
+	source: super::super::permission::PermissionSource,
+	expires_at: Option<i64>,
+) {
+	let packed = Index::pack(&index.subspace, key);
+	let mut value = index.db.get(txn, &packed).unwrap().map_or_else(
+		super::super::permission::PermissionValue::default,
+		|value| super::super::permission::PermissionValue::deserialize(value).unwrap(),
+	);
+	value.put(permission, source, expires_at, None);
+	let value = value.serialize().unwrap();
+	put_value(index, txn, key, &value);
 }
 
 fn put_process_direct_permission(
@@ -265,33 +275,26 @@ fn put_process_direct_permission_with_expiration(
 	permission: tg::authorization::Permission,
 	expires_at: Option<i64>,
 ) {
-	let value = super::super::permission::PermissionValue {
-		direct: Some(expires_at),
-		..Default::default()
-	}
-	.serialize()
-	.unwrap();
-	put_value(
+	let source = super::super::permission::PermissionSource::Direct;
+	let subject = tg::authorization::Subject::Process(process.clone());
+	put_permission_value(
 		index,
 		txn,
 		&Key::Permission(PermissionKey::ResourcePermission {
-			creator: Some(tg::Principal::Process(process.clone())),
-			permission,
 			resource: resource.clone(),
-			subject: tg::authorization::Subject::Process(process.clone()),
+			subject: subject.clone(),
 		}),
-		&value,
+		permission,
+		source,
+		expires_at,
 	);
-	put_value(
+	put_permission_value(
 		index,
 		txn,
-		&Key::Permission(PermissionKey::SubjectPermission {
-			creator: Some(tg::Principal::Process(process.clone())),
-			permission,
-			resource,
-			subject: tg::authorization::Subject::Process(process.clone()),
-		}),
-		&value,
+		&Key::Permission(PermissionKey::SubjectPermission { resource, subject }),
+		permission,
+		source,
+		expires_at,
 	);
 }
 

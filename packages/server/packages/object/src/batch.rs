@@ -177,7 +177,6 @@ impl Component {
 				};
 				put_permission_args.push(tangram_index::permission::put::Arg {
 					created_at: now,
-					creator: Some(session.context.principal.clone()),
 					permissions: tg::authorization::Permission::Object(permission).into(),
 					resource: object.id.clone().into(),
 					source: tangram_index::permission::Source::Direct {

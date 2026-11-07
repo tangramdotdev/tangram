@@ -76,64 +76,21 @@ impl Index {
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
 	) -> tg::Result<ControlFlow<Vec<crate::permission::PermissionEntry>, fdb::FdbError>> {
-		crate::page::collect(|after| async move {
-			Self::get_resource_permission_entries_for_subject_page_with_transaction(
-				txn,
-				subspace,
-				resource,
-				subject,
-				after.as_deref(),
-				crate::page::PAGE_SIZE,
-			)
-			.await
-		})
-		.await
-	}
+		let key = Key::Permission(crate::permission::Key::ResourcePermission {
+			resource: resource.clone(),
+			subject: subject.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		let result = txn.get(&key, false).await;
+		let value = crate::retry!(result);
+		let entries = value
+			.as_deref()
+			.map(crate::permission::PermissionValue::deserialize)
+			.transpose()?
+			.map(|value| value.entries(subject))
+			.unwrap_or_default();
 
-	pub(crate) async fn get_resource_permission_entries_for_subject_page_with_transaction(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		resource: &tg::Id,
-		subject: &tg::authorization::Subject,
-		after: Option<&[u8]>,
-		limit: usize,
-	) -> tg::Result<ControlFlow<crate::page::Page<crate::permission::PermissionEntry>, fdb::FdbError>>
-	{
-		let bytes = resource.to_bytes();
-		let key = (
-			Kind::ResourcePermission.to_i32().unwrap(),
-			bytes.as_ref(),
-			subject.to_string(),
-		);
-		let prefix = Self::pack(subspace, &key);
-		let (entries, cursor) = crate::propagate!(
-			Self::get_entry_page_with_transaction(txn, subspace, &prefix, after, limit).await
-		);
-		let entries = entries
-			.into_iter()
-			.map(|(key, value)| {
-				let Key::Permission(crate::permission::Key::ResourcePermission {
-					creator,
-					permission,
-					subject,
-					..
-				}) = key
-				else {
-					return Err(tg::error!("unexpected key type"));
-				};
-				let value = crate::permission::PermissionValue::deserialize(&value)?;
-				Ok(crate::permission::PermissionEntry {
-					creator,
-					grant: value.grant,
-					direct: value.direct,
-					materialized: value.materialized,
-					permission,
-					subject,
-				})
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
-
-		Ok(ControlFlow::Break((entries, cursor)))
+		Ok(ControlFlow::Break(entries))
 	}
 
 	pub(crate) async fn try_get_visibility_with_transaction(

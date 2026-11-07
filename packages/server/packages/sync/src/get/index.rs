@@ -1177,7 +1177,6 @@ impl Component {
 						for subject in &permission_subjects {
 							put_permission_args.push(tangram_index::permission::put::Arg {
 								created_at: touched_at,
-								creator: Some(session.context.principal.clone()),
 								permissions: tg::authorization::permission::Set::Object(
 									permissions,
 								),
@@ -1214,7 +1213,6 @@ impl Component {
 						for subject in &permission_subjects {
 							put_permission_args.push(tangram_index::permission::put::Arg {
 								created_at: touched_at,
-								creator: Some(session.context.principal.clone()),
 								permissions: tg::authorization::permission::Set::Process(
 									permissions,
 								),

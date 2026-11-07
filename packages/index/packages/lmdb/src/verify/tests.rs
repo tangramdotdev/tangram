@@ -70,15 +70,15 @@ fn put_permission(
 	user: &tg::user::Id,
 	permission: tg::authorization::permission::object::Permission,
 ) {
-	let value = crate::permission::PermissionValue {
-		grant: true,
-		..Default::default()
-	}
-	.serialize()
-	.unwrap();
+	let mut value = crate::permission::PermissionValue::default();
+	value.put(
+		tg::authorization::Permission::Object(permission),
+		crate::permission::PermissionSource::Grant,
+		None,
+		None,
+	);
+	let value = value.serialize().unwrap();
 	let key = Key::Permission(PermissionKey::ResourcePermission {
-		creator: None,
-		permission: tg::authorization::Permission::Object(permission),
 		resource: resource.clone().into(),
 		subject: tg::authorization::Subject::User(user.clone()),
 	});

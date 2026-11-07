@@ -544,7 +544,6 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 			})),
 			tangram_index::Item::PutPermission(Box::new(tangram_index::permission::put::Arg {
 				created_at: 0,
-				creator: None,
 				permissions: tg::authorization::permission::Set::Process(
 					vec![
 						tg::authorization::permission::process::Permission::Subtree,
@@ -718,7 +717,6 @@ async fn account_storage_is_retained_by_a_tag() {
 			})),
 			tangram_index::Item::PutPermission(Box::new(tangram_index::permission::put::Arg {
 				created_at: 0,
-				creator: None,
 				permissions: tg::authorization::permission::Set::Object(
 					tg::authorization::permission::object::Set::SUBTREE,
 				),
@@ -860,7 +858,6 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 			if has_permissions {
 				let arg = tangram_index::permission::put::Arg {
 					created_at,
-					creator: None,
 					permissions,
 					resource,
 					source: tangram_index::permission::Source::Direct { expires_at: None },
@@ -1201,7 +1198,6 @@ async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
 			if has_permissions {
 				let arg = tangram_index::permission::put::Arg {
 					created_at,
-					creator: None,
 					permissions,
 					resource: resource.clone(),
 					source: tangram_index::permission::Source::Direct { expires_at: None },
@@ -1345,7 +1341,6 @@ async fn tag_storage_follows_captured_object_permissions() {
 			{
 				let arg = tangram_index::permission::put::Arg {
 					created_at,
-					creator: None,
 					permissions: tg::authorization::Permission::Object(permission).into(),
 					resource: object.into(),
 					source: tangram_index::permission::Source::Direct { expires_at: None },
@@ -1558,7 +1553,6 @@ async fn tag_storage_follows_captured_process_permissions() {
 			index.write(arg).await.unwrap().unwrap();
 			let arg = tangram_index::permission::put::Arg {
 				created_at,
-				creator: None,
 				permissions: tg::authorization::Permission::Process(permission).into(),
 				resource: root.into(),
 				source: tangram_index::permission::Source::Direct { expires_at: None },
@@ -1688,7 +1682,6 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 	index.write(arg).await.unwrap().unwrap();
 	let mut permission = tangram_index::permission::put::Arg {
 		created_at,
-		creator: None,
 		permissions: tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		)
@@ -1997,7 +1990,6 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 	] {
 		let arg = tangram_index::permission::put::Arg {
 			created_at,
-			creator: None,
 			permissions: tg::authorization::Permission::Process(permission).into(),
 			resource: process.clone().into(),
 			source: tangram_index::permission::Source::Direct { expires_at: None },
@@ -2110,7 +2102,6 @@ async fn tag_storage_expands_permissions_during_propagation() {
 	index.write(arg).await.unwrap().unwrap();
 	let mut permission = tangram_index::permission::put::Arg {
 		created_at: 3600,
-		creator: None,
 		permissions: tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::SubtreeLogObjects,
 		)
@@ -2338,7 +2329,6 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 		};
 		let arg = tangram_index::permission::put::Arg {
 			created_at: 3600,
-			creator: None,
 			permissions: node.into(),
 			resource,
 			source: tangram_index::permission::Source::Direct { expires_at: None },
@@ -2362,7 +2352,6 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 	};
 	let arg = tangram_index::permission::put::Arg {
 		created_at: 10800,
-		creator: None,
 		permissions: node.subtree().into(),
 		resource,
 		source: tangram_index::permission::Source::Direct { expires_at: None },

@@ -2025,7 +2025,6 @@ impl Index {
 			return Ok(ControlFlow::Break(false));
 		}
 
-		let creator = tg::Principal::Process(process.clone());
 		let resource = tg::Id::from(id.clone());
 		let mut changed = false;
 		for permission in permissions {
@@ -2034,7 +2033,6 @@ impl Index {
 					txn,
 					subspace,
 					&crate::permission::PermissionIndexEntry {
-						creator: Some(&creator),
 						expires_at: None,
 						permission,
 						resource: &resource,
@@ -2112,7 +2110,6 @@ impl Index {
 					txn,
 					subspace,
 					&crate::permission::PermissionIndexEntry {
-						creator: None,
 						expires_at: *expires_at,
 						permission: *permission,
 						subject,
@@ -2132,7 +2129,6 @@ impl Index {
 					txn,
 					subspace,
 					&crate::permission::PermissionIndexEntry {
-						creator: None,
 						expires_at: *expires_at,
 						permission: *permission,
 						subject,

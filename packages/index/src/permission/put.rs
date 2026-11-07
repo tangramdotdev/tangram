@@ -4,8 +4,6 @@ use tangram_client::prelude::*;
 pub struct Arg {
 	#[tangram_serialize(id = 0)]
 	pub created_at: i64,
-	#[tangram_serialize(id = 1)]
-	pub creator: Option<tg::Principal>,
 	#[tangram_serialize(id = 3)]
 	pub permissions: tg::authorization::permission::Set,
 	#[tangram_serialize(id = 5)]
@@ -27,12 +25,7 @@ impl Arg {
 		}
 		if matches!(self.source, super::Source::Direct { expires_at: None }) {
 			match &self.subject {
-				tg::authorization::Subject::Process(process) => {
-					if self.creator.as_ref() != Some(&tg::Principal::Process(process.clone())) {
-						return Err(tg::error!(
-							"a non-expiring direct permission must be created by its process"
-						));
-					}
+				tg::authorization::Subject::Process(_) => {
 					if !self.resource.kind().is_object() {
 						return Err(tg::error!(
 							"a non-expiring process permission must target an object"
@@ -40,9 +33,9 @@ impl Arg {
 					}
 				},
 				tg::authorization::Subject::Tag(_) => {
-					if self.version.is_none() || self.creator.is_some() {
+					if self.version.is_none() {
 						return Err(tg::error!(
-							"a non-expiring tag permission requires a version and no creator"
+							"a non-expiring tag permission requires a version"
 						));
 					}
 				},

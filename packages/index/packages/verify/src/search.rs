@@ -1676,7 +1676,6 @@ mod tests {
 			}
 		));
 		let permission = Permission {
-			creator: None,
 			direct: false,
 			permission: root.1,
 			resource: root.0.clone(),

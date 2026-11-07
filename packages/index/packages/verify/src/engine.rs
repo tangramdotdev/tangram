@@ -1831,7 +1831,6 @@ mod tests {
 				return default_output(read);
 			};
 			let permission = Permission {
-				creator: None,
 				direct: false,
 				permission: key.1,
 				resource: key.0.clone(),
@@ -1862,7 +1861,6 @@ mod tests {
 					..
 				} => {
 					let permission = Permission {
-						creator: None,
 						direct: false,
 						permission: key.1,
 						resource: key.0.clone(),
@@ -1904,7 +1902,6 @@ mod tests {
 					..
 				} if key.0 == tg::Id::from(object.clone()) => {
 					let permission = Permission {
-						creator: None,
 						direct: false,
 						permission: key.1,
 						resource: key.0.clone(),
@@ -1955,7 +1952,6 @@ mod tests {
 					..
 				} => {
 					let permission = Permission {
-						creator: None,
 						direct: false,
 						permission: key.1,
 						resource: key.0.clone(),
@@ -2007,7 +2003,6 @@ mod tests {
 					..
 				} if read_group == &group => {
 					let permission = Permission {
-						creator: None,
 						direct: false,
 						permission: tg::authorization::Permission::Object(
 							tg::authorization::permission::object::Permission::Node,
@@ -2201,7 +2196,6 @@ mod tests {
 		let matching = object(0);
 		let mismatching = object(1);
 		let process = tg::process::Id::new();
-		let other = tg::process::Id::new();
 		let user = tg::user::Id::new();
 		let principal = tg::Principal::User(user.clone());
 		let args = [
@@ -2218,12 +2212,11 @@ mod tests {
 				return default_output(read);
 			};
 			let permissions = if key.0 == tg::Id::from(matching.clone()) {
-				vec![process_permission(&matching, &process, &process, key.1)]
+				vec![process_permission(&matching, &process, true, key.1)]
 			} else if key.0 == tg::Id::from(mismatching.clone()) {
-				vec![process_permission(&mismatching, &process, &other, key.1)]
+				vec![process_permission(&mismatching, &process, false, key.1)]
 			} else if key.0 == tg::Id::from(process.clone()) {
 				vec![Permission {
-					creator: None,
 					direct: false,
 					permission: key.1,
 					resource: key.0.clone(),
@@ -2431,12 +2424,11 @@ mod tests {
 	fn process_permission(
 		resource: &tg::object::Id,
 		subject: &tg::process::Id,
-		creator: &tg::process::Id,
+		direct: bool,
 		permission: tg::authorization::Permission,
 	) -> Permission {
 		Permission {
-			creator: Some(tg::Principal::Process(creator.clone())),
-			direct: true,
+			direct,
 			permission,
 			resource: resource.clone().into(),
 			subject: tg::authorization::Subject::Process(subject.clone()),

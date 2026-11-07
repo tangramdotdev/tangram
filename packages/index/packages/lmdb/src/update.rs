@@ -817,12 +817,10 @@ impl Index {
 			return Ok(false);
 		}
 
-		let creator = tg::Principal::Process(process.clone());
 		let resource = tg::Id::from(id.clone());
 		let mut changed = false;
 		for permission in permissions {
 			let entry = crate::permission::PermissionIndexEntry {
-				creator: Some(&creator),
 				expires_at: None,
 				permission,
 				resource: &resource,
@@ -897,7 +895,6 @@ impl Index {
 			.collect::<BTreeSet<_>>();
 		for (subject, permission, expires_at) in current.difference(expected) {
 			let entry = crate::permission::PermissionIndexEntry {
-				creator: None,
 				expires_at: *expires_at,
 				permission: *permission,
 				subject,
@@ -915,7 +912,6 @@ impl Index {
 		}
 		for (subject, permission, expires_at) in expected.difference(&current) {
 			let entry = crate::permission::PermissionIndexEntry {
-				creator: None,
 				expires_at: *expires_at,
 				permission: *permission,
 				subject,

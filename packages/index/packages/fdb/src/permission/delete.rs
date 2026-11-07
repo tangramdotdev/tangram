@@ -41,12 +41,8 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 		for (key, value) in entries {
-			let Key::Permission(crate::permission::Key::SubjectPermission {
-				creator,
-				permission,
-				resource,
-				subject,
-			}) = key
+			let Key::Permission(crate::permission::Key::SubjectPermission { resource, subject }) =
+				key
 			else {
 				return Err(tg::error!("expected a subject permission key"));
 			};
@@ -73,16 +69,8 @@ impl Index {
 					);
 				}
 			}
-			for source in [
-				PermissionSource::Direct,
-				PermissionSource::Grant,
-				PermissionSource::Materialized,
-			] {
-				let Some(expires_at) = value.source_expires_at(source) else {
-					continue;
-				};
+			for (permission, source, expires_at) in value.source_expirations() {
 				let entry = PermissionIndexEntry {
-					creator: creator.as_ref(),
 					expires_at,
 					permission,
 					resource: &resource,
@@ -99,14 +87,16 @@ impl Index {
 					.await
 				);
 			}
-			Self::enqueue_permission_update(
-				txn,
-				subspace,
-				&resource,
-				&subject,
-				permission,
-				partition_totals.permission_update,
-			);
+			for permission in value.permissions.keys() {
+				Self::enqueue_permission_update(
+					txn,
+					subspace,
+					&resource,
+					&subject,
+					*permission,
+					partition_totals.permission_update,
+				);
+			}
 		}
 		Ok(ControlFlow::Break(()))
 	}
@@ -131,7 +121,6 @@ impl Index {
 						txn,
 						subspace,
 						&PermissionIndexEntry {
-							creator: arg.creator.as_ref(),
 							expires_at,
 							permission,
 							subject: &arg.subject,
@@ -169,16 +158,12 @@ impl Index {
 			crate::permission::Key::ResourcePermission {
 				resource: entry.resource.clone(),
 				subject: entry.subject.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
 			},
 		))
 		.chain(std::iter::once(Key::Permission(
 			crate::permission::Key::SubjectPermission {
 				subject: entry.subject.clone(),
 				resource: entry.resource.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
 			},
 		)))
 		.map(|key| Self::pack(subspace, &key))
@@ -191,13 +176,16 @@ impl Index {
 		);
 
 		// Delete the permission entries.
+		let mut empty = true;
 		for (key, result) in keys.iter().zip(results) {
 			let Some(value) = crate::retry!(result) else {
 				continue;
 			};
 			let mut value = PermissionValue::deserialize(&value)?;
-			let old_expires_at = value.source_expires_at(source).flatten();
-			if !value.delete(source, entry.expires_at) {
+			let old_expires_at = value.source_expires_at(entry.permission, source).flatten();
+			let deleted = value.delete(entry.permission, source, entry.expires_at);
+			empty = empty && value.is_empty();
+			if !deleted {
 				continue;
 			}
 			if value.is_empty() {
@@ -218,39 +206,20 @@ impl Index {
 			changed = true;
 		}
 
-		// Read the visibility entries of the ancestors.
+		// Delete the visibility entries of the ancestors if the subject has no remaining permissions on the resource.
 		let ids = crate::propagate!(ids);
-		let keys = ids
-			.into_iter()
-			.map(|id| {
+		if empty {
+			for id in ids {
 				let key = Key::Permission(crate::permission::Key::Visibility {
 					resource: id,
 					subject: entry.subject.clone(),
 					permission_resource: entry.resource.clone(),
-					creator: entry.creator.cloned(),
-					permission: entry.permission,
 				});
-				Self::pack(subspace, &key)
-			})
-			.collect::<Vec<_>>();
-		let results = future::join_all(keys.iter().map(|key| txn.get(key, false))).await;
-
-		// Delete the visibility entries.
-		for (key, result) in keys.iter().zip(results) {
-			let Some(value) = crate::retry!(result) else {
-				continue;
-			};
-			let mut value = PermissionValue::deserialize(&value)?;
-			if !value.delete(source, entry.expires_at) {
-				continue;
-			}
-			if value.is_empty() {
-				txn.clear(key);
-			} else {
-				let bytes = value.serialize()?;
-				txn.set(key, &bytes);
+				let key = Self::pack(subspace, &key);
+				txn.clear(&key);
 			}
 		}
+
 		Self::update_permission_expiration(
 			txn,
 			subspace,

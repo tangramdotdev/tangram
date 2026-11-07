@@ -23,7 +23,6 @@ async fn drain_permission_updates(index: &Index) -> usize {
 async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_added() {
 	let (_dir, index) = super::new_index();
 	let command = object_id(0);
-	let creator = tg::Principal::User(tg::user::Id::new());
 	let process = tg::process::Id::new();
 	let subject = tg::authorization::Subject::Process(process.clone());
 	let subtree = tg::authorization::Permission::Object(
@@ -32,7 +31,6 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 	index
 		.put_permissions(&[tangram_index::permission::put::Arg {
 			created_at: 0,
-			creator: Some(creator),
 			permissions: subtree.into(),
 			resource: command.clone().into(),
 			source: tangram_index::permission::Source::Direct {
@@ -93,18 +91,20 @@ fn process_direct_value(
 	object: &tg::object::Id,
 	process: &tg::process::Id,
 	permission: tg::authorization::Permission,
-) -> super::super::permission::PermissionValue {
+) -> super::super::permission::PermissionSources {
 	let transaction = index.env.read_txn().unwrap();
 	let key = Key::Permission(super::super::permission::Key::ResourcePermission {
-		creator: Some(tg::Principal::Process(process.clone())),
-		permission,
 		resource: object.clone().into(),
 		subject: tg::authorization::Subject::Process(process.clone()),
 	});
 	let key = Index::pack(&index.subspace, &key);
 	let value = index.db.get(&transaction, &key).unwrap().unwrap();
 
-	super::super::permission::PermissionValue::deserialize(value).unwrap()
+	super::super::permission::PermissionValue::deserialize(value)
+		.unwrap()
+		.permissions
+		.remove(&permission)
+		.unwrap()
 }
 
 fn direct_permission_expiration_exists(
@@ -116,7 +116,6 @@ fn direct_permission_expiration_exists(
 ) -> bool {
 	let transaction = index.env.read_txn().unwrap();
 	let key = Key::Permission(super::super::permission::Key::PermissionExpiresAt {
-		creator: Some(tg::Principal::Process(process.clone())),
 		expires_at,
 		permission,
 		resource: object.clone().into(),
@@ -155,7 +154,6 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 		tg::authorization::permission::object::Permission::Subtree,
 	);
 	let subject = tg::authorization::Subject::Process(process.clone());
-	let creator = tg::Principal::Process(process.clone());
 	index
 		.write(tangram_index::write::Arg {
 			items: vec![
@@ -188,7 +186,6 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 				})),
 				tangram_index::Item::PutPermission(Box::new(tangram_index::permission::put::Arg {
 					created_at: 0,
-					creator: Some(creator.clone()),
 					permissions: node.into(),
 					resource: wrapper.clone().into(),
 					source: tangram_index::permission::Source::Direct { expires_at: None },
@@ -207,7 +204,6 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 		.put_permissions(&[
 			tangram_index::permission::put::Arg {
 				created_at: 0,
-				creator: Some(creator.clone()),
 				permissions: subtree.into(),
 				resource: child.clone().into(),
 				source: tangram_index::permission::Source::Direct {
@@ -219,7 +215,6 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 			},
 			tangram_index::permission::put::Arg {
 				created_at: 0,
-				creator: Some(creator.clone()),
 				permissions: subtree.into(),
 				resource: unrelated.clone().into(),
 				source: tangram_index::permission::Source::Direct {
@@ -249,7 +244,6 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 
 	index
 		.delete_permissions(&[tangram_index::permission::delete::Arg {
-			creator: Some(creator),
 			permissions: subtree.into(),
 			resource: child.clone().into(),
 			source: tangram_index::permission::Source::Direct {
@@ -460,7 +454,6 @@ async fn shared_log_objects_do_not_materialize_implied_permissions_for_a_parent(
 	let mut items = put_process_with_log_items(&child, &log, Some(&parent));
 	let permission = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(tg::Principal::Process(parent.clone())),
 		permissions: tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Parent,
 		)
@@ -515,7 +508,6 @@ async fn object_aspect_permissions_are_not_materialized_for_a_subject_with_a_par
 	items.truncate(1);
 	let parent = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(subject.try_to_principal().unwrap()),
 		permissions: tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Parent,
 		)
@@ -604,7 +596,6 @@ async fn object_aspect_permissions_materialize_the_longest_cover() {
 	items.truncate(1);
 	let node = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(subject.try_to_principal().unwrap()),
 		permissions: tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		)
@@ -621,7 +612,6 @@ async fn object_aspect_permissions_materialize_the_longest_cover() {
 	for expires_at in [100, 200] {
 		let permission = tangram_index::permission::put::Arg {
 			created_at: 0,
-			creator: Some(tg::Principal::User(tg::user::Id::new())),
 			permissions: object_subtree().into(),
 			resource: log.clone().into(),
 			source: tangram_index::permission::Source::Direct {
@@ -669,7 +659,6 @@ async fn process_subtree_permissions_materialize_the_longest_cover() {
 	for expires_at in [100, 200] {
 		let permission = tangram_index::permission::put::Arg {
 			created_at: 0,
-			creator: Some(tg::Principal::User(tg::user::Id::new())),
 			permissions: tg::authorization::Permission::Process(
 				tg::authorization::permission::process::Permission::Node,
 			)
@@ -733,7 +722,6 @@ async fn permission_updates_reach_a_shared_object_process_through_the_subject_pe
 	let subject = tg::authorization::Subject::User(tg::user::Id::new());
 	let permission = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(subject.try_to_principal().unwrap()),
 		permissions: tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		)
@@ -831,7 +819,6 @@ async fn materialized_permissions_are_rewritten_only_when_their_expiration_moves
 	for expires_at in [1000, 1050, 1200] {
 		let node = tangram_index::permission::put::Arg {
 			created_at: 0,
-			creator: Some(subject.try_to_principal().unwrap()),
 			permissions: tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Node,
 			)
@@ -846,7 +833,6 @@ async fn materialized_permissions_are_rewritten_only_when_their_expiration_moves
 		};
 		let subtree = tangram_index::permission::put::Arg {
 			created_at: 0,
-			creator: Some(subject.try_to_principal().unwrap()),
 			permissions: object_subtree().into(),
 			resource: child.clone().into(),
 			source: tangram_index::permission::Source::Direct {
@@ -939,7 +925,6 @@ async fn object_aspect_permissions_materialize_their_subtree_permissions_in_the_
 	items.truncate(1);
 	let node = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(subject.try_to_principal().unwrap()),
 		permissions: tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		)
@@ -1037,7 +1022,6 @@ fn put_process_with_log_items(
 	};
 	let put_node_permission = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(creator.clone()),
 		permissions: tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		)
@@ -1052,7 +1036,6 @@ fn put_process_with_log_items(
 	};
 	let put_log_permission = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(creator),
 		permissions: tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		)
@@ -1099,7 +1082,6 @@ fn put_parent_object_items(
 	child: &tg::object::Id,
 	subject: &tg::authorization::Subject,
 ) -> Vec<tangram_index::Item> {
-	let creator = subject.try_to_principal().unwrap();
 	let put_object = tangram_index::object::put::Arg {
 		account: None,
 		checkout: None,
@@ -1113,7 +1095,6 @@ fn put_parent_object_items(
 	};
 	let put_node_permission = tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(creator),
 		permissions: tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		)
@@ -1138,7 +1119,6 @@ fn subtree_permission_arg(
 ) -> tangram_index::permission::put::Arg {
 	tangram_index::permission::put::Arg {
 		created_at: 0,
-		creator: Some(subject.try_to_principal().unwrap()),
 		permissions: object_subtree().into(),
 		resource: resource.clone().into(),
 		source: tangram_index::permission::Source::Direct {

@@ -334,7 +334,6 @@ impl Index {
 				expires_at,
 				resource,
 				subject,
-				creator,
 				permission,
 				source,
 			}) = key
@@ -344,12 +343,11 @@ impl Index {
 			if expires_at > now {
 				break;
 			}
-			args.push((creator, expires_at, permission, resource, source, subject));
+			args.push((expires_at, permission, resource, source, subject));
 		}
 		let count = args.len();
-		for (creator, expires_at, permission, resource, source, subject) in args {
+		for (expires_at, permission, resource, source, subject) in args {
 			let entry = crate::permission::PermissionIndexEntry {
-				creator: creator.as_ref(),
 				expires_at: Some(expires_at),
 				permission,
 				subject: &subject,
@@ -960,35 +958,19 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to read the subject permission key"))?;
 			let key = Self::unpack(subspace, key)?;
 			let crate::Key::Permission(crate::permission::Key::SubjectPermission {
-				creator,
-				permission,
-				resource,
-				..
+				resource, ..
 			}) = key
 			else {
 				return Err(tg::error!("expected a subject permission key"));
 			};
 			let value = crate::permission::PermissionValue::deserialize(value)?;
-			for source in [
-				crate::permission::PermissionSource::Grant,
-				crate::permission::PermissionSource::Direct,
-				crate::permission::PermissionSource::Materialized,
-			] {
-				if let Some(expires_at) = value.source_expires_at(source) {
-					entries.push((
-						creator.clone(),
-						expires_at,
-						permission,
-						resource.clone(),
-						source,
-					));
-				}
+			for (permission, source, expires_at) in value.source_expirations() {
+				entries.push((expires_at, permission, resource.clone(), source));
 			}
 		}
 
-		for (creator, expires_at, permission, resource, source) in entries {
+		for (expires_at, permission, resource, source) in entries {
 			let entry = crate::permission::PermissionIndexEntry {
-				creator: creator.as_ref(),
 				expires_at,
 				permission,
 				resource: &resource,
@@ -1032,27 +1014,22 @@ impl Index {
 			})?;
 			let key = Self::unpack(subspace, key)?;
 			let crate::Key::Permission(crate::permission::Key::ResourcePermission {
-				creator,
-				permission,
-				subject,
-				..
+				subject, ..
 			}) = key
 			else {
 				return Err(tg::error!("expected a resource permission key"));
 			};
 			let value = crate::permission::PermissionValue::deserialize(value)?;
-			let Some(expires_at) =
-				value.source_expires_at(crate::permission::PermissionSource::Materialized)
-			else {
-				continue;
-			};
-			entries.push((creator, expires_at, permission, subject));
+			for (permission, source, expires_at) in value.source_expirations() {
+				if source == crate::permission::PermissionSource::Materialized {
+					entries.push((expires_at, permission, subject.clone()));
+				}
+			}
 		}
 
 		// Delete the materialized permissions.
-		for (creator, expires_at, permission, subject) in entries {
+		for (expires_at, permission, subject) in entries {
 			let entry = crate::permission::PermissionIndexEntry {
-				creator: creator.as_ref(),
 				expires_at,
 				permission,
 				subject: &subject,
