@@ -101,6 +101,11 @@ run tools directly on the host, with inherited environment and terminal streams;
 none create a sandbox. Cargo, Nushell, Python, Node, and Bun continue to implement
 the underlying builds, tests, and OS operations.
 
+The `run` subcommand is optional: `tg .#install` is equivalent to
+`tg run .#install`. Global options go before the reference, and run options can
+follow it, such as `tg .#check --watch`. Built-in commands and aliases take
+precedence over references; use explicit `tg run` for a colliding tag name.
+
 ```nu
 tg run .#check
 tg run .#format

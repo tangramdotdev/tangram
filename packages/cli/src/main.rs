@@ -3,13 +3,18 @@
 use {
 	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
+	std::ffi::OsString,
 	tangram_cli_core::Cli,
 	tangram_client::prelude::*,
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug, clap::Parser)]
 #[command(
 	about = "Tangram is a build system and package manager.",
+	after_help = "Run a process directly with: tg <reference> [options] [-- args]",
 	arg_required_else_help = true,
 	before_help = tangram_cli_core::before_help(),
 	disable_help_subcommand = true,
@@ -149,6 +154,9 @@ enum Command {
 	#[command(alias = "r")]
 	Run(tangram_cli_process::run::Args),
 
+	#[command(external_subcommand)]
+	Run_(Vec<OsString>),
+
 	Runner(tangram_cli_runner::Args),
 
 	#[command(alias = "sbx")]
@@ -195,8 +203,8 @@ enum Command {
 fn main() -> std::process::ExitCode {
 	// Parse the args.
 	let command = Args::command();
-	let matches = command.clone().get_matches();
-	let args = Args::from_arg_matches(&matches).unwrap();
+	let (matches, args) =
+		parse_args(&command, std::env::args_os().collect()).unwrap_or_else(|error| error.exit());
 	if let Command::Sandbox(tangram_cli_sandbox::Args { command }) = args.command.clone() {
 		let result = match command {
 			#[cfg(target_os = "linux")]
@@ -219,6 +227,28 @@ fn main() -> std::process::ExitCode {
 		.build()
 		.unwrap();
 	runtime.block_on(main_inner(command, matches, args))
+}
+
+fn parse_args(
+	command: &clap::Command,
+	mut argv: Vec<OsString>,
+) -> clap::error::Result<(clap::ArgMatches, Args)> {
+	let matches = command.clone().try_get_matches_from(&argv)?;
+	let args = Args::from_arg_matches(&matches)?;
+	let Command::Run_(trailing) = &args.command else {
+		return Ok((matches, args));
+	};
+
+	// Insert run before the captured reference, retaining global args and raw trailing values.
+	let mut index = argv.len() - trailing.len();
+	if index > 1 && argv[index - 1] == "--" {
+		index -= 1;
+	}
+	argv.insert(index, "run".into());
+	let matches = command.clone().try_get_matches_from(argv)?;
+	let args = Args::from_arg_matches(&matches)?;
+
+	Ok((matches, args))
 }
 
 async fn main_inner(
@@ -556,6 +586,8 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 		Command::Repl(args) => tangram_cli_repl::run(cli, args).boxed_local().await,
 
 		Command::Run(args) => tangram_cli_process::run::run(cli, args).boxed_local().await,
+
+		Command::Run_(_) => unreachable!("implicit run args must be normalized before dispatch"),
 
 		Command::Runner(args) => tangram_cli_runner::run(cli, args).boxed_local().await,
 
