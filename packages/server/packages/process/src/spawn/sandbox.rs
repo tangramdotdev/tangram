@@ -35,7 +35,7 @@ impl Component {
 					.connected_event
 					.ok_or_else(|| tg::error!("expected the process to be connected"))?;
 				process.data.sandbox = Some(ready_event.sandbox);
-				Self::spawn_process_apply_connected(process, connected_event);
+				Self::spawn_process_apply_connected(session, process, connected_event)?;
 			},
 			Some(tg::Either::Left(_)) => {
 				let id = process.id.clone();
@@ -70,7 +70,7 @@ impl Component {
 				let connected_event = self
 					.spawn_process_in_existing_sandbox(session, process, arg.location.as_ref())
 					.await?;
-				Self::spawn_process_apply_connected(process, connected_event);
+				Self::spawn_process_apply_connected(session, process, connected_event)?;
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
 		}
@@ -197,15 +197,24 @@ impl Component {
 	}
 
 	fn spawn_process_apply_connected(
+		session: &Session,
 		output: &mut Output,
 		connected_event: tangram_server_runner_core::process::ConnectedEvent,
-	) {
+	) -> tg::Result<()> {
 		let tokens = connected_event.process.options.tokens;
 		output.id = connected_event.process.node;
 		output.lease = Some(connected_event.lease);
-		if !tokens.is_empty() {
+
+		// Create a wait token for the process ID that the runner assigned, so that the spawner can read the outcome.
+		if tokens.is_empty() {
+			let now = session.server.clock.unix_timestamp();
+			let token = Self::create_process_wait_token(session, &output.id, now)?;
+			output.tokens = tg::authorization::Tokens::with_authorization(token);
+		} else {
 			output.tokens = tokens;
 		}
+
+		Ok(())
 	}
 
 	fn spawn_process_runner_arg(

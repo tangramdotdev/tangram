@@ -3146,8 +3146,8 @@ impl Default for Sync {
 				attempt_ttl: Duration::from_secs(10),
 				heartbeat_interval: Duration::from_secs(1),
 				idle_timeout: Duration::from_secs(60),
-				recovery_timeout: Duration::from_secs(60),
-				request_timeout: Duration::from_secs(60),
+				recovery_timeout: Duration::from_secs(10),
+				request_timeout: Duration::from_secs(10),
 				retry_interval: Duration::from_secs(1),
 			},
 		}
