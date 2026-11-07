@@ -59,10 +59,3 @@ pub trait Index {
 		args: &[crate::permission::delete::Arg],
 	) -> impl Future<Output = tg::Result<()>> + Send;
 }
-
-impl Fact {
-	#[must_use]
-	pub fn is_process_direct(&self) -> bool {
-		self.direct && self.subject.is_process()
-	}
-}

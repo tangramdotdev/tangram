@@ -427,10 +427,6 @@ impl PermissionEntry {
 				.direct
 				.is_some_and(|direct| max_expires_at(direct, expires_at) == direct)
 	}
-
-	pub(crate) fn is_non_expiring_process_direct(&self) -> bool {
-		self.direct == Some(None) && self.subject.is_process()
-	}
 }
 
 pub(crate) fn max_expires_at(left: Option<i64>, right: Option<i64>) -> Option<i64> {

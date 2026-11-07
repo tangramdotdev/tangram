@@ -600,7 +600,7 @@ impl Index {
 						)
 						.await
 					);
-					permission.is_some_and(|permission| permission.is_process_direct())
+					permission.is_some_and(|permission| permission.direct)
 				};
 				Output::Bool(value)
 			},

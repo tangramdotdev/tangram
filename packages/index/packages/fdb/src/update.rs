@@ -2013,9 +2013,10 @@ impl Index {
 					)
 					.await
 				);
-				if entries.iter().any(|entry| {
-					entry.is_non_expiring_process_direct() && entry.permission.implies(node)
-				}) {
+				if entries
+					.iter()
+					.any(|entry| entry.direct == Some(None) && entry.permission.implies(node))
+				{
 					anchored = true;
 					break;
 				}
