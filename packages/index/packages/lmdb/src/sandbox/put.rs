@@ -10,6 +10,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		args: &[tangram_index::sandbox::put::Arg],
+		process_data_fragment_size: usize,
 		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
 		let mut rejection = None;
@@ -23,6 +24,22 @@ impl Index {
 			)?;
 			if let Err(error) = result {
 				rejection.get_or_insert(error);
+				continue;
+			}
+
+			// Put the process that the sandbox carries. A rejected process leaves the sandbox in place, because the sandbox is valid without it.
+			if let Some(process) = &arg.process {
+				let result = Self::put_processes_with_transaction(
+					db,
+					subspace,
+					transaction,
+					std::slice::from_ref(process.as_ref()),
+					process_data_fragment_size,
+					usage_partition_total,
+				)?;
+				if let Err(error) = result {
+					rejection.get_or_insert(error);
+				}
 			}
 		}
 

@@ -454,6 +454,7 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 					location: None,
 					permissions: vec![],
 					principal: tg::Principal::Root,
+					process: None,
 					processes: None,
 					registration: Some(registration.clone()),
 					runner: None,

@@ -2977,6 +2977,7 @@ impl Component {
 			location: Some(location.clone()),
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(id.clone()),
+			process: None,
 			processes: processes.map(<[_]>::to_vec),
 			registration: None,
 			runner: None,

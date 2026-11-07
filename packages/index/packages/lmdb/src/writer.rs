@@ -357,6 +357,7 @@ impl Index {
 						subspace,
 						&mut transaction,
 						&args,
+						process_data_fragment_size,
 						usage_partition_total,
 					)
 					.map(Response::Mutation),

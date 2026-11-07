@@ -121,6 +121,7 @@ mod tests {
 					location: None,
 					permissions: Vec::new(),
 					principal: tg::Principal::Sandbox(sandbox.clone()),
+					process: None,
 					processes: None,
 					registration: None,
 					runner: None,
