@@ -460,6 +460,7 @@ impl Index {
 		Ok((items, cursor))
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	pub(crate) fn put_account_object(
 		db: &Db,
 		subspace: &fdbt::Subspace,
@@ -468,6 +469,7 @@ impl Index {
 		usage_partition_total: u64,
 		permissions: Option<tg::authorization::permission::Set>,
 		version: Option<u64>,
+		put: Option<&tangram_index::object::put::Arg>,
 	) -> tg::Result<bool> {
 		let entry_key = Key::Usage(crate::usage::Key::AccountObject {
 			account: arg.account.clone(),
@@ -540,9 +542,16 @@ impl Index {
 			return Ok(false);
 		}
 
-		let object = Self::try_get_object_with_transaction(db, subspace, transaction, &arg.object)?;
-		let Some(object) = object else {
-			return Ok(false);
+		// Read the object's size unless the object's put provides it, which also determines whether the object exists.
+		let size = if let Some(put) = put {
+			put.metadata.node.size
+		} else {
+			let object =
+				Self::try_get_object_with_transaction(db, subspace, transaction, &arg.object)?;
+			let Some(object) = object else {
+				return Ok(false);
+			};
+			object.metadata.node.size
 		};
 		let entry = tangram_index::usage::storage::Entry {
 			permissions,
@@ -571,7 +580,7 @@ impl Index {
 			partition: usage_partition,
 		};
 		Self::add_usage_delta(db, subspace, transaction, entry)?;
-		let size = i64::try_from(object.metadata.node.size)
+		let size = i64::try_from(size)
 			.map_err(|_| tg::error!(object = %arg.object, "the object size is too large"))?;
 		let entry = tangram_index::usage::DeltaArg {
 			account: &arg.account,
@@ -582,8 +591,11 @@ impl Index {
 		};
 		Self::add_usage_delta(db, subspace, transaction, entry)?;
 
-		let version = version.unwrap_or_else(|| transaction.id() as u64);
-		Self::propagate_account_object(db, subspace, transaction, arg, permissions, version)?;
+		// Propagate the entry to the children, unless the object's put gives the children their own entries.
+		if put.is_none() {
+			let version = version.unwrap_or_else(|| transaction.id() as u64);
+			Self::propagate_account_object(db, subspace, transaction, arg, permissions, version)?;
+		}
 
 		Ok(true)
 	}
