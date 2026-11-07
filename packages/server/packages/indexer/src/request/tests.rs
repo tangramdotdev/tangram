@@ -25,21 +25,8 @@ async fn draining_waits_for_writes_queue_completions_and_handlers() {
 	};
 	queues.finish_reservation(reservation);
 	let sequence = queues.try_allocate_sequence(queue::Kind::Index).unwrap();
-	let fragment = super::Fragment {
-		batch: [0; 16],
-		fragment: 0,
-		fragments: 2,
-		payload: bytes::Bytes::new(),
-	};
-	queues
-		.insert_fragment(
-			queue::Kind::Index,
-			sequence,
-			&fragment,
-			std::time::Duration::from_secs(60),
-		)
-		.unwrap();
-	queues.finish_write(queue::Kind::Index, sequence, &fragment, true);
+	queues.insert_entry(queue::Kind::Index, sequence, bytes::Bytes::new());
+	queues.finish_write(queue::Kind::Index, sequence, true);
 	let state = IndexerState {
 		available: true,
 		enqueues: 1,
@@ -56,24 +43,21 @@ async fn draining_waits_for_writes_queue_completions_and_handlers() {
 	tokio::pin!(drain);
 	assert!(futures::poll!(&mut drain).is_pending());
 	assert!(!state.lock().unwrap().available);
-	assert!(
-		state
-			.lock()
-			.unwrap()
-			.queues
-			.pop_work(queue::Kind::Index)
-			.is_none()
-	);
 	guard.finish();
 	assert!(futures::poll!(&mut drain).is_pending());
-	assert!(
-		matches!(state.lock().unwrap().queues.pop_work(queue::Kind::Index), Some(queue::Work::Delete(sequences)) if sequences == vec![sequence])
-	);
+	let work = state
+		.lock()
+		.unwrap()
+		.queues
+		.pop_entry(queue::Kind::Index)
+		.unwrap();
+	assert_eq!(work.sequence, sequence);
+	assert!(futures::poll!(&mut drain).is_pending());
 	state
 		.lock()
 		.unwrap()
 		.queues
-		.complete(queue::Kind::Index, &[sequence]);
+		.complete(queue::Kind::Index, sequence);
 	changed.notify_waiters();
 	assert!(matches!(
 		futures::poll!(&mut drain),
@@ -140,13 +124,8 @@ async fn cancelling_a_handler_releases_its_write() {
 #[test]
 fn messages_round_trip() {
 	let arg = super::EnqueueRequestArg {
-		archive: vec![super::Fragment {
-			batch: [1; 16],
-			fragment: 0,
-			fragments: 1,
-			payload: bytes::Bytes::from_static(b"archive"),
-		}],
-		index: Vec::new(),
+		archive: Some(bytes::Bytes::from_static(b"archive")),
+		index: None,
 	};
 	let request = Request {
 		arg: RequestArg::Enqueue(arg),
@@ -163,6 +142,6 @@ fn messages_round_trip() {
 		panic!("expected an enqueue request");
 	};
 	assert_eq!(id, "request");
-	assert_eq!(arg.archive[0].payload, &b"archive"[..]);
-	assert!(arg.index.is_empty());
+	assert_eq!(arg.archive.unwrap(), &b"archive"[..]);
+	assert!(arg.index.is_none());
 }
