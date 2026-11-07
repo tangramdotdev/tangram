@@ -55,6 +55,7 @@ fn process_arg(
 		tty: None,
 	};
 	tangram_index::process::put::Arg {
+		account: None,
 		cached: false,
 		children: None,
 		command: Some(vec![command.clone().into()]),
@@ -229,6 +230,7 @@ async fn process_children_are_stored_separately_from_data() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutProcess(
 			tangram_index::process::put::Arg {
+				account: None,
 				cached: false,
 				children: Some(expected.clone()),
 				command: Some(vec![command.clone().into()]),
@@ -342,6 +344,7 @@ async fn incomplete_process_children_have_values() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![
 			tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
+				account: None,
 				cached: false,
 				children: None,
 				command: Some(vec![command.clone().into()]),
@@ -364,6 +367,7 @@ async fn incomplete_process_children_have_values() {
 				touched_at: 0,
 			}),
 			tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
+				account: None,
 				cached: child_data.cached,
 				children: None,
 				command: Some(vec![command.clone().into()]),
@@ -518,6 +522,7 @@ async fn process_children_must_be_unique() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutProcess(
 			tangram_index::process::put::Arg {
+				account: None,
 				cached: false,
 				children: Some(vec![child.clone(), child]),
 				command: Some(vec![tg::command::Id::new(b"command").into()]),

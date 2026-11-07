@@ -2117,6 +2117,7 @@ impl Scheduler {
 			region: self.server.config.region.clone(),
 		});
 		let arg = tangram_index::process::put::Arg {
+			account: None,
 			cached: false,
 			children: None,
 			command: Some(

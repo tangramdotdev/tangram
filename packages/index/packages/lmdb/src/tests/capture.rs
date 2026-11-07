@@ -391,6 +391,7 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 		process: referent,
 	};
 	let mut process_arg = tangram_index::process::put::Arg {
+		account: None,
 		cached: false,
 		children: Some(vec![child.clone()]),
 		command: None,

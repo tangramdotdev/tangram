@@ -38,6 +38,7 @@ async fn delegation_traversal_and_propagation() {
 
 	// Attach the object after propagation to exercise the other insertion order.
 	let arg = tangram_index::process::put::Arg {
+		account: None,
 		cached: false,
 		children: None,
 		command: Some(vec![root.clone()]),
@@ -325,6 +326,7 @@ async fn node_requests_resolve_delegated_subtree_derivation() {
 
 fn process_object(process: &tg::process::Id, root: &tg::object::Id) -> tangram_index::batch::Item {
 	let arg = tangram_index::process::put::Arg {
+		account: None,
 		cached: false,
 		children: None,
 		command: Some(vec![root.clone()]),
@@ -371,6 +373,7 @@ fn put_object(
 	children: BTreeSet<tg::object::Id>,
 ) -> tangram_index::batch::Item {
 	let arg = tangram_index::object::put::Arg {
+		account: None,
 		checkout: None,
 		children,
 		id: id.clone(),
@@ -765,6 +768,7 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 	let parent = tg::authorization::Subject::User(tg::user::Id::new());
 	let recipient = tg::authorization::Subject::Process(process.clone());
 	let process_arg = tangram_index::process::put::Arg {
+		account: None,
 		cached: false,
 		children: None,
 		command: Some(vec![directory.clone()]),
