@@ -4,6 +4,7 @@ use {
 		permission::{PermissionIndexEntry, PermissionSource, PermissionValue},
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	futures::future,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
@@ -124,10 +125,10 @@ impl Index {
 				permission: entry.permission,
 			},
 		)))
+		.map(|key| Self::pack(subspace, &key))
 		.collect::<Vec<_>>();
-		for key in keys {
-			let key = Self::pack(subspace, &key);
-			let result = txn.get(&key, false).await;
+		let results = future::join_all(keys.iter().map(|key| txn.get(key, false))).await;
+		for (key, result) in keys.iter().zip(results) {
 			let mut value = crate::retry!(result).as_deref().map_or_else(
 				|| Ok(PermissionValue::default()),
 				PermissionValue::deserialize,
@@ -135,7 +136,7 @@ impl Index {
 			let old_expires_at = value.source_expires_at(source).flatten();
 			if value.put(source, entry.expires_at, time_to_touch) {
 				let bytes = value.serialize()?;
-				txn.set(&key, &bytes);
+				txn.set(key, &bytes);
 				Self::update_permission_expiration(
 					txn,
 					subspace,
@@ -152,27 +153,37 @@ impl Index {
 			return Ok(ControlFlow::Break(false));
 		}
 
-		for id in crate::propagate!(
+		// Read the visibility entries of the ancestors.
+		let ids = crate::propagate!(
 			Self::ancestor_ids_with_transaction(txn, subspace, entry.resource).await
-		) {
-			let key = Key::Permission(crate::permission::Key::Visibility {
-				resource: id,
-				subject: entry.subject.clone(),
-				permission_resource: entry.resource.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
-			});
-			let key = Self::pack(subspace, &key);
-			let result = txn.get(&key, false).await;
+		);
+		let keys = ids
+			.into_iter()
+			.map(|id| {
+				let key = Key::Permission(crate::permission::Key::Visibility {
+					resource: id,
+					subject: entry.subject.clone(),
+					permission_resource: entry.resource.clone(),
+					creator: entry.creator.cloned(),
+					permission: entry.permission,
+				});
+				Self::pack(subspace, &key)
+			})
+			.collect::<Vec<_>>();
+		let results = future::join_all(keys.iter().map(|key| txn.get(key, false))).await;
+
+		// Update the visibility entries.
+		for (key, result) in keys.iter().zip(results) {
 			let mut value = crate::retry!(result).as_deref().map_or_else(
 				|| Ok(PermissionValue::default()),
 				PermissionValue::deserialize,
 			)?;
 			if value.put(source, entry.expires_at, time_to_touch) {
 				let bytes = value.serialize()?;
-				txn.set(&key, &bytes);
+				txn.set(key, &bytes);
 			}
 		}
+
 		Ok(ControlFlow::Break(changed))
 	}
 
