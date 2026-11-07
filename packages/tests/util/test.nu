@@ -527,6 +527,7 @@ export def --env "server spawn" [
 	# Determine the url.
 	let url = $url | default ($config.http?.listeners?.0?.url? | default (unix_socket_url $directory_path))
 	$env.TANGRAM_URL = $url
+	clear_inherited_env
 
 	# Create a path for the server's captured output.
 	let log_path = ($config_path | path dirname | path join 'log')
@@ -680,6 +681,7 @@ export def --env "server start" [server: record] {
 		error make { msg: $message }
 	}
 	$env.TANGRAM_URL = $server.url
+	clear_inherited_env
 	let server = $server
 		| upsert exit ($supervisor | path join 'exit')
 		| upsert macos_app_group_socket $macos_app_group_socket
@@ -955,6 +957,12 @@ export def wait_until [
 		}
 		sleep $interval
 	}
+}
+
+# Clear the environment that a parent Tangram process set for itself.
+def --env clear_inherited_env [] {
+	let reserved = $env | columns | where { |name| $name starts-with 'TANGRAM_ENV_' }
+	hide-env --ignore-errors TANGRAM_OUTPUT TANGRAM_TOKEN ...$reserved
 }
 
 # Watch a checkpoint and return a handle for the other checkpoint helpers. Without --url, the watch is on the server in $env.TANGRAM_URL.

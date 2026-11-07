@@ -274,9 +274,6 @@ impl Cli {
 		if let Some(token) = self.args.token.clone() {
 			return Some(token);
 		}
-		if let Ok(token) = std::env::var("TANGRAM_TOKEN") {
-			return Some(token);
-		}
 		self.config.as_ref().and_then(|config| config.token.clone())
 	}
 
