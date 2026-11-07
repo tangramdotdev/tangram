@@ -54,7 +54,7 @@ class Reference[T]:
     Data: ClassVar[type[Data]]
 
     node: T
-    options: ReferenceOptions | None = field(default_factory=dict)
+    options: ReferenceOptions | None = field(default_factory=Options)
 
     @overload
     def to_data(self) -> ReferenceData[T]: ...

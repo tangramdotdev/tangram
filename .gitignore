@@ -16,3 +16,4 @@ __pycache__
 /release
 /target
 node_modules
+node_modules.lock

@@ -13,6 +13,7 @@ from typing import (
     Required,
     Self,
     TypedDict,
+    Unpack,
     cast,
 )
 
@@ -201,7 +202,10 @@ class Sandbox:
 
     @classmethod
     def create(
-        cls, *args: SandboxInput, client: Client | None = None, **options
+        cls,
+        *args: SandboxInput,
+        client: Client | None = None,
+        **options: Unpack[SandboxArg],
     ) -> Builder:
         return Builder(*args, *([options] if options else []), client=client)
 

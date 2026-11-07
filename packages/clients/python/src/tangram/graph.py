@@ -401,7 +401,7 @@ class Graph(Object):
                 else arg.get("nodes") or []
             )
             for arg_node in arg_nodes:
-                node = {"kind": arg_node["kind"]}
+                node: dict[str, Any] = {"kind": arg_node["kind"]}
                 if node["kind"] == "directory":
                     if "entries" in arg_node:
                         entries = arg_node["entries"]

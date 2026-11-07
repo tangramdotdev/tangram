@@ -13,7 +13,7 @@ debug-assertions = false
 opt-level = 3
 overflow-checks = false
 
-[profile.debugger]
+[profile.debug]
 inherits = "dev"
 debug = true
 

@@ -52,7 +52,7 @@ class Referent[T]:
     Data: ClassVar[type[Data]] = Data
 
     node: T
-    options: ReferentOptions | None = field(default_factory=dict)
+    options: ReferentOptions | None = field(default_factory=Options)
 
     @classmethod
     def with_node_and_local_tokens[U](cls, node: U, tokens: list[str]) -> Referent[U]:

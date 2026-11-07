@@ -24,6 +24,8 @@ To get started, run the install script below, or download the [latest release](h
 curl -fsSL https://tangram.dev/install.sh | sh
 ```
 
+To build and install from a local checkout, run `bun run install:release` or `tg run '.#install'`. This installs the release binary at `~/.local/bin/tangram` and creates a `tg` symlink alongside it. Use `bun run install:dev` to install a debug build instead.
+
 Create a file at the root of your project called `tangram.ts` with the following content:
 
 ```ts

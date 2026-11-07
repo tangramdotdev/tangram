@@ -46,6 +46,10 @@ export const format = async () => {
 	await tg.run`bunx oxfmt --write packages/clients/javascript/src packages/javascript/src/tangram.d.ts packages/javascript/src/main.ts packages/vscode/extension.ts`;
 };
 
+export const install = async (...args: Array<string>) => {
+	await tg.run`nu scripts/install.nu "$@"`.arg("install", ...args);
+};
+
 export const run = async (...args: tg.Args<Arg>) => {
 	const merged = await mergeArgs(args);
 	const {

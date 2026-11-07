@@ -470,7 +470,10 @@ class CommandValue[T]:
     def to_data(self):
         if self.kind not in ("string", "value"):
             raise ValueError("invalid command value kind")
-        return {"kind": self.kind, "value": Value.to_data(self.value)}
+        return {
+            "kind": self.kind,
+            "value": Value.to_data(cast("ValueType", self.value)),
+        }
 
 
 def command_value(value):

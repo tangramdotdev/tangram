@@ -1,6 +1,6 @@
 ---
 name: update
-description: Update the Rust and JavaScript dependencies, including rebasing the tangramdotdev forks on their latest upstream. Use when asked to update, upgrade, or bump dependencies.
+description: Update the Rust, JavaScript, and Python dependencies, including rebasing the tangramdotdev forks on their latest upstream. Use when asked to update, upgrade, or bump dependencies.
 disable-model-invocation: true
 ---
 
@@ -60,7 +60,14 @@ For each fork:
 
 Run `bun update --recursive --latest` in the repository root. This updates the root `package.json` and the workspace packages, and rewrites `bun.lock`.
 
-## 4. Fix and verify
+## 4. Update the Python dependencies
+
+1. Run `uv lock --upgrade` in the repository root. This updates `uv.lock` to the latest versions that the requirements allow.
+2. Run `uv tree --frozen --outdated --all-groups --depth 1` to find the dependencies with a newer release outside their requirements. They are declared in the root `pyproject.toml` and `packages/clients/python/pyproject.toml`.
+3. Raise the bounds of those requirements. Follow the existing style, such as `"h2>=4.3,<5"`. Keep the `maturin` requirements in the dependency group in the root `pyproject.toml` and in `build-system.requires` in `packages/clients/python/pyproject.toml` the same.
+4. Run `uv lock --upgrade` again. Leave a package at its current version if a newer release conflicts with another requirement, and note it for the user.
+
+## 5. Fix and verify
 
 1. Run `bun run check` and fix the errors and warnings caused by breaking changes in the updated dependencies. If a fix needs a large refactor, such as a new ownership model in a database crate, ask the user before doing it. When upstream makes an item that tangram uses private, prefer a public replacement, such as a getter or an `_exported` method in tsrs, over making the item public in our fork.
 2. Run `bun run format`.

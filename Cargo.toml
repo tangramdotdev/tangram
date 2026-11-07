@@ -234,7 +234,7 @@ astral-tokio-tar = "0.7"
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
-async-nats = "0.51"
+async-nats = "0.52"
 async_zip = { version = "0.0.19", features = ["full"] }
 aws-credential-types = "1"
 aws-lc-rs = "1"

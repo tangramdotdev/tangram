@@ -72,11 +72,14 @@ impl Project {
 		let init = SessionInit {
 			background_ctx: context.clone(),
 			client: None,
+			content_mapped_parse_cache: None,
+			content_mapper_logger: None,
 			fs: host.clone(),
 			logger: None,
 			npm_executor: None,
 			options: Arc::new(options),
 			parse_cache: None,
+			spawner: None,
 		};
 		let snapshot_host = new_snapshot_host(&init);
 		let root = SnapshotLease(snapshot_host.new_root_snapshot());
