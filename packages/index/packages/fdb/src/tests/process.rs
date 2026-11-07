@@ -391,14 +391,14 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 			};
 			for runner_arg in [&first, &current, &current] {
 				let arg = tangram_index::write::Arg {
-					items: vec![tangram_index::Item::PutRunner(runner_arg.clone())],
+					items: vec![tangram_index::Item::PutRunner(Box::new(runner_arg.clone()))],
 				};
-				index.batch(arg).await.unwrap().unwrap();
+				index.write(arg).await.unwrap().unwrap();
 			}
 			let arg = tangram_index::write::Arg {
-				items: vec![tangram_index::Item::PutRunner(first.clone())],
+				items: vec![tangram_index::Item::PutRunner(Box::new(first.clone()))],
 			};
-			assert!(index.batch(arg).await.unwrap().is_err());
+			assert!(index.write(arg).await.unwrap().is_err());
 			assert_eq!(
 				index
 					.next_runner_registration_index(&current.id)
@@ -411,9 +411,9 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 				..current.clone()
 			};
 			let arg = tangram_index::write::Arg {
-				items: vec![tangram_index::Item::PutRunner(conflicting)],
+				items: vec![tangram_index::Item::PutRunner(Box::new(conflicting))],
 			};
-			assert!(index.batch(arg).await.unwrap().is_err());
+			assert!(index.write(arg).await.unwrap().is_err());
 			let process = tg::process::Id::new();
 			let sandbox = tg::sandbox::Id::new();
 			for arg in [&first, &current] {
@@ -423,7 +423,9 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 					scheduler: arg.scheduler.clone(),
 				};
 				let process_arg = tangram_index::process::put::Arg {
+					account: None,
 					cached: false,
+					captures: tangram_index::permission::capture::Captures::default(),
 					children: None,
 					command: None,
 					command_id: tg::command::Id::new(b"command").into(),
@@ -460,11 +462,11 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 					touched_at: 0,
 				};
 				for item in [
-					tangram_index::Item::PutProcess(process_arg),
-					tangram_index::Item::PutSandbox(sandbox_arg),
+					tangram_index::Item::PutProcess(Box::new(process_arg)),
+					tangram_index::Item::PutSandbox(Box::new(sandbox_arg)),
 				] {
 					let arg = tangram_index::write::Arg { items: vec![item] };
-					let accepted = index.batch(arg).await.unwrap().is_ok();
+					let accepted = index.write(arg).await.unwrap().is_ok();
 					assert_eq!(accepted, registration.index == current.registration);
 				}
 				assert_eq!(
@@ -524,9 +526,9 @@ async fn registration_index_allocations_are_unique_and_survive_reopen() {
 			scheduler: tg::scheduler::Id::new(),
 		};
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutRunner(runner_arg)],
+			items: vec![tangram_index::Item::PutRunner(Box::new(runner_arg))],
 		};
-		index.batch(arg).await.unwrap().unwrap();
+		index.write(arg).await.unwrap().unwrap();
 		assert_eq!(
 			index.next_runner_registration_index(&runner).await.unwrap(),
 			34
@@ -537,26 +539,26 @@ async fn registration_index_allocations_are_unique_and_survive_reopen() {
 			scheduler: tg::scheduler::Id::new(),
 		};
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutRunner(runner_arg.clone())],
+			items: vec![tangram_index::Item::PutRunner(Box::new(runner_arg.clone()))],
 		};
-		index.batch(arg).await.unwrap().unwrap();
+		index.write(arg).await.unwrap().unwrap();
 		assert_eq!(
 			index.next_runner_registration_index(&runner).await.unwrap(),
 			101
 		);
 		// Allocation must leave the accepted registration unchanged.
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutRunner(runner_arg.clone())],
+			items: vec![tangram_index::Item::PutRunner(Box::new(runner_arg.clone()))],
 		};
-		index.batch(arg).await.unwrap().unwrap();
+		index.write(arg).await.unwrap().unwrap();
 		let runner_arg = tangram_index::runner::put::Arg {
 			registration: u64::MAX,
 			..runner_arg
 		};
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutRunner(runner_arg)],
+			items: vec![tangram_index::Item::PutRunner(Box::new(runner_arg))],
 		};
-		index.batch(arg).await.unwrap().unwrap();
+		index.write(arg).await.unwrap().unwrap();
 		assert!(index.next_runner_registration_index(&runner).await.is_err());
 	})
 	.await;

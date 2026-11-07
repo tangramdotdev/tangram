@@ -183,7 +183,17 @@ impl Index {
 				crate::update::Source::Put,
 				None,
 			)?;
-			Self::enqueue_account_object_from_parents(db, subspace, transaction, id, touched_at)?;
+
+			// Enqueue a usage put for each account that stores a parent of the object, unless the object's write puts its account's storage entries.
+			if arg.account.is_none() {
+				Self::enqueue_account_object_from_parents(
+					db,
+					subspace,
+					transaction,
+					id,
+					touched_at,
+				)?;
+			}
 		}
 
 		Ok(())
@@ -199,7 +209,7 @@ impl Index {
 		for object in args {
 			Self::put_object(db, subspace, transaction, object)?;
 
-			// Put the account's storage entry, which requires the object.
+			// Put the account's storage entry with the object's put, so that it does not read the object or propagate to the children, whose entries the write puts.
 			if let Some(account) = &object.account {
 				let entry = tangram_index::usage::storage::put::ObjectArg {
 					account: account.clone(),
@@ -214,6 +224,7 @@ impl Index {
 					usage_partition_total,
 					None,
 					None,
+					Some(object),
 				)?;
 			}
 		}
