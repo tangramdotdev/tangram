@@ -1,12 +1,14 @@
 use ../../util/test.nu *
 
-# An index batch split within its encoded items survives an indexer crash and is reassembled on restart.
+# Queued index entries survive an indexer crash and are processed on restart.
 
 let directory = mktemp -d
 let config = {
 	advanced: { checkpoints: true, multi_server: true },
-	indexer: { id: 'idx_0000000000000000000000000000' },
-	object: { index_queue: { fragment_size: 64 } },
+	indexer: {
+		enqueue: { request_size: 64 },
+		id: 'idx_0000000000000000000000000000',
+	},
 }
 let local = server spawn --name local --directory $directory --config $config
 let watch = tg --url $local.url checkpoint watch index.write | from json | get watch
