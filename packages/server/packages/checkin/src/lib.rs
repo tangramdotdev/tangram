@@ -702,6 +702,14 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to create the lock"))?;
 		progress.finish("locking");
 
+		// Record the root metadata after the lock write so its notifications match the published graph.
+		if arg.options.lock.is_some() && !arg.options.destructive {
+			let metadata = std::fs::symlink_metadata(root)
+				.map_err(|error| tg::error!(!error, "failed to read the root metadata"))?;
+			let index = graph.paths.get(root).unwrap();
+			graph.nodes.get_mut(index).unwrap().path_metadata = Some(metadata);
+		}
+
 		// Create the index items.
 		let account = session
 			.server

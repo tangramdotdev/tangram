@@ -231,6 +231,13 @@ impl Watch {
 
 					// Update the nodes for the affected paths along with their ancestors.
 					for path in paths {
+						// Ignore delayed root notifications that match the metadata after the lock write.
+						if message.sender.is_none()
+							&& path == root.as_path()
+							&& State::graph_matches_path(&state.graph, path)
+						{
+							continue;
+						}
 						if state.affected_paths.contains(path) {
 							modified = true;
 						}
