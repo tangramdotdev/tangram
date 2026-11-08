@@ -42,6 +42,6 @@ failure $solved_output "the stale solved checkin should not update the replaceme
 
 # The replacement watcher must retain no-solve state.
 let watched = tg checkin --no-tokens $path --watch --no-checkout-pointers --no-lock --no-solve | referent node
-let cold = tg checkin --no-tokens $path --no-checkout-pointers --no-lock --no-solve | referent node
+let cold = tg checkin --no-watch --no-tokens $path --no-checkout-pointers --no-lock --no-solve | referent node
 assert ($unsolved == $cold) "the concurrent no-solve checkin should match a cold checkin"
 assert ($watched == $cold) "the no-solve watcher should not contain stale solved state"

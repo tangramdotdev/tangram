@@ -24,5 +24,5 @@ assert ($solved != $unsolved) "solving the dependency should change the id"
 let watched = tg checkin --no-tokens $path --watch --no-checkout-pointers --no-lock --no-solve | referent node
 assert ($watched == $unsolved) "the watched no-solve checkin should match the original unsolved checkin"
 
-let cold = tg checkin --no-tokens $path --no-checkout-pointers --no-lock --no-solve | referent node
+let cold = tg checkin --no-watch --no-tokens $path --no-checkout-pointers --no-lock --no-solve | referent node
 assert ($watched == $cold) "the watched no-solve checkin should match a cold checkin"

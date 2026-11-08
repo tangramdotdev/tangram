@@ -104,6 +104,9 @@ impl Component {
 			return Err(tg::error!("check-in is not supported in multi-server mode"));
 		}
 
+		// Resolve the watch preference before matching checkin tasks and watches.
+		arg.options.watch = Some(arg.options.watch());
+
 		// Canonicalize against the mounted store, whose parents exist even without a physical checkout.
 		arg.path = session
 			.server
@@ -428,7 +431,7 @@ impl Component {
 		};
 
 		// Attempt to get the graph, lock, and solutions from a watcher.
-		let watch = if arg.options.watch {
+		let watch = if arg.options.watch() {
 			session.server.components.watch.watches().get(&watch_key)
 		} else {
 			None
@@ -489,7 +492,7 @@ impl Component {
 			let watch_observation = WatchObservation::Vacant;
 			(graph, lock, solutions, watch_observation)
 		};
-		if arg.options.watch {
+		if arg.options.watch() {
 			let updates = arg
 				.updates
 				.iter()
@@ -733,7 +736,7 @@ impl Component {
 			.config
 			.watch
 			.as_ref()
-			.is_some_and(|_| arg.options.watch)
+			.is_some_and(|_| arg.options.watch())
 		{
 			let updates = arg
 				.updates

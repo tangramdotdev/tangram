@@ -84,7 +84,7 @@ class Arg:
         )
         if unsolved_dependencies:
             options["unsolved_dependencies"] = unsolved_dependencies
-        if source.get("watch"):
+        if "watch" in source:
             options["watch"] = source["watch"]
         output = {"options": options, "path": arg["path"]}
         if arg["updates"]:

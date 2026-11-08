@@ -66,8 +66,8 @@ pub struct Options {
 	#[command(flatten)]
 	pub unsolved_dependencies: UnsolvedDependencies,
 
-	#[arg(id = "checkin.watch", long = "watch")]
-	pub watch: bool,
+	#[command(flatten)]
+	pub watch: Watch,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -225,6 +225,30 @@ pub struct CheckoutPointers {
 	no_checkout_pointers: Option<bool>,
 }
 
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Watch {
+	#[arg(
+		default_missing_value = "true",
+		id = "checkin.watch.no_watch",
+		long = "no-watch",
+		num_args = 0..=1,
+		overrides_with = "checkin.watch.watch",
+		require_equals = true,
+	)]
+	no_watch: Option<bool>,
+
+	/// Whether to watch the source. Defaults to true for non-destructive checkins.
+	#[arg(
+		default_missing_value = "true",
+		id = "checkin.watch.watch",
+		long = "watch",
+		num_args = 0..=1,
+		overrides_with = "checkin.watch.no_watch",
+		require_equals = true,
+	)]
+	watch: Option<bool>,
+}
+
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
@@ -324,6 +348,13 @@ impl CheckoutPointers {
 	}
 }
 
+impl Watch {
+	#[must_use]
+	pub fn get_option(&self) -> Option<bool> {
+		self.watch.or(self.no_watch.map(|v| !v))
+	}
+}
+
 impl Options {
 	#[must_use]
 	pub fn to_options(&self) -> tg::checkin::Options {
@@ -339,7 +370,7 @@ impl Options {
 			source_dependencies: self.source_dependencies.get(),
 			tag_ttl: self.tag_ttl.get(),
 			unsolved_dependencies: self.unsolved_dependencies.get(),
-			watch: self.watch,
+			watch: self.watch.get_option(),
 		}
 	}
 }

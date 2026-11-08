@@ -22,7 +22,7 @@ let alice_checkin = tg --token $alice.token checkin --no-tokens $path --watch --
 success $alice_checkin
 
 # Bob cannot cold-check in the source because he cannot access Alice's dependency.
-let bob_cold_checkin = tg --token $bob.token checkin --no-tokens $path --no-checkout-pointers --no-lock | complete
+let bob_cold_checkin = tg --token $bob.token checkin --no-watch --no-tokens $path --no-checkout-pointers --no-lock | complete
 failure $bob_cold_checkin
 
 # Bob must not reuse Alice's authorized watch state.

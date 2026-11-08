@@ -64,7 +64,7 @@ success $update_output
 let update_id = $update_output.stdout | referent node
 
 # The watched update must produce the same result as a cold checkin.
-let cold_id = tg checkin --no-tokens $path --no-checkout-pointers --no-lock | referent node
+let cold_id = tg checkin --no-watch --no-tokens $path --no-checkout-pointers --no-lock | referent node
 assert ($update_id != $initial_id) "updating the dependency should change the artifact id"
 assert ($update_id == $cold_id) "the watched update should match a cold checkin"
 

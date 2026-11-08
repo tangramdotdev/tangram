@@ -56,7 +56,7 @@ export namespace Checkin {
 			if (arg.options.unsolvedDependencies) {
 				options.unsolved_dependencies = arg.options.unsolvedDependencies;
 			}
-			if (arg.options.watch) {
+			if (arg.options.watch !== undefined) {
 				options.watch = arg.options.watch;
 			}
 			let output: { [key: string]: unknown } = {

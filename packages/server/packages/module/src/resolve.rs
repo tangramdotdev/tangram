@@ -513,7 +513,7 @@ impl Component {
 			// Check in the referrer and resolve against that exact artifact.
 			let options = tg::checkin::Options {
 				unsolved_dependencies: true,
-				watch: true,
+				watch: Some(true),
 				..Default::default()
 			};
 			let path = referrer.node().to_path_buf();

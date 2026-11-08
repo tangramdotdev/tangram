@@ -10,6 +10,9 @@ use {
 	},
 };
 
+#[cfg(test)]
+mod tests;
+
 #[serde_as]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -67,9 +70,10 @@ pub struct Options {
 	#[serde(default = "return_false", skip_serializing_if = "is_false")]
 	pub unsolved_dependencies: bool,
 
-	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub watch: bool,
+	/// Whether to watch the source, defaulting to true for non-destructive checkins.
+	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub watch: Option<bool>,
 }
 
 #[derive(
@@ -186,6 +190,13 @@ impl tg::Session {
 	}
 }
 
+impl Options {
+	#[must_use]
+	pub fn watch(&self) -> bool {
+		self.watch.unwrap_or(!self.destructive)
+	}
+}
+
 impl Default for Options {
 	fn default() -> Self {
 		Self {
@@ -200,7 +211,7 @@ impl Default for Options {
 			source_dependencies: true,
 			tag_ttl: tg::remote::cache::Ttl::default(),
 			unsolved_dependencies: false,
-			watch: false,
+			watch: None,
 		}
 	}
 }
