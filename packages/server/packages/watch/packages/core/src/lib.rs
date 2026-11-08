@@ -331,6 +331,30 @@ impl Watch {
 		Ok(watch)
 	}
 
+	pub fn invalidate_objects(&self, objects: &[tg::object::Id]) {
+		let mut state = self.state.lock().unwrap();
+		if !objects.iter().any(|id| state.graph.ids.contains_key(id)) {
+			return;
+		}
+
+		// Remove the watched paths before discarding the cached graph.
+		#[cfg(target_os = "linux")]
+		{
+			let paths = state.graph.paths.keys().cloned().collect();
+			state.remove_paths_linux(&paths);
+		}
+
+		// Invalidate the graph and any checkins that are still using its previous version.
+		state.affected_paths.clear();
+		state.graph = Graph::default();
+		state.invalidated_paths.clear();
+		state.solutions = Solutions::default();
+		state.version += 1;
+		state.revalidation_version = state.version;
+		#[cfg(target_os = "macos")]
+		state.update_paths_darwin();
+	}
+
 	#[must_use]
 	pub fn id(&self) -> Id {
 		self.id

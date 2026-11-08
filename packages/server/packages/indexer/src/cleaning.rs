@@ -246,6 +246,18 @@ impl Component {
 		output.checkout_files = checkouts.files;
 		output.object_bytes = object_bytes;
 
+		// Invalidate watched graphs that reference the cleaned objects.
+		if !output.objects.is_empty() {
+			let objects = output
+				.objects
+				.iter()
+				.map(|object| object.id.clone())
+				.collect::<Vec<_>>();
+			for watch in server.components.watch.watches() {
+				watch.invalidate_objects(&objects);
+			}
+		}
+
 		Ok(output)
 	}
 
