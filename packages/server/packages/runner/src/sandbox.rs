@@ -508,9 +508,10 @@ impl Component {
 					.sandboxes
 					.wait_stopped_or_destroyed(&id)
 					.await;
+				// Create a new sandbox if this runner has no directory for it, because the sandbox never booted here or its directory was lost.
 				let path = Self::sandbox_path(&session, &id);
 				if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
-					return Err(tg::error!(%id, "the sandbox was destroyed"));
+					return component.create_sandbox_with_pool(&session, arg, &id).await;
 				}
 
 				// Report the storage usage of the previous boot's stopped directory until the start, which ends the stopped period, using the previous boot's state while the runner retains it, and its local record otherwise.

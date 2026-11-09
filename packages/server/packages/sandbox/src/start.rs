@@ -150,12 +150,9 @@ impl Component {
 			tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping => (),
 		}
 
-		// Start the next boot on the runner that holds the sandbox's directory.
-		let runner = indexed
-			.runner
-			.ok_or_else(|| tg::error!(%id, "the sandbox has no runner"))?;
+		// Start the next boot on the runner that holds the sandbox's directory, or on any runner if the sandbox was stopped before it was placed.
 		let boot = output.data.boot + 1;
-		self.start_sandbox_with_runner(session, id, output, runner, indexed.created_at)
+		self.start_sandbox_with_runner(session, id, output, indexed.runner, indexed.created_at)
 			.await?;
 
 		// Wait for the boot to start if requested, because a connection alone does not identify the boot.
@@ -172,7 +169,7 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		output: tg::sandbox::get::Output,
-		runner: tg::runner::Id,
+		runner: Option<tg::runner::Id>,
 		created_at: i64,
 	) -> tg::Result<()> {
 		// Create the sandbox's arg from its data, and a new control token.
@@ -207,7 +204,7 @@ impl Component {
 			owner: data.owner.clone(),
 			parent: None,
 			process: None,
-			runner: Some(runner),
+			runner,
 			sandbox: id.clone(),
 			scheduler: None,
 			stop: false,
