@@ -1993,6 +1993,8 @@ impl Scheduler {
 		&self,
 		request: &EnqueueSandboxRequestArg,
 	) -> tg::Result<()> {
+		tangram_server_core::checkpoint!(self.server, "scheduler.sandbox.persist", sandbox = %request.sandbox)
+			.await;
 		let stored = EnqueueSandboxRequestArg {
 			token: None,
 			..request.clone()
