@@ -29,7 +29,7 @@ let watches = [$first $second] | each { |server|
 } | flatten
 
 # Spawn a runner and a local server whose clients open a connection for every concurrent request.
-let client = { pool: { max: 8, shared: 1 } }
+let client = { pool: { max: 64, shared: 1 } }
 let created = tg --url $first.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	remote_client: $client,
@@ -43,9 +43,10 @@ let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $url } },
 }
 
-# Run sandboxed processes through the local server's attach, so that each one has attach, control, and sandbox control requests to correlate.
-let path = artifact { tangram.ts: 'export default () => tg.file("hello")' }
-for _ in 1..4 {
+# Run sandboxed processes with distinct modules through the local server's attach, so that none is a cache hit and each one has attach, control, and sandbox control requests to correlate.
+for index in 1..4 {
+	let module = 'export default () => tg.file("hello"); // ' + ($index | into string)
+	let path = artifact { tangram.ts: $module }
 	let output = timeout 60s tg --url $local.url build --remote $path | complete
 	success $output "the build should complete without a control request reaching the messenger"
 	let read = tg --url $local.url read ($output.stdout | str trim) | complete
