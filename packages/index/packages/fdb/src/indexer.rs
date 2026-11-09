@@ -16,16 +16,6 @@ pub enum Key {
 }
 
 impl Index {
-	pub async fn delete_indexer(&self, arg: tangram_index::indexer::delete::Arg) -> tg::Result<()> {
-		let request = Request::DeleteIndexer(arg);
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(())
-	}
-
 	pub async fn get_indexers(&self) -> tg::Result<Vec<tangram_index::indexer::Indexer>> {
 		let response = self
 			.send_read_request(tangram_index::read::Request::GetIndexers)
@@ -68,18 +58,6 @@ impl Index {
 		};
 
 		Ok(())
-	}
-
-	pub(crate) async fn delete_indexer_with_transaction(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		arg: &tangram_index::indexer::delete::Arg,
-	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		let key = IndexKey::Indexer(Key::Indexer(arg.id.clone()));
-		let key = Self::pack(subspace, &key);
-		txn.clear(&key);
-
-		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn get_indexers_with_transaction(
@@ -154,7 +132,6 @@ impl Index {
 			tangram_index::indexer::update::Value::ArchiveWriteSequence(value) => {
 				indexer.archive_write_sequence = *value;
 			},
-			tangram_index::indexer::update::Value::Available(value) => indexer.available = *value,
 			tangram_index::indexer::update::Value::IndexReadSequence(value) => {
 				indexer.index_read_sequence = *value;
 			},
@@ -170,10 +147,6 @@ impl Index {
 }
 
 impl tangram_index::indexer::Index for Index {
-	async fn delete_indexer(&self, arg: tangram_index::indexer::delete::Arg) -> tg::Result<()> {
-		self.delete_indexer(arg).await
-	}
-
 	async fn get_indexers(&self) -> tg::Result<Vec<tangram_index::indexer::Indexer>> {
 		self.get_indexers().await
 	}

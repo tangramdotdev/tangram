@@ -65,39 +65,6 @@ impl Indexer {
 		Ok(())
 	}
 
-	pub(crate) async fn drain_queues(
-		state: &Mutex<IndexerState>,
-		changed: &tokio::sync::Notify,
-	) -> tg::Result<()> {
-		state.lock().unwrap().available = false;
-		loop {
-			let notified = changed.notified();
-			let finished = {
-				let state = state.lock().unwrap();
-				state.enqueues == 0 && !state.queues.reservations_pending()
-			};
-			if finished {
-				break;
-			}
-			notified.await;
-		}
-		let target_sequences = state.lock().unwrap().queues.target_sequences();
-		loop {
-			let notified = changed.notified();
-			let finished = state
-				.lock()
-				.unwrap()
-				.queues
-				.drained(target_sequences.0, target_sequences.1);
-			if finished {
-				break;
-			}
-			notified.await;
-		}
-
-		Ok(())
-	}
-
 	pub(crate) async fn checkpoint_queues_with_retry(
 		&self,
 		checkpoints: &queue::CheckpointSender,

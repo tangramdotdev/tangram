@@ -57,7 +57,6 @@ pub struct State {
 
 struct Owned {
 	available: Arc<AtomicBool>,
-	ready: tokio::sync::oneshot::Receiver<()>,
 	request: Task<tg::Result<()>>,
 	task: Task<tg::Result<()>>,
 }
@@ -458,45 +457,25 @@ impl Component {
 		let id = Self::scheduler_id(config)?;
 		let Owned {
 			available,
-			ready,
 			request,
 			task,
-		} = Scheduler::start(self, server, config, id.clone()).await?;
-		let mut request = std::pin::pin!(request.wait());
-		let mut task = std::pin::pin!(task.wait());
+		} = Scheduler::start(self, server, config, id).await?;
 
 		// Report that the scheduler is subscribed to its requests, which wait for the recovery.
 		self.started.send_replace(true);
-
-		// Wait for the scheduler to recover, and then make it available for selection.
-		let ready = tokio::select! {
-			result = ready => result.is_ok(),
-			() = stopper.wait() => return Ok(()),
-		};
-		let mut result = if ready {
-			self.update_availability(server, &id, true).await
-		} else {
-			Ok(())
-		};
-		if ready && result.is_ok() {
-			// Wait for the scheduler to fail or for the stop.
-			result = tokio::select! {
-				result = &mut task => Err(Self::scheduler_error(result)),
-				result = &mut request => Err(Self::scheduler_error(result)),
-				() = stopper.wait() => Ok(()),
-			};
-		} else if !ready {
-			result = Err(Self::scheduler_error(task.await));
+		if let Err(error) = self.schedulers.refresh(server).await {
+			tracing::error!(error = %error.trace(), "failed to refresh the scheduler cache");
 		}
 
-		// Stop accepting requests and make the scheduler unavailable before stopping it.
+		// Wait for the scheduler to fail or for the stop.
+		let result = tokio::select! {
+			result = task.wait() => Err(Self::scheduler_error(result)),
+			result = request.wait() => Err(Self::scheduler_error(result)),
+			() = stopper.wait() => Ok(()),
+		};
+
+		// Stop accepting requests, so that callers fail over or retry until the scheduler restarts.
 		available.store(false, Ordering::SeqCst);
-		self.update_availability(server, &id, false)
-			.await
-			.inspect_err(|error| {
-				tracing::error!(error = %error.trace(), "failed to make the scheduler unavailable");
-			})
-			.ok();
 
 		result
 	}
@@ -507,28 +486,6 @@ impl Component {
 			Ok(Err(error)) => error,
 			Err(error) => tg::error!(!error, "the scheduler task panicked"),
 		}
-	}
-
-	async fn update_availability(
-		&self,
-		server: &Server,
-		id: &tg::scheduler::Id,
-		available: bool,
-	) -> tg::Result<()> {
-		let arg = tangram_index::scheduler::update::Arg {
-			id: id.clone(),
-			value: tangram_index::scheduler::update::Value::Available(available),
-		};
-		server
-			.index
-			.update_scheduler(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to update the scheduler availability"))?;
-		if let Err(error) = self.schedulers.refresh(server).await {
-			tracing::error!(error = %error.trace(), "failed to refresh the scheduler cache");
-		}
-
-		Ok(())
 	}
 }
 
@@ -599,16 +556,14 @@ impl Scheduler {
 		});
 
 		// Spawn the scheduling task.
-		let (ready_sender, ready) = tokio::sync::oneshot::channel();
 		let task = Task::spawn(move |_| async move {
 			scheduler
-				.message_handler_task(notifications, request_receiver, ready_sender)
+				.message_handler_task(notifications, request_receiver)
 				.await
 		});
 
 		let owned = Owned {
 			available,
-			ready,
 			request,
 			task,
 		};
@@ -620,13 +575,11 @@ impl Scheduler {
 		&self,
 		mut notifications: NotificationStream,
 		mut requests: tokio::sync::mpsc::Receiver<request::Request>,
-		ready: tokio::sync::oneshot::Sender<()>,
 	) -> tg::Result<()> {
 		let mut state = SchedulerState::new();
 
 		// Recover the accepted requests before handling messages.
 		self.recover(&mut state).await?;
-		ready.send(()).ok();
 
 		let mut cleaner_interval = self.server.clock.interval(self.config.runner_ttl);
 		cleaner_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

@@ -1,15 +1,6 @@
 use {super::Index, tangram_client::prelude::*, tangram_index as index};
 
 impl Index {
-	pub async fn delete_indexer(&self, arg: index::indexer::delete::Arg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.delete_indexer(arg).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.delete_indexer(arg).await,
-		}
-	}
-
 	pub async fn get_indexers(&self) -> tg::Result<Vec<index::indexer::Indexer>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
@@ -51,10 +42,6 @@ impl Index {
 }
 
 impl index::indexer::Index for Index {
-	async fn delete_indexer(&self, arg: index::indexer::delete::Arg) -> tg::Result<()> {
-		self.delete_indexer(arg).await
-	}
-
 	async fn get_indexers(&self) -> tg::Result<Vec<index::indexer::Indexer>> {
 		self.get_indexers().await
 	}

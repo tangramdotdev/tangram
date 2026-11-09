@@ -10,7 +10,6 @@ pub struct Arg {
 pub enum Value {
 	ArchiveReadSequence(u64),
 	ArchiveWriteSequence(u64),
-	Available(bool),
 	IndexReadSequence(u64),
 	IndexWriteSequence(u64),
 }

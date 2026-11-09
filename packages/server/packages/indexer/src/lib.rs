@@ -176,12 +176,11 @@ impl Component {
 				.map_err(|error| tg::error!(!error, "failed to parse the indexer ID"))?,
 		};
 		let arg = tangram_index::indexer::get::Arg { id: id.clone() };
-		let indexer = if let Some(mut indexer) = server.index.try_get_indexer(arg).await? {
-			indexer.available = false;
-			indexer
-		} else {
-			tangram_index::indexer::Indexer::new(id)
-		};
+		let indexer = server
+			.index
+			.try_get_indexer(arg)
+			.await?
+			.unwrap_or_else(|| tangram_index::indexer::Indexer::new(id));
 		let arg = tangram_index::indexer::put::Arg {
 			indexer: indexer.clone(),
 		};
@@ -552,10 +551,9 @@ impl Component {
 			move |stopper| async move { endpoint.run(&server, handler, concurrency, stopper).await }
 		});
 
-		// Make the indexer available after recovery and subscription.
+		// Accept enqueues after recovery and subscription.
 		state.lock().unwrap().available = true;
 		changed.notify_waiters();
-		indexer.update_availability(true).await?;
 		if let Err(error) = self.indexers.refresh(server).await {
 			tracing::error!(error = %error.trace(), "failed to refresh the indexer cache");
 		}
@@ -612,7 +610,6 @@ impl Component {
 					Ok(Err(error)) => tg::error!(!error, task = %name, "an indexer task failed"),
 					Err(error) => tg::error!(!error, task = %name, "an indexer task panicked"),
 				};
-				let _ = tokio::time::timeout(config.request.timeout, indexer.update_availability(false)).await;
 				return Err(error);
 			},
 		}
@@ -634,11 +631,6 @@ impl Component {
 				},
 			}
 		};
-		if result.is_err() {
-			let _ =
-				tokio::time::timeout(config.request.timeout, indexer.update_availability(false))
-					.await;
-		}
 		result?;
 
 		Ok(())
@@ -701,13 +693,9 @@ impl Indexer {
 			.await
 			.map_err(|error| tg::error!(!error, "the capture task panicked"))??;
 
-		// Stop accepting queue requests.
+		// Stop accepting enqueues, so that their callers fail over to another indexer.
 		state.lock().unwrap().available = false;
 		changed.notify_waiters();
-		self.update_availability_with_retry(false).await?;
-		if let Err(error) = self.component.indexers.refresh(&self.server).await {
-			tracing::error!(error = %error.trace(), "failed to refresh the indexer cache");
-		}
 
 		// Finish the current operations without exhausting the partitions.
 		cleaning.stop();
@@ -735,7 +723,7 @@ impl Indexer {
 			wait_for_stopped_task(name, task).await?;
 		}
 
-		// Finish the local producers before draining the private queues.
+		// Finish the local producers before checkpointing the queues.
 		self.server
 			.components
 			.object
@@ -743,14 +731,10 @@ impl Indexer {
 			.await;
 		self.component.index_tasks.wait().await;
 		self.server.components.object.wait_archive_tasks().await;
-		if self.server.config.advanced.multi_server {
-			Self::drain_queues(state, changed).await?;
-		}
 
-		// Deletion certifies that the private queues are drained; shared work remains durable.
+		// Checkpoint the queues, which the indexer recovers from when it restarts with the same ID.
 		if self.server.config.advanced.multi_server {
 			self.checkpoint_queues_with_retry(checkpoints).await?;
-			self.delete_with_retry().await?;
 		}
 		request.stop();
 		request
@@ -785,49 +769,6 @@ impl Indexer {
 				.await
 				.map_err(|error| tg::error!(!error, task = %name, "an indexer task panicked"))??;
 		}
-
-		Ok(())
-	}
-
-	async fn update_availability_with_retry(&self, available: bool) -> tg::Result<()> {
-		tangram_futures::retry(&self.retry_options(), || async {
-			match self.update_availability(available).await {
-				Ok(()) => Ok(ControlFlow::Break(())),
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to update the indexer availability");
-
-					Ok(ControlFlow::Continue(error))
-				},
-			}
-		})
-		.await?;
-
-		Ok(())
-	}
-
-	async fn update_availability(&self, available: bool) -> tg::Result<()> {
-		let arg = tangram_index::indexer::update::Arg {
-			id: self.id.clone(),
-			value: tangram_index::indexer::update::Value::Available(available),
-		};
-		self.server.index.update_indexer(arg).await
-	}
-
-	async fn delete_with_retry(&self) -> tg::Result<()> {
-		tangram_futures::retry(&self.retry_options(), || async {
-			let arg = tangram_index::indexer::delete::Arg {
-				id: self.id.clone(),
-			};
-			match self.server.index.delete_indexer(arg).await {
-				Ok(()) => Ok(ControlFlow::Break(())),
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to delete the indexer");
-
-					Ok(ControlFlow::Continue(error))
-				},
-			}
-		})
-		.await?;
 
 		Ok(())
 	}

@@ -11,19 +11,6 @@ pub enum Key {
 }
 
 impl Index {
-	pub async fn delete_scheduler(
-		&self,
-		arg: tangram_index::scheduler::delete::Arg,
-	) -> tg::Result<()> {
-		let request = Request::DeleteScheduler(arg);
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(())
-	}
-
 	pub async fn get_schedulers(&self) -> tg::Result<Vec<tangram_index::scheduler::Scheduler>> {
 		let response = self
 			.send_read_request(tangram_index::read::Request::GetSchedulers)
@@ -56,33 +43,6 @@ impl Index {
 		};
 
 		Ok(output)
-	}
-
-	pub async fn update_scheduler(
-		&self,
-		arg: tangram_index::scheduler::update::Arg,
-	) -> tg::Result<()> {
-		let request = Request::UpdateScheduler(arg);
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(())
-	}
-
-	pub(crate) fn delete_scheduler_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &mut lmdb::RwTxn<'_>,
-		arg: &tangram_index::scheduler::delete::Arg,
-	) -> tg::Result<()> {
-		let key = IndexKey::Scheduler(Key::Scheduler(arg.id.clone()));
-		let key = Self::pack(subspace, &key);
-		db.delete(transaction, &key)
-			.map_err(|error| tg::error!(!error, id = %arg.id, "failed to delete the scheduler"))?;
-
-		Ok(())
 	}
 
 	pub(crate) fn get_schedulers_with_transaction(
@@ -138,39 +98,9 @@ impl Index {
 			.map(|value| tangram_index::scheduler::Scheduler::deserialize(arg.id.clone(), value))
 			.transpose()
 	}
-
-	pub(crate) fn update_scheduler_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &mut lmdb::RwTxn<'_>,
-		arg: &tangram_index::scheduler::update::Arg,
-	) -> tg::Result<()> {
-		let key = IndexKey::Scheduler(Key::Scheduler(arg.id.clone()));
-		let key = Self::pack(subspace, &key);
-		let value = db
-			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, id = %arg.id, "failed to get the scheduler"))?
-			.ok_or_else(|| tg::error!(id = %arg.id, "the scheduler does not exist"))?;
-		let mut scheduler =
-			tangram_index::scheduler::Scheduler::deserialize(arg.id.clone(), value)?;
-		match &arg.value {
-			tangram_index::scheduler::update::Value::Available(value) => {
-				scheduler.available = *value;
-			},
-		}
-		let value = scheduler.serialize()?;
-		db.put(transaction, &key, &value)
-			.map_err(|error| tg::error!(!error, id = %arg.id, "failed to update the scheduler"))?;
-
-		Ok(())
-	}
 }
 
 impl tangram_index::scheduler::Index for Index {
-	async fn delete_scheduler(&self, arg: tangram_index::scheduler::delete::Arg) -> tg::Result<()> {
-		self.delete_scheduler(arg).await
-	}
-
 	async fn get_schedulers(&self) -> tg::Result<Vec<tangram_index::scheduler::Scheduler>> {
 		self.get_schedulers().await
 	}
@@ -184,9 +114,5 @@ impl tangram_index::scheduler::Index for Index {
 		arg: tangram_index::scheduler::get::Arg,
 	) -> tg::Result<Option<tangram_index::scheduler::Scheduler>> {
 		self.try_get_scheduler(arg).await
-	}
-
-	async fn update_scheduler(&self, arg: tangram_index::scheduler::update::Arg) -> tg::Result<()> {
-		self.update_scheduler(arg).await
 	}
 }
