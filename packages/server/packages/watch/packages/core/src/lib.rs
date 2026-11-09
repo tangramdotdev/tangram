@@ -340,7 +340,12 @@ impl Watch {
 		// Remove the watched paths before discarding the cached graph.
 		#[cfg(target_os = "linux")]
 		{
-			let paths = state.graph.paths.keys().cloned().collect();
+			let paths = state
+				.graph
+				.nodes
+				.values()
+				.filter_map(|node| node.path.clone())
+				.collect();
 			state.remove_paths_linux(&paths);
 		}
 
