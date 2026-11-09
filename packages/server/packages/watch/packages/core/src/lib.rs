@@ -71,7 +71,7 @@ pub struct State {
 	pub solutions: Solutions,
 	pub timeout_task: Option<Task<()>>,
 	pub version: u64,
-	pub watcher: notify::RecommendedWatcher,
+	pub watcher: Option<notify::RecommendedWatcher>,
 }
 
 pub struct Snapshot {
@@ -111,7 +111,7 @@ impl LockWriteGuard {
 }
 
 impl Watch {
-	pub fn new<F>(key: &Key, arg: NewArg<F>) -> tg::Result<Self>
+	pub fn new<F>(key: &Key, arg: NewArg<F>) -> Self
 	where
 		F: FnOnce() -> Shared<tg::Result<()>>,
 	{
@@ -131,26 +131,8 @@ impl Watch {
 		// Clean the graph.
 		graph.clean(&key.path, next);
 
-		// Create the watcher.
+		// Create the channel.
 		let (sender, mut receiver) = tokio::sync::mpsc::channel::<Message>(config.channel_capacity);
-		let handler = {
-			let sender = sender.clone();
-			move |result| match result {
-				Ok(event) => {
-					sender
-						.blocking_send(Message {
-							event,
-							sender: None,
-						})
-						.ok();
-				},
-				Err(error) => {
-					tracing::error!(?error);
-				},
-			}
-		};
-		let watcher = notify::RecommendedWatcher::new(handler, notify::Config::default())
-			.map_err(|error| tg::error!(!error, "failed to create the watcher"))?;
 
 		// Create the state.
 		let index_task = spawn_index_task();
@@ -168,15 +150,12 @@ impl Watch {
 			solutions,
 			timeout_task: None,
 			version: 0,
-			watcher,
+			watcher: None,
 		};
 		let state = Arc::new(Mutex::new(state));
 
-		// Update the watched paths.
-		#[cfg(target_os = "linux")]
-		state.lock().unwrap().add_paths_linux(next);
-		#[cfg(target_os = "macos")]
-		state.lock().unwrap().update_paths_darwin();
+		// Watch the paths.
+		state.lock().unwrap().watch_paths(next);
 
 		// Spawn the task.
 		let lockfile_path = key.path.join(tg::module::LOCKFILE_FILE_NAME);
@@ -318,7 +297,7 @@ impl Watch {
 		let timeout = Self::spawn_timeout_task(&clock, ttl, &expire);
 		state.lock().unwrap().timeout_task.replace(timeout);
 
-		let watch = Self {
+		Self {
 			clock,
 			expire,
 			id,
@@ -326,9 +305,7 @@ impl Watch {
 			state,
 			task,
 			ttl,
-		};
-
-		Ok(watch)
+		}
 	}
 
 	pub fn invalidate_objects(&self, objects: &[tg::object::Id]) {
@@ -336,28 +313,7 @@ impl Watch {
 		if !objects.iter().any(|id| state.graph.ids.contains_key(id)) {
 			return;
 		}
-
-		// Remove the watched paths before discarding the cached graph.
-		#[cfg(target_os = "linux")]
-		{
-			let paths = state
-				.graph
-				.nodes
-				.values()
-				.filter_map(|node| node.path.clone())
-				.collect();
-			state.remove_paths_linux(&paths);
-		}
-
-		// Invalidate the graph and any checkins that are still using its previous version.
-		state.affected_paths.clear();
-		state.graph = Graph::default();
-		state.invalidated_paths.clear();
-		state.solutions = Solutions::default();
-		state.version += 1;
-		state.revalidation_version = state.version;
-		#[cfg(target_os = "macos")]
-		state.update_paths_darwin();
+		state.reset();
 	}
 
 	#[must_use]
@@ -382,9 +338,9 @@ impl Watch {
 		version: u64,
 		lock_write_guard: Option<LockWriteGuard>,
 		replace: F,
-	) -> tg::Result<bool>
+	) -> bool
 	where
-		F: FnOnce() -> tg::Result<Self>,
+		F: FnOnce() -> Self,
 	{
 		let state = self.state.clone();
 		let mut state = state.lock().unwrap();
@@ -395,22 +351,16 @@ impl Watch {
 			|| !state.can_publish(graph, version)
 		{
 			drop(state);
-			return Ok(false);
+			return false;
 		}
-		let watch = match replace() {
-			Ok(watch) => watch,
-			Err(error) => {
-				drop(state);
-				return Err(error);
-			},
-		};
+		let watch = replace();
 		state.pending_lock_write_version.take();
 		*self = watch;
 		if let Some(lock_write_guard) = lock_write_guard {
 			lock_write_guard.commit();
 		}
 
-		Ok(true)
+		true
 	}
 
 	#[must_use]
@@ -509,12 +459,8 @@ impl Watch {
 
 		// Update the watched paths.
 		#[cfg(target_os = "linux")]
-		{
-			state.remove_paths_linux(&removed_paths);
-			state.add_paths_linux(next);
-		}
-		#[cfg(target_os = "macos")]
-		state.update_paths_darwin();
+		state.remove_paths_linux(&removed_paths);
+		state.watch_paths(next);
 		if let Some(lock_write_guard) = lock_write_guard {
 			lock_write_guard.commit();
 		}
@@ -623,21 +569,101 @@ impl State {
 		}
 	}
 
+	fn watch_paths(&mut self, next: usize) {
+		// Discard the graph if any of its paths is not watched, so that the next checkin reads every path.
+		if let Err(error) = self.try_watch_paths(next) {
+			tracing::warn!(%error, "failed to watch the paths");
+			self.reset();
+		}
+	}
+
+	fn try_watch_paths(&mut self, next: usize) -> tg::Result<()> {
+		// Create the watcher if there is none, and watch every path with a new watcher.
+		#[cfg_attr(
+			not(target_os = "linux"),
+			expect(
+				unused_variables,
+				reason = "only linux watches the new nodes individually"
+			)
+		)]
+		let next = if self.watcher.is_some() {
+			next
+		} else {
+			self.watcher.replace(self.create_watcher()?);
+			0
+		};
+
+		// Watch the paths.
+		#[cfg(target_os = "linux")]
+		self.add_paths_linux(next)?;
+		#[cfg(target_os = "macos")]
+		self.update_paths_darwin()?;
+
+		Ok(())
+	}
+
+	fn create_watcher(&self) -> tg::Result<notify::RecommendedWatcher> {
+		let handler = {
+			let sender = self.sender.clone();
+			move |result| match result {
+				Ok(event) => {
+					sender
+						.blocking_send(Message {
+							event,
+							sender: None,
+						})
+						.ok();
+				},
+				Err(error) => {
+					tracing::error!(?error);
+				},
+			}
+		};
+		let watcher = notify::RecommendedWatcher::new(handler, notify::Config::default())
+			.map_err(|error| tg::error!(!error, "failed to create the watcher"))?;
+
+		Ok(watcher)
+	}
+
+	fn reset(&mut self) {
+		// Discard the graph and invalidate any checkins that are still using its previous version.
+		self.affected_paths.clear();
+		self.graph = Graph::default();
+		self.invalidated_paths.clear();
+		self.solutions = Solutions::default();
+		self.version += 1;
+		self.revalidation_version = self.version;
+
+		// Drop the watcher, which unwatches every path and releases its resources.
+		self.watcher.take();
+		#[cfg(target_os = "macos")]
+		self.paths.clear();
+	}
+
 	#[cfg(target_os = "macos")]
-	fn update_paths_darwin(&mut self) {
+	fn update_paths_darwin(&mut self) -> tg::Result<()> {
 		// Get the new paths.
 		let paths = self.graph.paths.roots();
 
 		// Add the new paths.
-		let mut watcher_paths = self.watcher.paths_mut();
+		let Some(watcher) = &mut self.watcher else {
+			return Err(tg::error!("the watcher does not exist"));
+		};
+		let mut result = Ok(());
+		let mut watcher_paths = watcher.paths_mut();
 		for path in &paths {
 			if !self.paths.contains(path) {
 				tracing::trace!(?path, "watched");
-				let result = watcher_paths.add(path, notify::RecursiveMode::Recursive);
-				if let Err(error) = result {
-					tracing::error!(%error, ?path, "failed to watch the path");
+				match watcher_paths.add(path, notify::RecursiveMode::Recursive) {
+					Ok(()) => {
+						self.paths.insert(path.clone());
+					},
+					Err(error) => {
+						result = Err(
+							tg::error!(!error, path = %path.display(), "failed to watch the path"),
+						);
+					},
 				}
-				self.paths.insert(path.clone());
 			}
 		}
 
@@ -654,36 +680,69 @@ impl State {
 		}
 
 		// Commit.
-		let result = watcher_paths.commit();
-		if let Err(error) = result {
-			tracing::error!(%error, "failed to watch the paths");
-		}
+		watcher_paths
+			.commit()
+			.map_err(|error| tg::error!(!error, "failed to start watching the paths"))?;
+
+		result
 	}
 
 	#[cfg(target_os = "linux")]
-	fn add_paths_linux(&mut self, next: usize) {
-		let mut paths = self.watcher.paths_mut();
-		for path in self
-			.graph
-			.nodes
-			.range(next..)
-			.filter_map(|(_, node)| node.path.as_ref())
-		{
+	fn add_paths_linux(&mut self, next: usize) -> tg::Result<()> {
+		// Add the new paths, stopping at the first path that cannot be watched.
+		let Some(watcher) = &mut self.watcher else {
+			return Err(tg::error!("the watcher does not exist"));
+		};
+		let mut result = Ok(());
+		let mut watcher_paths = watcher.paths_mut();
+		for (_, node) in self.graph.nodes.range(next..) {
+			let Some(path) = &node.path else {
+				continue;
+			};
 			tracing::trace!(path = %path.display(), "watched");
-			paths.add(path, notify::RecursiveMode::NonRecursive).ok();
+			let Err(error) = watcher_paths.add(path, notify::RecursiveMode::NonRecursive) else {
+				continue;
+			};
+
+			// Skip a symlink whose target cannot be watched, such as a dangling symlink, because the watch on its parent directory observes the symlink itself.
+			let symlink = node
+				.path_metadata
+				.as_ref()
+				.is_some_and(|metadata| metadata.file_type().is_symlink());
+			let parent = path
+				.parent()
+				.is_some_and(|parent| self.graph.paths.get(parent).is_some());
+			if symlink && parent {
+				continue;
+			}
+
+			result = Err(tg::error!(!error, path = %path.display(), "failed to watch the path"));
+			break;
 		}
-		paths.commit().ok();
+
+		// Commit.
+		watcher_paths
+			.commit()
+			.map_err(|error| tg::error!(!error, "failed to watch the paths"))?;
+
+		result
 	}
 
 	#[cfg(target_os = "linux")]
 	fn remove_path_linux(&mut self, path: &Path) {
+		let Some(watcher) = &mut self.watcher else {
+			return;
+		};
 		tracing::trace!(path = %path.display(), "unwatched");
-		self.watcher.unwatch(path).ok();
+		watcher.unwatch(path).ok();
 	}
 
 	#[cfg(target_os = "linux")]
 	fn remove_paths_linux(&mut self, paths: &HashSet<PathBuf, fnv::FnvBuildHasher>) {
-		let mut watcher_paths = self.watcher.paths_mut();
+		let Some(watcher) = &mut self.watcher else {
+			return;
+		};
+		let mut watcher_paths = watcher.paths_mut();
 		for path in paths {
 			tracing::trace!(path = %path.display(), "unwatched");
 			watcher_paths.remove(path).ok();
