@@ -1,10 +1,7 @@
 use {
 	super::{Indexer, IndexerState, queue, wait},
 	crate::Component,
-	std::{
-		ops::ControlFlow,
-		sync::{Arc, Mutex},
-	},
+	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_server_core::{Server, service},
 };
@@ -81,41 +78,6 @@ pub(super) struct Guard {
 
 impl Component {
 	pub(crate) async fn send_indexer_request(
-		&self,
-		server: &Server,
-		indexer: &tg::indexer::Id,
-		arg: RequestArg,
-	) -> tg::Result<Option<tg::Result<ResponseOutput>>> {
-		// Reuse the ID so a retry does not replace an active wait with a later barrier.
-		let id = tangram_server_core::control::id();
-		let retry = server.config.indexer.request.retry.clone().into();
-		let timeout =
-			matches!(arg, RequestArg::Wait).then_some(server.config.indexer.request.response_ttl);
-		tangram_futures::retry(&retry, || {
-			let arg = arg.clone();
-			let id = &id;
-			async move {
-				let request = self.send_indexer_request_inner(server, indexer, id, arg);
-				let response = if let Some(timeout) = timeout {
-					match tokio::time::timeout(timeout, request).await {
-						Ok(response) => response?,
-						Err(source) => {
-							return Ok(ControlFlow::Continue(tg::error!(
-								!source,
-								"timed out waiting for the indexer response"
-							)));
-						},
-					}
-				} else {
-					request.await?
-				};
-				Ok(ControlFlow::Break(response))
-			}
-		})
-		.await
-	}
-
-	async fn send_indexer_request_inner(
 		&self,
 		server: &Server,
 		indexer: &tg::indexer::Id,

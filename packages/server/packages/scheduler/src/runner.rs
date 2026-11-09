@@ -227,7 +227,7 @@ impl SchedulerState {
 		self.handle_lost_runner(scheduler, &request.runner);
 
 		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later.
-		for discarded in self.discard_pinned_sandboxes(&request.runner) {
+		for discarded in self.discard_pinned_sandboxes(scheduler, &request.runner) {
 			scheduler.publish_sandbox_discarded(self, discarded);
 		}
 		let scheduler = scheduler.clone();

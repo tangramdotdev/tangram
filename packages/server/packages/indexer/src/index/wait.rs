@@ -136,20 +136,28 @@ impl Component {
 	}
 
 	async fn wait_for_indexer(&self, server: &Server, indexer: &tg::indexer::Id) -> tg::Result<()> {
-		// Wait for the indexer, retrying while it is down, because a stopped indexer restarts with the same ID.
-		loop {
-			let result = self
-				.send_indexer_request(server, indexer, crate::request::RequestArg::Wait)
-				.await;
-			if let Ok(Some(Ok(output))) = result {
-				output
-					.try_unwrap_wait()
-					.map_err(|_| tg::error!("expected a wait response"))?;
-				tangram_server_core::checkpoint!(server, "indexer.wait.complete", %indexer).await;
-				return Ok(());
-			}
-			tokio::time::sleep(server.config.indexer.cache.poll_interval).await;
-		}
+		// Send the wait with one request ID until the indexer answers, so that a resend does not replace an active wait with a later barrier, and resend it after the response time to live in case the indexer restarted after accepting it.
+		let retry = server.config.indexer.request.retry.clone().into();
+		let response_ttl = server.config.indexer.request.response_ttl;
+		let output = tangram_server_core::service::retry_to(&retry, |id| async move {
+			let request =
+				self.send_indexer_request(server, indexer, &id, crate::request::RequestArg::Wait);
+			let response =
+				tokio::time::timeout(response_ttl, request)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "timed out waiting for the indexer response")
+					})??;
+			Ok(response)
+		})
+		.await?;
+		output
+			.map_err(|source| tg::error!(!source, %indexer, "the indexer failed to wait"))?
+			.try_unwrap_wait()
+			.map_err(|_| tg::error!("expected a wait response"))?;
+		tangram_server_core::checkpoint!(server, "indexer.wait.complete", %indexer).await;
+
+		Ok(())
 	}
 }
 

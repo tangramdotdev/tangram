@@ -1,11 +1,8 @@
 use {
 	crate::Component,
-	std::{
-		ops::ControlFlow,
-		sync::{
-			Arc,
-			atomic::{AtomicBool, Ordering},
-		},
+	std::sync::{
+		Arc,
+		atomic::{AtomicBool, Ordering},
 	},
 	tangram_client::prelude::*,
 	tangram_server_core::{Server, Session, service},
@@ -41,9 +38,9 @@ impl Component {
 			server,
 			&retry,
 			service::start(),
-			|scheduler| {
+			|scheduler, id| {
 				let arg = arg.clone();
-				async move { Self::send_scheduler_request_inner(server, &scheduler, arg).await }
+				async move { Self::send_scheduler_request_inner(server, &scheduler, &id, arg).await }
 			},
 		)
 		.await
@@ -55,19 +52,12 @@ impl Component {
 		scheduler: &tg::scheduler::Id,
 		arg: RequestArg,
 	) -> tg::Result<tg::Result<ResponseOutput>> {
-		// Send the request to the scheduler, and retry it while the scheduler is unavailable.
+		// Send the request to the scheduler until it answers and accepts the request.
 		let server = &session.server;
 		let retry = server.config.scheduler.request.retry.clone().into();
-		tangram_futures::retry(&retry, || {
+		service::retry_to(&retry, |id| {
 			let arg = arg.clone();
-			async move {
-				let response = Self::send_scheduler_request_inner(server, scheduler, arg).await?;
-				let Some(response) = response else {
-					let error = tg::error!(%scheduler, "the scheduler is unavailable");
-					return Ok(ControlFlow::Continue(error));
-				};
-				Ok(ControlFlow::Break(response))
-			}
+			async move { Self::send_scheduler_request_inner(server, scheduler, &id, arg).await }
 		})
 		.await
 	}
@@ -75,15 +65,15 @@ impl Component {
 	async fn send_scheduler_request_inner(
 		server: &Server,
 		scheduler: &tg::scheduler::Id,
+		id: &str,
 		arg: RequestArg,
 	) -> tg::Result<Option<tg::Result<ResponseOutput>>> {
-		let id = tangram_server_core::control::id();
 		let config = &server.config.scheduler.request;
 		let options = tangram_server_core::control::Options {
 			retry: config.retry.clone().into(),
 			timeout: config.timeout,
 		};
-		service::send::<Kind>(server, scheduler, &id, arg, options).await
+		service::send::<Kind>(server, scheduler, id, arg, options).await
 	}
 }
 

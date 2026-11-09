@@ -1614,6 +1614,7 @@ impl SchedulerState {
 
 	pub(super) fn discard_pinned_sandboxes(
 		&mut self,
+		scheduler: &Scheduler,
 		runner: &tg::runner::Id,
 	) -> Vec<DiscardedSandbox> {
 		let ids = self
@@ -1629,7 +1630,7 @@ impl SchedulerState {
 		let mut discarded = Vec::new();
 		for id in ids {
 			self.remove_queued_sandbox(&id);
-			let request = self.sandboxes.entries.remove(&id).unwrap().request;
+			let request = self.remove_sandbox_entry(scheduler, &id).unwrap().request;
 			let error = tg::error!(sandbox = %id, %runner, "the sandbox's runner is unavailable");
 			let sandbox = DiscardedSandbox {
 				error: error.to_data_or_id(),

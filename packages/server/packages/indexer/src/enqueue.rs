@@ -46,20 +46,25 @@ impl Component {
 		arg: EnqueueRequestArg,
 	) -> tg::Result<()> {
 		let retry = server.config.indexer.enqueue.retry.clone().into();
-		let (_, output) =
-			tangram_server_core::service::retry(&self.indexers, server, &retry, start, |indexer| {
+		let (_, output) = tangram_server_core::service::retry(
+			&self.indexers,
+			server,
+			&retry,
+			start,
+			|indexer, id| {
 				let arg = RequestArg::Enqueue(arg.clone());
 				async move {
 					let response = self
-						.send_indexer_request(server, &indexer, arg)
+						.send_indexer_request(server, &indexer, &id, arg)
 						.await
 						.map_err(|source| {
 							tg::error!(!source, "failed to send an indexer request")
 						})?;
 					Ok(response)
 				}
-			})
-			.await?;
+			},
+		)
+		.await?;
 		output
 			.map_err(|source| tg::error!(!source, "the indexer failed to enqueue the items"))?
 			.try_unwrap_enqueue()

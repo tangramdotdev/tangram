@@ -40,7 +40,13 @@ fn responses_carry_outputs_and_errors() {
 	let response = Response::new("1".to_owned(), Ok(2u64));
 	assert_eq!(response.output, Some(2));
 	assert!(response.error.is_none());
-	let response = Response::<u64>::new("1".to_owned(), Err(tg::error!("failed")));
+	let source = tg::error!("inner");
+	let error = tg::error!(!source, "outer");
+	let response = Response::<u64>::new("1".to_owned(), Err(error));
 	assert!(response.output.is_none());
-	assert!(response.error.is_some());
+	let Some(tg::Either::Left(data)) = response.error else {
+		panic!("expected the error data");
+	};
+	assert_eq!(data.message.as_deref(), Some("outer"));
+	assert!(data.source.is_some());
 }

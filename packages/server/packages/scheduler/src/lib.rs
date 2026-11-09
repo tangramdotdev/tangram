@@ -551,6 +551,7 @@ impl Scheduler {
 			move |stopper| async move {
 				endpoint
 					.run(&server, handler, request_config.concurrency, stopper)
+					.boxed()
 					.await
 			}
 		});
@@ -824,10 +825,6 @@ impl Scheduler {
 		state: &mut SchedulerState,
 		discarded: sandbox::DiscardedSandbox,
 	) {
-		// Fail the handoff of the discarded sandbox's acceptance.
-		let error = tg::error!(sandbox = %discarded.sandbox, "the sandbox was discarded");
-		state.finish_accept(self, &discarded.sandbox, Path::Handled, Err(error));
-
 		let subject = tangram_server_sandbox_common::control::discarded_subject(&discarded.sandbox);
 		let error = discarded.error.clone();
 		let notification = tangram_server_sandbox_common::control::Discarded {
