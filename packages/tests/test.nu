@@ -21,7 +21,7 @@ def main [
 	--quickjs # Use QuickJS as the JavaScript engine.
 	--release # Use a release build of tangram. Some bugs are only observable in release mode.
 	--review (-r) # Review snapshots.
-	--sandbox: path # Run each test in a Tangram sandbox, using the tangram executable at this path.
+	--sandbox: path # Run each test in a Tangram sandbox, using the tangram executable at this path. This requires Linux.
 	--stress # Run the matching tests repeatedly until one fails.
 	--stress-count: int # Run the matching tests this many times, then stop. Implies --stress.
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.

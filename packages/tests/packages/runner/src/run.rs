@@ -66,7 +66,7 @@ pub struct Args {
 	#[arg(long, short)]
 	review: bool,
 
-	/// Run each test in a Tangram sandbox, using the tangram executable at this path.
+	/// Run each test in a Tangram sandbox, using the tangram executable at this path. This requires Linux.
 	#[arg(long)]
 	sandbox: Option<PathBuf>,
 
@@ -108,6 +108,9 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 	if args.timeout == 0 {
 		return Err("--timeout must be greater than zero".into());
 	}
+	if args.sandbox.is_some() && !cfg!(target_os = "linux") {
+		return Err("--sandbox requires Linux".into());
+	}
 
 	// Select the tests.
 	let tests = discover(&args.filters)?;
@@ -115,14 +118,20 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 		return Err("no tests matched the provided filters".into());
 	}
 
-	// Check the cloud databases. If they are ready, take this run's lock on its database pool leases and reclaim the leases of exited runs. Otherwise, skip the tests that require them.
-	let cloud = match database::check().await {
-		Ok(()) => true,
-		Err(error) => {
-			eprintln!("\x1b[33mwarning\x1b[0m: {error}");
-			eprintln!("the tests that require the cloud databases will be skipped");
-			false
-		},
+	// Check the cloud databases, unless the tests run in sandboxes, which cannot reach them. If they are ready, take this run's lock on its database pool leases and reclaim the leases of exited runs. Otherwise, skip the tests that require them.
+	let cloud = if args.sandbox.is_some() {
+		eprintln!("\x1b[33mwarning\x1b[0m: the sandboxes cannot reach the cloud databases");
+		eprintln!("the tests that require the cloud databases will be skipped");
+		false
+	} else {
+		match database::check().await {
+			Ok(()) => true,
+			Err(error) => {
+				eprintln!("\x1b[33mwarning\x1b[0m: {error}");
+				eprintln!("the tests that require the cloud databases will be skipped");
+				false
+			},
+		}
 	};
 	let (cluster_path, database_run) = if cloud {
 		let run = database::Run::new(&database::pool_path())?;
@@ -132,25 +141,35 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 		(None, None)
 	};
 
-	// Create a file system with project quotas if passwordless sudo is available on Linux. Otherwise, skip the tests that require it.
-	let quota = match quota::create() {
-		Ok(Some(quota)) => Some(quota),
-		Ok(None) => {
-			if cfg!(target_os = "linux") {
-				eprintln!("\x1b[33mwarning\x1b[0m: passwordless sudo is not available");
+	// Create a file system with project quotas if passwordless sudo is available on Linux, unless the tests run in sandboxes, which cannot use it. Otherwise, skip the tests that require it.
+	let quota = if args.sandbox.is_some() {
+		eprintln!(
+			"\x1b[33mwarning\x1b[0m: the sandboxes cannot use a file system with project quotas"
+		);
+		eprintln!("the tests that require a file system with project quotas will be skipped");
+		None
+	} else {
+		match quota::create() {
+			Ok(Some(quota)) => Some(quota),
+			Ok(None) => {
+				if cfg!(target_os = "linux") {
+					eprintln!("\x1b[33mwarning\x1b[0m: passwordless sudo is not available");
+					eprintln!(
+						"the tests that require a file system with project quotas will be skipped"
+					);
+				}
+				None
+			},
+			Err(error) => {
+				eprintln!(
+					"\x1b[33mwarning\x1b[0m: failed to create the file system with project quotas: {error}"
+				);
 				eprintln!(
 					"the tests that require a file system with project quotas will be skipped"
 				);
-			}
-			None
-		},
-		Err(error) => {
-			eprintln!(
-				"\x1b[33mwarning\x1b[0m: failed to create the file system with project quotas: {error}"
-			);
-			eprintln!("the tests that require a file system with project quotas will be skipped");
-			None
-		},
+				None
+			},
+		}
 	};
 
 	// Create the options.

@@ -386,25 +386,31 @@ fn sandbox(
 		}
 	}
 
-	// Mount the directories on the path read-only, unless another mount already contains them.
-	let path = std::env::var("PATH").unwrap_or_default();
-	for target in std::env::split_paths(&path) {
-		let Ok(source) = std::fs::canonicalize(&target) else {
+	// Canonicalize the directories on the path, so that a symlinked directory resolves in the sandbox, and mount each read-only unless a mount at the same path already contains it.
+	let mut directories = Vec::new();
+	for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+		let Ok(directory) = std::fs::canonicalize(&directory) else {
 			continue;
 		};
-		if !source.is_dir()
-			|| mounts
-				.iter()
-				.any(|(mounted, _, _)| source.starts_with(mounted))
-		{
+		if !directory.is_dir() || directories.contains(&directory) {
 			continue;
 		}
-		mounts.push((source, target, "ro"));
+		let mounted = mounts
+			.iter()
+			.any(|(source, target, _)| source == target && directory.starts_with(target));
+		if !mounted {
+			mounts.push((directory.clone(), directory.clone(), "ro"));
+		}
+		directories.push(directory);
 	}
+	let path = std::env::join_paths(&directories)?
+		.into_string()
+		.map_err(|_| "the path is not valid UTF-8")?;
 
-	// Find unshare and the supervisor on the path, because the sandbox requires absolute paths.
+	// Find unshare and the supervisor on the canonical path, because the sandbox requires absolute paths.
 	let find = |name: &str| {
-		std::env::split_paths(&path)
+		directories
+			.iter()
 			.map(|directory| directory.join(name))
 			.find(|path| path.is_file())
 			.ok_or_else(|| format!("failed to find {name} on the path"))
