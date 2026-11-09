@@ -74,9 +74,20 @@ export const formatScripts = async () => {
 
 export const build = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
-	await tg.run`nu scripts/build.nu "$@"`
+	await tg.run`cargo build --all-features "$@"`
 		.executable("sh")
 		.args(["--", ...args])
+		.cwd(cwd)
+		.env(env);
+};
+
+export const buildWithCapabilities = async () => {
+	if (!tg.host.current.endsWith("-linux")) {
+		throw new Error("buildWithCapabilities is only supported on Linux");
+	}
+	const { cwd, env } = await context();
+	await tg.run`cargo build --all-features --release --target-dir target && sudo setcap cap_sys_admin=ep target/release/tangram && getcap target/release/tangram`
+		.executable("sh")
 		.cwd(cwd)
 		.env(env);
 };
