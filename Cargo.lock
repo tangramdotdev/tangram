@@ -11818,13 +11818,13 @@ dependencies = [
  "bytes",
  "futures",
  "rand 0.10.3",
- "serde",
  "serde_json",
  "tangram_cache",
  "tangram_client",
  "tangram_futures",
  "tangram_index",
  "tangram_messenger",
+ "tangram_serialize",
  "tangram_server_core",
  "tangram_server_log_common",
  "tangram_server_process_core",
@@ -11842,9 +11842,9 @@ dependencies = [
  "bytes",
  "derive_more",
  "serde",
- "serde_json",
  "tangram_client",
  "tangram_messenger",
+ "tangram_serialize",
 ]
 
 [[package]]

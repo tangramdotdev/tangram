@@ -966,7 +966,7 @@ impl Scheduler {
 			async move {
 				let result = server
 					.messenger
-					.publish(subject, tangram_messenger::payload::Json(acknowledgement))
+					.publish(subject, acknowledgement)
 					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to acknowledge the runner heartbeat")

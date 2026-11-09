@@ -218,9 +218,7 @@ impl Component {
 		let heartbeat_acks = session
 			.server
 			.messenger
-			.subscribe::<tangram_messenger::payload::Json<
-				tangram_server_scheduler_core::HeartbeatAcknowledgement,
-			>>(heartbeat_subject)
+			.subscribe::<tangram_server_scheduler_core::HeartbeatAcknowledgement>(heartbeat_subject)
 			.await
 			.map_err(|source| {
 				tg::error!(
@@ -316,7 +314,7 @@ impl Component {
 						result = heartbeat_acks.try_next(), if !heartbeat_acks_ended => {
 							match result {
 								Ok(Some(message)) => {
-									let acknowledgement = message.payload.0;
+									let acknowledgement = message.payload;
 									tracing::debug!(registration_index, index = acknowledgement.heartbeat_index, "received the scheduler heartbeat acknowledgement");
 									if acknowledgement.registration_index == registration_index
 										&& outstanding.contains(&acknowledgement.heartbeat_index)
