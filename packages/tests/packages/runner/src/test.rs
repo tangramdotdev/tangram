@@ -427,6 +427,15 @@ fn sandbox(
 	std::fs::create_dir_all(&client_path)?;
 	let mut command = Command::new(tangram);
 	command.current_dir(&client_path).args(["run", "--sandbox"]);
+
+	// Remove the inherited Tangram variables, such as the URL and token that `tg run` sets, so that the client uses its own configuration.
+	for (key, _) in std::env::vars_os() {
+		if key.to_str().is_some_and(|key| key.starts_with("TANGRAM_")) {
+			command.env_remove(key);
+		}
+	}
+
+	// Add the network, the mounts, the working directory, and the environment.
 	if !options.offline {
 		command.arg("--network");
 	}
