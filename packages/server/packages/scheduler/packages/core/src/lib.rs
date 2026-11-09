@@ -2,21 +2,6 @@ use {std::collections::BTreeSet, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum Message {
-	Ack(Ack),
-	Notification(Notification),
-	Request(Request),
-	Response(Response),
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Ack {
-	pub id: String,
-	pub scheduler: tg::scheduler::Id,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum Notification {
 	BorrowableCapacity(BorrowableCapacityNotification),
 	Heartbeat(HeartbeatNotification),
@@ -29,20 +14,6 @@ pub struct BorrowableCapacityNotification {
 	pub heartbeat_index: u64,
 	pub parent: tg::sandbox::Id,
 	pub runner: tg::runner::Id,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Request {
-	pub arg: RequestArg,
-	pub id: String,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Response {
-	pub error: Option<tg::error::Data>,
-	pub id: String,
-	pub output: Option<ResponseOutput>,
-	pub scheduler: tg::scheduler::Id,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -79,7 +50,6 @@ pub enum RequestArg {
 pub enum ResponseOutput {
 	AcquireProcessLease(AcquireProcessLeaseResponseOutput),
 	AddRunner(AddRunnerResponseOutput),
-	Busy,
 	CancelSandboxStop(CancelSandboxStopResponseOutput),
 	DequeueSandbox(DequeueSandboxResponseOutput),
 	DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput),
@@ -273,14 +243,11 @@ pub fn runner_heartbeat_subject(scheduler: &tg::scheduler::Id, runner: &tg::runn
 }
 
 #[must_use]
-pub fn scheduler_server_subject(scheduler: Option<&tg::scheduler::Id>) -> String {
-	scheduler.map_or_else(
-		|| "schedulers.server".to_owned(),
-		|scheduler| format!("schedulers.{scheduler}.server"),
-	)
+pub fn scheduler_notification_subject(scheduler: &tg::scheduler::Id) -> String {
+	format!("schedulers.{scheduler}.notifications")
 }
 
-impl tangram_messenger::Payload for Message {
+impl tangram_messenger::Payload for Notification {
 	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error>
 	where
 		Self: Sized,

@@ -17,14 +17,15 @@ use {
 			PermissionSubtree, Pool, PostgresDatabase, PostgresDatabaseConnection, Process,
 			Progress, Read, Reconnect, Region, Remote, RemoteCache, Retry, RocksdbCache, Role,
 			RootAuthentication, Runner, RunnerBackend, RunnerResources, S3Archive, Sandbox,
-			SandboxNetwork, SandboxNetworkFirewall, Scheduler, ScyllaCache, ScyllaCacheCapacity,
-			ScyllaCachePercentileSpeculativeExecution, ScyllaCacheSimpleSpeculativeExecution,
-			ScyllaCacheSpeculativeExecution, ServerClient, Service, Spawn, SqliteDatabase, SyncGet,
-			SyncGetCheckout, SyncGetDatabase, SyncGetIndex, SyncGetQueue, SyncGetStore,
-			SyncGetStoreObject, SyncOptions, SyncPut, SyncPutIndex, SyncPutQueue, SyncPutResolve,
-			SyncPutStore, TokenPreviousSecret, TokenSecret, TokenSecrets, TursoDatabase, Usage,
-			UserAuthentication, Verification, VerificationIndex, VerificationPermissions, Vfs,
-			VfsFuse, VfsIo, VfsKind, VfsNfs, VfsPassthrough, Watch, Write,
+			SandboxNetwork, SandboxNetworkFirewall, Scheduler, SchedulerCache, SchedulerRequest,
+			ScyllaCache, ScyllaCacheCapacity, ScyllaCachePercentileSpeculativeExecution,
+			ScyllaCacheSimpleSpeculativeExecution, ScyllaCacheSpeculativeExecution, ServerClient,
+			Service, Spawn, SqliteDatabase, SyncGet, SyncGetCheckout, SyncGetDatabase,
+			SyncGetIndex, SyncGetQueue, SyncGetStore, SyncGetStoreObject, SyncOptions, SyncPut,
+			SyncPutIndex, SyncPutQueue, SyncPutResolve, SyncPutStore, TokenPreviousSecret,
+			TokenSecret, TokenSecrets, TursoDatabase, Usage, UserAuthentication, Verification,
+			VerificationIndex, VerificationPermissions, Vfs, VfsFuse, VfsIo, VfsKind, VfsNfs,
+			VfsPassthrough, Watch, Write,
 		},
 	},
 	tangram_client::prelude::*,
@@ -2135,11 +2136,11 @@ fn resolve_javascript_engine(source: JavaScriptEngine) -> server::JavaScriptEngi
 fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	let mut target = server::Scheduler::default();
 	target.id.clone_from(&source.id);
-	if let Some(value) = source.request_concurrency {
-		target.request_concurrency = value;
+	if let Some(source) = source.cache {
+		target.cache = resolve_scheduler_cache(source);
 	}
-	if let Some(source) = source.message_retry {
-		target.message_retry = resolve_retry_with_default(source, target.message_retry);
+	if let Some(source) = source.request {
+		target.request = resolve_scheduler_request(source);
 	}
 	if let Some(value) = source.restart_delay {
 		target.restart_delay = value;
@@ -2162,15 +2163,6 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	if let Some(value) = source.unplaceable_timeout {
 		target.unplaceable_timeout = value.map(|value| value.0);
 	}
-	if let Some(value) = source.inbox_ttl {
-		target.inbox_ttl = value;
-	}
-	if let Some(value) = source.message_ack_timeout {
-		target.message_ack_timeout = value;
-	}
-	if let Some(value) = source.message_timeout {
-		target.message_timeout = value;
-	}
 	if let Some(value) = source.max_create_sandbox_attempts {
 		target.max_create_sandbox_attempts = value;
 	}
@@ -2183,6 +2175,36 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	if let Some(value) = source.runner_ttl {
 		target.runner_ttl = value;
 	}
+	target
+}
+
+fn resolve_scheduler_cache(source: SchedulerCache) -> server::SchedulerCache {
+	let mut target = server::SchedulerCache::default();
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
+	}
+
+	target
+}
+
+fn resolve_scheduler_request(source: SchedulerRequest) -> server::SchedulerRequest {
+	let mut target = server::SchedulerRequest::default();
+	if let Some(value) = source.channel_capacity {
+		target.channel_capacity = value;
+	}
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
+	if let Some(value) = source.response_ttl {
+		target.response_ttl = value;
+	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.timeout {
+		target.timeout = value;
+	}
+
 	target
 }
 
@@ -3099,14 +3121,14 @@ mod tests {
 				},
 				"writer": { "concurrency": 4 },
 			},
-			"scheduler": { "request_concurrency": 6 },
+			"scheduler": { "request": { "concurrency": 6 } },
 		}))
 		.unwrap();
 		let target = resolve_server_config(&source).unwrap();
 		assert_eq!(target.indexer.request.concurrency, 3);
 		assert_eq!(target.indexer.request.wait_concurrency, 5);
 		assert_eq!(target.indexer.writer.concurrency, 4);
-		assert_eq!(target.scheduler.request_concurrency, 6);
+		assert_eq!(target.scheduler.request.concurrency, 6);
 	}
 
 	#[test]

@@ -17,6 +17,7 @@ pub mod process;
 pub mod read;
 pub mod runner;
 pub mod sandbox;
+pub mod scheduler;
 pub mod sync;
 pub mod tag;
 pub mod update;
@@ -29,8 +30,8 @@ pub mod prelude {
 	pub use crate::{
 		Index as _, checkout::Index as _, group::Index as _, indexer::Index as _,
 		object::Index as _, organization::Index as _, permission::Index as _, process::Index as _,
-		sandbox::Index as _, sync::Index as _, tag::Index as _, usage::Index as _,
-		user::Index as _,
+		sandbox::Index as _, scheduler::Index as _, sync::Index as _, tag::Index as _,
+		usage::Index as _, user::Index as _,
 	};
 }
 
@@ -43,6 +44,7 @@ pub trait Index:
 	+ permission::Index
 	+ process::Index
 	+ sandbox::Index
+	+ scheduler::Index
 	+ sync::Index
 	+ tag::Index
 	+ usage::Index

@@ -15,6 +15,7 @@ pub(super) enum Request {
 	ExpireUsage(tangram_index::usage::expire::Arg),
 	CompletePermissionCapture(tangram_index::permission::capture::Entry),
 	DeleteIndexer(tangram_index::indexer::delete::Arg),
+	DeleteScheduler(tangram_index::scheduler::delete::Arg),
 	GetUsage {
 		account: tangram_index::usage::Account,
 		delta_time_to_live: std::time::Duration,
@@ -23,11 +24,13 @@ pub(super) enum Request {
 	},
 	NextRunnerRegistrationIndex(tg::runner::Id),
 	PutIndexer(tangram_index::indexer::put::Arg),
+	PutScheduler(tangram_index::scheduler::put::Arg),
 	TouchCheckouts(TouchCheckouts),
 	TouchObjects(TouchObjects),
 	TouchProcesses(TouchProcesses),
 	Update(Update),
 	UpdateIndexer(tangram_index::indexer::update::Arg),
+	UpdateScheduler(tangram_index::scheduler::update::Arg),
 }
 
 #[derive(Clone)]
@@ -159,13 +162,16 @@ impl Request {
 			| Self::ExpireUsage(_)
 			| Self::Update(_) => Priority::Low,
 			Self::DeleteIndexer(_)
+			| Self::DeleteScheduler(_)
 			| Self::GetUsage { .. }
 			| Self::NextRunnerRegistrationIndex(_)
 			| Self::PutIndexer(_)
+			| Self::PutScheduler(_)
 			| Self::TouchCheckouts(_)
 			| Self::TouchObjects(_)
 			| Self::TouchProcesses(_)
-			| Self::UpdateIndexer(_) => Priority::High,
+			| Self::UpdateIndexer(_)
+			| Self::UpdateScheduler(_) => Priority::High,
 		}
 	}
 }

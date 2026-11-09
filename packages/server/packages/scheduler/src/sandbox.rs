@@ -2,11 +2,11 @@ use {
 	super::{
 		AcquireProcessLeaseRequestArg, AcquireProcessLeaseResponseOutput,
 		BorrowableCapacityNotification, CancelSandboxStopRequestArg,
-		CancelSandboxStopResponseOutput, Config, DequeueSandboxRequestArg,
-		DequeueSandboxResponseOutput, EndSandboxRequestArg, EndSandboxResponseOutput,
-		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatNotification, Operation,
-		OwnerAncestors, PendingEnqueue, ReleaseProcessLeaseRequestArg,
-		ReleaseProcessLeaseResponseOutput, ResponseOutput, Scheduler, SchedulerState,
+		CancelSandboxStopResponseOutput, DequeueSandboxRequestArg, DequeueSandboxResponseOutput,
+		EndSandboxRequestArg, EndSandboxResponseOutput, EnqueueSandboxRequestArg,
+		EnqueueSandboxResponseOutput, HeartbeatNotification, Operation, OwnerAncestors,
+		PendingEnqueue, ReleaseProcessLeaseRequestArg, ReleaseProcessLeaseResponseOutput,
+		ResponseOutput, Scheduler, SchedulerState,
 		runner::{Reservation, ReservationState, Runner},
 	},
 	futures::{FutureExt as _, StreamExt as _, future},
@@ -321,12 +321,6 @@ impl SchedulerState {
 			pending_enqueues: HashMap::default(),
 			queue: Queue::new(),
 			recovery: None,
-			requests: super::Requests {
-				active: tangram_server_core::control::requests::Requests::default(),
-				inbox: std::collections::HashSet::new(),
-				outbox: HashMap::new(),
-				replies: 0,
-			},
 			runners: super::runner::Runners::new(),
 			sandboxes: Sandboxes::new(),
 		}
@@ -507,6 +501,20 @@ impl SchedulerState {
 		}
 	}
 
+	/// Remove a sandbox's entry, and fail its acceptance's handoff, which responds to its enqueue requests if its index write also failed.
+	fn remove_sandbox_entry(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::sandbox::Id,
+	) -> Option<Sandbox> {
+		let sandbox = self.sandboxes.entries.remove(id)?;
+		let error =
+			tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
+		self.finish_accept(scheduler, id, Path::Handled, Err(error));
+
+		Some(sandbox)
+	}
+
 	fn send_enqueue_responses(
 		&mut self,
 		scheduler: &Scheduler,
@@ -516,7 +524,7 @@ impl SchedulerState {
 		let result =
 			result.map(|()| ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput {}));
 		for id in ids {
-			let response = scheduler.response(id, result.clone());
+			let response = Scheduler::response(id, result.clone());
 			scheduler.send_response(self, response);
 		}
 	}
@@ -744,7 +752,10 @@ impl SchedulerState {
 				},
 				SandboxState::Pending => {
 					self.remove_queued_sandbox(&sandbox);
-					let request = self.sandboxes.entries.remove(&sandbox).unwrap().request;
+					let request = self
+						.remove_sandbox_entry(scheduler, &sandbox)
+						.unwrap()
+						.request;
 					self.queue.wake();
 					let status = if stop && request.boot > 0 {
 						tg::sandbox::Status::Stopped
@@ -756,7 +767,10 @@ impl SchedulerState {
 				SandboxState::Uncertain { placement } => {
 					let placement = placement.clone();
 					self.remove_reservation(&sandbox, &placement, true);
-					let request = self.sandboxes.entries.remove(&sandbox).unwrap().request;
+					let request = self
+						.remove_sandbox_entry(scheduler, &sandbox)
+						.unwrap()
+						.request;
 					let runner = placement.runner().clone();
 					let destroy = DestroySandbox {
 						error: error.clone().unwrap_or_default(),
@@ -912,7 +926,7 @@ impl SchedulerState {
 		let Some((true, request)) = request else {
 			let output = CancelSandboxStopResponseOutput { held };
 			let output = ResponseOutput::CancelSandboxStop(output);
-			let response = scheduler.response(id, Ok(output));
+			let response = Scheduler::response(id, Ok(output));
 			scheduler.send_response(self, response);
 			return;
 		};
@@ -949,7 +963,7 @@ impl SchedulerState {
 		let Some((lease, request)) = lease else {
 			let output = AcquireProcessLeaseResponseOutput { lease: None };
 			let output = ResponseOutput::AcquireProcessLease(output);
-			let response = scheduler.response(id, Ok(output));
+			let response = Scheduler::response(id, Ok(output));
 			scheduler.send_response(self, response);
 			return;
 		};
@@ -990,7 +1004,7 @@ impl SchedulerState {
 			.filter(|entry| matches!(entry.state, SandboxState::Pending))
 			.and_then(|entry| entry.request.process.as_mut());
 		let Some(process) = process else {
-			let response = scheduler.response(id, Ok(output(None)));
+			let response = Scheduler::response(id, Ok(output(None)));
 			scheduler.send_response(self, response);
 			return;
 		};
@@ -1005,7 +1019,10 @@ impl SchedulerState {
 			} else {
 				// End the process and its sandbox, because this was the last lease.
 				self.remove_queued_sandbox(&sandbox);
-				let request = self.sandboxes.entries.remove(&sandbox).unwrap().request;
+				let request = self
+					.remove_sandbox_entry(scheduler, &sandbox)
+					.unwrap()
+					.request;
 				self.queue.wake();
 				let error = tg::error::Data {
 					code: Some(tg::error::Code::Cancellation),
@@ -1031,7 +1048,7 @@ impl SchedulerState {
 			false
 		};
 		if !released {
-			let response = scheduler.response(id, Ok(output(Some(false))));
+			let response = Scheduler::response(id, Ok(output(Some(false))));
 			scheduler.send_response(self, response);
 			return;
 		}
@@ -1053,7 +1070,7 @@ impl SchedulerState {
 
 	fn send_end_sandbox_response(&mut self, scheduler: &Scheduler, id: String, ended: bool) {
 		let output = ResponseOutput::EndSandbox(EndSandboxResponseOutput { ended });
-		let response = scheduler.response(id, Ok(output));
+		let response = Scheduler::response(id, Ok(output));
 		scheduler.send_response(self, response);
 	}
 
@@ -1357,14 +1374,14 @@ impl SchedulerState {
 			},
 			SandboxState::Pending => {
 				self.remove_queued_sandbox(&id);
-				let request = self.sandboxes.entries.remove(&id).unwrap().request;
+				let request = self.remove_sandbox_entry(scheduler, &id).unwrap().request;
 				self.finish_destroy_sandbox(scheduler, request, None);
 				Some(DequeueSandboxResponseOutput { dequeued: true })
 			},
 			SandboxState::Uncertain { placement } => {
 				let placement = placement.clone();
 				self.remove_reservation(&id, &placement, true);
-				self.sandboxes.entries.remove(&id);
+				self.remove_sandbox_entry(scheduler, &id);
 				Some(DequeueSandboxResponseOutput { dequeued: false })
 			},
 		};
@@ -1375,7 +1392,7 @@ impl SchedulerState {
 
 	pub(super) fn handle_create_sandbox_completion(
 		&mut self,
-		config: &Config,
+		scheduler: &Scheduler,
 		completion: Completion,
 	) -> CreateSandboxCompletionOutput {
 		self.sandboxes.attempts = self.sandboxes.attempts.saturating_sub(1);
@@ -1465,8 +1482,9 @@ impl SchedulerState {
 					sandbox.attempts += 1;
 				}
 				if !dequeue_requests.is_empty() || ending {
-					self.sandboxes.entries.remove(&id);
-				} else if failed && sandbox.attempts >= config.max_create_sandbox_attempts {
+					self.remove_sandbox_entry(scheduler, &id);
+				} else if failed && sandbox.attempts >= scheduler.config.max_create_sandbox_attempts
+				{
 					let source = failure.as_ref().unwrap().clone();
 					let attempts = sandbox.attempts;
 					let error = tg::error!(
@@ -1476,7 +1494,7 @@ impl SchedulerState {
 						"failed to create the sandbox after too many attempts"
 					);
 					tracing::error!(error = %error.trace(), "giving up on the sandbox");
-					let request = self.sandboxes.entries.remove(&id).unwrap().request;
+					let request = self.remove_sandbox_entry(scheduler, &id).unwrap().request;
 					discarded = Some(DiscardedSandbox {
 						error: error.to_data_or_id(),
 						request,
@@ -1505,7 +1523,7 @@ impl SchedulerState {
 				tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner_ref.id, "failed to create the sandbox on the runner");
 				if let Some(held) = &mut held {
 					self.remove_reservation(&id, &placement, true);
-					self.sandboxes.entries.remove(&id);
+					self.remove_sandbox_entry(scheduler, &id);
 					held.placed = Some(runner_ref.clone());
 				} else if dequeue_requests.is_empty() {
 					if let Some(runner) = self.runners.entries.get_mut(&runner_ref.id)
@@ -1518,7 +1536,7 @@ impl SchedulerState {
 						SandboxState::Uncertain { placement };
 				} else {
 					self.remove_reservation(&id, &placement, true);
-					self.sandboxes.entries.remove(&id);
+					self.remove_sandbox_entry(scheduler, &id);
 				}
 				DequeueSandboxResponseOutput { dequeued: false }
 			},
@@ -1526,7 +1544,7 @@ impl SchedulerState {
 				if dequeue_requests.is_empty() && !ending {
 					self.requeue_sandbox(&id);
 				} else {
-					self.sandboxes.entries.remove(&id);
+					self.remove_sandbox_entry(scheduler, &id);
 				}
 				DequeueSandboxResponseOutput { dequeued: false }
 			},
@@ -1547,7 +1565,11 @@ impl SchedulerState {
 		}
 	}
 
-	pub(super) fn remove_runner(&mut self, id: &tg::runner::Id) -> Vec<DequeueCompletion> {
+	pub(super) fn remove_runner(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::runner::Id,
+	) -> Vec<DequeueCompletion> {
 		let Some(runner) = self.runners.entries.remove(id) else {
 			return Vec::new();
 		};
@@ -1573,7 +1595,7 @@ impl SchedulerState {
 			if dequeue_requests.is_empty() {
 				self.requeue_sandbox(&sandbox);
 			} else {
-				self.sandboxes.entries.remove(&sandbox);
+				self.remove_sandbox_entry(scheduler, &sandbox);
 				let output = DequeueSandboxResponseOutput { dequeued: false };
 				completions.extend(
 					dequeue_requests
@@ -1817,7 +1839,7 @@ impl SchedulerState {
 				let error = tg::error!(sandbox = %id, "no runners available");
 				tracing::error!(error = %error.trace(), "giving up on the sandbox");
 				self.remove_queued_sandbox(id);
-				let request = self.sandboxes.entries.remove(id).unwrap().request;
+				let request = self.remove_sandbox_entry(scheduler, id).unwrap().request;
 				let discarded = DiscardedSandbox {
 					error: error.to_data_or_id(),
 					request,

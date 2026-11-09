@@ -10,6 +10,7 @@ pub enum Request {
 	},
 
 	GetIndexers,
+	GetSchedulers,
 	GetPermissions {
 		args: Vec<crate::permission::get::Arg>,
 	},
@@ -68,6 +69,7 @@ pub enum Request {
 		specifiers: Vec<tg::Specifier>,
 	},
 	TryGetIndexer(crate::indexer::get::Arg),
+	TryGetScheduler(crate::scheduler::get::Arg),
 	TryGetObjectChildren {
 		id: tg::object::Id,
 	},
@@ -137,6 +139,7 @@ pub enum Request {
 pub enum Response {
 	ContainsIds(Vec<bool>),
 	GetIndexers(Vec<crate::indexer::Indexer>),
+	GetSchedulers(Vec<crate::scheduler::Scheduler>),
 	GetPermissions(Vec<Vec<tg::authorization::Permission>>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSchedulerRunners(Vec<tg::runner::Id>),
@@ -154,6 +157,7 @@ pub enum Response {
 	TryGetGroups(Vec<Option<crate::group::Group>>),
 	TryGetIdsForSpecifiers(Vec<Option<tg::Id>>),
 	TryGetIndexer(Option<crate::indexer::Indexer>),
+	TryGetScheduler(Option<crate::scheduler::Scheduler>),
 	TryGetObjectChildren(Option<Vec<tg::object::Id>>),
 	TryGetObjects(Vec<Option<crate::object::Object>>),
 	TryGetOldestUpdateTransactionId(Option<u64>),
