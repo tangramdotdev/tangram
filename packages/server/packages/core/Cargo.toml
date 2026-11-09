@@ -43,6 +43,7 @@ workspace = true
 
 [dependencies]
 async-nats = { workspace = true, optional = true }
+bytes = { workspace = true }
 dashmap = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
@@ -55,6 +56,7 @@ hyper-util = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
 opentelemetry = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true, optional = true }
 rustls-pemfile = { workspace = true, optional = true }
@@ -76,6 +78,7 @@ tangram_index_lmdb = { workspace = true, optional = true }
 tangram_messenger = { workspace = true }
 tangram_messenger_memory = { workspace = true }
 tangram_sandbox = { workspace = true }
+tangram_serialize = { workspace = true }
 tangram_server_archive = { workspace = true }
 tangram_server_authentication_core = { workspace = true }
 tangram_server_cache = { workspace = true }
@@ -102,6 +105,7 @@ tangram_util = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
+tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tokio-vsock = { workspace = true, optional = true }
 tower = { workspace = true }

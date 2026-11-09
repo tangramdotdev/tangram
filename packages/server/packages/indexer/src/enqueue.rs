@@ -4,7 +4,6 @@ use {
 		request::{EnqueueRequestArg, RequestArg},
 	},
 	futures::future,
-	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_server_core::{Server, indexer::EnqueueArg},
 };
@@ -31,24 +30,13 @@ impl Component {
 		}
 
 		// Send every request to one indexer, and retry all of them with another indexer on failure.
-		let start = rand::random::<u64>();
-		let mut attempt = 0u64;
-		let retry =
-			tangram_futures::retry::Options::from(server.config.indexer.enqueue.retry.clone());
-		tangram_futures::retry(&retry, || {
-			let selection = start.wrapping_add(attempt);
-			let refresh = attempt > 0;
-			attempt = attempt.wrapping_add(1);
+		let retry = server.config.indexer.enqueue.retry.clone().into();
+		tangram_server_core::service::retry(&self.indexers, server, &retry, |indexer| {
 			let requests = requests.clone();
 			async move {
-				let indexer = match self.select_indexer(server, selection, refresh).await {
-					Ok(indexer) => indexer,
-					Err(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				match self.enqueue_with_indexer(server, &indexer, requests).await {
-					Ok(()) => Ok(ControlFlow::Break(())),
-					Err(error) => Ok(ControlFlow::Continue(error)),
-				}
+				self.enqueue_with_indexer(server, &indexer, requests)
+					.await?;
+				Ok(Some(()))
 			}
 		})
 		.await?;

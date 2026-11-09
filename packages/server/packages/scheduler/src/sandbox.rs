@@ -524,7 +524,7 @@ impl SchedulerState {
 		let result =
 			result.map(|()| ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput {}));
 		for id in ids {
-			let response = Scheduler::response(id, result.clone());
+			let response = super::request::Response::new(id, result.clone());
 			scheduler.send_response(self, response);
 		}
 	}
@@ -926,7 +926,7 @@ impl SchedulerState {
 		let Some((true, request)) = request else {
 			let output = CancelSandboxStopResponseOutput { held };
 			let output = ResponseOutput::CancelSandboxStop(output);
-			let response = Scheduler::response(id, Ok(output));
+			let response = super::request::Response::new(id, Ok(output));
 			scheduler.send_response(self, response);
 			return;
 		};
@@ -963,7 +963,7 @@ impl SchedulerState {
 		let Some((lease, request)) = lease else {
 			let output = AcquireProcessLeaseResponseOutput { lease: None };
 			let output = ResponseOutput::AcquireProcessLease(output);
-			let response = Scheduler::response(id, Ok(output));
+			let response = super::request::Response::new(id, Ok(output));
 			scheduler.send_response(self, response);
 			return;
 		};
@@ -1004,7 +1004,7 @@ impl SchedulerState {
 			.filter(|entry| matches!(entry.state, SandboxState::Pending))
 			.and_then(|entry| entry.request.process.as_mut());
 		let Some(process) = process else {
-			let response = Scheduler::response(id, Ok(output(None)));
+			let response = super::request::Response::new(id, Ok(output(None)));
 			scheduler.send_response(self, response);
 			return;
 		};
@@ -1048,7 +1048,7 @@ impl SchedulerState {
 			false
 		};
 		if !released {
-			let response = Scheduler::response(id, Ok(output(Some(false))));
+			let response = super::request::Response::new(id, Ok(output(Some(false))));
 			scheduler.send_response(self, response);
 			return;
 		}
@@ -1070,7 +1070,7 @@ impl SchedulerState {
 
 	fn send_end_sandbox_response(&mut self, scheduler: &Scheduler, id: String, ended: bool) {
 		let output = ResponseOutput::EndSandbox(EndSandboxResponseOutput { ended });
-		let response = Scheduler::response(id, Ok(output));
+		let response = super::request::Response::new(id, Ok(output));
 		scheduler.send_response(self, response);
 	}
 

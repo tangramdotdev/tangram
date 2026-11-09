@@ -29,7 +29,6 @@ use {
 	},
 };
 
-mod cache;
 mod recovery;
 mod request;
 mod runner;
@@ -51,7 +50,7 @@ pub struct Component(Arc<State>);
 
 pub struct State {
 	pub(crate) scheduler_cache_task: Mutex<Option<Task<()>>>,
-	pub(crate) schedulers: cache::Cache,
+	pub(crate) schedulers: tangram_server_core::service::Cache<request::Kind>,
 	pub(crate) started: tokio::sync::watch::Sender<bool>,
 	pub(crate) task: Mutex<Option<Task<()>>>,
 }
@@ -68,7 +67,7 @@ struct Scheduler {
 	component: Component,
 	config: Config,
 	id: tg::scheduler::Id,
-	sender: tangram_server_core::control::Sender<request::ServerMessage, request::ClientMessage>,
+	sender: request::Sender,
 	server: Server,
 }
 
@@ -182,7 +181,7 @@ impl Component {
 
 		// Create the task handles and the scheduler cache.
 		let scheduler_cache_task = Mutex::new(None);
-		let schedulers = cache::Cache::default();
+		let schedulers = tangram_server_core::service::Cache::default();
 		let task = Mutex::new(None);
 
 		// Create the state.
@@ -220,7 +219,8 @@ impl Component {
 		let server = server.clone();
 		Task::spawn(move |stopper| async move {
 			component
-				.scheduler_cache_task(&server, poll_interval, stopper)
+				.schedulers
+				.task(&server, poll_interval, stopper)
 				.await;
 		})
 	}
@@ -524,7 +524,7 @@ impl Component {
 			.update_scheduler(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to update the scheduler availability"))?;
-		if let Err(error) = self.refresh_scheduler_cache(server).await {
+		if let Err(error) = self.schedulers.refresh(server).await {
 			tracing::error!(error = %error.trace(), "failed to refresh the scheduler cache");
 		}
 
@@ -553,19 +553,13 @@ impl Scheduler {
 		};
 
 		// Subscribe to the scheduler's requests and notifications before starting, so that no message sent after the start is lost.
-		let messages = server
-			.messenger
-			.subscribe::<request::ServerMessage>(Self::server_subject(&id))
-			.await
-			.map_err(|source| {
-				tg::error!(
-					!source,
-					"failed to subscribe to the scheduler request stream"
-				)
-			})?
-			.map_err(|source| tg::error!(!source, "failed to receive a scheduler message"))
-			.map_ok(|message| message.payload)
-			.boxed();
+		let endpoint = tangram_server_core::service::Endpoint::<request::Kind>::subscribe(
+			server,
+			&id,
+			request_config.channel_capacity,
+			request_config.response_ttl,
+		)
+		.await?;
 		let notifications = server
 			.messenger
 			.subscribe::<Notification>(scheduler_notification_subject(&id))
@@ -578,19 +572,12 @@ impl Scheduler {
 			})?
 			.boxed();
 
-		// Create the control stream.
-		let (client_sender, client_receiver) =
-			tokio::sync::mpsc::channel(request_config.channel_capacity);
-		let mut options = tangram_server_core::control::stream_options(&server.config.control);
-		options.outbox_ttl = Some(request_config.response_ttl);
-		let control = tangram_server_core::control::Stream::new(messages, client_sender, options);
-
 		// Create the scheduler.
 		let scheduler = Self {
 			component: component.clone(),
 			config,
 			id,
-			sender: control.sender(),
+			sender: endpoint.sender(),
 			server: server.clone(),
 		};
 
@@ -599,16 +586,15 @@ impl Scheduler {
 		let (request_sender, request_receiver) =
 			tokio::sync::mpsc::channel(request_config.channel_capacity);
 		let request = Task::spawn({
-			let available = available.clone();
-			let scheduler = scheduler.clone();
-			move |_| async move {
-				let args = request::RequestTaskArgs {
-					available,
-					control,
-					receiver: client_receiver,
-					request_sender,
-				};
-				scheduler.request_task(args).await
+			let handler = request::Handler {
+				available: available.clone(),
+				sender: request_sender,
+			};
+			let server = server.clone();
+			move |stopper| async move {
+				endpoint
+					.run(&server, handler, request_config.concurrency, stopper)
+					.await
 			}
 		});
 
@@ -780,7 +766,7 @@ impl Scheduler {
 					},
 				};
 				let result = result.map(ResponseOutput::AddRunner);
-				let response = Self::response(id, result);
+				let response = request::Response::new(id, result);
 				self.send_response(state, response);
 			},
 			Operation::CreateSandbox(completion) => {
@@ -802,7 +788,7 @@ impl Scheduler {
 						destroyed,
 					})
 				});
-				let response = Self::response(id, result);
+				let response = request::Response::new(id, result);
 				self.send_response(state, response);
 			},
 			Operation::DestroySandbox { destroy, result } => {
@@ -813,7 +799,7 @@ impl Scheduler {
 					let result = result.clone().map(|()| {
 						ResponseOutput::EndSandbox(EndSandboxResponseOutput { ended: true })
 					});
-					let response = Self::response(id, result);
+					let response = request::Response::new(id, result);
 					self.send_response(state, response);
 				}
 			},
@@ -850,14 +836,14 @@ impl Scheduler {
 			Operation::RemoveRunner { id, result } => {
 				if let Some(id) = id {
 					let result = result.map(ResponseOutput::RemoveRunner);
-					let response = Self::response(id, result);
+					let response = request::Response::new(id, result);
 					self.send_response(state, response);
 				} else if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "failed to remove the expired runner");
 				}
 			},
 			Operation::Respond { id, result } => {
-				let response = Self::response(id, result);
+				let response = request::Response::new(id, result);
 				self.send_response(state, response);
 			},
 			Operation::RetrySandbox { sandbox } => {
@@ -947,7 +933,7 @@ impl Scheduler {
 		id: String,
 		output: DequeueSandboxResponseOutput,
 	) {
-		let response = Self::response(id, Ok(ResponseOutput::DequeueSandbox(output)));
+		let response = request::Response::new(id, Ok(ResponseOutput::DequeueSandbox(output)));
 		self.send_response(state, response);
 	}
 
@@ -982,7 +968,9 @@ impl Scheduler {
 
 	fn send_response(&self, _state: &mut SchedulerState, response: request::Response) {
 		self.sender
-			.send_now(request::ClientMessage::Response(response));
+			.send_now(tangram_server_core::service::ClientMessage::Response(
+				response,
+			));
 	}
 }
 

@@ -1,19 +1,14 @@
 use {
-	super::{Ack, ClientMessage, Indexer, Request, RequestArg, ServerMessage, queue},
+	super::{Indexer, Request, RequestArg, ResponseOutput, queue},
 	crate::IndexerState,
 	futures::StreamExt as _,
 	std::sync::{Arc, Mutex},
-	tangram_client::prelude::*,
+	tangram_server_core::service::Ack,
 };
 
-#[test]
-fn subjects_address_a_named_indexer() {
-	let id = tg::indexer::Id::new();
-	assert_eq!(
-		Indexer::server_subject(&id),
-		format!("indexers.{id}.server")
-	);
-}
+type ClientMessage = tangram_server_core::service::ClientMessage<ResponseOutput>;
+
+type ServerMessage = tangram_server_core::service::ServerMessage<RequestArg>;
 
 #[tokio::test]
 async fn draining_waits_for_writes_queue_completions_and_handlers() {
