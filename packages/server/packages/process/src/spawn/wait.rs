@@ -106,14 +106,19 @@ impl Component {
 				.is_none_or(|output| cache.process() != Some(&output.id))
 		});
 		if let Some(cache) = cache {
+			// Cancel the candidate, logging a failure, because the spawn already has the cached process.
 			let output = output.as_ref().unwrap();
-			self.spawn_process_cancel_candidate(
-				session,
-				output.id.clone(),
-				output.lease,
-				arg.location.clone(),
-			)
-			.await?;
+			let result = self
+				.spawn_process_cancel_candidate(
+					session,
+					output.id.clone(),
+					output.lease,
+					arg.location.clone(),
+				)
+				.await;
+			if let Err(error) = result {
+				tracing::warn!(error = %error.trace(), process = %output.id, "failed to cancel the candidate process");
+			}
 			return Ok(Some(cache.into_output()));
 		}
 		let Some(output) = output else {
@@ -167,16 +172,21 @@ impl Component {
 			},
 			future::Either::Right((result, _)) => {
 				if let Ok(Some(cached_output)) = result {
+					// Cancel the candidate, logging a failure, because the spawn already has the cached process.
 					if let Some(output) = &output
 						&& !output.cached && output.lease.is_some()
 					{
-						self.spawn_process_cancel_candidate(
-							session,
-							output.id.clone(),
-							output.lease,
-							arg.location.clone(),
-						)
-						.await?;
+						let result = self
+							.spawn_process_cancel_candidate(
+								session,
+								output.id.clone(),
+								output.lease,
+								arg.location.clone(),
+							)
+							.await;
+						if let Err(error) = result {
+							tracing::warn!(error = %error.trace(), process = %output.id, "failed to cancel the candidate process");
+						}
 					}
 					cached_output.into_output()
 				} else {
