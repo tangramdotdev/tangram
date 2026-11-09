@@ -422,8 +422,7 @@ export def --env "server spawn" [
 	--cloud # Create a cloud-backed instance for the server.
 	--config (-c): record
 	--directory (-d): string
-	--inotify-instances: int # Run the server in a user namespace that limits its inotify instances to this count.
-	--inotify-watches: int # Run the server in a user namespace that limits its inotify watches to this count.
+	--inotify-limit: string # Set the inotify instances or watches limit to zero in a user namespace.
 	--instance: record # Spawn the server in this instance.
 	--name (-n): string
 	--now: string # Set the server's simulated wall clock to an RFC 3339 timestamp.
@@ -456,20 +455,20 @@ export def --env "server spawn" [
 	}
 	let use_cloud = $instance.cloud != null
 
-	# Check that the server can run in a user namespace that limits its inotify instances and watches.
-	let inotify_limits = if $inotify_instances == null and $inotify_watches == null {
-		null
-	} else {
+	# Check that the server can run with the requested inotify limit.
+	if $inotify_limit != null {
+		if $inotify_limit not-in [instances watches] {
+			error make { msg: '--inotify-limit must be instances or watches' }
+		}
 		if $root {
-			error make { msg: '--inotify-instances and --inotify-watches may not be combined with --root' }
+			error make { msg: '--inotify-limit may not be combined with --root' }
 		}
 		if $nu.os-info.name != 'linux' {
-			error make { msg: '--inotify-instances and --inotify-watches require linux' }
+			error make { msg: '--inotify-limit requires linux' }
 		}
 		if (^unshare --user --map-root-user true | complete).exit_code != 0 {
 			skip_test 'this test requires unprivileged user namespaces'
 		}
-		{ instances: $inotify_instances, watches: $inotify_watches }
 	}
 
 	# Get the Tangram executable that a server running as root runs.
@@ -571,7 +570,7 @@ export def --env "server spawn" [
 		config_path: $config_path,
 		directory: $directory_path,
 		exit: ($config_path | path dirname | path join 'exit'),
-		inotify_limits: $inotify_limits,
+		inotify_limit: $inotify_limit,
 		instance: $instance,
 		log: $log_path,
 		macos_app_group_socket: null,
@@ -687,8 +686,8 @@ export def --env "server start" [server: record] {
 	let command = [-c $server.config_path -d $server.directory -u $server.url serve --ready-fd '3']
 	let command = if $server.root_tangram? != null {
 		root_command $supervisor $server.directory [$server.root_tangram ...$command]
-	} else if $server.inotify_limits? != null {
-		inotify_limits_command $server.inotify_limits [tangram ...$command]
+	} else if $server.inotify_limit? != null {
+		inotify_limit_command $server.inotify_limit [tangram ...$command]
 	} else {
 		[tangram ...$command]
 	}
@@ -741,15 +740,11 @@ def root_command [supervisor: string, directory: string, command: list<string>] 
 	[sh -c $relay $fifo sudo -n env $'TMPDIR=($temp)' setpriv --pdeathsig KILL --bounding-set=-sys_resource -- sh -c $server $fifo ...$command]
 }
 
-# Create a command that runs a server in a user namespace that limits its inotify instances and watches. The outer namespace maps the user to root so that it can set the limits, which also apply to its descendant namespaces. The inner namespace maps the user back, so that the server runs as the user.
-def inotify_limits_command [limits: record, command: list<string>] {
+# Limit an inotify resource in an outer user namespace, then map the server back to its original user in an inner namespace that inherits the limit.
+def inotify_limit_command [limit: string, command: list<string>] {
 	let uid = ^id -u | str trim
 	let gid = ^id -g | str trim
-	let writes = $limits
-		| transpose name value
-		| where value != null
-		| each { |limit| $'echo ($limit.value) > /proc/sys/user/max_inotify_($limit.name)' }
-	let script = $writes | append 'gid="$1" && shift && exec unshare --user --map-user="$0" --map-group="$gid" -- "$@"' | str join ' && '
+	let script = $'echo 0 > /proc/sys/user/max_inotify_($limit) && gid="$1" && shift && exec unshare --user --map-user="$0" --map-group="$gid" -- "$@"'
 
 	[unshare --user --map-root-user -- sh -c $script $uid $gid ...$command]
 }

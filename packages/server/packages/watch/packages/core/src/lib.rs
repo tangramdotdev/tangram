@@ -313,7 +313,28 @@ impl Watch {
 		if !objects.iter().any(|id| state.graph.ids.contains_key(id)) {
 			return;
 		}
-		state.reset();
+
+		// Remove the watched paths before discarding the cached graph.
+		#[cfg(target_os = "linux")]
+		{
+			let paths = state
+				.graph
+				.nodes
+				.values()
+				.filter_map(|node| node.path.clone())
+				.collect();
+			state.remove_paths_linux(&paths);
+		}
+
+		// Invalidate the graph and any checkins that are still using its previous version.
+		state.affected_paths.clear();
+		state.graph = Graph::default();
+		state.invalidated_paths.clear();
+		state.solutions = Solutions::default();
+		state.version += 1;
+		state.revalidation_version = state.version;
+		#[cfg(target_os = "macos")]
+		state.update_paths_darwin().ok();
 	}
 
 	#[must_use]
@@ -646,24 +667,17 @@ impl State {
 		let paths = self.graph.paths.roots();
 
 		// Add the new paths.
-		let Some(watcher) = &mut self.watcher else {
-			return Err(tg::error!("the watcher does not exist"));
-		};
-		let mut result = Ok(());
+		let watcher = self.watcher.as_mut().unwrap();
 		let mut watcher_paths = watcher.paths_mut();
 		for path in &paths {
 			if !self.paths.contains(path) {
 				tracing::trace!(?path, "watched");
-				match watcher_paths.add(path, notify::RecursiveMode::Recursive) {
-					Ok(()) => {
-						self.paths.insert(path.clone());
-					},
-					Err(error) => {
-						result = Err(
-							tg::error!(!error, path = %path.display(), "failed to watch the path"),
-						);
-					},
-				}
+				watcher_paths
+					.add(path, notify::RecursiveMode::Recursive)
+					.map_err(
+						|error| tg::error!(!error, path = %path.display(), "failed to watch the path"),
+					)?;
+				self.paths.insert(path.clone());
 			}
 		}
 
@@ -684,16 +698,13 @@ impl State {
 			.commit()
 			.map_err(|error| tg::error!(!error, "failed to start watching the paths"))?;
 
-		result
+		Ok(())
 	}
 
 	#[cfg(target_os = "linux")]
 	fn add_paths_linux(&mut self, next: usize) -> tg::Result<()> {
 		// Add the new paths, stopping at the first path that cannot be watched.
-		let Some(watcher) = &mut self.watcher else {
-			return Err(tg::error!("the watcher does not exist"));
-		};
-		let mut result = Ok(());
+		let watcher = self.watcher.as_mut().unwrap();
 		let mut watcher_paths = watcher.paths_mut();
 		for (_, node) in self.graph.nodes.range(next..) {
 			let Some(path) = &node.path else {
@@ -716,8 +727,7 @@ impl State {
 				continue;
 			}
 
-			result = Err(tg::error!(!error, path = %path.display(), "failed to watch the path"));
-			break;
+			return Err(tg::error!(!error, path = %path.display(), "failed to watch the path"));
 		}
 
 		// Commit.
@@ -725,7 +735,7 @@ impl State {
 			.commit()
 			.map_err(|error| tg::error!(!error, "failed to watch the paths"))?;
 
-		result
+		Ok(())
 	}
 
 	#[cfg(target_os = "linux")]

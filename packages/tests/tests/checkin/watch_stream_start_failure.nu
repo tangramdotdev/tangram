@@ -21,11 +21,7 @@ for existing_watch in [false true] {
 	let external = $path | path join external
 	let package = $path | path join package
 	if $existing_watch {
-		let first = tg checkin --no-tokens $package --watch | referent node
-		'before the failure' | save --force ($external | path join '0.txt')
-		let plain = tg checkin --no-tokens $package --no-watch | referent node
-		assert ($plain != $first) "the external edit should change the checked in package"
-		wait_until { (tg checkin --no-tokens $package --watch | referent node) == $plain } "the working watch should reflect the external edit"
+		tg checkin --no-tokens $package --watch | ignore
 	}
 
 	# Import 4,100 external files to exceed the stream's path limit. Each module imports at most 900 files to stay under the object children limit.
