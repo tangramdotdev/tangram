@@ -422,6 +422,7 @@ export def --env "server spawn" [
 	--cloud # Create a cloud-backed instance for the server.
 	--config (-c): record
 	--directory (-d): string
+	--inotify-limit: string # Set the inotify instances or watches limit to zero in a user namespace.
 	--instance: record # Spawn the server in this instance.
 	--name (-n): string
 	--now: string # Set the server's simulated wall clock to an RFC 3339 timestamp.
@@ -453,6 +454,22 @@ export def --env "server spawn" [
 		instance
 	}
 	let use_cloud = $instance.cloud != null
+
+	# Check that the server can run with the requested inotify limit.
+	if $inotify_limit != null {
+		if $inotify_limit not-in [instances watches] {
+			error make { msg: '--inotify-limit must be instances or watches' }
+		}
+		if $root {
+			error make { msg: '--inotify-limit may not be combined with --root' }
+		}
+		if $nu.os-info.name != 'linux' {
+			error make { msg: '--inotify-limit requires linux' }
+		}
+		if (^unshare --user --map-root-user true | complete).exit_code != 0 {
+			skip_test 'this test requires unprivileged user namespaces'
+		}
+	}
 
 	# Get the Tangram executable that a server running as root runs.
 	let root_tangram = if $root {
@@ -553,6 +570,7 @@ export def --env "server spawn" [
 		config_path: $config_path,
 		directory: $directory_path,
 		exit: ($config_path | path dirname | path join 'exit'),
+		inotify_limit: $inotify_limit,
 		instance: $instance,
 		log: $log_path,
 		macos_app_group_socket: null,
@@ -666,10 +684,12 @@ export def --env "server start" [server: record] {
 	rm -f ($supervisor | path join 'error')
 	let remove = if $macos_app_group_socket == null { [] } else { [--remove $macos_app_group_socket] }
 	let command = [-c $server.config_path -d $server.directory -u $server.url serve --ready-fd '3']
-	let command = if $server.root_tangram? == null {
-		[tangram ...$command]
-	} else {
+	let command = if $server.root_tangram? != null {
 		root_command $supervisor $server.directory [$server.root_tangram ...$command]
+	} else if $server.inotify_limit? != null {
+		inotify_limit_command $server.inotify_limit [tangram ...$command]
+	} else {
+		[tangram ...$command]
 	}
 	let output = try {
 		with-env $environment {
@@ -718,6 +738,15 @@ def root_command [supervisor: string, directory: string, command: list<string>] 
 	let server = 'umask 000 && exec "$@" 3>"$0"'
 
 	[sh -c $relay $fifo sudo -n env $'TMPDIR=($temp)' setpriv --pdeathsig KILL --bounding-set=-sys_resource -- sh -c $server $fifo ...$command]
+}
+
+# Limit an inotify resource in an outer user namespace, then map the server back to its original user in an inner namespace that inherits the limit.
+def inotify_limit_command [limit: string, command: list<string>] {
+	let uid = ^id -u | str trim
+	let gid = ^id -g | str trim
+	let script = $'echo 0 > /proc/sys/user/max_inotify_($limit) && gid="$1" && shift && exec unshare --user --map-user="$0" --map-group="$gid" -- "$@"'
+
+	[unshare --user --map-root-user -- sh -c $script $uid $gid ...$command]
 }
 
 def server_is_running [server: record] {

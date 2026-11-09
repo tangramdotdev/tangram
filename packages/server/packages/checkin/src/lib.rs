@@ -829,11 +829,8 @@ impl Component {
 						&graph,
 						version,
 						lock_write_guard,
-						|| {
-							Watch::new(&watch_key, new_arg)
-								.map_err(|error| tg::error!(!error, "failed to create the watch"))
-						},
-					)?;
+						|| Watch::new(&watch_key, new_arg),
+					);
 					if !success {
 						return Err(tg::error!("files were modified during checkin"));
 					}
@@ -857,8 +854,7 @@ impl Component {
 							Self::checkin_index_task(session, index_arg, &arg, root)
 						},
 					};
-					let watch = Watch::new(&watch_key, new_arg)
-						.map_err(|error| tg::error!(!error, "failed to create the watch"))?;
+					let watch = Watch::new(&watch_key, new_arg);
 					entry.insert(watch);
 				},
 				_ => return Err(tg::error!("the watch changed during checkin")),
