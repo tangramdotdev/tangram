@@ -30,7 +30,7 @@ pub mod sandbox;
 pub mod token;
 
 /// The ID of the only runner of a single server, which a configured ID replaces.
-const SINGLE_SERVER_ID: &str = "run_0000000000000000000000000000";
+const SINGLE_SERVER_ID: &str = "rnr_0000000000000000000000000000";
 
 pub type RunnerSender = tangram_server_core::control::Sender<
 	tg::runner::control::ServerMessage,
