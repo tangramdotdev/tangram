@@ -29,6 +29,9 @@ pub mod process;
 pub mod sandbox;
 pub mod token;
 
+/// The ID of the only runner of a single server, which a configured ID replaces.
+const SINGLE_SERVER_ID: &str = "run_0000000000000000000000000000";
+
 pub type RunnerSender = tangram_server_core::control::Sender<
 	tg::runner::control::ServerMessage,
 	tg::runner::control::ClientMessage,
@@ -586,7 +589,7 @@ impl Component {
 		}
 	}
 
-	/// Get the ID of this server's runner, if the server has the runner role, which is the configured ID or the ID stored in the server's directory.
+	/// Get the ID of this server's runner, if the server has the runner role, which is the configured ID or the single-server ID.
 	#[must_use]
 	pub fn local_runner_id(&self, server: &Server) -> Option<tg::runner::Id> {
 		if !server
@@ -599,31 +602,8 @@ impl Component {
 		if let Some(id) = server.config.runner.id.clone() {
 			return Some(id);
 		}
-		let id = Self::stored_runner_id(server).unwrap_or_else(|error| {
-			tracing::error!(error = %error.trace(), "failed to get the local runner id");
-			tg::runner::Id::new()
-		});
+		let id = SINGLE_SERVER_ID.parse().unwrap();
 		Some(id)
-	}
-
-	/// Get the ID of the local runner that is stored in the server's directory, storing a new one if there is none, so that the runner keeps its stopped sandboxes across restarts.
-	fn stored_runner_id(server: &Server) -> tg::Result<tg::runner::Id> {
-		let path = server.path.join("runner");
-		match std::fs::read_to_string(&path) {
-			Ok(id) => {
-				let id = id
-					.trim()
-					.parse()
-					.map_err(|error| tg::error!(!error, "failed to parse the local runner id"))?;
-				return Ok(id);
-			},
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
-			Err(error) => return Err(tg::error!(!error, "failed to read the local runner id")),
-		}
-		let id = tg::runner::Id::new();
-		std::fs::write(&path, id.to_string())
-			.map_err(|error| tg::error!(!error, "failed to write the local runner id"))?;
-		Ok(id)
 	}
 
 	pub fn start_sandbox_pool(&self, session: &Session) {
