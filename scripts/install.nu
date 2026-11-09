@@ -4,9 +4,14 @@ const repository_path = path self '../'
 
 # Build and install the CLI with a tg symlink.
 def main [
+	--cap-sys-admin # Apply cap_sys_admin=ep to the installed CLI using sudo.
 	--dev # Use the dev profile instead of the release profile.
 	--directory: path = ~/.local/bin # The directory in which to install the CLI.
 ] {
+	if $cap_sys_admin and $nu.os-info.name != 'linux' {
+		error make { msg: '--cap-sys-admin is only supported on Linux' }
+	}
+
 	# Build the CLI.
 	cd $repository_path
 	let profile = if $dev { 'debug' } else { 'release' }
@@ -30,6 +35,12 @@ def main [
 	mkdir $directory
 	^install -m 755 $source_path $binary_path
 	^ln -sfn tangram $link_path
+
+	# Apply and display the capability on the installed binary.
+	if $cap_sys_admin {
+		sudo setcap cap_sys_admin=ep $binary_path
+		getcap $binary_path
+	}
 
 	let symbol = if (is-terminal --stderr) and ($env.NO_COLOR? == null) {
 		$"(ansi green)✓(ansi reset)"

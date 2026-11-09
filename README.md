@@ -110,10 +110,19 @@ precedence over references; use explicit `tg run` for a colliding tag name.
 tg run .#check
 tg run .#format
 tg run .#build -- --release
+tg run .#build -- --release --cap-sys-admin
 tg run ./packages/tests#test -- --offline build
 ```
 
-Arguments after `--` are forwarded unchanged to the underlying command. Checks
+On Linux, `build -- --release --cap-sys-admin` builds the release CLI, applies
+`cap_sys_admin=ep` to the resulting executable with `sudo setcap`, and prints
+the capability with `getcap`. The capability is reapplied after each successful
+build. Other Cargo profiles and target directories are supported.
+To apply it to the installed copy on PATH, use
+`tg run .#install -- --cap-sys-admin` or
+`tg run .#installDev -- --cap-sys-admin`.
+
+Arguments after `--` are forwarded to the underlying command. Checks
 and formatting run Rust first, then the package tasks in parallel. The full
 `test` export runs JavaScript, Rust, and e2e tests in order; its arguments are
 forwarded to the e2e runner. Use the individual exports for runner-specific flags.

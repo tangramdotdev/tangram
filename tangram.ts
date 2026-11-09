@@ -74,7 +74,7 @@ export const formatScripts = async () => {
 
 export const build = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
-	await tg.run`cargo build --all-features "$@"`
+	await tg.run`nu scripts/build.nu "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
