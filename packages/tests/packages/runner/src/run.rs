@@ -7,6 +7,7 @@ use {
 	},
 	std::{
 		collections::{BTreeMap, VecDeque},
+		path::PathBuf,
 		process::ExitCode,
 		sync::Arc,
 		time::{Duration, Instant},
@@ -64,6 +65,10 @@ pub struct Args {
 	/// Review snapshots.
 	#[arg(long, short)]
 	review: bool,
+
+	/// Run each test in a Tangram sandbox, using the tangram executable at this path.
+	#[arg(long)]
+	sandbox: Option<PathBuf>,
 
 	/// Run the matching tests repeatedly until one fails.
 	#[arg(long)]
@@ -160,6 +165,7 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 		preserve_temps: args.preserve_temps,
 		quickjs: args.quickjs,
 		quota: quota.as_ref().map(|quota| quota.path().to_owned()),
+		sandbox: args.sandbox,
 		stress,
 		timeout: Duration::from_secs(args.timeout),
 		turso: args.turso,

@@ -37,6 +37,7 @@ pub struct Options {
 	pub preserve_temps: bool,
 	pub quickjs: bool,
 	pub quota: Option<PathBuf>,
+	pub sandbox: Option<PathBuf>,
 	pub stress: bool,
 	pub timeout: Duration,
 	pub turso: bool,
@@ -126,7 +127,7 @@ async fn run_inner(
 		std::fs::write(temp_path.join("config.json"), serde_json::to_vec(&config)?)?;
 	}
 
-	// Spawn the test under the supervisor.
+	// Spawn the test under the supervisor, in a Tangram sandbox if requested.
 	let library_path = crate::repository_path().join("packages/tests/util/test.nu");
 	let script = [
 		format!("use {} cleanup_background_jobs", nuon(&library_path)),
@@ -140,7 +141,21 @@ async fn run_inner(
 	.join("\n");
 	let output_path = temp_path.join("output");
 	let leaks_path = temp_path.join("leaks");
-	let mut command = Command::new("tangram_tests_supervisor");
+	let mut command = if let Some(tangram) = &options.sandbox {
+		sandbox(
+			tangram,
+			options,
+			&temp_path,
+			&working_path,
+			environment(options, &temp_path),
+		)?
+	} else {
+		let mut command = Command::new("tangram_tests_supervisor");
+		command
+			.current_dir(&working_path)
+			.envs(environment(options, &temp_path));
+		command
+	};
 	command
 		.arg("run")
 		.arg("--leaks")
@@ -148,8 +163,6 @@ async fn run_inner(
 		.arg("--path")
 		.arg(&temp_path)
 		.args(["--", "nu", "--no-config-file", "--commands", &script])
-		.current_dir(&working_path)
-		.envs(environment(options, &temp_path))
 		.stdin(Stdio::null());
 	if options.no_capture {
 		command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
@@ -341,6 +354,104 @@ fn environment(options: &Options, temp_path: &Path) -> Vec<(String, String)> {
 		("TANGRAM_TEST_TURSO".to_owned(), flag(options.turso)),
 		("TMPDIR".to_owned(), temp_path.display().to_string()),
 	]
+}
+
+/// Create a command that runs the supervisor in a Tangram sandbox, which mounts the host's system directories, the directories on the path, the repository, and the test's temporary directory at their host paths.
+fn sandbox(
+	tangram: &Path,
+	options: &Options,
+	temp_path: &Path,
+	working_path: &Path,
+	environment: Vec<(String, String)>,
+) -> Result<Command> {
+	// Mount the repository and the temporary directory read-write, and the system directories, the dynamic loader's cache, the certificates, and the cryptographic policies read-only.
+	let repository_path = std::fs::canonicalize(crate::repository_path())?;
+	let mut mounts = vec![
+		(repository_path.clone(), repository_path, "rw"),
+		(temp_path.to_owned(), temp_path.to_owned(), "rw"),
+	];
+	let system_paths = [
+		"/usr",
+		"/bin",
+		"/lib",
+		"/lib64",
+		"/etc/ld.so.cache",
+		"/etc/pki",
+		"/etc/ssl",
+		"/etc/crypto-policies",
+	];
+	for target in system_paths {
+		if let Ok(source) = std::fs::canonicalize(target) {
+			mounts.push((source, PathBuf::from(target), "ro"));
+		}
+	}
+
+	// Mount the directories on the path read-only, unless another mount already contains them.
+	let path = std::env::var("PATH").unwrap_or_default();
+	for target in std::env::split_paths(&path) {
+		let Ok(source) = std::fs::canonicalize(&target) else {
+			continue;
+		};
+		if !source.is_dir()
+			|| mounts
+				.iter()
+				.any(|(mounted, _, _)| source.starts_with(mounted))
+		{
+			continue;
+		}
+		mounts.push((source, target, "ro"));
+	}
+
+	// Find unshare and the supervisor on the path, because the sandbox requires absolute paths.
+	let find = |name: &str| {
+		std::env::split_paths(&path)
+			.map(|directory| directory.join(name))
+			.find(|path| path.is_file())
+			.ok_or_else(|| format!("failed to find {name} on the path"))
+	};
+	let unshare = find("unshare")?;
+	let supervisor = find("tangram_tests_supervisor")?;
+
+	// Create the home directory.
+	let home_path = temp_path.join("home");
+	std::fs::create_dir_all(&home_path)?;
+
+	// Create the command. Run the client in an empty directory, because without a reference, `tangram run` checks in its working directory.
+	let client_path = std::env::temp_dir().join("tangram_tests_sandbox");
+	std::fs::create_dir_all(&client_path)?;
+	let mut command = Command::new(tangram);
+	command.current_dir(&client_path).args(["run", "--sandbox"]);
+	if !options.offline {
+		command.arg("--network");
+	}
+	for (source, target, mode) in &mounts {
+		command
+			.arg("--mount")
+			.arg(format!("{}:{},{mode}", source.display(), target.display()));
+	}
+	command.arg("--cwd").arg(working_path);
+	let environment = environment.into_iter().chain([
+		("HOME".to_owned(), home_path.display().to_string()),
+		("PATH".to_owned(), path),
+	]);
+	for (key, value) in environment {
+		command.arg("--env-string").arg(format!("{key}={value}"));
+	}
+
+	// Run the supervisor in a new user and mount namespace, which lets fusermount3 mount the VFS of the test's servers.
+	command
+		.arg("--executable")
+		.arg(unshare)
+		.args([
+			"--",
+			"--user",
+			"--map-current-user",
+			"--mount",
+			"--keep-caps",
+		])
+		.arg(supervisor);
+
+	Ok(command)
 }
 
 /// Quote a path as a Nushell string literal.
