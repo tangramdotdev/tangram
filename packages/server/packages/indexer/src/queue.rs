@@ -64,6 +64,9 @@ struct Queue {
 	// The entries that have not been popped, keyed by sequence.
 	entries: BTreeMap<u64, Entry>,
 
+	// The sequences whose entries were processed and have not completed, because their writes to the cache have not finished.
+	processed: BTreeSet<u64>,
+
 	read_sequence: u64,
 
 	reservation_pending: bool,
@@ -295,6 +298,16 @@ impl Queues {
 		self.queue_mut(kind).complete(sequence);
 	}
 
+	pub fn finish_processing(&mut self, kind: Kind, sequence: u64) {
+		self.queue_mut(kind).processed.insert(sequence);
+	}
+
+	#[must_use]
+	pub fn processing_finished(&self, kind: Kind, sequence: u64) -> bool {
+		let queue = self.queue(kind);
+		queue.processed.contains(&sequence) || queue.is_complete(sequence)
+	}
+
 	#[must_use]
 	pub fn drained(&self, archive_target_sequence: u64, index_target_sequence: u64) -> bool {
 		self.archive.read_sequence >= archive_target_sequence
@@ -387,6 +400,7 @@ impl Queue {
 		Self {
 			completed: BTreeMap::new(),
 			entries: BTreeMap::new(),
+			processed: BTreeSet::new(),
 			read_sequence,
 			reservation_pending: false,
 			reserved_sequence_end: write_sequence,
@@ -396,6 +410,7 @@ impl Queue {
 	}
 
 	fn complete(&mut self, sequence: u64) {
+		self.processed.remove(&sequence);
 		if sequence < self.read_sequence {
 			return;
 		}
@@ -412,6 +427,15 @@ impl Queue {
 		} else {
 			self.completed.insert(sequence, end);
 		}
+	}
+
+	fn is_complete(&self, sequence: u64) -> bool {
+		sequence < self.read_sequence
+			|| self
+				.completed
+				.range(..=sequence)
+				.next_back()
+				.is_some_and(|(_, end)| *end > sequence)
 	}
 }
 
@@ -541,6 +565,12 @@ impl Indexer {
 		// Process the entry.
 		self.process_entry_with_retry(kind, sequence, &payload)
 			.await?;
+		state
+			.lock()
+			.unwrap()
+			.queues
+			.finish_processing(kind, sequence);
+		changed.notify_waiters();
 
 		// Wait for the write to finish, so that the write cannot recreate the deleted queue item.
 		loop {

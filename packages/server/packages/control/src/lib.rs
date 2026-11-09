@@ -19,6 +19,7 @@ mod sandbox;
 #[cfg(test)]
 mod tests;
 
+pub mod accept;
 pub mod requests;
 
 // Acknowledgements confirm receipt only. Requests remain pending until a response; reconnects replay them with the same IDs. Responses retry until acknowledged.

@@ -17,7 +17,10 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_index::prelude::*,
-	tangram_server_core::Session,
+	tangram_server_core::{
+		Session,
+		control::accept::{Accept, Path},
+	},
 };
 
 pub(super) struct Parents(HashMap<tg::sandbox::Id, Parent, tg::id::BuildHasher>);
@@ -83,13 +86,20 @@ struct Borrowable {
 	runner: tg::runner::Id,
 }
 
+/// The acceptance of an enqueued sandbox, and the enqueue requests that wait for it.
+#[derive(Default)]
+pub(super) struct Accepting {
+	accept: Accept,
+	ids: Vec<String>,
+	persisted: bool,
+}
+
 struct Links {
 	next: Option<tg::sandbox::Id>,
 	previous: Option<tg::sandbox::Id>,
 }
 
 struct Sandbox {
-	abandoned: bool,
 	attempts: usize,
 	blocked: HashMap<tg::runner::Id, Block, tg::id::BuildHasher>,
 	capacity: tg::runner::Capacity,
@@ -137,13 +147,8 @@ pub(super) struct Completion {
 	sandbox: tg::sandbox::Id,
 }
 
-pub(super) struct AbandonedSandbox {
-	runner: RunnerRef,
-	sandbox: tg::sandbox::Id,
-}
-
 pub(super) struct CreateSandboxCompletionOutput {
-	pub abandoned: Option<AbandonedSandbox>,
+	pub accepted: Option<tg::sandbox::Id>,
 	pub dequeue_completions: Vec<DequeueCompletion>,
 	pub discarded: Option<DiscardedSandbox>,
 	pub held: Option<HeldEnd>,
@@ -308,12 +313,12 @@ impl Sandboxes {
 impl SchedulerState {
 	pub(super) fn new() -> Self {
 		Self {
+			accepting: HashMap::default(),
 			operations: futures::stream::FuturesUnordered::new(),
 			owner_ancestor_requests: HashMap::default(),
 			owner_ancestors: HashMap::default(),
 			parents: Parents::new(),
 			pending_enqueues: HashMap::default(),
-			persisting: HashMap::default(),
 			queue: Queue::new(),
 			recovery: None,
 			requests: super::Requests {
@@ -440,7 +445,7 @@ impl SchedulerState {
 		}
 	}
 
-	/// Respond to enqueue requests. A request that the scheduling task accepted responds once its index write is enqueued.
+	/// Respond to enqueue requests. A request that the scheduling task accepted responds once either its index write is enqueued or a runner accepts the sandbox, whichever is first.
 	fn finish_enqueue(
 		&mut self,
 		scheduler: &Scheduler,
@@ -452,11 +457,13 @@ impl SchedulerState {
 			&& let Some(entry) = self.sandboxes.entries.get(sandbox)
 			&& !entry.persisted
 		{
+			// Write the sandbox to the index queue concurrently with its handoff to a runner.
 			let request = entry.request.clone();
-			let first = !self.persisting.contains_key(sandbox);
-			self.persisting
+			let first = !self.accepting.contains_key(sandbox);
+			self.accepting
 				.entry(sandbox.clone())
 				.or_default()
+				.ids
 				.extend(ids);
 			if first {
 				let scheduler = scheduler.clone();
@@ -472,6 +479,32 @@ impl SchedulerState {
 			return;
 		}
 		self.send_enqueue_responses(scheduler, ids, result);
+	}
+
+	/// Record the result of a path of a sandbox's acceptance, and respond to its enqueue requests the first time that the acceptance is decided.
+	pub(super) fn finish_accept(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: &tg::sandbox::Id,
+		path: Path,
+		result: tg::Result<()>,
+	) {
+		let Some(accepting) = self.accepting.get_mut(sandbox) else {
+			return;
+		};
+		if let Some(result) = accepting.accept.finish(path, result) {
+			let ids = std::mem::take(&mut accepting.ids);
+			self.send_enqueue_responses(scheduler, ids, result);
+		}
+
+		// Remove the acceptance once it is decided and its index write is finished, so that a later enqueue request does not wait for it.
+		let accepting = self.accepting.get_mut(sandbox).unwrap();
+		if path == Path::Queued {
+			accepting.persisted = true;
+		}
+		if accepting.accept.decided() && accepting.persisted {
+			self.accepting.remove(sandbox);
+		}
 	}
 
 	fn send_enqueue_responses(
@@ -494,21 +527,15 @@ impl SchedulerState {
 		id: &tg::sandbox::Id,
 		result: tg::Result<()>,
 	) {
-		let ids = self.persisting.remove(id).unwrap_or_default();
 		if let Err(error) = &result {
 			tracing::error!(error = %error.trace(), sandbox = %id, "failed to record the accepted sandbox");
 		}
-		if let Some(sandbox) = self.sandboxes.entries.get_mut(id) {
-			if result.is_ok() {
-				sandbox.persisted = true;
-			} else if matches!(sandbox.state, SandboxState::Pending) {
-				self.remove_queued_sandbox(id);
-				self.sandboxes.entries.remove(id);
-			} else {
-				sandbox.abandoned = true;
-			}
+		if result.is_ok()
+			&& let Some(sandbox) = self.sandboxes.entries.get_mut(id)
+		{
+			sandbox.persisted = true;
 		}
-		self.send_enqueue_responses(scheduler, ids, result);
+		self.finish_accept(scheduler, id, Path::Queued, result);
 	}
 
 	fn enqueue_sandbox(
@@ -543,7 +570,6 @@ impl SchedulerState {
 		let id = request.sandbox.clone();
 		let parent = request.parent.clone();
 		let sandbox = Sandbox {
-			abandoned: false,
 			attempts: 0,
 			blocked: HashMap::default(),
 			capacity,
@@ -1217,27 +1243,6 @@ impl SchedulerState {
 		}
 	}
 
-	pub(super) fn destroy_abandoned_sandbox(
-		&mut self,
-		scheduler: &Scheduler,
-		abandoned: AbandonedSandbox,
-	) {
-		let AbandonedSandbox { runner, sandbox } = abandoned;
-		let error = tg::error::Data {
-			code: Some(tg::error::Code::Internal),
-			message: Some("failed to record the accepted sandbox".to_owned()),
-			..Default::default()
-		};
-		let destroy = DestroySandbox {
-			error,
-			registration_index: runner.registration_index,
-			request: None,
-			runner: runner.id,
-			sandbox,
-		};
-		self.send_destroy_sandbox(scheduler, destroy);
-	}
-
 	pub(super) fn handle_borrowable_capacity(
 		&mut self,
 		scheduler: &Scheduler,
@@ -1381,7 +1386,7 @@ impl SchedulerState {
 		} = completion;
 		let Some(sandbox) = self.sandboxes.entries.get(&id) else {
 			return CreateSandboxCompletionOutput {
-				abandoned: None,
+				accepted: None,
 				dequeue_completions: Vec::new(),
 				discarded: None,
 				held: None,
@@ -1389,7 +1394,7 @@ impl SchedulerState {
 		};
 		let SandboxState::Creating { placement: current } = &sandbox.state else {
 			return CreateSandboxCompletionOutput {
-				abandoned: None,
+				accepted: None,
 				dequeue_completions: Vec::new(),
 				discarded: None,
 				held: None,
@@ -1397,7 +1402,7 @@ impl SchedulerState {
 		};
 		if current != &placement {
 			return CreateSandboxCompletionOutput {
-				abandoned: None,
+				accepted: None,
 				dequeue_completions: Vec::new(),
 				discarded: None,
 				held: None,
@@ -1433,22 +1438,14 @@ impl SchedulerState {
 				held
 			});
 		let ending = held.is_some();
-		let mut abandoned = None;
+		let mut accepted = None;
 		let mut discarded = None;
 		let output = match result {
 			Ok(Ok(true)) if runner_current => {
 				self.remove_reservation(&id, &placement, true);
-				if self
-					.sandboxes
-					.entries
-					.remove(&id)
-					.is_some_and(|sandbox| sandbox.abandoned)
-				{
-					abandoned = Some(AbandonedSandbox {
-						runner: runner_ref.clone(),
-						sandbox: id.clone(),
-					});
-				} else if let Some(held) = &mut held {
+				self.sandboxes.entries.remove(&id);
+				accepted = Some(id.clone());
+				if let Some(held) = &mut held {
 					held.placed = Some(runner_ref.clone());
 				} else {
 					let placed = Placed {
@@ -1543,7 +1540,7 @@ impl SchedulerState {
 			.collect();
 
 		CreateSandboxCompletionOutput {
-			abandoned,
+			accepted,
 			dequeue_completions,
 			discarded,
 			held,
