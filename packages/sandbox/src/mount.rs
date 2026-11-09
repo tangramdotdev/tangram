@@ -976,9 +976,50 @@ pub(crate) fn mount_sys(target: &Path) -> tg::Result<()> {
 		Err(error) => return Err(tg::error!(!error, "failed to create the sysfs mount")),
 	}
 
-	// Bind the host sysfs recursively and read-only when a fresh sysfs is not permitted.
+	// Open the host sysfs.
 	let source = open_absolute_path(Path::new("/sys"))
 		.map_err(|error| tg::error!(!error, "failed to open the host sysfs"))?;
+
+	// Mount an empty read-only tmpfs with a cgroup mountpoint when /sys is not a sysfs, as when a parent sandbox's /sys is a tmpfs, because there is no sysfs to expose.
+	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
+	// SAFETY: The descriptor and output pointer are valid.
+	if unsafe { libc::fstatfs(source.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			"failed to inspect the host sysfs"
+		));
+	}
+	// SAFETY: fstatfs initialized the structure on success.
+	let statistics = unsafe { statistics.assume_init() };
+	if statistics.f_type != libc::SYSFS_MAGIC {
+		let source = cstring("tmpfs");
+		let fstype = cstring("tmpfs");
+		mount_raw(
+			Some(&source),
+			&target_cstring,
+			Some(&fstype),
+			libc::MS_NODEV | libc::MS_NOEXEC | libc::MS_NOSUID,
+			std::ptr::null_mut(),
+		)
+		.map_err(|error| tg::error!(!error, "failed to create the sysfs tmpfs"))?;
+		std::fs::create_dir_all(target.join("fs/cgroup")).map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to create the cgroup mountpoint in the sysfs tmpfs"
+			)
+		})?;
+		mount_raw(
+			None,
+			&target_cstring,
+			None,
+			libc::MS_REMOUNT | flags,
+			std::ptr::null_mut(),
+		)
+		.map_err(|error| tg::error!(!error, "failed to make the sysfs tmpfs read-only"))?;
+		return Ok(());
+	}
+
+	// Bind the host sysfs recursively and read-only when a fresh sysfs is not permitted.
 	let target_fd = open_absolute_path(target).map_err(|error| {
 		tg::error!(
 			!error,
