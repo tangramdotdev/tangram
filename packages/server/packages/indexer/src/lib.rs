@@ -30,6 +30,9 @@ mod wait;
 
 pub mod queue;
 
+/// The ID of the only indexer of a single server, which multi-server mode replaces with a configured ID.
+const SINGLE_SERVER_ID: &str = "idx_0000000000000000000000000000";
+
 /// The component.
 #[derive(Clone)]
 pub struct Component(Arc<State>);
@@ -49,7 +52,7 @@ pub struct State {
 #[derive(Clone)]
 pub struct Indexer {
 	component: Component,
-	id: Option<tg::indexer::Id>,
+	id: tg::indexer::Id,
 	server: Server,
 }
 
@@ -149,20 +152,19 @@ impl Component {
 	async fn register_indexer(
 		server: &Server,
 	) -> tg::Result<Option<tangram_index::indexer::Indexer>> {
-		if !server.config.advanced.multi_server
-			|| !server
-				.config
-				.roles
-				.contains(&tangram_server_core::config::Role::Indexer)
+		if !server
+			.config
+			.roles
+			.contains(&tangram_server_core::config::Role::Indexer)
 		{
 			return Ok(None);
 		}
-		let id = server
-			.config
-			.indexer
-			.id
-			.clone()
-			.ok_or_else(|| tg::error!("the indexer ID is required in multi-server mode"))?;
+		let id = match &server.config.indexer.id {
+			Some(id) => id.clone(),
+			None => SINGLE_SERVER_ID
+				.parse()
+				.map_err(|error| tg::error!(!error, "failed to parse the indexer ID"))?,
+		};
 		let arg = tangram_index::indexer::get::Arg { id: id.clone() };
 		let indexer = if let Some(mut indexer) = server.index.try_get_indexer(arg).await? {
 			indexer.available = false;
@@ -183,13 +185,7 @@ impl Component {
 		server: &Server,
 		indexer_state: Option<tangram_index::indexer::Indexer>,
 	) -> Option<Task<()>> {
-		if !server
-			.config
-			.roles
-			.contains(&tangram_server_core::config::Role::Indexer)
-		{
-			return None;
-		}
+		let indexer_state = indexer_state?;
 		let config = server.config.indexer.clone();
 		let component = self.clone();
 		let server = server.clone();
@@ -210,18 +206,18 @@ impl Component {
 		&self,
 		server: &Server,
 		config: &tangram_server_core::config::Indexer,
-		indexer_state: Option<tangram_index::indexer::Indexer>,
+		indexer_state: tangram_index::indexer::Indexer,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		let id = indexer_state.as_ref().map(|state| state.id.clone());
+		let id = indexer_state.id.clone();
 		let indexer = Indexer {
 			component: self.clone(),
 			id,
 			server: server.clone(),
 		};
 		let memory_limit = config.queue.memory;
-		let queues = if let Some(state) = &indexer_state {
-			let mut queues = queue::Queues::new(state, memory_limit);
+		let queues = if server.config.advanced.multi_server {
+			let mut queues = queue::Queues::new(&indexer_state, memory_limit);
 			queues.recover(&indexer).await?;
 			queues.reserve_initial_sequences(&indexer).await?;
 			queues
@@ -284,7 +280,7 @@ impl Component {
 			let changed = changed.clone();
 			let state = state.clone();
 			move |stopper| async move {
-				if indexer.id.is_none() {
+				if !indexer.server.config.advanced.multi_server {
 					stopper.wait().await;
 					return Ok(());
 				}
@@ -301,7 +297,7 @@ impl Component {
 			let changed = changed.clone();
 			let state = state.clone();
 			move |stopper| async move {
-				if indexer.id.is_none() {
+				if !indexer.server.config.advanced.multi_server {
 					stopper.wait().await;
 					return Ok(());
 				}
@@ -317,7 +313,7 @@ impl Component {
 			let indexer = indexer.clone();
 			let state = state.clone();
 			move |stopper| async move {
-				if indexer.id.is_none() {
+				if !indexer.server.config.advanced.multi_server {
 					stopper.wait().await;
 					return Ok(());
 				}
@@ -549,13 +545,11 @@ impl Component {
 		ready_receiver
 			.await
 			.map_err(|_| tg::error!("the indexer request task stopped before becoming ready"))?;
-		if indexer.id.is_some() {
-			state.lock().unwrap().available = true;
-			changed.notify_waiters();
-			indexer.update_availability(true).await?;
-			if let Err(error) = self.refresh_indexer_cache(server).await {
-				tracing::error!(error = %error.trace(), "failed to refresh the indexer cache");
-			}
+		state.lock().unwrap().available = true;
+		changed.notify_waiters();
+		indexer.update_availability(true).await?;
+		if let Err(error) = self.refresh_indexer_cache(server).await {
+			tracing::error!(error = %error.trace(), "failed to refresh the indexer cache");
 		}
 
 		let tasks = Tasks {
@@ -610,9 +604,7 @@ impl Component {
 					Ok(Err(error)) => tg::error!(!error, task = %name, "an indexer task failed"),
 					Err(error) => tg::error!(!error, task = %name, "an indexer task panicked"),
 				};
-				if indexer.id.is_some() {
-					let _ = tokio::time::timeout(config.request.timeout, indexer.update_availability(false)).await;
-				}
+				let _ = tokio::time::timeout(config.request.timeout, indexer.update_availability(false)).await;
 				return Err(error);
 			},
 		}
@@ -634,7 +626,7 @@ impl Component {
 				},
 			}
 		};
-		if result.is_err() && indexer.id.is_some() {
+		if result.is_err() {
 			let _ =
 				tokio::time::timeout(config.request.timeout, indexer.update_availability(false))
 					.await;
@@ -660,13 +652,6 @@ impl Component {
 }
 
 impl Indexer {
-	#[must_use]
-	fn id(&self) -> &tg::indexer::Id {
-		self.id
-			.as_ref()
-			.expect("a queue operation requires an indexer ID")
-	}
-
 	#[must_use]
 	fn retry_options(&self) -> tangram_futures::retry::Options {
 		self.server.config.indexer.retry.clone().into()
@@ -709,13 +694,11 @@ impl Indexer {
 			.map_err(|error| tg::error!(!error, "the capture task panicked"))??;
 
 		// Stop accepting queue requests.
-		if self.id.is_some() {
-			state.lock().unwrap().available = false;
-			changed.notify_waiters();
-			self.update_availability_with_retry(false).await?;
-			if let Err(error) = self.component.refresh_indexer_cache(&self.server).await {
-				tracing::error!(error = %error.trace(), "failed to refresh the indexer cache");
-			}
+		state.lock().unwrap().available = false;
+		changed.notify_waiters();
+		self.update_availability_with_retry(false).await?;
+		if let Err(error) = self.component.refresh_indexer_cache(&self.server).await {
+			tracing::error!(error = %error.trace(), "failed to refresh the indexer cache");
 		}
 
 		// Finish the current operations without exhausting the partitions.
@@ -752,12 +735,12 @@ impl Indexer {
 			.await;
 		self.component.index_tasks.wait().await;
 		self.server.components.object.wait_archive_tasks().await;
-		if self.id.is_some() {
+		if self.server.config.advanced.multi_server {
 			Self::drain_queues(state, changed).await?;
 		}
 
 		// Deletion certifies that the private queues are drained; shared work remains durable.
-		if self.id.is_some() {
+		if self.server.config.advanced.multi_server {
 			self.checkpoint_queues_with_retry(checkpoints).await?;
 			self.delete_with_retry().await?;
 		}
@@ -816,7 +799,7 @@ impl Indexer {
 
 	async fn update_availability(&self, available: bool) -> tg::Result<()> {
 		let arg = tangram_index::indexer::update::Arg {
-			id: self.id().clone(),
+			id: self.id.clone(),
 			value: tangram_index::indexer::update::Value::Available(available),
 		};
 		self.server.index.update_indexer(arg).await
@@ -825,7 +808,7 @@ impl Indexer {
 	async fn delete_with_retry(&self) -> tg::Result<()> {
 		tangram_futures::retry(&self.retry_options(), || async {
 			let arg = tangram_index::indexer::delete::Arg {
-				id: self.id().clone(),
+				id: self.id.clone(),
 			};
 			match self.server.index.delete_indexer(arg).await {
 				Ok(()) => Ok(ControlFlow::Break(())),

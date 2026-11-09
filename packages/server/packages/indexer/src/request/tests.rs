@@ -7,11 +7,10 @@ use {
 };
 
 #[test]
-fn subjects_address_an_idless_or_named_indexer() {
-	assert_eq!(Indexer::server_subject(None), "indexers.server");
+fn subjects_address_a_named_indexer() {
 	let id = tg::indexer::Id::new();
 	assert_eq!(
-		Indexer::server_subject(Some(&id)),
+		Indexer::server_subject(&id),
 		format!("indexers.{id}.server")
 	);
 }

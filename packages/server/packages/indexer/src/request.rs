@@ -130,7 +130,7 @@ impl Component {
 	pub(crate) async fn send_indexer_request(
 		&self,
 		server: &Server,
-		indexer: Option<&tg::indexer::Id>,
+		indexer: &tg::indexer::Id,
 		arg: RequestArg,
 	) -> tg::Result<tg::Result<ResponseOutput>> {
 		// Reuse the ID so a retry does not replace an active wait with a later barrier.
@@ -165,7 +165,7 @@ impl Component {
 	async fn send_indexer_request_inner(
 		&self,
 		server: &Server,
-		indexer: Option<&tg::indexer::Id>,
+		indexer: &tg::indexer::Id,
 		id: &str,
 		arg: RequestArg,
 	) -> tg::Result<tg::Result<ResponseOutput>> {
@@ -220,7 +220,7 @@ impl Indexer {
 		let messages = self
 			.server
 			.messenger
-			.subscribe::<ServerMessage>(Self::server_subject(self.id.as_ref()))
+			.subscribe::<ServerMessage>(Self::server_subject(&self.id))
 			.await
 			.map_err(|source| {
 				tg::error!(!source, "failed to subscribe to the indexer request stream")
@@ -448,11 +448,8 @@ impl Indexer {
 		format!("indexers.client.{id}")
 	}
 
-	fn server_subject(id: Option<&tg::indexer::Id>) -> String {
-		id.map_or_else(
-			|| "indexers.server".to_owned(),
-			|id| format!("indexers.{id}.server"),
-		)
+	fn server_subject(id: &tg::indexer::Id) -> String {
+		format!("indexers.{id}.server")
 	}
 }
 

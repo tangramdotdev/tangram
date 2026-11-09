@@ -66,7 +66,7 @@ impl Component {
 			let arg = RequestArg::Enqueue(arg);
 			async move {
 				let output = self
-					.send_indexer_request(server, Some(indexer), arg)
+					.send_indexer_request(server, indexer, arg)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to send an indexer request"))?
 					.map_err(|source| {
