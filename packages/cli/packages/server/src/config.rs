@@ -1002,9 +1002,6 @@ fn resolve_indexer_enqueue(source: IndexerEnqueue) -> server::IndexerEnqueue {
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
 	}
-	if let Some(value) = source.timeout {
-		target.timeout = value;
-	}
 
 	target
 }
@@ -3508,7 +3505,6 @@ mod tests {
 						"max_delay": 0.03,
 						"max_retries": 4,
 					},
-					"timeout": 3,
 				},
 				"cache": { "poll_interval": 0.125 },
 				"cleaning": {
@@ -3568,7 +3564,6 @@ mod tests {
 			Duration::from_millis(30)
 		);
 		assert_eq!(target.indexer.enqueue.retry.max_retries, 4);
-		assert_eq!(target.indexer.enqueue.timeout, Duration::from_secs(3));
 		assert_eq!(
 			target.indexer.cache.poll_interval,
 			Duration::from_millis(125)

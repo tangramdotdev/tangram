@@ -715,11 +715,6 @@ impl Config {
 				"the indexer request poll interval must be greater than zero"
 			));
 		}
-		if self.indexer.enqueue.timeout.is_zero() {
-			return Err(tg::error!(
-				"the indexer batch timeout must be greater than zero"
-			));
-		}
 		if self.indexer.cache.poll_interval.is_zero() {
 			return Err(tg::error!(
 				"the indexer cache poll interval must be greater than zero"

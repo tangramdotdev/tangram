@@ -995,7 +995,6 @@ pub struct Indexer {
 	pub writer: Option<IndexerWriter>,
 }
 
-#[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexerEnqueue {
@@ -1005,10 +1004,6 @@ pub struct IndexerEnqueue {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub timeout: Option<Duration>,
 }
 
 #[serde_as]

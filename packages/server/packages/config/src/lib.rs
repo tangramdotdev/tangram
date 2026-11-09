@@ -621,8 +621,6 @@ pub struct IndexerEnqueue {
 	pub request_size: usize,
 
 	pub retry: Retry,
-
-	pub timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -2550,7 +2548,6 @@ impl Default for IndexerEnqueue {
 		Self {
 			request_size: 768 * 1024,
 			retry: message_retry_default(),
-			timeout: Duration::from_secs(10),
 		}
 	}
 }

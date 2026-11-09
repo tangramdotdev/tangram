@@ -3,7 +3,6 @@ use {
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future},
 	std::{
 		fmt::{Debug, Display},
-		ops::ControlFlow,
 		sync::{Arc, RwLock},
 		time::Duration,
 	},
@@ -123,11 +122,12 @@ pub struct Response<O> {
 	pub output: Option<O>,
 }
 
-/// Select an available server, run the operation with it, and retry with another server when the operation fails or the server is unavailable.
+/// Select a server, and run the operation with it until it answers. Move to another server only when the server replies that it is unavailable, which means that it did not accept the request, because a server that may have accepted the request must not receive it again through another server.
 pub async fn retry<K, T, F, Fut>(
 	cache: &Cache<K>,
 	server: &Server,
 	options: &tangram_futures::retry::Options,
+	start: u64,
 	f: F,
 ) -> tg::Result<(K::Id, T)>
 where
@@ -135,30 +135,51 @@ where
 	F: Fn(K::Id) -> Fut,
 	Fut: Future<Output = tg::Result<Option<T>>>,
 {
-	let start = rand::random::<u64>();
-	let mut attempt = 0u64;
-	let f = &f;
-	tangram_futures::retry(options, || {
-		let selection = start.wrapping_add(attempt);
-		let refresh = attempt > 0;
-		attempt = attempt.wrapping_add(1);
-		async move {
-			let id = match cache.select(server, selection, refresh).await {
-				Ok(id) => id,
-				Err(error) => return Ok(ControlFlow::Continue(error)),
-			};
+	let mut selection = start;
+	let mut refresh = false;
+	let mut retries = std::pin::pin!(tangram_futures::retry::stream(options.clone()));
+	loop {
+		// Select a server.
+		let id = match cache.select(server, selection, refresh).await {
+			Ok(id) => id,
+			Err(error) => {
+				if retries.next().await.is_none() {
+					return Err(error);
+				}
+				refresh = true;
+				continue;
+			},
+		};
+
+		// Run the operation with the server until it answers.
+		let output = loop {
 			match f(id.clone()).await {
-				Ok(Some(output)) => Ok(ControlFlow::Break((id, output))),
-				Ok(None) => {
-					let name = K::NAME;
-					let error = tg::error!(%id, "the {name} is unavailable");
-					Ok(ControlFlow::Continue(error))
+				Ok(output) => break output,
+				Err(error) => {
+					if retries.next().await.is_none() {
+						return Err(error);
+					}
 				},
-				Err(error) => Ok(ControlFlow::Continue(error)),
 			}
+		};
+		if let Some(output) = output {
+			return Ok((id, output));
 		}
-	})
-	.await
+
+		// Move to the next server, because this server did not accept the request.
+		if retries.next().await.is_none() {
+			let name = K::NAME;
+			return Err(tg::error!(%id, "the {name} is unavailable"));
+		}
+		selection = selection.wrapping_add(1);
+		refresh = true;
+	}
+}
+
+/// Get a random starting point for server selection.
+#[must_use]
+pub fn start() -> u64 {
+	rand::random()
 }
 
 /// Send a request to a server, returning `None` if the server is unavailable.
