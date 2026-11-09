@@ -15,8 +15,8 @@ let local = server spawn --root --config {
 }
 
 # Create a sandbox that reserves most of the runner's storage, and stop it.
-let first = tg sandbox create --no-tokens --storage-min 50331648 --storage 50331648 | referent node
-tg sandbox stop $first
+let first = tg sandbox create --wait --no-tokens --storage-min 50331648 --storage 50331648 | referent node
+tg sandbox stop --wait $first
 
 # Restart the server, whose runner rebuilds the stopped sandbox's reservation.
 let local = server restart $local
