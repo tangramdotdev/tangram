@@ -3,7 +3,7 @@
 These are the end-to-end tests for tangram. Each `.nu`
 file in `tests/` is one self-contained test, and `util/` holds the shared helpers. The `packages/tests/test.nu` script builds
 Tangram and the test runner in `packages/tests/packages/runner`, then runs the tests with it.
-From the repository root, run them with `tg run .#testE2e -- [pattern]`, which runs
+From the repository root, run them with `tg run ./packages/tests#test -- [pattern]`, which runs
 `nu packages/tests/test.nu [pattern]`, where `pattern` is an optional regex
 matched against each test's path. From this package, use
 `tg run .#test -- [pattern]`. Pass `--accept` to accept new or changed snapshots.
@@ -14,7 +14,7 @@ during highly concurrent runs.
 
 On Linux, pass `--cpus` and `--memory` to run the build and the tests in a
 systemd user scope limited to that many CPUs and that much memory without swap,
-for example `tg run .#testE2e -- --cpus 8 --memory 20GiB sandbox`. Every
+for example `tg run ./packages/tests#test -- --cpus 8 --memory 20GiB sandbox`. Every
 server and sandbox that the tests start inherits the limits, and `--cpus` also
 sets the default number of jobs.
 
@@ -26,7 +26,7 @@ install Docker, PostgreSQL, and `nats-server`. Then start the shared databases i
 a separate terminal:
 
 ```nu
-tg run .#testDatabases
+tg run ./packages/tests#databases
 ```
 
 The command runs every database as a native process on Linux. On macOS, it runs
@@ -49,7 +49,7 @@ On Linux and macOS, the normal test command runs cloud tests against the shared
 databases:
 
 ```nu
-tg run .#testE2e -- [pattern]
+tg run ./packages/tests#test -- [pattern]
 ```
 
 A Tangram instance contains servers directly or is divided into regions, each
@@ -257,7 +257,7 @@ top. Running the suite with `--offline` skips these tests, so the rest of the
 suite is hermetic:
 
 ```nu
-tg run .#testE2e -- --offline
+tg run ./packages/tests#test -- --offline
 ```
 
 The `server spawn --busybox` helper calls `skip_test --offline` itself, so a test only
@@ -345,7 +345,7 @@ To flush out rare races, run a test repeatedly with the worker pool kept full
 until it fails:
 
 ```nu
-tg run .#testE2e -- --stress 'run/sandbox_dequeue_finish_deadlock'
+tg run ./packages/tests#test -- --stress 'run/sandbox_dequeue_finish_deadlock'
 ```
 
 Pass `--stress-count N` to bound the number of rounds instead of running until

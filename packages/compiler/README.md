@@ -74,5 +74,5 @@ Run the repository checks and relevant CLI tests with Nushell:
 ```nu
 tg run .#format
 tg run .#check
-tg run .#testE2e -- '(check|document|lsp)/'
+tg run ./packages/tests#test -- '(check|document|lsp)/'
 ```

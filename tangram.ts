@@ -9,28 +9,6 @@ import { task } from "./scripts/task.tg.ts";
 
 export { cli as tg };
 
-export {
-	databases as cloudDatabases,
-	deinit as cloudDeinit,
-	init as cloudInit,
-	runner as cloudRunner,
-	server as cloudServer,
-} from "./scripts/cloud";
-export {
-	build as macosBuild,
-	check as macosCheck,
-	doctor as macosDoctor,
-	install as macosInstall,
-	release as macosRelease,
-	run as macosRun,
-} from "./packages/macos";
-export {
-	clean as testClean,
-	databases as testDatabases,
-	test as testE2e,
-} from "./packages/tests";
-export { test as testJavascript } from "./packages/clients/javascript";
-
 const packages = [
 	javascriptClient,
 	pythonClient,

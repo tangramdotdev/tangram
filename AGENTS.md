@@ -12,7 +12,7 @@ Force pushing branches other than `main` is allowed. Never force push `main`.
 
 ## Repository scripts
 
-Use Tangram as the interface for repository scripts: `tg run .#<export>` from the root, or `tg run ./packages/<package>#<export>` for a package. Pass script arguments after `--`, such as `tg run .#testE2e -- --offline build`. These exports run tools directly on the host without sandboxing. Keep OS-specific operations in the existing Nushell, Python, and Node scripts as appropriate.
+Use Tangram as the interface for repository scripts: `tg run .#<export>` from the root, or `tg run ./packages/<package>#<export>` for a package. Pass script arguments after `--`, such as `tg run ./packages/tests#test -- --offline build`. These exports run tools directly on the host without sandboxing. Keep OS-specific operations in the existing Nushell, Python, and Node scripts as appropriate.
 
 ## Checking
 
@@ -32,7 +32,7 @@ Write e2e tests in `packages/tests/tests` by default, especially to test user-fa
 
 E2e tests must assert user-observable behavior, not implementation details. Observe effects through the CLI or from a process inside a sandbox. Do not assert on helper processes, cgroups, log lines, database rows, on-disk layout, or counts of internal work. Tests may decode authorization tokens with `tg authorization token decode` to check the resource, permissions, and expiration that a token grants. Delete an internal check rather than replacing it, and delete a test whose only purpose is internal unless a user-visible behavior behind it is worth testing directly. Use checkpoints to drive scenarios by holding, ordering, and synchronizing server events, not to expose internal details for assertions. Test an internal component in isolation with a Rust unit test when its logic is worth pinning down. If a test needs a wait only because it inspects internals, remove the inspection instead of adding the wait.
 
-To run all tests, run `tg run .#test`. The most important tests are the e2e tests in `packages/tests/tests`. You can run the e2e tests with `tg run .#testE2e`, which runs `nu packages/tests/test.nu` and passes along arguments after `--`; when the cloud databases are not running, the tests that require them are skipped. Do not start the test databases yourself. Rely on test databases that are already running; if none are running, allow the tests that require them to skip. Provide a regex pattern as an arg for the tests in the tests directory. For example, `tg run .#testE2e -- build` will run all the build tests. To accept new and updated snapshots, run `tg run .#testE2e -- --accept`.
+To run all tests, run `tg run .#test`. The most important tests are the e2e tests in `packages/tests/tests`. You can run the e2e tests with `tg run ./packages/tests#test`, which runs `nu packages/tests/test.nu` and passes along arguments after `--`; when the cloud databases are not running, the tests that require them are skipped. Do not start the test databases yourself. Rely on test databases that are already running; if none are running, allow the tests that require them to skip. Provide a regex pattern as an arg for the tests in the tests directory. For example, `tg run ./packages/tests#test -- build` will run all the build tests. To accept new and updated snapshots, run `tg run ./packages/tests#test -- --accept`.
 
 The FoundationDB index tests and the cloud instance tests in `packages/cli/tests` and `packages/server/tests` use the cloud databases too, and skip themselves when they are not running.
 
@@ -40,9 +40,9 @@ The FoundationDB index tests and the cloud instance tests in `packages/cli/tests
 
 The macOS app uses XcodeGen. Commit changes to `packages/macos/project.yml`, and do not commit the generated Xcode project or build directory.
 
-Run `tg run .#macosDoctor` to check the unsigned build prerequisites. Run `tg run .#macosCheck` for an unsigned Rust and Swift compilation that does not require an Apple Developer account. Run `tg run .#macosRun` to development-sign, install, and launch the app from `~/Applications`. The `--release` flag on `scripts/macos/run.nu` selects optimized local binaries, but it does not produce a distributable release.
+Run `tg run ./packages/macos#doctor` to check the unsigned build prerequisites. Run `tg run ./packages/macos#check` for an unsigned Rust and Swift compilation that does not require an Apple Developer account. Run `tg run ./packages/macos#run` to development-sign, install, and launch the app from `~/Applications`. The `--release` flag on `scripts/macos/run.nu` selects optimized local binaries, but it does not produce a distributable release.
 
-Run `tg run .#macosRelease` to archive the app, export it with Developer ID signing, notarize it, staple and verify the ticket, and create `packages/macos/build/Distribution/Tangram.zip`. Pass `-- --install` to install the verified app in `/Applications`. Set `TANGRAM_NOTARY_PROFILE` to override the default `Tangram` notarytool keychain profile.
+Run `tg run ./packages/macos#release` to archive the app, export it with Developer ID signing, notarize it, staple and verify the ticket, and create `packages/macos/build/Distribution/Tangram.zip`. Pass `-- --install` to install the verified app in `/Applications`. Set `TANGRAM_NOTARY_PROFILE` to override the default `Tangram` notarytool keychain profile.
 
 For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `packages/macos/Local.xcconfig` and set the bundle prefix and development team. Create Apple Development and Developer ID Application certificates in the login keychain. Store the notarization credentials interactively with `xcrun notarytool store-credentials Tangram --apple-id <apple-id> --team-id <team-id>`. Do not store signing keys or notarization passwords in the repository.
 

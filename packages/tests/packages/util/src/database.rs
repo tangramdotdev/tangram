@@ -129,7 +129,7 @@ pub async fn check() -> Result<()> {
 		.collect::<Vec<_>>();
 	if !missing.is_empty() {
 		return Err(format!(
-			"the following database clients are missing from PATH: {}\nhelp: install the database programs, then run `tg run .#testDatabases` in another terminal",
+			"the following database clients are missing from PATH: {}\nhelp: install the database programs, then run `tg run ./packages/tests#databases` in another terminal",
 			missing.join(", ")
 		)
 		.into());
@@ -185,7 +185,7 @@ pub async fn check() -> Result<()> {
 	.collect::<Vec<_>>();
 	if !unavailable.is_empty() {
 		return Err(format!(
-			"the following cloud databases are not ready: {}\nhelp: run `tg run .#testDatabases` in another terminal",
+			"the following cloud databases are not ready: {}\nhelp: run `tg run ./packages/tests#databases` in another terminal",
 			unavailable.join(", ")
 		)
 		.into());

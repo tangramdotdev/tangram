@@ -2,7 +2,7 @@ use ../util/test.nu *
 
 export def skip_unless_supported [] {
 	if $nu.os-info.name == 'macos' and (($env.TANGRAM_TEST_FSKIT? | default '') | str length) == 0 {
-		skip_test 'the macos vfs tests require the FSKit extension, which `tg run .#macosRun` installs'
+		skip_test 'the macos vfs tests require the FSKit extension, which `tg run ./packages/macos#run` installs'
 	}
 }
 

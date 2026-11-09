@@ -110,7 +110,7 @@ precedence over references; use explicit `tg run` for a colliding tag name.
 tg run .#check
 tg run .#format
 tg run .#build -- --release
-tg run .#testE2e -- --offline build
+tg run ./packages/tests#test -- --offline build
 ```
 
 Arguments after `--` are forwarded unchanged to the underlying command. Checks
@@ -142,10 +142,7 @@ have their hooks invoked automatically.
 | `install`, `installDev` | Install release or dev CLI binaries and the `tg` symlink |
 | `cli`, `cliRelease`, `cliSudo` | Run the local CLI in debug, release, or elevated mode |
 | `run`, `runRelease` | Build and run a Tangram target with the local CLI |
-| `test`, `testJavascript`, `testRust`, `testE2e` | Full test suite or an individual suite |
-| `testDatabases`, `testClean` | Shared test databases and test-resource cleanup |
-| `cloudDatabases`, `cloudInit`, `cloudDeinit`, `cloudServer`, `cloudRunner` | Local cloud environment |
-| `macosBuild`, `macosCheck`, `macosDoctor`, `macosInstall`, `macosRelease`, `macosRun` | macOS app workflows |
+| `test`, `testRust` | Full test suite or the Rust tests |
 | `imageBuild`, `imagePush` | Build or publish the container image |
 | `canary` | Build and publish the canary release |
 | `clean` | Remove checkout state, dependencies, and build output |
@@ -154,9 +151,11 @@ Packages own their commands in local `tangram.ts` files. For example, run
 `tg run ./packages/clients/javascript#build -- --profile debug` from the root,
 or change into that package and run `tg run .#build -- --profile debug`.
 The e2e package exports `test`, `databases`, and `clean`; the macOS package
-exports `build`, `check`, `doctor`, `install`, `release`, and `run`; cloud
-commands live in `scripts/cloud/tangram.ts`. Root exports compose or reexport
-these package commands.
+exports `build`, `check`, `doctor`, `install`, `release`, and `run`; the
+JavaScript client exports `test`; and `scripts/cloud/tangram.ts` exports
+`databases`, `init`, `deinit`, `server`, and `runner` for the local cloud
+environment, such as `tg run ./scripts/cloud#init`. Root exports compose
+package commands but do not reexport them.
 
 Each task sets the working directory expected by its underlying tools and adds
 its package and repository `node_modules/.bin` directories to the inherited
