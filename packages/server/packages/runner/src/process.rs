@@ -2223,10 +2223,13 @@ impl Component {
 		.boxed()
 		.await;
 
-		// Report a failure after the sandbox began stopping as a cancellation, because stopping the sandbox shuts down its server, which interrupts spawning and awaiting the process.
+		// Report a failure during requested sandbox shutdown as a cancellation so that the recorded finish request determines the outcome.
 		let result = match result {
 			Err(error)
 				if stopper.stopped()
+					&& processes
+						.get(&id)
+						.is_some_and(|process| process.finish.is_some())
 					&& !matches!(error.code(), Some(tg::error::Code::Cancellation)) =>
 			{
 				Err(tg::error!(
