@@ -264,28 +264,6 @@ impl Component {
 			},
 		};
 
-		// Preserve the destination's local tokens alongside the source tokens for the sync protocol.
-		let get = get
-			.into_iter()
-			.map(|mut node| {
-				let original_tokens = std::mem::take(&mut node.options.tokens);
-				node.options.tokens = if destination.is_remote() {
-					let mut tokens = original_tokens.for_location(&destination);
-					if let Some(entry) = original_tokens.get(&source) {
-						tokens.set(destination.clone(), entry.clone());
-					}
-					tokens
-				} else {
-					let mut tokens =
-						tg::authorization::Tokens::with_local(original_tokens.local().cloned());
-					if let Some(entry) = original_tokens.get(&source) {
-						tokens.set(source.clone(), entry.clone());
-					}
-					tokens
-				};
-				node
-			})
-			.collect::<Vec<_>>();
 		// Create the progress handle and add the indicators.
 		let capacity = session.server.config.progress.channel_capacity;
 		let progress = tg::progress::Handle::new(capacity);
@@ -564,7 +542,6 @@ impl Component {
 			sync,
 		} = task_arg;
 		let trust = source_session.as_ref().is_some_and(tg::Session::trusted);
-		let sources = Self::push_or_pull_sources(session, &source, &destination).await?;
 		let session = session.clone();
 		let sync_state = Arc::new(Mutex::new(sync));
 		let output = tangram_futures::retry::retry(&retry, || {
@@ -578,7 +555,6 @@ impl Component {
 			let session = session.clone();
 			let source = source.clone();
 			let source_session = source_session.clone();
-			let sources = sources.clone();
 			let sync_state = sync_state.clone();
 			let server = session.server.clone();
 			async move {
@@ -611,29 +587,24 @@ impl Component {
 						tokio::sync::mpsc::channel(capacity);
 
 					// Create the source arg and input stream.
-					let source_location = match &source {
-						tg::Location::Local(local) => tg::Location::Local(local.clone()),
-						tg::Location::Remote(remote) => tg::Location::Local(tg::location::Local {
-							region: remote.region.clone(),
-						}),
-					};
 					let source_arg = tg::sync::Arg {
 						ancestors: arg.ancestors,
 						eager: arg.eager,
 						force: arg.force,
 						get: Vec::new(),
 						group_children: arg.group_children,
-						location: Some(source_location.into()),
+						location: Some(source.clone().into()),
 						metadata: arg.metadata,
 						organization_children: arg.organization_children,
+						peer: Some(destination.clone()),
 						process_children: arg.process_children,
 						process_command_objects: arg.process_command_objects,
 						process_error_objects: arg.process_error_objects,
 						process_log_objects: arg.process_log_objects,
 						process_output_objects: arg.process_output_objects,
 						put: Vec::new(),
+						roots: get.clone(),
 						sandbox_processes: arg.sandbox_processes,
-						sources,
 						sync: None,
 						tag_targets: arg.tag_targets,
 						user_children: arg.user_children,
@@ -642,8 +613,16 @@ impl Component {
 						.map(Ok)
 						.boxed();
 
-					// Create the destination arg and input stream.
+					// Create the destination arg and input stream, writing the tokens of the nodes to get as the source checks them.
 					let get_empty = get.is_empty();
+					let roots = get.clone();
+					let get = get
+						.into_iter()
+						.map(|mut node| {
+							node.options.tokens = node.options.tokens.for_location(&source);
+							node
+						})
+						.collect::<Vec<_>>();
 					let destination_arg = tg::sync::Arg {
 						ancestors: arg.ancestors,
 						eager: arg.eager,
@@ -653,14 +632,15 @@ impl Component {
 						location: Some(destination.clone().into()),
 						metadata: arg.metadata,
 						organization_children: arg.organization_children,
+						peer: Some(source.clone()),
 						process_children: arg.process_children,
 						process_command_objects: arg.process_command_objects,
 						process_error_objects: arg.process_error_objects,
 						process_log_objects: arg.process_log_objects,
 						process_output_objects: arg.process_output_objects,
 						put: Vec::new(),
+						roots,
 						sandbox_processes: arg.sandbox_processes,
-						sources: None,
 						sync: sync.map(tg::sync::Join::Sync).or_else(|| join.clone()),
 						tag_targets: arg.tag_targets,
 						user_children: arg.user_children,
@@ -670,28 +650,31 @@ impl Component {
 
 					// Create the source future.
 					let source_future = async {
-						let source_output = if let Some(source_session) = source_session {
-							source_session
-								.sync(source_arg, source_input_stream)
-								.await
-								.map(|output| output.map_break(|(_, stream)| stream.boxed()))
-						} else {
-							let arg = tangram_server_core::sync::InnerArg {
-								arg: source_arg,
-								process,
-								..Default::default()
-							};
-							session
-								.server
-								.components
-								.sync
-								.sync_inner(&session, arg, source_input_stream)
-								.await
-								.map(|output| output.map_break(|(_, stream)| stream.boxed()))
-						}
-						.map_err(|error| {
-							tg::error!(!error, "failed to create the source stream")
-						})?;
+						let source_output =
+							if let (tg::Location::Remote(remote), Some(source_session)) =
+								(&source, source_session)
+							{
+								source_session
+									.sync(source_arg.for_remote(remote), source_input_stream)
+									.await
+									.map(|output| output.map_break(|(_, stream)| stream.boxed()))
+							} else {
+								let inner_arg = tangram_server_core::sync::InnerArg {
+									arg: source_arg,
+									process,
+									..Default::default()
+								};
+								session
+									.server
+									.components
+									.sync
+									.sync_inner(&session, inner_arg, source_input_stream)
+									.await
+									.map(|output| output.map_break(|(_, stream)| stream.boxed()))
+							}
+							.map_err(|error| {
+								tg::error!(!error, "failed to create the source stream")
+							})?;
 
 						// End the attempt if the source could not be reached.
 						let source_output_stream = match source_output {
@@ -883,68 +866,6 @@ impl Component {
 	}
 
 	/// Get the output of a side of a push or pull attempt, continuing if its stream ended before its end messages.
-	/// Get the locations that the source gets nodes from, which are all locations except the destination when the source is local, and the source's defaults when the source is a remote.
-	async fn push_or_pull_sources(
-		session: &Session,
-		source: &tg::Location,
-		destination: &tg::Location,
-	) -> tg::Result<Option<tg::location::Arg>> {
-		if source.is_remote() {
-			return Ok(None);
-		}
-
-		// Resolve the default locations.
-		let locations = session
-			.locations(None)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-
-		// Add the local component without the destination's region.
-		let mut components = Vec::new();
-		if let Some(local) = locations.local {
-			let current = session.server.config.region.clone();
-			let regions = match (destination, current) {
-				(
-					tg::Location::Local(tg::location::Local {
-						region: Some(destination),
-					}),
-					Some(current),
-				) if *destination != current => {
-					let regions = std::iter::once(current)
-						.chain(
-							local
-								.regions
-								.into_iter()
-								.filter(|region| region != destination),
-						)
-						.collect();
-					Some(regions)
-				},
-				_ => None,
-			};
-			let component = tg::location::arg::LocalComponent { regions };
-			components.push(tg::location::arg::Component::Local(component));
-		}
-
-		// Add the remote components without the destination.
-		for remote in locations.remotes {
-			if let tg::Location::Remote(destination) = destination
-				&& destination.name == remote.name
-			{
-				continue;
-			}
-			let component = tg::location::arg::RemoteComponent {
-				name: remote.name,
-				regions: remote.regions,
-			};
-			components.push(tg::location::arg::Component::Remote(component));
-		}
-
-		let sources = tg::location::Arg(components);
-
-		Ok(Some(sources))
-	}
-
 	fn push_or_pull_completion<T>(completed: bool, output: T) -> ControlFlow<T, tg::Error> {
 		if completed {
 			ControlFlow::Break(output)

@@ -90,10 +90,9 @@ impl Component {
 
 		// Enqueue the nodes.
 		for node in &state.arg.put {
-			let tokens = node.options.tokens.local_entry();
-			state
-				.queue
-				.enqueue(state.arg.eager, node.node.clone(), tokens)?;
+			let selector = tg::Selector::Id(node.clone());
+			let tokens = state.arg.root_tokens(&selector).local_entry();
+			state.queue.enqueue(state.arg.eager, node.clone(), tokens)?;
 		}
 
 		// Create the channels.

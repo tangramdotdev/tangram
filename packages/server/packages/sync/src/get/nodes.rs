@@ -48,8 +48,8 @@ impl Component {
 		let tokens = node.options.tokens.clone();
 		match &node.node {
 			tg::Selector::Id(id) => {
-				let local_tokens = tokens.local_entry();
-				let remote_tokens = tokens.remote_entry();
+				let local_tokens = arg.root_tokens(&node.node).local_entry();
+				let remote_tokens = tokens.local_entry();
 				{
 					let mut graph = graph.lock().unwrap();
 					graph.insert_local_root(id.clone());

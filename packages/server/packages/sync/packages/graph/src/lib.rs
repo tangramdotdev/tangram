@@ -40,6 +40,8 @@ pub struct Graph {
 	remote_pending_roots: usize,
 	remote_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	remote_selectors: HashMap<tg::Specifier, RemoteSelector, fnv::FnvBuildHasher>,
+	root_selector_tokens: HashMap<tg::Specifier, tg::authorization::Tokens, fnv::FnvBuildHasher>,
+	root_tokens: HashMap<tg::Id, tg::authorization::Tokens, fnv::FnvBuildHasher>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -241,6 +243,8 @@ impl Graph {
 			remote_pending_roots: 0,
 			remote_roots: HashSet::default(),
 			remote_selectors: HashMap::default(),
+			root_selector_tokens: HashMap::default(),
+			root_tokens: HashMap::default(),
 		};
 
 		// Add the roots.
@@ -251,25 +255,26 @@ impl Graph {
 			graph.insert_local_root(id.clone());
 		}
 		for root in &arg.put {
-			graph.insert_remote_root(root.node.clone());
+			graph.insert_remote_root(root.clone());
 		}
 
 		// Add the root tokens.
+		for root in &arg.roots {
+			graph.insert_root_tokens(&root.node, &root.options.tokens);
+		}
 		for root in &arg.get {
 			let tg::Selector::Id(id) = &root.node else {
 				continue;
 			};
-			let local = root.options.tokens.local_entry();
-			let remote = root.options.tokens.remote_entry();
+			let local = arg.root_tokens(&root.node).local_entry();
+			let remote = root.options.tokens.local_entry();
 			graph.update_root_tokens(id, &local, &remote);
 		}
 		for root in &arg.put {
-			let local = root.options.tokens.local_entry();
-			graph.update_root_tokens(
-				&root.node,
-				&local,
-				&tg::authorization::tokens::Entry::default(),
-			);
+			let local = arg
+				.root_tokens(&tg::Selector::Id(root.clone()))
+				.local_entry();
+			graph.update_root_tokens(root, &local, &tg::authorization::tokens::Entry::default());
 		}
 
 		graph
@@ -323,6 +328,39 @@ impl Graph {
 
 	pub fn unqueue_checkout_object(&mut self, id: &tg::object::Id) {
 		self.checkout_queued_objects.remove(id);
+	}
+
+	/// Add this side's tokens for a root.
+	pub fn insert_root_tokens(
+		&mut self,
+		selector: &tg::Selector<tg::Id>,
+		tokens: &tg::authorization::Tokens,
+	) {
+		match selector {
+			tg::Selector::Id(id) => {
+				self.root_tokens
+					.entry(id.clone())
+					.or_default()
+					.inherit(tokens);
+			},
+			tg::Selector::Specifier(specifier) => {
+				self.root_selector_tokens
+					.entry(specifier.clone())
+					.or_default()
+					.inherit(tokens);
+			},
+		}
+	}
+
+	/// Give the node that a specifier resolves to the tokens of the root that the specifier names.
+	pub fn resolve_root_tokens(&mut self, specifier: &tg::Specifier, id: &tg::Id) {
+		let Some(tokens) = self.root_selector_tokens.remove(specifier) else {
+			return;
+		};
+		self.root_tokens
+			.entry(id.clone())
+			.or_default()
+			.inherit(&tokens);
 	}
 
 	pub fn update_root_tokens(
@@ -422,6 +460,7 @@ impl Graph {
 		if !self.local_selectors.remove(specifier) {
 			return false;
 		}
+		self.resolve_root_tokens(specifier, &id);
 		self.insert_local_root(id);
 		true
 	}
@@ -1666,6 +1705,30 @@ impl Graph {
 	#[must_use]
 	pub fn get_node_remote_tokens(&self, id: &tg::Id) -> tg::authorization::tokens::Entry {
 		self.get_node_tokens(id, Node::remote_tokens, |_| true)
+	}
+
+	/// Collect this side's tokens for the roots among the node and its ancestors.
+	#[must_use]
+	pub fn get_node_root_tokens(&self, id: &tg::Id) -> tg::authorization::Tokens {
+		let mut tokens = self.root_tokens.get(id).cloned().unwrap_or_default();
+		let Some(index) = self.nodes.get_index_of(id) else {
+			return tokens;
+		};
+		let mut queue = VecDeque::from([index]);
+		let mut visited = HashSet::new();
+		while let Some(index) = queue.pop_front() {
+			if !visited.insert(index) {
+				continue;
+			}
+			let (id, node) = self.nodes.get_index(index).unwrap();
+			if let Some(root) = self.root_tokens.get(id) {
+				tokens.inherit(root);
+			}
+			for parent in node.parents() {
+				queue.push_back(parent.index());
+			}
+		}
+		tokens
 	}
 
 	/// Collect the tokens attached to the node and its ancestors.

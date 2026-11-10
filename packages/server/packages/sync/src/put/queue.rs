@@ -159,6 +159,7 @@ impl Queue {
 		let Some(id) = id else {
 			return Ok(());
 		};
+		graph.resolve_root_tokens(specifier, &id);
 		graph.insert_remote_root(id.clone());
 		let selector = tg::Selector::Specifier(specifier.clone());
 		let node = raw::DatabaseNode {

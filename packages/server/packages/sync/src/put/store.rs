@@ -96,13 +96,18 @@ impl Component {
 			tangram_server_core::checkpoint!(session.server, "sync.put.store.object", id = %node.id)
 				.await;
 		}
-		let objects = nodes
-			.iter()
-			.map(|node| {
-				let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
-				tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
-			})
-			.collect::<Vec<_>>();
+		let objects = {
+			let graph = state.graph.lock().unwrap();
+			nodes
+				.iter()
+				.map(|node| {
+					let mut tokens = graph.get_node_root_tokens(&node.id.clone().into());
+					let local = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
+					tokens.inherit(&local);
+					tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
+				})
+				.collect::<Vec<_>>()
+		};
 		let permissions = nodes
 			.iter()
 			.map(|node| node.permissions)
@@ -253,12 +258,7 @@ impl Component {
 			.try_get_object_batch_local(session, objects, permissions, metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the objects locally"))?;
-		let locations = session
-			.locations(state.arg.sources.as_ref())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-		let remotes = locations.remotes;
+		let (regions, remotes) = Self::sync_put_store_sources(session, state).await?;
 		let outputs = std::iter::zip(std::iter::zip(objects, permissions), outputs)
 			.map(|((object, permissions), output)| {
 				let regions = regions.clone();
@@ -394,13 +394,18 @@ impl Component {
 			tangram_server_core::checkpoint!(session.server, "sync.put.store.process", id = %node.id)
 				.await;
 		}
-		let processes = nodes
-			.iter()
-			.map(|node| {
-				let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
-				tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
-			})
-			.collect::<Vec<_>>();
+		let processes = {
+			let graph = state.graph.lock().unwrap();
+			nodes
+				.iter()
+				.map(|node| {
+					let mut tokens = graph.get_node_root_tokens(&node.id.clone().into());
+					let local = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
+					tokens.inherit(&local);
+					tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
+				})
+				.collect::<Vec<_>>()
+		};
 		let permissions = nodes
 			.iter()
 			.map(|node| node.permissions)
@@ -678,12 +683,7 @@ impl Component {
 		permissions: &[tg::authorization::permission::Set],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let locations = session
-			.locations(state.arg.sources.as_ref())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-		let remotes = locations.remotes;
+		let (regions, remotes) = Self::sync_put_store_sources(session, state).await?;
 		let outputs = std::iter::zip(processes, permissions)
 			.map(|(process, permissions)| {
 				let regions = regions.clone();
@@ -816,5 +816,30 @@ impl Component {
 			.await?;
 
 		Ok(outputs)
+	}
+
+	/// Get the regions and remotes that the put side gets nodes from, which are all of them except the peer.
+	async fn sync_put_store_sources(
+		session: &Session,
+		state: &State,
+	) -> tg::Result<(Vec<String>, Vec<tangram_server_core::location::Remote>)> {
+		let locations = session
+			.locations(None)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+		let mut regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		let mut remotes = locations.remotes;
+		match &state.arg.peer {
+			Some(tg::Location::Local(peer)) => {
+				regions.retain(|region| Some(region) != peer.region.as_ref());
+			},
+			Some(tg::Location::Remote(peer)) => {
+				remotes.retain(|remote| remote.name != peer.name);
+			},
+			None => (),
+		}
+		let sources = (regions, remotes);
+
+		Ok(sources)
 	}
 }
