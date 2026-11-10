@@ -225,7 +225,7 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 	}
 
 	/// The index answers for a process that finished or that lives in a remote, and a read is also answered for a starting process.
-	fn is_decisive(indexed: Option<&Self::Indexed>, fallback: bool) -> bool {
+	fn is_decisive(&self, indexed: Option<&Self::Indexed>, fallback: bool) -> bool {
 		indexed.is_some_and(|(process, _)| {
 			process
 				.status
@@ -237,7 +237,7 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		})
 	}
 
-	fn is_complete(indexed: Option<&Self::Indexed>) -> bool {
+	fn is_complete(&self, indexed: Option<&Self::Indexed>) -> bool {
 		indexed.is_some_and(|(process, _)| {
 			process
 				.status
@@ -245,7 +245,7 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		})
 	}
 
-	fn has_status(indexed: Option<&Self::Indexed>) -> bool {
+	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool {
 		indexed.is_some_and(|(process, _)| process.status.is_some())
 	}
 }

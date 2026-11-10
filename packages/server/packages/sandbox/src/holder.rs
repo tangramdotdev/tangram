@@ -24,6 +24,7 @@ struct Kind<'a> {
 	component: &'a Component,
 	get: bool,
 	id: &'a tg::sandbox::Id,
+	processes: bool,
 	session: &'a Session,
 }
 
@@ -37,10 +38,15 @@ impl Component {
 		index_required: impl Fn(&tg::sandbox::control::ClientResponseOutput) -> bool + Send,
 	) -> tg::Result<Option<Output>> {
 		let get = matches!(arg.request, tg::sandbox::control::ServerRequestArg::Get(_));
+		let processes = matches!(
+			arg.request,
+			tg::sandbox::control::ServerRequestArg::GetProcesses(_)
+		);
 		let kind = Kind {
 			component: self,
 			get,
 			id,
+			processes,
 			session,
 		};
 		tangram_server_core::holder::request(&kind, arg, index_required).await
@@ -175,9 +181,15 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 	}
 
 	fn reindex(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
-		self.component
-			.try_get_sandbox_from_index_with_exhaustive(self.session, self.id, exhaustive)
-			.boxed()
+		async move {
+			// A request for a sandbox's processes requires a record that has them.
+			let indexed = self
+				.component
+				.try_get_sandbox_from_index_with_exhaustive(self.session, self.id, exhaustive)
+				.await?;
+			Ok(indexed.filter(|sandbox| !self.processes || sandbox.set.processes))
+		}
+		.boxed()
 	}
 
 	fn send(
@@ -212,13 +224,14 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		async {}.boxed()
 	}
 
-	/// The index answers for a sandbox that is stopped or destroyed, or that lives in a remote. The scheduler answers for a starting sandbox.
-	fn is_decisive(indexed: Option<&Self::Indexed>, _fallback: bool) -> bool {
+	/// The index answers for a sandbox that is stopped or destroyed, or that lives in a remote, and for the processes that it has. The scheduler answers for a starting sandbox.
+	fn is_decisive(&self, indexed: Option<&Self::Indexed>, _fallback: bool) -> bool {
 		indexed.is_some_and(|sandbox| {
-			sandbox
-				.data
-				.as_ref()
-				.is_some_and(|data| data.data.status.is_stopped_or_destroyed())
+			self.processes
+				|| sandbox
+					.data
+					.as_ref()
+					.is_some_and(|data| data.data.status.is_stopped_or_destroyed())
 				|| sandbox
 					.location
 					.as_ref()
@@ -226,15 +239,16 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		})
 	}
 
-	fn is_complete(indexed: Option<&Self::Indexed>) -> bool {
+	fn is_complete(&self, indexed: Option<&Self::Indexed>) -> bool {
 		indexed.is_some_and(|sandbox| {
-			sandbox.data.as_ref().is_some_and(|data| {
-				data.data.status.is_starting() || data.data.status.is_stopped_or_destroyed()
-			})
+			self.processes
+				|| sandbox.data.as_ref().is_some_and(|data| {
+					data.data.status.is_starting() || data.data.status.is_stopped_or_destroyed()
+				})
 		})
 	}
 
-	fn has_status(indexed: Option<&Self::Indexed>) -> bool {
+	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool {
 		indexed.is_some_and(|sandbox| sandbox.data.is_some())
 	}
 }
