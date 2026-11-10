@@ -1789,6 +1789,8 @@ impl Component {
 			sandbox.shutdown().await.map_err(
 				|error| tg::error!(!error, %id, "failed to shut down the sandbox process"),
 			)?;
+			tangram_server_core::checkpoint!(session.server, "runner.sandbox.shutdown", sandbox = %id)
+				.await;
 
 			// Await the process output while retaining the sandbox's resources for termination error reporting.
 			while let Some((process, event)) = process_events.next().await {
