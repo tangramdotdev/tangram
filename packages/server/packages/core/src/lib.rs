@@ -59,6 +59,7 @@ pub mod get;
 pub mod grant;
 pub mod group;
 pub mod health;
+pub mod holder;
 pub mod http;
 pub mod indexer;
 pub mod list;

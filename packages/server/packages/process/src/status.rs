@@ -504,9 +504,9 @@ impl Component {
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Option<tg::process::Data>> {
-		let arg = Self::get_process_holder_arg(session, id, source, deadline, true);
+		let arg = Self::get_process_holder_arg(session, source, deadline, true);
 		let output = self
-			.request_process_holder(session, arg, |_| false)
+			.request_process_holder(session, id, arg, |_| false)
 			.boxed()
 			.await?
 			.ok_or_else(|| tg::error!("the process status wakeup stream ended"))?;
