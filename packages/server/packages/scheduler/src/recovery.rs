@@ -91,6 +91,15 @@ impl Scheduler {
 			"recovering the scheduler"
 		);
 
+		// Serve the holders of the held sandboxes, so that a request to one is told that this scheduler does not hold it until the runners report.
+		for (id, request) in &requests {
+			let process = request
+				.process
+				.as_ref()
+				.and_then(|process| process.id.clone());
+			state.serve_sandbox_holder(self, id, process);
+		}
+
 		// Hold the requests until the runners report.
 		state.recovery = Some(Recovery {
 			claimed: HashMap::default(),
@@ -152,19 +161,11 @@ impl SchedulerState {
 		}
 	}
 
-	/// Take the request of a sandbox that is held for recovery, with the runner that claimed it.
-	pub(super) fn take_recovering_request(
-		&mut self,
-		sandbox: &tg::sandbox::Id,
-	) -> Option<(EnqueueSandboxRequestArg, Option<(tg::runner::Id, u64)>)> {
-		let recovery = self.recovery.as_mut()?;
-		if let Some(claim) = recovery.claimed.remove(sandbox) {
-			let runner = (claim.runner, claim.registration_index);
-			return Some((claim.request, Some(runner)));
-		}
-		let request = recovery.requests.remove(sandbox)?;
-
-		Some((request, None))
+	/// Whether a sandbox's request is held for recovery.
+	pub(super) fn is_recovering(&self, sandbox: &tg::sandbox::Id) -> bool {
+		self.recovery.as_ref().is_some_and(|recovery| {
+			recovery.claimed.contains_key(sandbox) || recovery.requests.contains_key(sandbox)
+		})
 	}
 
 	/// Get a request that is held for recovery.

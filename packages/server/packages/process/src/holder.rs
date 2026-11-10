@@ -21,10 +21,12 @@ pub(crate) type Output =
 
 /// The process whose holder a request is sent to.
 struct Kind<'a> {
+	cancel: bool,
 	children: bool,
 	component: &'a Component,
 	get: bool,
 	id: &'a tg::process::Id,
+	lease: bool,
 	session: &'a Session,
 }
 
@@ -42,11 +44,22 @@ impl Component {
 			tg::process::control::ServerRequestArg::GetChildren(_)
 		);
 		let get = children || matches!(arg.request, tg::process::control::ServerRequestArg::Get(_));
+		let cancel = matches!(
+			arg.request,
+			tg::process::control::ServerRequestArg::ReleaseLease(_)
+		);
+		let lease = cancel
+			|| matches!(
+				arg.request,
+				tg::process::control::ServerRequestArg::AcquireLease(_)
+			);
 		let kind = Kind {
+			cancel,
 			children,
 			component: self,
 			get,
 			id,
+			lease,
 			session,
 		};
 		tangram_server_core::holder::request(&kind, arg, index_required).await
@@ -164,13 +177,15 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 
 	type Request = tg::process::control::ServerRequestArg;
 
-	const HOLD: bool = true;
-
 	fn index(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
 		async move {
 			let indexed = self.reindex(exhaustive).await;
 			if self.get {
 				tangram_server_core::checkpoint!(self.session.server, "process.get.index", process = %self.id)
+					.await;
+			}
+			if self.cancel {
+				tangram_server_core::checkpoint!(self.session.server, "process.cancel.index", process = %self.id)
 					.await;
 			}
 			indexed
@@ -205,6 +220,10 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		hold: Option<BoxFuture<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>> {
 		async move {
+			if self.cancel {
+				tangram_server_core::checkpoint!(self.session.server, "process.cancel.control", process = %self.id)
+					.await;
+			}
 			let output = async {
 				self.component
 					.send_process_control_request(self.session, self.id, request, options, hold)
@@ -232,6 +251,11 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 				.map(|_| ())
 				.boxed()
 		})
+	}
+
+	/// A request for a lease is sent right away, because the scheduler answers it for a queued process.
+	fn holds(&self) -> bool {
+		!self.lease
 	}
 
 	fn index_required(&self) -> BoxFuture<'_, ()> {

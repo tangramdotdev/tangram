@@ -568,31 +568,6 @@ impl Component {
 		Ok(output)
 	}
 
-	pub async fn request_sandbox_control(
-		&self,
-		session: &Session,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::control::ServerRequestArg,
-		options: tangram_server_core::control::Options,
-	) -> tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>> {
-		self.request_sandbox_control_with_hold(session, id, arg, options, None)
-			.await
-	}
-
-	pub async fn request_sandbox_control_with_hold(
-		&self,
-		session: &Session,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::control::ServerRequestArg,
-		options: tangram_server_core::control::Options,
-		hold: Option<futures::future::BoxFuture<'static, ()>>,
-	) -> tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>> {
-		self.send_sandbox_control_request(session, id, arg, options, hold)
-			.boxed()
-			.await?
-			.await
-	}
-
 	pub(crate) async fn send_sandbox_control_request(
 		&self,
 		session: &Session,
@@ -611,6 +586,7 @@ impl Component {
 			tg::sandbox::control::ServerRequestArg::Get(_) => "get",
 			tg::sandbox::control::ServerRequestArg::GetProcesses(_) => "get_processes",
 			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => "spawn_process",
+			tg::sandbox::control::ServerRequestArg::Start(_) => "start",
 			tg::sandbox::control::ServerRequestArg::Stop(_) => "stop",
 		};
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.request", sandbox = %id, kind).await;

@@ -17,13 +17,10 @@ use {
 	tangram_messenger::Messenger,
 	tangram_server_core::{Server, Session, control::accept::Path},
 	tangram_server_scheduler_core::{
-		AcquireProcessLeaseRequestArg, AcquireProcessLeaseResponseOutput, AddRunnerRequestArg,
-		AddRunnerResponseOutput, BorrowableCapacityNotification, CancelSandboxStopRequestArg,
-		CancelSandboxStopResponseOutput, DequeueSandboxRequestArg, DequeueSandboxResponseOutput,
-		DestroyRunnerSandboxRequestArg, DestroyRunnerSandboxResponseOutput, EndSandboxRequestArg,
-		EndSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
-		HeartbeatAcknowledgement, HeartbeatNotification, Notification,
-		ReleaseProcessLeaseRequestArg, ReleaseProcessLeaseResponseOutput, RemoveRunnerRequestArg,
+		AddRunnerRequestArg, AddRunnerResponseOutput, BorrowableCapacityNotification,
+		DequeueSandboxRequestArg, DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
+		DestroyRunnerSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
+		HeartbeatAcknowledgement, HeartbeatNotification, Notification, RemoveRunnerRequestArg,
 		RemoveRunnerResponseOutput, RequestArg, ResponseOutput, SandboxEndedNotification,
 		runner_heartbeat_subject, scheduler_notification_subject,
 	},
@@ -76,6 +73,12 @@ enum HolderMessage {
 	/// The sandbox's control connection was established, so its runner serves its holder.
 	Connected { sandbox: tg::sandbox::Id },
 
+	/// A request to the holder of the sandbox's queued process.
+	ProcessRequest {
+		request: tg::process::control::ServerRequest,
+		sandbox: tg::sandbox::Id,
+	},
+
 	/// A request to the sandbox's holder.
 	Request {
 		request: tg::sandbox::control::ServerRequest,
@@ -118,10 +121,6 @@ enum Operation {
 		destroy: sandbox::DestroySandbox,
 		result: tg::Result<bool>,
 	},
-	EndSandbox {
-		ids: Vec<String>,
-		result: tg::Result<()>,
-	},
 	FinishSandboxStop {
 		result: tg::Result<()>,
 		sandbox: tg::sandbox::Id,
@@ -151,15 +150,11 @@ enum Operation {
 		id: Option<String>,
 		result: tg::Result<RemoveRunnerResponseOutput>,
 	},
-	Respond {
-		id: String,
-		result: tg::Result<ResponseOutput>,
-	},
 	RetrySandbox {
 		sandbox: tg::sandbox::Id,
 	},
 	ServeSandboxHolder {
-		result: tg::Result<[Task<tg::Result<()>>; 2]>,
+		result: tg::Result<Vec<Task<tg::Result<()>>>>,
 		sandbox: tg::sandbox::Id,
 	},
 }
@@ -328,85 +323,6 @@ impl Component {
 		Ok(output.dequeued)
 	}
 
-	/// Acquire a lease of a queued process from its scheduler, which returns `None` if the process's request was sent to a runner.
-	pub(crate) async fn acquire_process_lease(
-		&self,
-		session: &Session,
-		scheduler: &tg::scheduler::Id,
-		sandbox: &tg::sandbox::Id,
-	) -> tg::Result<Option<tg::process::Lease>> {
-		let arg = AcquireProcessLeaseRequestArg {
-			sandbox: sandbox.clone(),
-		};
-		let output = self
-			.send_scheduler_request_to(session, scheduler, RequestArg::AcquireProcessLease(arg))
-			.boxed()
-			.await??
-			.try_unwrap_acquire_process_lease()
-			.map_err(|_| tg::error!("expected an acquire process lease response"))?;
-
-		Ok(output.lease)
-	}
-
-	/// Release a lease of a queued process at its scheduler, which returns `None` if the process's request was sent to a runner.
-	pub(crate) async fn release_process_lease(
-		&self,
-		session: &Session,
-		scheduler: &tg::scheduler::Id,
-		sandbox: &tg::sandbox::Id,
-		lease: tg::process::Lease,
-	) -> tg::Result<Option<bool>> {
-		let arg = ReleaseProcessLeaseRequestArg {
-			lease,
-			sandbox: sandbox.clone(),
-		};
-		let output = self
-			.send_scheduler_request_to(session, scheduler, RequestArg::ReleaseProcessLease(arg))
-			.boxed()
-			.await??
-			.try_unwrap_release_process_lease()
-			.map_err(|_| tg::error!("expected a release process lease response"))?;
-
-		Ok(output.released)
-	}
-
-	/// Ask the scheduler that owns a sandbox to cancel a stop that it holds, returning whether the scheduler holds the sandbox.
-	pub(crate) async fn cancel_sandbox_stop(
-		&self,
-		session: &Session,
-		scheduler: &tg::scheduler::Id,
-		sandbox: &tg::sandbox::Id,
-	) -> tg::Result<bool> {
-		let arg = CancelSandboxStopRequestArg {
-			sandbox: sandbox.clone(),
-		};
-		let output = self
-			.send_scheduler_request_to(session, scheduler, RequestArg::CancelSandboxStop(arg))
-			.boxed()
-			.await??
-			.try_unwrap_cancel_sandbox_stop()
-			.map_err(|_| tg::error!("expected a cancel sandbox stop response"))?;
-
-		Ok(output.held)
-	}
-
-	/// Ask the scheduler that owns a sandbox to stop or destroy it before its runner connects, returning whether the scheduler owns it.
-	pub(crate) async fn end_sandbox(
-		&self,
-		session: &Session,
-		scheduler: &tg::scheduler::Id,
-		arg: EndSandboxRequestArg,
-	) -> tg::Result<bool> {
-		let output = self
-			.send_scheduler_request_to(session, scheduler, RequestArg::EndSandbox(arg))
-			.boxed()
-			.await??
-			.try_unwrap_end_sandbox()
-			.map_err(|_| tg::error!("expected an end sandbox response"))?;
-
-		Ok(output.ended)
-	}
-
 	#[tracing::instrument(name = "sandbox.enqueue", level = "debug", skip_all, fields(sandbox = %request.sandbox), err(level = "debug"))]
 	pub(crate) async fn enqueue_sandbox(
 		&self,
@@ -416,14 +332,14 @@ impl Component {
 		tracing::info!(sandbox = %request.sandbox, "enqueueing the sandbox");
 		let sandbox = request.sandbox.clone();
 
-		// Send a sandbox with a parent to its parent's scheduler, and any other sandbox to any scheduler.
+		// Send a sandbox with a parent to its parent's scheduler, a start of a stopped sandbox to its runner's scheduler, and any other sandbox to any scheduler.
 		let target = if let Some(parent) = &request.parent {
 			let scheduler = request.scheduler.clone().ok_or_else(
 				|| tg::error!(%parent, "missing the scheduler for the parent sandbox"),
 			)?;
 			Some(scheduler)
 		} else {
-			None
+			request.scheduler.clone()
 		};
 		let arg = RequestArg::EnqueueSandbox(request);
 		let (scheduler, response) = match target {
@@ -689,9 +605,6 @@ impl Scheduler {
 	fn handle_request(&self, state: &mut SchedulerState, request: request::Request) {
 		let id = request.id;
 		match request.arg {
-			RequestArg::AcquireProcessLease(request) => {
-				state.handle_acquire_process_lease_request(self, id, &request);
-			},
 			RequestArg::AddRunner(request) => {
 				state.handle_add_runner_request(self, id, request);
 			},
@@ -703,17 +616,8 @@ impl Scheduler {
 			RequestArg::DestroyRunnerSandbox(request) => {
 				state.handle_destroy_runner_sandbox_request(self, id, request);
 			},
-			RequestArg::CancelSandboxStop(request) => {
-				state.handle_cancel_sandbox_stop_request(self, id, &request);
-			},
-			RequestArg::EndSandbox(request) => {
-				state.handle_end_sandbox_request(self, id, request);
-			},
 			RequestArg::EnqueueSandbox(request) => {
 				state.handle_enqueue_sandbox_request(self, Some(id), request, false);
-			},
-			RequestArg::ReleaseProcessLease(request) => {
-				state.handle_release_process_lease_request(self, id, request);
 			},
 			RequestArg::RemoveRunner(request) => {
 				state.handle_remove_runner_request(self, Some(id), request);
@@ -762,9 +666,6 @@ impl Scheduler {
 				if let Some(sandbox) = output.accepted {
 					state.finish_accept(self, &sandbox, Path::Handled, Ok(()));
 				}
-				if let Some(held) = output.held {
-					state.finish_held_end(self, held);
-				}
 			},
 			Operation::DestroyRunnerSandbox { id, result } => {
 				let result = result.map(|destroyed| {
@@ -777,15 +678,6 @@ impl Scheduler {
 			},
 			Operation::DestroySandbox { destroy, result } => {
 				state.handle_destroy_sandbox(self, destroy, result);
-			},
-			Operation::EndSandbox { ids, result } => {
-				for id in ids {
-					let result = result.clone().map(|()| {
-						ResponseOutput::EndSandbox(EndSandboxResponseOutput { ended: true })
-					});
-					let response = request::Response::new(id, result);
-					self.send_response(state, response);
-				}
 			},
 			Operation::LoadOwnerAncestors { owner, result } => {
 				state.handle_load_owner_ancestors_completion(self, owner, result);
@@ -828,10 +720,6 @@ impl Scheduler {
 				} else if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "failed to remove the expired runner");
 				}
-			},
-			Operation::Respond { id, result } => {
-				let response = request::Response::new(id, result);
-				self.send_response(state, response);
 			},
 			Operation::RetrySandbox { sandbox } => {
 				state.handle_retry_sandbox(&sandbox);
@@ -1055,46 +943,6 @@ impl tangram_server_core::scheduler::Component for Component {
 		scheduler: &'a tg::scheduler::Id,
 	) -> BoxFuture<'a, tg::Result<bool>> {
 		self.dequeue_sandbox(session, sandbox, scheduler).boxed()
-	}
-
-	fn acquire_process_lease<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		scheduler: &'a tg::scheduler::Id,
-		sandbox: &'a tg::sandbox::Id,
-	) -> BoxFuture<'a, tg::Result<Option<tg::process::Lease>>> {
-		self.acquire_process_lease(session, scheduler, sandbox)
-			.boxed()
-	}
-
-	fn release_process_lease<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		scheduler: &'a tg::scheduler::Id,
-		sandbox: &'a tg::sandbox::Id,
-		lease: tg::process::Lease,
-	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
-		self.release_process_lease(session, scheduler, sandbox, lease)
-			.boxed()
-	}
-
-	fn cancel_sandbox_stop<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		scheduler: &'a tg::scheduler::Id,
-		sandbox: &'a tg::sandbox::Id,
-	) -> BoxFuture<'a, tg::Result<bool>> {
-		self.cancel_sandbox_stop(session, scheduler, sandbox)
-			.boxed()
-	}
-
-	fn end_sandbox<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		scheduler: &'a tg::scheduler::Id,
-		arg: EndSandboxRequestArg,
-	) -> BoxFuture<'a, tg::Result<bool>> {
-		self.end_sandbox(session, scheduler, arg).boxed()
 	}
 
 	fn enqueue_sandbox<'a>(

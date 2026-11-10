@@ -40,9 +40,6 @@ pub trait Kind: Sync {
 
 	type Request: Clone + Send;
 
-	/// Whether a write reads the index before it sends its request, so that the request is held while the item is starting.
-	const HOLD: bool;
-
 	/// Read the item from the index, awaiting indexing on a miss only if the read is exhaustive.
 	fn index(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>>;
 
@@ -59,6 +56,9 @@ pub trait Kind: Sync {
 
 	/// Create the future that holds a write's request while the item is starting.
 	fn hold(&self, indexed: Option<&Self::Indexed>) -> Option<BoxFuture<'static, ()>>;
+
+	/// Whether a write reads the index before it sends its request, so that the request is held while the item is starting.
+	fn holds(&self) -> bool;
 
 	/// Observe that a reply requires the index.
 	fn index_required(&self) -> BoxFuture<'_, ()>;
@@ -100,7 +100,7 @@ pub async fn request<K: Kind>(
 		timeout,
 	};
 	let mut sent = false;
-	let mut request_future = if source.is_index() || (!fallback && K::HOLD) {
+	let mut request_future = if source.is_index() || (!fallback && kind.holds()) {
 		None
 	} else {
 		sent = true;

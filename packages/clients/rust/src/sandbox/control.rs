@@ -157,6 +157,9 @@ pub enum ClientResponseOutput {
 	#[tangram_serialize(id = 3)]
 	SpawnProcess(SpawnProcessClientResponseOutput),
 
+	#[tangram_serialize(id = 6)]
+	Start(StartClientResponseOutput),
+
 	#[tangram_serialize(id = 4)]
 	Stop(StopClientResponseOutput),
 }
@@ -223,6 +226,9 @@ pub enum ServerRequestArg {
 
 	#[tangram_serialize(id = 3)]
 	SpawnProcess(SpawnProcessServerRequestArg),
+
+	#[tangram_serialize(id = 5)]
+	Start(StartServerRequestArg),
 
 	#[tangram_serialize(id = 4)]
 	Stop(StopServerRequestArg),
@@ -413,6 +419,31 @@ pub struct SpawnProcessClientResponseOutput {
 
 	#[tangram_serialize(id = 1)]
 	pub process: tg::Referent<tg::process::Id>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StartServerRequestArg {}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StartClientResponseOutput {
+	/// The sandbox's data from its holder, which keeps a boot that is starting or started, and whose stopping boot a start follows with the next boot.
+	#[tangram_serialize(id = 0)]
+	pub data: tg::sandbox::get::Output,
 }
 
 #[derive(
