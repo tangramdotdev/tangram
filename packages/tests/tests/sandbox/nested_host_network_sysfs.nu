@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A sandbox nested in a host-networked sandbox whose /sys is a tmpfs starts.
+# A host-networked sandbox whose /sys is a tmpfs starts, as does a sandbox nested inside it.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }
 let uid = ^id -u | str trim | into int
 let gid = ^id -g | str trim | into int
