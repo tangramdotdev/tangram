@@ -16,7 +16,7 @@ let runner = server spawn --name runner --config {
 }
 wait_for_log $runner 'the runner is ready to accept work'
 
-# Hold the sandbox's connection, so that its scheduler still owns it.
+# Hold the sandbox's connection, so that its runner has not started to answer for it.
 let connect = checkpoint watch sandbox.control.connect --token $root_token --url $remote.url
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 checkpoint wait $connect | ignore

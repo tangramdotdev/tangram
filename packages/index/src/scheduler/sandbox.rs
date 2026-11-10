@@ -6,7 +6,7 @@ pub mod put;
 #[cfg(test)]
 mod tests;
 
-/// The scheduler that owns a boot of a sandbox, or the latest boot that a scheduler stopped owning, so that the puts and deletes of the boots resolve by boot in any order.
+/// The scheduler that holds a boot of a sandbox, or the latest boot that a scheduler stopped holding, so that the puts and deletes of the boots resolve by boot in any order.
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]

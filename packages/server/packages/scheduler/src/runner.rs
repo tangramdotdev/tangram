@@ -626,7 +626,7 @@ impl Component {
 			None
 		};
 
-		// Remove the ended boot from its scheduler's queue in the same write as its status, because no scheduler owns an ended boot.
+		// Remove the ended boot from its scheduler's queue in the same write as its status, because no scheduler holds an ended boot.
 		let delete = tangram_index::scheduler::sandbox::delete::Arg {
 			boot: data.data.boot,
 			sandbox: id.clone(),
