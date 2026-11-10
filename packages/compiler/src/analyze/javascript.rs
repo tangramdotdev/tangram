@@ -46,6 +46,27 @@ pub(super) fn analyze(module: &tg::module::Data, text: &str) -> Analysis {
 	}
 }
 
+/// Get the attributes of an import from its with clause.
+pub(crate) fn import_attributes(with_clause: &WithClause) -> BTreeMap<String, String> {
+	let mut attributes = BTreeMap::new();
+	for entry in &with_clause.with_entries {
+		let key = match &entry.key {
+			ImportAttributeKey::Identifier(ident) => ident.name.to_string(),
+			ImportAttributeKey::StringLiteral(lit) => {
+				let Some(key) = lit.value.as_str() else {
+					continue;
+				};
+				key.to_owned()
+			},
+		};
+		let Some(value) = entry.value.value.as_str() else {
+			continue;
+		};
+		attributes.insert(key, value.to_owned());
+	}
+	attributes
+}
+
 impl<'a> Visitor<'a> {
 	fn new(module: &'a tg::module::Data, text: &'a str) -> Self {
 		Self {
@@ -55,28 +76,6 @@ impl<'a> Visitor<'a> {
 			static_imports: HashSet::default(),
 			text,
 		}
-	}
-
-	fn get_import_attributes_from_with_clause(
-		with_clause: &WithClause<'a>,
-	) -> BTreeMap<String, String> {
-		let mut attributes = BTreeMap::new();
-		for entry in &with_clause.with_entries {
-			let key = match &entry.key {
-				ImportAttributeKey::Identifier(ident) => ident.name.to_string(),
-				ImportAttributeKey::StringLiteral(lit) => {
-					let Some(key) = lit.value.as_str() else {
-						continue;
-					};
-					key.to_owned()
-				},
-			};
-			let Some(value) = entry.value.value.as_str() else {
-				continue;
-			};
-			attributes.insert(key, value.to_owned());
-		}
-		attributes
 	}
 
 	fn get_import_attributes_from_import_expression_options(
@@ -191,10 +190,7 @@ impl<'a> Visitor<'a> {
 impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 	fn visit_import_declaration(&mut self, declaration: &ImportDeclaration<'a>) {
 		let specifier = declaration.source.value.as_str();
-		let attributes = declaration
-			.with_clause
-			.as_ref()
-			.map(|with_clause| Self::get_import_attributes_from_with_clause(with_clause));
+		let attributes = declaration.with_clause.as_deref().map(import_attributes);
 		if declaration.import_kind.is_type() {
 			self.add_import(specifier, attributes.as_ref(), declaration.span);
 		} else {
@@ -204,10 +200,7 @@ impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 
 	fn visit_export_from_declaration(&mut self, declaration: &ExportFromDeclaration<'a>) {
 		let specifier = declaration.source.value.as_str();
-		let attributes = declaration
-			.with_clause
-			.as_ref()
-			.map(|with_clause| Self::get_import_attributes_from_with_clause(with_clause));
+		let attributes = declaration.with_clause.as_deref().map(import_attributes);
 		if declaration.export_kind.is_type() {
 			self.add_import(specifier, attributes.as_ref(), declaration.span);
 		} else {
@@ -218,10 +211,7 @@ impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 
 	fn visit_export_all_declaration(&mut self, declaration: &ExportAllDeclaration<'a>) {
 		let specifier = declaration.source.value.as_str();
-		let attributes = declaration
-			.with_clause
-			.as_ref()
-			.map(|with_clause| Self::get_import_attributes_from_with_clause(with_clause));
+		let attributes = declaration.with_clause.as_deref().map(import_attributes);
 		if declaration.export_kind.is_type() {
 			self.add_import(specifier, attributes.as_ref(), declaration.span);
 		} else {

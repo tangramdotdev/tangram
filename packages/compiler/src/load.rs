@@ -14,6 +14,20 @@ mod python;
 #[cfg(all(feature = "javascript", feature = "python"))]
 mod typescript;
 
+/// The globals that Python bindings define before they bind their re-exports, which are the future import of annotations and the client that the runtime injects.
+#[cfg(all(feature = "javascript", feature = "python"))]
+const GLOBALS: &[&str] = &["annotations", "tg"];
+
+/// The kinds of modules that Python loads as bindings, whose exports are the commands that a module re-exporting them exposes.
+#[cfg(all(feature = "javascript", feature = "python"))]
+const KINDS: [tg::module::Kind; 5] = [
+	tg::module::Kind::JavaScript,
+	tg::module::Kind::Json,
+	tg::module::Kind::Toml,
+	tg::module::Kind::TypeScript,
+	tg::module::Kind::Yaml,
+];
+
 /// The prefix of the comment that records the source of each export in bindings.
 const MARKER: &str = "tangram: ";
 
@@ -64,6 +78,28 @@ pub(crate) fn bindings_language(
 		},
 		_ => Ok(None),
 	}
+}
+
+/// Determine whether Python bindings bind a re-export to its module, given the module's kind if it is known. A namespace is the module, if Python imports the module. A re-exported export is the module's binding, if Python can name the export and loads the module as bindings, so that Python reaches the same command that the re-exporting module exposes.
+#[cfg(all(feature = "javascript", feature = "python"))]
+pub(crate) fn forwards(reexport: &tg::interface::Reexport, kind: Option<tg::module::Kind>) -> bool {
+	let kinds = self::kinds(reexport);
+	let nameable = reexport.export.as_ref().is_none_or(|member| {
+		python::binding(member, &BTreeSet::new()).is_ok_and(|binding| binding == *member)
+	});
+	nameable && kind.is_none_or(|kind| kinds.contains(&kind))
+}
+
+/// Get the module that an interface imports which the interface's bindings import with a specifier.
+#[cfg(all(feature = "javascript", feature = "python"))]
+pub(crate) fn try_get_import<'a>(
+	interface: &'a tg::Interface,
+	specifier: &str,
+) -> Option<&'a tg::module::Data> {
+	let name = import_specifiers(interface)
+		.into_iter()
+		.find_map(|(name, other)| (other == specifier).then_some(name))?;
+	interface.imports.get(&name)
 }
 
 /// Generate the bindings of an interface in a language, which export a command for each export of the interface.
@@ -185,6 +221,7 @@ fn typescript_bindings(interface: &tg::Interface, text: &str) -> String {
 	let mut output = String::new();
 
 	// Import the modules whose definitions the types refer to, as namespaces that the compiler resolves from the interface's imports.
+	let specifiers = import_specifiers(interface);
 	let imports = interface
 		.imports
 		.keys()
@@ -192,7 +229,7 @@ fn typescript_bindings(interface: &tg::Interface, text: &str) -> String {
 		.map(|(index, name)| (name.clone(), format!("$i{index}")))
 		.collect::<BTreeMap<_, _>>();
 	for (name, namespace) in &imports {
-		let quoted = serde_json::to_string(name).unwrap();
+		let quoted = serde_json::to_string(&specifiers[name]).unwrap();
 		writeln!(output, "import type * as {namespace} from {quoted};").unwrap();
 	}
 
@@ -221,8 +258,36 @@ fn typescript_bindings(interface: &tg::Interface, text: &str) -> String {
 	}
 
 	for (index, (name, export)) in interface.exports.iter().enumerate() {
-		// Define a function whose name is the export's name, so that a command built from it targets the export.
+		// Re-export a namespace or an export from its module, which resolves relative to the module, recording the source of the re-export.
 		let quoted = serde_json::to_string(name).unwrap();
+		if let Some(reexport) = &export.reexport {
+			if let Some(source) = Source::new(name, export, text) {
+				writeln!(
+					output,
+					"// {MARKER}{}",
+					serde_json::to_string(&source).unwrap()
+				)
+				.unwrap();
+			}
+			let import = &reexport.import;
+			let specifier = serde_json::to_string(&import.reference.to_string()).unwrap();
+			match &reexport.export {
+				None => write!(output, "export * as {quoted} from {specifier}"),
+				Some(member) => {
+					let member = serde_json::to_string(member).unwrap();
+					write!(output, "export {{ {member} as {quoted} }} from {specifier}")
+				},
+			}
+			.unwrap();
+			if let Some(kind) = import.kind {
+				let kind = serde_json::to_string(&kind.to_string()).unwrap();
+				write!(output, " with {{ kind: {kind} }}").unwrap();
+			}
+			output.push_str(";\n");
+			continue;
+		}
+
+		// Define a function whose name is the export's name, so that a command built from it targets the export.
 		writeln!(
 			output,
 			"const f{index} = {{ async {quoted}() {{}} }}[{quoted}];"
@@ -263,7 +328,7 @@ fn typescript_bindings(interface: &tg::Interface, text: &str) -> String {
 	output
 }
 
-/// Generate the Python bindings of an interface, which bind a command to each export of the interface that Python can name.
+/// Generate the Python bindings of an interface, which bind a command to each export of the interface that Python can name, and bind each re-export to the bindings of its module.
 #[cfg(all(feature = "javascript", feature = "python"))]
 fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 	let mut output = String::new();
@@ -289,19 +354,60 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		prefix.push('_');
 	}
 
-	// Declare the modules whose definitions the types refer to as dependencies, which the compiler resolves from the interface's imports.
+	// Bind each re-export to the bindings of its module if Python can, checking at runtime that Python loads the module as bindings if its import does not determine its kind, and declaring each module as a dependency once.
+	let mut modules = Vec::<&tg::module::Import>::new();
+	let mut reexports = BTreeMap::new();
+	for (binding, (_, export)) in &bindings {
+		let Some(reexport) = &export.reexport else {
+			continue;
+		};
+		let kind = self::kind(&reexport.import);
+		if !forwards(reexport, kind) {
+			continue;
+		}
+		let index = if let Some(index) = modules
+			.iter()
+			.position(|import| **import == reexport.import)
+		{
+			index
+		} else {
+			modules.push(&reexport.import);
+			modules.len() - 1
+		};
+		let dependency = format!("{prefix}_reexport_{index}");
+		let fallback = kind
+			.is_none()
+			.then(|| format!("{prefix}_fallback_{}", reexports.len()));
+		reexports.insert(binding.clone(), (dependency, reexport, fallback));
+	}
+
+	// Declare the modules whose definitions the types refer to as dependencies, which the compiler resolves from the interface's imports, and the modules of the re-exports as dependencies, which resolve relative to the module.
+	let specifiers = import_specifiers(interface);
 	let imports = interface
 		.imports
 		.keys()
 		.enumerate()
 		.map(|(index, name)| (name.clone(), format!("{prefix}_import_{index}")))
 		.collect::<BTreeMap<_, _>>();
-	if !imports.is_empty() {
+	if !imports.is_empty() || !modules.is_empty() {
 		output.push_str("# /// script\n");
 		for (name, module) in &imports {
-			let quoted = serde_json::to_string(name).unwrap();
+			let quoted = serde_json::to_string(&specifiers[name]).unwrap();
 			writeln!(output, "# [tool.tangram.dependencies.{module}]").unwrap();
 			writeln!(output, "# specifier = {quoted}").unwrap();
+		}
+		for (index, import) in modules.iter().enumerate() {
+			let quoted = serde_json::to_string(&import.reference.to_string()).unwrap();
+			writeln!(
+				output,
+				"# [tool.tangram.dependencies.{prefix}_reexport_{index}]"
+			)
+			.unwrap();
+			writeln!(output, "# specifier = {quoted}").unwrap();
+			if let Some(kind) = import.kind {
+				let quoted = serde_json::to_string(&kind.to_string()).unwrap();
+				writeln!(output, "# kind = {quoted}").unwrap();
+			}
 		}
 		output.push_str("# ///\n");
 	}
@@ -356,15 +462,25 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		typing: typing.clone(),
 	};
 
-	// Print the definitions and the types of the exports.
+	// Print the definitions and the types of the exports, typing a re-export that Python binds as a command, which has no type in an interface without types, as a command whose args and output are any values.
 	let definitions = interface
 		.definitions
 		.iter()
 		.map(|(name, type_)| python::definition(&names.definitions[name], type_, &names))
 		.collect::<Vec<_>>();
-	let types = bindings
-		.values()
-		.map(|(_, export)| python::export(export, &names))
+	let commands = bindings
+		.iter()
+		.filter(|(binding, _)| !reexports.contains_key(*binding))
+		.collect::<Vec<_>>();
+	let types = commands
+		.iter()
+		.map(|(_, (_, export))| {
+			if export.reexport.is_some() {
+				python::type_(&crate::interface::untyped_command(), &names)
+			} else {
+				python::export(export, &names)
+			}
+		})
 		.collect::<Vec<_>>();
 	for literal in names.literals.borrow().iter() {
 		writeln!(output, "{literal}").unwrap();
@@ -373,7 +489,18 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		writeln!(output, "{definition}").unwrap();
 	}
 
-	for (index, ((binding, (name, export)), type_)) in bindings.iter().zip(types).enumerate() {
+	// Define a function for each re-export whose module's kind is known only at runtime, so that the re-export can be a command for this module's export if Python cannot bind it to the module.
+	for (binding, (_, _, fallback)) in &reexports {
+		let Some(function) = fallback else {
+			continue;
+		};
+		let (name, _) = bindings[binding];
+		writeln!(output, "async def {function}(): pass").unwrap();
+		let quoted = serde_json::to_string(name).unwrap();
+		writeln!(output, "{function}.__tangram_export__ = {quoted}").unwrap();
+	}
+
+	for (index, ((binding, (name, export)), type_)) in commands.into_iter().zip(types).enumerate() {
 		// Define a function that records the export's name, so that a command built from it targets the export.
 		let function = format!("{prefix}_function_{index}");
 		writeln!(output, "async def {function}(): pass").unwrap();
@@ -402,6 +529,103 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		}
 	}
 
+	// Import the bindings of each re-export's module for the checker, recording the source of the re-export after the sources of the commands, so that no other binding maps to it.
+	let import = |binding: &str, dependency: &str, reexport: &tg::interface::Reexport| {
+		match &reexport.export {
+			None => format!("import {dependency} as {binding}"),
+			Some(member) => format!("from {dependency} import {member} as {binding}"),
+		}
+	};
+	if !reexports.is_empty() {
+		writeln!(output, "if {typing}.TYPE_CHECKING:").unwrap();
+		for (binding, (dependency, reexport, _)) in &reexports {
+			let (name, export) = bindings[binding];
+			if let Some(source) = Source::new(name, export, text) {
+				writeln!(
+					output,
+					"# {MARKER}{}",
+					serde_json::to_string(&source).unwrap()
+				)
+				.unwrap();
+			}
+			writeln!(output, "    {}", import(binding, dependency, reexport)).unwrap();
+		}
+
+		// Remove the globals that would hide the re-exports from the module's attribute lookup at runtime.
+		writeln!(output, "else:").unwrap();
+		for binding in reexports.keys() {
+			if GLOBALS.contains(&binding.as_str()) {
+				writeln!(output, "    del {binding}").unwrap();
+			}
+		}
+
+		// Import the built-in names that the helpers use with a name that no export can shadow.
+		let builtins = format!("{prefix}_builtins");
+		writeln!(output, "    import builtins as {builtins}").unwrap();
+
+		// Define a function that gets the kind of a dependency's module from its resolution, without executing the module.
+		let kind = format!("{prefix}_kind");
+		if reexports
+			.values()
+			.any(|(_, _, fallback)| fallback.is_some())
+		{
+			writeln!(output, "    def {kind}({prefix}_dependency):").unwrap();
+			writeln!(output, "        import importlib.util").unwrap();
+			writeln!(
+				output,
+				"        {prefix}_spec = importlib.util.find_spec({prefix}_dependency)"
+			)
+			.unwrap();
+			writeln!(
+				output,
+				"        return {builtins}.getattr({builtins}.getattr({prefix}_spec, \"loader_state\", None), \"kind\", None)"
+			)
+			.unwrap();
+		}
+
+		// Import each re-export from its module when it is first used at runtime, binding a command for this module's export instead if the module's kind is known only at runtime and Python cannot bind the re-export to it, and keep the re-export as a global.
+		writeln!(output, "    def __getattr__({prefix}_name):").unwrap();
+		for (binding, (dependency, reexport, fallback)) in &reexports {
+			let quoted = serde_json::to_string(binding).unwrap();
+			writeln!(output, "        if {prefix}_name == {quoted}:").unwrap();
+			writeln!(output, "            global {binding}").unwrap();
+			if let Some(fallback) = fallback {
+				let kinds = self::kinds(reexport)
+					.iter()
+					.map(|kind| serde_json::to_string(&kind.to_string()).unwrap())
+					.collect::<Vec<_>>()
+					.join(", ");
+				let quoted = serde_json::to_string(dependency).unwrap();
+				writeln!(output, "            if {kind}({quoted}) in ({kinds}):").unwrap();
+				writeln!(
+					output,
+					"                {}",
+					import(binding, dependency, reexport)
+				)
+				.unwrap();
+				writeln!(output, "            else:").unwrap();
+				writeln!(
+					output,
+					"                {binding} = {client}.command({fallback})"
+				)
+				.unwrap();
+			} else {
+				writeln!(
+					output,
+					"            {}",
+					import(binding, dependency, reexport)
+				)
+				.unwrap();
+			}
+			writeln!(output, "            return {binding}").unwrap();
+		}
+		writeln!(
+			output,
+			"        raise {builtins}.AttributeError(f\"module {{__name__!r}} has no attribute {{{prefix}_name!r}}\")"
+		)
+		.unwrap();
+	}
+
 	// List the bindings and the definitions that keep their names as the module's public names.
 	let names = bindings
 		.keys()
@@ -417,6 +641,48 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 	writeln!(output, "__all__ = {names}").unwrap();
 
 	output
+}
+
+/// Get the kinds of the modules that Python bindings bind a re-export to, which include Python modules for a namespace.
+#[cfg(all(feature = "javascript", feature = "python"))]
+fn kinds(reexport: &tg::interface::Reexport) -> Vec<tg::module::Kind> {
+	let mut kinds = KINDS.to_vec();
+	if reexport.export.is_none() {
+		kinds.push(tg::module::Kind::Python);
+	}
+	kinds
+}
+
+/// Get the kind of a re-exported module if its import determines it, with an attribute or the extension of its path.
+#[cfg(all(feature = "javascript", feature = "python"))]
+fn kind(import: &tg::module::Import) -> Option<tg::module::Kind> {
+	import.kind.or_else(|| match import.reference.node() {
+		tg::reference::Node::Path(path) => tg::module::module_kind_for_path(path).ok(),
+		_ => None,
+	})
+}
+
+/// Get the specifier with which bindings import each module that an interface imports, by the import's name, which is the name unless a re-export or another import uses it as a specifier, so that the compiler resolves each specifier in bindings to one module.
+#[cfg(all(feature = "javascript", feature = "python"))]
+fn import_specifiers(interface: &tg::Interface) -> BTreeMap<String, String> {
+	let mut taken = interface
+		.exports
+		.values()
+		.filter_map(|export| export.reexport.as_ref())
+		.map(|reexport| reexport.import.reference.to_string())
+		.collect::<BTreeSet<_>>();
+	let mut specifiers = BTreeMap::new();
+	for name in interface.imports.keys() {
+		let mut specifier = name.clone();
+		while taken.contains(&specifier)
+			|| (specifier != *name && interface.imports.contains_key(&specifier))
+		{
+			specifier.push('_');
+		}
+		taken.insert(specifier.clone());
+		specifiers.insert(name.clone(), specifier);
+	}
+	specifiers
 }
 
 #[cfg(all(test, feature = "javascript", feature = "python"))]
@@ -563,13 +829,14 @@ mod tests {
 		let source = source(tg::module::Kind::TypeScript);
 		let text = module(
 			&source,
-			"export const $ = () => 42; export const __all__ = () => 42; export const value = () => 42;",
+			"export const $ = () => 42; export const __all__ = () => 42; export const __name__ = () => 42; export const value = () => 42;",
 			Some(tg::module::load::Language::Python),
 		)
 		.unwrap();
 		assert!(ruff_python_parser::parse_module(&text).is_ok());
 		assert!(!text.contains('$'), "{text}");
 		assert!(!text.contains("\n__all__ = _tg"), "{text}");
+		assert!(!text.contains("\n__name__ = "), "{text}");
 		assert!(text.contains("__all__ = [\"value\"]\n"), "{text}");
 	}
 
@@ -595,6 +862,7 @@ mod tests {
 			documentation: None,
 			error: None,
 			range: None,
+			reexport: None,
 			type_: Some(tg::interface::Type::Command {
 				args: Box::new(args),
 				output: Box::new(tg::interface::Type::File),
@@ -648,6 +916,7 @@ mod tests {
 			documentation: None,
 			error: Some("a function is not a value".to_owned()),
 			range: None,
+			reexport: None,
 			type_: None,
 		};
 		let interface = tg::Interface {
@@ -673,12 +942,110 @@ mod tests {
 	}
 
 	#[test]
+	fn binds_reexports_to_the_bindings_of_their_modules() {
+		let reexport = |specifier: &str, kind: Option<&str>, export: Option<&str>| {
+			let attributes =
+				kind.map(|kind| BTreeMap::from([("kind".to_owned(), kind.to_owned())]));
+			let import =
+				tg::module::Import::with_specifier_and_attributes(specifier, attributes).unwrap();
+			let reexport = tg::interface::Reexport {
+				export: export.map(ToOwned::to_owned),
+				import,
+			};
+			tg::interface::Export {
+				documentation: None,
+				error: None,
+				range: None,
+				reexport: Some(reexport),
+				type_: None,
+			}
+		};
+		let module = source(tg::module::Kind::TypeScript);
+		let source = "export * as tools from \"./tools.tg.ts\";\n";
+		let mut tools = reexport("./tools.tg.ts", None, None);
+		tools.range =
+			tg::Range::try_from_byte_range_in_string(source, 12..17, tg::position::Encoding::Utf8);
+		let options = tg::interface::Type::Record {
+			fields: BTreeMap::new(),
+		};
+		let interface = tg::Interface {
+			definitions: [("Options".to_owned(), options)].into(),
+			exports: [
+				(
+					"forwarded".to_owned(),
+					reexport("./barrel.tg.ts", None, Some("tools")),
+				),
+				(
+					"keyword".to_owned(),
+					reexport("./barrel.tg.ts", None, Some("lambda")),
+				),
+				(
+					"script".to_owned(),
+					reexport("./scripts.tg.py", None, Some("script")),
+				),
+				(
+					"scripts".to_owned(),
+					reexport("./scripts", Some("python"), None),
+				),
+				("tg".to_owned(), reexport("tools", None, None)),
+				(
+					"tool".to_owned(),
+					reexport("./tools.tg.ts", None, Some("tool")),
+				),
+				("tools".to_owned(), tools),
+			]
+			.into(),
+			imports: [("tools".to_owned(), module)].into(),
+		};
+
+		// Generate valid Python bindings and resolve the type import separately from the re-export.
+		let text = python_bindings(&interface, source);
+		assert!(ruff_python_parser::parse_module(&text).is_ok(), "{text}");
+		assert_eq!(
+			try_get_import(&interface, "tools_"),
+			interface.imports.get("tools")
+		);
+		assert!(try_get_import(&interface, "tools").is_none());
+
+		// Only the re-export's import maps to the re-export's source.
+		let offset = text.find("import _tg_reexport_3 as tools").unwrap();
+		assert_eq!(
+			super::source(&text, offset).map(|source| source.name),
+			Some("tools".to_owned())
+		);
+		let offset = text.find("Options = ").unwrap();
+		assert!(super::source(&text, offset).is_none(), "{text}");
+		assert!(
+			text.ends_with(
+				"__all__ = [\"Options\",\"forwarded\",\"keyword\",\"script\",\"scripts\",\"tg\",\"tool\",\"tools\"]\n"
+			),
+			"{text}"
+		);
+
+		// The TypeScript module re-exports each namespace and export from its module.
+		let text = typescript_bindings(&interface, source);
+		for statement in [
+			"import type * as $i0 from \"tools_\";\n",
+			"export { \"tools\" as \"forwarded\" } from \"./barrel.tg.ts\";\n",
+			"export { \"lambda\" as \"keyword\" } from \"./barrel.tg.ts\";\n",
+			"export { \"script\" as \"script\" } from \"./scripts.tg.py\";\n",
+			"export * as \"scripts\" from \"./scripts\" with { kind: \"python\" };\n",
+			"export * as \"tg\" from \"tools\";\n",
+			"export { \"tool\" as \"tool\" } from \"./tools.tg.ts\";\n",
+			"export * as \"tools\" from \"./tools.tg.ts\";\n",
+		] {
+			assert!(text.contains(statement), "{text}");
+		}
+	}
+
+	#[test]
 	fn imports_the_modules_that_references_name() {
 		let module = source(tg::module::Kind::TypeScript);
 		let greeting = tg::interface::Export {
 			documentation: None,
 			error: None,
 			range: None,
+			reexport: None,
 			type_: Some(tg::interface::Type::Command {
 				args: Box::new(tg::interface::Type::Tuple {
 					elements: Vec::new(),

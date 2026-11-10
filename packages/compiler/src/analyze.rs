@@ -1,7 +1,7 @@
 use {super::Compiler, std::collections::HashSet, tangram_client::prelude::*};
 
 #[cfg(feature = "javascript")]
-mod javascript;
+pub(crate) mod javascript;
 
 #[cfg(feature = "python")]
 pub mod python;

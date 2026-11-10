@@ -1,7 +1,10 @@
 use {
 	super::{Error, Parser, TokenKind},
 	crate::prelude::*,
-	std::collections::BTreeMap,
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		ops::Range,
+	},
 };
 
 #[derive(Default, serde::Deserialize)]
@@ -34,24 +37,35 @@ struct Dependency {
 	specifier: String,
 }
 
-/// Parse an interface file in Python, as a subset of Python type declarations with its imports in a script metadata block.
+/// Parse an interface file in Python, as a subset of Python type declarations with its imports in a script metadata block, its re-exported namespaces as `import dependency` or `import dependency as name`, and its re-exported exports as `from dependency import export` or `from dependency import export as name`.
 pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
-	// Get the imports from the script metadata block.
-	let mut interface = tg::Interface {
-		imports: imports(text)?,
-		..Default::default()
-	};
+	// Get the dependencies from the script metadata block.
+	let (dependencies, block) = dependencies(text)?;
+	let mut interface = tg::Interface::default();
 
 	// Parse the statements.
 	let tokens = super::lex(text, tg::interface::Language::Python)?;
 	let mut parser = Parser::new(tokens, text);
+	let mut reexports = BTreeSet::new();
 	while let Some(token) = parser.peek() {
 		let start = token.range.start;
 		if token.column != 0 {
 			return parser.error("expected a statement without indentation");
 		}
-		if parser.is_keyword("import") || parser.is_keyword("from") {
-			return parser.error("expected the imports in the script metadata block");
+		if parser.eat_keyword("import") {
+			let (name, dependency, export) = namespace(&mut parser, &dependencies, &block)?;
+			let range = start..parser.range().start;
+			super::insert(&mut interface.exports, name, export, range, "export")?;
+			reexports.insert(dependency);
+			continue;
+		}
+		if parser.eat_keyword("from") {
+			let (dependency, exports) = from(&mut parser, &dependencies, &block)?;
+			for (name, export, range) in exports {
+				super::insert(&mut interface.exports, name, export, range, "export")?;
+			}
+			reexports.insert(dependency);
+			continue;
 		}
 		if parser.is_keyword("type")
 			&& matches!(parser.peek_kind(1), Some(TokenKind::Identifier(_)))
@@ -85,14 +99,33 @@ pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
 		}
 	}
 
+	// Import the dependencies that types refer to or that no re-export imports.
+	let references = parser
+		.references
+		.iter()
+		.filter_map(|(import, _, _)| import.clone())
+		.collect::<BTreeSet<_>>();
+	for (name, dependency) in dependencies {
+		if reexports.contains(&name) && !references.contains(&name) {
+			continue;
+		}
+		let module = super::import(&dependency.specifier, dependency.kind.as_deref()).map_err(
+			|message| Error {
+				message,
+				range: block.clone(),
+			},
+		)?;
+		interface.imports.insert(name, module);
+	}
+
 	// Check the references.
 	parser.check_references(&interface)?;
 
 	Ok(interface)
 }
 
-/// Get the imports from the `[tool.tangram.dependencies.<name>]` tables of the script metadata block.
-fn imports(text: &str) -> Result<BTreeMap<String, tg::module::Data>, Error> {
+/// Get the dependencies from the `[tool.tangram.dependencies.<name>]` tables of the script metadata block, with the range of the block.
+fn dependencies(text: &str) -> Result<(BTreeMap<String, Dependency>, Range<usize>), Error> {
 	// Find the script metadata block.
 	let mut offset = 0;
 	let mut start = None;
@@ -114,16 +147,8 @@ fn imports(text: &str) -> Result<BTreeMap<String, tg::module::Data>, Error> {
 				message: error.message().to_owned(),
 				range: range.clone(),
 			})?;
-			let mut imports = BTreeMap::new();
-			for (name, dependency) in script.tool.tangram.dependencies {
-				let module = super::import(&dependency.specifier, dependency.kind.as_deref())
-					.map_err(|message| Error {
-						message,
-						range: range.clone(),
-					})?;
-				imports.insert(name, module);
-			}
-			return Ok(imports);
+			let output = (script.tool.tangram.dependencies, range);
+			return Ok(output);
 		}
 		let Some(content) = line.strip_prefix('#') else {
 			let message = "expected the script metadata block to be comments".to_owned();
@@ -141,7 +166,7 @@ fn imports(text: &str) -> Result<BTreeMap<String, tg::module::Data>, Error> {
 			range: start..text.len(),
 		});
 	}
-	Ok(BTreeMap::new())
+	Ok((BTreeMap::new(), 0..0))
 }
 
 /// Check that a statement ends at the end of its line.
@@ -238,19 +263,123 @@ fn export(parser: &mut Parser, range: Option<tg::Range>) -> Result<tg::interface
 		(None, Some(type_(parser)?))
 	};
 	end(parser)?;
+	let documentation = documentation(parser)?;
+	let export = tg::interface::Export {
+		documentation,
+		error,
+		range,
+		reexport: None,
+		type_,
+	};
+	Ok(export)
+}
+
+/// Parse a re-exported namespace after `import`, `dependency` or `dependency as name`, with a docstring on the line after it, returning its name and its dependency.
+fn namespace(
+	parser: &mut Parser,
+	dependencies: &BTreeMap<String, Dependency>,
+	block: &Range<usize>,
+) -> Result<(String, String, tg::interface::Export), Error> {
+	let mut name_range = parser.position_range();
+	let (dependency, import) = self::dependency(parser, dependencies, block)?;
+	let name = if parser.eat_keyword("as") {
+		name_range = parser.position_range();
+		parser.expect_identifier()?
+	} else {
+		dependency.clone()
+	};
+	end(parser)?;
+	let documentation = documentation(parser)?;
+	let reexport = tg::interface::Reexport {
+		export: None,
+		import,
+	};
+	let export = tg::interface::Export {
+		documentation,
+		error: None,
+		range: name_range,
+		reexport: Some(reexport),
+		type_: None,
+	};
+	Ok((name, dependency, export))
+}
+
+/// Parse re-exported exports after `from`, `dependency import export, other as name`, with a docstring on the line after them, returning their dependency and their names, exports, and ranges.
+fn from(
+	parser: &mut Parser,
+	dependencies: &BTreeMap<String, Dependency>,
+	block: &Range<usize>,
+) -> Result<(String, Vec<(String, tg::interface::Export, Range<usize>)>), Error> {
+	let (dependency, import) = self::dependency(parser, dependencies, block)?;
+	parser.expect_keyword("import")?;
+	let mut names = Vec::new();
+	loop {
+		let range = parser.range();
+		let mut name_range = parser.position_range();
+		let member = parser.expect_identifier()?;
+		let name = if parser.eat_keyword("as") {
+			name_range = parser.position_range();
+			parser.expect_identifier()?
+		} else {
+			member.clone()
+		};
+		names.push((member, name, name_range, range));
+		if !parser.eat_punctuation(",") {
+			break;
+		}
+	}
+	end(parser)?;
+	let documentation = documentation(parser)?;
+	let exports = names
+		.into_iter()
+		.map(|(member, name, name_range, range)| {
+			let reexport = tg::interface::Reexport {
+				export: Some(member),
+				import: import.clone(),
+			};
+			let export = tg::interface::Export {
+				documentation: documentation.clone(),
+				error: None,
+				range: name_range,
+				reexport: Some(reexport),
+				type_: None,
+			};
+			(name, export, range)
+		})
+		.collect();
+	Ok((dependency, exports))
+}
+
+/// Parse the name of a dependency that a re-export imports, which the script metadata block must declare, returning the name and the dependency's import.
+fn dependency(
+	parser: &mut Parser,
+	dependencies: &BTreeMap<String, Dependency>,
+	block: &Range<usize>,
+) -> Result<(String, tg::module::Import), Error> {
+	let range = parser.range();
+	let dependency = parser.expect_identifier()?;
+	let Some(declaration) = dependencies.get(&dependency) else {
+		let message = format!("the dependency {dependency:?} is not declared");
+		return Err(Error { message, range });
+	};
+	let import = super::reexport(&declaration.specifier, declaration.kind.as_deref()).map_err(
+		|message| Error {
+			message,
+			range: block.clone(),
+		},
+	)?;
+	Ok((dependency, import))
+}
+
+/// Parse the docstring on the line after a statement, if there is one.
+fn documentation(parser: &mut Parser) -> Result<Option<String>, Error> {
 	let documentation = match parser.peek() {
 		Some(token) if token.column == 0 && matches!(token.kind, TokenKind::String(_)) => {
 			Some(parser.expect_string()?.trim().to_owned())
 		},
 		_ => None,
 	};
-	let export = tg::interface::Export {
-		documentation,
-		error,
-		range,
-		type_,
-	};
-	Ok(export)
+	Ok(documentation)
 }
 
 /// Parse the type of a field, which is optional if it is `NotRequired[...]`.

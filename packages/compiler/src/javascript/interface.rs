@@ -66,10 +66,32 @@ impl Project {
 		// Discover the exports from the module's source.
 		let mut interface = crate::interface::module(module, text)?;
 
+		// Keep each re-export that Python binds to the bindings of its module, and type each other re-export like any other export, because Python binds it as a command for this module's export.
+		let path = self.host.path(module);
+		for export in interface.exports.values_mut() {
+			let Some(reexport) = &export.reexport else {
+				continue;
+			};
+			let specifier = reexport.import.reference.to_string();
+			let attributes = reexport
+				.import
+				.kind
+				.map(|kind| BTreeMap::from([("kind".to_owned(), kind.to_string())]));
+			let kind = self
+				.host
+				.resolve(&specifier, &path, attributes)
+				.ok()
+				.flatten()
+				.and_then(|path| self.host.try_module(&path).ok().flatten())
+				.map(|module| module.kind);
+			if !kind.is_some_and(|kind| crate::load::forwards(reexport, Some(kind))) {
+				export.reexport = None;
+			}
+		}
+
 		// Get the source file and a type checker.
 		let context = Self::context();
 		let program = self.program()?;
-		let path = self.host.path(module);
 		let source_file = program.get_source_file(&path).ok_or_else(|| {
 			tg::error!("the javascript program did not contain the requested module")
 		})?;
@@ -114,8 +136,11 @@ impl Project {
 			converter.export_definition(name, *symbol);
 		}
 
-		// Give each export its type, or the reason that it is not a value, discarding the definitions and imports of an export that is not a value.
+		// Give each export that is not a re-export its type, or the reason that it is not a value, discarding the definitions and imports of an export that is not a value.
 		for (name, export) in &mut interface.exports {
+			if export.reexport.is_some() {
+				continue;
+			}
 			let symbol = symbols
 				.get(name)
 				.copied()

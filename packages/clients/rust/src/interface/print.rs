@@ -32,6 +32,13 @@ fn import(module: &tg::module::Data) -> tg::Result<(String, Option<String>)> {
 	Ok((specifier, kind))
 }
 
+/// Print the specifier of a re-export's import as it is written in the module, and its kind if the import names one.
+fn reexport(import: &tg::module::Import) -> (String, Option<String>) {
+	let specifier = import.reference.to_string();
+	let kind = import.kind.map(|kind| kind.to_string());
+	(specifier, kind)
+}
+
 /// Print a number literal, which must be finite.
 fn number(value: f64) -> tg::Result<String> {
 	if !value.is_finite() {

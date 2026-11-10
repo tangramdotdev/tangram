@@ -12,8 +12,31 @@ const RESERVED: &[&str] = &[
 pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
 	let mut output = String::new();
 
-	// Print the imports in a script metadata block.
-	if !interface.imports.is_empty() {
+	// Declare a dependency for each module that the exports re-export from, named after the module, unless an import or another dependency has the name.
+	let mut dependencies = Vec::<(String, &tg::module::Import)>::new();
+	for reexport in interface
+		.exports
+		.values()
+		.filter_map(|export| export.reexport.as_ref())
+	{
+		if dependencies
+			.iter()
+			.any(|(_, import)| **import == reexport.import)
+		{
+			continue;
+		}
+		let mut dependency = self::dependency(&reexport.import);
+		while !super::is_identifier(&dependency, RESERVED)
+			|| interface.imports.contains_key(&dependency)
+			|| dependencies.iter().any(|(other, _)| *other == dependency)
+		{
+			dependency.push('_');
+		}
+		dependencies.push((dependency, &reexport.import));
+	}
+
+	// Print the imports and the dependencies of the re-exports in a script metadata block.
+	if !interface.imports.is_empty() || !dependencies.is_empty() {
 		output.push_str("# /// script\n");
 		for (alias, module) in &interface.imports {
 			if !super::is_identifier(alias, RESERVED) {
@@ -21,6 +44,14 @@ pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
 			}
 			let (specifier, kind) = super::import(module)?;
 			writeln!(output, "# [tool.tangram.dependencies.{alias}]").unwrap();
+			writeln!(output, "# specifier = {}", super::string(&specifier)).unwrap();
+			if let Some(kind) = kind {
+				writeln!(output, "# kind = {}", super::string(&kind)).unwrap();
+			}
+		}
+		for (dependency, import) in &dependencies {
+			let (specifier, kind) = super::reexport(import);
+			writeln!(output, "# [tool.tangram.dependencies.{dependency}]").unwrap();
 			writeln!(output, "# specifier = {}", super::string(&specifier)).unwrap();
 			if let Some(kind) = kind {
 				writeln!(output, "# kind = {}", super::string(&kind)).unwrap();
@@ -68,18 +99,40 @@ pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
 		}
 	}
 
-	// Print the exports, with their documentation as docstrings on the lines after them.
+	// Print the exports, importing re-exported namespaces and exports from their dependencies, with their documentation as docstrings on the lines after them.
 	for (name, export) in &interface.exports {
 		if !super::is_identifier(name, RESERVED) {
 			return Err(tg::error!(%name, "the name of the export is not an identifier"));
 		}
 		output.push('\n');
-		let type_ = match (&export.error, &export.type_) {
-			(Some(reason), _) => format!("tg.NonValue[{}]", super::string(reason)),
-			(None, Some(type_)) => self::type_(type_)?,
-			(None, None) => "tg.Value".to_owned(),
-		};
-		writeln!(output, "{name}: {type_}").unwrap();
+		if let Some(reexport) = &export.reexport {
+			let (dependency, _) = dependencies
+				.iter()
+				.find(|(_, import)| **import == reexport.import)
+				.unwrap();
+			match &reexport.export {
+				None if dependency == name => writeln!(output, "import {name}"),
+				None => writeln!(output, "import {dependency} as {name}"),
+				Some(member) if !super::is_identifier(member, RESERVED) => {
+					return Err(tg::error!(
+						%member,
+						"the name of the re-exported export is not an identifier"
+					));
+				},
+				Some(member) if member == name => {
+					writeln!(output, "from {dependency} import {name}")
+				},
+				Some(member) => writeln!(output, "from {dependency} import {member} as {name}"),
+			}
+			.unwrap();
+		} else {
+			let type_ = match (&export.error, &export.type_) {
+				(Some(reason), _) => format!("tg.NonValue[{}]", super::string(reason)),
+				(None, Some(type_)) => self::type_(type_)?,
+				(None, None) => "tg.Value".to_owned(),
+			};
+			writeln!(output, "{name}: {type_}").unwrap();
+		}
 		if let Some(documentation) = &export.documentation {
 			writeln!(output, "{}", super::string(documentation)).unwrap();
 		}
@@ -88,6 +141,40 @@ pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
 	let output = output.trim_start_matches('\n').to_owned();
 
 	Ok(output)
+}
+
+/// Name the dependency of a re-exported module after the module's file or package.
+fn dependency(import: &tg::module::Import) -> String {
+	let name = match import.reference.node() {
+		tg::reference::Node::Path(path) => path
+			.file_name()
+			.and_then(|name| name.to_str())
+			.and_then(|name| name.split('.').next())
+			.unwrap_or_default()
+			.to_owned(),
+		tg::reference::Node::Specifier(specifier) => specifier
+			.to_string()
+			.split('/')
+			.next()
+			.unwrap_or_default()
+			.to_owned(),
+		tg::reference::Node::Id(_) | tg::reference::Node::Pointer(_) => String::new(),
+	};
+	let name = name
+		.chars()
+		.map(|character| {
+			if character.is_ascii_alphanumeric() || character == '_' {
+				character
+			} else {
+				'_'
+			}
+		})
+		.collect::<String>();
+	if name.is_empty() || name.starts_with(|character: char| character.is_ascii_digit()) {
+		format!("module{name}")
+	} else {
+		name
+	}
 }
 
 fn field(field: &tg::interface::Field) -> tg::Result<String> {

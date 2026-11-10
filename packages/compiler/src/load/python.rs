@@ -28,12 +28,10 @@ pub(super) struct Names {
 	pub(super) typing: String,
 }
 
-/// Escape keywords without displacing an export that already has a valid Python name.
+/// Escape keywords without displacing an export that already has a valid Python name, and reject the names that Python reserves for the attributes of modules.
 pub(super) fn binding(name: &str, exports: &BTreeSet<String>) -> tg::Result<String> {
-	if name == "__all__" {
-		return Err(tg::error!(
-			"the export name __all__ is reserved by the python loader"
-		));
+	if name.len() > 4 && name.starts_with("__") && name.ends_with("__") {
+		return Err(tg::error!(export = %name, "the export name is reserved by python"));
 	}
 	if is_identifier(name) {
 		return Ok(name.to_owned());

@@ -11,6 +11,24 @@ struct Local {
 	used: bool,
 }
 
+/// An entry of a list of exports, `local` or `local as name`.
+struct Specifier {
+	/// The name of the declaration, or of the re-exported module's export.
+	local: String,
+
+	/// The name of the export.
+	name: String,
+
+	/// The range of the export's name.
+	name_range: Option<tg::Range>,
+
+	/// The range of the entry.
+	range: Range<usize>,
+
+	/// Whether the entry's local name is a string.
+	string: bool,
+}
+
 /// Parse an interface file in TypeScript, as a subset of TypeScript declarations.
 pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
 	let tokens = super::lex(text, tg::interface::Language::TypeScript)?;
@@ -52,22 +70,49 @@ pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
 				let export = export(&mut parser, documentation, name_range)?;
 				let range = start..parser.range().start;
 				super::insert(&mut interface.exports, name, export, range, "export")?;
+			} else if parser.eat_punctuation("*") {
+				let (name, export) = namespace(&mut parser, documentation)?;
+				let range = start..parser.range().start;
+				super::insert(&mut interface.exports, name, export, range, "export")?;
 			} else if parser.eat_punctuation("{") {
-				while !parser.eat_punctuation("}") {
+				let specifiers = specifiers(&mut parser)?;
+				if parser.eat_keyword("from") {
+					// Re-export the exports of the module that the list names.
 					let range = parser.range();
-					let local = parser.expect_identifier()?;
-					let name = if parser.eat_keyword("as") {
-						match parser.peek_kind(0) {
-							Some(TokenKind::String(_)) => parser.expect_string()?,
-							_ => parser.expect_identifier()?,
+					let specifier = parser.expect_string()?;
+					let kind = kind(&mut parser)?;
+					let import = super::reexport(&specifier, kind.as_deref())
+						.map_err(|message| Error { message, range })?;
+					for specifier in specifiers {
+						let reexport = tg::interface::Reexport {
+							export: Some(specifier.local),
+							import: import.clone(),
+						};
+						let export = tg::interface::Export {
+							documentation: documentation.clone(),
+							error: None,
+							range: specifier.name_range,
+							reexport: Some(reexport),
+							type_: None,
+						};
+						let range = specifier.range;
+						super::insert(
+							&mut interface.exports,
+							specifier.name,
+							export,
+							range,
+							"export",
+						)?;
+					}
+				} else {
+					// Export the declarations that the list names.
+					for specifier in specifiers {
+						if specifier.string {
+							let message = "expected a name".to_owned();
+							let range = specifier.range;
+							return Err(Error { message, range });
 						}
-					} else {
-						local.clone()
-					};
-					exports.push((local, name, range));
-					if !parser.eat_punctuation(",") {
-						parser.expect_punctuation("}")?;
-						break;
+						exports.push((specifier.local, specifier.name, specifier.range));
 					}
 				}
 			} else if parser.eat_keyword("default") {
@@ -135,18 +180,90 @@ fn import(parser: &mut Parser) -> Result<(String, tg::module::Data), Error> {
 	parser.expect_keyword("from")?;
 	let range = parser.range();
 	let specifier = parser.expect_string()?;
-	let mut kind = None;
-	if parser.eat_keyword("with") {
-		parser.expect_punctuation("{")?;
-		parser.expect_keyword("kind")?;
-		parser.expect_punctuation(":")?;
-		kind = Some(parser.expect_string()?);
-		parser.eat_punctuation(",");
-		parser.expect_punctuation("}")?;
-	}
+	let kind = kind(parser)?;
 	let module =
 		super::import(&specifier, kind.as_deref()).map_err(|message| Error { message, range })?;
 	Ok((alias, module))
+}
+
+/// Parse a re-exported namespace after `export *`, `as name from "specifier"`, with an optional `with { kind: "..." }`, whose name is an identifier or a string.
+fn namespace(
+	parser: &mut Parser,
+	documentation: Option<String>,
+) -> Result<(String, tg::interface::Export), Error> {
+	parser.expect_keyword("as")?;
+	let name_range = parser.position_range();
+	let name = self::name(parser)?;
+	parser.expect_keyword("from")?;
+	let range = parser.range();
+	let specifier = parser.expect_string()?;
+	let kind = kind(parser)?;
+	let import =
+		super::reexport(&specifier, kind.as_deref()).map_err(|message| Error { message, range })?;
+	let reexport = tg::interface::Reexport {
+		export: None,
+		import,
+	};
+	let export = tg::interface::Export {
+		documentation,
+		error: None,
+		range: name_range,
+		reexport: Some(reexport),
+		type_: None,
+	};
+	Ok((name, export))
+}
+
+/// Parse a list of exports after `export {`, through its closing brace.
+fn specifiers(parser: &mut Parser) -> Result<Vec<Specifier>, Error> {
+	let mut specifiers = Vec::new();
+	while !parser.eat_punctuation("}") {
+		let range = parser.range();
+		let string = matches!(parser.peek_kind(0), Some(TokenKind::String(_)));
+		let mut name_range = parser.position_range();
+		let local = self::name(parser)?;
+		let name = if parser.eat_keyword("as") {
+			name_range = parser.position_range();
+			self::name(parser)?
+		} else {
+			local.clone()
+		};
+		let specifier = Specifier {
+			local,
+			name,
+			name_range,
+			range,
+			string,
+		};
+		specifiers.push(specifier);
+		if !parser.eat_punctuation(",") {
+			parser.expect_punctuation("}")?;
+			break;
+		}
+	}
+	Ok(specifiers)
+}
+
+/// Parse the name of an export, which is an identifier or a string.
+fn name(parser: &mut Parser) -> Result<String, Error> {
+	match parser.peek_kind(0) {
+		Some(TokenKind::String(_)) => parser.expect_string(),
+		_ => parser.expect_identifier(),
+	}
+}
+
+/// Parse the optional `with { kind: "..." }` after the specifier of an import.
+fn kind(parser: &mut Parser) -> Result<Option<String>, Error> {
+	if !parser.eat_keyword("with") {
+		return Ok(None);
+	}
+	parser.expect_punctuation("{")?;
+	parser.expect_keyword("kind")?;
+	parser.expect_punctuation(":")?;
+	let kind = parser.expect_string()?;
+	parser.eat_punctuation(",");
+	parser.expect_punctuation("}")?;
+	Ok(Some(kind))
 }
 
 /// Parse the name and type of a definition, `Name = Type`.
@@ -180,6 +297,7 @@ fn export(
 		documentation,
 		error,
 		range,
+		reexport: None,
 		type_,
 	};
 	Ok(export)

@@ -178,6 +178,8 @@ class Finder(importlib.abc.MetaPathFinder):
                 module.name, loader, is_package=module.package
             )
             assert spec is not None
+            # Record the module, so that its kind is known without executing it.
+            spec.loader_state = self.tg.Module.from_data(module.data)
             module.spec = spec
         return module.spec
 
