@@ -881,14 +881,14 @@ impl Component {
 			is_ack: |message: &crate::control::ClientMessage| {
 				matches!(message.0, tg::process::control::ClientMessage::Ack(_))
 			},
-			is_not_holder: |message: &crate::control::ClientMessage| match &message.0 {
+			is_deferral: |message: &crate::control::ClientMessage| match &message.0 {
 				tg::process::control::ClientMessage::Response(
 					tg::process::control::ClientResponse {
 						id,
-						output: Some(tg::process::control::ClientResponseOutput::NotHolder(_)),
+						output: Some(output),
 						..
 					},
-				) => Some(id.clone()),
+				) if output.is_deferral() => Some(id.clone()),
 				_ => None,
 			},
 			marker: std::marker::PhantomData,

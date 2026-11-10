@@ -351,6 +351,10 @@ pub enum ClientResponseOutput {
 	#[tangram_serialize(id = 9)]
 	NotHolder(NotHolderClientResponseOutput),
 
+	/// The responder holds the process but cannot act on the request until the process starts, so the request did nothing.
+	#[tangram_serialize(id = 10)]
+	NotReady(NotReadyClientResponseOutput),
+
 	#[tangram_serialize(id = 0)]
 	Open(OpenClientResponseOutput),
 
@@ -435,6 +439,16 @@ pub struct GetChildrenClientResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct NotHolderClientResponseOutput {}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct NotReadyClientResponseOutput {}
 
 #[derive(
 	Clone,
@@ -748,6 +762,14 @@ pub struct Config {
 	pub max_untracked_messages: usize,
 	pub message_capacity: usize,
 	pub resend_interval: Duration,
+}
+
+impl ClientResponseOutput {
+	/// Whether the reply defers the request, because the responder does not hold the process or cannot act on the request until the process starts, so that the request is sent again.
+	#[must_use]
+	pub fn is_deferral(&self) -> bool {
+		matches!(self, Self::NotHolder(_) | Self::NotReady(_))
+	}
 }
 
 impl Config {

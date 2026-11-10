@@ -217,7 +217,7 @@ pub async fn send<K: Kind>(
 		ack: |id| ServerMessage::Ack(Ack { id }),
 		client_subject: client_subject::<K>(request_id),
 		is_ack: |message: &ClientMessage<K::Output>| matches!(message, ClientMessage::Ack(_)),
-		is_not_holder: |_| None,
+		is_deferral: |_| None,
 		marker: std::marker::PhantomData,
 		options,
 		request,

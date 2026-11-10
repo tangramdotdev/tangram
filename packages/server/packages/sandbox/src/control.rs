@@ -693,14 +693,14 @@ impl Component {
 			is_ack: |message: &ClientMessage| {
 				matches!(&message.0, tg::sandbox::control::ClientMessage::Ack(_))
 			},
-			is_not_holder: |message: &ClientMessage| match &message.0 {
+			is_deferral: |message: &ClientMessage| match &message.0 {
 				tg::sandbox::control::ClientMessage::Response(
 					tg::sandbox::control::ClientResponse {
 						id,
-						output: Some(tg::sandbox::control::ClientResponseOutput::NotHolder(_)),
+						output: Some(output),
 						..
 					},
-				) => Some(id.clone()),
+				) if output.is_deferral() => Some(id.clone()),
 				_ => None,
 			},
 			marker: std::marker::PhantomData,

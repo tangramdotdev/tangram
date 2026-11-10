@@ -843,11 +843,19 @@ impl SchedulerState {
 			return;
 		}
 
-		// Reply that this scheduler does not hold a sandbox that it has offered to a runner, whether or not the runner has accepted it, because the offer carries the boot's pending stop, and that it does not hold a queued sandbox for a spawn, which only a runner can carry out.
-		let spawn = matches!(arg, tg::sandbox::control::ServerRequestArg::SpawnProcess(_));
-		if pending != Some(true) || spawn {
+		// Reply that this scheduler does not hold a sandbox that it has offered to a runner, whether or not the runner has accepted it, because the offer carries the boot's pending stop.
+		if pending != Some(true) {
 			let output = tg::sandbox::control::ClientResponseOutput::NotHolder(
 				tg::sandbox::control::NotHolderClientResponseOutput {},
+			);
+			self.publish_sandbox_holder_response(scheduler, sandbox, id, None, output);
+			return;
+		}
+
+		// Reply that this scheduler holds a queued sandbox but is not ready for a spawn, which only a runner can carry out once the sandbox starts.
+		if matches!(arg, tg::sandbox::control::ServerRequestArg::SpawnProcess(_)) {
+			let output = tg::sandbox::control::ClientResponseOutput::NotReady(
+				tg::sandbox::control::NotReadyClientResponseOutput {},
 			);
 			self.publish_sandbox_holder_response(scheduler, sandbox, id, None, output);
 			return;
@@ -976,7 +984,7 @@ impl SchedulerState {
 		}
 	}
 
-	/// Answer a request for a lease of a queued process, and reply that this scheduler does not hold a process for any other request, or once it has offered the process's sandbox to a runner. The assignment carries the leases, so a process whose request was sent to a runner takes leases over process control once it connects.
+	/// Answer a request for a lease of a queued process, reply that this scheduler is not ready for any other request of a queued process, which only a runner can carry out once the process starts, and reply that this scheduler does not hold a process once it has offered the process's sandbox to a runner. The assignment carries the leases, so a process whose request was sent to a runner takes leases over process control once it connects.
 	fn handle_process_holder_request(
 		&mut self,
 		scheduler: &Scheduler,
@@ -1094,8 +1102,8 @@ impl SchedulerState {
 			| tg::process::control::ServerRequestArg::Open(_)
 			| tg::process::control::ServerRequestArg::Signal(_)
 			| tg::process::control::ServerRequestArg::Tty(_) => {
-				let output = tg::process::control::ClientResponseOutput::NotHolder(
-					tg::process::control::NotHolderClientResponseOutput {},
+				let output = tg::process::control::ClientResponseOutput::NotReady(
+					tg::process::control::NotReadyClientResponseOutput {},
 				);
 				self.publish_process_holder_response(scheduler, process, id, None, output);
 			},

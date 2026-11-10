@@ -958,7 +958,7 @@ impl Component {
 				is_ack: |message: &ClientMessage| {
 					matches!(&message.0, tg::runner::control::ClientMessage::Ack(_))
 				},
-				is_not_holder: |_| None,
+				is_deferral: |_| None,
 				marker: std::marker::PhantomData,
 				options,
 				request,

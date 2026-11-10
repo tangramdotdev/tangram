@@ -154,6 +154,10 @@ pub enum ClientResponseOutput {
 	#[tangram_serialize(id = 5)]
 	NotHolder(NotHolderClientResponseOutput),
 
+	/// The responder holds the sandbox but cannot act on the request until the sandbox starts, so the request did nothing.
+	#[tangram_serialize(id = 7)]
+	NotReady(NotReadyClientResponseOutput),
+
 	#[tangram_serialize(id = 3)]
 	SpawnProcess(SpawnProcessClientResponseOutput),
 
@@ -413,6 +417,16 @@ pub struct NotHolderClientResponseOutput {}
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+pub struct NotReadyClientResponseOutput {}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct SpawnProcessClientResponseOutput {
 	#[tangram_serialize(id = 0)]
 	pub lease: tg::process::Lease,
@@ -564,6 +578,14 @@ pub struct Header {
 
 	#[tangram_serialize(id = 1)]
 	pub token: Option<String>,
+}
+
+impl ClientResponseOutput {
+	/// Whether the reply defers the request, because the responder does not hold the sandbox or cannot act on the request until the sandbox starts, so that the request is sent again.
+	#[must_use]
+	pub fn is_deferral(&self) -> bool {
+		matches!(self, Self::NotHolder(_) | Self::NotReady(_))
+	}
 }
 
 impl tg::Session {
