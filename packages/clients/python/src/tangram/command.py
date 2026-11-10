@@ -6,12 +6,14 @@ from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
+    Generic,
     Literal,
     Never,
     NotRequired,
     Protocol,
     Self,
     TypedDict,
+    TypeVar,
     Unpack,
     cast,
     overload,
@@ -24,6 +26,7 @@ if TYPE_CHECKING:
     from .file import File
     from .module import Module
     from .process import Builder as ProcessBuilder
+    from .process import Mode
     from .referent import Referent
     from .symlink import Symlink
     from .value import ValueData, ValueInput, ValueType
@@ -126,7 +129,48 @@ type CommandInput = Unresolved[
 ]
 
 
-class Command[A, O: ValueType](Object):
+_Args = TypeVar("_Args", contravariant=True)
+_Output = TypeVar("_Output", bound="ValueType", covariant=True)
+
+
+if TYPE_CHECKING:
+
+    class _Call[R, *P](Protocol):
+        def __call__(self, *args: *P, **options) -> R: ...
+
+    class _Unbound[K: Mode](Protocol):
+        def __call__[*P, O: ValueType](
+            self, command: Command[tuple[*P], O], /, *args: *P, **options
+        ) -> ProcessBuilder[K, O]: ...
+
+    class _UnboundExec(Protocol):
+        def __call__[*P](
+            self, command: Command[tuple[*P], ValueType], /, *args: *P, **options
+        ) -> ProcessBuilder[Literal["exec"], Never]: ...
+
+    # An invocation method, which binds the argument tuple from the receiver before
+    # checking call arguments, and takes the command as its first argument when it is
+    # called through the class.
+    class _Method[K: Mode](Protocol):
+        @overload
+        def __get__(self, instance: None, owner: type[Any], /) -> _Unbound[K]: ...
+        @overload
+        def __get__[*P, O: ValueType](
+            self, instance: Command[tuple[*P], O], owner: type[Any], /
+        ) -> _Call[ProcessBuilder[K, O], *P]: ...
+
+    # The exec method, which returns a builder whose process does not return.
+    class _Exec(Protocol):
+        @overload
+        def __get__(self, instance: None, owner: type[Any], /) -> _UnboundExec: ...
+        @overload
+        def __get__[*P](
+            self, instance: Command[tuple[*P], ValueType], owner: type[Any], /
+        ) -> _Call[ProcessBuilder[Literal["exec"], Never], *P]: ...
+
+
+# Explicit variance is required because the methods extract argument tuples from self.
+class Command(Object, Generic[_Args, _Output]):  # noqa: UP046
     kind = "command"
     Builder: ClassVar[type[CommandBuilder[ValueType]]]
     Value: ClassVar[type[CommandValue]]
@@ -324,7 +368,10 @@ class Command[A, O: ValueType](Object):
         for arg in args:
             value = arg if isinstance(arg, CommandValue) else CommandValue.value(arg)
             command_args.extend(
-                [CommandValue.string("-a" if value.kind == "string" else "-A"), value]
+                [
+                    CommandValue.string("-a" if value.kind == "string" else "-A"),
+                    value,
+                ]
             )
         arg: CommandArgObject = {
             "args": command_args,
@@ -360,33 +407,41 @@ class Command[A, O: ValueType](Object):
     async def user(self, client: Client | None = None) -> str | None:
         return (await self.load(client)).get("user")
 
-    def build[*P](
-        self: Command[tuple[*P], O], *args: *P, **options
-    ) -> ProcessBuilder[Literal["run"], O]:
-        from .process.build import builder as build
+    if TYPE_CHECKING:
+        build: ClassVar[_Method[Literal["run"]]]
+        run: ClassVar[_Method[Literal["run"]]]
+        spawn: ClassVar[_Method[Literal["spawn"]]]
+        exec: ClassVar[_Exec]
 
-        return build(self, {"args": list(args)}, **options)
+    else:
 
-    def run[*P](
-        self: Command[tuple[*P], O], *args: *P, **options
-    ) -> ProcessBuilder[Literal["run"], O]:
-        from .process.run import builder as run
+        def build[*P](
+            self: Command[tuple[*P], _Output], *args: *P, **options
+        ) -> ProcessBuilder[Literal["run"], _Output]:
+            from .process.build import builder as build
 
-        return run(self, {"args": list(args)}, **options)
+            return build(self, {"args": list(args)}, **options)
 
-    def spawn[*P](
-        self: Command[tuple[*P], O], *args: *P, **options
-    ) -> ProcessBuilder[Literal["spawn"], O]:
-        from .process.spawn import builder as spawn
+        def run[*P](
+            self: Command[tuple[*P], _Output], *args: *P, **options
+        ) -> ProcessBuilder[Literal["run"], _Output]:
+            from .process.run import builder as run
 
-        return spawn(self, {"args": list(args)}, **options)
+            return run(self, {"args": list(args)}, **options)
 
-    def exec[*P](
-        self: Command[tuple[*P], O], *args: *P, **options
-    ) -> ProcessBuilder[Literal["exec"], Never]:
-        from .process.exec import builder as exec
+        def spawn[*P](
+            self: Command[tuple[*P], _Output], *args: *P, **options
+        ) -> ProcessBuilder[Literal["spawn"], _Output]:
+            from .process.spawn import builder as spawn
 
-        return exec(self, {"args": list(args)}, **options)
+            return spawn(self, {"args": list(args)}, **options)
+
+        def exec[*P](
+            self: Command[tuple[*P], _Output], *args: *P, **options
+        ) -> ProcessBuilder[Literal["exec"], Never]:
+            from .process.exec import builder as exec
+
+            return exec(self, {"args": list(args)}, **options)
 
     def _decode(self, value) -> CommandObjectValue:
         from .blob import Blob
