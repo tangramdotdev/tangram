@@ -352,7 +352,7 @@ impl Component {
 						) => {
 							let runner = notification.runner;
 							let scheduler = notification.scheduler;
-							let notification = tangram_server_scheduler_core::Message::Notification(
+							let notification =
 								tangram_server_scheduler_core::Notification::BorrowableCapacity(
 									tangram_server_scheduler_core::BorrowableCapacityNotification {
 										available: notification.available,
@@ -361,15 +361,14 @@ impl Component {
 										parent: notification.parent,
 										runner,
 									},
-								),
-							);
+								);
 							session
 								.server
 								.messenger
 								.publish(
-									tangram_server_scheduler_core::scheduler_server_subject(Some(
+									tangram_server_scheduler_core::scheduler_notification_subject(
 										&scheduler,
-									)),
+									),
 									notification,
 								)
 								.await

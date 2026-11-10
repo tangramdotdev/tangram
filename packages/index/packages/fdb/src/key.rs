@@ -19,6 +19,7 @@ pub enum Key {
 	Process(crate::process::Key),
 	Runner(crate::runner::Key),
 	Sandbox(crate::sandbox::Key),
+	Scheduler(crate::scheduler::Key),
 	Sync(crate::sync::Key),
 	Tag(crate::tag::Key),
 	Update(crate::update::Key),
@@ -101,6 +102,7 @@ pub enum Kind {
 	Runner = 91,
 	SchedulerRunner = 92,
 	SchedulerSandbox = 93,
+	Scheduler = 94,
 }
 
 impl fdbt::TuplePack for Key {
@@ -166,6 +168,9 @@ impl fdbt::TuplePack for Key {
 
 			Key::Indexer(crate::indexer::Key::Indexer(id)) => {
 				(Kind::Indexer.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
+			},
+			Key::Scheduler(crate::scheduler::Key::Scheduler(id)) => {
+				(Kind::Scheduler.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
 			Key::Usage(crate::usage::Key::AccountObject { account, object }) => (
 				Kind::AccountObject.to_i32().unwrap(),
@@ -911,6 +916,12 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let id = tg::indexer::Id::from_slice(&id)
 					.map_err(|_| fdbt::PackError::Message("invalid indexer id".into()))?;
 				Ok((input, Key::Indexer(crate::indexer::Key::Indexer(id))))
+			},
+			Kind::Scheduler => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::scheduler::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid scheduler id".into()))?;
+				Ok((input, Key::Scheduler(crate::scheduler::Key::Scheduler(id))))
 			},
 			Kind::AccountObject => {
 				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;

@@ -11817,6 +11817,8 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "futures",
+ "rand 0.10.3",
+ "serde",
  "serde_json",
  "tangram_cache",
  "tangram_client",
@@ -11829,6 +11831,7 @@ dependencies = [
  "tangram_server_sandbox_common",
  "tangram_server_scheduler_core",
  "tokio",
+ "tokio-stream",
  "tracing",
 ]
 

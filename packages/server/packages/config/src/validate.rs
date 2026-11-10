@@ -48,11 +48,6 @@ impl Config {
 				"the sync permission time to live must be greater than zero"
 			));
 		}
-		if self.scheduler.message_ack_timeout.is_zero() {
-			return Err(tg::error!(
-				"the scheduler message ack timeout must be greater than zero"
-			));
-		}
 		self.process
 			.control
 			.validate()
@@ -745,9 +740,19 @@ impl Config {
 	}
 
 	fn validate_scheduler(&self) -> tg::Result<()> {
-		if self.scheduler.request_concurrency == 0 {
+		if self.scheduler.request.channel_capacity == 0 || self.scheduler.request.concurrency == 0 {
 			return Err(tg::error!(
-				"the scheduler request concurrency must be greater than zero"
+				"the scheduler request channel capacity and concurrency must be greater than zero"
+			));
+		}
+		if self.scheduler.cache.poll_interval.is_zero() {
+			return Err(tg::error!(
+				"the scheduler cache poll interval must be greater than zero"
+			));
+		}
+		if self.scheduler.request.response_ttl.is_zero() {
+			return Err(tg::error!(
+				"the scheduler request response time to live must be greater than zero"
 			));
 		}
 

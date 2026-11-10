@@ -2106,6 +2106,9 @@ pub struct Seconds(#[serde_as(as = "DurationSecondsWithFrac")] pub Duration);
 #[serde(deny_unknown_fields)]
 pub struct Scheduler {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache: Option<SchedulerCache>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub create_sandbox_queue_capacity: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -2127,10 +2130,6 @@ pub struct Scheduler {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::scheduler::Id>,
 
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub inbox_ttl: Option<Duration>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_create_sandbox_attempts: Option<usize>,
 
@@ -2140,19 +2139,8 @@ pub struct Scheduler {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_create_sandbox_requests_per_runner: Option<usize>,
 
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub message_ack_timeout: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub message_retry: Option<Retry>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub message_timeout: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub request_concurrency: Option<usize>,
+	pub request: Option<SchedulerRequest>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2169,6 +2157,37 @@ pub struct Scheduler {
 		with = "serde_with::rust::double_option"
 	)]
 	pub unplaceable_timeout: Option<Option<Seconds>>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SchedulerCache {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SchedulerRequest {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub response_ttl: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub timeout: Option<Duration>,
 }
 
 #[serde_as]

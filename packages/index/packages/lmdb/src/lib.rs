@@ -26,6 +26,7 @@ mod request;
 mod response;
 mod runner;
 mod sandbox;
+mod scheduler;
 mod sync;
 mod tag;
 #[cfg(test)]

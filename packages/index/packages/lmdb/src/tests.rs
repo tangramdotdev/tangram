@@ -11,6 +11,7 @@ mod process;
 mod propagation;
 mod reader;
 mod runner;
+mod scheduler;
 mod storage;
 mod sync;
 mod tag;

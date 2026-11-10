@@ -296,13 +296,12 @@ impl Component {
 							if heartbeat_acks_ended {
 								break;
 							}
-							let notification = tangram_server_scheduler_core::Message::Notification(
-								tangram_server_scheduler_core::Notification::Heartbeat(heartbeat),
-							);
+							let notification =
+								tangram_server_scheduler_core::Notification::Heartbeat(heartbeat);
 							server
 								.messenger
 								.publish(
-									tangram_server_scheduler_core::scheduler_server_subject(Some(&scheduler)),
+									tangram_server_scheduler_core::scheduler_notification_subject(&scheduler),
 									notification,
 								)
 								.await

@@ -313,6 +313,11 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::GetIndexers(output)
 			},
+			tangram_index::read::Request::GetSchedulers => {
+				let result = Self::get_schedulers_with_transaction(transaction, subspace).await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::GetSchedulers(output)
+			},
 			tangram_index::read::Request::GetPermissions { args } => {
 				let result =
 					Self::get_permissions_with_transaction(transaction, subspace, args).await;
@@ -539,6 +544,12 @@ impl Index {
 					Self::try_get_indexer_with_transaction(transaction, subspace, arg).await;
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::TryGetIndexer(output)
+			},
+			tangram_index::read::Request::TryGetScheduler(arg) => {
+				let result =
+					Self::try_get_scheduler_with_transaction(transaction, subspace, arg).await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::TryGetScheduler(output)
 			},
 			tangram_index::read::Request::TryGetObjectChildren { id } => {
 				let object = crate::propagate!(

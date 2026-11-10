@@ -1284,6 +1284,8 @@ pub enum JavaScriptEngine {
 
 #[derive(Clone, Debug)]
 pub struct Scheduler {
+	pub cache: SchedulerCache,
+
 	pub create_sandbox_queue_capacity: usize,
 
 	pub create_sandbox_timeout: Duration,
@@ -1300,22 +1302,13 @@ pub struct Scheduler {
 	/// The scheduler's ID, which stays the same when the scheduler restarts.
 	pub id: Option<tg::scheduler::Id>,
 
-	pub inbox_ttl: Duration,
-
 	pub max_create_sandbox_attempts: usize,
 
 	pub max_create_sandbox_requests: usize,
 
 	pub max_create_sandbox_requests_per_runner: usize,
 
-	pub message_ack_timeout: Duration,
-
-	pub message_retry: Retry,
-
-	pub message_timeout: Duration,
-
-	/// The maximum number of unfinished requests of each kind.
-	pub request_concurrency: usize,
+	pub request: SchedulerRequest,
 
 	pub restart_delay: Duration,
 
@@ -1323,6 +1316,25 @@ pub struct Scheduler {
 
 	/// How long a request that no runner could fit stays queued before it fails, where zero rejects the request and `None` waits indefinitely.
 	pub unplaceable_timeout: Option<Duration>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SchedulerCache {
+	pub poll_interval: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct SchedulerRequest {
+	pub channel_capacity: usize,
+
+	/// The maximum number of concurrent message publications.
+	pub concurrency: usize,
+
+	pub response_ttl: Duration,
+
+	pub retry: Retry,
+
+	pub timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -3024,24 +3036,41 @@ impl Default for Runner {
 impl Default for Scheduler {
 	fn default() -> Self {
 		Self {
+			cache: SchedulerCache::default(),
 			create_sandbox_queue_capacity: default_scheduler_create_sandbox_queue_capacity(),
 			create_sandbox_timeout: Duration::from_secs(10),
 			default_cpu: tg::sandbox::Cpu::default(),
 			default_memory: tg::sandbox::Resource::default(),
 			default_storage: tg::sandbox::Resource::default(),
 			id: None,
-			inbox_ttl: Duration::from_mins(1),
 			max_create_sandbox_attempts: default_scheduler_max_create_sandbox_attempts(),
 			max_create_sandbox_requests: default_scheduler_max_create_sandbox_requests(),
 			max_create_sandbox_requests_per_runner:
 				default_scheduler_max_create_sandbox_requests_per_runner(),
-			message_ack_timeout: Duration::from_secs(10),
-			message_retry: message_retry_default(),
-			message_timeout: Duration::from_secs(10),
-			request_concurrency: 1024,
+			request: SchedulerRequest::default(),
 			restart_delay: Duration::from_secs(1),
 			runner_ttl: Duration::from_secs(20),
 			unplaceable_timeout: Some(Duration::from_secs(10)),
+		}
+	}
+}
+
+impl Default for SchedulerCache {
+	fn default() -> Self {
+		Self {
+			poll_interval: Duration::from_secs(1),
+		}
+	}
+}
+
+impl Default for SchedulerRequest {
+	fn default() -> Self {
+		Self {
+			channel_capacity: 256,
+			concurrency: 64,
+			response_ttl: Duration::from_mins(1),
+			retry: message_retry_default(),
+			timeout: Duration::from_secs(10),
 		}
 	}
 }

@@ -167,6 +167,10 @@ impl Index {
 				let output = Self::get_indexers_with_transaction(db, subspace, transaction)?;
 				tangram_index::read::Response::GetIndexers(output)
 			},
+			tangram_index::read::Request::GetSchedulers => {
+				let output = Self::get_schedulers_with_transaction(db, subspace, transaction)?;
+				tangram_index::read::Response::GetSchedulers(output)
+			},
 			tangram_index::read::Request::GetPermissions { args } => {
 				let output =
 					Self::get_permissions_with_transaction(db, subspace, transaction, &args)?;
@@ -371,6 +375,11 @@ impl Index {
 				let output =
 					Self::try_get_indexer_with_transaction(db, subspace, transaction, &arg)?;
 				tangram_index::read::Response::TryGetIndexer(output)
+			},
+			tangram_index::read::Request::TryGetScheduler(arg) => {
+				let output =
+					Self::try_get_scheduler_with_transaction(db, subspace, transaction, &arg)?;
+				tangram_index::read::Response::TryGetScheduler(output)
 			},
 			tangram_index::read::Request::TryGetObjectChildren { id } => {
 				let output = Self::try_get_object_with_transaction(db, subspace, transaction, &id)?

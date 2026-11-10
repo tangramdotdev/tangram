@@ -9,6 +9,7 @@ mod permission;
 mod process;
 mod runner;
 mod sandbox;
+mod scheduler;
 mod sync;
 mod tag;
 mod usage;

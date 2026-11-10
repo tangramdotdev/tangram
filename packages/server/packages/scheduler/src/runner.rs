@@ -83,7 +83,7 @@ impl SchedulerState {
 				code = tg::error::Code::Cancellation,
 				"the runner registration was superseded"
 			);
-			let response = scheduler.response(id, Err(error));
+			let response = Scheduler::response(id, Err(error));
 			scheduler.send_response(self, response);
 			return;
 		}
@@ -95,7 +95,7 @@ impl SchedulerState {
 			registration_index,
 			&request.sandboxes,
 		);
-		let completions = self.remove_runner(&request.runner);
+		let completions = self.remove_runner(scheduler, &request.runner);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
 		self.reconcile_placed_sandboxes(
 			scheduler,
@@ -150,7 +150,7 @@ impl SchedulerState {
 			.map(|runner| runner.registration_index)
 		else {
 			let error = tg::error!(sandbox = %request.sandbox, runner = %request.runner, "the sandbox's runner is unavailable");
-			let response = scheduler.response(id, Err(error));
+			let response = Scheduler::response(id, Err(error));
 			scheduler.send_response(self, response);
 			return;
 		};
@@ -212,13 +212,13 @@ impl SchedulerState {
 					runner: request.runner,
 				};
 				let response =
-					scheduler.response(id, Ok(super::ResponseOutput::RemoveRunner(output)));
+					Scheduler::response(id, Ok(super::ResponseOutput::RemoveRunner(output)));
 				scheduler.send_response(self, response);
 			}
 			return;
 		}
 		tracing::info!(runner = %request.runner, registration_index = request.registration_index, "removing the runner");
-		let completions = self.remove_runner(&request.runner);
+		let completions = self.remove_runner(scheduler, &request.runner);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
 
 		// Requeue the sandboxes that the runner held but that never connected.

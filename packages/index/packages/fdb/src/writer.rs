@@ -269,9 +269,12 @@ impl Index {
 			let operation_count = match &request {
 				Request::CompletePermissionCapture(_)
 				| Request::DeleteIndexer(_)
+				| Request::DeleteScheduler(_)
 				| Request::NextRunnerRegistrationIndex(_)
 				| Request::PutIndexer(_)
-				| Request::UpdateIndexer(_) => Some(1),
+				| Request::PutScheduler(_)
+				| Request::UpdateIndexer(_)
+				| Request::UpdateScheduler(_) => Some(1),
 				_ => None,
 			};
 			if let Some(count) = operation_count {
@@ -365,8 +368,11 @@ impl Index {
 			Request::Write(_) => Response::Mutation(Ok(())),
 			Request::CompletePermissionCapture(_)
 			| Request::DeleteIndexer(_)
+			| Request::DeleteScheduler(_)
 			| Request::PutIndexer(_)
-			| Request::UpdateIndexer(_) => Response::Unit,
+			| Request::PutScheduler(_)
+			| Request::UpdateIndexer(_)
+			| Request::UpdateScheduler(_) => Response::Unit,
 			Request::GetUsage { .. } => Response::Usage(tangram_index::usage::Aggregate::default()),
 			Request::TouchCheckouts(_) => Response::Checkouts(Vec::new()),
 			Request::TouchObjects(_) => Response::Objects(Vec::new()),
@@ -386,9 +392,12 @@ impl Index {
 			},
 			Request::CompletePermissionCapture(_)
 			| Request::DeleteIndexer(_)
+			| Request::DeleteScheduler(_)
 			| Request::NextRunnerRegistrationIndex(_)
 			| Request::PutIndexer(_)
-			| Request::UpdateIndexer(_) => unreachable!(),
+			| Request::PutScheduler(_)
+			| Request::UpdateIndexer(_)
+			| Request::UpdateScheduler(_) => unreachable!(),
 			Request::Clean(crate::Clean {
 				batch_size,
 				max_object_touched_at,
@@ -715,9 +724,12 @@ impl Index {
 				let result = match request {
 					Request::CompletePermissionCapture(_)
 					| Request::DeleteIndexer(_)
+					| Request::DeleteScheduler(_)
 					| Request::NextRunnerRegistrationIndex(_)
 					| Request::PutIndexer(_)
-					| Request::UpdateIndexer(_) => Err(tg::error!(
+					| Request::PutScheduler(_)
+					| Request::UpdateIndexer(_)
+					| Request::UpdateScheduler(_) => Err(tg::error!(
 						!error,
 						"failed to execute a request that cannot be split"
 					)),
@@ -1016,6 +1028,11 @@ impl Index {
 				crate::propagate!(result);
 				Response::Unit
 			},
+			Request::DeleteScheduler(arg) => {
+				let result = Self::delete_scheduler_with_transaction(txn, subspace, arg).await;
+				crate::propagate!(result);
+				Response::Unit
+			},
 			Request::GetUsage {
 				account,
 				delta_time_to_live,
@@ -1037,6 +1054,11 @@ impl Index {
 			},
 			Request::PutIndexer(arg) => {
 				let result = Self::put_indexer_with_transaction(txn, subspace, arg).await;
+				crate::propagate!(result);
+				Response::Unit
+			},
+			Request::PutScheduler(arg) => {
+				let result = Self::put_scheduler_with_transaction(txn, subspace, arg).await;
 				crate::propagate!(result);
 				Response::Unit
 			},
@@ -1112,6 +1134,11 @@ impl Index {
 			},
 			Request::UpdateIndexer(arg) => {
 				let result = Self::update_indexer_with_transaction(txn, subspace, arg).await;
+				crate::propagate!(result);
+				Response::Unit
+			},
+			Request::UpdateScheduler(arg) => {
+				let result = Self::update_scheduler_with_transaction(txn, subspace, arg).await;
 				crate::propagate!(result);
 				Response::Unit
 			},
