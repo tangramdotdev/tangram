@@ -441,36 +441,6 @@ impl Component {
 			return Ok(Some(output));
 		}
 
-		// Acquire a lease of a process that is starting from its scheduler, and wait for the process to connect once its request is sent to a runner.
-		if output.data.status.is_starting() {
-			let mut wakeups = self
-				.create_process_status_wakeup_stream(
-					session,
-					&output.id,
-					session.context.stopper.clone(),
-					None,
-				)
-				.await?;
-			while let Some((scheduler, sandbox)) = self
-				.try_get_starting_process_owner(session, &output.id)
-				.await?
-			{
-				let lease = session
-					.server
-					.components
-					.scheduler
-					.acquire_process_lease(session, &scheduler, &sandbox)
-					.await?;
-				if lease.is_some() {
-					output.lease = lease;
-					return Ok(Some(output));
-				}
-				if wakeups.next().await.is_none() {
-					return Err(tg::error!("the process status wakeup stream ended"));
-				}
-			}
-		}
-
 		let request = tg::process::control::ServerRequestArg::AcquireLease(
 			tg::process::control::AcquireLeaseServerRequestArg {},
 		);
@@ -494,8 +464,34 @@ impl Component {
 				Ok(response) => response.await,
 			}
 		} else {
-			self.request_process_control(session, &output.id, request, options)
-				.await
+			// Send the request to the process's holder, which is its scheduler while the process is queued.
+			let mut wakeups = self
+				.create_process_status_wakeup_stream(
+					session,
+					&output.id,
+					session.context.stopper.clone(),
+					None,
+				)
+				.await?;
+			let arg = crate::holder::Arg {
+				deadline: session.server.control_read_deadline(),
+				exhaustive: true,
+				fallback: false,
+				options,
+				request,
+				source: tg::process::Source::Auto,
+				wakeups: Some(&mut wakeups),
+			};
+			let reply = self
+				.request_process_holder(session, &output.id, arg, |_| false)
+				.boxed()
+				.await?
+				.ok_or_else(|| tg::error!("the process status wakeup stream ended"))?
+				.reply;
+			match reply {
+				Some(reply) => reply.map(Ok),
+				None => Err(tg::error!("the process's holder did not reply")),
+			}
 		};
 		let response = match response {
 			Err(error) => {
