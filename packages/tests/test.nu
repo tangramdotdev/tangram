@@ -21,7 +21,8 @@ def main [
 	--quickjs # Use QuickJS as the JavaScript engine.
 	--release # Use a release build of tangram. Some bugs are only observable in release mode.
 	--review (-r) # Review snapshots.
-	--sandbox: path # Run each test in a Tangram sandbox, using the tangram executable at this path. This requires Linux.
+	--sandbox # Run each test in a Tangram sandbox, using the tangram on the path before the build's binaries are added to it. This requires Linux.
+	--sandbox-tangram: path # Run each test in a Tangram sandbox, using the tangram executable at this path. This requires Linux.
 	--stress # Run the matching tests repeatedly until one fails.
 	--stress-count: int # Run the matching tests this many times, then stop. Implies --stress.
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
@@ -35,6 +36,19 @@ def main [
 	}
 	if $tangram_path != null and not ($tangram_path | path exists) {
 		error make { msg: $'--tangram-path does not exist: ($tangram_path)' }
+	}
+
+	# Find the tangram that runs the sandboxes before the build's binaries are added to the path.
+	let sandbox_tangram = if $sandbox_tangram != null {
+		$sandbox_tangram | path expand
+	} else if $sandbox {
+		let path = which tangram | where type == external | get --optional 0.path
+		if $path == null {
+			error make { msg: '--sandbox requires tangram on the path, or --sandbox-tangram' }
+		}
+		$path
+	} else {
+		null
 	}
 
 	# Run the build and the tests in a scope with the requested limits, which every server and sandbox that the tests start inherits.
@@ -119,7 +133,7 @@ def main [
 		(if $print_passing_test_output { ['--print-passing-test-output'] } else { [] })
 		(if $quickjs { ['--quickjs'] } else { [] })
 		(if $review { ['--review'] } else { [] })
-		(if $sandbox != null { ['--sandbox' ($sandbox | path expand)] } else { [] })
+		(if $sandbox_tangram != null { ['--sandbox' $sandbox_tangram] } else { [] })
 		(if $stress { ['--stress'] } else { [] })
 		(if $stress_count != null { ['--stress-count' ($stress_count | into string)] } else { [] })
 		['--timeout' ($timeout / 1sec | math ceil | into string)]
