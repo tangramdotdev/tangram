@@ -61,15 +61,6 @@ impl Tokens {
 	}
 
 	#[must_use]
-	pub fn remote_entry(&self) -> Entry {
-		self.map
-			.iter()
-			.find(|(location, _)| location.is_remote())
-			.map(|(_, entry)| entry.clone())
-			.unwrap_or_default()
-	}
-
-	#[must_use]
 	pub fn get(&self, location: &tg::Location) -> Option<&Entry> {
 		let location = location.clone().without_region();
 		self.map.get(&location)

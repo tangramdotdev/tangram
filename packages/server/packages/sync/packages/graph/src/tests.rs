@@ -460,7 +460,7 @@ fn dependency_facts_reject_revisions() {
 }
 
 #[test]
-fn root_tokens_follow_ancestors_for_every_location() {
+fn location_tokens_follow_ancestors() {
 	let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 	let parent = tg::object::Id::from(tg::blob::Id::new(b"parent"));
 	let child = tg::object::Id::from(tg::blob::Id::new(b"child"));
@@ -487,17 +487,17 @@ fn root_tokens_follow_ancestors_for_every_location() {
 	let mut graph = Graph::new(&arg, false);
 
 	// The root has its tokens before it is in the graph.
-	let tokens = graph.get_node_root_tokens(&parent.clone().into());
+	let tokens = graph.get_node_location_tokens(&parent.clone().into());
 	assert_eq!(tokens.authorization(&remote), std::slice::from_ref(&token));
 
 	// A child inherits the tokens of the root, and an unrelated node does not.
 	graph.update_object_remote(false, &parent, None, None, None);
 	graph.update_object_remote(false, &child, Some(parent.clone().into()), None, None);
 	graph.update_object_remote(false, &other, None, None, None);
-	let tokens = graph.get_node_root_tokens(&child.into());
+	let tokens = graph.get_node_location_tokens(&child.into());
 	assert_eq!(tokens.authorization(&remote), std::slice::from_ref(&token));
-	assert!(tokens.local_authorization().is_empty());
-	assert!(graph.get_node_root_tokens(&other.into()).is_empty());
+	assert_eq!(tokens.local_authorization(), []);
+	assert!(graph.get_node_location_tokens(&other.into()).is_empty());
 }
 
 #[test]

@@ -14,21 +14,14 @@ impl Component {
 		graph: &Mutex<Graph>,
 		queue: &Queue,
 		sender: &mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
-		mut receiver: Option<mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 	) -> tg::Result<Vec<tg::Referent<tg::Selector<tg::Id>>>> {
-		// Enqueue the initial nodes before receiving additional nodes.
-		let mut get = arg.get.clone();
+		// Enqueue the nodes.
+		let get = arg.get.clone();
 		for node in &get {
 			Self::sync_get_node(arg, graph, queue, sender, node).await?;
 		}
-		if let Some(receiver) = &mut receiver {
-			while let Some(node) = receiver.recv().await {
-				Self::sync_get_node(arg, graph, queue, sender, &node).await?;
-				get.push(node);
-			}
-		}
 
-		// Close the queue only after all nodes have arrived and completed.
+		// Close the queue only after all nodes have been enqueued and completed.
 		let mut graph = graph.lock().unwrap();
 		graph.set_get_open(false);
 		if graph.end_local() {

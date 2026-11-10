@@ -23,7 +23,6 @@ mod queue;
 mod store;
 
 pub(super) struct SyncGetArg {
-	pub(super) get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 	pub(super) graph: Arc<Mutex<Graph>>,
 	pub(super) sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
 	pub(super) stream: BoxStream<'static, tg::sync::PutMessage>,
@@ -74,7 +73,6 @@ impl Component {
 
 	pub(super) async fn sync_get(&self, session: &Session, arg: SyncGetArg) -> tg::Result<()> {
 		let SyncGetArg {
-			get,
 			graph,
 			sender,
 			stream,
@@ -140,9 +138,9 @@ impl Component {
 			}
 		});
 		let result = async {
-			// Receive the initial and additional nodes.
+			// Enqueue the nodes.
 			let nodes_future =
-				Self::sync_get_nodes(&state.arg, &state.graph, &state.queue, &state.sender, get);
+				Self::sync_get_nodes(&state.arg, &state.graph, &state.queue, &state.sender);
 
 			// Create the channels.
 			let config = &session.server.config.sync.get;

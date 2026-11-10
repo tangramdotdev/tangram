@@ -29,6 +29,7 @@ struct State {
 	remote_notify: tokio::sync::Notify,
 	resolve_sender: async_channel::Sender<self::resolve::Node>,
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::PutMessage>>,
+	sources: tokio::sync::OnceCell<(Vec<String>, Vec<tangram_server_core::location::Remote>)>,
 }
 
 impl State {
@@ -86,6 +87,7 @@ impl Component {
 			remote_notify: tokio::sync::Notify::new(),
 			resolve_sender,
 			sender,
+			sources: tokio::sync::OnceCell::new(),
 		});
 
 		// Enqueue the nodes.

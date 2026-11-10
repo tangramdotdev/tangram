@@ -713,7 +713,6 @@ impl Component {
 							arg: destination_arg,
 							process,
 							trust,
-							..Default::default()
 						};
 						let destination_output = session
 							.server

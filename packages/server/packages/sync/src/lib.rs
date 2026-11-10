@@ -108,7 +108,6 @@ impl Component {
 	> {
 		let InnerArg {
 			arg,
-			get,
 			process,
 			trust,
 		} = arg;
@@ -118,14 +117,11 @@ impl Component {
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) if Some(region.as_str()) != session.server.config.region.as_deref() => {
-				if get.is_some() {
-					return Err(tg::error!("additional get nodes require a local sync"));
-				}
 				self.sync_region(session, arg, process, stream, region)
 					.await?
 			},
 			tg::Location::Local(_) => {
-				let (header, stream) = self.sync_local(session, arg, get, stream, trust).await?;
+				let (header, stream) = self.sync_local(session, arg, stream, trust).await?;
 				let stream = stream.with_stopper(session.context.stopper.clone()).boxed();
 				ControlFlow::Break((header, stream))
 			},
@@ -133,9 +129,6 @@ impl Component {
 				name: remote,
 				region,
 			}) => {
-				if get.is_some() {
-					return Err(tg::error!("additional get nodes require a local sync"));
-				}
 				self.sync_remote(session, arg, process, stream, remote, region)
 					.await?
 			},
@@ -148,7 +141,6 @@ impl Component {
 		&self,
 		session: &Session,
 		mut arg: tg::sync::Arg,
-		get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		trust: bool,
 	) -> tg::Result<(
@@ -201,7 +193,6 @@ impl Component {
 					let future = AssertUnwindSafe(component.sync_task(
 						&session,
 						arg,
-						get,
 						stream,
 						sender.clone(),
 						trust,
@@ -411,7 +402,6 @@ impl Component {
 		&self,
 		session: &Session,
 		arg: tg::sync::Arg,
-		get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
 		trust: bool,
@@ -478,7 +468,6 @@ impl Component {
 			let sender = get_output_sender.clone();
 			async move {
 				let arg = self::get::SyncGetArg {
-					get,
 					graph,
 					sender: get_output_sender,
 					stream,
