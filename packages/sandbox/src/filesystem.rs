@@ -52,7 +52,7 @@ pub fn create(path: &Path, project: u32, size: Option<u64>, inodes: Option<u64>)
 		.ok_or_else(|| tg::error!("the sandbox filesystem has no parent"))?;
 	let directory = std::fs::File::open(parent)
 		.map_err(|error| tg::error!(!error, "failed to open the sandbox filesystem parent"))?;
-	let filesystem = kind(&directory)?;
+	let filesystem = kind(directory.as_fd())?;
 	match filesystem {
 		EXT4_SUPER_MAGIC => ext4::create(path, project, size, inodes)?,
 		XFS_SUPER_MAGIC => xfs::create(path, project, size, inodes)?,
@@ -85,7 +85,7 @@ pub(crate) fn check_project_quotas(path: &Path) -> tg::Result<()> {
 	let directory = std::fs::File::open(path).map_err(
 		|error| tg::error!(!error, path = %path.display(), "failed to open the filesystem"),
 	)?;
-	let filesystem = kind(&directory)?;
+	let filesystem = kind(directory.as_fd())?;
 	if !matches!(filesystem, EXT4_SUPER_MAGIC | XFS_SUPER_MAGIC) {
 		return Err(tg::error!(%filesystem, "the filesystem is not ext4 or XFS"));
 	}
@@ -292,7 +292,7 @@ pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Co
 	let directory = std::fs::File::open(parent)
 		.map_err(|error| tg::error!(!error, "failed to open the filesystem project"))?;
 	let directory = std::sync::Arc::new(directory);
-	let filesystem = kind(&directory)?;
+	let filesystem = kind(directory.as_fd())?;
 	let usage = {
 		let directory = directory.clone();
 		Box::new(move || usage(&directory, project))
@@ -302,14 +302,14 @@ pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Co
 	Ok(crate::budget::Control { limit, usage })
 }
 
-fn kind(directory: &std::fs::File) -> tg::Result<libc::c_long> {
+pub(crate) fn kind(fd: std::os::fd::BorrowedFd<'_>) -> tg::Result<libc::c_long> {
 	let mut statistics = MaybeUninit::<libc::statfs>::uninit();
 
 	// SAFETY: The descriptor and output pointer are valid.
-	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
+	if unsafe { libc::fstatfs(fd.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
 		return Err(tg::error!(
 			source = std::io::Error::last_os_error(),
-			"failed to inspect the sandbox filesystem"
+			"failed to inspect the filesystem"
 		));
 	}
 

@@ -3,7 +3,7 @@ use {
 	std::{
 		ffi::{CString, OsStr},
 		os::{
-			fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
+			fd::{AsFd as _, AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
 			unix::{ffi::OsStrExt as _, fs::OpenOptionsExt as _},
 		},
 		path::{Path, PathBuf},
@@ -976,9 +976,19 @@ pub(crate) fn mount_sys(target: &Path) -> tg::Result<()> {
 		Err(error) => return Err(tg::error!(!error, "failed to create the sysfs mount")),
 	}
 
-	// Bind the host sysfs recursively and read-only when a fresh sysfs is not permitted.
+	// Open the host sysfs.
 	let source = open_absolute_path(Path::new("/sys"))
 		.map_err(|error| tg::error!(!error, "failed to open the host sysfs"))?;
+
+	// Mount an empty sysfs when the host /sys is not a sysfs, as when a parent sandbox mounts a tmpfs over it.
+	let kind = crate::filesystem::kind(source.as_fd())
+		.map_err(|error| tg::error!(!error, "failed to inspect the host sysfs"))?;
+	if kind != libc::SYSFS_MAGIC {
+		mount_sys_tmpfs(target)?;
+		return Ok(());
+	}
+
+	// Bind the host sysfs recursively and read-only when a fresh sysfs is not permitted.
 	let target_fd = open_absolute_path(target).map_err(|error| {
 		tg::error!(
 			!error,
@@ -1031,6 +1041,41 @@ pub(crate) fn mount_tmpfs(target: &Path) -> tg::Result<()> {
 		data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the tmpfs mount"))?;
+	Ok(())
+}
+
+fn mount_sys_tmpfs(target: &Path) -> tg::Result<()> {
+	// Mount a tmpfs.
+	let source = cstring("tmpfs");
+	let target_cstring = cstring(target);
+	let fstype = cstring("tmpfs");
+	mount_raw(
+		Some(&source),
+		&target_cstring,
+		Some(&fstype),
+		libc::MS_NODEV | libc::MS_NOEXEC | libc::MS_NOSUID,
+		std::ptr::null_mut(),
+	)
+	.map_err(|error| tg::error!(!error, "failed to create the sysfs tmpfs"))?;
+
+	// Create the cgroup mountpoint.
+	std::fs::create_dir_all(target.join("fs/cgroup")).map_err(|error| {
+		tg::error!(
+			!error,
+			"failed to create the cgroup mountpoint in the sysfs tmpfs"
+		)
+	})?;
+
+	// Make the tmpfs read-only.
+	mount_raw(
+		None,
+		&target_cstring,
+		None,
+		libc::MS_REMOUNT | libc::MS_NODEV | libc::MS_NOEXEC | libc::MS_NOSUID | libc::MS_RDONLY,
+		std::ptr::null_mut(),
+	)
+	.map_err(|error| tg::error!(!error, "failed to make the sysfs tmpfs read-only"))?;
+
 	Ok(())
 }
 
