@@ -17,40 +17,51 @@ use {
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) enum ClientMessage {
+	#[tangram_serialize(id = 0)]
 	Ack(Ack),
+
+	#[tangram_serialize(id = 1)]
 	Response(Response),
+
+	#[tangram_serialize(id = 2)]
 	Unavailable(Ack),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) enum ServerMessage {
+	#[tangram_serialize(id = 0)]
 	Ack(Ack),
+
+	#[tangram_serialize(id = 1)]
 	Request(Request),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) struct Ack {
+	#[tangram_serialize(id = 0)]
 	id: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) struct Request {
+	#[tangram_serialize(id = 0)]
 	pub arg: RequestArg,
+
+	#[tangram_serialize(id = 1)]
 	pub id: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	error: Option<tg::error::Data>,
 
+	#[tangram_serialize(id = 1)]
 	id: String,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	output: Option<ResponseOutput>,
 }
 
@@ -316,11 +327,11 @@ impl tangram_server_core::control::Output for ClientMessage {
 
 impl Payload for ClientMessage {
 	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error> {
-		serde_json::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
+		tangram_serialize::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
 	}
 
 	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
-		serde_json::to_vec(self)
+		tangram_serialize::to_vec(self)
 			.map(Into::into)
 			.map_err(tangram_messenger::Error::serialization)
 	}
@@ -328,11 +339,11 @@ impl Payload for ClientMessage {
 
 impl Payload for ServerMessage {
 	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error> {
-		serde_json::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
+		tangram_serialize::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
 	}
 
 	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
-		serde_json::to_vec(self)
+		tangram_serialize::to_vec(self)
 			.map(Into::into)
 			.map_err(tangram_messenger::Error::serialization)
 	}
