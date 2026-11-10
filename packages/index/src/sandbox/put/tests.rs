@@ -86,6 +86,33 @@ fn the_stopped_usage_of_every_boot_is_summed_and_only_grows() {
 	assert_eq!(total(&merge), 9);
 }
 
+#[test]
+fn a_reservation_of_the_next_boot_requires_the_sandbox_to_be_stopped_at_its_boot() {
+	let mut reservation = arg(data(3, tg::sandbox::Status::Starting, None));
+	reservation.stopped_boot = Some(2);
+
+	// The sandbox is stopped at the boot.
+	let existing = sandbox(data(2, tg::sandbox::Status::Stopped, None));
+	assert!(reservation.validate_stopped_boot(Some(&existing)).is_ok());
+
+	// Another start reserved the boot.
+	let existing = sandbox(data(3, tg::sandbox::Status::Starting, None));
+	assert!(reservation.validate_stopped_boot(Some(&existing)).is_err());
+
+	// The boot is not stopped yet.
+	let existing = sandbox(data(2, tg::sandbox::Status::Stopping, None));
+	assert!(reservation.validate_stopped_boot(Some(&existing)).is_err());
+
+	// The sandbox is stopped at an earlier boot or does not exist.
+	let existing = sandbox(data(1, tg::sandbox::Status::Stopped, None));
+	assert!(reservation.validate_stopped_boot(Some(&existing)).is_err());
+	assert!(reservation.validate_stopped_boot(None).is_err());
+
+	// A put that reserves no boot is not checked.
+	reservation.stopped_boot = None;
+	assert!(reservation.validate_stopped_boot(None).is_ok());
+}
+
 fn arg(data: tg::sandbox::get::Output) -> Arg {
 	let id = data.data.id.clone();
 	Arg {
@@ -100,6 +127,7 @@ fn arg(data: tg::sandbox::get::Output) -> Arg {
 		process: None,
 		processes: None,
 		runner: None,
+		stopped_boot: None,
 		stopped_usage: None,
 		touched_at: 0,
 	}

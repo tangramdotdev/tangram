@@ -645,6 +645,7 @@ impl Component {
 					processes: Some(processes),
 					registration: registration.cloned(),
 					runner: indexed.runner,
+					stopped_boot: None,
 					stopped_usage: None,
 					touched_at: now,
 				})),

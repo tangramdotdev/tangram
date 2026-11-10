@@ -3074,6 +3074,7 @@ impl Component {
 			processes: processes.map(<[_]>::to_vec),
 			registration: None,
 			runner: None,
+			stopped_boot: None,
 			stopped_usage: None,
 			touched_at,
 		};

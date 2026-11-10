@@ -2323,6 +2323,7 @@ impl Scheduler {
 			processes,
 			registration: None,
 			runner: request.runner.clone(),
+			stopped_boot: None,
 			stopped_usage: None,
 			touched_at: now,
 		};

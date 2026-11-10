@@ -123,6 +123,7 @@ mod tests {
 					processes: None,
 					registration: None,
 					runner: None,
+					stopped_boot: None,
 					stopped_usage: None,
 					touched_at: 2,
 				})),
