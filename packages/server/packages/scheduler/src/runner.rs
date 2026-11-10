@@ -236,14 +236,16 @@ impl SchedulerState {
 		// Requeue the sandboxes that the runner held but that never connected.
 		self.handle_lost_runner(scheduler, &request.runner);
 
-		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later.
+		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later. This scheduler holds those boots, so their discard alone records their end, and the runner's cleanup leaves them alone.
+		let mut queued = Vec::new();
 		for discarded in self.discard_pinned_sandboxes(scheduler, &request.runner) {
+			queued.push(discarded.sandbox.clone());
 			scheduler.publish_sandbox_discarded(self, discarded);
 		}
 		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
-				let result = scheduler.remove_runner(request).boxed().await;
+				let result = scheduler.remove_runner(request, queued).boxed().await;
 				Operation::RemoveRunner { id, result }
 			}
 			.boxed(),
@@ -300,9 +302,11 @@ impl Scheduler {
 		Ok((output, owner))
 	}
 
+	/// Finish the sandboxes that a removed runner held. The queued sandboxes are the ones whose current boot this scheduler holds, which the runner never held.
 	pub(super) async fn remove_runner(
 		&self,
 		request: RemoveRunnerRequestArg,
+		queued: Vec<tg::sandbox::Id>,
 	) -> tg::Result<RemoveRunnerResponseOutput> {
 		// Stop the runner's sandboxes only while this registration still owns the runner.
 		let registration = tangram_index::runner::Registration {
@@ -312,7 +316,7 @@ impl Scheduler {
 		};
 		let result = self
 			.component
-			.handle_expired_runner(&self.server, &registration)
+			.handle_expired_runner(&self.server, &registration, &queued)
 			.boxed()
 			.await;
 		if let Err(error) = result {
@@ -347,12 +351,18 @@ impl Component {
 		&self,
 		server: &Server,
 		registration: &tangram_index::runner::Registration,
+		queued: &[tg::sandbox::Id],
 	) -> tg::Result<()> {
+		// Get the sandboxes that the runner held, which excludes the ones whose current boot the scheduler holds, because only a boot's holder records its end.
 		let runner = &registration.runner;
-		let sandboxes =
-			server.index.get_runner_sandboxes(runner).await.map_err(
-				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
-			)?;
+		let sandboxes = server
+			.index
+			.get_runner_sandboxes(runner)
+			.await
+			.map_err(|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"))?
+			.into_iter()
+			.filter(|sandbox| !queued.contains(sandbox))
+			.collect::<Vec<_>>();
 		tracing::warn!(%runner, sandboxes = sandboxes.len(), "stopping the expired runner sandboxes");
 		tangram_server_core::checkpoint!(server, "scheduler.runner.expired", %runner).await;
 		let indexed =
