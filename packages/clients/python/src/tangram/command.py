@@ -138,31 +138,27 @@ if TYPE_CHECKING:
     class _Call[R, *P](Protocol):
         def __call__(self, *args: *P, **options) -> R: ...
 
-    class _Unbound[K: Mode](Protocol):
+    # Bind the instance argument types and accept the command first for class calls.
+    class _Method[K: Mode](Protocol):
         def __call__[*P, O: ValueType](
             self, command: Command[tuple[*P], O], /, *args: *P, **options
         ) -> ProcessBuilder[K, O]: ...
 
-    class _UnboundExec(Protocol):
-        def __call__[*P](
-            self, command: Command[tuple[*P], ValueType], /, *args: *P, **options
-        ) -> ProcessBuilder[Literal["exec"], Never]: ...
-
-    # An invocation method, which binds the argument tuple from the receiver before
-    # checking call arguments, and takes the command as its first argument when it is
-    # called through the class.
-    class _Method[K: Mode](Protocol):
         @overload
-        def __get__(self, instance: None, owner: type[Any], /) -> _Unbound[K]: ...
+        def __get__(self, instance: None, owner: type[Any], /) -> Self: ...
         @overload
         def __get__[*P, O: ValueType](
             self, instance: Command[tuple[*P], O], owner: type[Any], /
         ) -> _Call[ProcessBuilder[K, O], *P]: ...
 
-    # The exec method, which returns a builder whose process does not return.
+    # Return a builder for an exec call that does not return.
     class _Exec(Protocol):
+        def __call__[*P](
+            self, command: Command[tuple[*P], ValueType], /, *args: *P, **options
+        ) -> ProcessBuilder[Literal["exec"], Never]: ...
+
         @overload
-        def __get__(self, instance: None, owner: type[Any], /) -> _UnboundExec: ...
+        def __get__(self, instance: None, owner: type[Any], /) -> Self: ...
         @overload
         def __get__[*P](
             self, instance: Command[tuple[*P], ValueType], owner: type[Any], /
