@@ -1,31 +1,31 @@
 use {bytes::Bytes, tangram_client::prelude::*, tangram_messenger::relay};
 
-pub(super) use crate::__tangram_server_process_stdio_relay_attempt as attempt;
+pub(crate) use crate::__tangram_server_process_stdio_relay_attempt as attempt;
 
 /// A stdio protocol message from the side that reads the stdio data back to the side that writes it.
-pub(super) struct Ack(pub(super) tg::process::stdio::read::ClientMessage);
+pub(crate) struct Ack(pub(crate) tg::process::stdio::read::ClientMessage);
 
 /// The stdio data carried on a relay.
-pub(super) struct Data(pub(super) tg::process::stdio::write::Data);
+pub(crate) struct Data(pub(crate) tg::process::stdio::write::Data);
 
 /// Get the subject on which the side that writes the stdio data sends it.
-pub(super) fn data_subject(process: &tg::process::Id, id: &str) -> String {
+pub(crate) fn data_subject(process: &tg::process::Id, id: &str) -> String {
 	format!("processes.{process}.stdio.{id}.data")
 }
 
 /// Get the subject on which the side that reads the stdio data sends its acknowledgments.
-pub(super) fn ack_subject(process: &tg::process::Id, id: &str) -> String {
+pub(crate) fn ack_subject(process: &tg::process::Id, id: &str) -> String {
 	format!("processes.{process}.stdio.{id}.ack")
 }
 
-pub(super) fn abort(error: &tg::Error) -> Bytes {
+pub(crate) fn abort(error: &tg::Error) -> Bytes {
 	serde_json::to_vec(&error.to_data_or_id())
 		.map(Bytes::from)
 		.unwrap_or_default()
 }
 
 /// Determine whether a relay error ends a relay that the relay's peer can reopen, which a closed, failed, reset, or timed out relay does.
-pub(super) fn is_retry(error: &relay::Error) -> bool {
+pub(crate) fn is_retry(error: &relay::Error) -> bool {
 	match error {
 		relay::Error::Closed
 		| relay::Error::Messenger(_)
@@ -35,7 +35,7 @@ pub(super) fn is_retry(error: &relay::Error) -> bool {
 	}
 }
 
-pub(super) fn error(error: relay::Error) -> tg::Error {
+pub(crate) fn error(error: relay::Error) -> tg::Error {
 	match error {
 		relay::Error::Aborted(payload) => {
 			serde_json::from_slice::<tg::Either<tg::error::Data, tg::error::Id>>(&payload)

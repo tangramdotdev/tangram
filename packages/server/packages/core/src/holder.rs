@@ -172,3 +172,48 @@ pub async fn request<K: Kind>(
 		}
 	}
 }
+
+/// A stream that an item's holder relays, such as a process's stdio. An attempt opens the stream at the holder, which only the holder accepts, and relays it with acknowledgments until it ends or a handoff or a failure ends the attempt.
+pub trait Stream: Send {
+	/// Open the stream at the holder and relay it from the position through which the stream has delivered its data, given the error of the previous attempt when the stream reopens.
+	fn attempt<'a>(
+		&'a mut self,
+		previous: Option<&'a tg::Error>,
+	) -> BoxFuture<'a, tg::Result<std::ops::ControlFlow<(), tg::Error>>>;
+
+	/// Whether the stream's consumer is gone.
+	fn is_closed(&self) -> bool;
+
+	/// The position through which the stream has delivered its data.
+	fn position(&self) -> u64;
+}
+
+/// Run the attempts of a stream that an item's holder relays, and reopen it after an attempt that a handoff or a failure ended, until an attempt ends it or consecutive failures exhaust the retries.
+pub async fn stream<S: Stream>(
+	stream: &mut S,
+	retry: tangram_futures::retry::Options,
+) -> tg::Result<()> {
+	let mut retries = tangram_futures::retry::stream(retry.clone()).boxed();
+	let mut error = None;
+	loop {
+		if retries.next().await.is_none() {
+			return Err(error.unwrap());
+		}
+		let start = stream.position();
+		let attempt_error = match stream.attempt(error.as_ref()).await? {
+			std::ops::ControlFlow::Break(()) => return Ok(()),
+			std::ops::ControlFlow::Continue(error) => error,
+		};
+
+		// Return the error if the consumer is gone, so that a superseded stream never takes over again.
+		if stream.is_closed() {
+			return Err(attempt_error);
+		}
+
+		// Restart the retries if the attempt delivered data, so that only consecutive failures exhaust them.
+		if stream.position() > start {
+			retries = tangram_futures::retry::stream(retry.clone()).boxed();
+		}
+		error = Some(attempt_error);
+	}
+}
