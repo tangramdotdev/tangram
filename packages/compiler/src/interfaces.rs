@@ -133,22 +133,42 @@ impl Compiler {
 			}
 			let roots = modules.values().cloned().collect();
 			self.prepare_interfaces_inner(roots, true).await;
-			let mut loaded = self.interfaces.loaded(language).lock().unwrap();
-			loaded.prepared.extend(modules.keys().cloned());
 
-			// Add the modules in other languages that the interfaces import, whose bindings the checker loads with the bindings that import them, and stop when there are none.
-			let imports = modules
-				.keys()
-				.filter_map(|key| {
-					self.interfaces
+			// Resolve the modules that the interfaces re-export from, relative to the modules that re-export them.
+			let entries = modules
+				.iter()
+				.filter_map(|(key, module)| {
+					let entry = self
+						.interfaces
 						.nodes
 						.lock()
 						.unwrap()
 						.get(key)?
 						.interface
-						.clone()
+						.clone()?;
+					Some((module, entry))
 				})
-				.flat_map(|entry| {
+				.collect::<Vec<_>>();
+			let reexports = future::join_all(entries.iter().flat_map(|(module, entry)| {
+				entry
+					.interface
+					.exports
+					.values()
+					.filter_map(|export| export.reexport.clone())
+					.map(|reexport| self.resolve_import(module, reexport.import))
+					.collect::<Vec<_>>()
+			}))
+			.await
+			.into_iter()
+			.filter_map(Result::ok)
+			.collect::<Vec<_>>();
+			let mut loaded = self.interfaces.loaded(language).lock().unwrap();
+			loaded.prepared.extend(modules.keys().cloned());
+
+			// Add the modules in other languages that the interfaces import or re-export from, whose bindings the checker loads with the bindings that import them, and stop when there are none.
+			let imports = entries
+				.iter()
+				.flat_map(|(_, entry)| {
 					entry
 						.interface
 						.imports
@@ -156,6 +176,7 @@ impl Compiler {
 						.cloned()
 						.collect::<Vec<_>>()
 				})
+				.chain(reexports)
 				.filter(|module| {
 					crate::load::bindings_language(module, Some(language))
 						.ok()

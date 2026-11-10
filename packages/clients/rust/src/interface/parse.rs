@@ -289,6 +289,16 @@ fn import(specifier: &str, kind: Option<&str>) -> std::result::Result<tg::module
 	Ok(module)
 }
 
+/// Get the import of a re-exported module from its specifier, which is relative to the module, and its kind.
+fn reexport(
+	specifier: &str,
+	kind: Option<&str>,
+) -> std::result::Result<tg::module::Import, String> {
+	let attributes = kind.map(|kind| BTreeMap::from([("kind".to_owned(), kind.to_owned())]));
+	tg::module::Import::with_specifier_and_attributes(specifier, attributes)
+		.map_err(|error| format!("the re-export's import is not valid: {error}"))
+}
+
 impl Parser {
 	fn new(tokens: Vec<Token>, text: &str) -> Self {
 		Self {

@@ -53,6 +53,7 @@ pub(super) fn exports(
 			let export = Export {
 				documentation: documentation.clone(),
 				range: Some(usize::from(range.start())..usize::from(range.end())),
+				reexport: None,
 			};
 			sources.insert(name.to_owned(), export);
 		}
@@ -129,6 +130,7 @@ pub(super) fn exports(
 			let export = sources.remove(&name).unwrap_or(Export {
 				documentation: None,
 				range: None,
+				reexport: None,
 			});
 			(name, export)
 		})

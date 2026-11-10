@@ -257,7 +257,7 @@ impl Host {
 				| tg::module::Kind::Yaml
 				| tg::module::Kind::Python
 		) && let Some(entry) = self.compiler.try_get_interface(&referrer)
-			&& let Some(module) = entry.interface.imports.get(specifier)
+			&& let Some(module) = crate::load::try_get_import(&entry.interface, specifier)
 		{
 			let path = self.path(module);
 			return Ok(Some(path));

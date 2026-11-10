@@ -75,6 +75,7 @@ impl Component {
 				let language = tg::interface::Language::for_kind(module.kind)
 					.ok_or_else(|| tg::error!("expected an interface module"))?;
 				let interface = tg::interface::parse::parse(&text, language)?;
+				tangram_compiler::config::check_interface(&interface)?;
 				(interface, text)
 			} else {
 				(tg::Interface::default(), output.text.clone())

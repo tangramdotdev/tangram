@@ -13,9 +13,12 @@ struct Export {
 
 	/// The byte range of the export's name in the module's source.
 	range: Option<std::ops::Range<usize>>,
+
+	/// The module whose namespace or export the export re-exports, if the export is a re-export.
+	reexport: Option<tg::interface::Reexport>,
 }
 
-/// Get the interface of a module from its source without types, giving every export the type of a command whose args and output are any values.
+/// Get the interface of a module from its source without types, giving every export that is not a re-export the type of a command whose args and output are any values.
 pub fn module(module: &tg::module::Data, text: &str) -> tg::Result<tg::Interface> {
 	#[cfg(not(any(feature = "javascript", feature = "python")))]
 	let _ = text;
@@ -79,11 +82,13 @@ pub fn module(module: &tg::module::Data, text: &str) -> tg::Result<tg::Interface
 						tg::position::Encoding::Utf8,
 					)
 				});
+				let type_ = export.reexport.is_none().then(untyped_command);
 				let export = tg::interface::Export {
 					documentation: export.documentation,
 					error: None,
 					range,
-					type_: Some(untyped_command()),
+					reexport: export.reexport,
+					type_,
 				};
 				(name, export)
 			})
@@ -180,7 +185,7 @@ pub(crate) fn non_value_message(error: &tg::Error) -> String {
 
 /// Get the type of a command whose args and output are any values.
 #[cfg(any(feature = "javascript", feature = "python"))]
-fn untyped_command() -> tg::interface::Type {
+pub(crate) fn untyped_command() -> tg::interface::Type {
 	let args = tg::interface::Type::Array {
 		item: Box::new(tg::interface::Type::Value),
 	};

@@ -42,6 +42,7 @@ fn an_interface_round_trips_through_json() {
 				line: 0,
 			},
 		}),
+		reexport: None,
 		type_: Some(Type::Command {
 			args: Box::new(args),
 			output: Box::new(Type::File),
@@ -101,6 +102,7 @@ fn an_interface_uses_the_documented_json_shape() {
 		documentation: None,
 		error: None,
 		range: None,
+		reexport: None,
 		type_: Some(Type::Command {
 			args: Box::new(args),
 			output: Box::new(Type::File),
@@ -122,11 +124,49 @@ fn an_export_that_is_not_a_value_has_an_error() {
 		documentation: None,
 		error: Some("a function is not a value".to_owned()),
 		range: None,
+		reexport: None,
 		type_: None,
 	};
 	let expected = Interface {
 		definitions: BTreeMap::new(),
 		exports: BTreeMap::from([("curry".to_owned(), curry)]),
+		imports: BTreeMap::new(),
+	};
+	assert_eq!(interface, expected);
+	assert_eq!(
+		Interface::deserialize_json(&interface.serialize_json().unwrap()).unwrap(),
+		interface
+	);
+}
+
+#[test]
+fn a_reexport_has_the_import_of_its_module_and_the_name_of_its_export() {
+	let json = r#"{ "exports": { "tool": { "reexport": { "export": "tool", "import": { "reference": "./tools.tg.ts" } } }, "tools": { "reexport": { "import": { "reference": "./tools.tg.ts" } } } } }"#;
+	let interface = Interface::deserialize_json(json).unwrap();
+	let import = tg::module::Import::with_specifier_and_attributes("./tools.tg.ts", None).unwrap();
+	let tool = Export {
+		documentation: None,
+		error: None,
+		range: None,
+		reexport: Some(tg::interface::Reexport {
+			export: Some("tool".to_owned()),
+			import: import.clone(),
+		}),
+		type_: None,
+	};
+	let tools = Export {
+		documentation: None,
+		error: None,
+		range: None,
+		reexport: Some(tg::interface::Reexport {
+			export: None,
+			import,
+		}),
+		type_: None,
+	};
+	let expected = Interface {
+		definitions: BTreeMap::new(),
+		exports: BTreeMap::from([("tool".to_owned(), tool), ("tools".to_owned(), tools)]),
 		imports: BTreeMap::new(),
 	};
 	assert_eq!(interface, expected);

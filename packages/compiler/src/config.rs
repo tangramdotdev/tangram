@@ -26,6 +26,20 @@ where
 	Ok(module)
 }
 
+/// Check that a config's interface has no re-exports, because a config has no dependencies to resolve a re-exported module from.
+pub fn check_interface(interface: &tg::Interface) -> tg::Result<()> {
+	let reexport = interface
+		.exports
+		.iter()
+		.find_map(|(name, export)| export.reexport.is_some().then_some(name));
+	if let Some(name) = reexport {
+		return Err(
+			tg::error!(export = %name, "a config's interface cannot re-export from a module"),
+		);
+	}
+	Ok(())
+}
+
 impl crate::backend::Backend for Backend {
 	fn feature(&self) -> &'static str {
 		"config"
@@ -243,6 +257,7 @@ impl Compiler {
 		let language = tg::interface::Language::for_kind(module.kind)
 			.ok_or_else(|| tg::error!("expected an interface module"))?;
 		let mut interface = tg::interface::parse::parse(&text, language)?;
+		check_interface(&interface)?;
 		for import in interface.imports.values_mut() {
 			let tg::module::data::Source::Path(path) = &import.referent.node else {
 				continue;

@@ -91,12 +91,34 @@ pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
 		writeln!(output, "export type {name} = {};", self::type_(type_)?).unwrap();
 	}
 
-	// Print the exports, declaring the exports whose names are not identifiers with local names, and exporting them by name.
+	// Print the exports, re-exporting namespaces and exports from their modules, declaring the exports whose names are not identifiers with local names, and exporting them by name.
 	let mut renames = Vec::new();
 	for (name, export) in &interface.exports {
 		output.push('\n');
 		if let Some(documentation) = &export.documentation {
 			output.push_str(&self::documentation(documentation));
+		}
+		if let Some(reexport) = &export.reexport {
+			let (specifier, kind) = super::reexport(&reexport.import);
+			let specifier = super::string(&specifier);
+			match &reexport.export {
+				None => write!(output, "export * as {} from {specifier}", self::name(name)),
+				Some(member) if member == name => {
+					write!(output, "export {{ {} }} from {specifier}", self::name(name))
+				},
+				Some(member) => write!(
+					output,
+					"export {{ {} as {} }} from {specifier}",
+					self::name(member),
+					self::name(name)
+				),
+			}
+			.unwrap();
+			if let Some(kind) = kind {
+				write!(output, " with {{ kind: {} }}", super::string(&kind)).unwrap();
+			}
+			output.push_str(";\n");
+			continue;
 		}
 		let type_ = match (&export.error, &export.type_) {
 			(Some(reason), _) => format!("tg.NonValue<{}>", super::string(reason)),
@@ -123,6 +145,15 @@ pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
 	let output = output.trim_start_matches('\n').to_owned();
 
 	Ok(output)
+}
+
+/// Print the name of an export in a list of exports or after `export * as`, which is a string if it is not an identifier.
+fn name(name: &str) -> String {
+	if super::is_identifier(name, &[]) {
+		name.to_owned()
+	} else {
+		super::string(name)
+	}
 }
 
 fn documentation(documentation: &str) -> String {

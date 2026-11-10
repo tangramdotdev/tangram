@@ -38,9 +38,25 @@ pub struct Export {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub range: Option<tg::Range>,
 
+	/// The module whose namespace or export the export re-exports, if the export is a re-export.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reexport: Option<Reexport>,
+
 	/// The export's type, if it is a value.
 	#[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
 	pub type_: Option<Type>,
+}
+
+/// A re-export of a module's namespace or of one of the module's exports.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Reexport {
+	/// The name of the module's export that the export re-exports, or `None` if the export re-exports the module's namespace.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub export: Option<String>,
+
+	/// The import of the module, with a specifier relative to the module that re-exports it.
+	pub import: tg::module::Import,
 }
 
 /// A type over values.
