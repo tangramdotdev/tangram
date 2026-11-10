@@ -4,7 +4,7 @@ use {
 	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
-	tangram_index::{self as index, prelude::*},
+	tangram_index::prelude::*,
 	tangram_server_core::Server,
 };
 
@@ -136,45 +136,17 @@ impl Component {
 	}
 
 	async fn wait_for_indexer(&self, server: &Server, indexer: &tg::indexer::Id) -> tg::Result<()> {
-		let mut indexer = indexer.clone();
+		// Wait for the indexer, retrying while it is down, because a stopped indexer restarts with the same ID.
 		loop {
-			let result = {
-				let request =
-					self.send_indexer_request(server, &indexer, crate::request::RequestArg::Wait);
-				tokio::pin!(request);
-				let mut interval = tokio::time::interval(server.config.indexer.cache.poll_interval);
-				interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-				loop {
-					tokio::select! {
-						result = &mut request => break Some(result),
-						_ = interval.tick() => {
-							let arg = index::indexer::get::Arg { id: indexer.clone() };
-							if server.index.try_get_indexer(arg).await?.is_none() {
-								break None;
-							}
-						},
-					}
-				}
-			};
-			if let Some(Ok(Ok(output))) = result {
+			let result = self
+				.send_indexer_request(server, indexer, crate::request::RequestArg::Wait)
+				.await;
+			if let Ok(Ok(output)) = result {
 				output
 					.try_unwrap_wait()
 					.map_err(|_| tg::error!("expected a wait response"))?;
 				tangram_server_core::checkpoint!(server, "indexer.wait.complete", %indexer).await;
 				return Ok(());
-			}
-			let arg = index::indexer::get::Arg {
-				id: indexer.clone(),
-			};
-			if server.index.try_get_indexer(arg).await?.is_none() {
-				// Retry the local wait through a surviving indexer.
-				indexer = Component::get_indexers(server)
-					.await?
-					.into_iter()
-					.next()
-					.ok_or_else(|| tg::error!("no indexers are available"))?
-					.id;
-				continue;
 			}
 			tokio::time::sleep(server.config.indexer.cache.poll_interval).await;
 		}

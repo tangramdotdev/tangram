@@ -1,5 +1,5 @@
 use {
-	super::{Indexer, Request, RequestArg, ResponseOutput, queue},
+	super::{Request, RequestArg, ResponseOutput, queue},
 	crate::IndexerState,
 	futures::StreamExt as _,
 	std::sync::{Arc, Mutex},
@@ -9,55 +9,6 @@ use {
 type ClientMessage = tangram_server_core::service::ClientMessage<ResponseOutput>;
 
 type ServerMessage = tangram_server_core::service::ServerMessage<RequestArg>;
-
-#[tokio::test]
-async fn draining_waits_for_writes_queue_completions_and_handlers() {
-	let mut queues = queue::Queues::empty(usize::MAX);
-	let reservation = queue::SequenceReservation {
-		end: 1,
-		kind: queue::Kind::Index,
-	};
-	queues.finish_reservation(reservation);
-	let sequence = queues.try_allocate_sequence(queue::Kind::Index).unwrap();
-	queues.insert_entry(queue::Kind::Index, sequence, bytes::Bytes::new());
-	queues.finish_write(queue::Kind::Index, sequence, true);
-	let state = IndexerState {
-		available: true,
-		enqueues: 1,
-		queues,
-	};
-	let state = Arc::new(Mutex::new(state));
-	let changed = Arc::new(tokio::sync::Notify::new());
-	let mut guard = super::Guard {
-		changed: changed.clone(),
-		enqueue: true,
-		state: state.clone(),
-	};
-	let drain = Indexer::drain_queues(&state, &changed);
-	tokio::pin!(drain);
-	assert!(futures::poll!(&mut drain).is_pending());
-	assert!(!state.lock().unwrap().available);
-	guard.finish();
-	assert!(futures::poll!(&mut drain).is_pending());
-	let work = state
-		.lock()
-		.unwrap()
-		.queues
-		.pop_entry(queue::Kind::Index)
-		.unwrap();
-	assert_eq!(work.sequence, sequence);
-	assert!(futures::poll!(&mut drain).is_pending());
-	state
-		.lock()
-		.unwrap()
-		.queues
-		.complete(queue::Kind::Index, sequence);
-	changed.notify_waiters();
-	assert!(matches!(
-		futures::poll!(&mut drain),
-		std::task::Poll::Ready(Ok(()))
-	));
-}
 
 #[tokio::test]
 async fn full_reply_channel_does_not_block_reception() {

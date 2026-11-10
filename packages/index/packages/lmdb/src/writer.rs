@@ -220,17 +220,6 @@ impl Index {
 						usage_partition_total,
 					)
 					.map(Response::ExpireUsageOutput),
-					Request::DeleteIndexer(arg) => {
-						Self::delete_indexer_with_transaction(db, subspace, &mut transaction, &arg)
-							.map(|()| Response::Unit)
-					},
-					Request::DeleteScheduler(arg) => Self::delete_scheduler_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&arg,
-					)
-					.map(|()| Response::Unit),
 					Request::GetUsage {
 						account,
 						delta_time_to_live,
@@ -311,13 +300,6 @@ impl Index {
 						Self::update_indexer_with_transaction(db, subspace, &mut transaction, &arg)
 							.map(|()| Response::Unit)
 					},
-					Request::UpdateScheduler(arg) => Self::update_scheduler_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&arg,
-					)
-					.map(|()| Response::Unit),
 				};
 				let failed = result.is_err();
 				results.push(result);
@@ -410,13 +392,10 @@ impl Index {
 			let operation_count = match &request {
 				Request::Write(arg) => Some(arg.items.len()),
 				Request::CompletePermissionCapture(_)
-				| Request::DeleteIndexer(_)
-				| Request::DeleteScheduler(_)
 				| Request::NextRunnerRegistrationIndex(_)
 				| Request::PutIndexer(_)
 				| Request::PutScheduler(_)
-				| Request::UpdateIndexer(_)
-				| Request::UpdateScheduler(_) => Some(1),
+				| Request::UpdateIndexer(_) => Some(1),
 				_ => None,
 			};
 			if let Some(count) = operation_count {
@@ -503,12 +482,9 @@ impl Index {
 			},
 			Request::Write(_) => Response::Mutation(Ok(())),
 			Request::CompletePermissionCapture(_)
-			| Request::DeleteIndexer(_)
-			| Request::DeleteScheduler(_)
 			| Request::PutIndexer(_)
 			| Request::PutScheduler(_)
-			| Request::UpdateIndexer(_)
-			| Request::UpdateScheduler(_) => Response::Unit,
+			| Request::UpdateIndexer(_) => Response::Unit,
 			Request::GetUsage { .. } => Response::Usage(tangram_index::usage::Aggregate::default()),
 			Request::TouchCheckouts(_) => Response::Checkouts(Vec::new()),
 			Request::TouchObjects(_) => Response::Objects(Vec::new()),
@@ -524,13 +500,10 @@ impl Index {
 			},
 			Request::Write(_)
 			| Request::CompletePermissionCapture(_)
-			| Request::DeleteIndexer(_)
-			| Request::DeleteScheduler(_)
 			| Request::NextRunnerRegistrationIndex(_)
 			| Request::PutIndexer(_)
 			| Request::PutScheduler(_)
-			| Request::UpdateIndexer(_)
-			| Request::UpdateScheduler(_) => unreachable!(),
+			| Request::UpdateIndexer(_) => unreachable!(),
 			Request::Clean(crate::Clean {
 				batch_size,
 				max_object_touched_at,

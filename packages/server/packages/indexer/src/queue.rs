@@ -283,11 +283,6 @@ impl Queues {
 		Ok(Some(reservation))
 	}
 
-	#[must_use]
-	pub fn reservations_pending(&self) -> bool {
-		self.archive.reservation_pending || self.index.reservation_pending
-	}
-
 	pub fn finish_reservation(&mut self, reservation: SequenceReservation) {
 		let queue = self.queue_mut(reservation.kind);
 		queue.reservation_pending = false;
@@ -306,12 +301,6 @@ impl Queues {
 	pub fn processing_finished(&self, kind: Kind, sequence: u64) -> bool {
 		let queue = self.queue(kind);
 		queue.processed.contains(&sequence) || queue.is_complete(sequence)
-	}
-
-	#[must_use]
-	pub fn drained(&self, archive_target_sequence: u64, index_target_sequence: u64) -> bool {
-		self.archive.read_sequence >= archive_target_sequence
-			&& self.index.read_sequence >= index_target_sequence
 	}
 
 	#[must_use]

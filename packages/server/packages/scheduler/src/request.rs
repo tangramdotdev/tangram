@@ -33,12 +33,19 @@ impl Component {
 		session: &Session,
 		arg: RequestArg,
 	) -> tg::Result<(tg::scheduler::Id, tg::Result<ResponseOutput>)> {
-		// Send the request to one scheduler, and retry it with another scheduler on failure.
+		// Send the request to one scheduler, and retry it with another scheduler on failure, which includes a scheduler that does not acknowledge the request because it is down.
 		let server = &session.server;
 		let retry = server.config.scheduler.request.retry.clone().into();
+		let acknowledgement = tangram_futures::retry::Options {
+			max_retries: 0,
+			..server.config.scheduler.request.retry.clone().into()
+		};
 		service::retry(&self.schedulers, server, &retry, |scheduler| {
 			let arg = arg.clone();
-			async move { Self::send_scheduler_request_inner(server, &scheduler, arg).await }
+			let acknowledgement = acknowledgement.clone();
+			async move {
+				Self::send_scheduler_request_inner(server, &scheduler, arg, acknowledgement).await
+			}
 		})
 		.await
 	}
@@ -51,11 +58,15 @@ impl Component {
 	) -> tg::Result<tg::Result<ResponseOutput>> {
 		// Send the request to the scheduler, and retry it while the scheduler is unavailable.
 		let server = &session.server;
-		let retry = server.config.scheduler.request.retry.clone().into();
+		let retry: tangram_futures::retry::Options =
+			server.config.scheduler.request.retry.clone().into();
 		tangram_futures::retry(&retry, || {
 			let arg = arg.clone();
+			let acknowledgement = retry.clone();
 			async move {
-				let response = Self::send_scheduler_request_inner(server, scheduler, arg).await?;
+				let response =
+					Self::send_scheduler_request_inner(server, scheduler, arg, acknowledgement)
+						.await?;
 				let Some(response) = response else {
 					let error = tg::error!(%scheduler, "the scheduler is unavailable");
 					return Ok(ControlFlow::Continue(error));
@@ -70,12 +81,12 @@ impl Component {
 		server: &Server,
 		scheduler: &tg::scheduler::Id,
 		arg: RequestArg,
+		acknowledgement: tangram_futures::retry::Options,
 	) -> tg::Result<Option<tg::Result<ResponseOutput>>> {
 		let id = tangram_server_core::control::id();
-		let config = &server.config.scheduler.request;
 		let options = tangram_server_core::control::Options {
-			retry: config.retry.clone().into(),
-			timeout: config.timeout,
+			retry: acknowledgement,
+			timeout: server.config.scheduler.request.timeout,
 		};
 		service::send::<Kind>(server, scheduler, &id, arg, options).await
 	}
@@ -98,7 +109,7 @@ impl service::Kind for Kind {
 			.map_err(|error| tg::error!(!error, "failed to get the schedulers"))?;
 		let schedulers = schedulers
 			.into_iter()
-			.filter_map(|scheduler| scheduler.available.then_some(scheduler.id))
+			.map(|scheduler| scheduler.id)
 			.collect();
 
 		Ok(schedulers)

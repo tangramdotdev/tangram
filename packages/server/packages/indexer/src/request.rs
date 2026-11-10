@@ -228,10 +228,7 @@ impl service::Kind for Kind {
 
 	async fn available(server: &Server) -> tg::Result<Vec<Self::Id>> {
 		let indexers = Component::get_indexers(server).await?;
-		let indexers = indexers
-			.into_iter()
-			.filter_map(|indexer| indexer.available.then_some(indexer.id))
-			.collect();
+		let indexers = indexers.into_iter().map(|indexer| indexer.id).collect();
 
 		Ok(indexers)
 	}
@@ -241,10 +238,10 @@ impl service::Handler<Kind> for Handler {
 	type Accepted = Guard;
 
 	fn accept(&mut self, request: &Request) -> Option<Self::Accepted> {
-		// Accept a wait at any time, and accept an enqueue only while the indexer is available.
+		// Accept requests only while the indexer is available, so that callers retry or fail over while it starts or stops.
 		let enqueue = !matches!(request.arg, RequestArg::Wait);
 		let mut state = self.state.lock().unwrap();
-		if enqueue && !state.available {
+		if !state.available {
 			return None;
 		}
 		if enqueue {
