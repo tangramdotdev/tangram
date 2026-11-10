@@ -1166,16 +1166,16 @@ impl Component {
 				requested.storage = request.arg.storage.unwrap_or_default();
 			}
 
-			// Join a boot that this runner is already starting or running, because a scheduler that restarted can send the same boot again and concurrent starts of a sandbox are not deduplicated before they reach its runner.
+			// Join a boot that this runner already holds, and ignore an older boot, because a scheduler can send a boot again after it restarts or resends a request.
 			let state = session.server.components.runner.state();
 			let joined = state
 				.booting
 				.get(&request.sandbox)
-				.is_some_and(|boot| *boot == request.boot)
+				.is_some_and(|boot| *boot >= request.boot)
 				|| state
 					.sandboxes
 					.get_by_id(&request.sandbox)
-					.is_some_and(|sandbox| sandbox.boot == request.boot);
+					.is_some_and(|sandbox| sandbox.boot >= request.boot);
 			if joined {
 				let output =
 					tg::runner::control::CreateSandboxClientResponseOutput { created: true };

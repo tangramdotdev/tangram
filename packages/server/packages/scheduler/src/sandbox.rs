@@ -45,6 +45,9 @@ pub(super) struct Sandboxes {
 	/// The sandboxes that a runner holds whose control connections may not be established yet.
 	placed: HashMap<tg::sandbox::Id, Placed, tg::id::BuildHasher>,
 
+	/// The boots that runners accepted, which are tracked until their runners report their ends, so that an enqueue of a tracked or older boot is a no-op.
+	scheduled: HashMap<tg::sandbox::Id, Scheduled, tg::id::BuildHasher>,
+
 	/// The handles of the tasks that stop sandboxes once they start.
 	stops: HashMap<tg::sandbox::Id, future::AbortHandle, tg::id::BuildHasher>,
 }
@@ -63,6 +66,16 @@ pub(super) struct Placed {
 	pub registration_index: u64,
 	pub request: EnqueueSandboxRequestArg,
 	pub runner: tg::runner::Id,
+}
+
+/// A boot that a runner accepted.
+struct Scheduled {
+	boot: u64,
+	registration_index: u64,
+	runner: tg::runner::Id,
+
+	/// Whether a heartbeat of the runner reported the boot, after which a heartbeat that does not report it means that it ended.
+	seen: bool,
 }
 
 /// An end of a sandbox that waits for an in-flight placement to finish.
@@ -265,6 +278,7 @@ impl Sandboxes {
 			generation: 0,
 			loading: 0,
 			placed: HashMap::default(),
+			scheduled: HashMap::default(),
 			stops: HashMap::default(),
 		}
 	}
@@ -339,6 +353,16 @@ impl SchedulerState {
 		recovered: bool,
 	) {
 		let ids = id.into_iter().collect::<Vec<_>>();
+
+		// Reply to an enqueue of a boot that a runner already accepted, or of an older boot, without enqueueing it again.
+		if let Some(scheduled) = self.sandboxes.scheduled.get(&request.sandbox) {
+			if request.boot <= scheduled.boot {
+				self.send_enqueue_responses(scheduler, ids, Ok(()));
+				return;
+			}
+			self.sandboxes.scheduled.remove(&request.sandbox);
+		}
+
 		if self.sandboxes.entries.contains_key(&request.sandbox) {
 			let sandbox = request.sandbox;
 			self.finish_enqueue(scheduler, ids, &sandbox, Ok(()));
@@ -1122,6 +1146,47 @@ impl SchedulerState {
 		self.put_end_status(scheduler, ids, request, status, error);
 	}
 
+	/// Track a boot that a runner accepted or reported, so that an enqueue of it or of an older boot is a no-op.
+	pub(super) fn track_scheduled_sandbox(
+		&mut self,
+		sandbox: tg::sandbox::Id,
+		boot: u64,
+		runner: &tg::runner::Id,
+		registration_index: u64,
+	) {
+		if self
+			.sandboxes
+			.scheduled
+			.get(&sandbox)
+			.is_some_and(|scheduled| scheduled.boot > boot)
+		{
+			return;
+		}
+		let scheduled = Scheduled {
+			boot,
+			registration_index,
+			runner: runner.clone(),
+			seen: false,
+		};
+		self.sandboxes.scheduled.insert(sandbox, scheduled);
+	}
+
+	/// Forget the boots that a runner's heartbeat no longer reports after an earlier heartbeat reported them, because they ended.
+	fn handle_scheduled_heartbeat(&mut self, notification: &HeartbeatNotification) {
+		self.sandboxes.scheduled.retain(|id, scheduled| {
+			if scheduled.runner != notification.runner
+				|| scheduled.registration_index != notification.registration_index
+			{
+				return true;
+			}
+			if notification.sandboxes.contains(id) {
+				scheduled.seen = true;
+				return true;
+			}
+			!scheduled.seen
+		});
+	}
+
 	/// Record a sandbox that a restarted scheduler found on a runner.
 	pub(super) fn insert_placed_sandbox(&mut self, sandbox: tg::sandbox::Id, mut placed: Placed) {
 		self.sandboxes.generation += 1;
@@ -1352,6 +1417,7 @@ impl SchedulerState {
 		runner.heartbeat_at = now;
 		runner.heartbeat_index = notification.heartbeat_index;
 		runner.ready = runner.capacity.total.sandboxes != 0;
+		self.handle_scheduled_heartbeat(notification);
 		self.queue.wake();
 
 		true
@@ -1461,6 +1527,12 @@ impl SchedulerState {
 			Ok(Ok(true)) if runner_current => {
 				self.remove_reservation(&id, &placement, true);
 				self.sandboxes.entries.remove(&id);
+				self.track_scheduled_sandbox(
+					id.clone(),
+					request.boot,
+					&runner_ref.id,
+					runner_ref.registration_index,
+				);
 				accepted = Some(id.clone());
 				if let Some(held) = &mut held {
 					held.placed = Some(runner_ref.clone());
@@ -1573,6 +1645,9 @@ impl SchedulerState {
 		let Some(runner) = self.runners.entries.remove(id) else {
 			return Vec::new();
 		};
+		self.sandboxes
+			.scheduled
+			.retain(|_, scheduled| scheduled.runner != *id);
 		for parent_id in runner.borrowable {
 			let Some(parent) = self.parents.0.get_mut(&parent_id) else {
 				continue;
