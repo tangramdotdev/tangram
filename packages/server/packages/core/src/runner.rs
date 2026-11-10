@@ -134,6 +134,7 @@ pub trait Component: crate::component::Lifecycle {
 		runner: &'a tg::runner::Id,
 		scheduler: &'a tg::scheduler::Id,
 		registration_index: u64,
+		id: String,
 		arg: tg::runner::control::ServerRequestArg,
 		options: crate::control::Options,
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::runner::control::ClientResponseOutput>>>;

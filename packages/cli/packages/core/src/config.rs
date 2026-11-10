@@ -2106,6 +2106,9 @@ pub struct Scheduler {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub create_sandbox_queue_capacity: Option<usize>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub create_sandbox_retry: Option<Retry>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub create_sandbox_timeout: Option<Duration>,

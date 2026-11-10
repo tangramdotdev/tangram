@@ -4,7 +4,7 @@ use {
 		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatNotification,
 		HolderMessage, Operation, OwnerAncestors, PendingEnqueue, ResponseOutput,
 		SandboxEndedNotification, Scheduler, SchedulerState,
-		runner::{Reservation, ReservationState, Runner},
+		runner::{Reservation, Runner},
 	},
 	futures::{FutureExt as _, StreamExt as _, future},
 	std::{
@@ -120,9 +120,14 @@ struct Sandbox {
 }
 
 enum SandboxState {
-	Creating { placement: Placement },
+	/// The scheduler offered the boot to a runner, and sends the same offer again until the runner answers.
+	Creating {
+		offer: String,
+		placement: Placement,
+		retries: u64,
+	},
+
 	Pending,
-	Uncertain { placement: Placement },
 }
 
 struct Block {
@@ -145,6 +150,16 @@ enum Placement {
 struct RunnerRef {
 	registration_index: u64,
 	id: tg::runner::Id,
+}
+
+struct CreateSandboxArg<'a> {
+	borrowed: bool,
+	capacity: tg::runner::Capacity,
+	offer: String,
+	request: &'a EnqueueSandboxRequestArg,
+	runner: &'a RunnerRef,
+	scheduler: &'a tg::scheduler::Id,
+	timeout: std::time::Duration,
 }
 
 pub(super) struct Completion {
@@ -667,6 +682,7 @@ impl SchedulerState {
 						&destroy.runner,
 						&scheduler_id,
 						destroy.registration_index,
+						tangram_server_core::control::id(),
 						arg,
 						options,
 					)
@@ -1560,12 +1576,6 @@ impl SchedulerState {
 				self.finish_destroy_sandbox(scheduler, request, None);
 				Some(DequeueSandboxResponseOutput { dequeued: true })
 			},
-			SandboxState::Uncertain { placement } => {
-				let placement = placement.clone();
-				self.remove_reservation(&id, &placement, true);
-				self.remove_sandbox_entry(scheduler, &id);
-				Some(DequeueSandboxResponseOutput { dequeued: false })
-			},
 		};
 		self.queue.wake();
 
@@ -1590,7 +1600,10 @@ impl SchedulerState {
 				discarded: None,
 			};
 		};
-		let SandboxState::Creating { placement: current } = &sandbox.state else {
+		let SandboxState::Creating {
+			placement: current, ..
+		} = &sandbox.state
+		else {
 			return CreateSandboxCompletionOutput {
 				accepted: None,
 				dequeue_completions: Vec::new(),
@@ -1618,6 +1631,19 @@ impl SchedulerState {
 			None
 		};
 		let failed = failure.is_some();
+
+		// Send the offer again if the runner did not answer it, because only the runner's answer shows whether the runner holds the boot, and keep the reservation and the waiting dequeues until it answers.
+		if let Err(error) = &result
+			&& runner_current
+		{
+			tracing::warn!(error = %error.trace(), sandbox = %id, runner = %runner_ref.id, "the runner did not answer the offer of the sandbox");
+			self.retry_sandbox_offer(scheduler, &id);
+			return CreateSandboxCompletionOutput {
+				accepted: None,
+				dequeue_completions: Vec::new(),
+				discarded: None,
+			};
+		}
 		if let Ok(Err(error)) = &result {
 			tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner_ref.id, "the runner failed to create the sandbox");
 		}
@@ -1687,23 +1713,6 @@ impl SchedulerState {
 					self.requeue_sandbox(&id);
 				}
 				DequeueSandboxResponseOutput { dequeued: true }
-			},
-			Err(error) if runner_current => {
-				tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner_ref.id, "failed to create the sandbox on the runner");
-				if dequeue_requests.is_empty() {
-					if let Some(runner) = self.runners.entries.get_mut(&runner_ref.id)
-						&& let Some(reservation) = runner.reservations.get_mut(&id)
-					{
-						runner.requests = runner.requests.saturating_sub(1);
-						reservation.state = ReservationState::Uncertain;
-					}
-					self.sandboxes.entries.get_mut(&id).unwrap().state =
-						SandboxState::Uncertain { placement };
-				} else {
-					self.remove_reservation(&id, &placement, true);
-					self.remove_sandbox_entry(scheduler, &id);
-				}
-				DequeueSandboxResponseOutput { dequeued: false }
 			},
 			Ok(Ok(true)) | Err(_) => {
 				if dequeue_requests.is_empty() {
@@ -2037,7 +2046,6 @@ impl SchedulerState {
 			return false;
 		};
 		let capacity = sandbox.capacity;
-		let request = sandbox.request.clone();
 		let runner_ref = placement.runner().clone();
 		self.remove_queued_sandbox(id);
 
@@ -2059,16 +2067,34 @@ impl SchedulerState {
 		let runner = self.runners.entries.get_mut(&runner_ref.id).unwrap();
 		runner.requests += 1;
 		add(&mut runner.reserved, reserved);
-		let entry = Reservation {
-			capacity: reserved,
-			state: ReservationState::Pending,
-		};
+		let entry = Reservation { capacity: reserved };
 		runner.reservations.insert(id.clone(), entry);
 		self.sandboxes.entries.get_mut(id).unwrap().state = SandboxState::Creating {
-			placement: placement.clone(),
+			offer: tangram_server_core::control::id(),
+			placement,
+			retries: 0,
 		};
-		self.sandboxes.attempts += 1;
 
+		// Offer the boot to the runner.
+		self.offer_sandbox(scheduler, id);
+
+		true
+	}
+
+	/// Send the offer of a boot to its runner, whose answer completes the offer.
+	fn offer_sandbox(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) {
+		let sandbox = &self.sandboxes.entries[id];
+		let SandboxState::Creating {
+			offer, placement, ..
+		} = &sandbox.state
+		else {
+			return;
+		};
+		let capacity = sandbox.capacity;
+		let offer = offer.clone();
+		let placement = placement.clone();
+		let request = sandbox.request.clone();
+		self.sandboxes.attempts += 1;
 		let session = scheduler.server.session(&scheduler.server.context);
 		let scheduler_id = scheduler.id.clone();
 		let timeout = scheduler.config.create_sandbox_timeout;
@@ -2077,17 +2103,16 @@ impl SchedulerState {
 		self.operations.push(
 			async move {
 				let runner = placement.runner();
-				let result = create_sandbox(
-					&session,
-					&scheduler_id,
-					runner,
+				let arg = CreateSandboxArg {
 					borrowed,
 					capacity,
-					&request,
+					offer,
+					request: &request,
+					runner,
+					scheduler: &scheduler_id,
 					timeout,
-				)
-				.boxed()
-				.await;
+				};
+				let result = create_sandbox(&session, arg).boxed().await;
 				Operation::CreateSandbox(Completion {
 					placement,
 					result,
@@ -2096,8 +2121,64 @@ impl SchedulerState {
 			}
 			.boxed(),
 		);
+	}
 
-		true
+	/// Send an offer that its runner did not answer again after a delay, until the retries are exhausted, after which the offer waits for the runner to be removed.
+	fn retry_sandbox_offer(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) {
+		let Some(sandbox) = self.sandboxes.entries.get_mut(id) else {
+			return;
+		};
+		let SandboxState::Creating { offer, retries, .. } = &mut sandbox.state else {
+			return;
+		};
+		if *retries >= scheduler.config.create_sandbox_retry.max_retries {
+			tracing::error!(sandbox = %id, "the runner did not answer the offer of the sandbox after too many attempts");
+			return;
+		}
+		*retries += 1;
+		let delay = tangram_futures::retry::delay_for_attempt(
+			*retries,
+			&scheduler.config.create_sandbox_retry,
+		);
+		let offer = offer.clone();
+		let sandbox = id.clone();
+		self.operations.push(
+			async move {
+				tokio::time::sleep(delay).await;
+				Operation::RetrySandboxOffer { offer, sandbox }
+			}
+			.boxed(),
+		);
+	}
+
+	/// Send an offer again, unless the runner answered it or the runner was removed in the meantime.
+	pub(super) fn handle_retry_sandbox_offer(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::sandbox::Id,
+		offer: &str,
+	) {
+		let current = self
+			.sandboxes
+			.entries
+			.get(id)
+			.is_some_and(|sandbox| match &sandbox.state {
+				SandboxState::Creating {
+					offer: current,
+					placement,
+					..
+				} => {
+					let runner = placement.runner();
+					current == offer
+						&& self.runners.entries.get(&runner.id).is_some_and(|entry| {
+							entry.registration_index == runner.registration_index
+						})
+				},
+				SandboxState::Pending => false,
+			});
+		if current {
+			self.offer_sandbox(scheduler, id);
+		}
 	}
 }
 
@@ -2491,16 +2572,20 @@ impl Placement {
 	}
 }
 
-#[tracing::instrument(name = "sandbox.assign", level = "debug", skip_all, fields(runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler), err(level = "debug"))]
+#[tracing::instrument(name = "sandbox.assign", level = "debug", skip_all, fields(runner = %arg.runner.id, sandbox = %arg.request.sandbox, scheduler = %arg.scheduler), err(level = "debug"))]
 async fn create_sandbox(
 	session: &Session,
-	scheduler: &tg::scheduler::Id,
-	runner: &RunnerRef,
-	borrowed: bool,
-	capacity: tg::runner::Capacity,
-	request: &EnqueueSandboxRequestArg,
-	timeout: std::time::Duration,
+	arg: CreateSandboxArg<'_>,
 ) -> tg::Result<tg::Result<bool>> {
+	let CreateSandboxArg {
+		borrowed,
+		capacity,
+		offer,
+		request,
+		runner,
+		scheduler,
+		timeout,
+	} = arg;
 	tracing::info!(borrowed, runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler, "assigned the sandbox to a runner");
 	let arg = tg::runner::control::ServerRequestArg::CreateSandbox(
 		tg::runner::control::CreateSandboxServerRequestArg {
@@ -2516,24 +2601,38 @@ async fn create_sandbox(
 			token: request.token.clone(),
 		},
 	);
-	let retry = session.server.config.control.request_retry.clone().into();
+
+	// Send the offer once and wait for the answer until the timeout, because the scheduler sends the offer again with the same ID if the runner does not answer.
+	let retry = tangram_futures::retry::Options {
+		max_retries: 0,
+		..session.server.config.control.request_retry.clone().into()
+	};
 	let options = tangram_server_core::control::Options { retry, timeout };
-	let result = session
+	let future = session
 		.server
-		.components.runner
+		.components
+		.runner
 		.send_runner_control_request(
 			session,
 			&runner.id,
 			scheduler,
 			runner.registration_index,
+			offer,
 			arg,
 			options,
 		)
-		.boxed()
+		.boxed();
+	let result = tokio::time::timeout(timeout, future)
 		.await
-		.map_err(|error| {
-			tg::error!(!error, sandbox = %request.sandbox, runner = %runner.id, "failed to send the create sandbox request to the runner")
-		})?;
+		.map_err(|error| tg::error!(!error, "timed out waiting for the runner to answer"))
+		.and_then(std::convert::identity);
+	if result.is_err() {
+		tangram_server_core::checkpoint!(session.server, "scheduler.sandbox.offer.unanswered", sandbox = %request.sandbox)
+			.await;
+	}
+	let result = result.map_err(|error| {
+		tg::error!(!error, sandbox = %request.sandbox, runner = %runner.id, "failed to send the create sandbox request to the runner")
+	})?;
 	let result = result
 		.map_err(|error| {
 			tg::error!(!error, sandbox = %request.sandbox, runner = %runner.id, "the runner create sandbox request failed")

@@ -37,13 +37,6 @@ pub(super) struct Runner {
 pub(super) struct Reservation {
 	/// The capacity that the reservation holds on the runner, which for a borrowed sandbox is only the capacity that it acquires in addition to what it borrows.
 	pub capacity: tg::runner::Capacity,
-	pub state: ReservationState,
-}
-
-#[derive(Clone, Copy)]
-pub(super) enum ReservationState {
-	Pending,
-	Uncertain,
 }
 
 impl Runners {
@@ -188,6 +181,7 @@ impl SchedulerState {
 						&request.runner,
 						&scheduler_id,
 						registration_index,
+						tangram_server_core::control::id(),
 						arg,
 						options,
 					)

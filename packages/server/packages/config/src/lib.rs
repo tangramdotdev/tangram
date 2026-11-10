@@ -1286,6 +1286,10 @@ pub struct Scheduler {
 
 	pub create_sandbox_queue_capacity: usize,
 
+	/// The retry for sending the offer of a boot to a runner again until the runner answers.
+	pub create_sandbox_retry: Retry,
+
+	/// How long the scheduler waits for a runner to answer the offer of a boot before it sends the offer again.
 	pub create_sandbox_timeout: Duration,
 
 	/// The CPU bounds for a sandbox that omits them, where an omitted maximum means no limit.
@@ -3035,6 +3039,7 @@ impl Default for Scheduler {
 		Self {
 			cache: SchedulerCache::default(),
 			create_sandbox_queue_capacity: default_scheduler_create_sandbox_queue_capacity(),
+			create_sandbox_retry: message_retry_default(),
 			create_sandbox_timeout: Duration::from_secs(10),
 			default_cpu: tg::sandbox::Cpu::default(),
 			default_memory: tg::sandbox::Resource::default(),

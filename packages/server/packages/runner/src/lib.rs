@@ -1511,6 +1511,7 @@ impl tangram_server_core::runner::Component for Component {
 		runner: &'a tg::runner::Id,
 		scheduler: &'a tg::scheduler::Id,
 		registration_index: u64,
+		id: String,
 		arg: tg::runner::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::runner::control::ClientResponseOutput>>> {
@@ -1519,6 +1520,7 @@ impl tangram_server_core::runner::Component for Component {
 			runner,
 			scheduler,
 			registration_index,
+			id,
 			arg,
 			options,
 		)
