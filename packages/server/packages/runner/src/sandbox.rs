@@ -1751,7 +1751,7 @@ impl Component {
 				},
 			}
 
-			// Stop and await the underlying processes.
+			// Stop the underlying processes and await their initialization.
 			process_stopper.stop();
 			while let Some((result, events, reply)) = pending.next().await {
 				if let Some(reply) = reply {
@@ -1761,19 +1761,6 @@ impl Component {
 				}
 				if let Ok(event) = result {
 					process_events.insert(event.process.node, UnboundedReceiverStream::new(events));
-				}
-			}
-			while let Some((process, event)) = process_events.next().await {
-				match event? {
-					ProcessEvent::Buffered | ProcessEvent::Released => {
-						process_events.remove(&process);
-					},
-					ProcessEvent::Connected(_) => {
-						return Err(
-							tg::error!(%process, "received a duplicate process connected event"),
-						);
-					},
-					ProcessEvent::Exited => {},
 				}
 			}
 
@@ -1796,6 +1783,26 @@ impl Component {
 			if let Some(vfs) = vfs.take() {
 				vfs.stop();
 				vfs.wait().await;
+			}
+
+			// Shut down the sandbox server so descendants in other process groups cannot hold its output streams open.
+			sandbox.shutdown().await.map_err(
+				|error| tg::error!(!error, %id, "failed to shut down the sandbox process"),
+			)?;
+
+			// Await the process output while retaining the sandbox's resources for termination error reporting.
+			while let Some((process, event)) = process_events.next().await {
+				match event? {
+					ProcessEvent::Buffered | ProcessEvent::Released => {
+						process_events.remove(&process);
+					},
+					ProcessEvent::Connected(_) => {
+						return Err(
+							tg::error!(%process, "received a duplicate process connected event"),
+						);
+					},
+					ProcessEvent::Exited => {},
+				}
 			}
 
 			// Stop or destroy the sandbox while retaining its process and control state.
