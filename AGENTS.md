@@ -167,10 +167,12 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 - Keep the two helpers congruent. Their shared logic is `tangram_server_core::holder::request`, and each implements `tangram_server_core::holder::Kind`.
 - A read lets the index answer when the holder does not reply. A write waits for the holder, and treats a terminal state as nothing left to do.
 - A holder answers through `serve_process_holder` or `serve_sandbox_holder`. A server that has handed the item off, or that has offered it to the next holder, replies that it is not the holder. The request sender waits for a holder's answer and then sends the request again, without spending a retry.
-- The scheduler answers for a queued sandbox, and the runner answers for a boot from when its control connection is established until the boot ends.
+- The scheduler answers every request for a queued sandbox and the lease requests for its queued process, and the runner answers for a boot from when its control connection is established until the boot ends. The scheduler replies that it is not the holder to a spawn, which only a runner can carry out.
+- A status stream, a wait, a children stream, and a processes stream reach the holder through the data stream, such as `create_process_data_stream_local`, which calls the holder helper on each status wakeup.
 - Every request to a holder must be safe to send twice.
-- A method that only reads or writes the index has no holder step. Lists and searches read the index and may lag.
-- A create gives an item its first holder by enqueueing it to a scheduler.
+- A method that only reads or writes the index has no holder step, such as metadata, availability, touch, and put. Lists and searches read the index and may lag.
+- A create gives an item its first holder by enqueueing it to a scheduler, such as a sandbox create and a spawn with a new sandbox. A spawn into an existing sandbox is a request to the sandbox's holder. A start of a stopped sandbox enqueues its next boot to the scheduler of the runner that has its directory.
+- Stdio reads and writes reach a runner on another server through a relay that the process's holder opens, and an attach and a stdio write try one location at a time, because each opens a connection that only one location may hold.
 
 ### Compatibility
 
