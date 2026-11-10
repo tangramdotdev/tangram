@@ -45,10 +45,6 @@ pub struct Arg {
 	#[tangram_serialize(id = 4)]
 	pub runner: Option<tg::runner::Id>,
 
-	/// The request that the scheduler accepted, which it recovers from the index if it restarts before the sandbox's runner connects.
-	#[tangram_serialize(default, id = 12, skip_serializing_if = "Option::is_none")]
-	pub scheduled: Option<Scheduled>,
-
 	/// The storage usage of a boot's stopped directory so far, which only grows.
 	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
 	pub stopped_usage: Option<StoppedUsage>,
@@ -62,15 +58,6 @@ pub struct Merge {
 	pub data: Option<tg::sandbox::get::Output>,
 	pub stopped_usages: BTreeMap<u64, tg::sandbox::Usage>,
 	pub usages: BTreeMap<u64, tg::sandbox::Usage>,
-}
-
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct Scheduled {
-	#[tangram_serialize(id = 0)]
-	pub request: Vec<u8>,
-
-	#[tangram_serialize(id = 1)]
-	pub scheduler: tg::scheduler::Id,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -125,38 +112,6 @@ impl Arg {
 			}
 		}
 		Ok(Ok(()))
-	}
-
-	/// Get the scheduler that owns the sandbox after this put, given the merged data. A scheduler owns a sandbox that is starting, and keeps a sandbox that it is destroying, until the sandbox's runner connects.
-	#[must_use]
-	pub fn scheduler(
-		&self,
-		existing: Option<&super::Sandbox>,
-		data: Option<&tg::sandbox::get::Output>,
-	) -> Option<tg::scheduler::Id> {
-		let existing = existing.and_then(|sandbox| sandbox.scheduler.clone());
-		let data = &data?.data;
-		match data.status {
-			tg::sandbox::Status::Destroying => existing,
-			tg::sandbox::Status::Starting => self
-				.scheduled(data)
-				.map(|scheduled| scheduled.scheduler.clone())
-				.or(existing),
-			tg::sandbox::Status::Destroyed
-			| tg::sandbox::Status::Started
-			| tg::sandbox::Status::Stopped
-			| tg::sandbox::Status::Stopping => None,
-		}
-	}
-
-	/// Get the accepted request of this put if the merged data is the boot that the request starts.
-	#[must_use]
-	pub fn scheduled(&self, data: &tg::sandbox::Data) -> Option<&Scheduled> {
-		let boot = self.data.as_ref()?.data.boot;
-		if !data.status.is_starting() || data.boot != boot {
-			return None;
-		}
-		self.scheduled.as_ref()
 	}
 
 	/// Merge the arg's data with the existing record, keeping the data that is later in the sandbox lifecycle and combining the usage of every boot.

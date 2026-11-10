@@ -304,7 +304,6 @@ fn put_sandbox(index: &Index, txn: &mut lmdb::RwTxn<'_>, sandbox: &tg::sandbox::
 		created_at: 0,
 		data: None,
 		location: None,
-		scheduler: None,
 		set: tangram_index::sandbox::Set::default(),
 		reference_count: 0,
 		runner: None,

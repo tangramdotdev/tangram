@@ -615,9 +615,15 @@ impl Component {
 		} else {
 			None
 		};
+
+		// Remove the ended boot from its scheduler's queue in the same write as its status, because no scheduler owns an ended boot.
+		let delete = tangram_index::scheduler::sandbox::delete::Arg {
+			boot: data.data.boot,
+			sandbox: id.clone(),
+		};
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutSandbox(Box::new(
-				tangram_index::sandbox::put::Arg {
+			items: vec![
+				tangram_index::Item::PutSandbox(Box::new(tangram_index::sandbox::put::Arg {
 					account,
 					created_at: indexed.created_at,
 					data: indexed.data,
@@ -629,11 +635,11 @@ impl Component {
 					processes: Some(processes),
 					registration: registration.cloned(),
 					runner: indexed.runner,
-					scheduled: None,
 					stopped_usage: None,
 					touched_at: now,
-				},
-			))],
+				})),
+				tangram_index::Item::DeleteSchedulerSandbox(Box::new(delete)),
+			],
 		};
 		server
 			.index

@@ -112,10 +112,14 @@ impl Component {
 			if !output.data.status.is_starting() {
 				break output;
 			}
-			let scheduler = self
-				.try_get_sandbox_from_index(session, id)
-				.await?
-				.and_then(|sandbox| sandbox.scheduler);
+			let scheduler = session
+				.server
+				.index
+				.try_get_sandbox_scheduler(id)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to get the sandbox's scheduler"),
+				)?;
 			let Some(scheduler) = scheduler else {
 				break output;
 			};

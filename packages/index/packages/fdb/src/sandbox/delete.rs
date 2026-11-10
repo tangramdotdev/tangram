@@ -34,6 +34,9 @@ impl Index {
 				Self::delete_sandbox_processes_with_transaction(txn, subspace, id, partition_total)
 					.await
 			);
+			crate::propagate!(
+				Self::delete_sandbox_scheduler_with_transaction(txn, subspace, id).await
+			);
 
 			// Delete the creator and owner keys.
 			let sandbox =

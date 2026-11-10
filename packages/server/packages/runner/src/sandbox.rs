@@ -2996,7 +2996,6 @@ impl Component {
 			processes: processes.map(<[_]>::to_vec),
 			registration: None,
 			runner: None,
-			scheduled: None,
 			stopped_usage: None,
 			touched_at,
 		};

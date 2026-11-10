@@ -376,6 +376,15 @@ impl Index {
 					Self::try_get_indexer_with_transaction(db, subspace, transaction, &arg)?;
 				tangram_index::read::Response::TryGetIndexer(output)
 			},
+			tangram_index::read::Request::TryGetSandboxScheduler { sandbox } => {
+				let output = Self::try_get_sandbox_scheduler_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&sandbox,
+				)?;
+				tangram_index::read::Response::TryGetSandboxScheduler(output)
+			},
 			tangram_index::read::Request::TryGetScheduler(arg) => {
 				let output =
 					Self::try_get_scheduler_with_transaction(db, subspace, transaction, &arg)?;

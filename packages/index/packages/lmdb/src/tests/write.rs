@@ -119,7 +119,6 @@ fn sandbox_arg(
 		processes: None,
 		registration: None,
 		runner: None,
-		scheduled: None,
 		stopped_usage: None,
 		touched_at: 0,
 	}

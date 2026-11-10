@@ -148,9 +148,17 @@ impl Component {
 
 		// Send the stop to the sandbox's scheduler if its runner has not connected, which accepts it and stops the sandbox once it starts.
 		let mut status = data.data.status;
-		if status.is_starting()
-			&& let Some(scheduler) = &sandbox.scheduler
-		{
+		let scheduler = if status.is_starting() {
+			session
+				.server
+				.index
+				.try_get_sandbox_scheduler(id)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox's scheduler"))?
+		} else {
+			None
+		};
+		if let Some(scheduler) = &scheduler {
 			let mut wakeups = self
 				.create_sandbox_status_wakeup_stream(
 					session,

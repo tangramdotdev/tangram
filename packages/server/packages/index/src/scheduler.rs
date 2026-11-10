@@ -30,6 +30,18 @@ impl Index {
 			Self::Lmdb(index) => index.try_get_scheduler(arg).await,
 		}
 	}
+
+	pub async fn try_get_sandbox_scheduler(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<Option<tg::scheduler::Id>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_sandbox_scheduler(sandbox).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_sandbox_scheduler(sandbox).await,
+		}
+	}
 }
 
 impl index::scheduler::Index for Index {
@@ -46,5 +58,12 @@ impl index::scheduler::Index for Index {
 		arg: index::scheduler::get::Arg,
 	) -> tg::Result<Option<index::scheduler::Scheduler>> {
 		self.try_get_scheduler(arg).await
+	}
+
+	async fn try_get_sandbox_scheduler(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<Option<tg::scheduler::Id>> {
+		self.try_get_sandbox_scheduler(sandbox).await
 	}
 }

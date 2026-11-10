@@ -273,7 +273,20 @@ impl Component {
 
 		// Send the destroy to the sandbox's scheduler if its runner has not connected.
 		let status = sandbox.data.as_ref().map(|data| data.data.status);
-		let output = match (&sandbox.scheduler, status) {
+		let scheduler = if matches!(
+			status,
+			Some(tg::sandbox::Status::Destroying | tg::sandbox::Status::Starting)
+		) {
+			session
+				.server
+				.index
+				.try_get_sandbox_scheduler(id)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox's scheduler"))?
+		} else {
+			None
+		};
+		let output = match (&scheduler, status) {
 			(Some(_), Some(tg::sandbox::Status::Destroying)) => Some(false),
 			(Some(scheduler), Some(tg::sandbox::Status::Starting)) => {
 				self.try_destroy_sandbox_with_scheduler(session, id, scheduler, arg.error.clone())

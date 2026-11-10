@@ -18,10 +18,6 @@ pub struct Sandbox {
 
 	pub runner: Option<tg::runner::Id>,
 
-	/// The scheduler that owns the sandbox until its runner connects.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub scheduler: Option<tg::scheduler::Id>,
-
 	pub set: Set,
 
 	/// The storage usage of each boot's stopped directory, which the usage in `data` includes.
