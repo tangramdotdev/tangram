@@ -20,7 +20,6 @@ pub use self::{
 	outcome::Outcome,
 	run::{run, run_with_instance},
 	signal::Signal,
-	source::Source,
 	spawn::{spawn, spawn_with_instance},
 	state::State,
 	status::Status,
@@ -53,7 +52,6 @@ pub mod outcome;
 pub mod put;
 pub mod run;
 pub mod signal;
-pub mod source;
 pub mod spawn;
 pub mod state;
 pub mod status;

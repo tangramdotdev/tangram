@@ -26,9 +26,11 @@ tg --url $region_b.url index
 
 # Stop the remote, and get each entry through region a.
 server stop $remote
-let output = timeout 20s tg --url $region_a.url get --source=index --location='local(b),remote' $process | from json
+tg --url $region_a.url index
+let output = timeout 20s tg --url $region_a.url get --location='local(b),remote' $process | from json
 assert equal $output.status finished
 assert equal $output.output.options.location 'local(b)'
-let output = timeout 20s tg --url $region_a.url get --source=index --location='local(b),remote' $sandbox | from json
+tg --url $region_a.url index
+let output = timeout 20s tg --url $region_a.url get --location='local(b),remote' $sandbox | from json
 assert equal $output.data.id $sandbox
 assert equal $output.location 'local(b)'

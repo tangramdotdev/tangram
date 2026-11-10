@@ -22,8 +22,10 @@ let child = tg checkpoint wait --timeout 10s process.stdio.log.end $end 0 | from
 tg checkpoint unwatch process.stdio.log.end $end
 tg checkpoint unwatch index.write $batch
 tg checkpoint unwatch runner.process.finish $finish
-timeout 10s tg wait --source=index $child | ignore
-timeout 10s tg wait --source=index $id | ignore
+timeout 10s tg wait $child | ignore
+tg index
+timeout 10s tg wait $id | ignore
+tg index
 success (timeout 10s tg index | complete)
 let output = tg log $child | complete
 success $output

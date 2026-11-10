@@ -21,5 +21,5 @@ assert ($error | str contains '"message":"outer"')
 assert ($error | str contains '"message":"inner"')
 assert not ($error | str contains '"kind":"internal"')
 tg index
-let process = tg process get --source index $id | from json
+let process = tg process get $id | from json
 assert equal $process.status finished "the error and its cause should be indexed"

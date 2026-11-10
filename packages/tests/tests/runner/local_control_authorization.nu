@@ -83,7 +83,7 @@ for authority in [remote local] {
 	if $authority == remote {
 		let remote_token = $tokens.remote.0 | url encode --all
 		for flags in [[true false] [false true] [true true]] {
-			let response = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/processes/($process)?($query)&source=runner&tokens[remote][0]=($remote_token)&metadata=($flags.0)&availability=($flags.1)'
+			let response = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/processes/($process)?($query)&tokens[remote][0]=($remote_token)&metadata=($flags.0)&availability=($flags.1)'
 			if $flags.0 { assert ($response.metadata? != null) }
 			if $flags.1 { assert ($response.availability? != null) }
 		}

@@ -71,7 +71,7 @@ checkpoint unwatch $accepted
 
 # Verify that the older cleanup did not finish the running process.
 tg --url $gateway.url --token $root index
-let status = tg --url $gateway.url --token $root get --source=index $process | from json | get status
+let status = tg --url $gateway.url --token $root get $process | from json | get status
 assert ($status == 'started') 'a live runner process must not be destroyed by a stale scheduler registration'
 
 stop_nats $nats

@@ -41,14 +41,13 @@ let tail = tg process children --position=end.-2 --size 1 $build.process | from 
 assert equal ($tail | child_names) [b c] "end-relative positions should work across chunks"
 
 # End-relative reads report absolute positions for every source.
-tg wait --source=index $build.process | ignore
+tg wait $build.process | ignore
+tg index
 let process = $build.process | split row '?' | first
 let socket = $local.url | str replace 'http+unix://' '' | url decode
-for source in [auto runner index] {
-	let output = http get --raw --max-time 10sec --unix-socket $socket $'http://localhost/processes/($process)/children?source=($source)&position=end.-2&size=1'
-	let chunks = $output | lines | where { $in starts-with 'data: ' } | each { str substring 6.. | from json }
-	assert equal ($chunks | get position) [1 2]
-}
+let output = http get --raw --max-time 10sec --unix-socket $socket $'http://localhost/processes/($process)/children?position=end.-2&size=1'
+let chunks = $output | lines | where { $in starts-with 'data: ' } | each { str substring 6.. | from json }
+assert equal ($chunks | get position) [1 2]
 
 tg checkpoint unwatch runner.process.control.retention.finished $watch
 

@@ -50,13 +50,15 @@ success $output "the build should reach its outcome sync"
 
 # Finish includes a log referent with the authorization token for the pending sync.
 timeout 30s tg --url $alice_local.url wait $process | ignore
-let output = tg --url $remote.url --token $alice.token get --source=index $process | from json
+tg --url $remote.url --token $alice.token index
+let output = tg --url $remote.url --token $alice.token get $process | from json
 let log = $output.log
 assert ($log =~ 'tokens\[') "the log referent should carry the authorization token for the sync"
 
 # Bob obtains a log referent using node permission while the outcome sync is held.
 tg --url $remote.url --token $alice.token grant $bob.user.id process_node $process
-let output = tg --url $bob_local.url get --remote --source=index $process | from json
+tg --url $bob_local.url index
+let output = tg --url $bob_local.url get --remote $process | from json
 let log = $output.log
 assert ($log =~ 'tokens\[') "node permission should preserve the stored authorization token for the sync"
 let pull = job spawn {

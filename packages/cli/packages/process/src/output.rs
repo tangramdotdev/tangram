@@ -12,10 +12,6 @@ pub struct Args {
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
-
-	/// Select the source of process state.
-	#[arg(long, default_value = "auto", value_parser = tangram_cli_core::source_parser())]
-	pub source: tg::process::Source,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -27,10 +23,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let id = process.node.clone();
 	let location = locations.get_for_options(&process);
 	let process = tg::Process::<tg::Value>::with_referent(process);
-	let options = tg::process::wait::Options {
-		location,
-		source: args.source,
-	};
+	let options = tg::process::wait::Options { location };
 	let output = process
 		.output_with_instance(&client, options)
 		.await

@@ -70,7 +70,7 @@ impl Component {
 				.server
 				.components
 				.process
-				.try_get_process_local_inner(session, id, false, tg::process::Source::Auto)
+				.try_get_process_local_inner(session, id, false)
 				.boxed()
 				.await?
 			else {

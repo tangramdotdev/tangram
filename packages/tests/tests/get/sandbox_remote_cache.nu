@@ -26,7 +26,8 @@ assert equal $output.data.status started
 failure (tg --url $local.url sandbox get --cached $sandbox | complete)
 
 tg --url $remote.url sandbox destroy $sandbox
-timeout 10s tg --url $remote.url sandbox wait --source=index $sandbox | ignore
+timeout 10s tg --url $remote.url sandbox wait $sandbox | ignore
+tg --url $remote.url index
 let output = tg --url $local.url get $sandbox | from json
 assert equal $output.data.status destroyed
 

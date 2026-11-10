@@ -14,9 +14,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	#[serde(default, skip_serializing_if = "tg::sandbox::Source::is_auto")]
-	pub source: tg::sandbox::Source,
-
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub ttl: tg::remote::cache::Ttl,
 
@@ -52,7 +49,6 @@ pub struct Output {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub cached: bool,
-	pub source: tg::sandbox::Source,
 	pub ttl: tg::remote::cache::Ttl,
 }
 
@@ -97,7 +93,6 @@ impl tg::Sandbox {
 		let arg = tg::sandbox::get::Arg {
 			cached: options.cached,
 			location: self.location(),
-			source: options.source,
 			tokens: self.tokens(),
 			ttl: options.ttl,
 		};

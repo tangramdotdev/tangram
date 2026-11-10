@@ -24,9 +24,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
 
-	#[serde(default, skip_serializing_if = "tg::process::Source::is_auto")]
-	pub source: tg::process::Source,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub timeout: Option<Duration>,
@@ -47,7 +44,6 @@ pub struct Options {
 	pub location: Option<tg::location::Arg>,
 	pub position: Option<std::io::SeekFrom>,
 	pub size: Option<u64>,
-	pub source: tg::process::Source,
 	pub timeout: Option<Duration>,
 }
 
@@ -106,7 +102,6 @@ impl<O> tg::Process<O> {
 			location: location.clone(),
 			position: options.position,
 			size: options.size,
-			source: options.source,
 			timeout: options.timeout,
 			tokens: tokens.clone(),
 		};

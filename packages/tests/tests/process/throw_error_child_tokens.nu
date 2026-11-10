@@ -15,5 +15,5 @@ let id = tg build --detach $path
 let outcome = tg wait $id | from json
 assert ((tg get $outcome.error) | str contains '"message":"the child process failed"')
 tg index
-let process = tg process get --source index $id | from json
+let process = tg process get $id | from json
 assert equal $process.status finished "the parent error should be indexed"

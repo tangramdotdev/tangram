@@ -18,8 +18,6 @@ pub struct Arg<'a, Request> {
 
 	pub request: Request,
 
-	pub source: tg::process::Source,
-
 	/// The status wakeups, each of which reads the item from the index again.
 	pub wakeups: Option<&'a mut BoxStream<'static, ()>>,
 }
@@ -85,12 +83,11 @@ pub async fn request<K: Kind>(
 		fallback,
 		options,
 		request,
-		source,
 		mut wakeups,
 	} = arg;
 
 	// Read the item from the index.
-	let mut index_future = (!source.is_runner()).then(|| kind.index(exhaustive));
+	let mut index_future = Some(kind.index(exhaustive));
 	let mut indexed: Option<Option<K::Indexed>> = None;
 
 	// Send the request to the holder, unless a write reads the index first.
@@ -100,7 +97,7 @@ pub async fn request<K: Kind>(
 		timeout,
 	};
 	let mut sent = false;
-	let mut request_future = if source.is_index() || (!fallback && kind.holds()) {
+	let mut request_future = if !fallback && kind.holds() {
 		None
 	} else {
 		sent = true;
@@ -113,7 +110,7 @@ pub async fn request<K: Kind>(
 			&indexed,
 			Some(indexed) if !kind.has_status(indexed.as_ref()),
 		);
-		let wait_until_deadline = (fallback && !source.is_index()) || missing;
+		let wait_until_deadline = fallback || missing;
 
 		tokio::select! {
 			result = async { index_future.as_mut().unwrap().await }, if index_future.is_some() => {
@@ -121,8 +118,7 @@ pub async fn request<K: Kind>(
 				let result = result?;
 
 				// Return the index's answer if it is decisive, or if the index does not have the item and the request is not exhaustive.
-				if source.is_index()
-					|| kind.is_decisive(result.as_ref(), fallback)
+				if kind.is_decisive(result.as_ref(), fallback)
 					|| (!exhaustive && !kind.has_status(result.as_ref()))
 				{
 					let output = Output {
@@ -144,7 +140,7 @@ pub async fn request<K: Kind>(
 			reply = async { request_future.as_mut().unwrap().await }, if request_future.is_some() => {
 				let indexed = match &reply {
 					// Read the item from the index if the reply requires it, because the holder does not have everything that the index does.
-					Ok(output) if !source.is_runner() && index_required(output) => {
+					Ok(output) if index_required(output) => {
 						kind.index_required().await;
 						let indexed = match index_future.take() {
 							Some(index_future) => index_future.await?,
@@ -160,9 +156,7 @@ pub async fn request<K: Kind>(
 					Ok(_) => indexed.flatten(),
 
 					// Read the item from the index again if the request failed, because the item may have reached a terminal state.
-					Err(_) if !source.is_runner() => kind.reindex(exhaustive).await?,
-
-					Err(_) => None,
+					Err(_) => kind.reindex(exhaustive).await?,
 				};
 				let output = Output {
 					indexed,
@@ -173,12 +167,10 @@ pub async fn request<K: Kind>(
 
 			() = tokio::time::sleep_until(deadline), if wait_until_deadline => {
 				// Answer a read from the index, and a write with the missing item.
-				let indexed = if !fallback {
-					indexed.flatten()
-				} else if source.is_runner() {
-					None
-				} else {
+				let indexed = if fallback {
 					kind.reindex(exhaustive).await?
+				} else {
+					indexed.flatten()
 				};
 				let output = Output {
 					indexed,
@@ -193,9 +185,7 @@ pub async fn request<K: Kind>(
 				}
 
 				// Read the item from the index again, because its status changed.
-				if !source.is_runner() {
-					index_future = Some(kind.index(exhaustive));
-				}
+				index_future = Some(kind.index(exhaustive));
 
 				// Send a read's request again, because the item may have a new holder. A write's request is sent once, and its sender sends it again to a new holder.
 				if fallback && request_future.is_some() {

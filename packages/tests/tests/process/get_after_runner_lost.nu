@@ -53,7 +53,7 @@ assert ($started.status == 'started') "the process must be started"
 
 # Ensure the index has the started process before losing the runner.
 tg --url $remote.url --token $root_token index
-let indexed = tg --url $remote.url --token $root_token get --no-tokens --source index $id | from json
+let indexed = tg --url $remote.url --token $root_token get --no-tokens $id | from json
 assert equal $indexed.status started
 
 # Lose the runner. The index keeps the started process until the scheduler expires

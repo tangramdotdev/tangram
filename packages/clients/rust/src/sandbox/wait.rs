@@ -23,10 +23,6 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	#[serde(default, skip_serializing_if = "tg::sandbox::Source::is_auto")]
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "tg::sandbox::Source::is_auto")]
-	pub source: tg::sandbox::Source,
-
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	#[tangram_serialize(
 		default,
@@ -44,7 +40,6 @@ pub enum Event {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub location: Option<tg::location::Arg>,
-	pub source: tg::sandbox::Source,
 }
 
 impl tg::Sandbox {
@@ -66,7 +61,6 @@ impl tg::Sandbox {
 	{
 		let arg = tg::sandbox::wait::Arg {
 			location: options.location.or_else(|| self.location()),
-			source: options.source,
 			tokens: self.tokens(),
 		};
 		let id = self.id();

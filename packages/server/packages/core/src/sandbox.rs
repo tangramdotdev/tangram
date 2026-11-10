@@ -129,7 +129,6 @@ pub trait Component: crate::component::Lifecycle {
 		id: &'a tg::sandbox::Id,
 		initial: Option<tg::sandbox::Data>,
 		wakeups: Option<BoxStream<'static, ()>>,
-		source: tg::sandbox::Source,
 	) -> BoxStream<'static, tg::Result<tg::sandbox::status::Event>>;
 
 	fn create_sandbox_status_wakeup_stream<'a>(

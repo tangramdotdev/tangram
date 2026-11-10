@@ -17,7 +17,8 @@ export def test [path: string, ...args] {
 	let process_id = tg build --no-tokens --detach $path | referent node
 
 	# Wait for the process to finish.
-	tg wait --source=index $process_id
+	tg wait $process_id
+	tg index
 
 	tg index
 

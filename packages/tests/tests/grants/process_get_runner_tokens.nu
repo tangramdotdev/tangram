@@ -31,7 +31,8 @@ let retention = tg --token $root checkpoint watch runner.process.control.retenti
 let spawned = tg --token $root build --detach --verbose $path | from json
 let process = $spawned.process | referent node
 let token = $spawned.tokens.local.0
-tg --token $root wait --source=index $process | ignore
+tg --token $root wait $process | ignore
+tg --token $root index
 tg --token $root index
 let socket = $local.url | str replace 'http+unix://' '' | url decode
 for permission in [process_node process_node_command_objects process_node_output_objects] {

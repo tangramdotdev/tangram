@@ -109,13 +109,7 @@ impl Component {
 			.server
 			.components
 			.sandbox
-			.create_sandbox_status_stream_local_with_wakeups(
-				session,
-				sandbox,
-				None,
-				Some(wakeups),
-				tg::sandbox::Source::Auto,
-			);
+			.create_sandbox_status_stream_local_with_wakeups(session, sandbox, None, Some(wakeups));
 		let destroyed_future = async {
 			while let Some(event) = status_stream.try_next().await? {
 				if let tg::sandbox::status::Event::Status(status) = event {
@@ -292,7 +286,6 @@ impl Component {
 				fallback: false,
 				options,
 				request,
-				source: tg::sandbox::Source::Auto,
 				wakeups: Some(&mut wakeups),
 			};
 			let output = session

@@ -193,7 +193,7 @@ impl Component {
 			.server
 			.components
 			.process
-			.try_get_process_local_inner(session, &process, false, tg::process::Source::Auto)
+			.try_get_process_local_inner(session, &process, false)
 			.await?;
 		let owns = output.is_some_and(|output| output.data.sandbox.as_ref() == Some(sandbox));
 

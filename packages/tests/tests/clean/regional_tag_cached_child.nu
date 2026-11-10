@@ -31,12 +31,14 @@ checkin push $primary $path | ignore
 
 # Populate only the secondary region with the child process and its output.
 let child = tg --url $secondary.url build --no-tokens --detach $'($package)#child' | referent node
-tg --url $secondary.url wait --source=index $child | ignore
+tg --url $secondary.url wait $child | ignore
+tg --url $secondary.url index
 tg --url $secondary.url index
 let process_sentinel = tg --url $secondary.url build --no-tokens --detach $'($package)#sentinel' | referent node
-tg --url $secondary.url wait --source=index $process_sentinel | ignore
+tg --url $secondary.url wait $process_sentinel | ignore
 tg --url $secondary.url index
-let child_data = tg --url $secondary.url process get --source=index --location='local(secondary)' $child | from json
+tg --url $secondary.url index
+let child_data = tg --url $secondary.url process get --location='local(secondary)' $child | from json
 let file = $child_data.output.node.value | referent node
 let blob = tg --url $secondary.url object children --local $file | from json | get 0
 
@@ -49,10 +51,11 @@ let parent = tg --url $primary.url build --no-tokens --detach $package | referen
 tg --url $secondary.url checkpoint wait --timeout 30s process.spawn.child.add $watch 0 | ignore
 tg --url $secondary.url checkpoint continue process.spawn.child.add $watch 0
 tg --url $secondary.url checkpoint unwatch process.spawn.child.add $watch
-let outcome = tg --url $primary.url wait --source=index $parent | from json
+let outcome = tg --url $primary.url wait $parent | from json
+tg --url $primary.url index
 assert equal $outcome.exit 0 "the parent should finish using its peer cache hit"
 tg --url $primary.url index
-let children = tg --url $primary.url process children --source=index --local $parent | from json
+let children = tg --url $primary.url process children --local $parent | from json
 assert equal ($children | length) 1
 assert equal ($children.0.process | referent node) $child "the parent must reuse the process originally built in the secondary region"
 assert equal $children.0.cached true "the child must be a cache hit"
@@ -60,7 +63,8 @@ let location = $'http://localhost/($children.0.process)' | url parse | get param
 assert equal $location 'local(secondary)' "the indexed child should preserve its region"
 let tokens = $children.0.process | referent tokens local
 assert ($tokens | is-not-empty) "the indexed child should preserve its authorization token"
-failure (tg --url $secondary.url process get --source=index --location='local(secondary)' $parent | complete) "the parent record should remain in the primary region"
+tg --url $secondary.url index
+failure (tg --url $secondary.url process get --location='local(secondary)' $parent | complete) "the parent record should remain in the primary region"
 for id in [$file $blob] {
 	failure (tg --url $primary.url object get --bytes --location='local(primary)' $id | complete) "using the cached child should not copy its output graph into the parent region"
 	success (tg --url $secondary.url object get --bytes --location='local(secondary)' $id | complete)
@@ -75,11 +79,14 @@ let delete = checkpoint watch --url $secondary.url cleaning.process.delete --par
 advance_time $secondary 2hr
 checkpoint pass $delete | ignore
 checkpoint unwatch $delete
-failure (tg --url $secondary.url process get --source=index --location='local(secondary)' $process_sentinel | complete) "process GC should collect the unreferenced process while retaining the cached child"
+tg --url $secondary.url index
+failure (tg --url $secondary.url process get --location='local(secondary)' $process_sentinel | complete) "process GC should collect the unreferenced process while retaining the cached child"
 
 # Touching the cache hit retains the child beyond its original TTL.
-success (tg --url $primary.url process get --source=index --local $parent | complete)
-success (tg --url $secondary.url process get --source=index --location='local(secondary)' $child | complete) "the cache hit should extend the child TTL"
+tg --url $primary.url index
+success (tg --url $primary.url process get --local $parent | complete)
+tg --url $secondary.url index
+success (tg --url $secondary.url process get --location='local(secondary)' $child | complete) "the cache hit should extend the child TTL"
 for id in [$file $blob] {
 	success (tg --url $secondary.url object get --bytes --location='local(secondary)' $id | complete) "the touched child should retain its output graph"
 }
@@ -97,8 +104,10 @@ while ($remaining | is-not-empty) {
 	$hit += 1
 }
 checkpoint unwatch $delete
-failure (tg --url $secondary.url process get --source=index --location='local(secondary)' $child | complete) "the peer cached child should expire without an orphan parent reference"
+tg --url $secondary.url index
+failure (tg --url $secondary.url process get --location='local(secondary)' $child | complete) "the peer cached child should expire without an orphan parent reference"
 for id in [$file $blob] {
 	failure (tg --url $secondary.url object get --bytes --location='local(secondary)' $id | complete) "the cached child's output should expire with the peer child"
 }
-success (tg --url $primary.url process get --source=index --local $parent | complete) "the parent should remain retained by its tag"
+tg --url $primary.url index
+success (tg --url $primary.url process get --local $parent | complete) "the parent should remain retained by its tag"

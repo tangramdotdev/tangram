@@ -149,7 +149,6 @@ class Sandbox:
     Start: ClassVar[type[Start]]
     Stop: ClassVar[type[Stop]]
     ConstructorArg = SandboxConstructorArg
-    Source = dict
     Status = Literal[
         "destroyed", "destroying", "started", "starting", "stopped", "stopping"
     ]

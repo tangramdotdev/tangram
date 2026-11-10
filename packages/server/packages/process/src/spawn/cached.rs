@@ -479,7 +479,6 @@ impl Component {
 				fallback: false,
 				options,
 				request,
-				source: tg::process::Source::Auto,
 				wakeups: Some(&mut wakeups),
 			};
 			let reply = self
@@ -503,13 +502,7 @@ impl Component {
 					return Ok(output.data.cacheable.then_some(output));
 				}
 				if let Some(process) = self
-					.try_get_process_local_inner(
-						session,
-						&output.id,
-						false,
-						tg::process::Source::Auto,
-						true,
-					)
+					.try_get_process_local_inner(session, &output.id, false, true)
 					.await? && process.data.status.is_finished()
 				{
 					output.data = process.data;

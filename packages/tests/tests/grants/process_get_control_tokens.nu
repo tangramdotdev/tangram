@@ -33,11 +33,11 @@ let id = checkin push $remote $path --token $root
 let spawned = tg --url $remote.url --token $root build --detach --verbose $id | from json
 let process = $spawned.process | referent node
 tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $output_watch 0 | ignore
-tg --url $remote.url --token $root wait --source=runner $process | ignore
+tg --url $remote.url --token $root wait $process | ignore
 tg --url $remote.url --token $root grant $reader.user.id process_node $process | ignore
 tg --url $remote.url --token $root index --database
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
-let result = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)?source=runner'
+let result = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)'
 let file = output-referent $result
 let pull = job spawn {
 	let job_id = job id
@@ -52,7 +52,7 @@ success $output 'the output tokens must authorize the pull after the transfer co
 assert equal $output.stdout 'control-sync-output'
 
 # The tokens returned by an index read must also authorize reading the output.
-let indexed = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)?source=index'
+let indexed = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)'
 let output = tg --url $remote.url --token $reader.token cat (output-referent $indexed) | complete
 success $output 'the indexed output tokens must authorize the pull'
 assert equal $output.stdout 'control-sync-output'

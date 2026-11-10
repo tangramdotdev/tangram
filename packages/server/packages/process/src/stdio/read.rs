@@ -288,7 +288,6 @@ impl Component {
 				false,
 				false,
 				arg.tokens.local_authorization(),
-				tg::process::Source::Auto,
 				None,
 				exhaustive,
 			)

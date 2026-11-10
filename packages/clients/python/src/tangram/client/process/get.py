@@ -20,7 +20,6 @@ class Get:
     class Arg(TypedDict):
         location: NotRequired[LocationArgObject | None]
         metadata: NotRequired[bool]
-        source: NotRequired[str]
         tokens: NotRequired[dict[str, list[str]] | None]
 
     class Output(TypedDict):
@@ -28,7 +27,6 @@ class Get:
         id: str
         location: NotRequired[LocationObject | None]
         metadata: NotRequired[object]
-        source: NotRequired[str]
         tokens: NotRequired[dict[str, list[str]] | None]
 
 
@@ -37,7 +35,6 @@ class WireOutput(TypedDict):
     id: str
     location: NotRequired[str | LocationObject | None]
     metadata: NotRequired[object]
-    source: NotRequired[str]
     tokens: NotRequired[dict[str, list[str]] | None]
 
 
@@ -62,7 +59,6 @@ async def try_get_process(
             if arg_.get("location") is None
             else LocationArg.to_data_string(arg_["location"]),
             "metadata": False if arg_.get("metadata") is None else arg_["metadata"],
-            "source": "auto" if arg_.get("source") is None else arg_["source"],
             "tokens": {} if arg_.get("tokens") is None else arg_["tokens"],
         }
     )

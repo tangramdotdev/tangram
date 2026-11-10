@@ -27,10 +27,6 @@ pub struct Options {
 
 	#[command(flatten)]
 	pub print: tangram_cli_core::print::Options,
-
-	/// Select the source of process state.
-	#[arg(long, default_value = "auto", value_parser = tangram_cli_core::source_parser())]
-	pub source: tg::process::Source,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -57,7 +53,6 @@ pub async fn run_inner(
 		availability: options.availability,
 		location,
 		metadata: options.metadata,
-		source: options.source,
 	};
 	let output = process
 		.get_with_instance(&client, options_)

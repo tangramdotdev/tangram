@@ -24,7 +24,6 @@ struct TryGetProcessRegionArg<'a> {
 	id: &'a tg::process::Id,
 	metadata: bool,
 	region: &'a str,
-	source: tg::process::Source,
 	tokens: &'a tg::authorization::Tokens,
 }
 
@@ -33,7 +32,6 @@ struct TryGetProcessRemoteArg<'a> {
 	id: &'a tg::process::Id,
 	metadata: bool,
 	remote: &'a tangram_server_core::location::Remote,
-	source: tg::process::Source,
 	tokens: &'a tg::authorization::Tokens,
 }
 
@@ -44,15 +42,12 @@ impl Component {
 		id: &tg::process::Id,
 		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		let runner = if arg.source.is_index() {
-			None
-		} else {
-			self.try_get_process_runner(session, id, &arg)
-				.boxed()
-				.await?
-		};
+		let runner = self
+			.try_get_process_runner(session, id, &arg)
+			.boxed()
+			.await?;
 		if let Some(output) = &runner
-			&& (arg.source.is_runner() || !output.data.status.is_finished())
+			&& !output.data.status.is_finished()
 		{
 			return Ok(runner);
 		}
@@ -70,7 +65,7 @@ impl Component {
 
 		// Read the process and authorize it without a search.
 		let node = if current {
-			self.try_get_process_local_inner(session, id, arg.metadata, arg.source, false)
+			self.try_get_process_local_inner(session, id, arg.metadata, false)
 				.boxed()
 				.await?
 		} else {
@@ -84,7 +79,6 @@ impl Component {
 					arg.metadata,
 					arg.availability,
 					arg.tokens.local_authorization(),
-					arg.source,
 					node.clone(),
 					false,
 				)
@@ -109,7 +103,6 @@ impl Component {
 				arg.metadata,
 				arg.availability,
 				arg.tokens.local_authorization(),
-				arg.source,
 				node,
 				true,
 			)
@@ -122,7 +115,6 @@ impl Component {
 					id,
 					metadata: arg.metadata,
 					regions: &local.regions,
-					source: arg.source,
 					tokens: &arg.tokens,
 				};
 				if let Some(output) = self
@@ -139,7 +131,6 @@ impl Component {
 				id,
 				metadata: arg.metadata,
 				remotes: &locations.remotes,
-				source: arg.source,
 				tokens: &arg.tokens,
 			};
 			self.try_get_process_remotes(session, remotes_arg)
@@ -264,7 +255,7 @@ impl Component {
 			return Ok(None);
 		}
 		let Some(mut output) = self
-			.try_get_process_local_inner(session, id, metadata, tg::process::Source::Auto, true)
+			.try_get_process_local_inner(session, id, metadata, true)
 			.await?
 		else {
 			return Ok(None);
@@ -285,7 +276,6 @@ impl Component {
 		metadata: bool,
 		availability: bool,
 		tokens: &[tg::authorization::Token],
-		source: tg::process::Source,
 		node: Option<tg::process::get::Output>,
 		exhaustive: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
@@ -307,7 +297,7 @@ impl Component {
 		let mut output = match node {
 			Some(node) => Some(node),
 			None => {
-				self.try_get_process_local_inner(session, id, metadata, source, exhaustive)
+				self.try_get_process_local_inner(session, id, metadata, exhaustive)
 					.boxed()
 					.await?
 			},
@@ -329,7 +319,7 @@ impl Component {
 				return Ok(None);
 			}
 			output = self
-				.try_get_process_local_inner(session, id, metadata, source, exhaustive)
+				.try_get_process_local_inner(session, id, metadata, exhaustive)
 				.boxed()
 				.await?;
 		}
@@ -450,7 +440,7 @@ impl Component {
 		metadata: bool,
 	) -> tg::Result<tg::process::get::Output> {
 		let output = self
-			.try_get_process_local_inner(session, id, metadata, tg::process::Source::Auto, true)
+			.try_get_process_local_inner(session, id, metadata, true)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 
@@ -494,7 +484,6 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		metadata: bool,
-		source: tg::process::Source,
 		exhaustive: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		// Subscribe before reading to avoid missing a status change between the read and subscription.
@@ -504,7 +493,7 @@ impl Component {
 
 		// Get the process from its holder or the index. A finished process requires the index, because the holder does not have its log.
 		let deadline = session.server.control_read_deadline();
-		let arg = Self::get_process_holder_arg(session, source, deadline, exhaustive);
+		let arg = Self::get_process_holder_arg(session, deadline, exhaustive);
 		let arg = crate::holder::Arg {
 			wakeups: Some(&mut wakeups),
 			..arg
@@ -553,7 +542,6 @@ impl Component {
 	/// Create the arg for a get request to the holder of a process, which the index answers when the holder does not.
 	pub(super) fn get_process_holder_arg(
 		session: &Session,
-		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 		exhaustive: bool,
 	) -> crate::holder::Arg<'static> {
@@ -569,7 +557,6 @@ impl Component {
 			fallback: true,
 			options,
 			request,
-			source,
 			wakeups: None,
 		}
 	}
@@ -693,7 +680,6 @@ impl Component {
 			id,
 			metadata,
 			regions,
-			source,
 			tokens,
 		} = arg;
 		let mut futures = regions
@@ -704,7 +690,6 @@ impl Component {
 					id,
 					metadata,
 					region,
-					source,
 					tokens,
 				};
 				self.try_get_process_region(session, arg)
@@ -739,7 +724,6 @@ impl Component {
 			id,
 			metadata,
 			region,
-			source,
 			tokens,
 		} = arg;
 		let client = session
@@ -755,7 +739,6 @@ impl Component {
 			availability,
 			location: Some(location.clone().into()),
 			metadata,
-			source,
 			tokens: tokens.for_location(&location),
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
@@ -798,7 +781,6 @@ impl Component {
 			id,
 			metadata,
 			remotes,
-			source,
 			tokens,
 		} = arg;
 		let mut futures = remotes
@@ -809,7 +791,6 @@ impl Component {
 					id,
 					metadata,
 					remote,
-					source,
 					tokens,
 				};
 				self.try_get_process_remote(session, arg)
@@ -931,7 +912,6 @@ impl Component {
 			id,
 			metadata,
 			remote,
-			source,
 			tokens,
 		} = arg;
 		let client = session
@@ -953,7 +933,6 @@ impl Component {
 			availability,
 			location: Some(location),
 			metadata,
-			source,
 			tokens: tokens.for_location(&tg::Location::Remote(tg::location::Remote {
 				name: remote.name.clone(),
 				region: None,
@@ -1024,7 +1003,6 @@ impl Component {
 
 		// Get the process.
 		let location = arg.location.clone();
-		let source = arg.source;
 		let Some(mut output) = self.try_get_process(session, &id, arg).boxed().await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
@@ -1035,7 +1013,6 @@ impl Component {
 		if output.data.status.is_finished() && output.data.children.is_none() {
 			let arg = tg::process::children::get::Arg {
 				location,
-				source,
 				tokens: output.tokens.clone(),
 				..Default::default()
 			};

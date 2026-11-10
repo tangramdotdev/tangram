@@ -54,12 +54,13 @@ let process = $spawned.process
 tg --url $remote.url --token $eve.token wait $process | ignore
 tg --url $runner.url --token $runner_root checkpoint wait --timeout 30s permission_capture.advanced $advanced 0 | ignore
 tg --url $runner.url --token $runner_root checkpoint unwatch permission_capture.advanced $advanced
-tg --url $runner.url --token $runner_root wait --local --source=index $process | ignore
+tg --url $runner.url --token $runner_root wait --local $process | ignore
+tg --url $runner.url --token $runner_root index
 tg --url $runner.url --token $runner_root index
 
 # The remote indexing checkpoint above excludes the local spawn path, even if checkout denies the private argument.
 let socket = $runner.url | str replace 'http+unix://' '' | url decode
-let response = http get --unix-socket $socket --headers { Authorization: $'Bearer ($runner_root)' } $'http://localhost/processes/($process)?location=local&source=index'
+let response = http get --unix-socket $socket --headers { Authorization: $'Bearer ($runner_root)' } $'http://localhost/processes/($process)?location=local'
 assert (($response.data.command.node | describe) | str starts-with record)
 assert ($response.data.command.node.args | to json --raw | str contains $file)
 tg --url $runner.url --token $runner_root grant $reader.user.id process_node_command_objects $process | ignore

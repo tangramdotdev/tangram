@@ -23,7 +23,8 @@ let process = tg --url $remote.url --token $alice.token build --detach --no-toke
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $watch 0 | complete)
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.finish.succeeded $finished 0 | complete)
 tg --url $runner.url checkpoint unwatch runner.process.control.finish.succeeded $finished
-let outcome = timeout 30s tg --url $remote.url --token $alice.token wait --source=index $process | from json
+let outcome = timeout 30s tg --url $remote.url --token $alice.token wait $process | from json
+tg --url $remote.url --token $alice.token index
 assert equal $outcome.exit 0
 assert ($outcome.output.value | str contains 'tokens[') "the indexed outcome must carry authorization before reconnect"
 
