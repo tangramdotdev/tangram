@@ -100,7 +100,6 @@ fn arg(data: tg::sandbox::get::Output) -> Arg {
 		process: None,
 		processes: None,
 		runner: None,
-		scheduled: None,
 		stopped_usage: None,
 		touched_at: 0,
 	}
@@ -145,7 +144,6 @@ fn sandbox(data: tg::sandbox::get::Output) -> super::super::Sandbox {
 		location: None,
 		reference_count: 0,
 		runner: None,
-		scheduler: None,
 		set: super::super::Set::default(),
 		stopped_usages: BTreeMap::new(),
 		touched_at: 0,

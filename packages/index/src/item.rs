@@ -26,6 +26,9 @@ pub enum Item {
 	#[tangram_serialize(id = 5)]
 	DeleteSandbox(Box<crate::sandbox::delete::Arg>),
 
+	#[tangram_serialize(id = 33)]
+	DeleteSchedulerSandbox(Box<crate::scheduler::sandbox::delete::Arg>),
+
 	#[tangram_serialize(id = 6)]
 	DeleteTag(Box<crate::tag::delete::Arg>),
 
@@ -73,6 +76,9 @@ pub enum Item {
 
 	#[tangram_serialize(id = 17)]
 	PutSandbox(Box<crate::sandbox::put::Arg>),
+
+	#[tangram_serialize(id = 34)]
+	PutSchedulerSandbox(Box<crate::scheduler::sandbox::put::Arg>),
 
 	#[tangram_serialize(id = 31)]
 	PutSync(Box<crate::sync::put::Arg>),

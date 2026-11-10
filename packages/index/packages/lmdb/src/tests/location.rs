@@ -90,7 +90,6 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 			processes: None,
 			registration: None,
 			runner: None,
-			scheduled: None,
 			stopped_usage: None,
 			touched_at: 1,
 		};

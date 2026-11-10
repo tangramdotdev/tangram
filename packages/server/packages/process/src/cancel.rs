@@ -204,11 +204,12 @@ impl Component {
 		};
 		let scheduler = session
 			.server
-			.components
-			.sandbox
-			.try_get_sandbox_from_index(session, &sandbox)
-			.await?
-			.and_then(|sandbox| sandbox.scheduler);
+			.index
+			.try_get_sandbox_scheduler(&sandbox)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %sandbox, "failed to get the sandbox's scheduler"),
+			)?;
 		let output = scheduler.map(|scheduler| (scheduler, sandbox));
 
 		Ok(output)

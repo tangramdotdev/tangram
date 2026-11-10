@@ -30,6 +30,7 @@ impl Index {
 	) -> tg::Result<()> {
 		for id in ids {
 			Self::delete_sandbox_processes_with_transaction(db, subspace, transaction, id)?;
+			Self::delete_sandbox_scheduler_with_transaction(db, subspace, transaction, id)?;
 
 			// Delete the creator and owner keys.
 			let sandbox = Self::try_get_sandbox_with_transaction(db, subspace, transaction, id)?;

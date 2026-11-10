@@ -2,6 +2,7 @@ use tangram_client::prelude::*;
 
 pub mod get;
 pub mod put;
+pub mod sandbox;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Scheduler {
@@ -25,6 +26,12 @@ pub trait Index {
 		&self,
 		arg: crate::scheduler::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<crate::scheduler::Scheduler>>> + Send;
+
+	/// Get the scheduler that owns a starting sandbox until its runner connects.
+	fn try_get_sandbox_scheduler(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::scheduler::Id>>> + Send;
 }
 
 impl Scheduler {

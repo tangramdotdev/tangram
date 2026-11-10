@@ -111,6 +111,14 @@ impl Index {
 						std::slice::from_ref(&arg.id),
 					)?;
 				},
+				tangram_index::Item::DeleteSchedulerSandbox(arg) => {
+					Self::delete_scheduler_sandbox_with_transaction(
+						db,
+						subspace,
+						transaction,
+						arg,
+					)?;
+				},
 				tangram_index::Item::DeleteTag(arg) => {
 					Self::delete_tags_with_transaction(
 						db,
@@ -241,6 +249,9 @@ impl Index {
 					if let Err(error) = result {
 						rejection.get_or_insert(error);
 					}
+				},
+				tangram_index::Item::PutSchedulerSandbox(arg) => {
+					Self::put_scheduler_sandbox_with_transaction(db, subspace, transaction, arg)?;
 				},
 				tangram_index::Item::PutSync(arg) => {
 					Self::put_sync_with_transaction(db, subspace, transaction, arg)?;

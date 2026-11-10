@@ -2072,17 +2072,8 @@ impl Scheduler {
 		};
 		let stored = serde_json::to_vec(&stored)
 			.map_err(|error| tg::error!(!error, "failed to serialize the request"))?;
-		let scheduled = tangram_index::sandbox::put::Scheduled {
-			request: stored,
-			scheduler: self.id.clone(),
-		};
-		self.put_sandbox_status(
-			request,
-			tg::sandbox::Status::Starting,
-			None,
-			Some(scheduled),
-		)
-		.await
+		self.put_sandbox_status(request, tg::sandbox::Status::Starting, None, Some(stored))
+			.await
 	}
 
 	/// Record a failure after acceptance in the sandbox's error field. A new sandbox is destroyed, and a sandbox that was starting again is stopped.
@@ -2105,7 +2096,7 @@ impl Scheduler {
 		request: &EnqueueSandboxRequestArg,
 		status: tg::sandbox::Status,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
-		scheduled: Option<tangram_index::sandbox::put::Scheduled>,
+		stored: Option<Vec<u8>>,
 	) -> tg::Result<()> {
 		// Create the sandbox's data.
 		let session = self.server.session(&self.server.context);
@@ -2155,7 +2146,6 @@ impl Scheduler {
 			processes,
 			registration: None,
 			runner: request.runner.clone(),
-			scheduled,
 			stopped_usage: None,
 			touched_at: now,
 		};
@@ -2168,8 +2158,26 @@ impl Scheduler {
 			let process = self.starting_process_arg(process, id, now)?;
 			arg.process = Some(Box::new(process));
 		}
-		let item = tangram_index::Item::PutSandbox(Box::new(arg));
-		let arg = tangram_index::write::Arg { items: vec![item] };
+		let mut items = vec![tangram_index::Item::PutSandbox(Box::new(arg))];
+
+		// Record the accepted request in the scheduler's queue with a starting sandbox, keep it while the scheduler destroys the sandbox, and remove it once the boot ends unplaced, in the same write as the sandbox's status.
+		let boot = request.boot;
+		if let Some(request) = stored {
+			let arg = tangram_index::scheduler::sandbox::put::Arg {
+				boot,
+				request,
+				sandbox: id.clone(),
+				scheduler: self.id.clone(),
+			};
+			items.push(tangram_index::Item::PutSchedulerSandbox(Box::new(arg)));
+		} else if !status.is_starting() && status != tg::sandbox::Status::Destroying {
+			let arg = tangram_index::scheduler::sandbox::delete::Arg {
+				boot,
+				sandbox: id.clone(),
+			};
+			items.push(tangram_index::Item::DeleteSchedulerSandbox(Box::new(arg)));
+		}
+		let arg = tangram_index::write::Arg { items };
 		self.server
 			.components
 			.indexer

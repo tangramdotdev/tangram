@@ -458,7 +458,6 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 					processes: None,
 					registration: Some(registration.clone()),
 					runner: None,
-					scheduled: None,
 					stopped_usage: None,
 					touched_at: 0,
 				};

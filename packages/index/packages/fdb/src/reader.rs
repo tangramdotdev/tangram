@@ -545,6 +545,16 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::TryGetIndexer(output)
 			},
+			tangram_index::read::Request::TryGetSandboxScheduler { sandbox } => {
+				let result = Self::try_get_sandbox_scheduler_with_transaction(
+					transaction,
+					subspace,
+					sandbox,
+				)
+				.await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::TryGetSandboxScheduler(output)
+			},
 			tangram_index::read::Request::TryGetScheduler(arg) => {
 				let result =
 					Self::try_get_scheduler_with_transaction(transaction, subspace, arg).await;

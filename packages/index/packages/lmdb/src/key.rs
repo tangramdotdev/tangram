@@ -101,6 +101,7 @@ pub enum Kind {
 	SchedulerRunner = 92,
 	SchedulerSandbox = 93,
 	Scheduler = 94,
+	SandboxScheduler = 95,
 }
 
 impl fdbt::TuplePack for Key {
@@ -295,6 +296,12 @@ impl fdbt::TuplePack for Key {
 			Key::Runner(crate::runner::Key::SchedulerSandbox { sandbox, scheduler }) => (
 				Kind::SchedulerSandbox.to_i32().unwrap(),
 				scheduler.to_bytes().as_ref(),
+				sandbox.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Runner(crate::runner::Key::SandboxScheduler { sandbox }) => (
+				Kind::SandboxScheduler.to_i32().unwrap(),
 				sandbox.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
@@ -1079,6 +1086,16 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((
 					input,
 					Key::Runner(crate::runner::Key::SchedulerSandbox { sandbox, scheduler }),
+				))
+			},
+
+			Kind::SandboxScheduler => {
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Runner(crate::runner::Key::SandboxScheduler { sandbox }),
 				))
 			},
 
