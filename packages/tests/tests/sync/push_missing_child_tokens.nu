@@ -71,8 +71,9 @@ def test [hold_verification: bool ...args] {
 		tg --url $local.url --token $root_token checkpoint unwatch verification.index $verification_watch
 	}
 
-	# The transfer must still fail when neither side has the child.
+	# The transfer must still fail when no location has the child.
 	let empty = server spawn --name empty
+	tg --url $local.url --token $alice.token remote delete default
 	tg --url $local.url --token $alice.token remote put empty $empty.url
 	let output = timeout 10s tg --url $local.url --token $alice.token push --remote=empty ...$args $referent | complete
 	failure $output 'the destination must not accept an incomplete directory'
