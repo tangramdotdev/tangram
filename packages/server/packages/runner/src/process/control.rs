@@ -607,6 +607,26 @@ impl Component {
 						},
 						tg::process::control::ServerRequestArg::Tty(tty) => {
 							tangram_server_core::checkpoint!(session.server, "runner.process.control.tty.received", process = %session.context.principal).await;
+
+							// Reply that the runner does not hold the process if the runner has released it.
+							let released = match &session.context.principal {
+								tg::Principal::Process(process) => session
+									.server
+									.components
+									.runner
+									.state()
+									.try_get_process(process)
+									.is_none(),
+								_ => false,
+							};
+							if released {
+								let result = Ok(Self::process_control_not_holder_output());
+								let response = Self::process_control_response(request_id, result);
+								sender.send(response).await?;
+								continue;
+							}
+
+							// Queue the request.
 							tty_sender
 								.send((request_id, tty, sender))
 								.await
