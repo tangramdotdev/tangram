@@ -64,6 +64,7 @@ pub struct State {
 	pub tokens: BTreeMap<tg::artifact::Id, tg::authorization::Token>,
 	pub usage: Option<tg::sandbox::Usage>,
 	pub vfs: Option<std::sync::Arc<dyn tangram_server_vfs_core::Provider>>,
+	pub yielded: bool,
 }
 
 impl Sandboxes {

@@ -791,7 +791,9 @@ impl Component {
 		let sandboxes = sandboxes
 			.iter()
 			.filter_map(|id| {
-				let sandbox = self.state.sandboxes.get_by_id(id)?;
+				// Stop answering the servers for the boot at once, because the server may already hold the sandbox's next boot.
+				let mut sandbox = self.state.sandboxes.get_mut_by_id(id)?;
+				sandbox.yielded = true;
 				if sandbox.status.is_stopped_or_destroyed() {
 					return None;
 				}
@@ -1159,6 +1161,7 @@ impl Component {
 					continue;
 				},
 			};
+			tangram_server_core::checkpoint!(session.server, "runner.control.create_sandbox", sandbox = %request.sandbox).await;
 
 			// Acquire the storage of a stopped sandbox that starts again, which the scheduler places without it because this runner keeps it reserved.
 			let mut requested = request.capacity;
