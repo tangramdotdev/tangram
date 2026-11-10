@@ -1576,6 +1576,24 @@ impl Component {
 		// Run the sandbox until it should be stopped or destroyed, destroying it with the error if the loop fails.
 		let result = async {
 			loop {
+				// Stop a boot whose stop arrived while it was queued, once it is ready, unless a start arrived after the stop.
+				if ready
+					&& session
+						.server
+						.components
+						.runner
+						.state()
+						.pending_stops
+						.remove(&id)
+						.is_some()
+				{
+					tangram_server_core::checkpoint!(session.server, "runner.sandbox.pending_stop", sandbox = %id).await;
+					Self::cancel_sandbox_processes(session, &id, None)?;
+					Self::set_sandbox_status(session, &id, tg::sandbox::Status::Stopping);
+					teardown = Teardown::Stop;
+					break;
+				}
+
 				let current_timer_future = timer_future.as_mut().map_or_else(
 					|| future::pending().left_future(),
 					|timer_future| timer_future.as_mut().right_future(),
@@ -1682,6 +1700,8 @@ impl Component {
 								continue;
 							},
 							tg::sandbox::control::ServerRequestArg::Start(_) => {
+								// Cancel a stop that arrived while the boot was queued, because the start came after it.
+								session.server.components.runner.state().pending_stops.remove(&id);
 								let data = session
 									.server
 									.components

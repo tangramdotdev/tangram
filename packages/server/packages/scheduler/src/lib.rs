@@ -121,10 +121,6 @@ enum Operation {
 		destroy: sandbox::DestroySandbox,
 		result: tg::Result<bool>,
 	},
-	FinishSandboxStop {
-		result: tg::Result<()>,
-		sandbox: tg::sandbox::Id,
-	},
 	LoadOwnerAncestors {
 		owner: tg::Id,
 		result: tg::Result<Vec<tg::Id>>,
@@ -697,12 +693,6 @@ impl Scheduler {
 				lost,
 			} => {
 				state.handle_placed_sandboxes(self, generation, keys, lost);
-			},
-			Operation::FinishSandboxStop { result, sandbox } => {
-				state.sandboxes.finish_stop(&sandbox);
-				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), %sandbox, "failed to stop the sandbox once it started");
-				}
 			},
 			Operation::Publish { context, result } => {
 				if let Err(error) = result {

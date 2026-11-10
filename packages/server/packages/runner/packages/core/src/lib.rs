@@ -47,6 +47,9 @@ pub struct State {
 
 	pub next_sandbox_index: AtomicU64,
 
+	/// The boots whose stop arrived while they were queued, which the runner stops once they start, unless a start arrives first.
+	pub pending_stops: dashmap::DashMap<tg::sandbox::Id, u64>,
+
 	pub process_for_token: dashmap::DashMap<String, (u64, tg::process::Id)>,
 
 	pub processes: tangram_server_process_core::Map,
@@ -91,6 +94,7 @@ impl State {
 			id: Mutex::new(None),
 
 			next_sandbox_index: AtomicU64::new(1),
+			pending_stops: dashmap::DashMap::new(),
 
 			process_for_token: dashmap::DashMap::new(),
 

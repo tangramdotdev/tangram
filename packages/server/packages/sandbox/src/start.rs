@@ -112,7 +112,7 @@ impl Component {
 			return Ok(None);
 		};
 
-		// A started sandbox has nothing left to start. Start any other sandbox through its holder, because a scheduler may hold a stop of a boot that is starting, and starts the next boot of one that is stopped.
+		// A started sandbox has nothing left to start. Start any other sandbox through its holder, which cancels a pending stop of a boot that is starting, or through the index, which reserves the next boot of one that is stopped.
 		match status {
 			tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
 				Err(tg::error!(%id, "the sandbox was destroyed"))

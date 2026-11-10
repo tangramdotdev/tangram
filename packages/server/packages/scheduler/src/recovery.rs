@@ -272,9 +272,6 @@ impl SchedulerState {
 				};
 				self.send_destroy_sandbox(scheduler, destroy);
 			} else {
-				if claim.request.stop {
-					self.stop_sandbox_when_started(scheduler, id.clone());
-				}
 				let placed = super::sandbox::Placed {
 					generation: 0,
 					registration_index: claim.registration_index,
@@ -293,9 +290,6 @@ impl SchedulerState {
 				let error = data.and_then(|data| data.error);
 				self.finish_destroy_sandbox(scheduler, request, error);
 			} else {
-				if request.stop {
-					self.stop_sandbox_when_started(scheduler, id);
-				}
 				self.handle_enqueue_sandbox_request(scheduler, None, request, true);
 			}
 		}
