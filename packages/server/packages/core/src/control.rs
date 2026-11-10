@@ -63,12 +63,12 @@ impl Server {
 		let SendControlRequestArg {
 			ack,
 			client_subject,
-			hold,
 			is_ack,
 			is_not_holder,
 			marker: _,
 			options,
 			request,
+			resend,
 			response,
 			server_subject,
 		} = arg;
@@ -86,7 +86,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
 		let future = async move {
-			let mut hold = hold;
+			let mut resend = resend;
 			let mut responses = std::pin::pin!(responses);
 
 			let mut acknowledged = false;
@@ -110,7 +110,7 @@ impl Server {
 						.await
 						.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
 				} else if !acknowledged && !initial {
-					if hold.is_none() && retries.next().await.is_none() {
+					if resend.is_none() && retries.next().await.is_none() {
 						return Err(tg::error!(
 							"timed out waiting for the request acknowledgement"
 						));
@@ -146,11 +146,13 @@ impl Server {
 					}
 				};
 
-				// Resend the request as soon as the hold ends, because its peer may have just started.
+				// Send the request again when the caller asks, unless a holder has acknowledged it, because the item may have a new holder.
 				let result = tokio::select! {
 					result = tokio::time::timeout(timeout, receive) => result,
-					() = async { hold.as_mut().unwrap().await }, if hold.is_some() => {
-						hold = None;
+					item = async { resend.as_mut().unwrap().next().await }, if resend.is_some() && !acknowledged => {
+						if item.is_none() {
+							resend = None;
+						}
 						continue;
 					},
 				};

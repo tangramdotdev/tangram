@@ -3,7 +3,7 @@ use {
 		Component,
 		control::{ClientMessage, ServerMessage},
 	},
-	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture},
+	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture, stream::BoxStream},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_messenger::Messenger as _,
@@ -26,7 +26,6 @@ struct Kind<'a> {
 	component: &'a Component,
 	get: bool,
 	id: &'a tg::process::Id,
-	lease: bool,
 	session: &'a Session,
 }
 
@@ -48,18 +47,12 @@ impl Component {
 			arg.request,
 			tg::process::control::ServerRequestArg::ReleaseLease(_)
 		);
-		let lease = cancel
-			|| matches!(
-				arg.request,
-				tg::process::control::ServerRequestArg::AcquireLease(_)
-			);
 		let kind = Kind {
 			cancel,
 			children,
 			component: self,
 			get,
 			id,
-			lease,
 			session,
 		};
 		tangram_server_core::holder::request(&kind, arg, index_required).await
@@ -217,7 +210,7 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		&self,
 		request: Self::Request,
 		options: tangram_server_core::control::Options,
-		hold: Option<BoxFuture<'static, ()>>,
+		resend: Option<BoxStream<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>> {
 		async move {
 			if self.cancel {
@@ -226,7 +219,7 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 			}
 			let output = async {
 				self.component
-					.send_process_control_request(self.session, self.id, request, options, hold)
+					.send_process_control_request(self.session, self.id, request, options, resend)
 					.boxed()
 					.await?
 					.await?
@@ -239,23 +232,6 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 			output
 		}
 		.boxed()
-	}
-
-	fn hold(&self, indexed: Option<&Self::Indexed>) -> Option<BoxFuture<'static, ()>> {
-		let starting = indexed
-			.and_then(|(process, _)| process.status)
-			.is_some_and(|status| status.is_starting());
-		starting.then(|| {
-			self.component
-				.create_wait_process_start_future(self.session, self.id)
-				.map(|_| ())
-				.boxed()
-		})
-	}
-
-	/// A request for a lease is sent right away, because the scheduler answers it for a queued process.
-	fn holds(&self) -> bool {
-		!self.lease
 	}
 
 	fn index_required(&self) -> BoxFuture<'_, ()> {

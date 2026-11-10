@@ -393,8 +393,8 @@ impl Component {
 				),
 				id: open,
 			};
-			let hold = start.map(|start| start.map(|_| ()).boxed());
-			self.send_process_control_open(session, id, open, hold)
+			let resend = start.map(|start| start.map(|_| ()).into_stream().boxed());
+			self.send_process_control_open(session, id, open, resend)
 				.await?
 		};
 

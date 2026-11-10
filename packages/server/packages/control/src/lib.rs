@@ -102,8 +102,8 @@ pub struct SendControlRequestArg<I, O, Response, AckFn, IsAckFn, ResponseFn> {
 
 	pub client_subject: String,
 
-	/// While this future is pending, no peer is expected, so the retries are not spent.
-	pub hold: Option<futures::future::BoxFuture<'static, ()>>,
+	/// Each item of this stream sends the request again if no holder has acknowledged it, because the item may have a new holder. While the stream is present, the retries are not spent, because the caller decides when to stop waiting for a holder.
+	pub resend: Option<futures::stream::BoxStream<'static, ()>>,
 
 	pub is_ack: IsAckFn,
 

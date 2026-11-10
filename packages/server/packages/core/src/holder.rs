@@ -44,19 +44,13 @@ pub trait Kind: Sync {
 	/// Read the item from the index again after a reply or the deadline.
 	fn reindex(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>>;
 
-	/// Send the request to the holder.
+	/// Send the request to the holder, and send it again on each item of the resend stream until a holder acknowledges it.
 	fn send(
 		&self,
 		request: Self::Request,
 		options: crate::control::Options,
-		hold: Option<BoxFuture<'static, ()>>,
+		resend: Option<BoxStream<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>>;
-
-	/// Create the future that holds a write's request while the item is starting.
-	fn hold(&self, indexed: Option<&Self::Indexed>) -> Option<BoxFuture<'static, ()>>;
-
-	/// Whether a write reads the index before it sends its request, so that the request is held while the item is starting.
-	fn holds(&self) -> bool;
 
 	/// Observe that a reply requires the index.
 	fn index_required(&self) -> BoxFuture<'_, ()>;
@@ -90,19 +84,12 @@ pub async fn request<K: Kind>(
 	let mut index_future = Some(kind.index(exhaustive));
 	let mut indexed: Option<Option<K::Indexed>> = None;
 
-	// Send the request to the holder, unless a write reads the index first.
-	let crate::control::Options { retry, timeout } = options;
-	let create_options = || crate::control::Options {
-		retry: retry.clone(),
-		timeout,
-	};
-	let mut sent = false;
-	let mut request_future = if !fallback && kind.holds() {
-		None
-	} else {
-		sent = true;
-		Some(kind.send(request.clone(), create_options(), None))
-	};
+	// Send the request to the holder, and send it again on each status wakeup, because the item may have a new holder.
+	let (resend_sender, resend_receiver) = tokio::sync::watch::channel(());
+	let resend = wakeups
+		.is_some()
+		.then(|| tokio_stream::wrappers::WatchStream::from_changes(resend_receiver).boxed());
+	let mut request_future = kind.send(request, options, resend);
 
 	loop {
 		// A read waits for the holder until the deadline, and a write does so only if the index does not have the item, because only a holder can then show that the item exists.
@@ -128,16 +115,10 @@ pub async fn request<K: Kind>(
 					return Ok(Some(output));
 				}
 
-				// Send a write's request, holding it while the item is starting.
-				if !sent {
-					sent = true;
-					let hold = kind.hold(result.as_ref());
-					request_future = Some(kind.send(request.clone(), create_options(), hold));
-				}
 				indexed = Some(result);
 			},
 
-			reply = async { request_future.as_mut().unwrap().await }, if request_future.is_some() => {
+			reply = &mut request_future => {
 				let indexed = match &reply {
 					// Read the item from the index if the reply requires it, because the holder does not have everything that the index does.
 					Ok(output) if index_required(output) => {
@@ -184,13 +165,9 @@ pub async fn request<K: Kind>(
 					return Ok(None);
 				}
 
-				// Read the item from the index again, because its status changed.
+				// Read the item from the index again, and send the request again, because its status changed and the item may have a new holder.
 				index_future = Some(kind.index(exhaustive));
-
-				// Send a read's request again, because the item may have a new holder. A write's request is sent once, and its sender sends it again to a new holder.
-				if fallback && request_future.is_some() {
-					request_future = Some(kind.send(request.clone(), create_options(), None));
-				}
+				resend_sender.send_replace(());
 			},
 		}
 	}

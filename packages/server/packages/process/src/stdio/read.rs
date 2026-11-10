@@ -775,8 +775,10 @@ impl Component {
 				arg: tg::process::control::ServerRequestArg::Open(open),
 				id: request_id.clone(),
 			};
-			let hold = start.clone().map(|start| start.map(|_| ()).boxed());
-			self.send_process_control_open(session, id, request, hold)
+			let resend = start
+				.clone()
+				.map(|start| start.map(|_| ()).into_stream().boxed());
+			self.send_process_control_open(session, id, request, resend)
 				.await?
 		};
 
@@ -919,7 +921,7 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		request: tg::process::control::ServerRequest,
-		hold: Option<futures::future::BoxFuture<'static, ()>>,
+		resend: Option<futures::stream::BoxStream<'static, ()>>,
 	) -> tg::Result<futures::future::BoxFuture<'static, tg::Result<()>>> {
 		let request_id = request.id.clone();
 		let request =
@@ -941,7 +943,6 @@ impl Component {
 				))
 			},
 			client_subject: format!("processes.{id}.control.client.{request_id}"),
-			hold,
 			is_ack: |message: &crate::control::ClientMessage| {
 				matches!(message.0, tg::process::control::ClientMessage::Ack(_))
 			},
@@ -958,6 +959,7 @@ impl Component {
 			marker: std::marker::PhantomData,
 			options,
 			request,
+			resend,
 			response: |message: crate::control::ClientMessage| match message.0 {
 				tg::process::control::ClientMessage::Response(response) => {
 					let result = if let Some(error) = response.error {
