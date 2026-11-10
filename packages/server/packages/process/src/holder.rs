@@ -21,6 +21,7 @@ pub(crate) type Output =
 
 /// The process whose holder a request is sent to.
 struct Kind<'a> {
+	children: bool,
 	component: &'a Component,
 	get: bool,
 	id: &'a tg::process::Id,
@@ -36,8 +37,13 @@ impl Component {
 		arg: Arg<'_>,
 		index_required: impl Fn(&tg::process::control::ClientResponseOutput) -> bool + Send,
 	) -> tg::Result<Option<Output>> {
-		let get = matches!(arg.request, tg::process::control::ServerRequestArg::Get(_));
+		let children = matches!(
+			arg.request,
+			tg::process::control::ServerRequestArg::GetChildren(_)
+		);
+		let get = children || matches!(arg.request, tg::process::control::ServerRequestArg::Get(_));
 		let kind = Kind {
+			children,
 			component: self,
 			get,
 			id,
@@ -173,9 +179,23 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 	}
 
 	fn reindex(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
-		self.component
-			.try_get_process_with_data_from_index_with_exhaustive(self.session, self.id, exhaustive)
-			.boxed()
+		async move {
+			// A request for a process's children requires a record that has them, or a starting process, which has none yet.
+			let indexed = self
+				.component
+				.try_get_process_with_data_from_index_with_exhaustive(
+					self.session,
+					self.id,
+					exhaustive,
+				)
+				.await?;
+			Ok(indexed.filter(|(process, _)| {
+				!self.children
+					|| process.set.children
+					|| process.status.is_some_and(|status| status.is_starting())
+			}))
+		}
+		.boxed()
 	}
 
 	fn send(
@@ -227,25 +247,26 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 	/// The index answers for a process that finished or that lives in a remote, and a read is also answered for a starting process.
 	fn is_decisive(&self, indexed: Option<&Self::Indexed>, fallback: bool) -> bool {
 		indexed.is_some_and(|(process, _)| {
-			process
-				.status
-				.is_some_and(|status| status.is_finished() || (fallback && status.is_starting()))
-				|| process
-					.location
-					.as_ref()
-					.is_some_and(tg::Location::is_remote)
+			self.children
+				|| process.status.is_some_and(|status| {
+					status.is_finished() || (fallback && status.is_starting())
+				}) || process
+				.location
+				.as_ref()
+				.is_some_and(tg::Location::is_remote)
 		})
 	}
 
 	fn is_complete(&self, indexed: Option<&Self::Indexed>) -> bool {
 		indexed.is_some_and(|(process, _)| {
-			process
-				.status
-				.is_some_and(|status| status.is_finished() || status.is_starting())
+			self.children
+				|| process
+					.status
+					.is_some_and(|status| status.is_finished() || status.is_starting())
 		})
 	}
 
 	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool {
-		indexed.is_some_and(|(process, _)| process.status.is_some())
+		indexed.is_some_and(|(process, _)| self.children || process.status.is_some())
 	}
 }
