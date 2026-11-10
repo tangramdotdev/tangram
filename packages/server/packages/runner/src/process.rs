@@ -2191,7 +2191,7 @@ impl Component {
 				process_stopper: process_stopper.clone(),
 				sandbox: &sandbox,
 				sandbox_process: sandbox_process.as_ref(),
-				stopper,
+				stopper: stopper.clone(),
 			};
 			let stdin = async {
 				let result = self
@@ -2222,6 +2222,21 @@ impl Component {
 		}
 		.boxed()
 		.await;
+
+		// Report a failure after the sandbox began stopping as a cancellation, because stopping the sandbox shuts down its server, which interrupts spawning and awaiting the process.
+		let result = match result {
+			Err(error)
+				if stopper.stopped()
+					&& !matches!(error.code(), Some(tg::error::Code::Cancellation)) =>
+			{
+				Err(tg::error!(
+					!error,
+					code = tg::error::Code::Cancellation,
+					"the process was canceled"
+				))
+			},
+			result => result,
+		};
 
 		// Drop the sender so that the i/o tasks observe that the sandbox process will never be spawned if it has not been.
 		drop(sandbox_process_sender);
