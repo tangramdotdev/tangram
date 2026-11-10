@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Destroying a stopped sandbox fails while its runner is unavailable, and the sandbox remains stopped.
+# A destroy of a stopped sandbox whose runner is unavailable is recorded, and the runner removes the sandbox's directory once it is available again.
 
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
@@ -25,6 +25,11 @@ wait_for_exit $runner_pid
 advance_time $remote 4sec
 
 let output = tg --url $remote.url --token $root_token sandbox destroy $sandbox | complete
-failure $output "destroying the sandbox should fail while its runner is unavailable"
-assert ($output.stderr | str contains "the sandbox's runner is unavailable")
-assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) stopped
+success $output "the destroy should be recorded while the runner is unavailable"
+assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) destroying
+
+# Start the runner again. The sandbox is destroyed once the runner removes its directory.
+let runner = server start $runner
+let output = timeout 30s tg --url $remote.url --token $root_token sandbox destroy --wait $sandbox | complete
+success $output "the destroy should finish once the runner is available"
+assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) destroyed

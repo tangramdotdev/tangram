@@ -2387,9 +2387,10 @@ impl Component {
 			tracing::error!(error = %error.trace(), sandbox = %id, "failed to report the stopped sandbox's usage");
 		}
 
-		// Remove the directory and report the destruction.
+		// Remove the directory and report the destruction, and record it in the state of a stopped boot that the runner retains.
 		self.remove_stopped_sandbox(session, &id, error, sender)
 			.await?;
+		Self::set_sandbox_status(session, &id, tg::sandbox::Status::Destroyed);
 		let output = tg::runner::control::DestroySandboxClientResponseOutput { destroyed: true };
 
 		Ok(output)
