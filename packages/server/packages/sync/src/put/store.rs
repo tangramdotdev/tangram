@@ -96,13 +96,18 @@ impl Component {
 			tangram_server_core::checkpoint!(session.server, "sync.put.store.object", id = %node.id)
 				.await;
 		}
-		let objects = nodes
-			.iter()
-			.map(|node| {
-				let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
-				tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
-			})
-			.collect::<Vec<_>>();
+		let objects = {
+			let graph = state.graph.lock().unwrap();
+			nodes
+				.iter()
+				.map(|node| {
+					let mut tokens = graph.get_node_location_tokens(&node.id.clone().into());
+					let local = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
+					tokens.inherit(&local);
+					tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
+				})
+				.collect::<Vec<_>>()
+		};
 		let permissions = nodes
 			.iter()
 			.map(|node| node.permissions)
@@ -253,16 +258,8 @@ impl Component {
 			.try_get_object_batch_local(session, objects, permissions, metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the objects locally"))?;
-		let locations = session
-			.locations(state.arg.sources.as_ref())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-		let remotes = locations.remotes;
 		let outputs = std::iter::zip(std::iter::zip(objects, permissions), outputs)
 			.map(|((object, permissions), output)| {
-				let regions = regions.clone();
-				let remotes = remotes.clone();
 				async move {
 					if let Some(output) = output {
 						return Ok(Some(output));
@@ -325,6 +322,8 @@ impl Component {
 						Ok(outputs.pop().flatten())
 					};
 					let regions_and_remotes_future = async {
+						let (regions, remotes) =
+							Self::sync_put_store_sources(session, state).await?;
 						if let Some(output) = session
 							.server
 							.components
@@ -332,7 +331,7 @@ impl Component {
 							.try_get_object_regions(
 								session,
 								&object.node,
-								&regions,
+								regions,
 								metadata,
 								false,
 								&object.options.tokens,
@@ -351,7 +350,7 @@ impl Component {
 							.try_get_object_remotes(
 								session,
 								&object.node,
-								&remotes,
+								remotes,
 								metadata,
 								false,
 								&object.options.tokens,
@@ -394,13 +393,18 @@ impl Component {
 			tangram_server_core::checkpoint!(session.server, "sync.put.store.process", id = %node.id)
 				.await;
 		}
-		let processes = nodes
-			.iter()
-			.map(|node| {
-				let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
-				tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
-			})
-			.collect::<Vec<_>>();
+		let processes = {
+			let graph = state.graph.lock().unwrap();
+			nodes
+				.iter()
+				.map(|node| {
+					let mut tokens = graph.get_node_location_tokens(&node.id.clone().into());
+					let local = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
+					tokens.inherit(&local);
+					tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
+				})
+				.collect::<Vec<_>>()
+		};
 		let permissions = nodes
 			.iter()
 			.map(|node| node.permissions)
@@ -476,9 +480,16 @@ impl Component {
 
 			// Load any children that are not stored locally.
 			if output.data.children.is_none() {
+				let mut tokens = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_node_location_tokens(&node.id.clone().into());
+				let local = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
+				tokens.inherit(&local);
 				let arg = tg::process::children::get::Arg {
 					location: output.location.clone().map(Into::into),
-					tokens: tg::authorization::Tokens::with_local_entry(node.tokens.clone()),
+					tokens,
 					..Default::default()
 				};
 				let children = session
@@ -678,16 +689,8 @@ impl Component {
 		permissions: &[tg::authorization::permission::Set],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let locations = session
-			.locations(state.arg.sources.as_ref())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-		let remotes = locations.remotes;
 		let outputs = std::iter::zip(processes, permissions)
 			.map(|(process, permissions)| {
-				let regions = regions.clone();
-				let remotes = remotes.clone();
 				async move {
 					if let Some(output) = session
 						.server
@@ -758,11 +761,13 @@ impl Component {
 							.await
 					};
 					let regions_and_remotes_future = async {
+						let (regions, remotes) =
+							Self::sync_put_store_sources(session, state).await?;
 						let arg = tangram_server_core::process::TryGetProcessRegionsArg {
 							availability: false,
 							id: &process.node,
 							metadata,
-							regions: &regions,
+							regions,
 							source: tg::process::Source::Auto,
 							tokens: &process.options.tokens,
 						};
@@ -782,7 +787,7 @@ impl Component {
 							availability: false,
 							id: &process.node,
 							metadata,
-							remotes: &remotes,
+							remotes,
 							source: tg::process::Source::Auto,
 							tokens: &process.options.tokens,
 						};
@@ -816,5 +821,33 @@ impl Component {
 			.await?;
 
 		Ok(outputs)
+	}
+
+	/// Get the regions and remotes that the put side gets nodes from, which are all of them except the peer, resolving them when a node is first missing locally.
+	async fn sync_put_store_sources<'a>(
+		session: &Session,
+		state: &'a State,
+	) -> tg::Result<&'a (Vec<String>, Vec<tangram_server_core::location::Remote>)> {
+		state
+			.sources
+			.get_or_try_init(|| async {
+				let locations = session
+					.locations(None)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+				let mut regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+				let mut remotes = locations.remotes;
+				match &state.arg.peer {
+					Some(tg::Location::Local(peer)) => {
+						regions.retain(|region| Some(region) != peer.region.as_ref());
+					},
+					Some(tg::Location::Remote(peer)) => {
+						remotes.retain(|remote| remote.name != peer.name);
+					},
+					None => (),
+				}
+				Ok::<_, tg::Error>((regions, remotes))
+			})
+			.await
 	}
 }

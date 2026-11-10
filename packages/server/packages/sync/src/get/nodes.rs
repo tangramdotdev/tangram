@@ -14,21 +14,14 @@ impl Component {
 		graph: &Mutex<Graph>,
 		queue: &Queue,
 		sender: &mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
-		mut receiver: Option<mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 	) -> tg::Result<Vec<tg::Referent<tg::Selector<tg::Id>>>> {
-		// Enqueue the initial nodes before receiving additional nodes.
-		let mut get = arg.get.clone();
+		// Enqueue the nodes.
+		let get = arg.get.clone();
 		for node in &get {
 			Self::sync_get_node(arg, graph, queue, sender, node).await?;
 		}
-		if let Some(receiver) = &mut receiver {
-			while let Some(node) = receiver.recv().await {
-				Self::sync_get_node(arg, graph, queue, sender, &node).await?;
-				get.push(node);
-			}
-		}
 
-		// Close the queue only after all nodes have arrived and completed.
+		// Close the queue only after all nodes have been enqueued and completed.
 		let mut graph = graph.lock().unwrap();
 		graph.set_get_open(false);
 		if graph.end_local() {
@@ -48,8 +41,8 @@ impl Component {
 		let tokens = node.options.tokens.clone();
 		match &node.node {
 			tg::Selector::Id(id) => {
-				let local_tokens = tokens.local_entry();
-				let remote_tokens = tokens.remote_entry();
+				let local_tokens = arg.root_tokens(&node.node).local_entry();
+				let remote_tokens = tokens.local_entry();
 				{
 					let mut graph = graph.lock().unwrap();
 					graph.insert_local_root(id.clone());

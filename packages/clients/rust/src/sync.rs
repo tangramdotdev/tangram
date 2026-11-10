@@ -53,6 +53,7 @@ pub struct Arg {
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
 	pub force: bool,
 
+	/// The nodes to get from the peer, with the tokens that the peer checks.
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "Vec::is_empty")]
@@ -76,6 +77,11 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 7, default, skip_serializing_if = "is_false")]
 	pub organization_children: bool,
+
+	/// The location of the peer, which the put side does not get nodes from.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 18, default, skip_serializing_if = "Option::is_none")]
+	pub peer: Option<tg::Location>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -105,17 +111,18 @@ pub struct Arg {
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(id = 13, default, skip_serializing_if = "Vec::is_empty")]
-	pub put: Vec<tg::Referent<tg::Id>>,
+	pub put: Vec<tg::Id>,
+
+	/// The roots, with the tokens that this side checks or sends when it gets nodes from other locations.
+	#[serde_as(as = "CommaSeparatedString")]
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(id = 19, default, skip_serializing_if = "Vec::is_empty")]
+	pub roots: Vec<tg::Referent<tg::Selector<tg::Id>>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 14, default, skip_serializing_if = "is_false")]
 	pub sandbox_processes: bool,
-
-	/// The locations that the put side gets nodes from.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 18, default, skip_serializing_if = "Option::is_none")]
-	pub sources: Option<tg::location::Arg>,
 
 	/// The sync that this sync joins.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -615,6 +622,33 @@ pub struct ProgressMessageAmounts {
 	#[serde(default, skip_serializing_if = "num::Zero::is_zero")]
 	#[tangram_serialize(default, id = 7, skip_serializing_if = "num::Zero::is_zero")]
 	pub users: u64,
+}
+
+impl Arg {
+	/// Write the arg for a remote that the sync is forwarded to, keeping only the remote's own tokens for the roots and omitting the peer, which the remote cannot name.
+	#[must_use]
+	pub fn for_remote(mut self, remote: &tg::location::Remote) -> Self {
+		let location = tg::Location::Remote(remote.clone());
+		for root in &mut self.roots {
+			root.options.tokens = root.options.tokens.for_location(&location);
+		}
+		let local = tg::location::Local {
+			region: remote.region.clone(),
+		};
+		self.location = Some(tg::Location::Local(local).into());
+		self.peer = None;
+		self
+	}
+
+	/// Get this side's tokens for a root.
+	#[must_use]
+	pub fn root_tokens(&self, selector: &tg::Selector<tg::Id>) -> tg::authorization::Tokens {
+		let mut tokens = tg::authorization::Tokens::default();
+		for root in self.roots.iter().filter(|root| root.node == *selector) {
+			tokens.inherit(&root.options.tokens);
+		}
+		tokens
+	}
 }
 
 impl tg::Session {

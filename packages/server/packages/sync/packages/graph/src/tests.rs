@@ -460,6 +460,47 @@ fn dependency_facts_reject_revisions() {
 }
 
 #[test]
+fn location_tokens_follow_ancestors() {
+	let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
+	let parent = tg::object::Id::from(tg::blob::Id::new(b"parent"));
+	let child = tg::object::Id::from(tg::blob::Id::new(b"child"));
+	let other = tg::object::Id::from(tg::blob::Id::new(b"other"));
+	let body = tg::authorization::Body {
+		expires_at: i64::MAX,
+		permissions: vec![tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		)],
+		resource: parent.clone().into(),
+	};
+	let token = tg::authorization::Token::sign(body, &key).unwrap();
+	let remote = tg::Location::Remote(tg::location::Remote {
+		name: "a".to_owned(),
+		region: None,
+	});
+	let mut tokens = tg::authorization::Tokens::default();
+	tokens.insert_authorization(remote.clone(), token.clone());
+	let root = tg::Referent::with_node_and_tokens(tg::Selector::Id(parent.clone().into()), tokens);
+	let arg = tg::sync::Arg {
+		roots: vec![root],
+		..Default::default()
+	};
+	let mut graph = Graph::new(&arg, false);
+
+	// The root has its tokens before it is in the graph.
+	let tokens = graph.get_node_location_tokens(&parent.clone().into());
+	assert_eq!(tokens.authorization(&remote), std::slice::from_ref(&token));
+
+	// A child inherits the tokens of the root, and an unrelated node does not.
+	graph.update_object_remote(false, &parent, None, None, None);
+	graph.update_object_remote(false, &child, Some(parent.clone().into()), None, None);
+	graph.update_object_remote(false, &other, None, None, None);
+	let tokens = graph.get_node_location_tokens(&child.into());
+	assert_eq!(tokens.authorization(&remote), std::slice::from_ref(&token));
+	assert_eq!(tokens.local_authorization(), []);
+	assert!(graph.get_node_location_tokens(&other.into()).is_empty());
+}
+
+#[test]
 fn remote_edges_inherit_existing_permissions_without_local_data() {
 	let arg = tg::sync::Arg::default();
 	let mut graph = Graph::new(&arg, false);

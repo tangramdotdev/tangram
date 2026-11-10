@@ -108,7 +108,6 @@ impl Component {
 	> {
 		let InnerArg {
 			arg,
-			get,
 			process,
 			trust,
 		} = arg;
@@ -118,14 +117,11 @@ impl Component {
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) if Some(region.as_str()) != session.server.config.region.as_deref() => {
-				if get.is_some() {
-					return Err(tg::error!("additional get nodes require a local sync"));
-				}
 				self.sync_region(session, arg, process, stream, region)
 					.await?
 			},
 			tg::Location::Local(_) => {
-				let (header, stream) = self.sync_local(session, arg, get, stream, trust).await?;
+				let (header, stream) = self.sync_local(session, arg, stream, trust).await?;
 				let stream = stream.with_stopper(session.context.stopper.clone()).boxed();
 				ControlFlow::Break((header, stream))
 			},
@@ -133,9 +129,6 @@ impl Component {
 				name: remote,
 				region,
 			}) => {
-				if get.is_some() {
-					return Err(tg::error!("additional get nodes require a local sync"));
-				}
 				self.sync_remote(session, arg, process, stream, remote, region)
 					.await?
 			},
@@ -148,7 +141,6 @@ impl Component {
 		&self,
 		session: &Session,
 		mut arg: tg::sync::Arg,
-		get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		trust: bool,
 	) -> tg::Result<(
@@ -165,7 +157,7 @@ impl Component {
 					.try_resolve_process_command_sync(session, &nonce)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the command sync of the attach"))?;
-				Self::inherit_sync_tokens(&mut arg.get, &sync);
+				Self::inherit_sync_tokens(&mut arg, &sync);
 				Some(sync)
 			},
 			Some(tg::sync::Join::Process(process)) => {
@@ -178,7 +170,7 @@ impl Component {
 					.ok_or_else(
 						|| tg::error!(process = %process.id, "failed to find the sync of the process"),
 					)?;
-				Self::inherit_sync_tokens(&mut arg.get, &sync);
+				Self::inherit_sync_tokens(&mut arg, &sync);
 				Some(sync)
 			},
 			Some(tg::sync::Join::Sync(sync)) => Some(sync),
@@ -201,7 +193,6 @@ impl Component {
 					let future = AssertUnwindSafe(component.sync_task(
 						&session,
 						arg,
-						get,
 						stream,
 						sender.clone(),
 						trust,
@@ -250,18 +241,20 @@ impl Component {
 	}
 
 	/// Give the requested nodes the tokens of the sync that they join.
-	fn inherit_sync_tokens(
-		get: &mut [tg::Referent<tg::Selector<tg::Id>>],
-		sync: &tg::Referent<tg::sync::Id>,
-	) {
-		for referent in get {
-			for token in sync.options.tokens.local_authorization() {
-				referent
-					.options
-					.tokens
-					.insert_local_authorization(token.clone());
-			}
+	fn inherit_sync_tokens(arg: &mut tg::sync::Arg, sync: &tg::Referent<tg::sync::Id>) {
+		let authorization = sync.options.tokens.local_authorization().iter().cloned();
+		let tokens = tg::authorization::Tokens::with_authorization(authorization);
+		if tokens.is_empty() {
+			return;
 		}
+		let roots = arg
+			.get
+			.iter()
+			.map(|referent| {
+				tg::Referent::with_node_and_tokens(referent.node.clone(), tokens.clone())
+			})
+			.collect::<Vec<_>>();
+		arg.roots.extend(roots);
 	}
 
 	pub(crate) fn prepare_sync(
@@ -335,8 +328,18 @@ impl Component {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
+
+		// Name this server's region in the peer, so that the peer keeps its meaning in the other region.
+		let peer = match arg.peer.clone() {
+			Some(tg::Location::Local(tg::location::Local { region: None })) => {
+				let region = session.server.config.region.clone();
+				Some(tg::Location::Local(tg::location::Local { region }))
+			},
+			peer => peer,
+		};
 		let arg = tg::sync::Arg {
 			location: Some(location.into()),
+			peer,
 			..arg
 		};
 		let output = client
@@ -381,11 +384,11 @@ impl Component {
 				.await
 		}
 		.map_err(|error| tg::error!(!error, remote = %remote, "failed to get the remote client"))?;
-		let arg = tg::sync::Arg {
-			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
-			sources: None,
-			..arg
+		let location = tg::location::Remote {
+			name: remote.clone(),
+			region,
 		};
+		let arg = arg.for_remote(&location);
 		let output = client
 			.sync(arg, stream)
 			.await
@@ -399,7 +402,6 @@ impl Component {
 		&self,
 		session: &Session,
 		arg: tg::sync::Arg,
-		get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
 		trust: bool,
@@ -466,7 +468,6 @@ impl Component {
 			let sender = get_output_sender.clone();
 			async move {
 				let arg = self::get::SyncGetArg {
-					get,
 					graph,
 					sender: get_output_sender,
 					stream,

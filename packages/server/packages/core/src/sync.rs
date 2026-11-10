@@ -72,7 +72,6 @@ pub trait Component: crate::component::Lifecycle {
 #[derive(Default)]
 pub struct InnerArg {
 	pub arg: tg::sync::Arg,
-	pub get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 	pub process: bool,
 	pub trust: bool,
 }
