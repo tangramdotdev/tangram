@@ -952,6 +952,14 @@ impl Sandbox {
 		Ok((listener, guest_url))
 	}
 
+	/// Shut down the sandbox server while retaining its resources for process error reporting and accounting.
+	pub async fn shutdown(&self) -> tg::Result<()> {
+		let _destroy = self.0.destroy.lock().await;
+		self.0.stopped.store(true, Ordering::SeqCst);
+		self.stop_process().await?;
+		Ok(())
+	}
+
 	/// Stop the sandbox and settle its usage, keeping its directory so that a new sandbox with the same path can start on it.
 	#[tracing::instrument(name = "sandbox.stop_physical", level = "debug", skip_all, fields(sandbox_index = self.index()), err(level = "debug"))]
 	pub async fn stop(&self) -> tg::Result<Output> {
