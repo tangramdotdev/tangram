@@ -29,48 +29,41 @@ impl Component {
 			return Ok(());
 		}
 
-		// Send every request to one indexer, and retry all of them with another indexer on failure.
-		let retry = server.config.indexer.enqueue.retry.clone().into();
-		tangram_server_core::service::retry(&self.indexers, server, &retry, |indexer| {
-			let requests = requests.clone();
-			async move {
-				self.enqueue_with_indexer(server, &indexer, requests)
-					.await?;
-				Ok(Some(()))
-			}
-		})
-		.await?;
+		// Send every request to one indexer until it answers, and move a request to another indexer only if the indexer is unavailable.
+		let start = tangram_server_core::service::start();
+		let requests = requests
+			.into_iter()
+			.map(|arg| self.enqueue_request(server, start, arg));
+		future::try_join_all(requests).await?;
 
 		Ok(())
 	}
 
-	async fn enqueue_with_indexer(
+	async fn enqueue_request(
 		&self,
 		server: &Server,
-		indexer: &tg::indexer::Id,
-		requests: Vec<EnqueueRequestArg>,
+		start: u64,
+		arg: EnqueueRequestArg,
 	) -> tg::Result<()> {
-		let requests = requests.into_iter().map(|arg| {
-			let arg = RequestArg::Enqueue(arg);
-			async move {
-				let output = self
-					.send_indexer_request(server, indexer, arg)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to send an indexer request"))?
-					.map_err(|source| {
-						tg::error!(!source, "the indexer failed to enqueue the items")
-					})?;
-				output
-					.try_unwrap_enqueue()
-					.map_err(|_| tg::error!("expected an enqueue response"))?;
-
-				Ok::<_, tg::Error>(())
-			}
-		});
-		let request = future::try_join_all(requests);
-		tokio::time::timeout(server.config.indexer.enqueue.timeout, request)
-			.await
-			.map_err(|source| tg::error!(!source, "timed out enqueueing the items"))??;
+		let retry = server.config.indexer.enqueue.retry.clone().into();
+		let (_, output) =
+			tangram_server_core::service::retry(&self.indexers, server, &retry, start, |indexer| {
+				let arg = RequestArg::Enqueue(arg.clone());
+				async move {
+					let response = self
+						.send_indexer_request(server, &indexer, arg)
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to send an indexer request")
+						})?;
+					Ok(response)
+				}
+			})
+			.await?;
+		output
+			.map_err(|source| tg::error!(!source, "the indexer failed to enqueue the items"))?
+			.try_unwrap_enqueue()
+			.map_err(|_| tg::error!("expected an enqueue response"))?;
 
 		Ok(())
 	}

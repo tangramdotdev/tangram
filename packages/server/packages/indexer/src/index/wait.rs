@@ -141,7 +141,7 @@ impl Component {
 			let result = self
 				.send_indexer_request(server, indexer, crate::request::RequestArg::Wait)
 				.await;
-			if let Ok(Ok(output)) = result {
+			if let Ok(Some(Ok(output))) = result {
 				output
 					.try_unwrap_wait()
 					.map_err(|_| tg::error!("expected a wait response"))?;

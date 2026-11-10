@@ -85,7 +85,7 @@ impl Component {
 		server: &Server,
 		indexer: &tg::indexer::Id,
 		arg: RequestArg,
-	) -> tg::Result<tg::Result<ResponseOutput>> {
+	) -> tg::Result<Option<tg::Result<ResponseOutput>>> {
 		// Reuse the ID so a retry does not replace an active wait with a later barrier.
 		let id = tangram_server_core::control::id();
 		let retry = server.config.indexer.request.retry.clone().into();
@@ -108,9 +108,6 @@ impl Component {
 					}
 				} else {
 					request.await?
-				};
-				let Some(response) = response else {
-					return Err(tg::error!(%indexer, "the indexer is unavailable"));
 				};
 				Ok(ControlFlow::Break(response))
 			}
