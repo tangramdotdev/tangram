@@ -2,11 +2,13 @@ use {
 	crate::Component,
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
+	tangram_futures::stream::TryExt as _,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
+	tangram_index::prelude::*,
 	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 };
 
@@ -147,8 +149,8 @@ impl Component {
 			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
 			.await?;
 
-		// Send the request to the sandbox's holder until the sandbox is starting or started, or the index records that it is stopped.
-		let indexed = loop {
+		// Send the request to the sandbox's holder until the sandbox is starting or started, or this start reserves the next boot of a stopped sandbox.
+		let boot = loop {
 			let request = tg::sandbox::control::ServerRequestArg::Start(
 				tg::sandbox::control::StartServerRequestArg {},
 			);
@@ -163,7 +165,7 @@ impl Component {
 				request,
 				wakeups: Some(&mut wakeups),
 			};
-			let output = self
+			let mut output = self
 				.request_sandbox_holder(session, id, holder_arg, |_| false)
 				.boxed()
 				.await?
@@ -185,36 +187,99 @@ impl Component {
 				.as_ref()
 				.and_then(|sandbox| sandbox.data.as_ref())
 				.map(|data| data.data.status);
-			match (output.reply, status) {
-				(Some(Ok(tg::sandbox::control::ClientResponseOutput::Start(output))), _) => {
-					match output.data.data.status {
-						tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
-							return Err(tg::error!(%id, "the sandbox was destroyed"));
-						},
-						tg::sandbox::Status::Started => return Ok(Some(false)),
-						tg::sandbox::Status::Starting => {
-							if arg.wait {
-								self.wait_for_sandbox_start(session, id, &mut wakeups)
-									.await?;
-							}
-							return Ok(Some(false));
-						},
-						tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping => {},
+			let mut status = match (output.reply, status) {
+				(Some(Ok(tg::sandbox::control::ClientResponseOutput::Start(reply))), _) => {
+					// Trust the index over a holder whose boot the index records as stopped, because the stop of a boot in the index is final, and the holder has not yet learned that its boot ended.
+					let indexed = match &output.indexed {
+						Some(indexed) => Some(indexed.clone()),
+						None => self.try_get_sandbox_from_index(session, id).await?,
+					};
+					let stopped = indexed
+						.as_ref()
+						.and_then(|sandbox| sandbox.data.as_ref())
+						.is_some_and(|data| {
+							data.data.status.is_stopped() && data.data.boot >= reply.data.data.boot
+						});
+					if stopped {
+						output.indexed = indexed;
+						tg::sandbox::Status::Stopped
+					} else {
+						reply.data.data.status
 					}
 				},
 				(Some(Ok(_)), _) => {
 					return Err(tg::error!(%id, "expected a start sandbox response"));
 				},
-				(_, Some(tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying)) => {
-					return Err(tg::error!(%id, "the sandbox was destroyed"));
-				},
-				(_, Some(tg::sandbox::Status::Stopped)) => break output.indexed.unwrap(),
+				(
+					_,
+					Some(
+						status @ (tg::sandbox::Status::Destroyed
+						| tg::sandbox::Status::Destroying
+						| tg::sandbox::Status::Stopped),
+					),
+				) => status,
 				(Some(Err(error)), _) => {
 					return Err(
 						tg::error!(!error, %id, "the start sandbox control request failed"),
 					);
 				},
 				(None, _) => return Ok(None),
+			};
+
+			// Reserve the next boot in the index once the index records that the sandbox is stopped, which only one start does, and enqueue it. A boot that its holder is stopping is not stopped in the index yet.
+			if matches!(
+				status,
+				tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping
+			) {
+				let stopped = |sandbox: &tangram_index::sandbox::Sandbox| {
+					sandbox
+						.data
+						.as_ref()
+						.is_some_and(|data| data.data.status.is_stopped())
+				};
+				let indexed = match output.indexed {
+					Some(indexed) if stopped(&indexed) => Some(indexed),
+					_ => {
+						// Await indexing, because the holder's write of the stop may not be applied yet.
+						session
+							.index(tg::index::Arg::default())
+							.await?
+							.try_last()
+							.await?;
+						self.try_get_sandbox_from_index(session, id).await?
+					},
+				};
+				if let Some(indexed) = indexed.filter(stopped) {
+					if let Some(boot) = self.try_start_stopped_sandbox(session, id, indexed).await?
+					{
+						break boot;
+					}
+
+					// Read the sandbox again, because another start reserved the boot, which is starting.
+					let indexed = self
+						.try_get_sandbox_from_index(session, id)
+						.await?
+						.and_then(|sandbox| sandbox.data)
+						.map(|data| data.data.status);
+					match indexed {
+						Some(tg::sandbox::Status::Stopped) | None => continue,
+						Some(indexed) => status = indexed,
+					}
+				}
+			}
+			match status {
+				tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying => {
+					return Err(tg::error!(%id, "the sandbox was destroyed"));
+				},
+				tg::sandbox::Status::Started => return Ok(Some(false)),
+				tg::sandbox::Status::Starting => {
+					if arg.wait {
+						self.wait_for_sandbox_start(session, id, &mut wakeups)
+							.await?;
+					}
+					return Ok(Some(false));
+				},
+				tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping => {},
 			}
 
 			// Wait for the index to record the stop of a boot that is stopping.
@@ -222,12 +287,6 @@ impl Component {
 				return Err(tg::error!("the sandbox status wakeup stream ended"));
 			}
 		};
-
-		// Start the next boot on the runner that holds the sandbox's directory, or on any runner if the sandbox was stopped before it was placed.
-		let data = indexed.data.unwrap().data;
-		let boot = data.boot + 1;
-		self.start_sandbox_with_runner(session, id, data, indexed.runner, indexed.created_at)
-			.await?;
 
 		// Wait for the boot to start if requested, because a connection alone does not identify the boot.
 		if arg.wait {
@@ -238,16 +297,17 @@ impl Component {
 		Ok(Some(true))
 	}
 
-	async fn start_sandbox_with_runner(
+	/// Start the next boot of a sandbox that the index records as stopped. Reserve the boot in the index with a write that is rejected unless the sandbox is still stopped at its boot, so that only one start creates the next boot, and return `None` if another start reserved it. Enqueue the boot only once it is reserved, on the runner that has the sandbox's directory, or on any runner if the sandbox was stopped before it was placed.
+	async fn try_start_stopped_sandbox(
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
-		data: tg::sandbox::Data,
-		runner: Option<tg::runner::Id>,
-		created_at: i64,
-	) -> tg::Result<()> {
+		indexed: tangram_index::sandbox::Sandbox,
+	) -> tg::Result<Option<u64>> {
 		// Create the sandbox's arg from its data, and a new control token.
-		let boot = data.boot + 1;
+		let data = indexed.data.unwrap().data;
+		let stopped_boot = data.boot;
+		let boot = stopped_boot + 1;
 		let arg = tg::sandbox::create::Arg {
 			cpu: data.cpu,
 			host: None,
@@ -268,7 +328,8 @@ impl Component {
 			.authentication
 			.create_sandbox_authentication_token(&session.server, id.clone())?;
 
-		// Get the scheduler of the runner that holds the sandbox's directory, because only that scheduler can place a boot on the runner. A sandbox that was stopped before it was placed has no runner, so any scheduler starts it.
+		// Get the scheduler of the runner that has the sandbox's directory, because only that scheduler can place a boot on the runner. A sandbox that was stopped before it was placed has no runner, so any scheduler starts it.
+		let runner = indexed.runner;
 		let scheduler = if let Some(runner) = &runner {
 			session
 				.server
@@ -281,11 +342,11 @@ impl Component {
 			None
 		};
 
-		// Enqueue the boot, which the scheduler accepts once its record is durable.
+		// Create the request.
 		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
 			boot,
-			created_at,
+			created_at: indexed.created_at,
 			creator: data.creator.clone(),
 			owner: data.owner.clone(),
 			parent: None,
@@ -296,6 +357,52 @@ impl Component {
 			stop: false,
 			token: Some(token),
 		};
+
+		// Reserve the boot.
+		tangram_server_core::checkpoint!(session.server, "sandbox.start.reserve", sandbox = %id)
+			.await;
+		let now = session.server.clock.unix_timestamp();
+		let location = tg::Location::Local(tg::location::Local {
+			region: session.server.config.region.clone(),
+		});
+		let data =
+			tangram_server_scheduler_core::sandbox_data(&request, tg::sandbox::Status::Starting);
+		let data = tg::sandbox::get::Output {
+			data,
+			location: Some(location.clone()),
+			tokens: tg::authorization::Tokens::default(),
+		};
+		let put_arg = tangram_index::sandbox::put::Arg {
+			account: indexed.account,
+			created_at: indexed.created_at,
+			data: Some(data),
+			id: id.clone(),
+			location: Some(location),
+			permissions: Vec::new(),
+			principal: tg::Principal::Sandbox(id.clone()),
+			process: None,
+			processes: None,
+			registration: None,
+			runner: request.runner.clone(),
+			stopped_boot: Some(stopped_boot),
+			stopped_usage: None,
+			touched_at: now,
+		};
+		let items = vec![tangram_index::Item::PutSandbox(Box::new(put_arg))];
+		let write_arg = tangram_index::write::Arg { items };
+		let reserved = session
+			.server
+			.index
+			.write(write_arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to reserve the sandbox's boot"))?
+			.is_ok();
+		if !reserved {
+			return Ok(None);
+		}
+		Self::spawn_publish_sandbox_status_task(&session.server, id);
+
+		// Enqueue the boot, which the scheduler accepts once its record is durable.
 		session
 			.server
 			.components
@@ -304,7 +411,7 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
 
-		Ok(())
+		Ok(Some(boot))
 	}
 
 	pub(crate) async fn wait_for_sandbox_boot(

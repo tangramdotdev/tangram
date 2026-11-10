@@ -171,7 +171,7 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 - A status stream, a wait, a children stream, and a processes stream reach the holder through the data stream, such as `create_process_data_stream_local`, which calls the holder helper on each status wakeup.
 - Every request to a holder must be safe to send twice.
 - A method that only reads or writes the index has no holder step, such as metadata, availability, touch, and put. Lists and searches read the index and may lag.
-- A create gives an item its first holder by enqueueing it to a scheduler, such as a sandbox create and a spawn with a new sandbox. A spawn into an existing sandbox is a request to the sandbox's holder. A start of a stopped sandbox enqueues its next boot to the scheduler of the runner that has its directory.
+- A create gives an item its first holder by enqueueing it to a scheduler, such as a sandbox create and a spawn with a new sandbox. A spawn into an existing sandbox is a request to the sandbox's holder. A start of a stopped sandbox reserves its next boot in the index with a put that is rejected unless the sandbox is stopped at its boot, so that one start creates the boot, and only then enqueues the boot to the scheduler of the runner that has its directory.
 - Stdio reads and writes reach a runner on another server through a relay that the process's holder opens, and an attach and a stdio write try one location at a time, because each opens a connection that only one location may hold.
 
 ### Compatibility
