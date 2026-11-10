@@ -1,0 +1,240 @@
+use {
+	crate::{
+		Component,
+		control::{ClientMessage, ServerMessage},
+	},
+	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture},
+	tangram_client::prelude::*,
+	tangram_futures::{stream::TryExt as _, task::Task},
+	tangram_messenger::Messenger as _,
+	tangram_server_core::{Server, Session},
+};
+
+/// The record of a sandbox in the index.
+pub(crate) type Indexed = tangram_index::sandbox::Sandbox;
+
+pub(crate) type Arg<'a> =
+	tangram_server_core::holder::Arg<'a, tg::sandbox::control::ServerRequestArg>;
+
+pub(crate) type Output =
+	tangram_server_core::holder::Output<Indexed, tg::sandbox::control::ClientResponseOutput>;
+
+/// The sandbox whose holder a request is sent to.
+struct Kind<'a> {
+	component: &'a Component,
+	get: bool,
+	id: &'a tg::sandbox::Id,
+	session: &'a Session,
+}
+
+impl Component {
+	/// Send a request to the holder of a sandbox while reading the sandbox from the index, and return the holder's reply or the index's answer, whichever is decisive first. Return `None` if the wakeups end.
+	pub(crate) async fn request_sandbox_holder(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		arg: Arg<'_>,
+		index_required: impl Fn(&tg::sandbox::control::ClientResponseOutput) -> bool + Send,
+	) -> tg::Result<Option<Output>> {
+		let get = matches!(arg.request, tg::sandbox::control::ServerRequestArg::Get(_));
+		let kind = Kind {
+			component: self,
+			get,
+			id,
+			session,
+		};
+		tangram_server_core::holder::request(&kind, arg, index_required).await
+	}
+
+	/// Serve the requests to the holder of a sandbox by passing each message to the holder, which answers a request or replies that it does not hold the sandbox.
+	pub(crate) async fn serve_sandbox_holder<F>(
+		&self,
+		server: &Server,
+		id: &tg::sandbox::Id,
+		mut handle: F,
+	) -> tg::Result<Task<tg::Result<()>>>
+	where
+		F: FnMut(tg::sandbox::control::ServerMessage) -> BoxFuture<'static, tg::Result<()>>
+			+ Send
+			+ 'static,
+	{
+		let subject = format!("sandboxes.{id}.control.server");
+		let mut messages = server
+			.messenger
+			.subscribe::<ServerMessage>(subject)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the message stream"))?;
+		let task = Task::spawn(move |_| async move {
+			while let Some(message) = messages
+				.try_next()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the message"))?
+			{
+				handle(message.payload.0).await?;
+			}
+			Ok::<_, tg::Error>(())
+		});
+
+		Ok(task)
+	}
+
+	/// Publish a holder's acknowledgement of a request to the server that sent the request.
+	pub(crate) async fn publish_sandbox_holder_ack(
+		&self,
+		server: &Server,
+		id: &tg::sandbox::Id,
+		ack: tg::sandbox::control::ClientAck,
+	) -> tg::Result<()> {
+		let subject = format!("sandboxes.{id}.control.client.{}", ack.id);
+		let payload = ClientMessage(tg::sandbox::control::ClientMessage::Ack(ack));
+		server
+			.messenger
+			.publish(subject, payload)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to publish the sandbox control acknowledgement"
+				)
+			})?;
+
+		Ok(())
+	}
+
+	/// Publish a holder's response to a request to the server that sent the request.
+	pub(crate) async fn publish_sandbox_holder_response(
+		&self,
+		server: &Server,
+		id: &tg::sandbox::Id,
+		response: tg::sandbox::control::ClientResponse,
+	) -> tg::Result<()> {
+		let kind = match response.output.as_ref() {
+			Some(tg::sandbox::control::ClientResponseOutput::Destroy(_)) => "destroy",
+			Some(tg::sandbox::control::ClientResponseOutput::Get(_)) => "get",
+			Some(tg::sandbox::control::ClientResponseOutput::GetProcesses(_)) => "get_processes",
+			Some(tg::sandbox::control::ClientResponseOutput::NotHolder(_)) => "not_holder",
+			Some(tg::sandbox::control::ClientResponseOutput::SpawnProcess(_)) => "spawn_process",
+			Some(tg::sandbox::control::ClientResponseOutput::Stop(_)) => "stop",
+			None => "error",
+		};
+		tangram_server_core::checkpoint!(
+			server,
+			"sandbox.control.response.publish",
+			kind = %kind,
+			sandbox = %id,
+		)
+		.await;
+		let subject = format!("sandboxes.{id}.control.client.{}", response.id);
+		let payload = ClientMessage(tg::sandbox::control::ClientMessage::Response(response));
+		server
+			.messenger
+			.publish(subject, payload)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to publish the sandbox control response")
+			})?;
+
+		Ok(())
+	}
+}
+
+impl tangram_server_core::holder::Kind for Kind<'_> {
+	type Indexed = Indexed;
+
+	type Reply = tg::sandbox::control::ClientResponseOutput;
+
+	type Request = tg::sandbox::control::ServerRequestArg;
+
+	const HOLD: bool = false;
+
+	fn index(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
+		async move {
+			let mut indexed = self.reindex(exhaustive).await?;
+
+			// Confirm a stopped sandbox after pending indexing for a write, because a start may not be indexed yet.
+			let stopped = indexed
+				.as_ref()
+				.and_then(|sandbox| sandbox.data.as_ref())
+				.is_some_and(|data| data.data.status.is_stopped());
+			if stopped && !self.get {
+				self.session
+					.index(tg::index::Arg::default())
+					.await?
+					.try_last()
+					.await?;
+				indexed = self.reindex(exhaustive).await?;
+			}
+			if self.get {
+				tangram_server_core::checkpoint!(self.session.server, "sandbox.get.index", sandbox = %self.id)
+					.await;
+			}
+
+			Ok(indexed)
+		}
+		.boxed()
+	}
+
+	fn reindex(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
+		self.component
+			.try_get_sandbox_from_index_with_exhaustive(self.session, self.id, exhaustive)
+			.boxed()
+	}
+
+	fn send(
+		&self,
+		request: Self::Request,
+		options: tangram_server_core::control::Options,
+		hold: Option<BoxFuture<'static, ()>>,
+	) -> BoxFuture<'_, tg::Result<Self::Reply>> {
+		async move {
+			let output = async {
+				self.component
+					.send_sandbox_control_request(self.session, self.id, request, options, hold)
+					.boxed()
+					.await?
+					.await?
+			}
+			.await;
+			if self.get {
+				tangram_server_core::checkpoint!(self.session.server, "sandbox.get.control", sandbox = %self.id)
+					.await;
+			}
+			output
+		}
+		.boxed()
+	}
+
+	fn hold(&self, _indexed: Option<&Self::Indexed>) -> Option<BoxFuture<'static, ()>> {
+		None
+	}
+
+	fn index_required(&self) -> BoxFuture<'_, ()> {
+		async {}.boxed()
+	}
+
+	/// The index answers for a sandbox that is stopped or destroyed, or that lives in a remote. The scheduler answers for a starting sandbox.
+	fn is_decisive(indexed: Option<&Self::Indexed>, _fallback: bool) -> bool {
+		indexed.is_some_and(|sandbox| {
+			sandbox
+				.data
+				.as_ref()
+				.is_some_and(|data| data.data.status.is_stopped_or_destroyed())
+				|| sandbox
+					.location
+					.as_ref()
+					.is_some_and(tg::Location::is_remote)
+		})
+	}
+
+	fn is_complete(indexed: Option<&Self::Indexed>) -> bool {
+		indexed.is_some_and(|sandbox| {
+			sandbox.data.as_ref().is_some_and(|data| {
+				data.data.status.is_starting() || data.data.status.is_stopped_or_destroyed()
+			})
+		})
+	}
+
+	fn has_status(indexed: Option<&Self::Indexed>) -> bool {
+		indexed.is_some_and(|sandbox| sandbox.data.is_some())
+	}
+}

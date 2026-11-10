@@ -1,9 +1,7 @@
 use {
 	crate::Component,
-	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
-	std::pin::pin,
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
-	tangram_futures::stream::TryExt as _,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
@@ -111,7 +109,7 @@ impl Component {
 		else {
 			return Ok(None);
 		};
-		self.stop_sandbox_with_status(session, id, status, Some(control_sender), arg.wait)
+		self.stop_sandbox_with_runner(session, id, status, control_sender, arg.wait)
 			.boxed()
 			.await
 	}
@@ -123,108 +121,94 @@ impl Component {
 		arg: &tg::sandbox::stop::Arg,
 		exhaustive: bool,
 	) -> tg::Result<Option<bool>> {
+		// Authorize the stop.
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Parent,
 		);
 		let resource = tg::Referent::with_node_and_tokens(id.clone(), arg.tokens.clone());
-		let authorize_future = session.authorize_with_exhaustive(resource, permission, exhaustive);
-		let get_future = self.try_get_sandbox_from_index_with_exhaustive(session, id, exhaustive);
-		let (authorized, sandbox) = future::try_join(authorize_future, get_future).await?;
-		let authorized = authorized.check_exhaustion()?;
-		let Some(sandbox) = sandbox else {
+		let authorized = session
+			.authorize_with_exhaustive(resource, permission, exhaustive)
+			.await?
+			.check_exhaustion()?;
+		if !authorized.permissions.contains(permission) {
 			return Ok(None);
+		}
+
+		// Subscribe before sending the request, so that the stop cannot be missed.
+		let mut wakeups = self
+			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
+			.await?;
+
+		// Send the request to the sandbox's holder.
+		let request = tg::sandbox::control::ServerRequestArg::Stop(
+			tg::sandbox::control::StopServerRequestArg {},
+		);
+		let retry = session.server.config.control.request_retry.clone().into();
+		let timeout = session.server.config.control.request_timeout;
+		let options = tangram_server_core::control::Options { retry, timeout };
+		let holder_arg = crate::holder::Arg {
+			deadline: session.server.control_read_deadline(),
+			exhaustive,
+			fallback: false,
+			options,
+			request,
+			source: tg::sandbox::Source::Auto,
+			wakeups: Some(&mut wakeups),
 		};
-		if sandbox
-			.location
+		let output = self
+			.request_sandbox_holder(session, id, holder_arg, |_| false)
+			.boxed()
+			.await?
+			.ok_or_else(|| tg::error!("the sandbox status wakeup stream ended"))?;
+
+		// A sandbox in a remote is not stopped here.
+		if output
+			.indexed
 			.as_ref()
+			.and_then(|sandbox| sandbox.location.as_ref())
 			.is_some_and(tg::Location::is_remote)
-			|| !authorized.permissions.contains(permission)
 		{
 			return Ok(None);
 		}
-		let Some(data) = sandbox.data else {
-			return Ok(None);
+
+		// A stopped sandbox has nothing left to stop, a destroyed sandbox cannot be stopped, and a sandbox that neither the index nor a holder has does not exist.
+		let status = output
+			.indexed
+			.and_then(|sandbox| sandbox.data)
+			.map(|data| data.data.status);
+		let stopped = match (output.reply, status) {
+			(Some(Ok(tg::sandbox::control::ClientResponseOutput::Stop(output))), _) => {
+				output.stopped
+			},
+			(Some(Ok(_)), _) => {
+				return Err(tg::error!(%id, "expected a stop sandbox response"));
+			},
+			(_, Some(tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying)) => {
+				return Err(tg::error!(%id, "the sandbox was destroyed"));
+			},
+			(_, Some(tg::sandbox::Status::Stopped)) => false,
+			(Some(Err(error)), _) => {
+				return Err(tg::error!(!error, %id, "the stop sandbox control request failed"));
+			},
+			(None, _) => return Ok(None),
 		};
 
-		// Send the stop to the sandbox's scheduler if its runner has not connected, which accepts it and stops the sandbox once it starts.
-		let mut status = data.data.status;
-		let scheduler = if status.is_starting() {
-			session
-				.server
-				.index
-				.try_get_sandbox_scheduler(id)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox's scheduler"))?
-		} else {
-			None
-		};
-		if let Some(scheduler) = &scheduler {
-			let mut wakeups = self
-				.create_sandbox_status_wakeup_stream(
-					session,
-					id,
-					session.context.stopper.clone(),
-					None,
-				)
+		// Wait for the sandbox to be stopped if requested.
+		if arg.wait {
+			self.wait_for_sandbox_stop(session, id, &mut wakeups)
 				.await?;
-			let request = tangram_server_scheduler_core::EndSandboxRequestArg {
-				error: None,
-				sandbox: id.clone(),
-				stop: true,
-			};
-			let ended = session
-				.server
-				.components
-				.scheduler
-				.end_sandbox(session, scheduler, request)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, %scheduler, "failed to end the sandbox"),
-				)?;
-			if ended {
-				if arg.wait {
-					self.wait_for_sandbox_stop(session, id, &mut wakeups)
-						.await?;
-				}
-				return Ok(Some(true));
-			}
-
-			// Read the status again, because the scheduler no longer holds the sandbox.
-			if let Some(data) = self
-				.try_get_sandbox_from_index(session, id)
-				.await?
-				.and_then(|sandbox| sandbox.data)
-			{
-				status = data.data.status;
-			}
 		}
 
-		// Confirm a stop after pending indexing, because a start may not be indexed yet.
-		if status.is_stopped() {
-			session
-				.index(tg::index::Arg::default())
-				.await?
-				.try_last()
-				.await?;
-			if let Some(data) = self
-				.try_get_sandbox_from_index(session, id)
-				.await?
-				.and_then(|sandbox| sandbox.data)
-			{
-				status = data.data.status;
-			}
-		}
-		self.stop_sandbox_with_status(session, id, status, None, arg.wait)
-			.boxed()
-			.await
+		Ok(Some(stopped))
 	}
 
-	async fn stop_sandbox_with_status(
+	/// Stop a sandbox that this server's runner holds.
+	async fn stop_sandbox_with_runner(
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
 		status: tg::sandbox::Status,
-		control_sender: Option<tangram_server_sandbox_core::control::local::Local>,
+		control_sender: tangram_server_sandbox_core::control::local::Local,
 		wait: bool,
 	) -> tg::Result<Option<bool>> {
 		// Subscribe before sending the request, so that the stop cannot be missed.
@@ -243,26 +227,9 @@ impl Component {
 				let request = tg::sandbox::control::ServerRequestArg::Stop(
 					tg::sandbox::control::StopServerRequestArg {},
 				);
-				let response = if let Some(control_sender) = control_sender {
-					match control_sender.send_request(request).await {
-						Err(error) => Err(error),
-						Ok(response) => response.await,
-					}
-				} else {
-					let retry = session.server.config.control.request_retry.clone().into();
-					let timeout = session.server.config.control.request_timeout;
-					let options = tangram_server_core::control::Options { retry, timeout };
-					let stop_future = self
-						.request_sandbox_control(session, id, request, options)
-						.boxed();
-					let status_future = self.wait_for_sandbox_stop(session, id, &mut wakeups);
-					match future::select(stop_future, pin!(status_future)).await {
-						future::Either::Left((response, _)) => response,
-						future::Either::Right((result, _)) => {
-							result?;
-							return Ok(Some(false));
-						},
-					}
+				let response = match control_sender.send_request(request).await {
+					Err(error) => Err(error),
+					Ok(response) => response.await,
 				};
 				let response = response
 					.map_err(
@@ -271,6 +238,14 @@ impl Component {
 					.map_err(
 						|error| tg::error!(!error, %id, "the stop sandbox control request failed"),
 					)?;
+
+				// Stop the sandbox through its holder if this server's runner no longer holds it.
+				if matches!(
+					response,
+					tg::sandbox::control::ClientResponseOutput::NotHolder(_)
+				) {
+					return Ok(None);
+				}
 				response
 					.try_unwrap_stop()
 					.map_err(|_| tg::error!(%id, "expected a stop sandbox response"))?
