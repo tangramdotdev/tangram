@@ -279,7 +279,11 @@ impl State {
 		}
 	}
 
-	async fn poll(&mut self, server: &Server, indexers: &crate::cache::Cache) -> tg::Result<()> {
+	async fn poll(
+		&mut self,
+		server: &Server,
+		indexers: &tangram_server_core::service::Cache<crate::request::Kind>,
+	) -> tg::Result<()> {
 		let region = server.config.region.clone().unwrap_or_default();
 		self.poll_inputs(|batch| async move {
 			tangram_server_core::checkpoint!(server, "index.wait.database_index_queue", ?batch)

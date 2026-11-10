@@ -78,6 +78,7 @@ pub mod remote;
 pub mod runner;
 pub mod sandbox;
 pub mod scheduler;
+pub mod service;
 pub mod session;
 pub mod stream;
 pub mod sync;

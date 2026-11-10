@@ -83,7 +83,7 @@ impl SchedulerState {
 				code = tg::error::Code::Cancellation,
 				"the runner registration was superseded"
 			);
-			let response = Scheduler::response(id, Err(error));
+			let response = super::request::Response::new(id, Err(error));
 			scheduler.send_response(self, response);
 			return;
 		}
@@ -150,7 +150,7 @@ impl SchedulerState {
 			.map(|runner| runner.registration_index)
 		else {
 			let error = tg::error!(sandbox = %request.sandbox, runner = %request.runner, "the sandbox's runner is unavailable");
-			let response = Scheduler::response(id, Err(error));
+			let response = super::request::Response::new(id, Err(error));
 			scheduler.send_response(self, response);
 			return;
 		};
@@ -211,8 +211,10 @@ impl SchedulerState {
 				let output = RemoveRunnerResponseOutput {
 					runner: request.runner,
 				};
-				let response =
-					Scheduler::response(id, Ok(super::ResponseOutput::RemoveRunner(output)));
+				let response = super::request::Response::new(
+					id,
+					Ok(super::ResponseOutput::RemoveRunner(output)),
+				);
 				scheduler.send_response(self, response);
 			}
 			return;

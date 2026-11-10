@@ -1,52 +1,22 @@
 use {
 	super::{Indexer, IndexerState, queue, wait},
 	crate::Component,
-	futures::{StreamExt as _, TryStreamExt as _, future},
 	std::{
 		ops::ControlFlow,
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stopper,
-	tangram_messenger::{Messenger as _, Payload},
-	tangram_server_core::Server,
+	tangram_server_core::{Server, service},
 };
 
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-enum ClientMessage {
-	#[tangram_serialize(id = 0)]
-	Ack(Ack),
+pub(crate) type Request = service::Request<RequestArg>;
 
-	#[tangram_serialize(id = 1)]
-	Response(Response),
-}
+type Response = service::Response<ResponseOutput>;
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-enum ServerMessage {
-	#[tangram_serialize(id = 0)]
-	Ack(Ack),
-
-	#[tangram_serialize(id = 1)]
-	Request(Request),
-}
-
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-struct Ack {
-	#[tangram_serialize(id = 0)]
-	id: String,
-}
-
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-struct Request {
-	#[tangram_serialize(id = 0)]
-	arg: RequestArg,
-
-	#[tangram_serialize(id = 1)]
-	id: String,
-}
+type Sender = service::Sender<Kind>;
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) enum RequestArg {
@@ -67,18 +37,6 @@ pub(crate) struct EnqueueRequestArg {
 	pub index: Option<bytes::Bytes>,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-struct Response {
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	error: Option<tg::error::Data>,
-
-	#[tangram_serialize(id = 1)]
-	id: String,
-
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
-	output: Option<ResponseOutput>,
-}
-
 #[derive(
 	Clone,
 	Debug,
@@ -94,11 +52,15 @@ pub(crate) enum ResponseOutput {
 	Wait,
 }
 
-pub(super) struct RequestTaskArgs {
+/// The indexer kind of server.
+pub(crate) struct Kind;
+
+/// The handler that runs each accepted request concurrently.
+pub(super) struct Handler {
 	pub changed: Arc<tokio::sync::Notify>,
-	pub ready: tokio::sync::oneshot::Sender<()>,
+	pub indexer: Indexer,
+	pub requests: tokio::task::JoinSet<tg::Result<()>>,
 	pub state: Arc<Mutex<IndexerState>>,
-	pub stopper: Stopper,
 	pub wait_sender: wait::Sender,
 	pub write_sender: queue::write::Sender,
 }
@@ -106,21 +68,12 @@ pub(super) struct RequestTaskArgs {
 struct HandleIndexerRequestArgs {
 	guard: Guard,
 	request: Request,
-	sender: tangram_server_core::control::Sender<ServerMessage, ClientMessage>,
+	sender: Sender,
 	wait_sender: wait::Sender,
 	write_sender: queue::write::Sender,
 }
 
-struct HandleRequestsArgs {
-	changed: Arc<tokio::sync::Notify>,
-	control: tangram_server_core::control::Stream<ServerMessage, ClientMessage>,
-	state: Arc<Mutex<IndexerState>>,
-	stopper: Stopper,
-	wait_sender: wait::Sender,
-	write_sender: queue::write::Sender,
-}
-
-struct Guard {
+pub(super) struct Guard {
 	changed: Arc<tokio::sync::Notify>,
 	enqueue: bool,
 	state: Arc<Mutex<IndexerState>>,
@@ -156,6 +109,9 @@ impl Component {
 				} else {
 					request.await?
 				};
+				let Some(response) = response else {
+					return Err(tg::error!(%indexer, "the indexer is unavailable"));
+				};
 				Ok(ControlFlow::Break(response))
 			}
 		})
@@ -168,160 +124,17 @@ impl Component {
 		indexer: &tg::indexer::Id,
 		id: &str,
 		arg: RequestArg,
-	) -> tg::Result<tg::Result<ResponseOutput>> {
-		let request = ServerMessage::Request(Request {
-			arg,
-			id: id.to_owned(),
-		});
-		let config = server.config.indexer.request.clone();
+	) -> tg::Result<Option<tg::Result<ResponseOutput>>> {
+		let config = &server.config.indexer.request;
 		let options = tangram_server_core::control::Options {
-			retry: config.retry.into(),
+			retry: config.retry.clone().into(),
 			timeout: config.timeout,
 		};
-		let arg = tangram_server_core::control::SendControlRequestArg {
-			ack: |id| ServerMessage::Ack(Ack { id }),
-			client_subject: Indexer::client_subject(id),
-			hold: None,
-			is_ack: |message: &ClientMessage| matches!(message, ClientMessage::Ack(_)),
-			marker: std::marker::PhantomData,
-			options,
-			request,
-			response: |message: ClientMessage| {
-				let ClientMessage::Response(message) = message else {
-					return Ok(None);
-				};
-				if let Some(error) = message.error {
-					let error = tg::Error::try_from(error).map_err(|source| {
-						tg::error!(!source, "failed to deserialize the indexer error")
-					})?;
-					return Ok(Some((message.id, Err(error))));
-				}
-				let Some(output) = message.output else {
-					return Err(tg::error!("missing indexer response output"));
-				};
-				Ok(Some((message.id, Ok(output))))
-			},
-			server_subject: Indexer::server_subject(indexer),
-		};
-		server.request_control(arg).await
+		service::send::<Kind>(server, indexer, id, arg, options).await
 	}
 }
 
 impl Indexer {
-	pub(super) async fn request_task(&self, args: RequestTaskArgs) -> tg::Result<()> {
-		let RequestTaskArgs {
-			changed,
-			ready,
-			state,
-			stopper,
-			wait_sender,
-			write_sender,
-		} = args;
-		let messages = self
-			.server
-			.messenger
-			.subscribe::<ServerMessage>(Self::server_subject(&self.id))
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to subscribe to the indexer request stream")
-			})?
-			.map_err(|source| tg::error!(!source, "failed to receive an indexer message"))
-			.map_ok(|message| message.payload)
-			.boxed();
-		let capacity = self.server.config.indexer.request.channel_capacity;
-		let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
-		let mut options = tangram_server_core::control::stream_options(&self.server.config.control);
-		options.outbox_ttl = Some(self.server.config.indexer.request.response_ttl);
-		let control = tangram_server_core::control::Stream::new(messages, sender, options);
-		ready
-			.send(())
-			.map_err(|()| tg::error!("failed to signal indexer request readiness"))?;
-		let args = HandleRequestsArgs {
-			changed,
-			control,
-			state,
-			stopper,
-			wait_sender,
-			write_sender,
-		};
-		let requests = self.handle_requests(args);
-		let responses = self.publish_client_messages(receiver);
-		future::try_join(requests, responses).await?;
-
-		Ok(())
-	}
-
-	async fn handle_requests(&self, args: HandleRequestsArgs) -> tg::Result<()> {
-		let HandleRequestsArgs {
-			changed,
-			mut control,
-			state,
-			stopper,
-			wait_sender,
-			write_sender,
-		} = args;
-
-		// Accept each request once and track its handler until it finishes.
-		let mut requests = tokio::task::JoinSet::new();
-		loop {
-			let message = tokio::select! {
-				biased;
-				() = stopper.wait() => break,
-				result = requests.join_next(), if !requests.is_empty() => {
-					result.unwrap().map_err(|source| tg::error!(!source, "an indexer request handler panicked"))??;
-					continue;
-				},
-				message = control.recv_without_ack() => message?,
-			};
-			let Some(message) = message else {
-				return Err(tg::error!("the indexer request stream ended"));
-			};
-			let ServerMessage::Request(request) = message else {
-				continue;
-			};
-			let enqueue = !matches!(request.arg, RequestArg::Wait);
-			{
-				let mut state = state.lock().unwrap();
-				if enqueue && !state.available {
-					drop(state);
-					let error = tg::error!("the indexer is unavailable");
-					control
-						.sender()
-						.try_send_untracked(ClientMessage::Response(Self::response(
-							request.id,
-							Err(error),
-						)));
-					continue;
-				}
-				if enqueue {
-					state.enqueues += 1;
-				}
-			}
-			control.acknowledge_now(request.id.clone());
-			let guard = Guard {
-				changed: changed.clone(),
-				enqueue,
-				state: state.clone(),
-			};
-			let wait_sender = wait_sender.clone();
-			let write_sender = write_sender.clone();
-			let indexer = self.clone();
-			let sender = control.sender();
-			let args = HandleIndexerRequestArgs {
-				guard,
-				request,
-				sender,
-				wait_sender,
-				write_sender,
-			};
-			requests.spawn(async move { indexer.handle_indexer_request(args).await });
-		}
-
-		// The queues are drained and indexing has finished when the shutdown task stops reception.
-		requests.shutdown().await;
-		Ok(())
-	}
-
 	async fn handle_indexer_request(&self, args: HandleIndexerRequestArgs) -> tg::Result<()> {
 		let HandleIndexerRequestArgs {
 			mut guard,
@@ -342,26 +155,10 @@ impl Indexer {
 				.map(|()| ResponseOutput::Wait),
 		};
 		guard.finish();
-		sender.send_now(ClientMessage::Response(Self::response(request.id, result)));
+		sender.send_now(service::ClientMessage::Response(Response::new(
+			request.id, result,
+		)));
 		Ok(())
-	}
-
-	fn response(id: String, result: tg::Result<ResponseOutput>) -> Response {
-		match result {
-			Ok(output) => Response {
-				error: None,
-				id,
-				output: Some(output),
-			},
-			Err(error) => Response {
-				error: Some(tg::error::Data {
-					message: Some(error.to_string()),
-					..Default::default()
-				}),
-				id,
-				output: None,
-			},
-		}
 	}
 
 	#[tracing::instrument(name = "indexer.enqueue", level = "debug", skip_all, fields(archive = arg.archive.as_ref().map_or(0, bytes::Bytes::len), index = arg.index.as_ref().map_or(0, bytes::Bytes::len)), err(level = "debug"))]
@@ -418,47 +215,75 @@ impl Indexer {
 			notified.await;
 		}
 	}
+}
 
-	async fn publish_client_messages(
-		&self,
-		receiver: tokio::sync::mpsc::Receiver<ClientMessage>,
-	) -> tg::Result<()> {
-		tokio_stream::wrappers::ReceiverStream::new(receiver)
-			.map(Ok::<_, tg::Error>)
-			.try_for_each_concurrent(
-				self.server.config.indexer.request.concurrency,
-				|message| async move {
-					let id = message.id().to_owned();
-					if let Err(error) = self
-						.server
-						.messenger
-						.publish(Self::client_subject(&id), message)
-						.await
-					{
-						tracing::error!(%error, "failed to publish an indexer client message");
-					}
-					Ok(())
-				},
-			)
-			.await?;
-		Ok(())
-	}
+impl service::Kind for Kind {
+	type Arg = RequestArg;
 
-	fn client_subject(id: &str) -> String {
-		format!("indexers.client.{id}")
-	}
+	type Id = tg::indexer::Id;
 
-	fn server_subject(id: &tg::indexer::Id) -> String {
-		format!("indexers.{id}.server")
+	type Output = ResponseOutput;
+
+	const NAME: &'static str = "indexer";
+
+	async fn available(server: &Server) -> tg::Result<Vec<Self::Id>> {
+		let indexers = Component::get_indexers(server).await?;
+		let indexers = indexers
+			.into_iter()
+			.filter_map(|indexer| indexer.available.then_some(indexer.id))
+			.collect();
+
+		Ok(indexers)
 	}
 }
 
-impl ClientMessage {
-	fn id(&self) -> &str {
-		match self {
-			Self::Ack(ack) => &ack.id,
-			Self::Response(response) => &response.id,
+impl service::Handler<Kind> for Handler {
+	type Accepted = Guard;
+
+	fn accept(&mut self, request: &Request) -> Option<Self::Accepted> {
+		// Accept a wait at any time, and accept an enqueue only while the indexer is available.
+		let enqueue = !matches!(request.arg, RequestArg::Wait);
+		let mut state = self.state.lock().unwrap();
+		if enqueue && !state.available {
+			return None;
 		}
+		if enqueue {
+			state.enqueues += 1;
+		}
+		let guard = Guard {
+			changed: self.changed.clone(),
+			enqueue,
+			state: self.state.clone(),
+		};
+
+		Some(guard)
+	}
+
+	async fn handle(&mut self, request: Request, guard: Guard, sender: Sender) -> tg::Result<()> {
+		// Propagate the errors of the handlers that finished.
+		while let Some(result) = self.requests.try_join_next() {
+			result
+				.map_err(|source| tg::error!(!source, "an indexer request handler panicked"))??;
+		}
+
+		// Spawn the handler.
+		let indexer = self.indexer.clone();
+		let args = HandleIndexerRequestArgs {
+			guard,
+			request,
+			sender,
+			wait_sender: self.wait_sender.clone(),
+			write_sender: self.write_sender.clone(),
+		};
+		self.requests
+			.spawn(async move { indexer.handle_indexer_request(args).await });
+
+		Ok(())
+	}
+
+	async fn shutdown(&mut self) {
+		// The queues are drained and indexing has finished when the shutdown task stops reception.
+		self.requests.shutdown().await;
 	}
 }
 
@@ -478,53 +303,5 @@ impl Guard {
 impl Drop for Guard {
 	fn drop(&mut self) {
 		self.finish();
-	}
-}
-
-impl tangram_server_core::control::Input<ClientMessage> for ServerMessage {
-	fn kind(&self) -> tangram_server_core::control::InputKind<'_> {
-		match self {
-			Self::Ack(ack) => tangram_server_core::control::InputKind::Ack { id: &ack.id },
-			Self::Request(request) => tangram_server_core::control::InputKind::Message {
-				id: Some(&request.id),
-			},
-		}
-	}
-
-	fn create_ack_message(id: String) -> ClientMessage {
-		ClientMessage::Ack(Ack { id })
-	}
-}
-
-impl tangram_server_core::control::Output for ClientMessage {
-	fn id(&self) -> Option<&str> {
-		match self {
-			Self::Ack(_) => None,
-			Self::Response(response) => Some(&response.id),
-		}
-	}
-}
-
-impl Payload for ClientMessage {
-	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error> {
-		tangram_serialize::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
-	}
-
-	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
-		tangram_serialize::to_vec(self)
-			.map(Into::into)
-			.map_err(tangram_messenger::Error::serialization)
-	}
-}
-
-impl Payload for ServerMessage {
-	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error> {
-		tangram_serialize::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
-	}
-
-	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
-		tangram_serialize::to_vec(self)
-			.map(Into::into)
-			.map_err(tangram_messenger::Error::serialization)
 	}
 }

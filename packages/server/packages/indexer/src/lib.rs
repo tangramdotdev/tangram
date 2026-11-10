@@ -14,7 +14,6 @@ use {
 };
 
 mod billing;
-mod cache;
 mod capture;
 mod cleaning;
 mod database;
@@ -45,7 +44,7 @@ pub struct State {
 	pub(crate) index_wait_task: Mutex<Option<Task<()>>>,
 	pub(crate) indexer_cache_task: Mutex<Option<Task<()>>>,
 	pub(crate) indexer_task: Mutex<Option<Task<()>>>,
-	pub(crate) indexers: cache::Cache,
+	pub(crate) indexers: tangram_server_core::service::Cache<request::Kind>,
 	pub(crate) permission_capture_wake: tokio::sync::Notify,
 }
 
@@ -100,7 +99,7 @@ impl Component {
 		let index_wait_receiver = Mutex::new(Some(index_wait_receiver));
 
 		// Create the indexer cache.
-		let indexers = cache::Cache::default();
+		let indexers = tangram_server_core::service::Cache::default();
 
 		// Create the index change notification and the index tasks.
 		let index_changed = tokio::sync::Notify::new();
@@ -138,13 +137,24 @@ impl Component {
 		})
 	}
 
+	pub(crate) async fn get_indexers(
+		server: &Server,
+	) -> tg::Result<Vec<tangram_index::indexer::Indexer>> {
+		server
+			.index
+			.get_indexers()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the indexers"))
+	}
+
 	fn spawn_indexer_cache_task(&self, server: &Server) -> Task<()> {
 		let poll_interval = server.config.indexer.cache.poll_interval;
 		let component = self.clone();
 		let server = server.clone();
 		Task::spawn(move |stopper| async move {
 			component
-				.indexer_cache_task(&server, poll_interval, stopper)
+				.indexers
+				.task(&server, poll_interval, stopper)
 				.await;
 		})
 	}
@@ -520,35 +530,33 @@ impl Component {
 			}
 		});
 
-		// Spawn the request task.
-		let (ready_sender, ready_receiver) = tokio::sync::oneshot::channel();
+		// Subscribe to the indexer's requests, and spawn the request task.
+		let endpoint = tangram_server_core::service::Endpoint::<request::Kind>::subscribe(
+			server,
+			&indexer.id,
+			config.request.channel_capacity,
+			config.request.response_ttl,
+		)
+		.await?;
 		let request_task = tangram_futures::task::Shared::spawn({
-			let wait_sender = wait_sender.clone();
-			let write_sender = write_sender.clone();
-			let indexer = indexer.clone();
-			let changed = changed.clone();
-			let state = state.clone();
-			move |stopper| async move {
-				let args = request::RequestTaskArgs {
-					changed,
-					ready: ready_sender,
-					state,
-					stopper,
-					wait_sender,
-					write_sender,
-				};
-				indexer.request_task(args).await
-			}
+			let handler = request::Handler {
+				changed: changed.clone(),
+				indexer: indexer.clone(),
+				requests: tokio::task::JoinSet::new(),
+				state: state.clone(),
+				wait_sender: wait_sender.clone(),
+				write_sender: write_sender.clone(),
+			};
+			let concurrency = config.request.concurrency;
+			let server = server.clone();
+			move |stopper| async move { endpoint.run(&server, handler, concurrency, stopper).await }
 		});
 
 		// Make the indexer available after recovery and subscription.
-		ready_receiver
-			.await
-			.map_err(|_| tg::error!("the indexer request task stopped before becoming ready"))?;
 		state.lock().unwrap().available = true;
 		changed.notify_waiters();
 		indexer.update_availability(true).await?;
-		if let Err(error) = self.refresh_indexer_cache(server).await {
+		if let Err(error) = self.indexers.refresh(server).await {
 			tracing::error!(error = %error.trace(), "failed to refresh the indexer cache");
 		}
 
@@ -697,7 +705,7 @@ impl Indexer {
 		state.lock().unwrap().available = false;
 		changed.notify_waiters();
 		self.update_availability_with_retry(false).await?;
-		if let Err(error) = self.component.refresh_indexer_cache(&self.server).await {
+		if let Err(error) = self.component.indexers.refresh(&self.server).await {
 			tracing::error!(error = %error.trace(), "failed to refresh the indexer cache");
 		}
 

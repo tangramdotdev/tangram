@@ -24,7 +24,6 @@ http = { workspace = true }
 itertools = { workspace = true }
 mime = { workspace = true }
 num = { workspace = true }
-rand = { workspace = true }
 rustix = { workspace = true }
 tangram_archive = { workspace = true }
 tangram_cache = { workspace = true }
