@@ -143,43 +143,11 @@ impl Component {
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
 		if let Some(id) = id
-			&& let Some(control) = self
-				.try_get_process_control_runner(
-					session,
-					id,
-					arg.location.as_ref(),
-					&arg.tokens,
-					tg::authorization::permission::process::Set::NODE,
-				)
+			&& let Some(stream) = self
+				.try_read_process_stdio_runner(session, id, &arg, acks)
 				.await?
 		{
-			let source = Self::get_process_stdio_source(&control.data, &arg)?;
-			if let Source::Pipe(streams) = &source
-				&& self
-					.authorize_process_stdio_read(
-						session,
-						id,
-						&source,
-						arg.tokens.local_authorization(),
-						true,
-					)
-					.await?
-			{
-				let mut arg = arg;
-				arg.streams = streams.iter().copied().collect();
-				let server = session.server.clone();
-				let id = id.clone();
-				let input = read_process_stdio_acks(acks);
-				let stream = stream::once(async move {
-					for stream in &arg.streams {
-						tangram_server_core::checkpoint!(server, "process.stdio.read.request", process = %id, stream = %stream).await;
-					}
-					Ok::<_, tg::Error>(control.control_sender.read(arg, input))
-				})
-				.try_flatten()
-				.boxed();
-				return Ok(Some(stream));
-			}
+			return Ok(Some(stream));
 		}
 		let locations = session
 			.locations(arg.location.as_ref())
@@ -236,6 +204,59 @@ impl Component {
 		.await?;
 
 		Ok(stream)
+	}
+
+	async fn try_read_process_stdio_runner(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+		arg: &tg::process::stdio::read::Arg,
+		acks: &Acks,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
+	{
+		let Some(control) = self
+			.try_get_process_control_runner(
+				session,
+				id,
+				arg.location.as_ref(),
+				&arg.tokens,
+				tg::authorization::permission::process::Set::NODE,
+			)
+			.await?
+		else {
+			return Ok(None);
+		};
+		let source = Self::get_process_stdio_source(&control.data, arg)?;
+		let Source::Pipe(streams) = &source else {
+			return Ok(None);
+		};
+		if !self
+			.authorize_process_stdio_read(
+				session,
+				id,
+				&source,
+				arg.tokens.local_authorization(),
+				true,
+			)
+			.await?
+		{
+			return Ok(None);
+		}
+		let mut arg = arg.clone();
+		arg.streams = streams.iter().copied().collect();
+		let server = session.server.clone();
+		let id = id.clone();
+		let input = read_process_stdio_acks(acks);
+		let stream = stream::once(async move {
+			for stream in &arg.streams {
+				tangram_server_core::checkpoint!(server, "process.stdio.read.request", process = %id, stream = %stream).await;
+			}
+			Ok::<_, tg::Error>(control.control_sender.read(arg, input))
+		})
+		.try_flatten()
+		.boxed();
+
+		Ok(Some(stream))
 	}
 
 	fn read_process_stdio_protocol(
