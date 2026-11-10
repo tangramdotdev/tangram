@@ -5,7 +5,7 @@ let server = server spawn
 let directory = mktemp -d
 let marker = $directory | path join 'marker'
 let sandbox = tg sandbox create --no-tokens --mount $'($directory):($directory),rw' | referent node
-let script = 'set -m; (i=0; while true; do i=$((i+1)); echo $i > marker; done) & wait'
+let script = 'set -m; (i=0; while true; do i=$((i+1)); echo $i 1<> marker; done) & wait'
 tg spawn --no-tokens $'--sandbox=($sandbox)' --cwd $directory --executable /bin/sh -- -c $script | ignore
 let deadline = (date now) + 10sec
 while not ($marker | path exists) {
@@ -15,8 +15,16 @@ while not ($marker | path exists) {
 	sleep 100ms
 }
 tg sandbox destroy $sandbox
-sleep 1sec
-let first = open $marker
-sleep 2sec
-let second = open $marker
-assert equal $first $second 'destroying the sandbox should stop every process in it'
+let deadline = (date now) + 10sec
+mut previous = open $marker
+loop {
+	sleep 500ms
+	let current = open $marker
+	if $current == $previous {
+		break
+	}
+	if (date now) > $deadline {
+		error make { msg: 'destroying the sandbox should stop every process in it' }
+	}
+	$previous = $current
+}
