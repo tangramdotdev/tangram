@@ -26,12 +26,6 @@ pub trait Index {
 		&self,
 		arg: crate::scheduler::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<crate::scheduler::Scheduler>>> + Send;
-
-	/// Get the scheduler that owns a starting sandbox until its runner connects.
-	fn try_get_sandbox_scheduler(
-		&self,
-		sandbox: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::scheduler::Id>>> + Send;
 }
 
 impl Scheduler {

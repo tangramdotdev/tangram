@@ -117,11 +117,4 @@ impl tangram_index::scheduler::Index for Index {
 	) -> tg::Result<Option<tangram_index::scheduler::Scheduler>> {
 		self.try_get_scheduler(arg).await
 	}
-
-	async fn try_get_sandbox_scheduler(
-		&self,
-		sandbox: &tg::sandbox::Id,
-	) -> tg::Result<Option<tg::scheduler::Id>> {
-		self.try_get_sandbox_scheduler(sandbox).await
-	}
 }
