@@ -1,6 +1,6 @@
 use {
 	crate::{Result, database, semaphore},
-	std::process::ExitCode,
+	std::{path::PathBuf, process::ExitCode},
 	tokio::{
 		process::Command,
 		signal::unix::{SignalKind, signal},
@@ -26,8 +26,13 @@ pub async fn wrap(args: Args) -> Result<ExitCode> {
 	// Create the test's temporary directory.
 	let path = tangram_tests_util::Temp::new()?.into_path();
 
-	// Take this run's lock on the database pool leases that the test acquires, and reclaim the leases of exited runs.
-	let run = if database::available() {
+	// Get the tangram that runs the test in a Tangram sandbox, if any.
+	let sandbox = std::env::var_os("TANGRAM_TEST_SANDBOX")
+		.filter(|value| !value.is_empty())
+		.map(PathBuf::from);
+
+	// Take this run's lock on the database pool leases that the test acquires, and reclaim the leases of exited runs, unless the test runs in a sandbox, which cannot reach the cloud databases.
+	let run = if sandbox.is_none() && database::available() {
 		let run = database::Run::new(&database::pool_path())?;
 		database::reclaim().await?;
 		Some(run)
@@ -35,8 +40,36 @@ pub async fn wrap(args: Args) -> Result<ExitCode> {
 		None
 	};
 
-	// Run the test under the supervisor.
-	let mut command = Command::new("tangram_tests_supervisor");
+	// Run the test under the supervisor, in a Tangram sandbox if requested.
+	let semaphores = path.join(semaphore::MANIFEST).display().to_string();
+	let mut command = if let Some(tangram) = &sandbox {
+		// Pass the test's environment except the variables that the sandbox sets, those that `tg run` sets, and the cloud databases' variable, so that the cloud tests skip.
+		let environment = std::env::vars_os()
+			.filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+			.filter(|(key, _)| {
+				!matches!(
+					key.as_str(),
+					"HOME"
+						| "PATH" | "TANGRAM_TEST_CLOUD"
+						| "TANGRAM_TEST_SANDBOX"
+						| "TANGRAM_TEST_SEMAPHORES"
+						| "TMPDIR"
+				) && (!key.starts_with("TANGRAM_") || key.starts_with("TANGRAM_TEST_"))
+			})
+			.chain([
+				("TANGRAM_TEST_SEMAPHORES".to_owned(), semaphores),
+				("TMPDIR".to_owned(), path.display().to_string()),
+			])
+			.collect();
+		let working_path = std::env::current_dir()?;
+		crate::test::sandbox(tangram, true, &path, &working_path, environment)?
+	} else {
+		let mut command = Command::new("tangram_tests_supervisor");
+		command
+			.env("TANGRAM_TEST_SEMAPHORES", semaphores)
+			.env("TMPDIR", &path);
+		command
+	};
 	command
 		.arg("run")
 		.arg("--leaks")
@@ -44,9 +77,7 @@ pub async fn wrap(args: Args) -> Result<ExitCode> {
 		.arg("--path")
 		.arg(&path)
 		.arg("--")
-		.args(&args.command)
-		.env("TANGRAM_TEST_SEMAPHORES", path.join(semaphore::MANIFEST))
-		.env("TMPDIR", &path);
+		.args(&args.command);
 	if let Some(run) = &run {
 		command.env("TANGRAM_TEST_DATABASE_RUN", run.id());
 	}

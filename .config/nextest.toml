@@ -10,7 +10,7 @@ slow-timeout = { period = "60s", terminate-after = 1 }
 filter = "package(tangram_index_lmdb) & test(scales_linearly)"
 threads-required = "num-test-threads"
 
-# Run the server, CLI, and FoundationDB index tests with the test runner, which runs each test under the test supervisor and cleans up after it. The setup script builds both, and exports the cloud databases' environment when they are ready.
+# Run the server, CLI, and FoundationDB index tests with the test runner, which runs each test under the test supervisor and cleans up after it. The setup script builds both, and exports the cloud databases' environment when they are ready. With TANGRAM_TEST_SANDBOX naming a tangram executable, such as `TANGRAM_TEST_SANDBOX=tangram tg run .#testRust` on Linux, the runner runs each of these tests in a Tangram sandbox on that tangram's server, and the tests that require the cloud databases are skipped.
 [scripts.setup.build]
 command = { command-line = "scripts/nextest/setup.nu", relative-to = "workspace-root" }
 

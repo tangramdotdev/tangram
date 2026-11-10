@@ -144,7 +144,7 @@ async fn run_inner(
 	let mut command = if let Some(tangram) = &options.sandbox {
 		sandbox(
 			tangram,
-			options,
+			!options.offline,
 			&temp_path,
 			&working_path,
 			environment(options, &temp_path),
@@ -357,9 +357,9 @@ fn environment(options: &Options, temp_path: &Path) -> Vec<(String, String)> {
 }
 
 /// Create a command that runs the supervisor in a Tangram sandbox, which mounts the host's system directories, the directories on the path, the repository, and the test's temporary directory at their host paths.
-fn sandbox(
+pub(crate) fn sandbox(
 	tangram: &Path,
-	options: &Options,
+	network: bool,
 	temp_path: &Path,
 	working_path: &Path,
 	environment: Vec<(String, String)>,
@@ -436,7 +436,7 @@ fn sandbox(
 	}
 
 	// Add the network, the mounts, the working directory, and the environment.
-	if !options.offline {
+	if network {
 		command.arg("--network");
 	}
 	for (source, target, mode) in &mounts {
