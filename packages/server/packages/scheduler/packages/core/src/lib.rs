@@ -15,6 +15,9 @@ pub enum Notification {
 
 	#[tangram_serialize(id = 1)]
 	Heartbeat(HeartbeatNotification),
+
+	#[tangram_serialize(id = 2)]
+	SandboxEnded(SandboxEndedNotification),
 }
 
 #[derive(
@@ -81,6 +84,29 @@ pub struct HeartbeatNotification {
 
 	#[tangram_serialize(id = 4)]
 	pub sandboxes: BTreeSet<tg::sandbox::Id>,
+}
+
+/// A runner's report that a boot of a sandbox ended.
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct SandboxEndedNotification {
+	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub registration_index: u64,
+
+	#[tangram_serialize(id = 2)]
+	pub runner: tg::runner::Id,
+
+	#[tangram_serialize(id = 3)]
+	pub sandbox: tg::sandbox::Id,
 }
 
 #[derive(

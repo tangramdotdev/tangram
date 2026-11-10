@@ -6,7 +6,7 @@ use {
 		EndSandboxRequestArg, EndSandboxResponseOutput, EnqueueSandboxRequestArg,
 		EnqueueSandboxResponseOutput, HeartbeatNotification, Operation, OwnerAncestors,
 		PendingEnqueue, ReleaseProcessLeaseRequestArg, ReleaseProcessLeaseResponseOutput,
-		ResponseOutput, Scheduler, SchedulerState,
+		ResponseOutput, SandboxEndedNotification, Scheduler, SchedulerState,
 		runner::{Reservation, ReservationState, Runner},
 	},
 	futures::{FutureExt as _, StreamExt as _, future},
@@ -73,9 +73,6 @@ struct Scheduled {
 	boot: u64,
 	registration_index: u64,
 	runner: tg::runner::Id,
-
-	/// Whether a heartbeat of the runner reported the boot, after which a heartbeat that does not report it means that it ended.
-	seen: bool,
 }
 
 /// An end of a sandbox that waits for an in-flight placement to finish.
@@ -1166,25 +1163,24 @@ impl SchedulerState {
 			boot,
 			registration_index,
 			runner: runner.clone(),
-			seen: false,
 		};
 		self.sandboxes.scheduled.insert(sandbox, scheduled);
 	}
 
-	/// Forget the boots that a runner's heartbeat no longer reports after an earlier heartbeat reported them, because they ended.
-	fn handle_scheduled_heartbeat(&mut self, notification: &HeartbeatNotification) {
-		self.sandboxes.scheduled.retain(|id, scheduled| {
-			if scheduled.runner != notification.runner
-				|| scheduled.registration_index != notification.registration_index
-			{
-				return true;
-			}
-			if notification.sandboxes.contains(id) {
-				scheduled.seen = true;
-				return true;
-			}
-			!scheduled.seen
-		});
+	/// Forget a boot that its runner reports ended.
+	pub(super) fn handle_sandbox_ended(&mut self, notification: &SandboxEndedNotification) {
+		let ended = self
+			.sandboxes
+			.scheduled
+			.get(&notification.sandbox)
+			.is_some_and(|scheduled| {
+				scheduled.runner == notification.runner
+					&& scheduled.registration_index == notification.registration_index
+					&& scheduled.boot == notification.boot
+			});
+		if ended {
+			self.sandboxes.scheduled.remove(&notification.sandbox);
+		}
 	}
 
 	/// Record a sandbox that a restarted scheduler found on a runner.
@@ -1417,7 +1413,6 @@ impl SchedulerState {
 		runner.heartbeat_at = now;
 		runner.heartbeat_index = notification.heartbeat_index;
 		runner.ready = runner.capacity.total.sandboxes != 0;
-		self.handle_scheduled_heartbeat(notification);
 		self.queue.wake();
 
 		true

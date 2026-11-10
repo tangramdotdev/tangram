@@ -24,8 +24,8 @@ use {
 		EndSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
 		HeartbeatAcknowledgement, HeartbeatNotification, Notification,
 		ReleaseProcessLeaseRequestArg, ReleaseProcessLeaseResponseOutput, RemoveRunnerRequestArg,
-		RemoveRunnerResponseOutput, RequestArg, ResponseOutput, runner_heartbeat_subject,
-		scheduler_notification_subject,
+		RemoveRunnerResponseOutput, RequestArg, ResponseOutput, SandboxEndedNotification,
+		runner_heartbeat_subject, scheduler_notification_subject,
 	},
 };
 
@@ -652,6 +652,9 @@ impl Scheduler {
 				if state.handle_heartbeat(&notification, self.server.clock.instant()) {
 					self.publish_runner_heartbeat_ack(state, &notification);
 				}
+			},
+			Notification::SandboxEnded(notification) => {
+				state.handle_sandbox_ended(&notification);
 			},
 		}
 	}

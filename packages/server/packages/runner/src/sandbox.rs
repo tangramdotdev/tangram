@@ -385,6 +385,20 @@ impl Component {
 			.booting
 			.remove_if(&id, |_, booting| *booting == boot);
 		self.state.sandboxes.notify_updated();
+
+		// Report the end of the boot to the scheduler, which forgets the boots of a runner that registers again if the report is not delivered.
+		if let Some(sender) = self.control.borrow().clone() {
+			let notification = tg::runner::control::ClientMessage::Notification(
+				tg::runner::control::ClientNotification::SandboxEnded(
+					tg::runner::control::SandboxEndedClientNotification {
+						boot,
+						sandbox: id.clone(),
+					},
+				),
+			);
+			sender.try_send_untracked(notification);
+		}
+
 		let Err(error) = result else {
 			return;
 		};
