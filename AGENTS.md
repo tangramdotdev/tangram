@@ -163,9 +163,11 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 - The index lags the holder, except that a terminal state in the index is final.
 - A method that reads or writes live state is holder-routed. Name its functions `try_X`, `try_X_runner`, `try_X_local`, `try_X_regions`, and `try_X_remotes`, such as `try_get_process` and `try_post_process_signal`.
 - In `try_X`, act through this server's runner in `try_X_runner` if it holds the item, then call `try_X_local` without a search, then call `try_X_local` with a search alongside `try_X_regions` followed by `try_X_remotes`.
-- In `try_X_local`, authorize, then call the holder helper, such as `request_process_holder`, which sends the request to the holder while it reads the index, and returns the holder's reply or the index's answer. Do not write another way to reach a holder.
+- In `try_X_local`, authorize, then call `request_process_holder` or `request_sandbox_holder`, which sends the request to the holder while it reads the index, and returns the holder's reply or the index's answer. Do not write another way to reach a holder.
+- Keep the two helpers congruent. Their shared logic is `tangram_server_core::holder::request`, and each implements `tangram_server_core::holder::Kind`.
 - A read lets the index answer when the holder does not reply. A write waits for the holder, and treats a terminal state as nothing left to do.
-- A holder answers through the serving helper, such as `serve_process_holder`. A server that does not hold the item replies that it is not the holder, and the caller sends the request again.
+- A holder answers through `serve_process_holder` or `serve_sandbox_holder`. A server that has handed the item off, or that has offered it to the next holder, replies that it is not the holder. The request sender waits for a holder's answer and then sends the request again, without spending a retry.
+- The scheduler answers for a queued sandbox, and the runner answers for a boot from when its control connection is established until the boot ends.
 - Every request to a holder must be safe to send twice.
 - A method that only reads or writes the index has no holder step. Lists and searches read the index and may lag.
 - A create gives an item its first holder by enqueueing it to a scheduler.
