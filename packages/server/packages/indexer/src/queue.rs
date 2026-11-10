@@ -109,7 +109,7 @@ impl Queues {
 		}
 	}
 
-	#[tracing::instrument(name = "indexer.recover_queues", level = "info", skip_all, fields(indexer = %indexer.id()), err(level = "debug"))]
+	#[tracing::instrument(name = "indexer.recover_queues", level = "info", skip_all, fields(indexer = %indexer.id), err(level = "debug"))]
 	pub async fn recover(&mut self, indexer: &Indexer) -> tg::Result<()> {
 		for kind in [Kind::Archive, Kind::Index] {
 			self.recover_queue(indexer, kind).await?;
@@ -446,14 +446,14 @@ impl Indexer {
 		index_read_sequence: u64,
 	) -> tg::Result<()> {
 		let arg = tangram_index::indexer::update::Arg {
-			id: self.id().clone(),
+			id: self.id.clone(),
 			value: tangram_index::indexer::update::Value::ArchiveReadSequence(
 				archive_read_sequence,
 			),
 		};
 		self.server.index.update_indexer(arg).await?;
 		let arg = tangram_index::indexer::update::Arg {
-			id: self.id().clone(),
+			id: self.id.clone(),
 			value: tangram_index::indexer::update::Value::IndexReadSequence(index_read_sequence),
 		};
 		self.server.index.update_indexer(arg).await?;
@@ -490,7 +490,7 @@ impl Indexer {
 			},
 		};
 		let arg = tangram_index::indexer::update::Arg {
-			id: self.id().clone(),
+			id: self.id.clone(),
 			value,
 		};
 		self.server
@@ -509,7 +509,7 @@ impl Indexer {
 		changed: &Arc<tokio::sync::Notify>,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		if self.id.is_none() {
+		if !self.server.config.advanced.multi_server {
 			stopper.wait().await;
 			return Ok(());
 		}
@@ -644,7 +644,7 @@ impl Indexer {
 		Ok(payload)
 	}
 
-	#[tracing::instrument(name = "archive.process_entry", level = "debug", skip_all, fields(indexer = %self.id(), bytes = bytes.len()), err(level = "debug"))]
+	#[tracing::instrument(name = "archive.process_entry", level = "debug", skip_all, fields(indexer = %self.id, bytes = bytes.len()), err(level = "debug"))]
 	async fn process_archive_entry(&self, bytes: &[u8]) -> tg::Result<tg::Result<()>> {
 		let arg = tangram_server_core::archive::batch::Arg::deserialize(bytes)?;
 		tracing::debug!(items = arg.items.len(), "decoded the archive entry");
@@ -682,7 +682,7 @@ impl Indexer {
 		Ok(Ok(()))
 	}
 
-	#[tracing::instrument(name = "index.process_entry", level = "debug", skip_all, fields(indexer = %self.id(), bytes = bytes.len()), err(level = "debug"))]
+	#[tracing::instrument(name = "index.process_entry", level = "debug", skip_all, fields(indexer = %self.id, bytes = bytes.len()), err(level = "debug"))]
 	async fn process_index_entry(&self, bytes: &[u8]) -> tg::Result<tg::Result<()>> {
 		let arg = tangram_index::write::Arg::deserialize(bytes)?;
 		tracing::debug!(items = arg.items.len(), "decoded the index entry");
@@ -715,7 +715,7 @@ impl Indexer {
 		sequence_start: u64,
 		sequence_end: u64,
 	) -> tg::Result<Vec<(u64, bytes::Bytes)>> {
-		let indexer = self.id().clone();
+		let indexer = self.id.clone();
 		let items = match kind {
 			Kind::Archive => {
 				let arg = tangram_server_core::cache::archive::queue::get::batch::Arg {
@@ -755,7 +755,7 @@ impl Indexer {
 		kind: Kind,
 		sequence: u64,
 	) -> tg::Result<Option<bytes::Bytes>> {
-		let indexer = self.id().clone();
+		let indexer = self.id.clone();
 		let payload = match kind {
 			Kind::Archive => {
 				let arg =
@@ -787,7 +787,7 @@ impl Indexer {
 		sequence: u64,
 		payload: &bytes::Bytes,
 	) -> tg::Result<()> {
-		let indexer = self.id().clone();
+		let indexer = self.id.clone();
 		let payload = payload.clone();
 		match kind {
 			Kind::Archive => {
@@ -838,7 +838,7 @@ impl Indexer {
 	}
 
 	async fn delete_queue_item_inner(&self, kind: Kind, sequence: u64) -> tg::Result<()> {
-		let indexer = self.id().clone();
+		let indexer = self.id.clone();
 		let sequences = vec![sequence];
 		match kind {
 			Kind::Archive => {
