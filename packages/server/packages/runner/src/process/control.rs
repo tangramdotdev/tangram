@@ -143,6 +143,14 @@ impl Component {
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))
 	}
 
+	/// Create the reply of a runner that does not hold the process.
+	#[must_use]
+	fn process_control_not_holder_output() -> tg::process::control::ClientResponseOutput {
+		tg::process::control::ClientResponseOutput::NotHolder(
+			tg::process::control::NotHolderClientResponseOutput {},
+		)
+	}
+
 	#[must_use]
 	pub(super) fn process_control_response(
 		id: String,
@@ -484,24 +492,28 @@ impl Component {
 							sender.send(response).await?;
 						},
 						tg::process::control::ServerRequestArg::Get(_) => {
+							// Reply with the process, or that the runner does not hold it if the runner has released it.
 							let result = match &session.context.principal {
-								tg::Principal::Process(process) => session
-									.server
-									.components
-									.runner
-									.state()
-									.try_get_process(process)
-									.map(|data| {
-										tg::process::control::ClientResponseOutput::Get(
-											tg::process::control::GetClientResponseOutput {
-												data,
-												sync: None,
-											},
-										)
-									})
-									.ok_or_else(
-										|| tg::error!(%process, "failed to find the process"),
-									),
+								tg::Principal::Process(process) => {
+									let data = session
+										.server
+										.components
+										.runner
+										.state()
+										.try_get_process(process);
+									let output = match data {
+										Some(data) => {
+											tg::process::control::ClientResponseOutput::Get(
+												tg::process::control::GetClientResponseOutput {
+													data,
+													sync: None,
+												},
+											)
+										},
+										None => Self::process_control_not_holder_output(),
+									};
+									Ok(output)
+								},
 								_ => Err(tg::error!("expected a process principal")),
 							};
 							let response = Self::process_control_response(request_id, result);

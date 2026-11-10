@@ -19,11 +19,6 @@ use {
 
 mod token;
 
-pub(super) struct Output<T> {
-	pub control: Option<T>,
-	pub indexed: Option<(tangram_index::process::Process, Option<tg::process::Data>)>,
-}
-
 struct TryGetProcessRegionArg<'a> {
 	availability: bool,
 	id: &'a tg::process::Id,
@@ -75,7 +70,7 @@ impl Component {
 
 		// Read the process and authorize it without a search.
 		let node = if current {
-			self.try_get_process_local_inner(session, id, arg.metadata, arg.source)
+			self.try_get_process_local_inner(session, id, arg.metadata, arg.source, false)
 				.boxed()
 				.await?
 		} else {
@@ -269,7 +264,7 @@ impl Component {
 			return Ok(None);
 		}
 		let Some(mut output) = self
-			.try_get_process_local_inner(session, id, metadata, tg::process::Source::Auto)
+			.try_get_process_local_inner(session, id, metadata, tg::process::Source::Auto, true)
 			.await?
 		else {
 			return Ok(None);
@@ -312,7 +307,7 @@ impl Component {
 		let mut output = match node {
 			Some(node) => Some(node),
 			None => {
-				self.try_get_process_local_inner(session, id, metadata, source)
+				self.try_get_process_local_inner(session, id, metadata, source, exhaustive)
 					.boxed()
 					.await?
 			},
@@ -334,7 +329,7 @@ impl Component {
 				return Ok(None);
 			}
 			output = self
-				.try_get_process_local_inner(session, id, metadata, source)
+				.try_get_process_local_inner(session, id, metadata, source, exhaustive)
 				.boxed()
 				.await?;
 		}
@@ -374,7 +369,7 @@ impl Component {
 		Ok(Some(output))
 	}
 
-	async fn authorize_process_get(
+	pub(crate) async fn authorize_process_get(
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
@@ -455,7 +450,7 @@ impl Component {
 		metadata: bool,
 	) -> tg::Result<tg::process::get::Output> {
 		let output = self
-			.try_get_process_local_inner(session, id, metadata, tg::process::Source::Auto)
+			.try_get_process_local_inner(session, id, metadata, tg::process::Source::Auto, true)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 
@@ -500,30 +495,39 @@ impl Component {
 		id: &tg::process::Id,
 		metadata: bool,
 		source: tg::process::Source,
+		exhaustive: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		// Subscribe before reading to avoid missing a status change between the read and subscription.
 		let mut wakeups = self
 			.create_process_status_wakeup_stream(session, id, None, None)
 			.await?;
-		let deadline = session.server.control_read_deadline();
-		let output = loop {
-			tokio::select! {
-				output = self.get_process_state_local(session,
-					id,
-					self.get_process_from_control(session, id),
-					|data| metadata || data.status.is_finished(),
-					source,
-					deadline,
-				).boxed() => break output?,
-				wakeup = wakeups.next() => {
-					if wakeup.is_none() {
-						return Err(tg::error!("the process status wakeup stream ended"));
-					}
-				},
-			}
-		};
 
-		let (data, location, metadata) = match (output.control, output.indexed) {
+		// Get the process from its holder or the index. A finished process requires the index, because the holder does not have its log.
+		let deadline = session.server.control_read_deadline();
+		let arg = Self::get_process_holder_arg(session, id, source, deadline, exhaustive);
+		let arg = crate::holder::Arg {
+			wakeups: Some(&mut wakeups),
+			..arg
+		};
+		let index_required = |reply: &tg::process::control::ClientResponseOutput| {
+			metadata
+				|| matches!(
+					reply,
+					tg::process::control::ClientResponseOutput::Get(output)
+						if output.data.status.is_finished()
+				)
+		};
+		let output = self
+			.request_process_holder(session, arg, index_required)
+			.boxed()
+			.await?
+			.ok_or_else(|| tg::error!("the process status wakeup stream ended"))?;
+		let control = output
+			.reply
+			.and_then(Result::ok)
+			.and_then(Self::try_get_process_data_from_holder_reply);
+
+		let (data, location, metadata) = match (control, output.indexed) {
 			(None, None) => return Ok(None),
 			(None, Some((indexed, indexed_data))) => {
 				let Some(data) = indexed_data else {
@@ -546,114 +550,41 @@ impl Component {
 		Ok(Some(output))
 	}
 
-	pub(super) async fn get_process_state_local<T: Send>(
-		&self,
+	/// Create the arg for a get request to the holder of a process, which the index answers when the holder does not.
+	pub(super) fn get_process_holder_arg<'a>(
 		session: &Session,
-		id: &tg::process::Id,
-		control_future: impl Future<Output = tg::Result<T>> + Send,
-		index_required: impl Fn(&T) -> bool + Send,
+		id: &'a tg::process::Id,
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
-	) -> tg::Result<Output<T>> {
-		let index_complete =
-			|(process, _): &(tangram_index::process::Process, Option<tg::process::Data>)| {
-				process
-					.status
-					.is_some_and(|status| status.is_finished() || status.is_starting())
-			};
-		let get_index = || self.try_get_process_with_data_from_index(session, id);
-		let index_future = async {
-			let indexed = get_index().await;
-			tangram_server_core::checkpoint!(session.server, "process.get.index", process = %id)
-				.await;
-			indexed
+		exhaustive: bool,
+	) -> crate::holder::Arg<'a> {
+		let request = tg::process::control::ServerRequestArg::Get(
+			tg::process::control::GetServerRequestArg {},
+		);
+		let retry = session.server.config.control.get_retry.clone().into();
+		let timeout = session.server.config.control.read_timeout;
+		let options = tangram_server_core::control::Options { retry, timeout };
+		crate::holder::Arg {
+			deadline,
+			exhaustive,
+			fallback: true,
+			id,
+			options,
+			request,
+			source,
+			wakeups: None,
 		}
-		.boxed();
-		let control_future = session
-			.server
-			.read_control_response_until(deadline, async {
-				let output = control_future.await;
-				tangram_server_core::checkpoint!(session.server, "process.get.control", process = %id).await;
-				output
-			})
-			.boxed();
+	}
 
-		match source {
-			tg::process::Source::Auto => {},
-			tg::process::Source::Index => {
-				let indexed = index_future.await?;
-				return Ok(Output {
-					control: None,
-					indexed,
-				});
-			},
-			tg::process::Source::Runner => {
-				let control = control_future.await.ok();
-				return Ok(Output {
-					control,
-					indexed: None,
-				});
-			},
+	/// Get the process's data from its holder's reply to a get request.
+	pub(super) fn try_get_process_data_from_holder_reply(
+		reply: tg::process::control::ClientResponseOutput,
+	) -> Option<tg::process::Data> {
+		let mut output = reply.try_unwrap_get().ok()?;
+		if let Some(sync) = &output.sync {
+			Self::inherit_process_authorization_tokens_for_sync(&mut output.data, sync);
 		}
-
-		let (control, indexed) = match future::select(index_future, control_future).await {
-			future::Either::Left((indexed, control_future)) => {
-				let indexed = indexed?;
-				if indexed.as_ref().is_some_and(|indexed| {
-					let (process, _) = indexed;
-					index_complete(indexed)
-						|| process
-							.location
-							.as_ref()
-							.is_some_and(tg::Location::is_remote)
-				}) {
-					let output = Output {
-						control: None,
-						indexed,
-					};
-					return Ok(output);
-				}
-				let control = control_future.await;
-				let indexed = if control.as_ref().is_ok_and(&index_required) {
-					tangram_server_core::checkpoint!(session.server, "process.get.index.required", process = %id)
-						.await;
-					get_index().await?
-				} else {
-					indexed
-				};
-				(control, indexed)
-			},
-			future::Either::Right((control, index_future)) => {
-				let indexed = if control.as_ref().is_ok_and(&index_required) {
-					tangram_server_core::checkpoint!(session.server, "process.get.index.required", process = %id)
-						.await;
-					let indexed = index_future.await?;
-					if indexed.as_ref().is_some_and(index_complete) {
-						indexed
-					} else {
-						get_index().await?
-					}
-				} else {
-					None
-				};
-				(control, indexed)
-			},
-		};
-
-		let control = match control {
-			Err(_) => {
-				let indexed = get_index().await?;
-				let output = Output {
-					control: None,
-					indexed,
-				};
-				return Ok(output);
-			},
-			Ok(control) => Some(control),
-		};
-		let output = Output { control, indexed };
-
-		Ok(output)
+		Some(output.data)
 	}
 
 	pub(crate) async fn get_process_from_index(
@@ -697,6 +628,20 @@ impl Component {
 			.ok_or_else(|| tg::error!(%id, "failed to find the process in the index"))
 	}
 
+	/// Read a process and its data from the index, awaiting indexing on a miss only if the read is exhaustive.
+	pub(crate) async fn try_get_process_with_data_from_index_with_exhaustive(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+		exhaustive: bool,
+	) -> tg::Result<Option<(tangram_index::process::Process, Option<tg::process::Data>)>> {
+		if exhaustive {
+			self.try_get_process_with_data_from_index(session, id).await
+		} else {
+			session.server.index.try_get_process_with_data(id).await
+		}
+	}
+
 	pub(crate) async fn try_get_process_with_data_from_index(
 		&self,
 		session: &Session,
@@ -716,43 +661,6 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?;
 		session.server.index.try_get_process_with_data(id).await
-	}
-
-	pub(crate) async fn get_process_from_control(
-		&self,
-		session: &Session,
-		id: &tg::process::Id,
-	) -> tg::Result<tg::process::Data> {
-		let mut output = self.get_process_control_output(session, id).await?;
-		if let Some(sync) = &output.sync {
-			Self::inherit_process_authorization_tokens_for_sync(&mut output.data, sync);
-		}
-		Ok(output.data)
-	}
-
-	pub(super) async fn get_process_control_output(
-		&self,
-		session: &Session,
-		id: &tg::process::Id,
-	) -> tg::Result<tg::process::control::GetClientResponseOutput> {
-		let request = tg::process::control::ServerRequestArg::Get(
-			tg::process::control::GetServerRequestArg {},
-		);
-		let retry = session.server.config.control.get_retry.clone().into();
-		let timeout = session.server.config.control.read_timeout;
-		let options = tangram_server_core::control::Options { retry, timeout };
-		let response = self
-			.request_process_control(session, id, request, options)
-			.boxed()
-			.await
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to send the get process control request"),
-			)?
-			.map_err(|error| tg::error!(!error, %id, "the get process control request failed"))?;
-		let response = response
-			.try_unwrap_get()
-			.map_err(|_| tg::error!("expected a get response"))?;
-		Ok(response)
 	}
 
 	fn create_process_get_output(

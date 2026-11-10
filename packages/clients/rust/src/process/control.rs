@@ -347,6 +347,10 @@ pub enum ClientResponseOutput {
 	#[tangram_serialize(id = 8)]
 	GetChildren(GetChildrenClientResponseOutput),
 
+	/// The responder does not hold the process, so the request did nothing.
+	#[tangram_serialize(id = 9)]
+	NotHolder(NotHolderClientResponseOutput),
+
 	#[tangram_serialize(id = 0)]
 	Open(OpenClientResponseOutput),
 
@@ -421,6 +425,16 @@ pub struct GetChildrenClientResponseOutput {
 	#[tangram_serialize(id = 2)]
 	pub status: tg::process::Status,
 }
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct NotHolderClientResponseOutput {}
 
 #[derive(
 	Clone,

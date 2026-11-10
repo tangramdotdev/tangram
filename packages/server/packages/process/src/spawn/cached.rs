@@ -512,6 +512,7 @@ impl Component {
 						&output.id,
 						false,
 						tg::process::Source::Auto,
+						true,
 					)
 					.await? && process.data.status.is_finished()
 				{
