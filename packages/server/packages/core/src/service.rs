@@ -474,6 +474,10 @@ impl<K: Kind> Endpoint<K> {
 	}
 
 	async fn publish_client_message(server: &Server, message: ClientMessage<K::Output>) {
+		if let ClientMessage::Response(_) = &message {
+			let checkpoint = format!("{}.response.publish", K::NAME);
+			crate::checkpoint!(server, &checkpoint).await;
+		}
 		let subject = client_subject::<K>(message.id());
 		if let Err(error) = server.messenger.publish(subject, message).await {
 			let name = K::NAME;
