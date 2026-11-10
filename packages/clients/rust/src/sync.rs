@@ -112,6 +112,11 @@ pub struct Arg {
 	#[tangram_serialize(id = 14, default, skip_serializing_if = "is_false")]
 	pub sandbox_processes: bool,
 
+	/// The locations that the put side gets nodes from.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 18, default, skip_serializing_if = "Option::is_none")]
+	pub sources: Option<tg::location::Arg>,
+
 	/// The sync that this sync joins.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 15, default, skip_serializing_if = "Option::is_none")]

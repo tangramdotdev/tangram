@@ -83,6 +83,16 @@ pub trait Component: crate::component::Lifecycle {
 		tokens: &'a tg::authorization::Tokens,
 	) -> BoxFuture<'a, tg::Result<Option<tg::object::get::Output>>>;
 
+	fn try_get_object_remotes<'a>(
+		&'a self,
+		session: &'a Session,
+		id: &'a tg::object::Id,
+		remotes: &'a [crate::location::Remote],
+		metadata: bool,
+		availability: bool,
+		tokens: &'a tg::authorization::Tokens,
+	) -> BoxFuture<'a, tg::Result<Option<tg::object::get::Output>>>;
+
 	fn try_touch_object<'a>(
 		&'a self,
 		session: &'a Session,

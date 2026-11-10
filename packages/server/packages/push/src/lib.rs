@@ -564,6 +564,7 @@ impl Component {
 			sync,
 		} = task_arg;
 		let trust = source_session.as_ref().is_some_and(tg::Session::trusted);
+		let sources = Self::push_or_pull_sources(session, &source, &destination).await?;
 		let session = session.clone();
 		let sync_state = Arc::new(Mutex::new(sync));
 		let output = tangram_futures::retry::retry(&retry, || {
@@ -577,6 +578,7 @@ impl Component {
 			let session = session.clone();
 			let source = source.clone();
 			let source_session = source_session.clone();
+			let sources = sources.clone();
 			let sync_state = sync_state.clone();
 			let server = session.server.clone();
 			async move {
@@ -631,6 +633,7 @@ impl Component {
 						process_output_objects: arg.process_output_objects,
 						put: Vec::new(),
 						sandbox_processes: arg.sandbox_processes,
+						sources,
 						sync: None,
 						tag_targets: arg.tag_targets,
 						user_children: arg.user_children,
@@ -657,6 +660,7 @@ impl Component {
 						process_output_objects: arg.process_output_objects,
 						put: Vec::new(),
 						sandbox_processes: arg.sandbox_processes,
+						sources: None,
 						sync: sync.map(tg::sync::Join::Sync).or_else(|| join.clone()),
 						tag_targets: arg.tag_targets,
 						user_children: arg.user_children,
@@ -879,6 +883,68 @@ impl Component {
 	}
 
 	/// Get the output of a side of a push or pull attempt, continuing if its stream ended before its end messages.
+	/// Get the locations that the source gets nodes from, which are all locations except the destination when the source is local, and the source's defaults when the source is a remote.
+	async fn push_or_pull_sources(
+		session: &Session,
+		source: &tg::Location,
+		destination: &tg::Location,
+	) -> tg::Result<Option<tg::location::Arg>> {
+		if source.is_remote() {
+			return Ok(None);
+		}
+
+		// Resolve the default locations.
+		let locations = session
+			.locations(None)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+
+		// Add the local component without the destination's region.
+		let mut components = Vec::new();
+		if let Some(local) = locations.local {
+			let current = session.server.config.region.clone();
+			let regions = match (destination, current) {
+				(
+					tg::Location::Local(tg::location::Local {
+						region: Some(destination),
+					}),
+					Some(current),
+				) if *destination != current => {
+					let regions = std::iter::once(current)
+						.chain(
+							local
+								.regions
+								.into_iter()
+								.filter(|region| region != destination),
+						)
+						.collect();
+					Some(regions)
+				},
+				_ => None,
+			};
+			let component = tg::location::arg::LocalComponent { regions };
+			components.push(tg::location::arg::Component::Local(component));
+		}
+
+		// Add the remote components without the destination.
+		for remote in locations.remotes {
+			if let tg::Location::Remote(destination) = destination
+				&& destination.name == remote.name
+			{
+				continue;
+			}
+			let component = tg::location::arg::RemoteComponent {
+				name: remote.name,
+				regions: remote.regions,
+			};
+			components.push(tg::location::arg::Component::Remote(component));
+		}
+
+		let sources = tg::location::Arg(components);
+
+		Ok(Some(sources))
+	}
+
 	fn push_or_pull_completion<T>(completed: bool, output: T) -> ControlFlow<T, tg::Error> {
 		if completed {
 			ControlFlow::Break(output)

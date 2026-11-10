@@ -662,6 +662,14 @@ impl tangram_server_core::process::Component for Component {
 		self.try_get_process_regions(session, arg).boxed()
 	}
 
+	fn try_get_process_remotes<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		arg: tangram_server_core::process::TryGetProcessRemotesArg<'a>,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>> {
+		self.try_get_process_remotes(session, arg).boxed()
+	}
+
 	fn try_get_process_with_data_from_index<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,

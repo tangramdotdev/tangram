@@ -231,6 +231,19 @@ impl tangram_server_core::object::Component for Component {
 			.boxed()
 	}
 
+	fn try_get_object_remotes<'a>(
+		&'a self,
+		session: &'a Session,
+		id: &'a tg::object::Id,
+		remotes: &'a [tangram_server_core::location::Remote],
+		metadata: bool,
+		availability: bool,
+		tokens: &'a tg::authorization::Tokens,
+	) -> BoxFuture<'a, tg::Result<Option<tg::object::get::Output>>> {
+		self.try_get_object_remotes(session, id, remotes, metadata, availability, tokens)
+			.boxed()
+	}
+
 	fn try_touch_object<'a>(
 		&'a self,
 		session: &'a Session,

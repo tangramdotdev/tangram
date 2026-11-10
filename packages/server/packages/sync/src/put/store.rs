@@ -1,13 +1,10 @@
 use {
 	crate::{Component, put::State},
-	futures::{
-		FutureExt as _, StreamExt as _, TryStreamExt as _,
-		stream::{FuturesOrdered, FuturesUnordered},
-	},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::FuturesOrdered},
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
-	tangram_server_core::Session,
+	tangram_server_core::{Session, location::await_first_found_of_local_regions_remotes_futures},
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -256,16 +253,16 @@ impl Component {
 			.try_get_object_batch_local(session, objects, permissions, metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the objects locally"))?;
-		let location: tg::location::Arg =
-			tg::Location::Local(tg::location::Local::default()).into();
 		let locations = session
-			.locations(Some(&location))
+			.locations(state.arg.sources.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		let remotes = locations.remotes;
 		let outputs = std::iter::zip(std::iter::zip(objects, permissions), outputs)
 			.map(|((object, permissions), output)| {
 				let regions = regions.clone();
+				let remotes = remotes.clone();
 				async move {
 					if let Some(output) = output {
 						return Ok(Some(output));
@@ -327,33 +324,56 @@ impl Component {
 							.await?;
 						Ok(outputs.pop().flatten())
 					};
-					let region_future = session.server.components.object.try_get_object_regions(
-						session,
-						&object.node,
-						&regions,
-						metadata,
-						false,
-						&object.options.tokens,
+					let regions_and_remotes_future = async {
+						if let Some(output) = session
+							.server
+							.components
+							.object
+							.try_get_object_regions(
+								session,
+								&object.node,
+								&regions,
+								metadata,
+								false,
+								&object.options.tokens,
+							)
+							.await
+							.map_err(|error| {
+								tg::error!(!error, id = %object.node, "failed to get the object from another region")
+							})?
+						{
+							return Ok(Some(output));
+						}
+						session
+							.server
+							.components
+							.object
+							.try_get_object_remotes(
+								session,
+								&object.node,
+								&remotes,
+								metadata,
+								false,
+								&object.options.tokens,
+							)
+							.await
+							.map_err(
+								|error| tg::error!(!error, id = %object.node, "failed to get the object from a remote"),
+							)
+					};
+					let future = await_first_found_of_local_regions_remotes_futures(
+						local_future,
+						regions_and_remotes_future,
 					);
-					let mut futures = [local_future.boxed(), region_future.boxed()]
-						.into_iter()
-						.collect::<FuturesUnordered<_>>();
 					let available =
 						state.wait_remote(|graph| graph.object_remote_available(&object.node));
-					tokio::pin!(available);
-					let mut error = None;
-					while let Some(result) = tokio::select! {
+					let output = tokio::select! {
 						biased;
-						() = &mut available => return Ok(None),
-						result = futures.next() => result,
-					} {
-						match result {
-							Ok(Some(output)) => return Ok(Some(output)),
-							Ok(None) => {},
-							Err(source) => error = Some(source),
-						}
-					}
-					error.map_or(Ok(None), Err)
+						() = available => None,
+						result = future => result?,
+					};
+
+					Ok::<_, tg::Error>(output)
 				}
 			})
 			.collect::<FuturesOrdered<_>>()
@@ -658,16 +678,16 @@ impl Component {
 		permissions: &[tg::authorization::permission::Set],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let location: tg::location::Arg =
-			tg::Location::Local(tg::location::Local::default()).into();
 		let locations = session
-			.locations(Some(&location))
+			.locations(state.arg.sources.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		let remotes = locations.remotes;
 		let outputs = std::iter::zip(processes, permissions)
 			.map(|(process, permissions)| {
 				let regions = regions.clone();
+				let remotes = remotes.clone();
 				async move {
 					if let Some(output) = session
 						.server
@@ -737,38 +757,58 @@ impl Component {
 							)
 							.await
 					};
-					let arg = tangram_server_core::process::TryGetProcessRegionsArg {
-						availability: false,
-						id: &process.node,
-						metadata,
-						regions: &regions,
-						source: tg::process::Source::Auto,
-						tokens: &process.options.tokens,
+					let regions_and_remotes_future = async {
+						let arg = tangram_server_core::process::TryGetProcessRegionsArg {
+							availability: false,
+							id: &process.node,
+							metadata,
+							regions: &regions,
+							source: tg::process::Source::Auto,
+							tokens: &process.options.tokens,
+						};
+						if let Some(output) = session
+							.server
+							.components
+							.process
+							.try_get_process_regions(session, arg)
+							.await
+							.map_err(|error| {
+								tg::error!(!error, id = %process.node, "failed to get the process from another region")
+							})?
+						{
+							return Ok(Some(output));
+						}
+						let arg = tangram_server_core::process::TryGetProcessRemotesArg {
+							availability: false,
+							id: &process.node,
+							metadata,
+							remotes: &remotes,
+							source: tg::process::Source::Auto,
+							tokens: &process.options.tokens,
+						};
+						session
+							.server
+							.components
+							.process
+							.try_get_process_remotes(session, arg)
+							.await
+							.map_err(
+								|error| tg::error!(!error, id = %process.node, "failed to get the process from a remote"),
+							)
 					};
-					let region_future = session
-						.server
-						.components
-						.process
-						.try_get_process_regions(session, arg);
-					let mut futures = [local_future.boxed(), region_future.boxed()]
-						.into_iter()
-						.collect::<FuturesUnordered<_>>();
+					let future = await_first_found_of_local_regions_remotes_futures(
+						local_future,
+						regions_and_remotes_future,
+					);
 					let available =
 						state.wait_remote(|graph| graph.process_remote_available(&process.node));
-					tokio::pin!(available);
-					let mut error = None;
-					while let Some(result) = tokio::select! {
+					let output = tokio::select! {
 						biased;
-						() = &mut available => return Ok(None),
-						result = futures.next() => result,
-					} {
-						match result {
-							Ok(Some(output)) => return Ok(Some(output)),
-							Ok(None) => {},
-							Err(source) => error = Some(source),
-						}
-					}
-					error.map_or(Ok(None), Err)
+						() = available => None,
+						result = future => result?,
+					};
+
+					Ok::<_, tg::Error>(output)
 				}
 			})
 			.collect::<FuturesOrdered<_>>()

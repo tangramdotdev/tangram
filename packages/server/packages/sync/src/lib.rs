@@ -383,6 +383,7 @@ impl Component {
 		.map_err(|error| tg::error!(!error, remote = %remote, "failed to get the remote client"))?;
 		let arg = tg::sync::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
+			sources: None,
 			..arg
 		};
 		let output = client

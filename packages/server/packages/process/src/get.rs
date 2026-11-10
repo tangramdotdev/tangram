@@ -11,8 +11,9 @@ use {
 	},
 	tangram_index::prelude::*,
 	tangram_server_core::{
-		Session, location::await_local_future_over_regions_remotes_futures,
-		process::TryGetProcessRegionsArg,
+		Session,
+		location::await_local_future_over_regions_remotes_futures,
+		process::{TryGetProcessRegionsArg, TryGetProcessRemotesArg},
 	},
 };
 
@@ -28,15 +29,6 @@ struct TryGetProcessRegionArg<'a> {
 	id: &'a tg::process::Id,
 	metadata: bool,
 	region: &'a str,
-	source: tg::process::Source,
-	tokens: &'a tg::authorization::Tokens,
-}
-
-struct TryGetProcessRemotesArg<'a> {
-	availability: bool,
-	id: &'a tg::process::Id,
-	metadata: bool,
-	remotes: &'a [tangram_server_core::location::Remote],
 	source: tg::process::Source,
 	tokens: &'a tg::authorization::Tokens,
 }
@@ -890,7 +882,7 @@ impl Component {
 		Ok(Some(output))
 	}
 
-	async fn try_get_process_remotes(
+	pub async fn try_get_process_remotes(
 		&self,
 		session: &Session,
 		arg: TryGetProcessRemotesArg<'_>,

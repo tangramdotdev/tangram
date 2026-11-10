@@ -404,7 +404,7 @@ impl Component {
 		Ok(Some(output))
 	}
 
-	async fn try_get_object_remotes(
+	pub async fn try_get_object_remotes(
 		&self,
 		session: &Session,
 		id: &tg::object::Id,

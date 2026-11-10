@@ -34,6 +34,15 @@ pub struct TryGetProcessRegionsArg<'a> {
 	pub tokens: &'a tg::authorization::Tokens,
 }
 
+pub struct TryGetProcessRemotesArg<'a> {
+	pub availability: bool,
+	pub id: &'a tg::process::Id,
+	pub metadata: bool,
+	pub remotes: &'a [crate::location::Remote],
+	pub source: tg::process::Source,
+	pub tokens: &'a tg::authorization::Tokens,
+}
+
 /// The process component.
 pub trait Component: crate::component::Lifecycle {
 	fn try_get_process_local<'a>(
@@ -338,6 +347,12 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		session: &'a Session,
 		arg: TryGetProcessRegionsArg<'a>,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>>;
+
+	fn try_get_process_remotes<'a>(
+		&'a self,
+		session: &'a Session,
+		arg: TryGetProcessRemotesArg<'a>,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>>;
 
 	fn try_get_process_with_data_from_index<'a>(
