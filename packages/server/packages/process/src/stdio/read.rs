@@ -925,6 +925,16 @@ impl Component {
 			is_ack: |message: &crate::control::ClientMessage| {
 				matches!(message.0, tg::process::control::ClientMessage::Ack(_))
 			},
+			is_not_holder: |message: &crate::control::ClientMessage| match &message.0 {
+				tg::process::control::ClientMessage::Response(
+					tg::process::control::ClientResponse {
+						id,
+						output: Some(tg::process::control::ClientResponseOutput::NotHolder(_)),
+						..
+					},
+				) => Some(id.clone()),
+				_ => None,
+			},
 			marker: std::marker::PhantomData,
 			options,
 			request,
