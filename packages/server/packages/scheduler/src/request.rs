@@ -32,11 +32,13 @@ impl Component {
 	) -> tg::Result<(tg::scheduler::Id, tg::Result<ResponseOutput>)> {
 		// Send the request to one scheduler until it answers, and move to another scheduler only if it is unavailable.
 		let server = &session.server;
-		let retry = server.config.scheduler.request.retry.clone().into();
+		let config = &server.config.scheduler.request;
+		let retry = config.retry.clone().into();
 		service::retry(
 			&self.schedulers,
 			server,
 			&retry,
+			config.response_ttl,
 			service::start(),
 			|scheduler, id| {
 				let arg = arg.clone();
@@ -54,8 +56,9 @@ impl Component {
 	) -> tg::Result<tg::Result<ResponseOutput>> {
 		// Send the request to the scheduler until it answers and accepts the request.
 		let server = &session.server;
-		let retry = server.config.scheduler.request.retry.clone().into();
-		service::retry_to(&retry, |id| {
+		let config = &server.config.scheduler.request;
+		let retry = config.retry.clone().into();
+		service::retry_to(&retry, config.response_ttl, |id| {
 			let arg = arg.clone();
 			async move { Self::send_scheduler_request_inner(server, scheduler, &id, arg).await }
 		})

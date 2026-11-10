@@ -122,11 +122,12 @@ pub struct Response<O> {
 	pub output: Option<O>,
 }
 
-/// Select a server, and send the request to it until it answers. Move to another server only when the server replies that it is unavailable, which means that it did not accept the request, because a server that may have accepted the request must not receive it again through another server.
+/// Select a server, and send the request to it until it answers, resending it with the same request ID after the response timeout in case the server restarted after accepting it. Move to another server only when the server replies that it is unavailable, which means that it did not accept the request, because a server that may have accepted the request must not receive it again through another server.
 pub async fn retry<K, T, F, Fut>(
 	cache: &Cache<K>,
 	server: &Server,
 	options: &tangram_futures::retry::Options,
+	response_timeout: Duration,
 	start: u64,
 	f: F,
 ) -> tg::Result<(K::Id, T)>
@@ -153,7 +154,10 @@ where
 
 		// Send the request to the server with one request ID until it answers, so that the server deduplicates a resend.
 		let request_id = crate::control::id();
-		let output = attempt(&mut retries, || f(id.clone(), request_id.clone())).await?;
+		let output = attempt(&mut retries, response_timeout, || {
+			f(id.clone(), request_id.clone())
+		})
+		.await?;
 		if let Some(output) = output {
 			return Ok((id, output));
 		}
@@ -168,8 +172,12 @@ where
 	}
 }
 
-/// Send the request to a known server with one request ID until it answers and accepts the request, because no other server can handle it.
-pub async fn retry_to<T, F, Fut>(options: &tangram_futures::retry::Options, f: F) -> tg::Result<T>
+/// Send the request to a known server with one request ID until it answers and accepts the request, resending it after the response timeout in case the server restarted after accepting it, because no other server can handle it.
+pub async fn retry_to<T, F, Fut>(
+	options: &tangram_futures::retry::Options,
+	response_timeout: Duration,
+	f: F,
+) -> tg::Result<T>
 where
 	F: Fn(String) -> Fut,
 	Fut: Future<Output = tg::Result<Option<T>>>,
@@ -177,7 +185,7 @@ where
 	let mut retries = std::pin::pin!(tangram_futures::retry::stream(options.clone()));
 	let request_id = crate::control::id();
 	loop {
-		let output = attempt(&mut retries, || f(request_id.clone())).await?;
+		let output = attempt(&mut retries, response_timeout, || f(request_id.clone())).await?;
 		if let Some(output) = output {
 			return Ok(output);
 		}
@@ -247,9 +255,10 @@ pub fn server_subject<K: Kind>(id: &K::Id) -> String {
 	format!("{}s.{id}.server", K::NAME)
 }
 
-/// Run the operation until it answers, retrying on errors with the same arguments.
+/// Run the operation until it answers, retrying with the same arguments on errors and after the response timeout.
 async fn attempt<T, F, Fut>(
 	retries: &mut std::pin::Pin<&mut impl futures::Stream<Item = ()>>,
+	response_timeout: Duration,
 	f: F,
 ) -> tg::Result<Option<T>>
 where
@@ -257,7 +266,11 @@ where
 	Fut: Future<Output = tg::Result<Option<T>>>,
 {
 	loop {
-		match f().await {
+		let result = tokio::time::timeout(response_timeout, f())
+			.await
+			.map_err(|source| tg::error!(!source, "timed out waiting for the response"))
+			.and_then(std::convert::identity);
+		match result {
 			Ok(output) => return Ok(output),
 			Err(error) => {
 				if retries.next().await.is_none() {

@@ -136,21 +136,15 @@ impl Component {
 	}
 
 	async fn wait_for_indexer(&self, server: &Server, indexer: &tg::indexer::Id) -> tg::Result<()> {
-		// Send the wait with one request ID until the indexer answers, so that a resend does not replace an active wait with a later barrier, and resend it after the response time to live in case the indexer restarted after accepting it.
-		let retry = server.config.indexer.request.retry.clone().into();
-		let response_ttl = server.config.indexer.request.response_ttl;
-		let output = tangram_server_core::service::retry_to(&retry, |id| async move {
-			let request =
-				self.send_indexer_request(server, indexer, &id, crate::request::RequestArg::Wait);
-			let response =
-				tokio::time::timeout(response_ttl, request)
+		// Send the wait with one request ID until the indexer answers, so that a resend does not replace an active wait with a later barrier.
+		let config = &server.config.indexer.request;
+		let retry = config.retry.clone().into();
+		let output =
+			tangram_server_core::service::retry_to(&retry, config.response_ttl, |id| async move {
+				self.send_indexer_request(server, indexer, &id, crate::request::RequestArg::Wait)
 					.await
-					.map_err(|source| {
-						tg::error!(!source, "timed out waiting for the indexer response")
-					})??;
-			Ok(response)
-		})
-		.await?;
+			})
+			.await?;
 		output
 			.map_err(|source| tg::error!(!source, %indexer, "the indexer failed to wait"))?
 			.try_unwrap_wait()

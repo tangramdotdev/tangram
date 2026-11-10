@@ -50,6 +50,7 @@ impl Component {
 			&self.indexers,
 			server,
 			&retry,
+			server.config.indexer.request.response_ttl,
 			start,
 			|indexer, id| {
 				let arg = RequestArg::Enqueue(arg.clone());
