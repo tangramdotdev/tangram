@@ -14,7 +14,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_messenger::Messenger,
-	tangram_server_core::{Server, Session},
+	tangram_server_core::{Server, Session, control::accept::Path},
 	tangram_server_scheduler_core::{
 		Ack, AcquireProcessLeaseRequestArg, AcquireProcessLeaseResponseOutput, AddRunnerRequestArg,
 		AddRunnerResponseOutput, BorrowableCapacityNotification, CancelSandboxStopRequestArg,
@@ -64,12 +64,12 @@ struct Scheduler {
 }
 
 struct SchedulerState {
+	accepting: HashMap<tg::sandbox::Id, sandbox::Accepting, tg::id::BuildHasher>,
 	operations: Operations,
 	owner_ancestor_requests: HashMap<tg::Id, Vec<tg::sandbox::Id>, tg::id::BuildHasher>,
 	owner_ancestors: HashMap<tg::Id, OwnerAncestors, tg::id::BuildHasher>,
 	parents: sandbox::Parents,
 	pending_enqueues: HashMap<tg::sandbox::Id, PendingEnqueue, tg::id::BuildHasher>,
-	persisting: HashMap<tg::sandbox::Id, Vec<String>, tg::id::BuildHasher>,
 	queue: sandbox::Queue,
 	recovery: Option<recovery::Recovery>,
 	requests: Requests,
@@ -976,8 +976,8 @@ impl Scheduler {
 				if let Some(discarded) = output.discarded {
 					self.publish_sandbox_discarded(state, discarded);
 				}
-				if let Some(abandoned) = output.abandoned {
-					state.destroy_abandoned_sandbox(self, abandoned);
+				if let Some(sandbox) = output.accepted {
+					state.finish_accept(self, &sandbox, Path::Handled, Ok(()));
 				}
 				if let Some(held) = output.held {
 					state.finish_held_end(self, held);
@@ -1106,6 +1106,10 @@ impl Scheduler {
 		state: &mut SchedulerState,
 		discarded: sandbox::DiscardedSandbox,
 	) {
+		// Fail the handoff of the discarded sandbox's acceptance.
+		let error = tg::error!(sandbox = %discarded.sandbox, "the sandbox was discarded");
+		state.finish_accept(self, &discarded.sandbox, Path::Handled, Err(error));
+
 		let subject = tangram_server_sandbox_common::control::discarded_subject(&discarded.sandbox);
 		let error = discarded.error.clone();
 		let notification = tangram_server_sandbox_common::control::Discarded {

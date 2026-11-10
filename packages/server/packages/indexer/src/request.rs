@@ -331,9 +331,11 @@ impl Indexer {
 			write_sender,
 		} = args;
 		let result = match request.arg {
-			RequestArg::Enqueue(arg) => Self::handle_enqueue_request(&write_sender, arg)
-				.await
-				.map(|()| ResponseOutput::Enqueue),
+			RequestArg::Enqueue(arg) => {
+				Self::handle_enqueue_request(&guard.state, &guard.changed, &write_sender, arg)
+					.await
+					.map(|()| ResponseOutput::Enqueue)
+			},
 			RequestArg::Wait => self
 				.wait_for_indexing(&wait_sender, request.id.clone())
 				.await
@@ -364,20 +366,57 @@ impl Indexer {
 
 	#[tracing::instrument(name = "indexer.enqueue", level = "debug", skip_all, fields(archive = arg.archive.as_ref().map_or(0, bytes::Bytes::len), index = arg.index.as_ref().map_or(0, bytes::Bytes::len)), err(level = "debug"))]
 	async fn handle_enqueue_request(
+		state: &Mutex<IndexerState>,
+		changed: &tokio::sync::Notify,
 		write_sender: &queue::write::Sender,
 		arg: EnqueueRequestArg,
 	) -> tg::Result<()> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = queue::write::Request { arg, sender };
+		// Send the request to the write task, which records its entries for processing and writes them to the cache's queues.
+		let (assigned, assigned_receiver) = tokio::sync::oneshot::channel();
+		let (written, written_receiver) = tokio::sync::oneshot::channel();
+		let request = queue::write::Request {
+			arg,
+			assigned,
+			written,
+		};
 		write_sender
 			.send(request)
 			.await
 			.map_err(|_| tg::error!("the indexer write task stopped"))?;
-		receiver
+		let sequences = assigned_receiver
 			.await
-			.map_err(|_| tg::error!("the indexer write task stopped"))??;
+			.map_err(|_| tg::error!("the indexer write task stopped"))?;
+
+		// Accept the request when its entries are either written to the cache's queues or processed.
+		let queued = async {
+			written_receiver
+				.await
+				.map_err(|_| tg::error!("the indexer write task stopped"))?
+		};
+		let handled = Self::wait_for_processing(state, changed, &sequences);
+		tangram_server_core::control::accept::accept(queued, handled).await?;
 
 		Ok(())
+	}
+
+	async fn wait_for_processing(
+		state: &Mutex<IndexerState>,
+		changed: &tokio::sync::Notify,
+		sequences: &[(queue::Kind, u64)],
+	) -> tg::Result<()> {
+		loop {
+			let notified = changed.notified();
+			let processed = {
+				let state = state.lock().unwrap();
+				sequences
+					.iter()
+					.all(|(kind, sequence)| state.queues.processing_finished(*kind, *sequence))
+			};
+			if processed {
+				return Ok(());
+			}
+			notified.await;
+		}
 	}
 
 	async fn publish_client_messages(

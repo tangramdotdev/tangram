@@ -14,12 +14,13 @@ pub(crate) type Sender = tokio::sync::mpsc::Sender<Request>;
 
 pub(crate) struct Request {
 	pub arg: request::EnqueueRequestArg,
-	pub sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
+	pub assigned: tokio::sync::oneshot::Sender<Vec<(Kind, u64)>>,
+	pub written: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
 
 struct Assigned {
 	entries: Vec<(Kind, u64, bytes::Bytes)>,
-	sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
+	written: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
 
 impl Indexer {
@@ -46,7 +47,11 @@ impl Indexer {
 		changed: &tokio::sync::Notify,
 		request: Request,
 	) -> Assigned {
-		let Request { arg, sender } = request;
+		let Request {
+			arg,
+			assigned,
+			written,
+		} = request;
 		let request::EnqueueRequestArg { archive, index } = arg;
 		let mut entries = Vec::with_capacity(2);
 		let payloads = [(Kind::Archive, archive), (Kind::Index, index)];
@@ -66,7 +71,14 @@ impl Indexer {
 		}
 		changed.notify_waiters();
 
-		Assigned { entries, sender }
+		// Send the assigned sequences, so that the request can be accepted once they are processed.
+		let sequences = entries
+			.iter()
+			.map(|(kind, sequence, _)| (*kind, *sequence))
+			.collect();
+		assigned.send(sequences).ok();
+
+		Assigned { entries, written }
 	}
 
 	async fn allocate_sequence(
@@ -91,7 +103,7 @@ impl Indexer {
 		changed: &tokio::sync::Notify,
 		assigned: Assigned,
 	) {
-		let Assigned { entries, sender } = assigned;
+		let Assigned { entries, written } = assigned;
 
 		// Write each entry as its own queue item.
 		let results = future::join_all(
@@ -111,6 +123,6 @@ impl Indexer {
 
 		// Respond.
 		let result = results.into_iter().collect::<tg::Result<()>>();
-		sender.send(result).ok();
+		written.send(result).ok();
 	}
 }
