@@ -356,7 +356,7 @@ fn environment(options: &Options, temp_path: &Path) -> Vec<(String, String)> {
 	]
 }
 
-/// Create a command that runs the supervisor in a Tangram sandbox, which uses the host's network and mounts the host's system directories, the directories on the path, the repository, the test's temporary directory, and the cloud database pool at their host paths.
+/// Create a command that runs the supervisor in a Tangram sandbox, which mounts the host's system directories, the directories on the path, the repository, and the test's temporary directory at their host paths.
 fn sandbox(
 	tangram: &Path,
 	options: &Options,
@@ -383,16 +383,6 @@ fn sandbox(
 	for target in system_paths {
 		if let Ok(source) = std::fs::canonicalize(target) {
 			mounts.push((source, PathBuf::from(target), "ro"));
-		}
-	}
-
-	// Mount the cloud database pool read-write and the FoundationDB cluster file read-only, so that the tests can lease the databases.
-	if options.cloud {
-		let pool_path = std::fs::canonicalize(database::pool_path())?;
-		mounts.push((pool_path.clone(), pool_path, "rw"));
-		if let Some(cluster_path) = &options.cluster_path {
-			let cluster_path = std::fs::canonicalize(cluster_path)?;
-			mounts.push((cluster_path.clone(), cluster_path, "ro"));
 		}
 	}
 
@@ -445,9 +435,9 @@ fn sandbox(
 		}
 	}
 
-	// Add the host's network, so that the tests reach the cloud databases on the loopback interface as they do on the host, and the mounts, the working directory, and the environment.
+	// Add the network, the mounts, the working directory, and the environment.
 	if !options.offline {
-		command.arg("--network=host");
+		command.arg("--network");
 	}
 	for (source, target, mode) in &mounts {
 		command

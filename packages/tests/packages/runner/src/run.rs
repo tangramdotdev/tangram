@@ -118,14 +118,20 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 		return Err("no tests matched the provided filters".into());
 	}
 
-	// Check the cloud databases. If they are ready, take this run's lock on its database pool leases and reclaim the leases of exited runs. Otherwise, skip the tests that require them.
-	let cloud = match database::check().await {
-		Ok(()) => true,
-		Err(error) => {
-			eprintln!("\x1b[33mwarning\x1b[0m: {error}");
-			eprintln!("the tests that require the cloud databases will be skipped");
-			false
-		},
+	// Check the cloud databases, unless the tests run in sandboxes, which cannot reach them. If they are ready, take this run's lock on its database pool leases and reclaim the leases of exited runs. Otherwise, skip the tests that require them.
+	let cloud = if args.sandbox.is_some() {
+		eprintln!("\x1b[33mwarning\x1b[0m: the sandboxes cannot reach the cloud databases");
+		eprintln!("the tests that require the cloud databases will be skipped");
+		false
+	} else {
+		match database::check().await {
+			Ok(()) => true,
+			Err(error) => {
+				eprintln!("\x1b[33mwarning\x1b[0m: {error}");
+				eprintln!("the tests that require the cloud databases will be skipped");
+				false
+			},
+		}
 	};
 	let (cluster_path, database_run) = if cloud {
 		let run = database::Run::new(&database::pool_path())?;
