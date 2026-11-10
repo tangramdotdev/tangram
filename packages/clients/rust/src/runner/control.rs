@@ -78,6 +78,9 @@ pub struct ClientAck {
 pub enum ClientNotification {
 	#[tangram_serialize(id = 0)]
 	Heartbeat(HeartbeatClientNotification),
+
+	#[tangram_serialize(id = 1)]
+	SandboxEnded(SandboxEndedClientNotification),
 }
 
 #[derive(
@@ -257,6 +260,23 @@ pub struct HeartbeatClientNotification {
 
 	#[tangram_serialize(id = 2)]
 	pub sandboxes: BTreeSet<tg::sandbox::Id>,
+}
+
+/// A report that a boot of a sandbox ended on the runner.
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct SandboxEndedClientNotification {
+	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub sandbox: tg::sandbox::Id,
 }
 
 #[derive(

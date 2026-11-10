@@ -113,7 +113,7 @@ pub struct Request<A> {
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Response<O> {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::error::Data>,
+	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 
 	#[tangram_serialize(id = 1)]
 	pub id: String,
@@ -122,17 +122,18 @@ pub struct Response<O> {
 	pub output: Option<O>,
 }
 
-/// Select a server, and run the operation with it until it answers. Move to another server only when the server replies that it is unavailable, which means that it did not accept the request, because a server that may have accepted the request must not receive it again through another server.
+/// Select a server, and send the request to it until it answers, resending it with the same request ID after the response timeout in case the server restarted after accepting it. Move to another server only when the server replies that it is unavailable, which means that it did not accept the request, because a server that may have accepted the request must not receive it again through another server.
 pub async fn retry<K, T, F, Fut>(
 	cache: &Cache<K>,
 	server: &Server,
 	options: &tangram_futures::retry::Options,
+	response_timeout: Duration,
 	start: u64,
 	f: F,
 ) -> tg::Result<(K::Id, T)>
 where
 	K: Kind,
-	F: Fn(K::Id) -> Fut,
+	F: Fn(K::Id, String) -> Fut,
 	Fut: Future<Output = tg::Result<Option<T>>>,
 {
 	let mut selection = start;
@@ -151,17 +152,12 @@ where
 			},
 		};
 
-		// Run the operation with the server until it answers.
-		let output = loop {
-			match f(id.clone()).await {
-				Ok(output) => break output,
-				Err(error) => {
-					if retries.next().await.is_none() {
-						return Err(error);
-					}
-				},
-			}
-		};
+		// Send the request to the server with one request ID until it answers, so that the server deduplicates a resend.
+		let request_id = crate::control::id();
+		let output = attempt(&mut retries, response_timeout, || {
+			f(id.clone(), request_id.clone())
+		})
+		.await?;
 		if let Some(output) = output {
 			return Ok((id, output));
 		}
@@ -173,6 +169,29 @@ where
 		}
 		selection = selection.wrapping_add(1);
 		refresh = true;
+	}
+}
+
+/// Send the request to a known server with one request ID until it answers and accepts the request, resending it after the response timeout in case the server restarted after accepting it, because no other server can handle it.
+pub async fn retry_to<T, F, Fut>(
+	options: &tangram_futures::retry::Options,
+	response_timeout: Duration,
+	f: F,
+) -> tg::Result<T>
+where
+	F: Fn(String) -> Fut,
+	Fut: Future<Output = tg::Result<Option<T>>>,
+{
+	let mut retries = std::pin::pin!(tangram_futures::retry::stream(options.clone()));
+	let request_id = crate::control::id();
+	loop {
+		let output = attempt(&mut retries, response_timeout, || f(request_id.clone())).await?;
+		if let Some(output) = output {
+			return Ok(output);
+		}
+		if retries.next().await.is_none() {
+			return Err(tg::error!("the server is unavailable"));
+		}
 	}
 }
 
@@ -234,6 +253,32 @@ pub fn client_subject<K: Kind>(request_id: &str) -> String {
 #[must_use]
 pub fn server_subject<K: Kind>(id: &K::Id) -> String {
 	format!("{}s.{id}.server", K::NAME)
+}
+
+/// Run the operation until it answers, retrying with the same arguments on errors and after the response timeout.
+async fn attempt<T, F, Fut>(
+	retries: &mut std::pin::Pin<&mut impl futures::Stream<Item = ()>>,
+	response_timeout: Duration,
+	f: F,
+) -> tg::Result<Option<T>>
+where
+	F: Fn() -> Fut,
+	Fut: Future<Output = tg::Result<Option<T>>>,
+{
+	loop {
+		let result = tokio::time::timeout(response_timeout, f())
+			.await
+			.map_err(|source| tg::error!(!source, "timed out waiting for the response"))
+			.and_then(std::convert::identity);
+		match result {
+			Ok(output) => return Ok(output),
+			Err(error) => {
+				if retries.next().await.is_none() {
+					return Err(error);
+				}
+			},
+		}
+	}
 }
 
 impl<K: Kind> Cache<K> {
@@ -336,16 +381,57 @@ impl<K: Kind> Endpoint<K> {
 		concurrency: usize,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		let Self { control, receiver } = self;
-		let requests = Self::handle_requests(control, &mut handler, stopper);
-		let messages = Self::publish_client_messages(server, receiver, concurrency);
-		future::try_join(requests, messages).await?;
+		let Self {
+			control,
+			mut receiver,
+		} = self;
 
-		Ok(())
+		// Handle the requests while publishing the client messages.
+		let result = {
+			let requests = std::pin::pin!(Self::handle_requests(control, &mut handler, stopper));
+			let messages = std::pin::pin!(Self::publish_client_messages(
+				server,
+				&mut receiver,
+				concurrency
+			));
+			let (result, messages) = match future::select(requests, messages).await {
+				future::Either::Left((result, messages)) => (result, Some(messages)),
+				future::Either::Right(((), requests)) => (requests.await, None),
+			};
+			if result.is_ok()
+				&& let Some(messages) = messages
+			{
+				messages.await;
+			}
+			result
+		};
+
+		// Publish the acks and responses that are already queued if handling failed.
+		if result.is_err() {
+			while let Ok(message) = receiver.try_recv() {
+				Self::publish_client_message(server, message).await;
+			}
+		}
+
+		result
 	}
 
 	async fn handle_requests<H: Handler<K>>(
 		mut control: crate::control::Stream<ServerMessage<K::Arg>, ClientMessage<K::Output>>,
+		handler: &mut H,
+		stopper: Stopper,
+	) -> tg::Result<()> {
+		let result = Self::handle_requests_inner(&mut control, handler, stopper).await;
+
+		// Stop the handlers, which lets the client messages finish publishing.
+		handler.shutdown().await;
+		drop(control);
+
+		result
+	}
+
+	async fn handle_requests_inner<H: Handler<K>>(
+		control: &mut crate::control::Stream<ServerMessage<K::Arg>, ClientMessage<K::Output>>,
 		handler: &mut H,
 		stopper: Stopper,
 	) -> tg::Result<()> {
@@ -365,37 +451,38 @@ impl<K: Kind> Endpoint<K> {
 			};
 			let Some(accepted) = handler.accept(&request) else {
 				let message = ClientMessage::Unavailable(Ack { id: request.id });
-				control.sender().try_send_untracked(message);
+				control.sender().send(message).await?;
 				continue;
 			};
 			control.acknowledge_now(request.id.clone());
 			handler.handle(request, accepted, control.sender()).await?;
 		}
 
-		// Stop the handlers, which lets the client messages finish publishing.
-		handler.shutdown().await;
-
 		Ok(())
 	}
 
 	async fn publish_client_messages(
 		server: &Server,
-		receiver: tokio::sync::mpsc::Receiver<ClientMessage<K::Output>>,
+		receiver: &mut tokio::sync::mpsc::Receiver<ClientMessage<K::Output>>,
 		concurrency: usize,
-	) -> tg::Result<()> {
-		tokio_stream::wrappers::ReceiverStream::new(receiver)
-			.map(Ok::<_, tg::Error>)
-			.try_for_each_concurrent(concurrency, |message| async move {
-				let subject = client_subject::<K>(message.id());
-				if let Err(error) = server.messenger.publish(subject, message).await {
-					let name = K::NAME;
-					tracing::error!(%error, "failed to publish a {name} client message");
-				}
-				Ok(())
+	) {
+		futures::stream::poll_fn(|context| receiver.poll_recv(context))
+			.for_each_concurrent(concurrency, |message| {
+				Self::publish_client_message(server, message)
 			})
-			.await?;
+			.await;
+	}
 
-		Ok(())
+	async fn publish_client_message(server: &Server, message: ClientMessage<K::Output>) {
+		if let ClientMessage::Response(_) = &message {
+			let checkpoint = format!("{}.response.publish", K::NAME);
+			crate::checkpoint!(server, &checkpoint).await;
+		}
+		let subject = client_subject::<K>(message.id());
+		if let Err(error) = server.messenger.publish(subject, message).await {
+			let name = K::NAME;
+			tracing::error!(%error, "failed to publish a {name} client message");
+		}
 	}
 }
 
@@ -418,10 +505,7 @@ impl<O> Response<O> {
 				output: Some(output),
 			},
 			Err(error) => Self {
-				error: Some(tg::error::Data {
-					message: Some(error.to_string()),
-					..Default::default()
-				}),
+				error: Some(error.to_data_or_id()),
 				id,
 				output: None,
 			},

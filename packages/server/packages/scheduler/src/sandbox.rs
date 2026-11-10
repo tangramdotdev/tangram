@@ -6,7 +6,7 @@ use {
 		EndSandboxRequestArg, EndSandboxResponseOutput, EnqueueSandboxRequestArg,
 		EnqueueSandboxResponseOutput, HeartbeatNotification, Operation, OwnerAncestors,
 		PendingEnqueue, ReleaseProcessLeaseRequestArg, ReleaseProcessLeaseResponseOutput,
-		ResponseOutput, Scheduler, SchedulerState,
+		ResponseOutput, SandboxEndedNotification, Scheduler, SchedulerState,
 		runner::{Reservation, ReservationState, Runner},
 	},
 	futures::{FutureExt as _, StreamExt as _, future},
@@ -45,6 +45,9 @@ pub(super) struct Sandboxes {
 	/// The sandboxes that a runner holds whose control connections may not be established yet.
 	placed: HashMap<tg::sandbox::Id, Placed, tg::id::BuildHasher>,
 
+	/// The boots that runners accepted, which are tracked until their runners report their ends, so that an enqueue of a tracked or older boot is a no-op.
+	scheduled: HashMap<tg::sandbox::Id, Scheduled, tg::id::BuildHasher>,
+
 	/// The handles of the tasks that stop sandboxes once they start.
 	stops: HashMap<tg::sandbox::Id, future::AbortHandle, tg::id::BuildHasher>,
 }
@@ -63,6 +66,13 @@ pub(super) struct Placed {
 	pub registration_index: u64,
 	pub request: EnqueueSandboxRequestArg,
 	pub runner: tg::runner::Id,
+}
+
+/// A boot that a runner accepted.
+struct Scheduled {
+	boot: u64,
+	registration_index: u64,
+	runner: tg::runner::Id,
 }
 
 /// An end of a sandbox that waits for an in-flight placement to finish.
@@ -265,6 +275,7 @@ impl Sandboxes {
 			generation: 0,
 			loading: 0,
 			placed: HashMap::default(),
+			scheduled: HashMap::default(),
 			stops: HashMap::default(),
 		}
 	}
@@ -339,6 +350,16 @@ impl SchedulerState {
 		recovered: bool,
 	) {
 		let ids = id.into_iter().collect::<Vec<_>>();
+
+		// Reply to an enqueue of a boot that a runner already accepted, or of an older boot, without enqueueing it again.
+		if let Some(scheduled) = self.sandboxes.scheduled.get(&request.sandbox) {
+			if request.boot <= scheduled.boot {
+				self.send_enqueue_responses(scheduler, ids, Ok(()));
+				return;
+			}
+			self.sandboxes.scheduled.remove(&request.sandbox);
+		}
+
 		if self.sandboxes.entries.contains_key(&request.sandbox) {
 			let sandbox = request.sandbox;
 			self.finish_enqueue(scheduler, ids, &sandbox, Ok(()));
@@ -1122,6 +1143,46 @@ impl SchedulerState {
 		self.put_end_status(scheduler, ids, request, status, error);
 	}
 
+	/// Track a boot that a runner accepted or reported, so that an enqueue of it or of an older boot is a no-op.
+	pub(super) fn track_scheduled_sandbox(
+		&mut self,
+		sandbox: tg::sandbox::Id,
+		boot: u64,
+		runner: &tg::runner::Id,
+		registration_index: u64,
+	) {
+		if self
+			.sandboxes
+			.scheduled
+			.get(&sandbox)
+			.is_some_and(|scheduled| scheduled.boot > boot)
+		{
+			return;
+		}
+		let scheduled = Scheduled {
+			boot,
+			registration_index,
+			runner: runner.clone(),
+		};
+		self.sandboxes.scheduled.insert(sandbox, scheduled);
+	}
+
+	/// Forget a boot that its runner reports ended.
+	pub(super) fn handle_sandbox_ended(&mut self, notification: &SandboxEndedNotification) {
+		let ended = self
+			.sandboxes
+			.scheduled
+			.get(&notification.sandbox)
+			.is_some_and(|scheduled| {
+				scheduled.runner == notification.runner
+					&& scheduled.registration_index == notification.registration_index
+					&& scheduled.boot == notification.boot
+			});
+		if ended {
+			self.sandboxes.scheduled.remove(&notification.sandbox);
+		}
+	}
+
 	/// Record a sandbox that a restarted scheduler found on a runner.
 	pub(super) fn insert_placed_sandbox(&mut self, sandbox: tg::sandbox::Id, mut placed: Placed) {
 		self.sandboxes.generation += 1;
@@ -1461,6 +1522,12 @@ impl SchedulerState {
 			Ok(Ok(true)) if runner_current => {
 				self.remove_reservation(&id, &placement, true);
 				self.sandboxes.entries.remove(&id);
+				self.track_scheduled_sandbox(
+					id.clone(),
+					request.boot,
+					&runner_ref.id,
+					runner_ref.registration_index,
+				);
 				accepted = Some(id.clone());
 				if let Some(held) = &mut held {
 					held.placed = Some(runner_ref.clone());
@@ -1573,6 +1640,9 @@ impl SchedulerState {
 		let Some(runner) = self.runners.entries.remove(id) else {
 			return Vec::new();
 		};
+		self.sandboxes
+			.scheduled
+			.retain(|_, scheduled| scheduled.runner != *id);
 		for parent_id in runner.borrowable {
 			let Some(parent) = self.parents.0.get_mut(&parent_id) else {
 				continue;
@@ -1614,6 +1684,7 @@ impl SchedulerState {
 
 	pub(super) fn discard_pinned_sandboxes(
 		&mut self,
+		scheduler: &Scheduler,
 		runner: &tg::runner::Id,
 	) -> Vec<DiscardedSandbox> {
 		let ids = self
@@ -1629,7 +1700,7 @@ impl SchedulerState {
 		let mut discarded = Vec::new();
 		for id in ids {
 			self.remove_queued_sandbox(&id);
-			let request = self.sandboxes.entries.remove(&id).unwrap().request;
+			let request = self.remove_sandbox_entry(scheduler, &id).unwrap().request;
 			let error = tg::error!(sandbox = %id, %runner, "the sandbox's runner is unavailable");
 			let sandbox = DiscardedSandbox {
 				error: error.to_data_or_id(),
@@ -1993,6 +2064,8 @@ impl Scheduler {
 		&self,
 		request: &EnqueueSandboxRequestArg,
 	) -> tg::Result<()> {
+		tangram_server_core::checkpoint!(self.server, "scheduler.sandbox.persist", sandbox = %request.sandbox)
+			.await;
 		let stored = EnqueueSandboxRequestArg {
 			token: None,
 			..request.clone()

@@ -24,8 +24,8 @@ use {
 		EndSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
 		HeartbeatAcknowledgement, HeartbeatNotification, Notification,
 		ReleaseProcessLeaseRequestArg, ReleaseProcessLeaseResponseOutput, RemoveRunnerRequestArg,
-		RemoveRunnerResponseOutput, RequestArg, ResponseOutput, runner_heartbeat_subject,
-		scheduler_notification_subject,
+		RemoveRunnerResponseOutput, RequestArg, ResponseOutput, SandboxEndedNotification,
+		runner_heartbeat_subject, scheduler_notification_subject,
 	},
 };
 
@@ -551,6 +551,7 @@ impl Scheduler {
 			move |stopper| async move {
 				endpoint
 					.run(&server, handler, request_config.concurrency, stopper)
+					.boxed()
 					.await
 			}
 		});
@@ -651,6 +652,9 @@ impl Scheduler {
 				if state.handle_heartbeat(&notification, self.server.clock.instant()) {
 					self.publish_runner_heartbeat_ack(state, &notification);
 				}
+			},
+			Notification::SandboxEnded(notification) => {
+				state.handle_sandbox_ended(&notification);
 			},
 		}
 	}
@@ -824,10 +828,6 @@ impl Scheduler {
 		state: &mut SchedulerState,
 		discarded: sandbox::DiscardedSandbox,
 	) {
-		// Fail the handoff of the discarded sandbox's acceptance.
-		let error = tg::error!(sandbox = %discarded.sandbox, "the sandbox was discarded");
-		state.finish_accept(self, &discarded.sandbox, Path::Handled, Err(error));
-
 		let subject = tangram_server_sandbox_common::control::discarded_subject(&discarded.sandbox);
 		let error = discarded.error.clone();
 		let notification = tangram_server_sandbox_common::control::Discarded {

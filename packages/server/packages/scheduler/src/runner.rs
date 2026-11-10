@@ -118,6 +118,16 @@ impl SchedulerState {
 			reserved: tg::runner::Capacity::default(),
 		};
 		self.runners.entries.insert(request.runner.clone(), runner);
+
+		// Track the boots that the runner reports, which a restarted scheduler rebuilds its tracking from.
+		for sandbox in &request.sandboxes {
+			self.track_scheduled_sandbox(
+				sandbox.id.clone(),
+				sandbox.boot,
+				&request.runner,
+				registration_index,
+			);
+		}
 		self.queue.wake();
 
 		let scheduler = scheduler.clone();
@@ -227,7 +237,7 @@ impl SchedulerState {
 		self.handle_lost_runner(scheduler, &request.runner);
 
 		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later.
-		for discarded in self.discard_pinned_sandboxes(&request.runner) {
+		for discarded in self.discard_pinned_sandboxes(scheduler, &request.runner) {
 			scheduler.publish_sandbox_discarded(self, discarded);
 		}
 		let scheduler = scheduler.clone();

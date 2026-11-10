@@ -104,6 +104,7 @@ impl Indexer {
 		assigned: Assigned,
 	) {
 		let Assigned { entries, written } = assigned;
+		tangram_server_core::checkpoint!(self.server, "indexer.queue.write").await;
 
 		// Write each entry as its own queue item.
 		let results = future::join_all(

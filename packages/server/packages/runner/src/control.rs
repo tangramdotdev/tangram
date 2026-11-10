@@ -400,6 +400,34 @@ impl Component {
 								tg::error!("failed to track the runner heartbeat acknowledgement")
 							})?;
 						},
+						tg::runner::control::ClientMessage::Notification(
+							tg::runner::control::ClientNotification::SandboxEnded(ended),
+						) => {
+							// Forward the end of the boot to the scheduler, which stops treating an enqueue of the boot as a duplicate.
+							let notification =
+								tangram_server_scheduler_core::Notification::SandboxEnded(
+									tangram_server_scheduler_core::SandboxEndedNotification {
+										boot: ended.boot,
+										registration_index,
+										runner: runner.clone(),
+										sandbox: ended.sandbox,
+									},
+								);
+							session
+								.server
+								.messenger
+								.publish(
+									tangram_server_scheduler_core::scheduler_notification_subject(
+										&scheduler,
+									),
+									notification,
+								)
+								.await
+								.inspect_err(|error| {
+									tracing::error!(%error, "failed to publish the sandbox end notification");
+								})
+								.ok();
+						},
 						tg::runner::control::ClientMessage::Request(request) => {
 							control.acknowledge(request.id.clone()).await?;
 							let sender = control.sender();

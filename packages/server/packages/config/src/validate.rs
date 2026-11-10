@@ -745,6 +745,11 @@ impl Config {
 				"the scheduler cache poll interval must be greater than zero"
 			));
 		}
+		if self.scheduler.request.timeout.is_zero() {
+			return Err(tg::error!(
+				"the scheduler request timeout must be greater than zero"
+			));
+		}
 		if self.scheduler.request.response_ttl.is_zero() {
 			return Err(tg::error!(
 				"the scheduler request response time to live must be greater than zero"
