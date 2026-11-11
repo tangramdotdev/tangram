@@ -479,6 +479,9 @@ pub(crate) async fn spawn_inner(
 		reference
 	};
 
+	// Determine whether to sandbox.
+	let sandbox = options.sandboxed();
+
 	let mut executable = options.executable;
 	let executable_path = match (&reference, &executable) {
 		(Some(_), Some(executable)) if executable.artifact.is_none() => executable.path.clone(),
@@ -494,21 +497,6 @@ pub(crate) async fn spawn_inner(
 		tg::Reference::with_path(".".into())
 	};
 
-	// Determine whether to sandbox.
-	let sandbox = match options.sandbox.get() {
-		None => {
-			options.cached.is_some_and(|v| v)
-				|| options.checksum.is_some()
-				|| !options.sandbox.arg.is_empty()
-				|| location.is_some()
-				|| matches!(
-					options.tty.tty,
-					Some(tg::Either::Left(true) | tg::Either::Right(_))
-				)
-		},
-		Some(tg::Either::Left(true) | tg::Either::Right(_)) => true,
-		Some(tg::Either::Left(false)) => false,
-	};
 	if !sandbox && location.is_some() {
 		return Err(tg::error!("a location is not supported without a sandbox"));
 	}
@@ -927,6 +915,26 @@ pub(crate) async fn spawn_inner(
 		sandboxed,
 		tag: options.tag,
 	})
+}
+
+impl Options {
+	/// Determine whether the process runs in a sandbox.
+	pub(crate) fn sandboxed(&self) -> bool {
+		match self.sandbox.get() {
+			None => {
+				self.cached.is_some_and(|v| v)
+					|| self.checksum.is_some()
+					|| !self.sandbox.arg.is_empty()
+					|| self.location.get().is_some()
+					|| matches!(
+						self.tty.tty,
+						Some(tg::Either::Left(true) | tg::Either::Right(_))
+					)
+			},
+			Some(tg::Either::Left(true) | tg::Either::Right(_)) => true,
+			Some(tg::Either::Left(false)) => false,
+		}
+	}
 }
 
 impl Debug {

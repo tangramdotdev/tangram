@@ -37,9 +37,9 @@ let hit = tg checkpoint wait sandbox.control.connect $watch 0 | from json
 let sandbox = $hit.params.sandbox
 let pid = open --raw $pid_path | str trim | into int
 
-kill --signal 15 $pid
+kill --signal 9 $pid
 let output = job recv --tag $run --timeout 10sec
-assert equal $output.exit_code (-15) "the actual tg process should be terminated by SIGTERM"
+assert equal $output.exit_code (-9) "the tg process should be killed"
 
 # Let the sandbox connect and wait for its index write to complete.
 let submitted = checkpoint watch sandbox.control.index.submitted --params { sandbox: $sandbox }

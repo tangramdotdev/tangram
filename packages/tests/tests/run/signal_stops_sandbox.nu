@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Interrupting or terminating tg run cancels its process, and tg run exits only after every process in the sandbox that it created has stopped, including a child in another process group.
+# A signal that ends tg run stops its sandboxed process, and tg run exits only after every process in the sandbox that it created has stopped, including a child in another process group.
 
 let server = server spawn
 let tangram = which tg | where type == external | get path | first
@@ -23,6 +23,7 @@ let script = '
 '
 
 for case in [
+	{ exit: 129, signal: 1 },
 	{ exit: 130, signal: 2 },
 	{ exit: 143, signal: 15 },
 ] {

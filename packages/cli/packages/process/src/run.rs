@@ -191,17 +191,42 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 	let ephemeral_sandbox = !matches!(options.spawn.sandbox.get(), Some(tg::Either::Right(_)))
 		&& options.spawn.sandbox.time_to_live.get() == Some(std::time::Duration::ZERO);
 
-	// Spawn the process.
+	// Install the signal handlers before spawning a sandboxed process that this run awaits without a viewer, because the process does not receive the signals that end tg run.
+	let mut signals = if !options.detach
+		&& options.spawn.sandboxed()
+		&& matches!(options.view, None | Some(View::None))
+	{
+		Some(Signals::new()?)
+	} else {
+		None
+	};
+
+	// Spawn the process. After a signal, finish spawning so that the process can be stopped, unless another signal arrives.
 	let print = (!options.detach).then(|| options.print.clone());
-	let process = Box::pin(crate::spawn::spawn(
-		cli,
-		options.spawn,
-		reference,
-		trailing,
-		print,
-		mode,
-	))
-	.await?;
+	let mut spawn_signal = None;
+	let process = {
+		let mut spawn_future = Box::pin(crate::spawn::spawn(
+			cli,
+			options.spawn,
+			reference,
+			trailing,
+			print,
+			mode,
+		));
+		match &mut signals {
+			Some(signals) => tokio::select! {
+				result = &mut spawn_future => result?,
+				signal = signals.recv() => {
+					spawn_signal = Some(signal?);
+					tokio::select! {
+						result = spawn_future => result?,
+						signal = signals.recv() => exit_with_signal(signal?),
+					}
+				},
+			},
+			None => spawn_future.await?,
+		}
+	};
 
 	// If the detach flag is set, then return the process referent.
 	if options.detach {
@@ -325,23 +350,27 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 				}
 			},
 		}
-	} else if process.node().id().is_right() {
-		// Await the sandboxed process, which does not receive the signals that end tg run, so stop it when tg run receives one.
-		let mut signals = Signals::new()?;
-		tokio::select! {
-			result = &mut wait_future => {
+	} else if let Some(mut signals) = signals {
+		// Await the process unless a signal arrived while spawning it.
+		let received = match spawn_signal {
+			Some(signal) => tg::Either::Right(signal),
+			None => tokio::select! {
+				result = &mut wait_future => tg::Either::Left(result),
+				signal = signals.recv() => tg::Either::Right(signal?),
+			},
+		};
+		match received {
+			tg::Either::Left(result) => {
 				// Exit on a later signal, because the signal handlers remain installed.
 				tokio::spawn(async move {
 					if let Ok(signal) = signals.recv().await {
-						std::process::exit(128 + i32::from(signal as u8));
+						exit_with_signal(signal);
 					}
 				});
 				result
 			},
-			signal = signals.recv() => {
-				let signal = signal?;
-
-				// Stop the process if this run spawned it, and await it if it stops, so that it stops before tg run exits. Exit without waiting on another signal.
+			tg::Either::Right(signal) => {
+				// Stop the process if this run spawned it, and exit. Exit at once on another signal.
 				if process.node().lease().is_some() {
 					let stop = async {
 						match stop_process(&client, process.node(), ephemeral_sandbox).await {
@@ -359,9 +388,7 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 						_ = signals.recv() => (),
 					}
 				}
-
-				cli.exit.replace((128 + signal as u8).into());
-				return Ok(tg::Value::Null);
+				exit_with_signal(signal);
 			},
 		}
 	} else {
@@ -501,7 +528,7 @@ impl Signals {
 	}
 }
 
-/// Stop a process that this run spawned, and return whether it stops, which a cacheable process does not if another run also holds it.
+/// Stop a process that this run spawned, and return whether it stops.
 async fn stop_process<O>(
 	client: &tg::Client,
 	process: &tg::Process<O>,
@@ -513,18 +540,11 @@ async fn stop_process<O>(
 		.await
 		.map_err(|error| tg::error!(!error, "failed to load the process"))?;
 
-	// Release this run's lease on a cacheable process, which another run may also hold.
-	if state.cacheable {
-		let options = tg::process::cancel::Options::default();
-		process
-			.cancel_with_instance(client, options)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
-		return Ok(false);
-	}
-
-	// Destroy the sandbox that this run created for the process, which also stops the processes that it started, or else cancel the process.
-	if ephemeral_sandbox && let Some(sandbox) = &state.sandbox {
+	// Destroy the sandbox that this run created for a process that no other run can hold, which also stops the processes that the process started.
+	if !state.cacheable
+		&& ephemeral_sandbox
+		&& let Some(sandbox) = &state.sandbox
+	{
 		let arg = tg::sandbox::destroy::Arg {
 			error: None,
 			location: process.location(),
@@ -535,15 +555,22 @@ async fn stop_process<O>(
 			.destroy_sandbox(sandbox, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %sandbox, "failed to destroy the sandbox"))?;
-	} else {
-		let options = tg::process::cancel::Options::default();
-		process
-			.cancel_with_instance(client, options)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
+		return Ok(true);
 	}
 
-	Ok(true)
+	// Otherwise, cancel the process, which only releases this run's lease on a cacheable process that another run also holds.
+	let options = tg::process::cancel::Options::default();
+	process
+		.cancel_with_instance(client, options)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
+
+	Ok(!state.cacheable)
+}
+
+/// Exit with the code for a signal without returning, because the runtime's shutdown can wait indefinitely for a blocked write.
+fn exit_with_signal(signal: tg::process::Signal) -> ! {
+	std::process::exit(128 + i32::from(signal as u8))
 }
 
 async fn stop_view_task(view_task: Task<tg::Result<()>>) {
