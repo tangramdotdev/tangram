@@ -3,7 +3,7 @@ use {
 		Component,
 		control::{ClientMessage, ServerMessage},
 	},
-	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future::BoxFuture},
+	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture, stream::BoxStream},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::TryExt as _, task::Task},
 	tangram_messenger::Messenger as _,
@@ -25,7 +25,6 @@ struct Kind<'a> {
 	id: &'a tg::sandbox::Id,
 	processes: bool,
 	session: &'a Session,
-	spawn: bool,
 }
 
 impl Component {
@@ -46,10 +45,6 @@ impl Component {
 			arg.request,
 			tg::sandbox::control::ServerRequestArg::GetProcesses(_)
 		);
-		let spawn = matches!(
-			arg.request,
-			tg::sandbox::control::ServerRequestArg::SpawnProcess(_)
-		);
 		let kind = Kind {
 			component: self,
 			destroy,
@@ -57,46 +52,8 @@ impl Component {
 			id,
 			processes,
 			session,
-			spawn,
 		};
 		tangram_server_core::holder::request(&kind, arg, index_required).await
-	}
-
-	/// Create a future that waits for a sandbox to leave the starting status.
-	fn create_wait_sandbox_start_future(
-		&self,
-		session: &Session,
-		id: &tg::sandbox::Id,
-	) -> BoxFuture<'static, ()> {
-		let component = self.clone();
-		let session = session.clone();
-		let id = id.clone();
-		async move {
-			let Ok(mut wakeups) = component
-				.create_sandbox_status_wakeup_stream(
-					&session,
-					&id,
-					session.context.stopper.clone(),
-					None,
-				)
-				.await
-			else {
-				return;
-			};
-			loop {
-				let starting = component
-					.try_get_sandbox_from_index(&session, &id)
-					.await
-					.ok()
-					.flatten()
-					.and_then(|sandbox| sandbox.data)
-					.is_some_and(|data| data.data.status.is_starting());
-				if !starting || wakeups.next().await.is_none() {
-					return;
-				}
-			}
-		}
-		.boxed()
 	}
 
 	/// Serve the requests to the holder of a sandbox by passing each message to the holder, which answers a request or replies that it does not hold the sandbox.
@@ -246,7 +203,7 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		&self,
 		request: Self::Request,
 		options: tangram_server_core::control::Options,
-		hold: Option<BoxFuture<'static, ()>>,
+		resend: Option<BoxStream<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>> {
 		async move {
 			if self.destroy {
@@ -255,7 +212,7 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 			}
 			let output = async {
 				self.component
-					.send_sandbox_control_request(self.session, self.id, request, options, hold)
+					.send_sandbox_control_request(self.session, self.id, request, options, resend)
 					.boxed()
 					.await?
 					.await?
@@ -268,21 +225,6 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 			output
 		}
 		.boxed()
-	}
-
-	fn hold(&self, indexed: Option<&Self::Indexed>) -> Option<BoxFuture<'static, ()>> {
-		let starting = indexed
-			.and_then(|sandbox| sandbox.data.as_ref())
-			.is_some_and(|data| data.data.status.is_starting());
-		starting.then(|| {
-			self.component
-				.create_wait_sandbox_start_future(self.session, self.id)
-		})
-	}
-
-	/// A spawn reads the index before it sends its request, so that the request is held while the sandbox is starting.
-	fn holds(&self) -> bool {
-		self.spawn
 	}
 
 	fn index_required(&self) -> BoxFuture<'_, ()> {

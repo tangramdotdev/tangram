@@ -660,7 +660,7 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
-		hold: Option<futures::future::BoxFuture<'static, ()>>,
+		resend: Option<futures::stream::BoxStream<'static, ()>>,
 	) -> tg::Result<
 		futures::future::BoxFuture<
 			'static,
@@ -690,7 +690,6 @@ impl Component {
 				))
 			},
 			client_subject: format!("sandboxes.{id}.control.client.{request_id}"),
-			hold,
 			is_ack: |message: &ClientMessage| {
 				matches!(&message.0, tg::sandbox::control::ClientMessage::Ack(_))
 			},
@@ -707,6 +706,7 @@ impl Component {
 			marker: std::marker::PhantomData,
 			options,
 			request,
+			resend,
 			response: |message: ClientMessage| {
 				let ClientMessage(tg::sandbox::control::ClientMessage::Response(message)) = message
 				else {

@@ -876,19 +876,7 @@ impl Component {
 		arg: tg::process::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 	) -> tg::Result<tg::Result<tg::process::control::ClientResponseOutput>> {
-		self.request_process_control_with_hold(session, id, arg, options, None)
-			.await
-	}
-
-	async fn request_process_control_with_hold(
-		&self,
-		session: &Session,
-		id: &tg::process::Id,
-		arg: tg::process::control::ServerRequestArg,
-		options: tangram_server_core::control::Options,
-		hold: Option<futures::future::BoxFuture<'static, ()>>,
-	) -> tg::Result<tg::Result<tg::process::control::ClientResponseOutput>> {
-		self.send_process_control_request(session, id, arg, options, hold)
+		self.send_process_control_request(session, id, arg, options, None)
 			.boxed()
 			.await?
 			.await
@@ -942,7 +930,7 @@ impl Component {
 		id: &tg::process::Id,
 		arg: tg::process::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
-		hold: Option<futures::future::BoxFuture<'static, ()>>,
+		resend: Option<futures::stream::BoxStream<'static, ()>>,
 	) -> tg::Result<
 		futures::future::BoxFuture<
 			'static,
@@ -963,7 +951,6 @@ impl Component {
 				))
 			},
 			client_subject: format!("processes.{id}.control.client.{request_id}"),
-			hold,
 			is_ack: |message: &ClientMessage| {
 				matches!(&message.0, tg::process::control::ClientMessage::Ack(_))
 			},
@@ -980,6 +967,7 @@ impl Component {
 			marker: std::marker::PhantomData,
 			options,
 			request,
+			resend,
 			response: |message: ClientMessage| {
 				let ClientMessage(tg::process::control::ClientMessage::Response(message)) = message
 				else {

@@ -216,12 +216,12 @@ pub async fn send<K: Kind>(
 	let arg = crate::control::SendControlRequestArg {
 		ack: |id| ServerMessage::Ack(Ack { id }),
 		client_subject: client_subject::<K>(request_id),
-		hold: None,
 		is_ack: |message: &ClientMessage<K::Output>| matches!(message, ClientMessage::Ack(_)),
 		is_not_holder: |_| None,
 		marker: std::marker::PhantomData,
 		options,
 		request,
+		resend: None,
 		response: |message: ClientMessage<K::Output>| match message {
 			ClientMessage::Ack(_) => Ok(None),
 			ClientMessage::Response(message) => {

@@ -955,7 +955,6 @@ impl Component {
 					}
 				},
 				client_subject: format!("runners.{runner}.control.client.{id}"),
-				hold: None,
 				is_ack: |message: &ClientMessage| {
 					matches!(&message.0, tg::runner::control::ClientMessage::Ack(_))
 				},
@@ -963,6 +962,7 @@ impl Component {
 				marker: std::marker::PhantomData,
 				options,
 				request,
+				resend: None,
 				response: |message: ClientMessage| {
 					let tg::runner::control::ClientMessage::Response(message) = message.0 else {
 						return Ok(None);
