@@ -608,6 +608,7 @@ impl Component {
 			processes: None,
 			registration: None,
 			runner: None,
+			stopped_boot: None,
 			stopped_usage: Some(stopped_usage),
 			touched_at,
 		};

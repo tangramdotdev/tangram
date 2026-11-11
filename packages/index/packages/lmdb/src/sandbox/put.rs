@@ -78,6 +78,11 @@ impl Index {
 			.map(tangram_index::sandbox::Sandbox::deserialize)
 			.transpose()?;
 
+		// Reject a reservation of the next boot unless the sandbox is stopped at the boot that the put names, in this write transaction.
+		if let Err(error) = arg.validate_stopped_boot(existing.as_ref()) {
+			return Ok(Err(error));
+		}
+
 		// Validate sandbox data and processes against the existing record in this write transaction.
 		if let Some(existing) = &existing {
 			if let Err(error) = arg.validate_existing(existing)? {

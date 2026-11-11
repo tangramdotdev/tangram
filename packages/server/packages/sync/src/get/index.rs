@@ -1039,6 +1039,7 @@ impl Component {
 				processes: Some(message.processes),
 				registration: None,
 				runner: None,
+				stopped_boot: None,
 				stopped_usage: None,
 				touched_at,
 			});

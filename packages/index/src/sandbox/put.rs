@@ -45,6 +45,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 4)]
 	pub runner: Option<tg::runner::Id>,
 
+	/// The boot that the sandbox must be stopped at when this put is applied, which reserves the next boot for one start, because the put is rejected for every other start.
+	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]
+	pub stopped_boot: Option<u64>,
+
 	/// The storage usage of a boot's stopped directory so far, which only grows.
 	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
 	pub stopped_usage: Option<StoppedUsage>,
@@ -88,6 +92,20 @@ impl Arg {
 			if !ids.insert(process) {
 				return Err(tg::error!("the sandbox processes must be unique"));
 			}
+		}
+		Ok(())
+	}
+
+	/// Reject a put that reserves the next boot unless the sandbox is stopped at the boot that the put names.
+	pub fn validate_stopped_boot(&self, existing: Option<&super::Sandbox>) -> tg::Result<()> {
+		let Some(boot) = self.stopped_boot else {
+			return Ok(());
+		};
+		let stopped = existing
+			.and_then(|sandbox| sandbox.data.as_ref())
+			.is_some_and(|data| data.data.status.is_stopped() && data.data.boot == boot);
+		if !stopped {
+			return Err(tg::error!(id = %self.id, %boot, "the sandbox is not stopped at the boot"));
 		}
 		Ok(())
 	}

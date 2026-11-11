@@ -3,10 +3,17 @@ use {
 	dashmap::DashSet,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	num::ToPrimitive as _,
-	std::{ops::ControlFlow, sync::Arc},
+	std::{
+		ops::ControlFlow,
+		sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+		},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
 	tangram_server_core::Session,
 	tangram_server_sandbox_common::control::{Discarded, connected_subject, discarded_subject},
@@ -270,14 +277,80 @@ impl Component {
 		);
 		let control_sender = control.sender();
 
-		// Serve the requests to the sandbox's holder by passing them to the connection.
+		// Watch for the index to record that the connection's boot ended, because the boot's runner may not have learned that its boot was taken over.
+		let ended = Arc::new(AtomicBool::new(false));
+		let indexed = session
+			.server
+			.index
+			.try_get_sandbox(&id)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox"))?;
+		if Self::sandbox_boot_ended(indexed.as_ref(), boot) {
+			ended.store(true, Ordering::SeqCst);
+		}
+		let ended_task = Task::spawn({
+			let component = self.clone();
+			let ended = ended.clone();
+			let id = id.clone();
+			let session = session.clone();
+			move |_| async move {
+				if ended.load(Ordering::SeqCst) {
+					return;
+				}
+				let Ok(mut wakeups) = component
+					.create_sandbox_status_wakeup_stream(&session, &id, None, None)
+					.await
+				else {
+					return;
+				};
+				while wakeups.next().await.is_some() {
+					let indexed = session
+						.server
+						.index
+						.try_get_sandbox(&id)
+						.await
+						.ok()
+						.flatten();
+					if Self::sandbox_boot_ended(indexed.as_ref(), boot) {
+						ended.store(true, Ordering::SeqCst);
+						return;
+					}
+				}
+			}
+		});
+
+		// Serve the requests to the sandbox's holder by passing them to the connection, and reply that the connection does not hold a boot that the index records as ended.
 		let handle = {
+			let component = self.clone();
+			let ended = ended.clone();
 			let forwarded_requests = forwarded_requests.clone();
+			let id = id.clone();
 			let sender = control_sender.clone();
+			let server = session.server.clone();
 			move |message: tg::sandbox::control::ServerMessage| {
+				let component = component.clone();
+				let ended = ended.clone();
 				let forwarded_requests = forwarded_requests.clone();
+				let id = id.clone();
 				let sender = sender.clone();
+				let server = server.clone();
 				async move {
+					if let tg::sandbox::control::ServerMessage::Request(request) = &message
+						&& ended.load(Ordering::SeqCst)
+					{
+						let output = tg::sandbox::control::ClientResponseOutput::NotHolder(
+							tg::sandbox::control::NotHolderClientResponseOutput {},
+						);
+						let response = tg::sandbox::control::ClientResponse {
+							error: None,
+							id: request.id.clone(),
+							output: Some(output),
+						};
+						component
+							.publish_sandbox_holder_response(&server, &id, response)
+							.await?;
+						return Ok(());
+					}
 					let acknowledged_request = match &message {
 						tg::sandbox::control::ServerMessage::Ack(ack) => Some(ack.id.clone()),
 						_ => None,
@@ -366,6 +439,7 @@ impl Component {
 		let stream = tokio_stream::wrappers::ReceiverStream::new(receiver)
 			.attach(server_messages_task)
 			.attach(control_task)
+			.attach(ended_task)
 			.attach(service)
 			.map(Ok)
 			.with_stopper(session.context.stopper.clone())
@@ -376,6 +450,17 @@ impl Component {
 		let header = tg::sandbox::control::Header { id, token };
 
 		Ok((header, stream))
+	}
+
+	/// Whether the index records that a boot ended, because the sandbox is stopped at the boot, is destroyed, or has a later boot.
+	fn sandbox_boot_ended(indexed: Option<&tangram_index::sandbox::Sandbox>, boot: u64) -> bool {
+		indexed
+			.and_then(|sandbox| sandbox.data.as_ref())
+			.is_some_and(|data| {
+				data.data.boot > boot
+					|| data.data.status.is_destroyed()
+					|| (data.data.boot == boot && data.data.status.is_stopped())
+			})
 	}
 
 	pub async fn prepare_sandbox_control_index_arg(
@@ -435,6 +520,7 @@ impl Component {
 			processes: None,
 			registration: None,
 			runner,
+			stopped_boot: None,
 			stopped_usage: None,
 			touched_at: created_at,
 		};
