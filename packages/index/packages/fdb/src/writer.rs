@@ -1,4 +1,5 @@
 use {
+	self::lanes::Lanes,
 	super::{
 		Index, Request, Response,
 		request::{Kind, Operation, Priority},
@@ -12,6 +13,8 @@ use {
 	},
 	tangram_client::prelude::*,
 };
+
+mod lanes;
 
 pub(super) type RequestReceiver = tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSender)>;
 pub(super) type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender)>;
@@ -94,110 +97,103 @@ impl Index {
 		let write_item_semaphore = Arc::new(tokio::sync::Semaphore::new(
 			write_item_transaction_concurrency,
 		));
-		stream::unfold(
-			(&mut receiver_high, &mut receiver_medium, &mut receiver_low),
-			|(rh, rm, rl)| async move {
-				// Drain high and medium priority channels.
-				let mut requests_high = Self::drain_receiver(rh);
-				let mut requests_medium = Self::drain_receiver(rm);
+		let config = ExecutionConfig {
+			max_process_depth,
+			metrics: &metrics,
+			object_permission_time_to_touch,
+			partition_totals,
+			process_data_fragment_size,
+			process_permission_time_to_touch,
+			storage_relation_batch_size,
+		};
 
-				// Only drain low-priority when high and medium are empty.
-				let mut requests_low = if requests_high.is_empty() && requests_medium.is_empty() {
-					Self::drain_receiver(rl)
+		// Run the batches in lanes, which run their transactions one after another and run concurrently with each other, and stop draining requests while the lanes hold two batches of operations per lane, so that a large push does not grow the lanes without bound.
+		let mut lanes = Lanes::new(
+			write_transaction_concurrency,
+			write_operation_batch_size,
+			max_write_operation_batch_size,
+		);
+		let bound = write_transaction_concurrency
+			.max(1)
+			.saturating_mul(max_write_operation_batch_size.max(1))
+			.saturating_mul(2);
+		let mut running = stream::FuturesUnordered::new();
+		let mut open = [true; 3];
+		loop {
+			// Drain the high and medium priority channels, and the low priority channel only when they are empty, while the lanes have room.
+			if lanes.pending() < bound {
+				let high = Self::drain_receiver(&mut receiver_high);
+				let medium = Self::drain_receiver(&mut receiver_medium);
+				let low = if high.is_empty() && medium.is_empty() {
+					Self::drain_receiver(&mut receiver_low)
 				} else {
 					Vec::new()
 				};
-
-				// If all channels are empty, block until a request arrives.
-				if requests_high.is_empty() && requests_medium.is_empty() && requests_low.is_empty()
-				{
-					tokio::select! {
-						result = rh.recv() => {
-							if let Some(item) = result {
-								requests_high.push(item);
-							}
-						},
-						result = rm.recv() => {
-							if let Some(item) = result {
-								requests_medium.push(item);
-							}
-						},
-						result = rl.recv() => {
-							if let Some(item) = result {
-								requests_low.push(item);
-							}
-						},
-					}
-
-					// If all channels are closed, stop.
-					if requests_high.is_empty()
-						&& requests_medium.is_empty()
-						&& requests_low.is_empty()
-					{
-						return None;
-					}
-
-					// After waking, drain all channels again.
-					requests_high.extend(Self::drain_receiver(rh));
-					requests_medium.extend(Self::drain_receiver(rm));
-					requests_low.extend(Self::drain_receiver(rl));
+				for (request, sender) in high.into_iter().chain(medium).chain(low) {
+					lanes.dispatch(request, sender);
 				}
-
-				// Create batches with priority ordering: high first, then medium, then low.
-				let mut batches = Vec::new();
-				batches.extend(Self::create_batches(
-					requests_high,
-					write_operation_batch_size,
-					max_write_operation_batch_size,
-				));
-				batches.extend(Self::create_batches(
-					requests_medium,
-					write_operation_batch_size,
-					max_write_operation_batch_size,
-				));
-				batches.extend(Self::create_batches(
-					requests_low,
-					write_operation_batch_size,
-					max_write_operation_batch_size,
-				));
-
-				Some((batches, (rh, rm, rl)))
-			},
-		)
-		.flat_map(stream::iter)
-		.for_each_concurrent(write_transaction_concurrency, |batch| {
-			let database = database.clone();
-			let metrics = metrics.clone();
-			let subspace = subspace.clone();
-			let write_item_semaphore = write_item_semaphore.clone();
-			async move {
-				// Limit the transactions that write index items, so that a large write cannot flood the database or memory.
-				let writes_items = batch
-					.requests
-					.iter()
-					.any(|request| matches!(request, Request::Write(_)));
-				let _permit = if writes_items {
-					Some(write_item_semaphore.acquire_owned().await.unwrap())
-				} else {
-					None
-				};
-
-				// Execute the batch.
-				let config = ExecutionConfig {
-					max_process_depth,
-					metrics: &metrics,
-					object_permission_time_to_touch,
-					partition_totals,
-					process_data_fragment_size,
-					process_permission_time_to_touch,
-					storage_relation_batch_size,
-				};
-				Self::execute_batch(&database, &subspace, batch, config)
-					.boxed()
-					.await;
 			}
-		})
-		.await;
+
+			// Start a batch on each idle lane that has operations waiting.
+			for (lane, batch) in lanes.next() {
+				let database = &database;
+				let subspace = &subspace;
+				let write_item_semaphore = write_item_semaphore.clone();
+				let future = async move {
+					// Limit the transactions that write index items, so that a large write cannot flood the database or memory.
+					let writes_items = batch
+						.requests
+						.iter()
+						.any(|request| matches!(request, Request::Write(_)));
+					let _permit = if writes_items {
+						Some(write_item_semaphore.acquire_owned().await.unwrap())
+					} else {
+						None
+					};
+
+					// Execute the batch.
+					Self::execute_batch(database, subspace, batch, config)
+						.boxed()
+						.await;
+
+					lane
+				};
+				running.push(future.boxed());
+			}
+
+			// Stop once every channel is closed and every lane is done.
+			if !open.iter().any(|open| *open) && running.is_empty() && lanes.pending() == 0 {
+				break;
+			}
+
+			// Wait for a lane to finish its batch or for a request, while the lanes have room.
+			let room = lanes.pending() < bound;
+			tokio::select! {
+				biased;
+				Some(lane) = running.next(), if !running.is_empty() => {
+					lanes.complete(lane);
+				},
+				result = receiver_high.recv(), if room && open[0] => {
+					match result {
+						Some((request, sender)) => lanes.dispatch(request, sender),
+						None => open[0] = false,
+					}
+				},
+				result = receiver_medium.recv(), if room && open[1] => {
+					match result {
+						Some((request, sender)) => lanes.dispatch(request, sender),
+						None => open[1] = false,
+					}
+				},
+				result = receiver_low.recv(), if room && open[2] => {
+					match result {
+						Some((request, sender)) => lanes.dispatch(request, sender),
+						None => open[2] = false,
+					}
+				},
+				else => break,
+			}
+		}
 	}
 
 	pub(super) async fn send_write_request(&self, request: Request) -> tg::Result<Response> {
@@ -223,133 +219,6 @@ impl Index {
 			requests.push(item);
 		}
 		requests
-	}
-
-	fn create_batches(
-		requests: Vec<(Request, ResponseSender)>,
-		max_items: usize,
-		batch_size: usize,
-	) -> Vec<Batch> {
-		if requests.is_empty() {
-			return Vec::new();
-		}
-
-		let mut batches: Vec<Batch> = Vec::new();
-		let mut current_batch = Batch {
-			requests: Vec::new(),
-			trackers: Vec::new(),
-		};
-		let mut current_count: usize = 0;
-
-		for (request, sender) in requests {
-			let tracker = Arc::new(Mutex::new(RequestTracker {
-				remaining: 0,
-				response: Ok(Self::create_initial_response(&request)),
-				sender: Some(sender),
-			}));
-			// Execute an update or a clean in its own transaction, because they read the update queues, and reading a queue range fails after another request in the transaction enqueues an update.
-			if matches!(request, Request::Clean(_) | Request::Update(_)) {
-				if !current_batch.requests.is_empty() {
-					batches.push(current_batch);
-					current_batch = Batch {
-						requests: Vec::new(),
-						trackers: Vec::new(),
-					};
-					current_count = 0;
-				}
-				tracker.lock().unwrap().remaining = 1;
-				let batch = Batch {
-					requests: vec![request],
-					trackers: vec![tracker],
-				};
-				batches.push(batch);
-				continue;
-			}
-
-			let operation_count = match &request {
-				Request::CompletePermissionCapture(_)
-				| Request::NextRunnerRegistrationIndex(_)
-				| Request::PutIndexer(_)
-				| Request::PutScheduler(_)
-				| Request::UpdateIndexer(_) => Some(1),
-				_ => None,
-			};
-			if let Some(count) = operation_count {
-				if !current_batch.requests.is_empty()
-					&& current_count.saturating_add(count) > max_items
-				{
-					batches.push(current_batch);
-					current_batch = Batch {
-						requests: Vec::new(),
-						trackers: Vec::new(),
-					};
-					current_count = 0;
-				}
-				current_batch.requests.push(request);
-				current_batch.trackers.push(tracker.clone());
-				tracker.lock().unwrap().remaining = 1;
-				current_count = current_count.saturating_add(count);
-				if current_count >= max_items {
-					batches.push(current_batch);
-					current_batch = Batch {
-						requests: Vec::new(),
-						trackers: Vec::new(),
-					};
-					current_count = 0;
-				}
-				continue;
-			}
-
-			// Split the request's operations across transactions, limiting batch items to the batch size because they read more.
-			let (items, kind) = Self::request_into_operations(request);
-			let limit = if matches!(kind, Kind::Write) {
-				batch_size
-			} else {
-				max_items
-			};
-			let mut iter = items.into_iter().peekable();
-			let mut remaining_count = iter.len();
-
-			while remaining_count > 0 {
-				let space = limit.saturating_sub(current_count);
-				if space == 0 {
-					if !current_batch.requests.is_empty() {
-						batches.push(current_batch);
-						current_batch = Batch {
-							requests: Vec::new(),
-							trackers: Vec::new(),
-						};
-						current_count = 0;
-					}
-					continue;
-				}
-
-				let take = remaining_count.min(space);
-				let chunk: Vec<_> = iter.by_ref().take(take).collect();
-				current_batch
-					.requests
-					.push(Self::request_from_operations(chunk, &kind));
-				current_batch.trackers.push(tracker.clone());
-				tracker.lock().unwrap().remaining += 1;
-				current_count += take;
-				remaining_count -= take;
-
-				if remaining_count > 0 {
-					batches.push(current_batch);
-					current_batch = Batch {
-						requests: Vec::new(),
-						trackers: Vec::new(),
-					};
-					current_count = 0;
-				}
-			}
-		}
-
-		if !current_batch.requests.is_empty() {
-			batches.push(current_batch);
-		}
-
-		batches
 	}
 
 	fn create_initial_response(request: &Request) -> Response {
@@ -703,10 +572,9 @@ impl Index {
 						requests: right_requests,
 						trackers: right_trackers,
 					};
-					futures::join!(
-						Box::pin(Self::execute_batch(database, subspace, left, config)),
-						Box::pin(Self::execute_batch(database, subspace, right, config)),
-					);
+					// Execute the halves one after another, because a lane's transactions must not overlap.
+					Box::pin(Self::execute_batch(database, subspace, left, config)).await;
+					Box::pin(Self::execute_batch(database, subspace, right, config)).await;
 					return;
 				}
 
@@ -722,10 +590,9 @@ impl Index {
 						"failed to execute a request that cannot be split"
 					)),
 					request => {
-						// Split the request in half. The halves of a clean or an update read the same queue, so they execute in order, and the halves of any other request hold distinct operations, so they execute concurrently.
+						// Split the request in half, and execute the halves one after another, because the halves of a clean or an update read the same queue and a lane's transactions must not overlap.
 						let (mut items, kind) = Self::request_into_operations(request);
 						if items.len() > 1 {
-							let ordered = matches!(kind, Kind::Clean { .. } | Kind::Update { .. });
 							let right = items.split_off(items.len() / 2);
 							tracker.lock().unwrap().remaining += 1;
 							let [left, right] = [items, right].map(|items| {
@@ -735,16 +602,8 @@ impl Index {
 									trackers: vec![tracker.clone()],
 								}
 							});
-							let left =
-								Box::pin(Self::execute_batch(database, subspace, left, config));
-							let right =
-								Box::pin(Self::execute_batch(database, subspace, right, config));
-							if ordered {
-								left.await;
-								right.await;
-							} else {
-								futures::join!(left, right);
-							}
+							Box::pin(Self::execute_batch(database, subspace, left, config)).await;
+							Box::pin(Self::execute_batch(database, subspace, right, config)).await;
 							return;
 						}
 						Err(tg::error!(
@@ -1294,74 +1153,5 @@ mod tests {
 		Index::fail_tracker(&tracker, &tg::error!("transaction failure"));
 		let error = receiver.await.unwrap().err().unwrap();
 		assert_eq!(error.message().as_deref(), Some("transaction failure"));
-	}
-
-	#[tokio::test]
-	async fn batch_items_split_across_transactions_up_to_the_batch_size() {
-		// Create a batch request with more items than the batch size.
-		let items = (0..2_500)
-			.map(|_| {
-				let id = tg::tag::Id::new();
-				tangram_index::Item::DeleteTag(Box::new(tangram_index::tag::delete::Arg { id }))
-			})
-			.collect();
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Write(tangram_index::write::Arg { items });
-
-		// Split the request and complete every transaction.
-		let batches = Index::create_batches(vec![(request, sender)], 8_000, 1_000);
-		let sizes = batches
-			.iter()
-			.map(|batch| {
-				let [Request::Write(arg)] = batch.requests.as_slice() else {
-					panic!()
-				};
-				arg.items.len()
-			})
-			.collect::<Vec<_>>();
-		assert_eq!(sizes, [1_000, 1_000, 500]);
-		for batch in &batches {
-			Index::complete_tracker(&batch.trackers[0], Ok(Response::Mutation(Ok(()))));
-		}
-
-		// The request completes once every transaction completes.
-		let response = receiver.await.unwrap().unwrap();
-		assert!(matches!(response, Response::Mutation(Ok(()))));
-	}
-
-	#[test]
-	fn updates_execute_in_their_own_transactions() {
-		// Create an update between two writes.
-		let mut requests = Vec::new();
-		for _ in 0..2 {
-			let id = tg::tag::Id::new();
-			let item =
-				tangram_index::Item::DeleteTag(Box::new(tangram_index::tag::delete::Arg { id }));
-			let request = Request::Write(tangram_index::write::Arg { items: vec![item] });
-			let (sender, _receiver) = tokio::sync::oneshot::channel();
-			requests.push((request, sender));
-		}
-		let update = crate::Update {
-			batch_size: 16,
-			kind: tangram_index::update::Kind::StorageAndMetadata,
-			partition_end: 1,
-			partition_start: 0,
-		};
-		let (sender, _receiver) = tokio::sync::oneshot::channel();
-		requests.insert(1, (Request::Update(update), sender));
-
-		// The update does not share a transaction with the writes.
-		let batches = Index::create_batches(requests, 8_000, 1_000);
-		let kinds = batches
-			.iter()
-			.map(|batch| {
-				batch
-					.requests
-					.iter()
-					.map(|request| matches!(request, Request::Update(_)))
-					.collect::<Vec<_>>()
-			})
-			.collect::<Vec<_>>();
-		assert_eq!(kinds, [vec![false], vec![true], vec![false]]);
 	}
 }

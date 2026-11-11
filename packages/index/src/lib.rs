@@ -2,7 +2,7 @@ use {futures::FutureExt as _, tangram_client::prelude::*};
 
 mod item;
 
-pub use self::item::Item;
+pub use self::item::{Affinity, Item};
 
 pub mod checkout;
 pub mod clean;
