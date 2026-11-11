@@ -38,9 +38,10 @@ for field in [output error log] {
 
 	timeout 30s tg --url $remote.url --token $root_token wait $process | ignore
 	tg --url $remote.url --token $root_token index
-	# Force the index path so a live runner response cannot supply the token.
-	tg --url $remote.url --token $root_token index
+	# Hold the control response, so that the index answers and a live runner response cannot supply the token.
+	let indexed_watch = tg --url $remote.url --token $root_token checkpoint watch process.get.control | from json | get watch
 	let output = timeout 30s tg --url $remote.url --token $root_token $operation $process | from json
+	tg --url $remote.url --token $root_token checkpoint unwatch process.get.control $indexed_watch
 	let object = if $field == output { $output.output.value } else if $field == error { $output.error } else { $output.log }
 
 	# Read the output or error as another user while the outcome sync is held, which succeeds only through the sync.
