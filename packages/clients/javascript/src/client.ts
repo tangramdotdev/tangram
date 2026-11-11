@@ -375,12 +375,18 @@ export class Client {
 		if (request.body !== undefined && !request.body.replayable) {
 			throw new Error("cannot retry a request with a streaming body");
 		}
+		// Also retry a read that failed before its response, which is safe to repeat.
+		let repeatable = isRepeatable(request.method);
 		try {
 			return await retry(
 				this.retry,
 				() => this.#send(request),
 				(error) =>
-					error instanceof RequestError && isRetryableError(error.source),
+					(error instanceof RequestError && isRetryableError(error.source)) ||
+					(repeatable &&
+						isTransportError(
+							error instanceof RequestError ? error.source : error,
+						)),
 			);
 		} catch (error) {
 			throw error instanceof RequestError ? error.source : error;
@@ -609,6 +615,11 @@ export function isTransportError(error: unknown): boolean {
 		"ERR_STREAM_PREMATURE_CLOSE",
 		"ETIMEDOUT",
 	].includes(code as string);
+}
+
+/** Determine whether a request with this method only reads, so it may repeat. */
+export function isRepeatable(method: string): boolean {
+	return method === "GET" || method === "HEAD";
 }
 
 function isRetryableError(error: unknown): boolean {
