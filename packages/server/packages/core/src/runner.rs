@@ -128,6 +128,7 @@ pub trait Component: crate::component::Lifecycle {
 
 	fn resolve_sandbox_backend(&self, server: &Server) -> tg::Result<tangram_sandbox::Backend>;
 
+	#[expect(clippy::too_many_arguments)]
 	fn send_runner_control_request<'a>(
 		&'a self,
 		session: &'a Session,

@@ -826,7 +826,7 @@ impl SchedulerState {
 				return;
 			},
 			HolderMessage::ProcessRequest { request, sandbox } => {
-				self.handle_process_holder_request(scheduler, sandbox, request);
+				self.handle_process_holder_request(scheduler, &sandbox, request);
 				return;
 			},
 			HolderMessage::Request { request, sandbox } => (request, sandbox),
@@ -843,11 +843,19 @@ impl SchedulerState {
 			return;
 		}
 
-		// Reply that this scheduler does not hold a sandbox that it has offered to a runner, whether or not the runner has accepted it, because the offer carries the boot's pending stop, and that it does not hold a queued sandbox for a spawn, which only a runner can carry out.
-		let spawn = matches!(arg, tg::sandbox::control::ServerRequestArg::SpawnProcess(_));
-		if pending != Some(true) || spawn {
+		// Reply that this scheduler does not hold a sandbox that it has offered to a runner, whether or not the runner has accepted it, because the offer carries the boot's pending stop.
+		if pending != Some(true) {
 			let output = tg::sandbox::control::ClientResponseOutput::NotHolder(
 				tg::sandbox::control::NotHolderClientResponseOutput {},
+			);
+			self.publish_sandbox_holder_response(scheduler, sandbox, id, None, output);
+			return;
+		}
+
+		// Reply that this scheduler holds a queued sandbox but is not ready for a spawn, which only a runner can carry out once the sandbox starts.
+		if matches!(arg, tg::sandbox::control::ServerRequestArg::SpawnProcess(_)) {
+			let output = tg::sandbox::control::ClientResponseOutput::NotReady(
+				tg::sandbox::control::NotReadyClientResponseOutput {},
 			);
 			self.publish_sandbox_holder_response(scheduler, sandbox, id, None, output);
 			return;
@@ -976,11 +984,11 @@ impl SchedulerState {
 		}
 	}
 
-	/// Answer a request for a lease of a queued process, and reply that this scheduler does not hold a process for any other request, or once it has offered the process's sandbox to a runner. The assignment carries the leases, so a process whose request was sent to a runner takes leases over process control once it connects.
+	/// Answer a request for a lease of a queued process, reply that this scheduler is not ready for any other request of a queued process, which only a runner can carry out once the process starts, and reply that this scheduler does not hold a process once it has offered the process's sandbox to a runner. The assignment carries the leases, so a process whose request was sent to a runner takes leases over process control once it connects.
 	fn handle_process_holder_request(
 		&mut self,
 		scheduler: &Scheduler,
-		sandbox: tg::sandbox::Id,
+		sandbox: &tg::sandbox::Id,
 		request: tg::process::control::ServerRequest,
 	) {
 		let tg::process::control::ServerRequest { arg, id } = request;
@@ -989,16 +997,16 @@ impl SchedulerState {
 		let entry = self
 			.sandboxes
 			.entries
-			.get_mut(&sandbox)
+			.get_mut(sandbox)
 			.filter(|entry| matches!(entry.state, SandboxState::Pending));
-		if entry.is_none() && !self.sandboxes.holders.contains_key(&sandbox) {
+		if entry.is_none() && !self.sandboxes.holders.contains_key(sandbox) {
 			return;
 		}
 		let Some(process) = entry.and_then(|entry| {
 			let process = entry.request.process.as_ref()?.id.clone()?;
 			Some(process)
 		}) else {
-			let Some(process) = self.try_get_served_process(&sandbox) else {
+			let Some(process) = self.try_get_served_process(sandbox) else {
 				return;
 			};
 			let output = tg::process::control::ClientResponseOutput::NotHolder(
@@ -1007,7 +1015,7 @@ impl SchedulerState {
 			self.publish_process_holder_response(scheduler, process, id, None, output);
 			return;
 		};
-		let entry = self.sandboxes.entries.get_mut(&sandbox).unwrap();
+		let entry = self.sandboxes.entries.get_mut(sandbox).unwrap();
 		let queued = entry.request.process.as_mut().unwrap();
 
 		match arg {
@@ -1056,9 +1064,9 @@ impl SchedulerState {
 				}
 				let scheduler_ = scheduler.clone();
 				let write = if last {
-					self.remove_queued_sandbox(&sandbox);
+					self.remove_queued_sandbox(sandbox);
 					let request = self
-						.remove_sandbox_entry(scheduler, &sandbox)
+						.remove_sandbox_entry(scheduler, sandbox)
 						.unwrap()
 						.request;
 					self.queue.wake();
@@ -1094,8 +1102,8 @@ impl SchedulerState {
 			| tg::process::control::ServerRequestArg::Open(_)
 			| tg::process::control::ServerRequestArg::Signal(_)
 			| tg::process::control::ServerRequestArg::Tty(_) => {
-				let output = tg::process::control::ClientResponseOutput::NotHolder(
-					tg::process::control::NotHolderClientResponseOutput {},
+				let output = tg::process::control::ClientResponseOutput::NotReady(
+					tg::process::control::NotReadyClientResponseOutput {},
 				);
 				self.publish_process_holder_response(scheduler, process, id, None, output);
 			},

@@ -233,6 +233,7 @@ impl Component {
 			Some(tg::process::control::ClientResponseOutput::Get(_)) => "get",
 			Some(tg::process::control::ClientResponseOutput::GetChildren(_)) => "get_children",
 			Some(tg::process::control::ClientResponseOutput::NotHolder(_)) => "not_holder",
+			Some(tg::process::control::ClientResponseOutput::NotReady(_)) => "not_ready",
 			Some(tg::process::control::ClientResponseOutput::Open(_)) => "open",
 			Some(tg::process::control::ClientResponseOutput::ReleaseLease(_)) => "release_lease",
 			Some(tg::process::control::ClientResponseOutput::Signal(_)) => "signal",

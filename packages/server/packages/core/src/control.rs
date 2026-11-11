@@ -64,7 +64,7 @@ impl Server {
 			ack,
 			client_subject,
 			is_ack,
-			is_not_holder,
+			is_deferral,
 			marker: _,
 			options,
 			request,
@@ -91,19 +91,19 @@ impl Server {
 
 			let mut acknowledged = false;
 			let mut initial = true;
-			let mut not_holder = None;
-			let mut not_holder_delay = retry.backoff;
-			let mut not_holder_waited = false;
+			let mut deferral = None;
+			let mut deferral_delay = retry.backoff;
+			let mut deferral_waited = false;
 			let max_delay = retry.max_delay;
 			let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
 			loop {
-				// After a response from a server that does not hold the item, wait for a holder's response before sending the request again, without spending a retry, because the response shows that a handoff is in progress.
+				// After a response that defers the request, from a server that does not hold the item or that cannot act on the request until the item starts, wait for a holder's response before sending the request again, without spending a retry, because the response shows that a handoff or a start is in progress.
 				let mut timeout = timeout;
-				if let Some(delay) = not_holder.take() {
+				if let Some(delay) = deferral.take() {
 					timeout = delay;
-					not_holder_waited = true;
-				} else if not_holder_waited && !acknowledged {
-					not_holder_waited = false;
+					deferral_waited = true;
+				} else if deferral_waited && !acknowledged {
+					deferral_waited = false;
 					server
 						.messenger
 						.publish(server_subject.clone(), request.clone())
@@ -136,8 +136,8 @@ impl Server {
 						if is_ack(&message.payload) {
 							return Ok::<_, tg::Error>(ReceiveControlRequestOutput::Ack);
 						}
-						if let Some(id) = is_not_holder(&message.payload) {
-							return Ok(ReceiveControlRequestOutput::NotHolder { id });
+						if let Some(id) = is_deferral(&message.payload) {
+							return Ok(ReceiveControlRequestOutput::Deferral { id });
 						}
 						let Some((id, response)) = response(message.payload)? else {
 							continue;
@@ -159,7 +159,7 @@ impl Server {
 
 				match result {
 					Ok(Ok(ReceiveControlRequestOutput::Ack)) => acknowledged = true,
-					Ok(Ok(ReceiveControlRequestOutput::NotHolder { id })) => {
+					Ok(Ok(ReceiveControlRequestOutput::Deferral { id })) => {
 						let ack = ack(id);
 						server
 							.messenger
@@ -169,8 +169,8 @@ impl Server {
 								tg::error!(!source, "failed to acknowledge the control response")
 							})?;
 						acknowledged = false;
-						not_holder = Some(not_holder_delay);
-						not_holder_delay = (not_holder_delay * 2).min(max_delay);
+						deferral = Some(deferral_delay);
+						deferral_delay = (deferral_delay * 2).min(max_delay);
 					},
 					Ok(Ok(ReceiveControlRequestOutput::Response { id, response })) => {
 						let ack = ack(id);

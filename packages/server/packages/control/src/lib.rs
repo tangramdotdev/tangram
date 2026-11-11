@@ -107,8 +107,8 @@ pub struct SendControlRequestArg<I, O, Response, AckFn, IsAckFn, ResponseFn> {
 
 	pub is_ack: IsAckFn,
 
-	/// Get the ID of a response from a server that does not hold the request's item. The request is sent again after such a response unless a holder answers first.
-	pub is_not_holder: fn(&I) -> Option<String>,
+	/// Get the ID of a response that defers the request, from a server that does not hold the request's item or that holds it but cannot act on the request until the item starts. The request is sent again after such a response unless a holder answers first.
+	pub is_deferral: fn(&I) -> Option<String>,
 
 	pub marker: PhantomData<fn() -> (I, Response)>,
 	pub options: Options,
@@ -122,7 +122,7 @@ pub struct SendControlRequestArg<I, O, Response, AckFn, IsAckFn, ResponseFn> {
 
 pub enum ReceiveControlRequestOutput<Response> {
 	Ack,
-	NotHolder { id: String },
+	Deferral { id: String },
 	Response { id: String, response: Response },
 }
 

@@ -123,6 +123,7 @@ impl Component {
 			Some(tg::sandbox::control::ClientResponseOutput::Get(_)) => "get",
 			Some(tg::sandbox::control::ClientResponseOutput::GetProcesses(_)) => "get_processes",
 			Some(tg::sandbox::control::ClientResponseOutput::NotHolder(_)) => "not_holder",
+			Some(tg::sandbox::control::ClientResponseOutput::NotReady(_)) => "not_ready",
 			Some(tg::sandbox::control::ClientResponseOutput::SpawnProcess(_)) => "spawn_process",
 			Some(tg::sandbox::control::ClientResponseOutput::Start(_)) => "start",
 			Some(tg::sandbox::control::ClientResponseOutput::Stop(_)) => "stop",
