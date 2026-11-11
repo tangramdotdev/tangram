@@ -110,6 +110,17 @@ impl Arg {
 		Ok(())
 	}
 
+	/// Whether the sandbox's record is what this put of a stopped sandbox produces, with the put's status, boot, and runner.
+	#[must_use]
+	pub fn is_applied(&self, existing: Option<&super::Sandbox>) -> bool {
+		let (Some(data), Some(existing)) = (&self.data, existing) else {
+			return false;
+		};
+		existing.data.as_ref().is_some_and(|existing| {
+			existing.data.status == data.data.status && existing.data.boot == data.data.boot
+		}) && existing.runner == self.runner
+	}
+
 	pub fn validate_existing(&self, existing: &super::Sandbox) -> tg::Result<tg::Result<()>> {
 		if self.principal.is_root() || self.principal == tg::Principal::Sandbox(self.id.clone()) {
 			return Ok(Ok(()));

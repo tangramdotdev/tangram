@@ -25,10 +25,11 @@ impl Index {
 		items: &[tangram_index::Item],
 		partition_totals: crate::PartitionTotals,
 		process_data_fragment_size: usize,
+		maybe_committed: bool,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
 
-		// Reject the whole write if it changes a stopped sandbox that is no longer stopped at the boot that the change names, so that a write that changes a stopped sandbox applies whole or not at all.
+		// Reject the whole write if it changes a stopped sandbox that is no longer stopped at the boot that the change names, so that a write that changes a stopped sandbox applies whole or not at all. Accept it as applied if an earlier attempt of this transaction may have committed and the index has what the write produces.
 		for item in items {
 			if let tangram_index::Item::PutSandbox(put) = item
 				&& put.stopped_boot.is_some()
@@ -40,6 +41,14 @@ impl Index {
 					.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
 					.transpose()?;
 				if let Err(error) = put.validate_stopped_boot(existing.as_ref()) {
+					if maybe_committed {
+						let applied = crate::propagate!(
+							Self::is_write_applied_with_transaction(txn, subspace, items).await
+						);
+						if applied {
+							return Ok(ControlFlow::Break(Ok(())));
+						}
+					}
 					return Ok(ControlFlow::Break(Err(error)));
 				}
 			}
@@ -347,5 +356,50 @@ impl Index {
 		let result = rejection.map_or(Ok(()), Err);
 
 		Ok(ControlFlow::Break(result))
+	}
+
+	/// Whether the index has everything that a write of a stopped sandbox produces, which is the record of each stopped sandbox that the write puts and the request of each boot that it puts in a scheduler's queue.
+	async fn is_write_applied_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		items: &[tangram_index::Item],
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		for item in items {
+			match item {
+				tangram_index::Item::PutSandbox(put) if put.stopped_boot.is_some() => {
+					let key = crate::Key::Sandbox(crate::sandbox::Key::Sandbox(put.id.clone()));
+					let key = Self::pack(subspace, &key);
+					let result = txn.get(&key, false).await;
+					let existing = crate::retry!(result)
+						.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
+						.transpose()?;
+					if !put.is_applied(existing.as_ref()) {
+						return Ok(ControlFlow::Break(false));
+					}
+				},
+				tangram_index::Item::PutSchedulerSandbox(put) => {
+					let record = crate::propagate!(
+						Self::try_get_sandbox_scheduler_record_with_transaction(
+							txn,
+							subspace,
+							&put.sandbox
+						)
+						.await
+					);
+					let key = crate::Key::Runner(crate::runner::Key::SchedulerSandbox {
+						sandbox: put.sandbox.clone(),
+						scheduler: put.scheduler.clone(),
+					});
+					let result = txn.get(&Self::pack(subspace, &key), false).await;
+					let request = crate::retry!(result);
+					if !put.is_applied(record.as_ref(), request.as_deref()) {
+						return Ok(ControlFlow::Break(false));
+					}
+				},
+				_ => (),
+			}
+		}
+
+		Ok(ControlFlow::Break(true))
 	}
 }

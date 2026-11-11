@@ -15,3 +15,17 @@ pub struct Arg {
 	#[tangram_serialize(id = 3)]
 	pub scheduler: tg::scheduler::Id,
 }
+
+impl Arg {
+	/// Whether the sandbox's scheduler record and the request in the scheduler's queue are what this put produces.
+	#[must_use]
+	pub fn is_applied(
+		&self,
+		record: Option<&super::SandboxScheduler>,
+		request: Option<&[u8]>,
+	) -> bool {
+		record.is_some_and(|record| {
+			record.boot == self.boot && record.scheduler.as_ref() == Some(&self.scheduler)
+		}) && request == Some(self.request.as_slice())
+	}
+}
