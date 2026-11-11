@@ -18,7 +18,7 @@ pub(crate) type Arg<'a> = tangram_server_core::sandbox::HolderArg<'a>;
 pub(crate) type Output = tangram_server_core::sandbox::HolderOutput;
 
 /// The sandbox whose holder a request is sent to.
-struct Kind<'a> {
+struct Item<'a> {
 	component: &'a Component,
 	destroy: bool,
 	get: bool,
@@ -45,7 +45,7 @@ impl Component {
 			arg.request,
 			tg::sandbox::control::ServerRequestArg::GetProcesses(_)
 		);
-		let kind = Kind {
+		let item = Item {
 			component: self,
 			destroy,
 			get,
@@ -53,7 +53,7 @@ impl Component {
 			processes,
 			session,
 		};
-		tangram_server_core::holder::request(&kind, arg, index_required).await
+		tangram_server_core::holder::request(&item, arg, index_required).await
 	}
 
 	/// Serve the requests to the holder of a sandbox by passing each message to the holder, which answers a request or replies that it does not hold the sandbox.
@@ -178,7 +178,7 @@ impl Component {
 	}
 }
 
-impl tangram_server_core::holder::Kind for Kind<'_> {
+impl tangram_server_core::holder::Item for Item<'_> {
 	type Indexed = Indexed;
 
 	type Reply = tg::sandbox::control::ClientResponseOutput;

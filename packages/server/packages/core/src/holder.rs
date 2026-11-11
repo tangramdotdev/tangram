@@ -37,8 +37,8 @@ pub struct Output<Indexed, Reply> {
 	pub reply: Option<tg::Result<Reply>>,
 }
 
-/// A kind of item that has a holder, which is a process or a sandbox.
-pub trait Kind: Sync {
+/// An item that has a holder, which is a process or a sandbox.
+pub trait Item: Sync {
 	type Indexed: Send;
 
 	type Reply: Send;
@@ -74,11 +74,11 @@ pub trait Kind: Sync {
 }
 
 /// Send a request to the holder of an item while reading the item from the index, and return the holder's reply or the index's answer, whichever is decisive first. Return `None` if the wakeups end.
-pub async fn request<K: Kind>(
-	kind: &K,
-	arg: Arg<'_, K::Request>,
-	index_required: impl Fn(&K::Reply) -> bool + Send,
-) -> tg::Result<Option<Output<K::Indexed, K::Reply>>> {
+pub async fn request<I: Item>(
+	item: &I,
+	arg: Arg<'_, I::Request>,
+	index_required: impl Fn(&I::Reply) -> bool + Send,
+) -> tg::Result<Option<Output<I::Indexed, I::Reply>>> {
 	let Arg {
 		deadline,
 		exhaustive,
@@ -90,21 +90,21 @@ pub async fn request<K: Kind>(
 	} = arg;
 
 	// Read the item from the index.
-	let mut index_future = Some(kind.index(exhaustive));
-	let mut indexed: Option<Option<K::Indexed>> = None;
+	let mut index_future = Some(item.index(exhaustive));
+	let mut indexed: Option<Option<I::Indexed>> = None;
 
 	// Send the request to the holder, and send it again on each status wakeup, because the item may have a new holder.
 	let (resend_sender, resend_receiver) = tokio::sync::watch::channel(());
 	let resend = wakeups
 		.is_some()
 		.then(|| tokio_stream::wrappers::WatchStream::from_changes(resend_receiver).boxed());
-	let mut request_future = kind.send(request, id, options, resend);
+	let mut request_future = item.send(request, id, options, resend);
 
 	loop {
 		// A read waits for the holder until the deadline, and a write does so only if the index does not have the item, because only a holder can then show that the item exists.
 		let missing = matches!(
 			&indexed,
-			Some(indexed) if !kind.has_status(indexed.as_ref()),
+			Some(indexed) if !item.has_status(indexed.as_ref()),
 		);
 		let wait_until_deadline = fallback || missing;
 
@@ -114,8 +114,8 @@ pub async fn request<K: Kind>(
 				let result = result?;
 
 				// Return the index's answer if it is decisive, or if the index does not have the item and the request is not exhaustive.
-				if kind.is_decisive(result.as_ref(), fallback)
-					|| (!exhaustive && !kind.has_status(result.as_ref()))
+				if item.is_decisive(result.as_ref(), fallback)
+					|| (!exhaustive && !item.has_status(result.as_ref()))
 				{
 					let output = Output {
 						indexed: result,
@@ -131,22 +131,22 @@ pub async fn request<K: Kind>(
 				let indexed = match &reply {
 					// Read the item from the index if the reply requires it, because the holder does not have everything that the index does.
 					Ok(output) if index_required(output) => {
-						kind.index_required().await;
+						item.index_required().await;
 						let indexed = match index_future.take() {
 							Some(index_future) => index_future.await?,
 							None => indexed.flatten(),
 						};
-						if kind.is_complete(indexed.as_ref()) {
+						if item.is_complete(indexed.as_ref()) {
 							indexed
 						} else {
-							kind.reindex(exhaustive).await?
+							item.reindex(exhaustive).await?
 						}
 					},
 
 					Ok(_) => indexed.flatten(),
 
 					// Read the item from the index again if the request failed, because the item may have reached a terminal state.
-					Err(_) => kind.reindex(exhaustive).await?,
+					Err(_) => item.reindex(exhaustive).await?,
 				};
 				let output = Output {
 					indexed,
@@ -158,7 +158,7 @@ pub async fn request<K: Kind>(
 			() = tokio::time::sleep_until(deadline), if wait_until_deadline => {
 				// Answer a read from the index, and a write with the missing item.
 				let indexed = if fallback {
-					kind.reindex(exhaustive).await?
+					item.reindex(exhaustive).await?
 				} else {
 					indexed.flatten()
 				};
@@ -175,7 +175,7 @@ pub async fn request<K: Kind>(
 				}
 
 				// Read the item from the index again, and send the request again, because its status changed and the item may have a new holder.
-				index_future = Some(kind.index(exhaustive));
+				index_future = Some(item.index(exhaustive));
 				resend_sender.send_replace(());
 			},
 		}

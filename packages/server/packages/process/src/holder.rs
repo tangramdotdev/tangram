@@ -23,7 +23,7 @@ pub(crate) type Output =
 	tangram_server_core::holder::Output<Indexed, tg::process::control::ClientResponseOutput>;
 
 /// The process whose holder a request is sent to.
-struct Kind<'a> {
+struct Item<'a> {
 	cancel: bool,
 	children: bool,
 	component: &'a Component,
@@ -127,7 +127,7 @@ impl Component {
 			arg.request,
 			tg::process::control::ServerRequestArg::Signal(_)
 		);
-		let kind = Kind {
+		let item = Item {
 			cancel,
 			children,
 			component: self,
@@ -136,7 +136,7 @@ impl Component {
 			session,
 			signal,
 		};
-		tangram_server_core::holder::request(&kind, arg, index_required).await
+		tangram_server_core::holder::request(&item, arg, index_required).await
 	}
 
 	/// Relay a stream of a process's stdio through the process's holder. Each attempt opens a relay and asks the holder to open its end, which only the holder accepts, and the stream reopens from its acknowledged position after a handoff or a failure, until it ends.
@@ -307,7 +307,7 @@ impl Component {
 	}
 }
 
-impl tangram_server_core::holder::Kind for Kind<'_> {
+impl tangram_server_core::holder::Item for Item<'_> {
 	type Indexed = Indexed;
 
 	type Reply = tg::process::control::ClientResponseOutput;
