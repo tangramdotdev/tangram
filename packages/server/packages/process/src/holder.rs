@@ -3,10 +3,13 @@ use {
 		Component,
 		control::{ClientMessage, ServerMessage},
 	},
-	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture, stream::BoxStream},
+	futures::{
+		FutureExt as _, StreamExt as _, TryStreamExt as _, future::BoxFuture, stream::BoxStream,
+	},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
-	tangram_messenger::Messenger as _,
+	tangram_messenger::{Messenger as _, Payload},
 	tangram_server_core::{Server, Session},
 };
 
@@ -27,6 +30,78 @@ struct Kind<'a> {
 	get: bool,
 	id: &'a tg::process::Id,
 	session: &'a Session,
+}
+
+/// A stream of a process's stdio that the process's holder relays.
+pub(crate) struct StreamArg<'a, M> {
+	pub(crate) id: &'a tg::process::Id,
+
+	/// The method that relays the stream's data on each attempt.
+	pub(crate) method: M,
+
+	/// The relay that the runner opened when the process started, which the first attempt claims instead of sending an open request.
+	pub(crate) open: Option<String>,
+
+	/// The future that resolves once the process leaves the starting status, while which the relay waits for its holder without timing out.
+	pub(crate) start: Option<crate::stdio::read::Start>,
+}
+
+/// The relay of one attempt of a stream, opened at the process's holder.
+pub(crate) struct Opened<S, R> {
+	/// Whether the attempt claimed the relay that the runner opened when the process started.
+	pub(crate) claimed: bool,
+
+	pub(crate) receiver: tangram_messenger::relay::Receiver<R>,
+
+	/// The holder's response to the open request, which never resolves for a claimed relay.
+	pub(crate) response: BoxFuture<'static, tg::Result<()>>,
+
+	pub(crate) sender: tangram_messenger::relay::Sender<S>,
+
+	pub(crate) start: Option<crate::stdio::read::Start>,
+}
+
+/// The side of a process's stdio that a stream relays.
+#[derive(Clone, Copy)]
+pub(crate) enum StreamSide {
+	Read,
+	Write,
+}
+
+/// The holder stream of a process, which opens each attempt's relay at the process's holder.
+struct Stream<'a, M> {
+	component: &'a Component,
+	id: &'a tg::process::Id,
+	method: M,
+	open: Option<String>,
+	session: &'a Session,
+	start: Option<crate::stdio::read::Start>,
+}
+
+/// A method whose data a process's holder relays, such as a stdio read or a stdio write.
+pub(crate) trait StreamMethod: Send {
+	type Receive: Payload + Send + 'static;
+
+	type Send: Payload + Send + 'static;
+
+	const SIDE: StreamSide;
+
+	/// Relay the data of one attempt on a relay that the holder opened.
+	fn attempt<'a>(
+		&'a mut self,
+		component: &'a Component,
+		session: &'a Session,
+		opened: Opened<Self::Send, Self::Receive>,
+	) -> BoxFuture<'a, tg::Result<ControlFlow<(), tg::Error>>>;
+
+	/// Whether the stream's consumer is gone.
+	fn is_closed(&self) -> bool;
+
+	/// The read that the open request asks the holder to start, from the stream's acknowledged position.
+	fn open_arg(&self) -> tg::process::stdio::read::Arg;
+
+	/// The position through which the stream has delivered its data.
+	fn position(&self) -> u64;
 }
 
 impl Component {
@@ -56,6 +131,38 @@ impl Component {
 			session,
 		};
 		tangram_server_core::holder::request(&kind, arg, index_required).await
+	}
+
+	/// Relay a stream of a process's stdio through the process's holder. Each attempt opens a relay and asks the holder to open its end, which only the holder accepts, and the stream reopens from its acknowledged position after a handoff or a failure, until it ends.
+	pub(crate) async fn stream_process_holder<M: StreamMethod>(
+		&self,
+		session: &Session,
+		arg: StreamArg<'_, M>,
+	) -> tg::Result<()> {
+		let StreamArg {
+			id,
+			method,
+			open,
+			start,
+		} = arg;
+		let mut stream = Stream {
+			component: self,
+			id,
+			method,
+			open,
+			session,
+			start,
+		};
+		let retry = session
+			.server
+			.config
+			.process
+			.stdio_relay_retry
+			.clone()
+			.into();
+		tangram_server_core::holder::stream(&mut stream, retry).await?;
+
+		Ok(())
 	}
 
 	/// Serve the requests to the holder of a process by passing each message to the holder, which answers a request or replies that it does not hold the process.
@@ -268,5 +375,104 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 
 	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool {
 		indexed.is_some_and(|(process, _)| self.children || process.status.is_some())
+	}
+}
+
+impl<M: StreamMethod> tangram_server_core::holder::Stream for Stream<'_, M> {
+	fn attempt<'a>(
+		&'a mut self,
+		previous: Option<&'a tg::Error>,
+	) -> BoxFuture<'a, tg::Result<ControlFlow<(), tg::Error>>> {
+		async move {
+			let id = self.id;
+			let session = self.session;
+
+			// Report that the stream reopens after a handoff or a failure.
+			if let Some(error) = previous {
+				match M::SIDE {
+					StreamSide::Read => {
+						tracing::warn!(error = %error.trace(), %id, "reopening the stdio relay");
+						tangram_server_core::checkpoint!(session.server, "process.stdio.read.reopen", process = %id).await;
+					},
+					StreamSide::Write => {
+						tracing::warn!(error = %error.trace(), %id, "reopening the stdin relay");
+						tangram_server_core::checkpoint!(session.server, "process.stdio.write.reopen", process = %id).await;
+					},
+				}
+			}
+
+			// Open the relay before the holder's end, so that the holder's first data is not missed. A claimed open names the relay that the runner opened when the process started.
+			let claimed = self.open.is_some();
+			let relay = self
+				.open
+				.take()
+				.unwrap_or_else(tangram_server_core::control::id);
+			let data_subject = crate::stdio::relay::data_subject(id, &relay);
+			let ack_subject = crate::stdio::relay::ack_subject(id, &relay);
+			let (send_subject, receive_subject) = match M::SIDE {
+				StreamSide::Read => (ack_subject, data_subject),
+				StreamSide::Write => (data_subject, ack_subject),
+			};
+			let options = session.server.config.process.stdio_relay;
+			let hold = self.start.clone().map(|start| start.map(|_| ()).boxed());
+			let result = tangram_messenger::relay::open_with_hold::<M::Send, M::Receive, _>(
+				&session.server.messenger,
+				send_subject,
+				receive_subject,
+				options,
+				hold,
+			)
+			.await;
+			let (sender, receiver) = crate::stdio::relay::attempt!(result);
+
+			// Ask the holder to open its end, unless the runner opened it when the process started.
+			let response = if claimed {
+				match M::SIDE {
+					StreamSide::Read => {
+						tangram_server_core::checkpoint!(session.server, "process.stdio.read.open.claimed", process = %id).await;
+					},
+					StreamSide::Write => {
+						tangram_server_core::checkpoint!(session.server, "process.stdio.write.open.claimed", process = %id).await;
+					},
+				}
+				futures::future::pending::<tg::Result<()>>().boxed()
+			} else {
+				let arg = self.method.open_arg();
+				let request = tg::process::control::ServerRequest {
+					arg: tg::process::control::ServerRequestArg::Open(
+						tg::process::control::OpenServerRequestArg { arg },
+					),
+					id: relay,
+				};
+				let resend = self
+					.start
+					.clone()
+					.map(|start| start.map(|_| ()).into_stream().boxed());
+				self.component
+					.send_process_control_open(session, id, request, resend)
+					.await?
+			};
+
+			// Relay the attempt's data.
+			let opened = Opened {
+				claimed,
+				receiver,
+				response,
+				sender,
+				start: self.start.clone(),
+			};
+			self.method
+				.attempt(self.component, session, opened)
+				.await
+		}
+		.boxed()
+	}
+
+	fn is_closed(&self) -> bool {
+		self.method.is_closed()
+	}
+
+	fn position(&self) -> u64 {
+		self.method.position()
 	}
 }

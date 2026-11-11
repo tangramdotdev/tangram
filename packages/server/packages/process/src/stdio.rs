@@ -1,4 +1,4 @@
-mod relay;
+pub(crate) mod relay;
 
 pub mod read;
 pub mod write;

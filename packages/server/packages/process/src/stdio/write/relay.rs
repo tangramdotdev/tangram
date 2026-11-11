@@ -38,15 +38,13 @@ pub(super) struct WriteProcessStdioRelayTaskArg<'a> {
 	pub(super) wait: future::Shared<BoxFuture<'static, tg::Result<()>>>,
 }
 
-struct WriteProcessStdioRelayAttemptArg<'a> {
-	ended: &'a mut bool,
-	id: &'a tg::process::Id,
-	input: &'a mut BoxStream<'static, tg::Result<Data>>,
-	kept: &'a mut VecDeque<(Data, Pending)>,
-	open: Option<String>,
-	position: &'a mut u64,
+/// A write of a process's stdin that the process's holder relays, which keeps the client's data until the runner has written it, so a failed relay can be replaced by one that resends it.
+struct WriteProcessStdioRelay<'a> {
+	ended: bool,
+	input: BoxStream<'static, tg::Result<Data>>,
+	kept: VecDeque<(Data, Pending)>,
+	position: u64,
 	sender: &'a tokio::sync::mpsc::Sender<tg::Result<Output>>,
-	start: Option<super::super::read::Start>,
 	streams: &'a [tg::process::stdio::Stream],
 	wait: future::Shared<BoxFuture<'static, tg::Result<()>>>,
 }
@@ -276,127 +274,62 @@ impl Component {
 	) -> tg::Result<()> {
 		let WriteProcessStdioRelayTaskArg {
 			id,
-			mut input,
-			mut open,
-			sender,
-			start: process_start,
-			streams,
-			wait,
-		} = arg;
-
-		// Keep the client's data until the runner has written it, so a failed relay can be replaced by one that resends it.
-		let mut kept = VecDeque::<(Data, Pending)>::new();
-		let mut ended = false;
-		let mut position = 0;
-		let options: tangram_futures::retry::Options = session
-			.server
-			.config
-			.process
-			.stdio_relay_retry
-			.clone()
-			.into();
-		let mut retries = tangram_futures::retry::stream(options.clone()).boxed();
-		let mut error = None;
-		loop {
-			if retries.next().await.is_none() {
-				return Err(error.unwrap());
-			}
-			let start = position;
-			let arg = WriteProcessStdioRelayAttemptArg {
-				ended: &mut ended,
-				id,
-				input: &mut input,
-				kept: &mut kept,
-				open: open.take(),
-				position: &mut position,
-				sender,
-				start: process_start.clone(),
-				streams,
-				wait: wait.clone(),
-			};
-			let result = self.write_process_stdio_relay_attempt(session, arg).await;
-			let attempt_error = match result? {
-				ControlFlow::Break(()) => return Ok(()),
-				ControlFlow::Continue(error) => error,
-			};
-
-			// Return the error if the writer is gone.
-			if sender.is_closed() {
-				return Err(attempt_error);
-			}
-
-			// Restart the retries if the attempt wrote bytes, so that only consecutive failures exhaust them.
-			if position > start {
-				retries = tangram_futures::retry::stream(options.clone()).boxed();
-			}
-			tracing::warn!(error = %attempt_error.trace(), %id, "reopening the stdin relay");
-			tangram_server_core::checkpoint!(session.server, "process.stdio.write.reopen", process = %id).await;
-			error = Some(attempt_error);
-		}
-	}
-
-	async fn write_process_stdio_relay_attempt(
-		&self,
-		session: &Session,
-		arg: WriteProcessStdioRelayAttemptArg<'_>,
-	) -> tg::Result<ControlFlow<(), tg::Error>> {
-		let WriteProcessStdioRelayAttemptArg {
-			ended,
-			id,
 			input,
-			kept,
 			open,
-			position,
 			sender,
 			start,
 			streams,
 			wait,
 		} = arg;
-		// Open the relay, which sends the data and receives the runner's acknowledgments. A claimed open names the relay that the runner opened when the process started.
-		let claimed = open.is_some();
-		let open = open.unwrap_or_else(tangram_server_core::control::id);
-		let send_subject = super::super::relay::data_subject(id, &open);
-		let receive_subject = super::super::relay::ack_subject(id, &open);
-		let options = session.server.config.process.stdio_relay;
-		let hold = start.clone().map(|start| start.map(|_| ()).boxed());
-		let result = tangram_messenger::relay::open_with_hold::<
-			super::super::relay::Data,
-			super::super::relay::Ack,
-			_,
-		>(
-			&session.server.messenger,
-			send_subject,
-			receive_subject,
-			options,
-			hold,
-		)
-		.await;
-		let (relay_sender, receiver) = super::super::relay::attempt!(result);
+
+		// Write the relay through the process's holder, reopening it and resending the kept data after a handoff or a failure.
+		let method = WriteProcessStdioRelay {
+			ended: false,
+			input,
+			kept: VecDeque::new(),
+			position: 0,
+			sender,
+			streams,
+			wait,
+		};
+		let arg = crate::holder::StreamArg {
+			id,
+			method,
+			open,
+			start,
+		};
+		self.stream_process_holder(session, arg).await?;
+
+		Ok(())
+	}
+
+	async fn write_process_stdio_relay_attempt(
+		&self,
+		session: &Session,
+		relay: &mut WriteProcessStdioRelay<'_>,
+		opened: crate::holder::Opened<super::super::relay::Data, super::super::relay::Ack>,
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
+		let WriteProcessStdioRelay {
+			ended,
+			input,
+			kept,
+			position,
+			sender,
+			streams,
+			wait,
+		} = relay;
+		let streams = *streams;
+		let crate::holder::Opened {
+			claimed,
+			mut response,
+			receiver,
+			sender: relay_sender,
+			..
+		} = opened;
 		let mut acks = receiver;
 		let (items_sender, items_receiver) = tokio::sync::mpsc::channel(1);
 		let items = ReceiverStream::new(items_receiver);
 		let mut relay = AbortOnDropHandle::new(tokio::spawn(relay_sender.send_all(items)));
-
-		// Open the runner's stdin read, unless the runner opened it when the process started.
-		let mut response = if claimed {
-			tangram_server_core::checkpoint!(session.server, "process.stdio.write.open.claimed", process = %id)
-				.await;
-			future::pending::<tg::Result<()>>().boxed()
-		} else {
-			let arg = tg::process::stdio::read::Arg {
-				streams: vec![tg::process::stdio::Stream::Stdin],
-				..Default::default()
-			};
-			let open = tg::process::control::ServerRequest {
-				arg: tg::process::control::ServerRequestArg::Open(
-					tg::process::control::OpenServerRequestArg { arg },
-				),
-				id: open,
-			};
-			let resend = start.map(|start| start.map(|_| ()).into_stream().boxed());
-			self.send_process_control_open(session, id, open, resend)
-				.await?
-		};
 
 		// Resend the kept data on the new relay, then queue new data behind it. The runner skips the bytes it already wrote.
 		let mut queue = kept
@@ -548,5 +481,40 @@ impl Component {
 			.map_err(|_| tg::error!("the stdio write output closed"))?;
 
 		Ok(())
+	}
+}
+
+impl crate::holder::StreamMethod for WriteProcessStdioRelay<'_> {
+	type Receive = super::super::relay::Ack;
+
+	type Send = super::super::relay::Data;
+
+	const SIDE: crate::holder::StreamSide = crate::holder::StreamSide::Write;
+
+	fn attempt<'a>(
+		&'a mut self,
+		component: &'a Component,
+		session: &'a Session,
+		opened: crate::holder::Opened<Self::Send, Self::Receive>,
+	) -> BoxFuture<'a, tg::Result<ControlFlow<(), tg::Error>>> {
+		component
+			.write_process_stdio_relay_attempt(session, self, opened)
+			.boxed()
+	}
+
+	fn is_closed(&self) -> bool {
+		self.sender.is_closed()
+	}
+
+	/// Open the runner's read of stdin, from which the runner skips the bytes that it already wrote.
+	fn open_arg(&self) -> tg::process::stdio::read::Arg {
+		tg::process::stdio::read::Arg {
+			streams: vec![tg::process::stdio::Stream::Stdin],
+			..Default::default()
+		}
+	}
+
+	fn position(&self) -> u64 {
+		self.position
 	}
 }

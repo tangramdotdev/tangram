@@ -32,16 +32,14 @@ enum Source {
 	Pipe(BTreeSet<tg::process::stdio::Stream>),
 }
 
-struct ReadProcessStdioRelayAttemptArg<'a> {
+/// A read of a process's stdio that the process's holder relays, which tracks the read's delivered position, so a failed relay can be replaced by one that resumes without delivering a byte twice.
+struct ReadProcessStdioRelay<'a> {
 	acks: Acks,
+	arg: tg::process::stdio::read::Arg,
 	combined: bool,
-	id: &'a tg::process::Id,
-	length: &'a mut Option<i64>,
-	open: Option<String>,
-	position: &'a mut u64,
+	length: Option<i64>,
+	position: u64,
 	sender: &'a tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>,
-	start: Option<Start>,
-	stdio_arg: tg::process::stdio::read::Arg,
 }
 
 impl Component {
@@ -653,134 +651,71 @@ impl Component {
 		arg: tg::process::stdio::read::Arg,
 		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>,
 		acks: Acks,
-		mut open: Option<String>,
+		open: Option<String>,
 		process_start: Option<Start>,
 	) -> tg::Result<()> {
 		for stream in &arg.streams {
 			tangram_server_core::checkpoint!(session.server, "process.stdio.read.request", process = %id, stream = %stream).await;
 		}
 
-		// Track the read's delivered position, so a failed relay can be replaced by one that resumes without delivering a byte twice.
+		// Read the relay through the process's holder, reopening it from the reader's acknowledged position after a handoff or a failure.
 		let combined = arg.streams.len() > 1;
-		let mut position = match arg.position {
+		let position = match arg.position {
 			None => 0,
 			Some(SeekFrom::Start(position)) => position,
 			Some(_) => return Err(tg::error!("piped stdio only supports an absolute position")),
 		};
-		let mut length = arg.length;
-		let options: tangram_futures::retry::Options = session
-			.server
-			.config
-			.process
-			.stdio_relay_retry
-			.clone()
-			.into();
-		let mut retries = tangram_futures::retry::stream(options.clone()).boxed();
-		let mut error = None;
-		loop {
-			if retries.next().await.is_none() {
-				return Err(error.unwrap());
-			}
+		let length = arg.length;
+		let method = ReadProcessStdioRelay {
+			acks,
+			arg,
+			combined,
+			length,
+			position,
+			sender,
+		};
+		let arg = crate::holder::StreamArg {
+			id,
+			method,
+			open,
+			start: process_start,
+		};
+		self.stream_process_holder(session, arg).await?;
 
-			// Open the read at the reader's acknowledged position, because the bytes delivered after it may not have reached the reader.
-			let acked = (*acks.borrow()).min(position);
-			let mut arg = arg.clone();
-			arg.position = Some(SeekFrom::Start(acked));
-			arg.length =
-				length.map(|length| length.saturating_add((position - acked).to_i64().unwrap()));
-			let start = position;
-			let attempt_arg = ReadProcessStdioRelayAttemptArg {
-				acks: acks.clone(),
-				combined,
-				id,
-				length: &mut length,
-				open: open.take(),
-				position: &mut position,
-				sender,
-				start: process_start.clone(),
-				stdio_arg: arg,
-			};
-			let result = self
-				.read_process_stdio_relay_attempt(session, attempt_arg)
-				.await;
-			let attempt_error = match result? {
-				ControlFlow::Break(()) => return Ok(()),
-				ControlFlow::Continue(error) => error,
-			};
-
-			// Return the error if the reader is gone, so that a superseded read never takes over again.
-			if sender.is_closed() {
-				return Err(attempt_error);
-			}
-
-			// Restart the retries if the attempt delivered bytes, so that only consecutive failures exhaust them.
-			if position > start {
-				retries = tangram_futures::retry::stream(options.clone()).boxed();
-			}
-			tracing::warn!(error = %attempt_error.trace(), %id, "reopening the stdio relay");
-			tangram_server_core::checkpoint!(session.server, "process.stdio.read.reopen", process = %id).await;
-			error = Some(attempt_error);
-		}
+		Ok(())
 	}
 
 	async fn read_process_stdio_relay_attempt(
 		&self,
 		session: &Session,
-		arg: ReadProcessStdioRelayAttemptArg<'_>,
+		relay: &mut ReadProcessStdioRelay<'_>,
+		opened: crate::holder::Opened<super::relay::Ack, super::relay::Data>,
 	) -> tg::Result<ControlFlow<(), tg::Error>> {
-		let ReadProcessStdioRelayAttemptArg {
+		let ReadProcessStdioRelay {
 			acks,
+			arg: stdio_arg,
 			combined,
-			id,
 			length,
-			open,
 			position,
 			sender,
+		} = relay;
+		let combined = *combined;
+		let crate::holder::Opened {
+			claimed,
+			mut response,
+			receiver,
+			sender: relay_sender,
 			mut start,
-			stdio_arg,
-		} = arg;
-		// Open the relay before the read, so the runner's first bytes are not missed. A claimed open names the relay that the runner opened when the process started.
+		} = opened;
 		let timeout = stdio_arg.timeout;
-		let claimed = open.is_some();
-		let request_id = open.unwrap_or_else(tangram_server_core::control::id);
-		let send_subject = super::relay::ack_subject(id, &request_id);
-		let receive_subject = super::relay::data_subject(id, &request_id);
 		let options = session.server.config.process.stdio_relay;
 		let streams = stdio_arg.streams.clone();
-		let hold = start.clone().map(|start| start.map(|_| ()).boxed());
-		let result =
-			tangram_messenger::relay::open_with_hold::<super::relay::Ack, super::relay::Data, _>(
-				&session.server.messenger,
-				send_subject,
-				receive_subject,
-				options,
-				hold,
-			)
-			.await;
-		let (relay_sender, receiver) = super::relay::attempt!(result);
 		let mut items = receiver;
 
 		// Send the reader's acknowledgments back to the runner.
 		let (end_sender, end) = tokio::sync::watch::channel(None);
 		let ack_items = relay_process_stdio_acks(acks.clone(), end);
 		let mut ack_task = AbortOnDropHandle::new(tokio::spawn(relay_sender.send_all(ack_items)));
-
-		// Open the read on the runner, unless the runner opened it when the process started.
-		let mut response = if claimed {
-			tangram_server_core::checkpoint!(session.server, "process.stdio.read.open.claimed", process = %id).await;
-			futures::future::pending::<tg::Result<()>>().boxed()
-		} else {
-			let open = tg::process::control::OpenServerRequestArg { arg: stdio_arg };
-			let request = tg::process::control::ServerRequest {
-				arg: tg::process::control::ServerRequestArg::Open(open),
-				id: request_id.clone(),
-			};
-			let resend = start
-				.clone()
-				.map(|start| start.map(|_| ()).into_stream().boxed());
-			self.send_process_control_open(session, id, request, resend)
-				.await?
-		};
 
 		// Forward the relayed chunks until the relay ends.
 		let mut opened = claimed;
@@ -916,7 +851,7 @@ impl Component {
 		}
 	}
 
-	pub(super) async fn send_process_control_open(
+	pub(crate) async fn send_process_control_open(
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
@@ -1237,6 +1172,44 @@ impl Component {
 			.unwrap();
 
 		Ok(response)
+	}
+}
+
+impl crate::holder::StreamMethod for ReadProcessStdioRelay<'_> {
+	type Receive = super::relay::Data;
+
+	type Send = super::relay::Ack;
+
+	const SIDE: crate::holder::StreamSide = crate::holder::StreamSide::Read;
+
+	fn attempt<'a>(
+		&'a mut self,
+		component: &'a Component,
+		session: &'a Session,
+		opened: crate::holder::Opened<Self::Send, Self::Receive>,
+	) -> future::BoxFuture<'a, tg::Result<ControlFlow<(), tg::Error>>> {
+		component
+			.read_process_stdio_relay_attempt(session, self, opened)
+			.boxed()
+	}
+
+	fn is_closed(&self) -> bool {
+		self.sender.is_closed()
+	}
+
+	/// Open the read at the reader's acknowledged position, because the bytes delivered after it may not have reached the reader.
+	fn open_arg(&self) -> tg::process::stdio::read::Arg {
+		let acked = (*self.acks.borrow()).min(self.position);
+		let mut arg = self.arg.clone();
+		arg.position = Some(SeekFrom::Start(acked));
+		arg.length = self
+			.length
+			.map(|length| length.saturating_add((self.position - acked).to_i64().unwrap()));
+		arg
+	}
+
+	fn position(&self) -> u64 {
+		self.position
 	}
 }
 

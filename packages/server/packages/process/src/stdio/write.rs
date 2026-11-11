@@ -104,6 +104,7 @@ impl Component {
 		} else {
 			input
 		};
+		// Write to the one location that the arg names, with `try_write_process_stdio_region` or `try_write_process_stdio_remote` rather than `_regions` and `_remotes`, because a write consumes its input, which cannot be offered to several locations at once or resent to another after one has taken it.
 		let location = session.server.location(arg.location.as_ref())?;
 		let output = match location {
 			tg::Location::Local(tg::location::Local {
