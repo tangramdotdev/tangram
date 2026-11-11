@@ -1,7 +1,7 @@
 use {
 	super::{Indexer, partition},
 	futures::future,
-	std::{ops::ControlFlow, pin::pin},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_index::prelude::*,
@@ -92,6 +92,16 @@ impl Indexer {
 	}
 
 	async fn finish_process_for_max_depth(&self, id: &tg::process::Id) -> tg::Result<()> {
+		let session = self.server.session(&self.server.context);
+		let process = &session.server.components.process;
+
+		// Subscribe before sending the request, so that the request is sent again to a new holder of the process.
+		let mut wakeups = process
+			.create_process_status_wakeup_stream(&session, id, None, None)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to subscribe to the process"))?;
+
+		// Finish the process at its holder.
 		let error = tg::error::Data {
 			message: Some("maximum depth exceeded".into()),
 			..Default::default()
@@ -105,44 +115,35 @@ impl Indexer {
 		let retry = self.server.config.control.request_retry.clone().into();
 		let timeout = self.server.config.control.request_timeout;
 		let options = tangram_server_core::control::Options { retry, timeout };
-		let session = self.server.session(&self.server.context);
-		let wait_future = session
-			.try_wait_process_future(
-				&tg::Either::Right(id.clone()),
-				tg::process::wait::Arg::default(),
-			)
+		let arg = tangram_server_core::process::HolderArg {
+			checkpoint: None,
+			deadline: session.server.control_read_deadline(),
+			exhaustive: true,
+			id: tangram_server_core::control::id(),
+			mode: tangram_server_core::holder::Mode::Write,
+			options,
+			request,
+			wakeups: &mut wakeups,
+		};
+		let output = process
+			.request_process_holder(&session, id, arg)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
-			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		let finish_future = session
-			.server
-			.components
-			.process
-			.request_process_control(&session, id, request, options);
-		let mut wait_future = pin!(wait_future);
-		let mut finish_future = pin!(finish_future);
-		tokio::select! {
-			output = &mut wait_future => {
-				let output = output
-					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
-				if output.is_none() {
-					return Err(tg::error!(%id, "the process wait ended without output"));
-				}
-			},
-			response = &mut finish_future => {
-				let response = response
-					.map_err(
-						|error| tg::error!(!error, %id, "failed to send the finish process control request"),
-					)?
-					.map_err(
-						|error| tg::error!(!error, %id, "the finish process control request failed"),
-					)?;
-				response
-					.try_unwrap_finish()
-					.map_err(|_| tg::error!(%id, "expected a finish response"))?;
-			},
-		}
+			.map_err(|error| tg::error!(!error, %id, "failed to finish the process"))?
+			.ok_or_else(|| tg::error!(%id, "the process status wakeup stream ended"))?;
 
-		Ok(())
+		// A finished process has nothing left to finish, and a process that neither the index nor a holder has does not exist.
+		let finished = output
+			.indexed
+			.and_then(|(process, _)| process.status)
+			.is_some_and(|status| status.is_finished());
+		match output.reply {
+			Some(Ok(tg::process::control::ClientResponseOutput::Finish(_))) => Ok(()),
+			Some(Ok(_)) => Err(tg::error!(%id, "expected a finish response")),
+			Some(Err(_)) | None if finished => Ok(()),
+			Some(Err(error)) => {
+				Err(tg::error!(!error, %id, "the finish process control request failed"))
+			},
+			None => Err(tg::error!(%id, "failed to find the process")),
+		}
 	}
 }

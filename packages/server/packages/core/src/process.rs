@@ -1,9 +1,9 @@
 use {
 	crate::{Server, Session},
 	futures::{future::BoxFuture, stream::BoxStream},
-	std::ops::ControlFlow,
+	std::{ops::ControlFlow, time::Duration},
 	tangram_client::prelude::*,
-	tangram_futures::task::Task,
+	tangram_futures::task::{Stopper, Task},
 	tangram_http::body::Boxed as BoxBody,
 };
 
@@ -40,6 +40,15 @@ pub struct TryGetProcessRemotesArg<'a> {
 	pub remotes: &'a [crate::location::Remote],
 	pub tokens: &'a tg::authorization::Tokens,
 }
+
+/// The arg of a request to a process's holder.
+pub type HolderArg<'a> = crate::holder::Arg<'a, tg::process::control::ServerRequestArg>;
+
+/// The output of a request to a process's holder.
+pub type HolderOutput = crate::holder::Output<
+	(tangram_index::process::Process, Option<tg::process::Data>),
+	tg::process::control::ClientResponseOutput,
+>;
 
 /// A function that a process's holder handles each message to it with.
 pub type HolderHandle = Box<
@@ -246,6 +255,14 @@ pub trait Component: crate::component::Lifecycle {
 		created_at: i64,
 	) -> tg::Result<tangram_index::permission::put::Arg>;
 
+	fn create_process_status_wakeup_stream<'a>(
+		&'a self,
+		session: &'a Session,
+		id: &'a tg::process::Id,
+		stopper: Option<Stopper>,
+		timeout: Option<Duration>,
+	) -> BoxFuture<'a, tg::Result<BoxStream<'static, ()>>>;
+
 	fn expire_process_log_cache<'a>(
 		&'a self,
 		session: &'a Session,
@@ -299,13 +316,12 @@ pub trait Component: crate::component::Lifecycle {
 		response: tg::process::control::ClientResponse,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn request_process_control<'a>(
+	fn request_process_holder<'a>(
 		&'a self,
 		session: &'a Session,
 		id: &'a tg::process::Id,
-		arg: tg::process::control::ServerRequestArg,
-		options: crate::control::Options,
-	) -> BoxFuture<'a, tg::Result<tg::Result<tg::process::control::ClientResponseOutput>>>;
+		arg: HolderArg<'a>,
+	) -> BoxFuture<'a, tg::Result<Option<HolderOutput>>>;
 
 	fn serve_process_holder<'a>(
 		&'a self,

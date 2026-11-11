@@ -869,20 +869,6 @@ impl Component {
 		Ok(output)
 	}
 
-	pub async fn request_process_control(
-		&self,
-		session: &Session,
-		id: &tg::process::Id,
-		arg: tg::process::control::ServerRequestArg,
-		options: tangram_server_core::control::Options,
-	) -> tg::Result<tg::Result<tg::process::control::ClientResponseOutput>> {
-		let request_id = tangram_server_core::control::id();
-		self.send_process_control_request(session, id, request_id, arg, options, None)
-			.boxed()
-			.await?
-			.await
-	}
-
 	/// Create a future that waits for a process to leave the starting status, and resolves to whether it started, because a process can finish without starting.
 	pub(crate) fn create_wait_process_start_future(
 		&self,

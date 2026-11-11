@@ -528,6 +528,17 @@ impl tangram_server_core::process::Component for Component {
 		Self::create_process_sandbox_permission_arg(session, process, sandbox, created_at)
 	}
 
+	fn create_process_status_wakeup_stream<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		id: &'a tg::process::Id,
+		stopper: Option<tangram_futures::task::Stopper>,
+		timeout: Option<std::time::Duration>,
+	) -> BoxFuture<'a, tg::Result<BoxStream<'static, ()>>> {
+		self.create_process_status_wakeup_stream(session, id, stopper, timeout)
+			.boxed()
+	}
+
 	fn expire_process_log_cache<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
@@ -599,14 +610,13 @@ impl tangram_server_core::process::Component for Component {
 			.boxed()
 	}
 
-	fn request_process_control<'a>(
+	fn request_process_holder<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
 		id: &'a tg::process::Id,
-		arg: tg::process::control::ServerRequestArg,
-		options: tangram_server_core::control::Options,
-	) -> BoxFuture<'a, tg::Result<tg::Result<tg::process::control::ClientResponseOutput>>> {
-		self.request_process_control(session, id, arg, options)
+		arg: tangram_server_core::process::HolderArg<'a>,
+	) -> BoxFuture<'a, tg::Result<Option<tangram_server_core::process::HolderOutput>>> {
+		self.request_process_holder(session, id, arg, |_| false)
 			.boxed()
 	}
 

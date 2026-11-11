@@ -16,11 +16,9 @@ use {
 /// The record of a process in the index and its data.
 pub(crate) type Indexed = (tangram_index::process::Process, Option<tg::process::Data>);
 
-pub(crate) type Arg<'a> =
-	tangram_server_core::holder::Arg<'a, tg::process::control::ServerRequestArg>;
+pub(crate) type Arg<'a> = tangram_server_core::process::HolderArg<'a>;
 
-pub(crate) type Output =
-	tangram_server_core::holder::Output<Indexed, tg::process::control::ClientResponseOutput>;
+pub(crate) type Output = tangram_server_core::process::HolderOutput;
 
 /// The process whose holder a request is sent to.
 struct Item<'a> {
