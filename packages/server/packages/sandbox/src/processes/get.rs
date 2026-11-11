@@ -430,6 +430,7 @@ impl Component {
 		let timeout = session.server.config.control.read_timeout;
 		let options = tangram_server_core::control::Options { retry, timeout };
 		let arg = crate::holder::Arg {
+			checkpoint: None,
 			deadline,
 			exhaustive: true,
 			fallback: true,

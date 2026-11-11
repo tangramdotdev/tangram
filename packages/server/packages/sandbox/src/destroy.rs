@@ -243,6 +243,7 @@ impl Component {
 			let timeout = session.server.config.control.request_timeout;
 			let options = tangram_server_core::control::Options { retry, timeout };
 			let holder_arg = crate::holder::Arg {
+				checkpoint: Some("sandbox.destroy"),
 				deadline: session.server.control_read_deadline(),
 				exhaustive,
 				fallback: false,

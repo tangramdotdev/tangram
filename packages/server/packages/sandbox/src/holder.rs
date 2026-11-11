@@ -20,7 +20,6 @@ pub(crate) type Output = tangram_server_core::sandbox::HolderOutput;
 /// The sandbox whose holder a request is sent to.
 struct Item<'a> {
 	component: &'a Component,
-	destroy: bool,
 	get: bool,
 	id: &'a tg::sandbox::Id,
 	processes: bool,
@@ -36,10 +35,6 @@ impl Component {
 		arg: Arg<'_>,
 		index_required: impl Fn(&tg::sandbox::control::ClientResponseOutput) -> bool + Send,
 	) -> tg::Result<Option<Output>> {
-		let destroy = matches!(
-			arg.request,
-			tg::sandbox::control::ServerRequestArg::Destroy(_)
-		);
 		let get = matches!(arg.request, tg::sandbox::control::ServerRequestArg::Get(_));
 		let processes = matches!(
 			arg.request,
@@ -47,13 +42,18 @@ impl Component {
 		);
 		let item = Item {
 			component: self,
-			destroy,
 			get,
 			id,
 			processes,
 			session,
 		};
-		tangram_server_core::holder::request(&item, arg, index_required).await
+		let checkpoint = |name: String| {
+			async move {
+				tangram_server_core::checkpoint!(session.server, &name, sandbox = %id).await;
+			}
+			.boxed()
+		};
+		tangram_server_core::holder::request(&item, arg, checkpoint, index_required).await
 	}
 
 	/// Serve the requests to the holder of a sandbox by passing each message to the holder, which answers a request or replies that it does not hold the sandbox.
@@ -202,14 +202,6 @@ impl tangram_server_core::holder::Item for Item<'_> {
 					.await?;
 				indexed = self.reindex(exhaustive).await?;
 			}
-			if self.get {
-				tangram_server_core::checkpoint!(self.session.server, "sandbox.get.index", sandbox = %self.id)
-					.await;
-			}
-			if self.destroy {
-				tangram_server_core::checkpoint!(self.session.server, "sandbox.destroy.index", sandbox = %self.id)
-					.await;
-			}
 
 			Ok(indexed)
 		}
@@ -235,8 +227,10 @@ impl tangram_server_core::holder::Item for Item<'_> {
 		options: tangram_server_core::control::Options,
 		resend: Option<BoxStream<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>> {
+		let destroy = matches!(request, tg::sandbox::control::ServerRequestArg::Destroy(_));
+		let get = matches!(request, tg::sandbox::control::ServerRequestArg::Get(_));
 		async move {
-			if self.destroy {
+			if destroy {
 				tangram_server_core::checkpoint!(self.session.server, "sandbox.destroy.control", sandbox = %self.id)
 					.await;
 			}
@@ -248,17 +242,13 @@ impl tangram_server_core::holder::Item for Item<'_> {
 					.await?
 			}
 			.await;
-			if self.get {
+			if get {
 				tangram_server_core::checkpoint!(self.session.server, "sandbox.get.control", sandbox = %self.id)
 					.await;
 			}
 			output
 		}
 		.boxed()
-	}
-
-	fn index_required(&self) -> BoxFuture<'_, ()> {
-		async {}.boxed()
 	}
 
 	/// A request for a sandbox's processes is answered by a record that has them, a sandbox that is stopped or destroyed or that is being destroyed while it is stopped is final, a sandbox in a remote is answered by the index and is complete when it is final or starting, and the scheduler answers for a starting sandbox.

@@ -285,6 +285,7 @@ impl Component {
 
 			// Send the request to the sandbox's holder, and send it again on each status wakeup, so that it reaches the runner once the sandbox starts.
 			let arg = tangram_server_core::holder::Arg {
+				checkpoint: None,
 				deadline: session.server.control_read_deadline(),
 				exhaustive: true,
 				fallback: false,

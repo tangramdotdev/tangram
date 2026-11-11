@@ -162,6 +162,7 @@ impl Component {
 		let timeout = session.server.config.control.request_timeout;
 		let options = tangram_server_core::control::Options { retry, timeout };
 		let arg = crate::holder::Arg {
+			checkpoint: Some("process.cancel"),
 			deadline: session.server.control_read_deadline(),
 			exhaustive,
 			fallback: false,

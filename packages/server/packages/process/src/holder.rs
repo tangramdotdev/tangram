@@ -24,13 +24,10 @@ pub(crate) type Output =
 
 /// The process whose holder a request is sent to.
 struct Item<'a> {
-	cancel: bool,
 	children: bool,
 	component: &'a Component,
-	get: bool,
 	id: &'a tg::process::Id,
 	session: &'a Session,
-	signal: bool,
 }
 
 /// A stream of a process's stdio that the process's holder relays.
@@ -118,25 +115,19 @@ impl Component {
 			arg.request,
 			tg::process::control::ServerRequestArg::GetChildren(_)
 		);
-		let get = children || matches!(arg.request, tg::process::control::ServerRequestArg::Get(_));
-		let cancel = matches!(
-			arg.request,
-			tg::process::control::ServerRequestArg::ReleaseLease(_)
-		);
-		let signal = matches!(
-			arg.request,
-			tg::process::control::ServerRequestArg::Signal(_)
-		);
 		let item = Item {
-			cancel,
 			children,
 			component: self,
-			get,
 			id,
 			session,
-			signal,
 		};
-		tangram_server_core::holder::request(&item, arg, index_required).await
+		let checkpoint = |name: String| {
+			async move {
+				tangram_server_core::checkpoint!(session.server, &name, process = %id).await;
+			}
+			.boxed()
+		};
+		tangram_server_core::holder::request(&item, arg, checkpoint, index_required).await
 	}
 
 	/// Relay a stream of a process's stdio through the process's holder. Each attempt opens a relay and asks the holder to open its end, which only the holder accepts, and the stream reopens from its acknowledged position after a handoff or a failure, until it ends.
@@ -316,26 +307,6 @@ impl tangram_server_core::holder::Item for Item<'_> {
 
 	fn index(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
 		async move {
-			let indexed = self.reindex(exhaustive).await;
-			if self.get {
-				tangram_server_core::checkpoint!(self.session.server, "process.get.index", process = %self.id)
-					.await;
-			}
-			if self.cancel {
-				tangram_server_core::checkpoint!(self.session.server, "process.cancel.index", process = %self.id)
-					.await;
-			}
-			if self.signal {
-				tangram_server_core::checkpoint!(self.session.server, "process.signal.index", process = %self.id)
-					.await;
-			}
-			indexed
-		}
-		.boxed()
-	}
-
-	fn reindex(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
-		async move {
 			// A request for a process's children requires a record that has them, or a starting process, which has none yet.
 			let indexed = self
 				.component
@@ -361,8 +332,17 @@ impl tangram_server_core::holder::Item for Item<'_> {
 		options: tangram_server_core::control::Options,
 		resend: Option<BoxStream<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>> {
+		let cancel = matches!(
+			request,
+			tg::process::control::ServerRequestArg::ReleaseLease(_)
+		);
+		let get = matches!(
+			request,
+			tg::process::control::ServerRequestArg::Get(_)
+				| tg::process::control::ServerRequestArg::GetChildren(_)
+		);
 		async move {
-			if self.cancel {
+			if cancel {
 				tangram_server_core::checkpoint!(self.session.server, "process.cancel.control", process = %self.id)
 					.await;
 			}
@@ -374,21 +354,11 @@ impl tangram_server_core::holder::Item for Item<'_> {
 					.await?
 			}
 			.await;
-			if self.get {
+			if get {
 				tangram_server_core::checkpoint!(self.session.server, "process.get.control", process = %self.id)
 					.await;
 			}
 			output
-		}
-		.boxed()
-	}
-
-	fn index_required(&self) -> BoxFuture<'_, ()> {
-		async move {
-			if self.get {
-				tangram_server_core::checkpoint!(self.session.server, "process.get.index.required", process = %self.id)
-					.await;
-			}
 		}
 		.boxed()
 	}

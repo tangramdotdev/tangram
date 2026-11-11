@@ -576,6 +576,7 @@ impl Component {
 		let timeout = session.server.config.control.read_timeout;
 		let options = tangram_server_core::control::Options { retry, timeout };
 		crate::holder::Arg {
+			checkpoint: Some("process.get"),
 			deadline,
 			exhaustive,
 			fallback: true,

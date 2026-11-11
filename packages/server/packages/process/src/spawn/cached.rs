@@ -482,6 +482,7 @@ impl Component {
 				)
 				.await?;
 			let arg = crate::holder::Arg {
+				checkpoint: None,
 				deadline: session.server.control_read_deadline(),
 				exhaustive: true,
 				fallback: false,

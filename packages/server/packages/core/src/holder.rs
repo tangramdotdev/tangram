@@ -1,5 +1,5 @@
 use {
-	futures::{StreamExt as _, future::BoxFuture, stream::BoxStream},
+	futures::{FutureExt as _, StreamExt as _, future::BoxFuture, stream::BoxStream},
 	tangram_client::prelude::*,
 };
 
@@ -8,6 +8,9 @@ mod replies;
 pub use self::replies::{Begin, Replies};
 
 pub struct Arg<'a, Request> {
+	/// The prefix of the names of the checkpoints that the request hits, such as `process.get`, which hits `process.get.index` after each read of the item from the index and `process.get.index.required` when a reply requires the index.
+	pub checkpoint: Option<&'static str>,
+
 	/// The time until which a read waits for the holder's reply, and a write waits for the holder of an item that the index does not have.
 	pub deadline: tokio::time::Instant,
 
@@ -71,7 +74,9 @@ pub trait Item: Sync {
 	fn index(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>>;
 
 	/// Read the item from the index again after a reply or the deadline.
-	fn reindex(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>>;
+	fn reindex(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
+		self.index(exhaustive)
+	}
 
 	/// Send the request to the holder, and send it again on each item of the resend stream until a holder acknowledges it.
 	fn send(
@@ -82,20 +87,19 @@ pub trait Item: Sync {
 		resend: Option<BoxStream<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>>;
 
-	/// Observe that a reply requires the index.
-	fn index_required(&self) -> BoxFuture<'_, ()>;
-
 	/// The state of the item's record in the index.
 	fn state(&self, indexed: Option<&Self::Indexed>) -> State;
 }
 
-/// Send a request to the holder of an item while reading the item from the index, and return the holder's reply or the index's answer, whichever is decisive first. Return `None` if the wakeups end.
-pub async fn request<I: Item>(
+/// Send a request to the holder of an item while reading the item from the index, and return the holder's reply or the index's answer, whichever is decisive first. Hit each of the request's checkpoints with the checkpoint function. Return `None` if the wakeups end.
+pub async fn request<'c, I: Item>(
 	item: &I,
 	arg: Arg<'_, I::Request>,
+	checkpoint: impl Fn(String) -> BoxFuture<'c, ()> + Sync,
 	index_required: impl Fn(&I::Reply) -> bool + Send,
 ) -> tg::Result<Option<Output<I::Indexed, I::Reply>>> {
 	let Arg {
+		checkpoint: prefix,
 		deadline,
 		exhaustive,
 		fallback,
@@ -105,8 +109,19 @@ pub async fn request<I: Item>(
 		mut wakeups,
 	} = arg;
 
-	// Read the item from the index.
-	let mut index_future = Some(item.index(exhaustive));
+	// Read the item from the index, and then hit the request's index checkpoint.
+	let index = || {
+		let checkpoint = &checkpoint;
+		async move {
+			let result = item.index(exhaustive).await;
+			if let Some(prefix) = prefix {
+				checkpoint(format!("{prefix}.index")).await;
+			}
+			result
+		}
+		.boxed()
+	};
+	let mut index_future = Some(index());
 	let mut indexed: Option<Option<I::Indexed>> = None;
 
 	// Send the request to the holder, and send it again on each status wakeup, because the item may have a new holder.
@@ -151,7 +166,9 @@ pub async fn request<I: Item>(
 				let indexed = match &reply {
 					// Read the item from the index if the reply requires it, because the holder does not have everything that the index does.
 					Ok(output) if index_required(output) => {
-						item.index_required().await;
+						if let Some(prefix) = prefix {
+							checkpoint(format!("{prefix}.index.required")).await;
+						}
 						let indexed = match index_future.take() {
 							Some(index_future) => index_future.await?,
 							None => indexed.flatten(),
@@ -199,7 +216,7 @@ pub async fn request<I: Item>(
 				}
 
 				// Read the item from the index again, and send the request again, because its status changed and the item may have a new holder.
-				index_future = Some(item.index(exhaustive));
+				index_future = Some(index());
 				resend_sender.send_replace(());
 			},
 		}

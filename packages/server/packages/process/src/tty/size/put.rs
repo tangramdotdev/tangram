@@ -214,6 +214,7 @@ impl Component {
 		};
 		let options = tangram_server_core::control::Options { retry, timeout };
 		let arg = crate::holder::Arg {
+			checkpoint: None,
 			deadline: session.server.control_read_deadline(),
 			exhaustive,
 			fallback: false,
