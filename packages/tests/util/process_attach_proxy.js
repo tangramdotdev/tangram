@@ -38,11 +38,17 @@ server.on("stream", (stream, headers) => {
 				{ waitForTrailers: true },
 			);
 			stream.on("wantTrailers", () => stream.sendTrailers(response.trailers));
-			response.on("error", () => stream.close());
+			response.on("error", (error) => {
+				console.error(`the upstream response for ${path} failed: ${error}`);
+				stream.close();
+			});
 			response.pipe(stream);
 		},
 	);
-	request.on("error", () => stream.close());
+	request.on("error", (error) => {
+		console.error(`the upstream request for ${path} failed: ${error}`);
+		stream.close();
+	});
 	stream.on("error", () => request.destroy());
 	stream.on("close", () => request.destroy());
 	request.flushHeaders();
