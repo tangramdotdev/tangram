@@ -48,6 +48,14 @@ impl Component {
 		.await
 	}
 
+	pub(crate) async fn select_scheduler(
+		&self,
+		session: &Session,
+	) -> tg::Result<tg::scheduler::Id> {
+		let start = service::start();
+		self.schedulers.select(&session.server, start, false).await
+	}
+
 	pub(crate) async fn send_scheduler_request_to(
 		&self,
 		session: &Session,

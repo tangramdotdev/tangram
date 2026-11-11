@@ -952,6 +952,13 @@ impl tangram_server_core::scheduler::Component for Component {
 		self.enqueue_sandbox(session, request).boxed()
 	}
 
+	fn select_scheduler<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+	) -> BoxFuture<'a, tg::Result<tg::scheduler::Id>> {
+		self.select_scheduler(session).boxed()
+	}
+
 	fn send_scheduler_request<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,

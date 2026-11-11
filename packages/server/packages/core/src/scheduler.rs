@@ -34,6 +34,12 @@ pub trait Component: crate::component::Lifecycle {
 		request: tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 	) -> BoxFuture<'a, tg::Result<tg::scheduler::Id>>;
 
+	/// Select an available scheduler, such as the one that a start of a sandbox without a runner reserves its boot for.
+	fn select_scheduler<'a>(
+		&'a self,
+		session: &'a Session,
+	) -> BoxFuture<'a, tg::Result<tg::scheduler::Id>>;
+
 	fn send_scheduler_request<'a>(
 		&'a self,
 		session: &'a Session,

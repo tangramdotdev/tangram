@@ -148,6 +148,9 @@ impl Component {
 			return Ok(None);
 		}
 
+		// Finish a start of a boot that a start reserved but may not have enqueued, alongside the request to the sandbox's holder.
+		self.spawn_resume_reserved_sandbox_boot_task(session, id);
+
 		// Subscribe before sending the request, so that a start or stop between the request and the wait cannot be missed.
 		let mut wakeups = self
 			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
@@ -264,7 +267,8 @@ impl Component {
 						break boot;
 					}
 
-					// Read the sandbox again, because another start reserved the boot, which is starting.
+					// Finish the start of the boot that a start reserved, which may be this start, if the index applied its reservation and reported a failure, and read the sandbox again.
+					self.resume_reserved_sandbox_boot(session, id).await?;
 					let indexed = self
 						.try_get_sandbox_from_index(session, id)
 						.await?
@@ -282,9 +286,21 @@ impl Component {
 				},
 				tg::sandbox::Status::Started => return Ok(Some(false)),
 				tg::sandbox::Status::Starting => {
+					// Wait for the boot that is starting, because this server's runner may still have the state of an earlier boot that stopped.
 					if arg.wait {
-						self.wait_for_sandbox_start(session, id, &mut wakeups)
-							.await?;
+						let boot = self
+							.try_get_sandbox_from_index(session, id)
+							.await?
+							.and_then(|sandbox| sandbox.data)
+							.filter(|data| data.data.status.is_starting())
+							.map(|data| data.data.boot);
+						if let Some(boot) = boot {
+							self.wait_for_sandbox_boot(session, id, boot, &mut wakeups)
+								.await?;
+						} else {
+							self.wait_for_sandbox_start(session, id, &mut wakeups)
+								.await?;
+						}
 					}
 					return Ok(Some(false));
 				},
@@ -337,7 +353,7 @@ impl Component {
 			.authentication
 			.create_sandbox_authentication_token(&session.server, id.clone())?;
 
-		// Get the scheduler of the runner that has the sandbox's directory, because only that scheduler can place a boot on the runner. A sandbox that was stopped before it was placed has no runner, so any scheduler starts it.
+		// Get the scheduler of the runner that has the sandbox's directory, because only that scheduler can place a boot on the runner. A sandbox that was stopped before it was placed has no runner, or a runner that is not connected, so any scheduler starts it. The scheduler is chosen before the reservation, which records it.
 		let runner = indexed.runner;
 		let scheduler = if let Some(runner) = &runner {
 			session
@@ -349,6 +365,16 @@ impl Component {
 				.and_then(|runner| runner.scheduler)
 		} else {
 			None
+		};
+		let scheduler = match scheduler {
+			Some(scheduler) => scheduler,
+			None => session
+				.server
+				.components
+				.scheduler
+				.select_scheduler(session)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to select a scheduler"))?,
 		};
 
 		// Create the request.
@@ -362,12 +388,12 @@ impl Component {
 			process: None,
 			runner,
 			sandbox: id.clone(),
-			scheduler,
+			scheduler: Some(scheduler.clone()),
 			stop: false,
 			token: Some(token),
 		};
 
-		// Reserve the boot.
+		// Reserve the boot, writing everything about it in one transaction that the index rejects unless the sandbox is still stopped at its boot: the starting boot, and the request in its scheduler's queue, from which a later start or the scheduler's recovery finishes the start.
 		tangram_server_core::checkpoint!(session.server, "sandbox.start.reserve", sandbox = %id)
 			.await;
 		let now = session.server.clock.unix_timestamp();
@@ -397,7 +423,22 @@ impl Component {
 			stopped_usage: None,
 			touched_at: now,
 		};
-		let items = vec![tangram_index::Item::PutSandbox(Box::new(put_arg))];
+		let stored = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
+			token: None,
+			..request.clone()
+		};
+		let stored = serde_json::to_vec(&stored)
+			.map_err(|error| tg::error!(!error, "failed to serialize the request"))?;
+		let queue_arg = tangram_index::scheduler::sandbox::put::Arg {
+			boot,
+			request: stored,
+			sandbox: id.clone(),
+			scheduler,
+		};
+		let items = vec![
+			tangram_index::Item::PutSandbox(Box::new(put_arg)),
+			tangram_index::Item::PutSchedulerSandbox(Box::new(queue_arg)),
+		];
 		let write_arg = tangram_index::write::Arg { items };
 		let reserved = session
 			.server
@@ -412,6 +453,8 @@ impl Component {
 		Self::spawn_publish_sandbox_status_task(&session.server, id);
 
 		// Enqueue the boot, which the scheduler accepts once its record is durable.
+		tangram_server_core::checkpoint!(session.server, "sandbox.start.enqueue", sandbox = %id)
+			.await;
 		session
 			.server
 			.components
@@ -421,6 +464,76 @@ impl Component {
 			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
 
 		Ok(Some(boot))
+	}
+
+	/// Finish a start of a boot that a start reserved in the index, by sending the boot's request that the reservation stored to the scheduler that it names, which ignores a boot that it already has. A start that crashed after its reservation, or whose reservation the index applied while reporting a failure, leaves such a boot.
+	fn spawn_resume_reserved_sandbox_boot_task(&self, session: &Session, id: &tg::sandbox::Id) {
+		let component = self.clone();
+		let session = session.clone();
+		let id = id.clone();
+		tokio::spawn(async move {
+			if let Err(error) = component.resume_reserved_sandbox_boot(&session, &id).await {
+				tracing::warn!(error = %error.trace(), sandbox = %id, "failed to resume the start of the sandbox");
+			}
+		});
+	}
+
+	async fn resume_reserved_sandbox_boot(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<()> {
+		// Read the boot that is starting, and the request that its scheduler's queue has for it.
+		let Some(data) = session
+			.server
+			.index
+			.try_get_sandbox(id)
+			.await?
+			.and_then(|sandbox| sandbox.data)
+		else {
+			return Ok(());
+		};
+		if !data.data.status.is_starting() {
+			return Ok(());
+		}
+		let Some(scheduler) = session.server.index.try_get_sandbox_scheduler(id).await? else {
+			return Ok(());
+		};
+		let Some(stored) = session
+			.server
+			.index
+			.get_scheduler_sandboxes(&scheduler)
+			.await?
+			.into_iter()
+			.find(|sandbox| sandbox.id == *id)
+		else {
+			return Ok(());
+		};
+		let mut request = serde_json::from_slice::<
+			tangram_server_scheduler_core::EnqueueSandboxRequestArg,
+		>(&stored.request)
+		.map_err(|error| tg::error!(!error, "failed to deserialize the request"))?;
+		if request.boot != data.data.boot {
+			return Ok(());
+		}
+
+		// Send the request again with a new token, because the stored request has none.
+		let token = session
+			.server
+			.components
+			.authentication
+			.create_sandbox_authentication_token(&session.server, id.clone())?;
+		request.scheduler = Some(scheduler);
+		request.token = Some(token);
+		session
+			.server
+			.components
+			.scheduler
+			.enqueue_sandbox(session, request)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
+
+		Ok(())
 	}
 
 	pub(crate) async fn wait_for_sandbox_boot(
