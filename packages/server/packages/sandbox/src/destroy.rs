@@ -516,6 +516,8 @@ impl Component {
 		error: Option<tg::error::Data>,
 		runner: &tg::runner::Id,
 	) -> tg::Result<()> {
+		tangram_server_core::checkpoint!(session.server, "sandbox.destroy.remove", sandbox = %id)
+			.await;
 		let destroyed = session
 			.server
 			.components

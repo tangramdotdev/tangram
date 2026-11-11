@@ -485,6 +485,20 @@ pub struct DestroySandboxClientResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct ReportSandboxUsageClientRequestArg {
+	/// The stopped sandboxes that the report covers.
+	#[tangram_serialize(id = 0)]
+	pub sandboxes: Vec<ReportSandboxUsageClientRequestSandbox>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ReportSandboxUsageClientRequestSandbox {
 	/// The boot that the sandbox stopped after.
 	#[tangram_serialize(id = 0)]
 	pub boot: u64,
@@ -492,9 +506,10 @@ pub struct ReportSandboxUsageClientRequestArg {
 	#[tangram_serialize(id = 1)]
 	pub sandbox: tg::sandbox::Id,
 
-	/// The storage usage of the stopped directory since the boot stopped.
-	#[tangram_serialize(id = 2)]
-	pub usage: tg::sandbox::Usage,
+	/// The storage usage of the stopped directory since the boot stopped, if the runner measured it.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
+	pub usage: Option<tg::sandbox::Usage>,
 }
 
 #[derive(
@@ -506,8 +521,71 @@ pub struct ReportSandboxUsageClientRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct ReportSandboxUsageServerResponseOutput {
+	/// What the runner does with each sandbox of the report, in the report's order.
 	#[tangram_serialize(id = 0)]
-	pub reported: bool,
+	pub sandboxes: Vec<ReportSandboxUsageServerResponseSandbox>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ReportSandboxUsageServerResponseSandbox {
+	#[tangram_serialize(id = 0)]
+	pub action: StoppedSandboxAction,
+
+	#[tangram_serialize(id = 1)]
+	pub sandbox: tg::sandbox::Id,
+}
+
+/// What a runner does with the directory of a stopped sandbox that it reported.
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum StoppedSandboxAction {
+	/// Keep the directory.
+	#[tangram_serialize(id = 0)]
+	Keep,
+
+	/// Remove the directory and report the sandbox's destruction.
+	#[tangram_serialize(id = 1)]
+	Remove(StoppedSandboxRemoval),
+}
+
+/// The reason that a runner removes the directory of a stopped sandbox.
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum StoppedSandboxRemoval {
+	/// The index records the sandbox as destroyed.
+	#[tangram_serialize(id = 0)]
+	Destroyed,
+
+	/// The index records the sandbox as destroying, and the directory is all that is left of it.
+	#[tangram_serialize(id = 1)]
+	Destroying,
 }
 
 #[derive(

@@ -2025,6 +2025,9 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.stopped_sandbox_interval {
 		target.stopped_sandbox_interval = value;
 	}
+	if let Some(value) = source.stopped_sandbox_report_batch_size {
+		target.stopped_sandbox_report_batch_size = value;
+	}
 	if let Some(value) = source.cpus {
 		target.cpus = Some(value);
 	}

@@ -1198,8 +1198,11 @@ pub struct Runner {
 
 	pub stdio_drained_ttl: Duration,
 
-	/// The interval at which the runner destroys its expired stopped sandboxes.
+	/// The interval at which the runner reports its stopped sandboxes and destroys its expired stopped sandboxes.
 	pub stopped_sandbox_interval: Duration,
+
+	/// The number of stopped sandboxes that each of the runner's reports covers.
+	pub stopped_sandbox_report_batch_size: usize,
 
 	pub storage: Option<u64>,
 
@@ -3036,6 +3039,7 @@ impl Default for Runner {
 			stdio_drain_timeout: Duration::from_secs(1),
 			stdio_drained_ttl: Duration::from_secs(10),
 			stopped_sandbox_interval: Duration::from_mins(1),
+			stopped_sandbox_report_batch_size: 256,
 			storage: None,
 			token: None,
 		}

@@ -7,7 +7,7 @@ use {
 		stream::{BoxStream, FuturesUnordered},
 	},
 	std::{
-		collections::BTreeMap,
+		collections::{BTreeMap, BTreeSet},
 		pin::pin,
 		sync::{
 			Arc,
@@ -2648,6 +2648,9 @@ impl Component {
 		let now = session.server.clock.unix_timestamp();
 		first_seen.retain(|(id, _), _| ids.contains(id));
 
+		// Measure each stopped sandbox, and find those whose time to live has expired.
+		let mut reports = Vec::new();
+		let mut expired = Vec::new();
 		for (id, indexed) in std::iter::zip(ids, indexed) {
 			// Skip a sandbox that is not stopped, or that has a boot starting or running.
 			let Some(data) = indexed.and_then(|indexed| indexed.data) else {
@@ -2669,16 +2672,65 @@ impl Component {
 				})
 			});
 
-			// Report the storage usage of the stopped directory.
-			if let Err(error) = self
-				.report_stopped_sandbox_usage(session, &id, data.data.boot, stopped_at, &sender)
-				.await
-			{
-				tracing::error!(error = %error.trace(), sandbox = %id, "failed to report the stopped sandbox's usage");
+			// Measure the storage usage of the stopped directory.
+			let usage = self
+				.stopped_sandbox_usage(session, &id, stopped_at)
+				.inspect_err(|error| {
+					tracing::error!(error = %error.trace(), sandbox = %id, "failed to measure the stopped sandbox's usage");
+				})
+				.ok()
+				.flatten();
+			if expires_at.is_some_and(|expires_at| now >= expires_at) {
+				expired.push(id.clone());
 			}
+			let report = tg::runner::control::ReportSandboxUsageClientRequestSandbox {
+				boot: data.data.boot,
+				sandbox: id,
+				usage,
+			};
+			reports.push(report);
+		}
 
-			// Destroy the sandbox once it expires, checking again that no boot started while the usage was reported.
-			if expires_at.is_none_or(|expires_at| now < expires_at) || self.sandbox_is_booted(&id) {
+		// Report the stopped sandboxes in batches, and remove the directory of each sandbox that the index records as destroying or destroyed, unless a boot of it is starting or running on this runner.
+		let batch_size = session
+			.server
+			.config
+			.runner
+			.stopped_sandbox_report_batch_size
+			.max(1);
+		let mut removed = BTreeSet::new();
+		for batch in reports.chunks(batch_size) {
+			let arg = tg::runner::control::ReportSandboxUsageClientRequestArg {
+				sandboxes: batch.to_vec(),
+			};
+			let output = match crate::Component::request_runner_sandbox_usage(&sender, arg).await {
+				Ok(std::ops::ControlFlow::Break(output)) => output,
+				Ok(std::ops::ControlFlow::Continue(error)) | Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to report the stopped sandboxes' usage");
+					continue;
+				},
+			};
+			for reply in output.sandboxes {
+				let tg::runner::control::StoppedSandboxAction::Remove(_) = reply.action else {
+					continue;
+				};
+				if self.sandbox_is_booted(&reply.sandbox) {
+					continue;
+				}
+				if let Err(error) = self
+					.remove_stopped_sandbox(session, &reply.sandbox, None, &sender)
+					.await
+				{
+					tracing::error!(error = %error.trace(), sandbox = %reply.sandbox, "failed to remove the destroyed sandbox");
+					continue;
+				}
+				removed.insert(reply.sandbox);
+			}
+		}
+
+		// Destroy each expired sandbox, checking again that no boot started while the usage was reported.
+		for id in expired {
+			if removed.contains(&id) || self.sandbox_is_booted(&id) {
 				continue;
 			}
 			if let Err(error) = self
@@ -2738,17 +2790,18 @@ impl Component {
 		sender: &crate::RunnerSender,
 	) -> tg::Result<()> {
 		// Measure the directory.
-		let Some(size) = self.stopped_sandbox_size(session, id)? else {
+		let Some(usage) = self.stopped_sandbox_usage(session, id, stopped_at)? else {
 			return Ok(());
 		};
 
 		// Report the usage.
-		let now = session.server.clock.unix_timestamp();
-		let usage = stopped_storage_usage(size, now.saturating_sub(stopped_at));
-		let arg = tg::runner::control::ReportSandboxUsageClientRequestArg {
+		let report = tg::runner::control::ReportSandboxUsageClientRequestSandbox {
 			boot,
 			sandbox: id.clone(),
-			usage,
+			usage: Some(usage),
+		};
+		let arg = tg::runner::control::ReportSandboxUsageClientRequestArg {
+			sandboxes: vec![report],
 		};
 		if let std::ops::ControlFlow::Continue(error) =
 			crate::Component::request_runner_sandbox_usage(sender, arg).await?
@@ -2757,6 +2810,22 @@ impl Component {
 		}
 
 		Ok(())
+	}
+
+	/// Measure the storage usage of a stopped boot's directory from its stop until now, or return `None` if the directory has no filesystem project.
+	fn stopped_sandbox_usage(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		stopped_at: i64,
+	) -> tg::Result<Option<tg::sandbox::Usage>> {
+		let Some(size) = self.stopped_sandbox_size(session, id)? else {
+			return Ok(None);
+		};
+		let now = session.server.clock.unix_timestamp();
+		let usage = stopped_storage_usage(size, now.saturating_sub(stopped_at));
+
+		Ok(Some(usage))
 	}
 
 	/// Measure a stopped sandbox's directory with its filesystem project, or return `None` without one, because storage counts only with a filesystem project, as a running sandbox's storage does.
