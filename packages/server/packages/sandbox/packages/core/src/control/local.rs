@@ -1,4 +1,7 @@
-use {futures::FutureExt as _, tangram_client::prelude::*, tangram_server_control as control};
+use {
+	futures::FutureExt as _, std::ops::ControlFlow, tangram_client::prelude::*,
+	tangram_server_control as control,
+};
 
 #[cfg(test)]
 mod tests;
@@ -13,8 +16,11 @@ pub struct Message {
 	pub sender: Reply,
 }
 
+/// A response to a request, which is the request's output or a reason to send the request again.
+pub type Response = ControlFlow<tg::sandbox::control::ClientResponseOutput, tg::control::Retry>;
+
 pub enum Reply {
-	Local(tokio::sync::oneshot::Sender<tg::Result<tg::sandbox::control::ClientResponseOutput>>),
+	Local(tokio::sync::oneshot::Sender<tg::Result<Response>>),
 	Remote {
 		id: String,
 		sender: control::Sender<
@@ -39,19 +45,14 @@ impl Local {
 	pub async fn request(
 		&self,
 		arg: tg::sandbox::control::ServerRequestArg,
-	) -> tg::Result<tg::sandbox::control::ClientResponseOutput> {
+	) -> tg::Result<Response> {
 		self.send_request(arg).await?.await?
 	}
 
 	pub async fn send_request(
 		&self,
 		arg: tg::sandbox::control::ServerRequestArg,
-	) -> tg::Result<
-		futures::future::BoxFuture<
-			'static,
-			tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>>,
-		>,
-	> {
+	) -> tg::Result<futures::future::BoxFuture<'static, tg::Result<tg::Result<Response>>>> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = Message {
 			arg,
@@ -72,27 +73,41 @@ impl Local {
 }
 
 impl Reply {
+	/// Send the output of a request, or an error.
 	pub async fn send(
 		self,
 		result: tg::Result<tg::sandbox::control::ClientResponseOutput>,
 	) -> tg::Result<()> {
+		self.send_response(result.map(ControlFlow::Break)).await
+	}
+
+	/// Ask the sender of a request to send the request again.
+	pub async fn send_retry(self, retry: tg::control::Retry) -> tg::Result<()> {
+		self.send_response(Ok(ControlFlow::Continue(retry))).await
+	}
+
+	async fn send_response(self, result: tg::Result<Response>) -> tg::Result<()> {
 		match self {
 			Self::Local(sender) => {
 				// An abandoned caller must not stop the sandbox.
 				sender.send(result).ok();
 			},
 			Self::Remote { id, sender } => {
-				let (error, output) = match result {
-					Ok(output) => (None, Some(output)),
-					Err(error) => (
-						Some(tg::error::Data {
+				let response = match result {
+					Ok(ControlFlow::Break(output)) => {
+						tg::sandbox::control::ClientResponse::with_output(id, output)
+					},
+					Ok(ControlFlow::Continue(retry)) => {
+						tg::sandbox::control::ClientResponse::with_retry(id, retry)
+					},
+					Err(error) => {
+						let error = tg::error::Data {
 							message: Some(error.to_string()),
 							..Default::default()
-						}),
-						None,
-					),
+						};
+						tg::sandbox::control::ClientResponse::with_error(id, error)
+					},
 				};
-				let response = tg::sandbox::control::ClientResponse { error, id, output };
 				sender
 					.send(tg::sandbox::control::ClientMessage::Response(response))
 					.await?;

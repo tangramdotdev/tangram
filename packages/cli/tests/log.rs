@@ -476,6 +476,7 @@ impl Control {
 							error: None,
 							id: request.id.clone(),
 							output: Some(tg::process::control::ClientResponseOutput::Get(output)),
+							retry: None,
 						};
 						sender
 							.unbounded_send(Ok(tg::process::control::ClientMessage::Response(

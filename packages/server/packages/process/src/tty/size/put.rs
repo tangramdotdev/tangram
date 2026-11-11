@@ -152,9 +152,11 @@ impl Component {
 		);
 		let reply = control.control_sender.request(request).await?;
 		match reply {
-			tg::process::control::ClientResponseOutput::NotHolder(_)
-			| tg::process::control::ClientResponseOutput::Tty(_) => Ok(Some(())),
-			_ => Err(tg::error!("expected a tty response")),
+			std::ops::ControlFlow::Continue(_)
+			| std::ops::ControlFlow::Break(tg::process::control::ClientResponseOutput::Tty(_)) => {
+				Ok(Some(()))
+			},
+			std::ops::ControlFlow::Break(_) => Err(tg::error!("expected a tty response")),
 		}
 	}
 

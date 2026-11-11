@@ -955,16 +955,6 @@ impl Component {
 			is_ack: |message: &ClientMessage| {
 				matches!(&message.0, tg::process::control::ClientMessage::Ack(_))
 			},
-			is_deferral: |message: &ClientMessage| match &message.0 {
-				tg::process::control::ClientMessage::Response(
-					tg::process::control::ClientResponse {
-						id,
-						output: Some(output),
-						..
-					},
-				) if output.is_deferral() => Some(id.clone()),
-				_ => None,
-			},
 			marker: std::marker::PhantomData,
 			options,
 			request,
@@ -974,15 +964,17 @@ impl Component {
 				else {
 					return Ok(None);
 				};
-				if let Some(error) = message.error {
-					let error = tg::Error::try_from(error)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
-					return Ok(Some((message.id, Err(error))));
-				}
-				let Some(output) = message.output else {
-					return Err(tg::error!("missing process control response output"));
+				let id = message.id.clone();
+				let response = match message.into_result() {
+					Ok(std::ops::ControlFlow::Break(output)) => {
+						std::ops::ControlFlow::Break(Ok(output))
+					},
+					Ok(std::ops::ControlFlow::Continue(retry)) => {
+						std::ops::ControlFlow::Continue(retry)
+					},
+					Err(error) => std::ops::ControlFlow::Break(Err(error)),
 				};
-				Ok(Some((message.id, Ok(output))))
+				Ok(Some((id, response)))
 			},
 			server_subject: format!("processes.{id}.control.server"),
 		};

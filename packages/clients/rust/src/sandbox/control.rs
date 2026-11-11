@@ -6,6 +6,8 @@ use {
 	tangram_uri::Uri,
 };
 
+pub type ClientResponse = tg::control::Response<ClientResponseOutput, tg::control::Retry>;
+
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.sandbox-control";
 
 #[derive(
@@ -114,25 +116,6 @@ pub enum ClientRequestArg {
 #[derive(
 	Clone,
 	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ClientResponse {
-	#[tangram_serialize(id = 0)]
-	pub error: Option<tg::error::Data>,
-
-	#[tangram_serialize(id = 1)]
-	pub id: String,
-
-	#[tangram_serialize(id = 2)]
-	pub output: Option<ClientResponseOutput>,
-}
-
-#[derive(
-	Clone,
-	Debug,
 	derive_more::TryUnwrap,
 	serde::Deserialize,
 	serde::Serialize,
@@ -149,14 +132,6 @@ pub enum ClientResponseOutput {
 
 	#[tangram_serialize(id = 2)]
 	GetProcesses(GetProcessesClientResponseOutput),
-
-	/// The responder does not hold the sandbox, so the request did nothing.
-	#[tangram_serialize(id = 5)]
-	NotHolder(NotHolderClientResponseOutput),
-
-	/// The responder holds the sandbox but cannot act on the request until the sandbox starts, so the request did nothing.
-	#[tangram_serialize(id = 7)]
-	NotReady(NotReadyClientResponseOutput),
 
 	#[tangram_serialize(id = 3)]
 	SpawnProcess(SpawnProcessClientResponseOutput),
@@ -407,26 +382,6 @@ pub struct SpawnProcessServerRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct NotHolderClientResponseOutput {}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct NotReadyClientResponseOutput {}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
 pub struct SpawnProcessClientResponseOutput {
 	#[tangram_serialize(id = 0)]
 	pub lease: tg::process::Lease,
@@ -578,14 +533,6 @@ pub struct Header {
 
 	#[tangram_serialize(id = 1)]
 	pub token: Option<String>,
-}
-
-impl ClientResponseOutput {
-	/// Whether the reply defers the request, because the responder does not hold the sandbox or cannot act on the request until the sandbox starts, so that the request is sent again.
-	#[must_use]
-	pub fn is_deferral(&self) -> bool {
-		matches!(self, Self::NotHolder(_) | Self::NotReady(_))
-	}
 }
 
 impl tg::Session {

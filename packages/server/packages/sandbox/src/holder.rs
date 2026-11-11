@@ -137,25 +137,25 @@ impl Component {
 		response: tg::sandbox::control::ClientResponse,
 	) -> tg::Result<()> {
 		// Remember the reply, so that a duplicate of the request is answered with it, unless the reply asks the sender to send the request again, after which a copy of the request is acted on again.
-		if response
-			.output
-			.as_ref()
-			.is_some_and(tg::sandbox::control::ClientResponseOutput::is_deferral)
-		{
+		if response.retry.is_some() {
 			self.0.holder_replies.forget(&response.id);
 		} else {
 			self.0.holder_replies.finish(&response.id, response.clone());
 		}
-		let kind = match response.output.as_ref() {
-			Some(tg::sandbox::control::ClientResponseOutput::Destroy(_)) => "destroy",
-			Some(tg::sandbox::control::ClientResponseOutput::Get(_)) => "get",
-			Some(tg::sandbox::control::ClientResponseOutput::GetProcesses(_)) => "get_processes",
-			Some(tg::sandbox::control::ClientResponseOutput::NotHolder(_)) => "not_holder",
-			Some(tg::sandbox::control::ClientResponseOutput::NotReady(_)) => "not_ready",
-			Some(tg::sandbox::control::ClientResponseOutput::SpawnProcess(_)) => "spawn_process",
-			Some(tg::sandbox::control::ClientResponseOutput::Start(_)) => "start",
-			Some(tg::sandbox::control::ClientResponseOutput::Stop(_)) => "stop",
-			None => "error",
+		let kind = match (response.retry, response.output.as_ref()) {
+			(Some(tg::control::Retry::NotHolder), _) => "not_holder",
+			(Some(tg::control::Retry::NotReady), _) => "not_ready",
+			(None, Some(tg::sandbox::control::ClientResponseOutput::Destroy(_))) => "destroy",
+			(None, Some(tg::sandbox::control::ClientResponseOutput::Get(_))) => "get",
+			(None, Some(tg::sandbox::control::ClientResponseOutput::GetProcesses(_))) => {
+				"get_processes"
+			},
+			(None, Some(tg::sandbox::control::ClientResponseOutput::SpawnProcess(_))) => {
+				"spawn_process"
+			},
+			(None, Some(tg::sandbox::control::ClientResponseOutput::Start(_))) => "start",
+			(None, Some(tg::sandbox::control::ClientResponseOutput::Stop(_))) => "stop",
+			(None, None) => "error",
 		};
 		tangram_server_core::checkpoint!(
 			server,

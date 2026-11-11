@@ -961,7 +961,6 @@ impl Component {
 				is_ack: |message: &ClientMessage| {
 					matches!(&message.0, tg::runner::control::ClientMessage::Ack(_))
 				},
-				is_deferral: |_| None,
 				marker: std::marker::PhantomData,
 				options,
 				request,
@@ -974,12 +973,12 @@ impl Component {
 						let error = tg::Error::try_from(error).map_err(|source| {
 							tg::error!(!source, "failed to deserialize the error")
 						})?;
-						return Ok(Some((message.id, Err(error))));
+						return Ok(Some((message.id, ControlFlow::Break(Err(error)))));
 					}
 					let Some(output) = message.output else {
 						return Err(tg::error!("missing runner control response output"));
 					};
-					Ok(Some((message.id, Ok(output))))
+					Ok(Some((message.id, ControlFlow::Break(Ok(output)))))
 				},
 				server_subject: format!("runners.{runner}.control.server"),
 			})

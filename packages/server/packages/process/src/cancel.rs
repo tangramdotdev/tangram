@@ -117,11 +117,13 @@ impl Component {
 				.is_some_and(|control| control.data.status.is_finished())
 		};
 		let released = match reply {
-			Ok(Ok(tg::process::control::ClientResponseOutput::ReleaseLease(output))) => {
-				output.released
+			Ok(Ok(std::ops::ControlFlow::Break(
+				tg::process::control::ClientResponseOutput::ReleaseLease(output),
+			))) => output.released,
+			Ok(Ok(std::ops::ControlFlow::Continue(_))) => false,
+			Ok(Ok(std::ops::ControlFlow::Break(_))) => {
+				return Err(tg::error!("expected a release process lease response"));
 			},
-			Ok(Ok(tg::process::control::ClientResponseOutput::NotHolder(_))) => false,
-			Ok(Ok(_)) => return Err(tg::error!("expected a release process lease response")),
 			Ok(Err(_)) | Err(_) if finished() => false,
 			Ok(Err(error)) => {
 				return Err(

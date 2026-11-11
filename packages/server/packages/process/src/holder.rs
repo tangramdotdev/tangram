@@ -252,27 +252,29 @@ impl Component {
 		response: tg::process::control::ClientResponse,
 	) -> tg::Result<()> {
 		// Remember the reply, so that a duplicate of the request is answered with it, unless the reply asks the sender to send the request again, after which a copy of the request is acted on again.
-		if response
-			.output
-			.as_ref()
-			.is_some_and(tg::process::control::ClientResponseOutput::is_deferral)
-		{
+		if response.retry.is_some() {
 			self.0.holder_replies.forget(&response.id);
 		} else {
 			self.0.holder_replies.finish(&response.id, response.clone());
 		}
-		let kind = match response.output.as_ref() {
-			Some(tg::process::control::ClientResponseOutput::AcquireLease(_)) => "acquire_lease",
-			Some(tg::process::control::ClientResponseOutput::Finish(_)) => "finish",
-			Some(tg::process::control::ClientResponseOutput::Get(_)) => "get",
-			Some(tg::process::control::ClientResponseOutput::GetChildren(_)) => "get_children",
-			Some(tg::process::control::ClientResponseOutput::NotHolder(_)) => "not_holder",
-			Some(tg::process::control::ClientResponseOutput::NotReady(_)) => "not_ready",
-			Some(tg::process::control::ClientResponseOutput::Open(_)) => "open",
-			Some(tg::process::control::ClientResponseOutput::ReleaseLease(_)) => "release_lease",
-			Some(tg::process::control::ClientResponseOutput::Signal(_)) => "signal",
-			Some(tg::process::control::ClientResponseOutput::Tty(_)) => "tty",
-			None => "error",
+		let kind = match (response.retry, response.output.as_ref()) {
+			(Some(tg::control::Retry::NotHolder), _) => "not_holder",
+			(Some(tg::control::Retry::NotReady), _) => "not_ready",
+			(None, Some(tg::process::control::ClientResponseOutput::AcquireLease(_))) => {
+				"acquire_lease"
+			},
+			(None, Some(tg::process::control::ClientResponseOutput::Finish(_))) => "finish",
+			(None, Some(tg::process::control::ClientResponseOutput::Get(_))) => "get",
+			(None, Some(tg::process::control::ClientResponseOutput::GetChildren(_))) => {
+				"get_children"
+			},
+			(None, Some(tg::process::control::ClientResponseOutput::Open(_))) => "open",
+			(None, Some(tg::process::control::ClientResponseOutput::ReleaseLease(_))) => {
+				"release_lease"
+			},
+			(None, Some(tg::process::control::ClientResponseOutput::Signal(_))) => "signal",
+			(None, Some(tg::process::control::ClientResponseOutput::Tty(_))) => "tty",
+			(None, None) => "error",
 		};
 		let request = response.id.clone();
 		tangram_server_core::checkpoint!(

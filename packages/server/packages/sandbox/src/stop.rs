@@ -244,12 +244,9 @@ impl Component {
 					)?;
 
 				// Stop the sandbox through its holder if this server's runner no longer holds it.
-				if matches!(
-					response,
-					tg::sandbox::control::ClientResponseOutput::NotHolder(_)
-				) {
+				let std::ops::ControlFlow::Break(response) = response else {
 					return Ok(None);
-				}
+				};
 				response
 					.try_unwrap_stop()
 					.map_err(|_| tg::error!(%id, "expected a stop sandbox response"))?

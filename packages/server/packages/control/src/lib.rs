@@ -107,14 +107,12 @@ pub struct SendControlRequestArg<I, O, Response, AckFn, IsAckFn, ResponseFn> {
 
 	pub is_ack: IsAckFn,
 
-	/// Get the ID of a response that defers the request, from a server that does not hold the request's item or that holds it but cannot act on the request until the item starts. The request is sent again after such a response unless a holder answers first.
-	pub is_deferral: fn(&I) -> Option<String>,
-
 	pub marker: PhantomData<fn() -> (I, Response)>,
 	pub options: Options,
 
 	pub request: O,
 
+	/// Get the ID of a response and either the response or the reason to send the request again, such as from a server that does not hold the request's item or that holds it but cannot act on the request until the item starts. The request is sent again after a retry unless a holder answers first.
 	pub response: ResponseFn,
 
 	pub server_subject: String,
@@ -122,8 +120,14 @@ pub struct SendControlRequestArg<I, O, Response, AckFn, IsAckFn, ResponseFn> {
 
 pub enum ReceiveControlRequestOutput<Response> {
 	Ack,
-	Deferral { id: String },
-	Response { id: String, response: Response },
+	Response {
+		id: String,
+		response: Response,
+	},
+	Retry {
+		id: String,
+		retry: tg::control::Retry,
+	},
 }
 
 #[must_use]

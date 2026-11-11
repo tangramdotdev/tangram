@@ -90,11 +90,7 @@ async fn send_request_enqueues_before_waiting_and_preserves_response_errors() {
 		message: Some("the request failed".into()),
 		..Default::default()
 	};
-	let message = tg::process::control::ClientResponse {
-		error: Some(error),
-		id: request.id,
-		output: None,
-	};
+	let message = tg::process::control::ClientResponse::with_error(request.id, error);
 	sender
 		.send(tg::process::control::ClientMessage::Response(message))
 		.await
@@ -119,6 +115,7 @@ async fn send_request_distinguishes_transport_errors_and_abandoned_callers() {
 		error: None,
 		id: request.id,
 		output: None,
+		retry: None,
 	};
 	sender
 		.send(tg::process::control::ClientMessage::Response(message))

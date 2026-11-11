@@ -33,6 +33,10 @@ pub enum Message {
 	},
 }
 
+/// A response to a request, which is the request's output or a reason to send the request again.
+pub type Response =
+	std::ops::ControlFlow<tg::process::control::ClientResponseOutput, tg::control::Retry>;
+
 #[derive(Clone)]
 pub enum Reply {
 	Local(tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>),
@@ -49,19 +53,14 @@ impl Local {
 	pub async fn request(
 		&self,
 		arg: tg::process::control::ServerRequestArg,
-	) -> tg::Result<tg::process::control::ClientResponseOutput> {
+	) -> tg::Result<Response> {
 		self.send_request(arg).await?.await?
 	}
 
 	pub async fn send_request(
 		&self,
 		arg: tg::process::control::ServerRequestArg,
-	) -> tg::Result<
-		futures::future::BoxFuture<
-			'static,
-			tg::Result<tg::Result<tg::process::control::ClientResponseOutput>>,
-		>,
-	> {
+	) -> tg::Result<futures::future::BoxFuture<'static, tg::Result<tg::Result<Response>>>> {
 		let id = control::id();
 		let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
 		let request = tg::process::control::ServerRequest { arg, id };
@@ -81,7 +80,7 @@ impl Local {
 			let tg::process::control::ClientMessage::Response(response) = message else {
 				return Err(tg::error!("expected a runner control response"));
 			};
-			Ok(response_output(response))
+			Ok(response.into_result())
 		}
 		.boxed();
 		Ok(future)
@@ -214,15 +213,4 @@ impl Reply {
 		}
 		Ok(())
 	}
-}
-
-fn response_output(
-	response: tg::process::control::ClientResponse,
-) -> tg::Result<tg::process::control::ClientResponseOutput> {
-	if let Some(error) = response.error {
-		return Err(tg::Error::try_from(error)?);
-	}
-	response
-		.output
-		.ok_or_else(|| tg::error!("missing the runner control response output"))
 }

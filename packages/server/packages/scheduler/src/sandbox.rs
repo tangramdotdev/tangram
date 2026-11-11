@@ -845,19 +845,18 @@ impl SchedulerState {
 
 		// Reply that this scheduler does not hold a sandbox that it has offered to a runner, whether or not the runner has accepted it, because the offer carries the boot's pending stop.
 		if pending != Some(true) {
-			let output = tg::sandbox::control::ClientResponseOutput::NotHolder(
-				tg::sandbox::control::NotHolderClientResponseOutput {},
+			self.publish_sandbox_holder_retry(
+				scheduler,
+				sandbox,
+				id,
+				tg::control::Retry::NotHolder,
 			);
-			self.publish_sandbox_holder_response(scheduler, sandbox, id, None, output);
 			return;
 		}
 
 		// Reply that this scheduler holds a queued sandbox but is not ready for a spawn, which only a runner can carry out once the sandbox starts.
 		if matches!(arg, tg::sandbox::control::ServerRequestArg::SpawnProcess(_)) {
-			let output = tg::sandbox::control::ClientResponseOutput::NotReady(
-				tg::sandbox::control::NotReadyClientResponseOutput {},
-			);
-			self.publish_sandbox_holder_response(scheduler, sandbox, id, None, output);
+			self.publish_sandbox_holder_retry(scheduler, sandbox, id, tg::control::Retry::NotReady);
 			return;
 		}
 		let entry = self.sandboxes.entries.get_mut(&sandbox).unwrap();
@@ -1009,10 +1008,12 @@ impl SchedulerState {
 			let Some(process) = self.try_get_served_process(sandbox) else {
 				return;
 			};
-			let output = tg::process::control::ClientResponseOutput::NotHolder(
-				tg::process::control::NotHolderClientResponseOutput {},
+			self.publish_process_holder_retry(
+				scheduler,
+				process,
+				id,
+				tg::control::Retry::NotHolder,
 			);
-			self.publish_process_holder_response(scheduler, process, id, None, output);
 			return;
 		};
 		let entry = self.sandboxes.entries.get_mut(sandbox).unwrap();
@@ -1102,10 +1103,12 @@ impl SchedulerState {
 			| tg::process::control::ServerRequestArg::Open(_)
 			| tg::process::control::ServerRequestArg::Signal(_)
 			| tg::process::control::ServerRequestArg::Tty(_) => {
-				let output = tg::process::control::ClientResponseOutput::NotReady(
-					tg::process::control::NotReadyClientResponseOutput {},
+				self.publish_process_holder_retry(
+					scheduler,
+					process,
+					id,
+					tg::control::Retry::NotReady,
 				);
-				self.publish_process_holder_response(scheduler, process, id, None, output);
 			},
 		}
 	}
@@ -1139,12 +1142,44 @@ impl SchedulerState {
 							output = None;
 						}
 					}
-					let response = tg::sandbox::control::ClientResponse { error, id, output };
+					let response = tg::sandbox::control::ClientResponse {
+						error,
+						id,
+						output,
+						retry: None,
+					};
 					component
 						.publish_sandbox_holder_response(&scheduler.server, &sandbox, response)
 						.await
 				}
 				.await;
+				Operation::Publish {
+					context: "failed to answer the request to the sandbox's holder",
+					result,
+				}
+			}
+			.boxed(),
+		);
+	}
+
+	/// Publish this scheduler's reply to a request to the holder of a sandbox that asks the request's sender to send the request again.
+	fn publish_sandbox_holder_retry(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: tg::sandbox::Id,
+		id: String,
+		retry: tg::control::Retry,
+	) {
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let response = tg::sandbox::control::ClientResponse::with_retry(id, retry);
+				let result = scheduler
+					.server
+					.components
+					.sandbox
+					.publish_sandbox_holder_response(&scheduler.server, &sandbox, response)
+					.await;
 				Operation::Publish {
 					context: "failed to answer the request to the sandbox's holder",
 					result,
@@ -1214,12 +1249,44 @@ impl SchedulerState {
 							output = None;
 						}
 					}
-					let response = tg::process::control::ClientResponse { error, id, output };
+					let response = tg::process::control::ClientResponse {
+						error,
+						id,
+						output,
+						retry: None,
+					};
 					component
 						.publish_process_holder_response(&scheduler.server, &process, response)
 						.await
 				}
 				.await;
+				Operation::Publish {
+					context: "failed to answer the request to the process's holder",
+					result,
+				}
+			}
+			.boxed(),
+		);
+	}
+
+	/// Publish this scheduler's reply to a request to the holder of a process that asks the request's sender to send the request again.
+	fn publish_process_holder_retry(
+		&mut self,
+		scheduler: &Scheduler,
+		process: tg::process::Id,
+		id: String,
+		retry: tg::control::Retry,
+	) {
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let response = tg::process::control::ClientResponse::with_retry(id, retry);
+				let result = scheduler
+					.server
+					.components
+					.process
+					.publish_process_holder_response(&scheduler.server, &process, response)
+					.await;
 				Operation::Publish {
 					context: "failed to answer the request to the process's holder",
 					result,
