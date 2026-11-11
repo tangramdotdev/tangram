@@ -30,6 +30,19 @@ impl Index {
 			Self::Lmdb(index) => index.try_get_scheduler(arg).await,
 		}
 	}
+
+	/// Get the scheduler that holds the latest boot of a sandbox that a start reserved or a scheduler accepted, until its runner connects.
+	pub async fn try_get_sandbox_scheduler(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<Option<tg::scheduler::Id>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_sandbox_scheduler(sandbox).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_sandbox_scheduler(sandbox).await,
+		}
+	}
 }
 
 impl index::scheduler::Index for Index {

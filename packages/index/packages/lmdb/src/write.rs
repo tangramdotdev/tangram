@@ -26,6 +26,24 @@ impl Index {
 		process_data_fragment_size: usize,
 		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
+		// Reject the whole write if it changes a stopped sandbox that is no longer stopped at the boot that the change names, so that a write that changes a stopped sandbox applies whole or not at all.
+		for item in &arg.items {
+			if let tangram_index::Item::PutSandbox(put) = item
+				&& put.stopped_boot.is_some()
+			{
+				let key = crate::Key::Sandbox(crate::sandbox::Key::Sandbox(put.id.clone()));
+				let key = Self::pack(subspace, &key);
+				let existing = db
+					.get(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
+					.map(tangram_index::sandbox::Sandbox::deserialize)
+					.transpose()?;
+				if let Err(error) = put.validate_stopped_boot(existing.as_ref()) {
+					return Ok(Err(error));
+				}
+			}
+		}
+
 		let mut rejection = None;
 		for item in &arg.items {
 			// Skip a grant from a finished process to a process that it does not list as a child.
