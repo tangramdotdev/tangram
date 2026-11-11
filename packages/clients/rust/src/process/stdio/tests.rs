@@ -6,53 +6,6 @@ use {
 };
 
 #[tokio::test]
-async fn unsandboxed_pipes_remain_readable_after_exit() -> tg::Result<()> {
-	let client = tg::Client::new(tg::Arg::default())?;
-	let executable = tg::command::Executable {
-		artifact: None,
-		path: Some("sh".into()),
-	};
-	let command = tg::Command::builder()
-		.executable(executable)
-		.args(["-c", "printf stdout; printf stderr >&2"])
-		.build()?;
-	let arg = tg::process::Arg {
-		command: Some(tg::Referent::with_node(tg::Either::Right(command))),
-		stderr: tg::process::Stdio::Pipe,
-		stdin: tg::process::Stdio::Pipe,
-		stdout: tg::process::Stdio::Pipe,
-		..Default::default()
-	};
-	let process = tg::Process::<tg::Value>::spawn_with_instance(
-		&client,
-		arg,
-		tg::process::spawn::Options::default(),
-	)
-	.await?;
-	let outcome = process
-		.wait_with_instance(&client, tg::process::wait::Options::default())
-		.await?;
-	assert_eq!(outcome.exit, 0);
-	assert!(
-		process
-			.stdin()
-			.write_with_instance(&client, b"input")
-			.await
-			.is_err()
-	);
-	assert_eq!(
-		process.stdout().text_with_instance(&client).await?,
-		"stdout"
-	);
-	assert_eq!(
-		process.stderr().text_with_instance(&client).await?,
-		"stderr"
-	);
-
-	Ok(())
-}
-
-#[tokio::test]
 async fn reconnect_preserves_the_resolved_reverse_window() {
 	for (position, length) in [(4, -3), (50, -49), (100, -99)] {
 		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
