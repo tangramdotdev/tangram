@@ -2,7 +2,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import * as tg from "../src/index.ts";
-import { isTransportError } from "../src/client.ts";
+import { isRepeatable, isTransportError } from "../src/client.ts";
 import { Http2 } from "../src/config.ts";
 import { Body, Headers } from "../src/http.ts";
 
@@ -129,4 +129,13 @@ test("transport errors are distinguished from configuration errors", () => {
 		isTransportError(tg.Error.fromData({ kind: "internal" })),
 		false,
 	);
+});
+
+test("only reads are repeated after a failure before the response", () => {
+	assert.equal(isRepeatable("GET"), true);
+	assert.equal(isRepeatable("HEAD"), true);
+	assert.equal(isRepeatable("POST"), false);
+	assert.equal(isRepeatable("PUT"), false);
+	assert.equal(isRepeatable("PATCH"), false);
+	assert.equal(isRepeatable("DELETE"), false);
 });

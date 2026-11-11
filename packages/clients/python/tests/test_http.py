@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 
-from tangram.client import is_transport_error
+from tangram.client import is_repeatable, is_transport_error
 from tangram.config import default_http2_config, validate_http2_config
 from tangram.error import Error
 from tangram.http import Body, Headers
@@ -65,3 +65,11 @@ class HttpTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         self.assertFalse(is_transport_error(Error.from_data({"kind": "internal"})))
+
+    def test_only_reads_are_repeated_after_a_failure_before_the_response(self):
+        self.assertTrue(is_repeatable("GET"))
+        self.assertTrue(is_repeatable("HEAD"))
+        self.assertFalse(is_repeatable("POST"))
+        self.assertFalse(is_repeatable("PUT"))
+        self.assertFalse(is_repeatable("PATCH"))
+        self.assertFalse(is_repeatable("DELETE"))

@@ -203,12 +203,23 @@ class Client:
     async def send_with_retry(self, request: Request) -> Response:
         if request.body is not None and not request.body.replayable:
             raise ValueError("cannot retry a request with a streaming body")
+        # Also retry a read that failed before its response, which is safe to repeat.
+        repeatable = is_repeatable(request.method)
         try:
             return await retry(
                 self.retry,
                 lambda: self._send(request),
                 lambda error: (
-                    isinstance(error, RequestError) and is_retryable_error(error.source)
+                    (
+                        isinstance(error, RequestError)
+                        and is_retryable_error(error.source)
+                    )
+                    or (
+                        repeatable
+                        and is_transport_error(
+                            error.source if isinstance(error, RequestError) else error
+                        )
+                    )
                 ),
             )
         except RequestError as error:
@@ -722,6 +733,11 @@ def is_transport_error(error: BaseException) -> bool:
             errno.ETIMEDOUT,
         )
     )
+
+
+def is_repeatable(method: str) -> bool:
+    """Determine whether a request with this method only reads, so it may repeat."""
+    return method in ("GET", "HEAD")
 
 
 def is_retryable_error(error: Exception) -> bool:
