@@ -25,7 +25,7 @@ pub trait Kind: Send + Sync + 'static {
 		+ Sync
 		+ 'static;
 
-	type Id: Clone + Display + Send + Sync + 'static;
+	type Id: Clone + Display + Ord + Send + Sync + 'static;
 
 	type Output: Clone
 		+ Debug
@@ -338,7 +338,10 @@ impl<K: Kind> Cache<K> {
 		self.0.read().unwrap().is_empty()
 	}
 
+	/// Replace the available servers, sorted so that every server selects the same server for the same index.
 	pub fn replace(&self, ids: Vec<K::Id>) {
+		let mut ids = ids;
+		ids.sort();
 		*self.0.write().unwrap() = ids;
 	}
 }
