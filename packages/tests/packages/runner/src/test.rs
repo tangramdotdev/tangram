@@ -142,13 +142,16 @@ async fn run_inner(
 	let output_path = temp_path.join("output");
 	let leaks_path = temp_path.join("leaks");
 	let mut command = if let Some(tangram) = &options.sandbox {
-		sandbox(
+		// Run the client in its own process group, so that it receives only the signal that terminate sends, and not also an interrupt from the terminal, which would make it exit before the sandboxed test stops.
+		let mut command = sandbox(
 			tangram,
 			!options.offline,
 			&temp_path,
 			&working_path,
 			environment(options, &temp_path),
-		)?
+		)?;
+		command.process_group(0);
+		command
 	} else {
 		let mut command = Command::new("tangram_tests_supervisor");
 		command
@@ -386,7 +389,7 @@ pub(crate) fn sandbox(
 		}
 	}
 
-	// Canonicalize the directories on the path, so that a symlinked directory resolves in the sandbox, and mount each read-only unless a mount at the same path already contains it.
+	// Canonicalize the directories on the path, so that a symlinked directory resolves in the sandbox, and mount each read-only unless a mount at the same path already contains it or it is in /opt/tangram, which every Tangram sandbox provides, as it does for a test that itself runs in a Tangram sandbox.
 	let mut directories = Vec::new();
 	for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
 		let Ok(directory) = std::fs::canonicalize(&directory) else {
@@ -395,9 +398,10 @@ pub(crate) fn sandbox(
 		if !directory.is_dir() || directories.contains(&directory) {
 			continue;
 		}
-		let mounted = mounts
-			.iter()
-			.any(|(source, target, _)| source == target && directory.starts_with(target));
+		let mounted = directory.starts_with("/opt/tangram")
+			|| mounts
+				.iter()
+				.any(|(source, target, _)| source == target && directory.starts_with(target));
 		if !mounted {
 			mounts.push((directory.clone(), directory.clone(), "ro"));
 		}
@@ -474,7 +478,7 @@ fn nuon(path: &Path) -> String {
 	serde_json::to_string(&path.display().to_string()).unwrap()
 }
 
-/// Ask the supervisor to terminate the test, and kill it if it does not exit in time.
+/// Ask the supervisor, or the client that runs it in a sandbox, to terminate the test, and kill it if it does not exit in time.
 async fn terminate(child: &mut tokio::process::Child) {
 	if let Some(pid) = child.id().and_then(|pid| libc::pid_t::try_from(pid).ok()) {
 		// SAFETY: kill has no memory safety preconditions.

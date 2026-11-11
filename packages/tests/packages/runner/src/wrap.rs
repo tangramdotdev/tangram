@@ -16,7 +16,7 @@ pub struct Args {
 }
 
 pub async fn wrap(args: Args) -> Result<ExitCode> {
-	// Outlive the signals that end the test, so that the cleanup below runs after the supervisor stops the test.
+	// Outlive the signals that end the test, so that the cleanup below runs after the supervisor, or the client that runs it in a sandbox, stops the test.
 	let _signals = [
 		signal(SignalKind::hangup())?,
 		signal(SignalKind::interrupt())?,
