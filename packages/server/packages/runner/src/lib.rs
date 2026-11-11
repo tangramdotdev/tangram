@@ -1245,8 +1245,13 @@ impl Component {
 				continue;
 			};
 
-			// Spawn the sandbox task.
+			// Spawn the sandbox task, and record a stop that arrived while the boot was queued.
 			state.booting.insert(sandbox.clone(), request.boot);
+			if request.stop {
+				state.pending_stops.insert(sandbox.clone(), request.boot);
+			} else {
+				state.pending_stops.remove(&sandbox);
+			}
 			let _ = self.spawn_sandbox_task(
 				&session.server,
 				tangram_server_runner_core::sandbox::SpawnSandboxTaskArg {

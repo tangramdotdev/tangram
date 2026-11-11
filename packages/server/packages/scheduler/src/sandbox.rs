@@ -52,9 +52,6 @@ pub(super) struct Sandboxes {
 
 	/// The boots that runners accepted, which are tracked until their runners report their ends, so that an enqueue of a tracked or older boot is a no-op.
 	scheduled: HashMap<tg::sandbox::Id, Scheduled, tg::id::BuildHasher>,
-
-	/// The handles of the tasks that stop sandboxes once they start.
-	stops: HashMap<tg::sandbox::Id, future::AbortHandle, tg::id::BuildHasher>,
 }
 
 /// A destroy of a sandbox on a runner. The request is present if the sandbox has a record to finish.
@@ -287,7 +284,6 @@ impl Sandboxes {
 			loading: 0,
 			placed: HashMap::default(),
 			scheduled: HashMap::default(),
-			stops: HashMap::default(),
 		}
 	}
 }
@@ -322,13 +318,6 @@ impl Borrowable {
 			heartbeat_index,
 			runner: notification.runner,
 		}
-	}
-}
-
-impl Sandboxes {
-	/// Forget the task that stopped a sandbox.
-	pub(super) fn finish_stop(&mut self, sandbox: &tg::sandbox::Id) {
-		self.stops.remove(sandbox);
 	}
 }
 
@@ -854,24 +843,7 @@ impl SchedulerState {
 			return;
 		}
 
-		// Answer a start of a boot that has not connected with the boot, which is starting, and cancel a stop of it that this scheduler holds, because the start came after the stop. This scheduler answers for a boot that it has offered to a runner too, because it holds the stop until the boot connects.
-		if matches!(arg, tg::sandbox::control::ServerRequestArg::Start(_)) {
-			let write = self.cancel_sandbox_stop(scheduler, &sandbox);
-			let output = if let Some(request) = self.try_get_request_mut(&sandbox) {
-				let data = Self::queued_sandbox_get_output(scheduler, request);
-				tg::sandbox::control::ClientResponseOutput::Start(
-					tg::sandbox::control::StartClientResponseOutput { data },
-				)
-			} else {
-				tg::sandbox::control::ClientResponseOutput::NotHolder(
-					tg::sandbox::control::NotHolderClientResponseOutput {},
-				)
-			};
-			self.publish_sandbox_holder_response(scheduler, sandbox, id, write, output);
-			return;
-		}
-
-		// Reply that this scheduler does not hold a sandbox that it has offered to a runner, whether or not the runner has accepted it, and that it does not hold a queued sandbox for a spawn, which only a runner can carry out.
+		// Reply that this scheduler does not hold a sandbox that it has offered to a runner, whether or not the runner has accepted it, because the offer carries the boot's pending stop, and that it does not hold a queued sandbox for a spawn, which only a runner can carry out.
 		let spawn = matches!(arg, tg::sandbox::control::ServerRequestArg::SpawnProcess(_));
 		if pending != Some(true) || spawn {
 			let output = tg::sandbox::control::ClientResponseOutput::NotHolder(
@@ -940,8 +912,23 @@ impl SchedulerState {
 				self.publish_sandbox_holder_response(scheduler, sandbox, id, None, output);
 			},
 
-			tg::sandbox::control::ServerRequestArg::SpawnProcess(_)
-			| tg::sandbox::control::ServerRequestArg::Start(_) => unreachable!(),
+			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => unreachable!(),
+
+			// Answer a start of a queued boot with the boot, which is starting, and cancel its pending stop, because the start came after the stop.
+			tg::sandbox::control::ServerRequestArg::Start(_) => {
+				let write = if std::mem::take(&mut entry.request.stop) {
+					let request = entry.request.clone();
+					let scheduler_ = scheduler.clone();
+					Some(async move { scheduler_.persist_sandbox(&request).await }.boxed())
+				} else {
+					None
+				};
+				let data = Self::queued_sandbox_get_output(scheduler, &entry.request);
+				let output = tg::sandbox::control::ClientResponseOutput::Start(
+					tg::sandbox::control::StartClientResponseOutput { data },
+				);
+				self.publish_sandbox_holder_response(scheduler, sandbox, id, write, output);
+			},
 
 			// Stop a queued restart by removing it, because the sandbox is already stopped, and record the stop of a first boot, which has nothing to stop until it starts.
 			tg::sandbox::control::ServerRequestArg::Stop(_) => {
@@ -963,12 +950,8 @@ impl SchedulerState {
 					}
 					.boxed()
 				} else {
-					let armed = !entry.request.stop;
 					entry.request.stop = true;
 					let request = entry.request.clone();
-					if armed {
-						self.stop_sandbox_when_started(scheduler, sandbox.clone());
-					}
 					async move { scheduler_.persist_sandbox(&request).await }.boxed()
 				};
 				self.publish_sandbox_holder_response(scheduler, sandbox, id, Some(write), output);
@@ -1183,48 +1166,6 @@ impl SchedulerState {
 				.map(|placed| &mut placed.request);
 		}
 		self.try_get_recovering_request_mut(sandbox)
-	}
-
-	/// Stop a sandbox once it starts, because it has no control connection until then.
-	pub(super) fn stop_sandbox_when_started(
-		&mut self,
-		scheduler: &Scheduler,
-		sandbox: tg::sandbox::Id,
-	) {
-		let scheduler = scheduler.clone();
-		let id = sandbox.clone();
-		let (future, handle) =
-			future::abortable(async move { scheduler.wait_and_stop_sandbox(&id).await });
-		if let Some(previous) = self.sandboxes.stops.insert(sandbox.clone(), handle) {
-			previous.abort();
-		}
-		self.operations.push(
-			async move {
-				let result = future.await.unwrap_or(Ok(()));
-				Operation::FinishSandboxStop { result, sandbox }
-			}
-			.boxed(),
-		);
-	}
-
-	/// Cancel a stop that this scheduler holds, and return the write that makes the cancellation durable, so that a restarted scheduler does not carry out the stop.
-	fn cancel_sandbox_stop(
-		&mut self,
-		scheduler: &Scheduler,
-		sandbox: &tg::sandbox::Id,
-	) -> Option<futures::future::BoxFuture<'static, tg::Result<()>>> {
-		if let Some(handle) = self.sandboxes.stops.remove(sandbox) {
-			handle.abort();
-		}
-		let request = self.try_get_request_mut(sandbox)?;
-		if !std::mem::take(&mut request.stop) {
-			return None;
-		}
-		let request = request.clone();
-		let scheduler = scheduler.clone();
-		let write = async move { scheduler.persist_sandbox(&request).await }.boxed();
-
-		Some(write)
 	}
 
 	/// Get the queued process of a sandbox whose holder this scheduler serves.
@@ -2285,39 +2226,6 @@ impl Scheduler {
 		Ok(tasks)
 	}
 
-	async fn wait_and_stop_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<()> {
-		let session = self.server.session(&self.server.context);
-		let component = &self.server.components.sandbox;
-		let mut wakeups = component
-			.create_sandbox_status_wakeup_stream(
-				&session,
-				id,
-				session.context.stopper.clone(),
-				None,
-			)
-			.await?;
-		loop {
-			let status = component
-				.try_get_sandbox_from_index(&session, id)
-				.await?
-				.and_then(|sandbox| sandbox.data)
-				.map(|data| data.data.status);
-			match status {
-				Some(tg::sandbox::Status::Started) => break,
-				Some(tg::sandbox::Status::Starting) => {
-					if wakeups.next().await.is_none() {
-						return Ok(());
-					}
-				},
-				_ => return Ok(()),
-			}
-		}
-		let arg = tg::sandbox::stop::Arg::default();
-		component.try_stop_sandbox(&session, id, arg).await?;
-
-		Ok(())
-	}
-
 	pub(super) async fn persist_sandbox(
 		&self,
 		request: &EnqueueSandboxRequestArg,
@@ -2598,6 +2506,7 @@ async fn create_sandbox(
 			parent: request.parent.clone(),
 			process: request.process.clone(),
 			sandbox: request.sandbox.clone(),
+			stop: request.stop,
 			token: request.token.clone(),
 		},
 	);
