@@ -410,7 +410,6 @@ impl Component {
 			let wait_arg = tg::process::wait::Arg {
 				lease: None,
 				location: arg.location.clone(),
-				source: tg::process::Source::Auto,
 				tokens: arg.tokens.clone(),
 			};
 			if let Some(wait_future) = self
@@ -486,7 +485,6 @@ impl Component {
 					&wait_session,
 					id,
 					arg.tokens.local_authorization().to_vec(),
-					tg::process::Source::Auto,
 					true,
 				)
 				.await?

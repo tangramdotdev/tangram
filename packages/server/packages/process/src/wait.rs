@@ -99,13 +99,8 @@ impl Component {
 				let wakeups = component
 					.create_process_status_wakeup_stream(&session, &id, None, None)
 					.await?;
-				let stream = component.create_process_data_stream_local(
-					&session,
-					&id,
-					None,
-					Some(wakeups),
-					tg::process::Source::Auto,
-				);
+				let stream =
+					component.create_process_data_stream_local(&session, &id, None, Some(wakeups));
 				Self::wait_process_finished_stream(stream).await?;
 
 				Ok(())
@@ -117,13 +112,7 @@ impl Component {
 		let wakeups = self
 			.create_process_status_wakeup_stream(session, id, None, None)
 			.await?;
-		let stream = self.create_process_data_stream_local(
-			session,
-			id,
-			None,
-			Some(wakeups),
-			tg::process::Source::Auto,
-		);
+		let stream = self.create_process_data_stream_local(session, id, None, Some(wakeups));
 		let future = Self::wait_process_finished_stream(stream).boxed();
 
 		Ok(future)
@@ -186,9 +175,7 @@ impl Component {
 
 		let arg = &observe_arg;
 		let process = tg::Either::Right(id.clone());
-		if !arg.source.is_index()
-			&& let Some((future, location)) = self.try_wait_process_runner(session, id, arg).await?
-		{
+		if let Some((future, location)) = self.try_wait_process_runner(session, id, arg).await? {
 			return Ok(Some(attach(future, location)));
 		}
 
@@ -203,7 +190,7 @@ impl Component {
 		// Wait for the local process without a search.
 		if current
 			&& let Some(future) = self
-				.try_wait_process_local(session, id, tokens.clone(), arg.source, false)
+				.try_wait_process_local(session, id, tokens.clone(), false)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
 		{
@@ -216,7 +203,7 @@ impl Component {
 				return Ok(None);
 			}
 			let future = self
-				.try_wait_process_local(session, id, tokens, arg.source, true)
+				.try_wait_process_local(session, id, tokens, true)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
 			Ok(future.map(|future| (future, local)))
@@ -230,7 +217,6 @@ impl Component {
 						arg.lease,
 						arg.tokens.clone(),
 						&local.regions,
-						arg.source,
 					)
 					.await
 					.map_err(
@@ -248,7 +234,6 @@ impl Component {
 					arg.lease,
 					arg.tokens.clone(),
 					&locations.remotes,
-					arg.source,
 				)
 				.await
 				.map_err(
@@ -294,7 +279,6 @@ impl Component {
 					arg.lease,
 					arg.tokens.clone(),
 					&local.regions,
-					arg.source,
 				)
 				.await
 				.map_err(
@@ -309,7 +293,6 @@ impl Component {
 				arg.lease,
 				arg.tokens.clone(),
 				&locations.remotes,
-				arg.source,
 			)
 			.await
 			.map_err(
@@ -538,7 +521,6 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		tokens: Vec<tg::authorization::Token>,
-		source: tg::process::Source,
 		exhaustive: bool,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
 		let mut wakeups = self
@@ -550,7 +532,7 @@ impl Component {
 		let deadline = session.server.control_read_deadline();
 		let process = loop {
 			tokio::select! {
-				output = self.try_get_process_observation_local_with_permissions(session, id, &tokens, source, deadline, requested, exhaustive) => break output?,
+				output = self.try_get_process_observation_local_with_permissions(session, id, &tokens, deadline, requested, exhaustive) => break output?,
 				wakeup = wakeups.next() => {
 					if wakeup.is_none() { return Ok(None); }
 				},
@@ -560,13 +542,8 @@ impl Component {
 			return Ok(None);
 		};
 
-		let mut stream = self.create_process_data_stream_local(
-			session,
-			id,
-			Some(process),
-			Some(wakeups),
-			source,
-		);
+		let mut stream =
+			self.create_process_data_stream_local(session, id, Some(process), Some(wakeups));
 		let future = async move {
 			let process = loop {
 				let process = stream.try_next().await?.ok_or_else(|| {
@@ -592,7 +569,6 @@ impl Component {
 		lease: Option<tg::process::Lease>,
 		tokens: tg::authorization::Tokens,
 		regions: &[String],
-		source: tg::process::Source,
 	) -> tg::Result<
 		Option<(
 			BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>,
@@ -602,14 +578,7 @@ impl Component {
 		let mut futures = regions
 			.iter()
 			.map(|region| {
-				self.try_wait_process_region(
-					session,
-					process,
-					lease,
-					tokens.clone(),
-					region,
-					source,
-				)
+				self.try_wait_process_region(session, process, lease, tokens.clone(), region)
 			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
@@ -638,7 +607,6 @@ impl Component {
 		lease: Option<tg::process::Lease>,
 		tokens: tg::authorization::Tokens,
 		region: &str,
-		source: tg::process::Source,
 	) -> tg::Result<
 		Option<(
 			BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>,
@@ -658,7 +626,6 @@ impl Component {
 		let arg = tg::process::wait::Arg {
 			lease,
 			location: Some(location.clone().into()),
-			source,
 			tokens,
 		};
 		let Some(future) = client.try_wait_process_future(process, arg).await.map_err(
@@ -683,7 +650,6 @@ impl Component {
 		lease: Option<tg::process::Lease>,
 		tokens: tg::authorization::Tokens,
 		remotes: &[tangram_server_core::location::Remote],
-		source: tg::process::Source,
 	) -> tg::Result<
 		Option<(
 			BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>,
@@ -693,14 +659,7 @@ impl Component {
 		let mut futures = remotes
 			.iter()
 			.map(|remote| {
-				self.try_wait_process_remote(
-					session,
-					process,
-					lease,
-					tokens.clone(),
-					remote,
-					source,
-				)
+				self.try_wait_process_remote(session, process, lease, tokens.clone(), remote)
 			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
@@ -729,7 +688,6 @@ impl Component {
 		lease: Option<tg::process::Lease>,
 		tokens: tg::authorization::Tokens,
 		remote: &tangram_server_core::location::Remote,
-		source: tg::process::Source,
 	) -> tg::Result<
 		Option<(
 			BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>,
@@ -758,7 +716,6 @@ impl Component {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			source,
 			tokens,
 		};
 		let Some(future) = client.try_wait_process_future(process, arg).await.map_err(

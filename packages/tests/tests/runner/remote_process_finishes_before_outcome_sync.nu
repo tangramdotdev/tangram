@@ -42,7 +42,8 @@ success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.contr
 tg --url $runner.url checkpoint unwatch runner.process.control.finish.succeeded $finished_watch
 let output = job recv --tag $build --timeout 30sec
 success $output "the build must return its outcome before sync completes"
-let outcome = timeout 30s tg --url $remote.url --token $alice.token wait --source=index $process | from json
+let outcome = timeout 30s tg --url $remote.url --token $alice.token wait $process | from json
+tg --url $remote.url --token $alice.token index
 assert equal $outcome.exit 0
 let file = $outcome.output.value
 assert equal ($output.stdout | str trim | split row '?' | first) ($file | split row '?' | first)

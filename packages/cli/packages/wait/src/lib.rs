@@ -12,10 +12,6 @@ pub struct Args {
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
-
-	/// Select the source of process or sandbox state.
-	#[arg(long, default_value = "auto", value_parser = tangram_cli_core::source_parser())]
-	pub source: tg::process::Source,
 }
 
 pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
@@ -35,7 +31,6 @@ pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 			let options = tangram_cli_process::wait::Options {
 				locations,
 				print: args.print,
-				source: args.source,
 			};
 			tangram_cli_process::wait::run_inner(cli, process, options).await?;
 		},
@@ -45,7 +40,6 @@ pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 			let options = tangram_cli_sandbox::wait::Options {
 				locations,
 				print: args.print,
-				source: args.source,
 			};
 			tangram_cli_sandbox::wait::run_inner(cli, sandbox, options).await?;
 		},

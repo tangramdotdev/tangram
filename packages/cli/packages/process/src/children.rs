@@ -36,10 +36,6 @@ pub struct Options {
 	#[arg(long)]
 	pub size: Option<u64>,
 
-	/// Select the source of process state.
-	#[arg(long, default_value = "auto", value_parser = tangram_cli_core::source_parser())]
-	pub source: tg::process::Source,
-
 	#[command(flatten)]
 	pub timeout: Timeout,
 }
@@ -89,7 +85,6 @@ pub(crate) async fn run_inner(
 		location,
 		position: options.position,
 		size: options.size,
-		source: options.source,
 		timeout: options.timeout.get(),
 	};
 	let tokens = options.print.tokens.get();

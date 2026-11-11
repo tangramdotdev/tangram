@@ -42,9 +42,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	#[serde(default, skip_serializing_if = "tg::process::Source::is_auto")]
-	pub source: tg::process::Source,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub timeout: Option<Duration>,
@@ -62,7 +59,6 @@ pub enum Event {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub location: Option<tg::location::Arg>,
-	pub source: tg::process::Source,
 	pub timeout: Option<Duration>,
 }
 
@@ -106,7 +102,6 @@ impl<O> tg::Process<O> {
 	{
 		let arg = tg::process::status::Arg {
 			location: options.location.or_else(|| self.location()),
-			source: options.source,
 			timeout: options.timeout,
 			tokens: self.tokens(),
 		};

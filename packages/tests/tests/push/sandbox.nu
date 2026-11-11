@@ -19,9 +19,11 @@ let path = artifact {
 	',
 }
 let process = tg build --no-tokens --detach $path | referent node
-tg wait --source=index $process
+tg wait $process
+tg index
 let sandbox = tg get $process | from json | get sandbox
-tg wait --source=index $sandbox
+tg wait $sandbox
+tg index
 tg index
 
 tg push $sandbox
@@ -29,11 +31,12 @@ let remote_sandbox = tg --url $remote.url --token $alice.token sandbox get $sand
 assert equal $remote_sandbox.data.id $sandbox
 assert equal $remote_sandbox.data.status destroyed
 assert (($remote_sandbox | get --optional tokens.local) != null) "sandbox get should return a token"
-failure (tg --url $remote.url --token $root_token process get --source index $process | complete) "the remote must not store the process"
+tg --url $remote.url --token $root_token index
+failure (tg --url $remote.url --token $root_token process get $process | complete) "the remote must not store the process"
 
 # The sandbox retains its ordered process IDs even before those process records are transferred.
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
-let output = http get --raw --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/sandboxes/($sandbox)/processes?source=index'
+let output = http get --raw --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/sandboxes/($sandbox)/processes'
 let processes = $output | lines | where { $in starts-with 'data: ' } | each { str substring 6.. | from json } | get data | flatten
 assert equal $processes [$process]
 

@@ -103,7 +103,7 @@ impl Component {
 			.server
 			.components
 			.process
-			.try_get_process_local(session, id, false, false, &[], tg::process::Source::Auto)
+			.try_get_process_local(session, id, false, false, &[])
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 
@@ -342,14 +342,7 @@ impl Inner {
 			.server
 			.components
 			.process
-			.try_get_process_local(
-				&inner.session,
-				&inner.process,
-				false,
-				false,
-				&[],
-				tg::process::Source::Auto,
-			)
+			.try_get_process_local(&inner.session, &inner.process, false, false, &[])
 			.await?
 		else {
 			return Ok(false);

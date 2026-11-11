@@ -288,7 +288,6 @@ impl<O> Process<O> {
 			availability: false,
 			location: self.location(),
 			metadata: false,
-			source: tg::process::Source::Auto,
 			tokens: self.tokens(),
 		};
 		let Some(mut output) = instance.try_get_process(id, arg).await? else {

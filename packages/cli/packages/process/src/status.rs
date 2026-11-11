@@ -15,10 +15,6 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
 
-	/// Select the source of process state.
-	#[arg(long, default_value = "auto", value_parser = tangram_cli_core::source_parser())]
-	pub source: tg::process::Source,
-
 	#[command(flatten)]
 	pub timeout: Timeout,
 }
@@ -47,7 +43,6 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let process = tg::Process::<tg::Value>::with_referent(process);
 	let options = tg::process::status::Options {
 		location,
-		source: args.source,
 		timeout: args.timeout.get(),
 	};
 	let stream = process

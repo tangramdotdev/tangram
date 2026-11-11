@@ -121,7 +121,8 @@ for location in [local remote] {
 			success (tg --url $runner.url --token $bob.token get $object | complete) "a live output reader must retain the output's authorization token"
 		}
 		if $field == output {
-			tg --url $local_owner.url --token $root_token wait --source=index $process | ignore
+			tg --url $local_owner.url --token $root_token wait $process | ignore
+			tg --url $local_owner.url --token $root_token index
 			tg --url $local_owner.url --token $root_token index
 			let log = tg --url $local_owner.url --token $root_token process log $process | str trim
 			assert equal $log 'runner log' "the finish handler must preserve the process log after early runner indexing"

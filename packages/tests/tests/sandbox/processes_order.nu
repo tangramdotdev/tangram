@@ -25,7 +25,7 @@ tg checkpoint continue runner.process.state.insert $watch 1
 let second = job recv --tag $second --timeout 10sec
 let reader = job spawn {
 	let job_id = job id
-	http get --raw --max-time 20sec --unix-socket $socket $'http://localhost/sandboxes/($sandbox)/processes?source=runner&size=1&length=2'
+	http get --raw --max-time 20sec --unix-socket $socket $'http://localhost/sandboxes/($sandbox)/processes?size=1&length=2'
 	| lines | where { $in starts-with 'data: ' } | each { str substring 6.. | from json | job send --tag $job_id 0 } | ignore
 }
 assert equal (job recv --tag $reader --timeout 10sec) { data: [$second], position: 0 }
@@ -33,11 +33,14 @@ tg checkpoint continue runner.process.state.insert $watch 0
 let first = job recv --tag $first --timeout 10sec
 assert equal (job recv --tag $reader --timeout 10sec) { data: [$first], position: 1 }
 tg checkpoint unwatch runner.process.state.insert $watch
-tg wait --source=index $first | ignore
-tg wait --source=index $second | ignore
+tg wait $first | ignore
+tg index
+tg wait $second | ignore
+tg index
 tg sandbox destroy $sandbox
-tg sandbox wait --source=index $sandbox | ignore
-let output = http get --raw --max-time 10sec --unix-socket $socket $'http://localhost/sandboxes/($sandbox)/processes?source=index&size=1'
+tg sandbox wait $sandbox | ignore
+tg index
+let output = http get --raw --max-time 10sec --unix-socket $socket $'http://localhost/sandboxes/($sandbox)/processes?size=1'
 let chunks = $output | lines | where { $in starts-with 'data: ' } | each { str substring 6.. | from json }
 assert equal ($chunks | get data | flatten) [$second $first]
 assert equal ($chunks | get position) [0 1]

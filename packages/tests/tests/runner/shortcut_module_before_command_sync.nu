@@ -78,7 +78,8 @@ assert equal ($started.stdout | from json | get params.process) $parent
 tg --url $runner.url checkpoint unwatch runner.process.control.start.succeeded $start_watch
 
 # The imported module must execute and Finish must be indexed before command sync is released.
-let outcome = timeout 30s tg --url $remote.url --token $alice.token wait --source=index $parent | from json
+let outcome = timeout 30s tg --url $remote.url --token $alice.token wait $parent | from json
+tg --url $remote.url --token $alice.token index
 assert equal $outcome.exit 0
 assert equal $outcome.output 42
 tg --url $runner.url checkpoint unwatch runner.process.state.inserted $inserted_watch

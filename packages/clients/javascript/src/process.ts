@@ -1824,8 +1824,6 @@ export namespace Process {
 		};
 	}
 
-	export type Source = "auto" | "index" | "runner";
-
 	export namespace Wait {
 		export type Arg = ProcessWait.Arg;
 	}

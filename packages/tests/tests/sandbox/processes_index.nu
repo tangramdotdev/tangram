@@ -38,19 +38,18 @@ for location in [local remote] {
 	assert equal $second_data.status finished
 	tg --url $local_owner.url --token $root_token index | ignore
 
-	tg --url $local_owner.url --token $root_token sandbox wait --source=index $sandbox | ignore
+	tg --url $local_owner.url --token $root_token sandbox wait $sandbox | ignore
+	tg --url $local_owner.url --token $root_token index
 
 	let socket = $runner.url | str replace 'http+unix://' '' | url decode
 	let headers = if $location == local { { Authorization: $'Bearer ($root_token)' } } else { {} }
-	for source in [auto runner index] {
-		let processes = http get --raw --max-time 10sec --unix-socket $socket --headers $headers $'http://localhost/sandboxes/($sandbox)/processes?source=($source)&location=($location)&size=1&timeout=0'
-		let chunks = $processes | lines | where { str starts-with 'data: {' } | each { str replace 'data: ' '' | from json }
-		assert equal ($chunks | get position) [0]
-		assert equal ($chunks | get data | flatten) [$first]
-		assert ($processes | str contains 'event: end')
+	let processes = http get --raw --max-time 10sec --unix-socket $socket --headers $headers $'http://localhost/sandboxes/($sandbox)/processes?location=($location)&size=1&timeout=0'
+	let chunks = $processes | lines | where { str starts-with 'data: {' } | each { str replace 'data: ' '' | from json }
+	assert equal ($chunks | get position) [0]
+	assert equal ($chunks | get data | flatten) [$first]
+	assert ($processes | str contains 'event: end')
 
-		let tail = http get --raw --max-time 10sec --unix-socket $socket --headers $headers $'http://localhost/sandboxes/($sandbox)/processes?source=($source)&location=($location)&position=end.-1&timeout=0'
-		assert ($tail | str contains $first)
-		assert (not ($tail | str contains $second))
-	}
+	let tail = http get --raw --max-time 10sec --unix-socket $socket --headers $headers $'http://localhost/sandboxes/($sandbox)/processes?location=($location)&position=end.-1&timeout=0'
+	assert ($tail | str contains $first)
+	assert (not ($tail | str contains $second))
 }

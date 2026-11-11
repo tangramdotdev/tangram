@@ -29,7 +29,6 @@ struct GetSandboxProcessesLocalArg<'a> {
 	initial: Option<Output>,
 	length: u64,
 	position: u64,
-	source: tg::sandbox::Source,
 }
 
 struct LocalProcesses {
@@ -73,10 +72,9 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
-		if !arg.source.is_index()
-			&& let Some(stream) = self
-				.try_get_sandbox_processes_runner(session, id, &arg)
-				.await?
+		if let Some(stream) = self
+			.try_get_sandbox_processes_runner(session, id, &arg)
+			.await?
 		{
 			return Ok(Some(stream));
 		}
@@ -351,7 +349,7 @@ impl Component {
 		let deadline = session.server.control_read_deadline();
 		let output = loop {
 			tokio::select! {
-				output = self.get_sandbox_processes_local_inner(session, id, start, length, arg.source, deadline) => break output?,
+				output = self.get_sandbox_processes_local_inner(session, id, start, length, deadline) => break output?,
 				wakeup = async {
 					match &mut wakeups {
 						Some(wakeups) => wakeups.next().await,
@@ -423,7 +421,6 @@ impl Component {
 		id: &tg::sandbox::Id,
 		position: u64,
 		length: u64,
-		source: tg::sandbox::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Output> {
 		let request = tg::sandbox::control::ServerRequestArg::GetProcesses(
@@ -438,7 +435,6 @@ impl Component {
 			fallback: true,
 			options,
 			request,
-			source,
 			wakeups: None,
 		};
 		let output = self
@@ -495,7 +491,6 @@ impl Component {
 						initial: initial.take(),
 						length: size,
 						position,
-						source: arg.source,
 					};
 					tokio::select! {
 						output = self.get_sandbox_processes_local(session, local_arg) => break output?,
@@ -576,15 +571,12 @@ impl Component {
 			initial,
 			length,
 			position,
-			source,
 		} = arg;
 		let output = match initial {
 			Some(output) => output,
 			None => {
-				self.get_sandbox_processes_local_inner(
-					session, id, position, length, source, deadline,
-				)
-				.await?
+				self.get_sandbox_processes_local_inner(session, id, position, length, deadline)
+					.await?
 			},
 		};
 		if let Some(output) = output.control {

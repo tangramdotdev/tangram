@@ -36,9 +36,11 @@ for field in [output error log] {
 	tg --url $remote.url --token $root_token grant $bob.user.id process_node $process | ignore
 	tg --url $remote.url --token $root_token index --database
 
-	timeout 30s tg --url $remote.url --token $root_token wait --source=index $process | ignore
+	timeout 30s tg --url $remote.url --token $root_token wait $process | ignore
+	tg --url $remote.url --token $root_token index
 	# Force the index path so a live runner response cannot supply the token.
-	let output = timeout 30s tg --url $remote.url --token $root_token $operation --source=index $process | from json
+	tg --url $remote.url --token $root_token index
+	let output = timeout 30s tg --url $remote.url --token $root_token $operation $process | from json
 	let object = if $field == output { $output.output.value } else if $field == error { $output.error } else { $output.log }
 
 	# Read the output or error as another user while the outcome sync is held, which succeeds only through the sync.
@@ -56,7 +58,8 @@ for field in [output error log] {
 	assert equal ($automatic | to json | normalize_tokens) ($output | to json | normalize_tokens) "an automatic wait must retain the indexed tokens"
 	tg --url $remote.url --token $root_token checkpoint unwatch process.get.control $control_watch
 
-	let node_output_objects = timeout 10s tg --url $remote.url --token $bob.token $operation --source=index $process | from json
+	tg --url $remote.url --token $bob.token index
+	let node_output_objects = timeout 10s tg --url $remote.url --token $bob.token $operation $process | from json
 	let node_object = if $field == output { $node_output_objects.output.value } else if $field == error { $node_output_objects.error } else { $node_output_objects.log }
 	if $field == log {
 		assert ($node_object | str contains 'tokens') "get must preserve the stored authorization token for the sync with node permission"
@@ -67,7 +70,8 @@ for field in [output error log] {
 	if $field == output {
 		tg --url $remote.url --token $root_token grant $bob.user.id process_node_output_objects $process | ignore
 		tg --url $remote.url --token $root_token index --database
-		let partial = timeout 10s tg --url $remote.url --token $bob.token $operation --source=index $process | from json
+		tg --url $remote.url --token $bob.token index
+		let partial = timeout 10s tg --url $remote.url --token $bob.token $operation $process | from json
 		assert ($partial.output.value | str contains 'tokens') "output permission must expose the authorization token for the outcome sync"
 	}
 
@@ -75,12 +79,14 @@ for field in [output error log] {
 	if $field == error {
 		tg --url $remote.url --token $root_token grant $bob.user.id process_node_error_objects $process | ignore
 		tg --url $remote.url --token $root_token index --database
-		let partial = timeout 10s tg --url $remote.url --token $bob.token $operation --source=index $process | from json
+		tg --url $remote.url --token $bob.token index
+		let partial = timeout 10s tg --url $remote.url --token $bob.token $operation $process | from json
 		assert ($partial.output? == null) "an error-only outcome must not contain output objects"
 		assert ($partial.error | str contains 'tokens') "error permission must expose the authorization token for the outcome sync"
 	}
 
-	let authorized = timeout 10s tg --url $remote.url --token $alice.token $operation --source=index $process | from json
+	tg --url $remote.url --token $alice.token index
+	let authorized = timeout 10s tg --url $remote.url --token $alice.token $operation $process | from json
 	let authorized_object = if $field == output { $authorized.output.value } else if $field == error { $authorized.error } else { $authorized.log }
 	assert ($authorized_object | str contains 'tokens') "field permission must expose the authorization token for the process sync"
 	tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.started $push_watch

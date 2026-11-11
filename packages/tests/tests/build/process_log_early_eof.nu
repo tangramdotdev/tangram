@@ -16,7 +16,8 @@ let path = artifact {
 }
 
 let id = tg --url $local.url build --no-tokens --detach $path | referent node
-tg --url $local.url wait --source=index $id
+tg --url $local.url wait $id
+tg --url $local.url index
 tg --url $local.url index
 tg --url $local.url remote put default $remote.url | complete
 tg --url $local.url push --process-log-objects $id

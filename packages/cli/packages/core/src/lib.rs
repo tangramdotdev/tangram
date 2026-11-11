@@ -151,13 +151,6 @@ pub fn version() -> String {
 	version
 }
 
-#[must_use]
-pub fn source_parser() -> impl clap::builder::TypedValueParser<Value = tg::process::Source> {
-	use clap::builder::TypedValueParser as _;
-	clap::builder::PossibleValuesParser::new(["auto", "runner", "index"])
-		.map(|value| serde_json::from_value(serde_json::Value::String(value)).unwrap())
-}
-
 impl Args {
 	/// Clear the URL and token inherited from the environment if the command line names a server.
 	fn clear_inherited_server(&mut self, matches: &clap::ArgMatches) {

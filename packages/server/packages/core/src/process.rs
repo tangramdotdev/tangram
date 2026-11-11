@@ -30,7 +30,6 @@ pub struct TryGetProcessRegionsArg<'a> {
 	pub id: &'a tg::process::Id,
 	pub metadata: bool,
 	pub regions: &'a [String],
-	pub source: tg::process::Source,
 	pub tokens: &'a tg::authorization::Tokens,
 }
 
@@ -39,7 +38,6 @@ pub struct TryGetProcessRemotesArg<'a> {
 	pub id: &'a tg::process::Id,
 	pub metadata: bool,
 	pub remotes: &'a [crate::location::Remote],
-	pub source: tg::process::Source,
 	pub tokens: &'a tg::authorization::Tokens,
 }
 
@@ -57,7 +55,6 @@ pub trait Component: crate::component::Lifecycle {
 		metadata: bool,
 		availability: bool,
 		tokens: &'a [tg::authorization::Token],
-		source: tg::process::Source,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>>;
 
 	fn try_get_process_attach_stream<'a>(
@@ -352,7 +349,6 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		id: &'a tg::process::Id,
 		metadata: bool,
-		source: tg::process::Source,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>>;
 
 	fn try_get_process_local_with_permissions<'a>(

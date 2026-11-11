@@ -21,7 +21,6 @@ class Wait:
     class Arg(TypedDict):
         lease: NotRequired[str | None]
         location: NotRequired[LocationArgObject | None]
-        source: NotRequired[str]
         tokens: NotRequired[dict[str, list[str]] | None]
 
 

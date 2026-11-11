@@ -97,7 +97,6 @@ impl Component {
 			let entry = tg::sandbox::get::Arg {
 				cached: arg.cached,
 				location: options.location.clone(),
-				source: tg::sandbox::Source::Auto,
 				tokens: options.tokens.clone(),
 				ttl: arg.ttl,
 			};

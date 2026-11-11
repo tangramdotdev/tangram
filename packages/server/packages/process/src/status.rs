@@ -73,8 +73,7 @@ impl Component {
 		}
 		let id = process.clone().right();
 		let process = &process;
-		if !arg.source.is_index()
-			&& let Some(id) = &id
+		if let Some(id) = &id
 			&& let Some(stream) = self
 				.try_get_process_status_stream_runner(session, id, &arg)
 				.await?
@@ -115,7 +114,6 @@ impl Component {
 						&local.regions,
 						arg.timeout,
 						&arg.tokens,
-						arg.source,
 					)
 					.await
 					.map_err(
@@ -129,7 +127,6 @@ impl Component {
 				&locations.remotes,
 				arg.timeout,
 				&arg.tokens,
-				arg.source,
 			)
 			.await
 			.map_err(
@@ -169,7 +166,6 @@ impl Component {
 					session,
 					id,
 					arg.tokens.local_authorization(),
-					arg.source,
 					deadline,
 					exhaustive,
 				) => break output?,
@@ -191,7 +187,6 @@ impl Component {
 			id,
 			Some(process),
 			wakeups,
-			arg.source,
 		);
 
 		Ok(Some(stream))
@@ -307,14 +302,13 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		tokens: &[tg::authorization::Token],
-		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 		exhaustive: bool,
 	) -> tg::Result<Option<tg::process::Data>> {
 		let requested = tg::authorization::permission::process::Set::NODE;
 		let output = self
 			.try_get_process_observation_local_with_permissions(
-				session, id, tokens, source, deadline, requested, exhaustive,
+				session, id, tokens, deadline, requested, exhaustive,
 			)
 			.await?;
 		Ok(output.map(|(data, _)| data))
@@ -326,7 +320,6 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		tokens: &[tg::authorization::Token],
-		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 		requested: tg::authorization::permission::process::Set,
 		exhaustive: bool,
@@ -346,7 +339,7 @@ impl Component {
 			required,
 			exhaustive,
 		);
-		let get_future = self.try_get_process_data_local(session, id, source, deadline);
+		let get_future = self.try_get_process_data_local(session, id, deadline);
 		let (mut permissions, output) = future::try_join(authorize_future, get_future).await?;
 		let Some(tg::authorization::permission::Set::Process(permissions)) =
 			Some(permissions.pop().unwrap().check_exhaustion()?.permissions)
@@ -365,11 +358,10 @@ impl Component {
 		id: &tg::process::Id,
 		initial: Option<tg::process::Data>,
 		wakeups: Option<BoxStream<'static, ()>>,
-		source: tg::process::Source,
 	) -> BoxStream<'static, tg::Result<tg::process::status::Event>> {
 		let once = wakeups.is_none();
 		let mut previous = None;
-		self.create_process_data_stream_local(session, id, initial, wakeups, source)
+		self.create_process_data_stream_local(session, id, initial, wakeups)
 			.flat_map(move |result| {
 				let mut events = Vec::new();
 				match result {
@@ -396,7 +388,6 @@ impl Component {
 		id: &tg::process::Id,
 		initial: Option<tg::process::Data>,
 		wakeups: Option<BoxStream<'static, ()>>,
-		source: tg::process::Source,
 	) -> BoxStream<'static, tg::Result<tg::process::Data>> {
 		let (sender, receiver) = tokio::sync::mpsc::channel(1);
 		let component = self.clone();
@@ -410,7 +401,6 @@ impl Component {
 					sender.clone(),
 					initial,
 					wakeups,
-					source,
 				)
 				.await;
 			if let Err(error) = result {
@@ -459,7 +449,6 @@ impl Component {
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::Data>>,
 		mut initial: Option<tg::process::Data>,
 		mut wakeups: Option<BoxStream<'static, ()>>,
-		source: tg::process::Source,
 	) -> tg::Result<()> {
 		loop {
 			let deadline = session.server.control_read_deadline();
@@ -468,12 +457,12 @@ impl Component {
 			} else {
 				match &mut wakeups {
 					None => {
-						self.try_get_process_data_local(session, id, source, deadline)
+						self.try_get_process_data_local(session, id, deadline)
 							.await?
 					},
 					Some(wakeups) => loop {
 						tokio::select! {
-							result = self.try_get_process_data_local(session, id, source, deadline) => break result?,
+							result = self.try_get_process_data_local(session, id, deadline) => break result?,
 							wakeup = wakeups.next() => {
 								if wakeup.is_none() { return Ok(()); }
 							},
@@ -501,10 +490,9 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
-		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Option<tg::process::Data>> {
-		let arg = Self::get_process_holder_arg(session, source, deadline, true);
+		let arg = Self::get_process_holder_arg(session, deadline, true);
 		let output = self
 			.request_process_holder(session, id, arg, |_| false)
 			.boxed()
@@ -541,14 +529,11 @@ impl Component {
 		regions: &[String],
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
-		source: tg::process::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = regions
 			.iter()
 			.map(|region| {
-				self.try_get_process_status_stream_region(
-					session, process, region, timeout, tokens, source,
-				)
+				self.try_get_process_status_stream_region(session, process, region, timeout, tokens)
 			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
@@ -577,7 +562,6 @@ impl Component {
 		region: &str,
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
-		source: tg::process::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = session
 			.get_region_session_for_process(region)
@@ -590,7 +574,6 @@ impl Component {
 		});
 		let arg = tg::process::status::Arg {
 			location: Some(location.clone().into()),
-			source,
 			timeout,
 			tokens: tokens.for_location(&location),
 		};
@@ -613,14 +596,11 @@ impl Component {
 		remotes: &[tangram_server_core::location::Remote],
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
-		source: tg::process::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = remotes
 			.iter()
 			.map(|remote| {
-				self.try_get_process_status_stream_remote(
-					session, process, remote, timeout, tokens, source,
-				)
+				self.try_get_process_status_stream_remote(session, process, remote, timeout, tokens)
 			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
@@ -649,7 +629,6 @@ impl Component {
 		remote: &tangram_server_core::location::Remote,
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
-		source: tg::process::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = session
 			.server
@@ -670,7 +649,6 @@ impl Component {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			source,
 			timeout,
 			tokens: tokens.for_location(&location),
 		};

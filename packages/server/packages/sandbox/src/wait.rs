@@ -22,9 +22,7 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::wait::Arg,
 	) -> tg::Result<Option<WaitFuture>> {
-		if !arg.source.is_index()
-			&& let Some(future) = self.try_wait_sandbox_runner(session, id, &arg).await?
-		{
+		if let Some(future) = self.try_wait_sandbox_runner(session, id, &arg).await? {
 			return Ok(Some(future));
 		}
 		let locations = session
@@ -37,13 +35,7 @@ impl Component {
 		// Wait for the local sandbox without a search.
 		if current
 			&& let Some(future) = self
-				.try_wait_sandbox_local(
-					session,
-					id,
-					arg.tokens.local_authorization(),
-					arg.source,
-					false,
-				)
+				.try_wait_sandbox_local(session, id, arg.tokens.local_authorization(), false)
 				.await?
 		{
 			return Ok(Some(future));
@@ -54,26 +46,20 @@ impl Component {
 			if !current {
 				return Ok(None);
 			}
-			self.try_wait_sandbox_local(
-				session,
-				id,
-				arg.tokens.local_authorization(),
-				arg.source,
-				true,
-			)
-			.await
+			self.try_wait_sandbox_local(session, id, arg.tokens.local_authorization(), true)
+				.await
 		};
 		let regions_and_remotes_future = async {
 			if let Some(local) = &locations.local
 				&& let Some(future) = self
-					.try_wait_sandbox_regions(session, id, &local.regions, &arg.tokens, arg.source)
+					.try_wait_sandbox_regions(session, id, &local.regions, &arg.tokens)
 					.await
 					.map_err(
 						|error| tg::error!(!error, %id, "failed to wait for the sandbox in another region"),
 					)? {
 				return Ok(Some(future));
 			}
-			self.try_wait_sandbox_remotes(session, id, &locations.remotes, &arg.tokens, arg.source)
+			self.try_wait_sandbox_remotes(session, id, &locations.remotes, &arg.tokens)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to wait for the sandbox on a remote"),
@@ -154,7 +140,6 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		tokens: &[tg::authorization::Token],
-		source: tg::sandbox::Source,
 		exhaustive: bool,
 	) -> tg::Result<Option<WaitFuture>> {
 		let mut wakeups = self
@@ -163,7 +148,7 @@ impl Component {
 		let deadline = session.server.control_read_deadline();
 		let sandbox = loop {
 			tokio::select! {
-				output = self.try_get_sandbox_observation_local(session, id, tokens, source, deadline, exhaustive) => break output?,
+				output = self.try_get_sandbox_observation_local(session, id, tokens, deadline, exhaustive) => break output?,
 				wakeup = wakeups.next() => {
 					if wakeup.is_none() { return Ok(None); }
 				},
@@ -173,13 +158,8 @@ impl Component {
 			return Ok(None);
 		};
 
-		let mut stream = self.create_sandbox_data_stream_local(
-			session,
-			id,
-			Some(sandbox),
-			Some(wakeups),
-			source,
-		);
+		let mut stream =
+			self.create_sandbox_data_stream_local(session, id, Some(sandbox), Some(wakeups));
 		let future = async move {
 			let data = loop {
 				let data = stream.try_next().await?.ok_or_else(|| {
@@ -202,11 +182,10 @@ impl Component {
 		id: &tg::sandbox::Id,
 		regions: &[String],
 		tokens: &tg::authorization::Tokens,
-		source: tg::sandbox::Source,
 	) -> tg::Result<Option<WaitFuture>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_wait_sandbox_region(session, id, region, tokens, source))
+			.map(|region| self.try_wait_sandbox_region(session, id, region, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -233,7 +212,6 @@ impl Component {
 		id: &tg::sandbox::Id,
 		region: &str,
 		tokens: &tg::authorization::Tokens,
-		source: tg::sandbox::Source,
 	) -> tg::Result<Option<WaitFuture>> {
 		let client = session.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -243,7 +221,6 @@ impl Component {
 		});
 		let arg = tg::sandbox::wait::Arg {
 			location: Some(location.clone().into()),
-			source,
 			tokens: tokens.for_location(&location),
 		};
 		let Some(future) = client.try_wait_sandbox_future(id, arg).await.map_err(
@@ -261,11 +238,10 @@ impl Component {
 		id: &tg::sandbox::Id,
 		remotes: &[tangram_server_core::location::Remote],
 		tokens: &tg::authorization::Tokens,
-		source: tg::sandbox::Source,
 	) -> tg::Result<Option<WaitFuture>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_wait_sandbox_remote(session, id, remote, tokens, source))
+			.map(|remote| self.try_wait_sandbox_remote(session, id, remote, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -292,7 +268,6 @@ impl Component {
 		id: &tg::sandbox::Id,
 		remote: &tangram_server_core::location::Remote,
 		tokens: &tg::authorization::Tokens,
-		source: tg::sandbox::Source,
 	) -> tg::Result<Option<WaitFuture>> {
 		let client = session
 			.server
@@ -313,7 +288,6 @@ impl Component {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			source,
 			tokens: tokens.for_location(&location),
 		};
 		let Some(future) = client.try_wait_sandbox_future(id, arg).await.map_err(

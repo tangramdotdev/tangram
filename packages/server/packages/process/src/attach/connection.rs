@@ -177,7 +177,6 @@ impl Component {
 			let mut wait_arg = tg::process::wait::Arg {
 				lease: None,
 				location: location.clone(),
-				source: tg::process::Source::Auto,
 				tokens: tokens.clone(),
 			};
 
@@ -194,7 +193,6 @@ impl Component {
 					session,
 					&id,
 					wait_arg.tokens.local_authorization().to_vec(),
-					tg::process::Source::Auto,
 					true,
 				)
 				.await?

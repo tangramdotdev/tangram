@@ -10,7 +10,8 @@ let path = artifact {
 	'#
 }
 let id = tg build --no-tokens --detach $path | referent node
-tg wait --source=index $id
+tg wait $id
+tg index
 
 timeout 10 tg index
 

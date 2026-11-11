@@ -211,7 +211,6 @@ impl Component {
 			fallback: false,
 			options,
 			request,
-			source: tg::process::Source::Auto,
 			wakeups: Some(&mut wakeups),
 		};
 		let output = self

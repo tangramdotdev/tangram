@@ -48,10 +48,9 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
-		if !arg.source.is_index()
-			&& let Some(stream) = self
-				.try_get_sandbox_status_stream_runner(session, id, &arg)
-				.await?
+		if let Some(stream) = self
+			.try_get_sandbox_status_stream_runner(session, id, &arg)
+			.await?
 		{
 			return Ok(Some(stream));
 		}
@@ -88,7 +87,6 @@ impl Component {
 						&local.regions,
 						arg.timeout,
 						&arg.tokens,
-						arg.source,
 					)
 					.await
 					.map_err(
@@ -102,7 +100,6 @@ impl Component {
 				&locations.remotes,
 				arg.timeout,
 				&arg.tokens,
-				arg.source,
 			)
 			.await
 			.map_err(
@@ -142,7 +139,6 @@ impl Component {
 					session,
 					id,
 					arg.tokens.local_authorization(),
-					arg.source,
 					deadline,
 					exhaustive,
 				) => break output?,
@@ -164,7 +160,6 @@ impl Component {
 			id,
 			Some(sandbox),
 			wakeups,
-			arg.source,
 		);
 
 		Ok(Some(stream))
@@ -291,7 +286,6 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		tokens: &[tg::authorization::Token],
-		source: tg::sandbox::Source,
 		deadline: tokio::time::Instant,
 		exhaustive: bool,
 	) -> tg::Result<Option<tg::sandbox::Data>> {
@@ -300,7 +294,7 @@ impl Component {
 		);
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let authorize_future = session.authorize_with_exhaustive(resource, permission, exhaustive);
-		let get_future = self.try_get_sandbox_data_local(session, id, source, deadline);
+		let get_future = self.try_get_sandbox_data_local(session, id, deadline);
 		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
 		let permissions = permissions.check_exhaustion()?;
 
@@ -316,11 +310,10 @@ impl Component {
 		id: &tg::sandbox::Id,
 		initial: Option<tg::sandbox::Data>,
 		wakeups: Option<BoxStream<'static, ()>>,
-		source: tg::sandbox::Source,
 	) -> BoxStream<'static, tg::Result<tg::sandbox::status::Event>> {
 		let once = wakeups.is_none();
 		let mut previous = None;
-		self.create_sandbox_data_stream_local(session, id, initial, wakeups, source)
+		self.create_sandbox_data_stream_local(session, id, initial, wakeups)
 			.flat_map(move |result| {
 				let mut events = Vec::new();
 				match result {
@@ -347,7 +340,6 @@ impl Component {
 		id: &tg::sandbox::Id,
 		initial: Option<tg::sandbox::Data>,
 		wakeups: Option<BoxStream<'static, ()>>,
-		source: tg::sandbox::Source,
 	) -> BoxStream<'static, tg::Result<tg::sandbox::Data>> {
 		let (sender, receiver) = tokio::sync::mpsc::channel(1);
 		let component = self.clone();
@@ -361,7 +353,6 @@ impl Component {
 					sender.clone(),
 					initial,
 					wakeups,
-					source,
 				)
 				.await;
 			if let Err(error) = result {
@@ -410,7 +401,6 @@ impl Component {
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sandbox::Data>>,
 		mut initial: Option<tg::sandbox::Data>,
 		mut wakeups: Option<BoxStream<'static, ()>>,
-		source: tg::sandbox::Source,
 	) -> tg::Result<()> {
 		loop {
 			let deadline = session.server.control_read_deadline();
@@ -419,12 +409,12 @@ impl Component {
 			} else {
 				match &mut wakeups {
 					None => {
-						self.try_get_sandbox_data_local(session, id, source, deadline)
+						self.try_get_sandbox_data_local(session, id, deadline)
 							.await?
 					},
 					Some(wakeups) => loop {
 						tokio::select! {
-							result = self.try_get_sandbox_data_local(session, id, source, deadline) => break result?,
+							result = self.try_get_sandbox_data_local(session, id, deadline) => break result?,
 							wakeup = wakeups.next() => {
 								if wakeup.is_none() { return Ok(()); }
 							},
@@ -452,10 +442,9 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
-		source: tg::sandbox::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Option<tg::sandbox::Data>> {
-		let arg = Self::get_sandbox_holder_arg(session, source, deadline, true);
+		let arg = Self::get_sandbox_holder_arg(session, deadline, true);
 		let output = self
 			.request_sandbox_holder(session, id, arg, |_| false)
 			.boxed()
@@ -492,14 +481,11 @@ impl Component {
 		regions: &[String],
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
-		source: tg::sandbox::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		let mut futures = regions
 			.iter()
 			.map(|region| {
-				self.try_get_sandbox_status_stream_region(
-					session, id, region, timeout, tokens, source,
-				)
+				self.try_get_sandbox_status_stream_region(session, id, region, timeout, tokens)
 			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
@@ -528,7 +514,6 @@ impl Component {
 		region: &str,
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
-		source: tg::sandbox::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		let client = session.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -538,7 +523,6 @@ impl Component {
 		});
 		let arg = tg::sandbox::status::Arg {
 			location: Some(location.clone().into()),
-			source,
 			timeout,
 			tokens: tokens.for_location(&location),
 		};
@@ -561,14 +545,11 @@ impl Component {
 		remotes: &[tangram_server_core::location::Remote],
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
-		source: tg::sandbox::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		let mut futures = remotes
 			.iter()
 			.map(|remote| {
-				self.try_get_sandbox_status_stream_remote(
-					session, id, remote, timeout, tokens, source,
-				)
+				self.try_get_sandbox_status_stream_remote(session, id, remote, timeout, tokens)
 			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
@@ -597,7 +578,6 @@ impl Component {
 		remote: &tangram_server_core::location::Remote,
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
-		source: tg::sandbox::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		let client = session
 			.server
@@ -618,7 +598,6 @@ impl Component {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			source,
 			timeout,
 			tokens: tokens.for_location(&location),
 		};

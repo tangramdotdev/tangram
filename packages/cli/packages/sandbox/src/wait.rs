@@ -19,10 +19,6 @@ pub struct Options {
 
 	#[command(flatten)]
 	pub print: tangram_cli_core::print::Options,
-
-	/// Select the source of sandbox state.
-	#[arg(long, default_value = "auto", value_parser = tangram_cli_core::source_parser())]
-	pub source: tg::sandbox::Source,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -38,10 +34,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 pub async fn run_inner(cli: &mut Cli, sandbox: tg::Sandbox, options: Options) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let id = sandbox.id().clone();
-	let options_ = tg::sandbox::wait::Options {
-		location: None,
-		source: options.source,
-	};
+	let options_ = tg::sandbox::wait::Options { location: None };
 	let outcome = sandbox
 		.wait_with_instance(&client, options_)
 		.await

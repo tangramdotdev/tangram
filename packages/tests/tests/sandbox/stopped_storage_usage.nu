@@ -18,11 +18,12 @@ let sandbox = tg sandbox create --no-tokens | referent node
 tg sandbox stop --wait $sandbox
 let stopped = tg sandbox get $sandbox | from json | get data | get usage?.storage?.consumption? | default 0
 
-# Advance the clock while the sandbox is stopped, and start it, which reports the stopped storage usage until the start.
+# Advance the clock while the sandbox is stopped, and start and stop it, so that its usage includes the stopped storage usage until the start.
 advance_time $local 5sec
-tg sandbox start $sandbox
+tg sandbox start --wait $sandbox
+tg sandbox stop --wait $sandbox
 tg index
-let started = tg sandbox get --source=index $sandbox | from json | get data | get usage?.storage?.consumption? | default 0
+let started = tg sandbox get $sandbox | from json | get data | get usage?.storage?.consumption? | default 0
 assert ($started > $stopped) "a stopped sandbox should accrue storage usage until it starts again"
 
 # Stop the sandbox again, advance the clock, and destroy it, which reports the stopped storage usage until the destruction.

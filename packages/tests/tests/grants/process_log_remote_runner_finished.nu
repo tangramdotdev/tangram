@@ -35,7 +35,8 @@ let path = artifact {
 	'
 }
 let process = tg --url $local.url build --no-tokens --remote --detach $path | referent node
-success (tg --url $remote.url --token $alice.token wait --source=index $process | complete)
+success (tg --url $remote.url --token $alice.token wait $process | complete)
+tg --url $remote.url --token $alice.token index
 
 # Wait for the process to finish with its log blob.
 tg --url $remote.url --token $alice.token index

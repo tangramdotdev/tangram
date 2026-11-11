@@ -26,5 +26,6 @@ success $output "a canceled process should finish without searching for its erro
 assert equal ($output.stdout | from json | get exit) 1
 let output = timeout 10s tg index | complete
 success $output "the cancellation error should be indexed without an authorization search"
-let indexed = tg process get --source index $spawned.process | from json
+tg index
+let indexed = tg process get $spawned.process | from json
 assert equal $indexed.status finished "the canceled process should be finished in the index"

@@ -52,9 +52,11 @@ def is-sync [] { $in | token body | get resource | str starts-with 'syn_' }
 def sync-resources [tokens: record] { $tokens | values | flatten | where { is-sync } | each { token body | get resource } }
 
 # Get the stored processes. Reading a process creates a read token for each output object, so only the sync tokens come from the stored record.
-let root = tg --url $remote.url --token $root_token process get --source=index --local $process | from json
+tg --url $remote.url --token $root_token index
+let root = tg --url $remote.url --token $root_token process get --local $process | from json
 let child = $root.children.0.process | referent node
-let child = tg --url $remote.url --token $root_token process get --source=index --local $child | from json
+tg --url $remote.url --token $root_token index
+let child = tg --url $remote.url --token $root_token process get --local $child | from json
 for data in [$root $child] {
 	assert equal $data.status finished
 

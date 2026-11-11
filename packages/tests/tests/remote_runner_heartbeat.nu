@@ -89,8 +89,10 @@ snapshot $output.stderr ''
 tg --url $local.url process wait $empty_process | ignore
 
 # The process history remains readable after the runner is lost.
-let sandbox = tg --url $remote.url --token $root_token get --source=index $process | from json | get sandbox
-tg --url $remote.url --token $root_token sandbox wait --source=index $sandbox | ignore
+tg --url $remote.url --token $root_token index
+let sandbox = tg --url $remote.url --token $root_token get $process | from json | get sandbox
+tg --url $remote.url --token $root_token sandbox wait $sandbox | ignore
+tg --url $remote.url --token $root_token index
 
 # Recovery finishes nonempty and empty log objects before publishing the failed processes.
 for restart in [false true] {

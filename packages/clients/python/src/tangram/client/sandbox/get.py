@@ -19,7 +19,6 @@ from .create import WireOutput
 
 class ArgObject(TypedDict, total=False):
     location: LocationArgObject | None
-    source: str
     tokens: dict[str, list[str]] | None
 
 
@@ -40,7 +39,6 @@ async def try_get_sandbox(
         "GET", f"/sandboxes/{percent_encode(id)}", {"accept": "application/json"}
     ).arg(
         {
-            "source": "auto" if options.get("source") is None else options["source"],
             "tokens": {} if options.get("tokens") is None else options["tokens"],
             "location": None
             if options.get("location") is None

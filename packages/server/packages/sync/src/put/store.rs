@@ -768,7 +768,6 @@ impl Component {
 							id: &process.node,
 							metadata,
 							regions,
-							source: tg::process::Source::Auto,
 							tokens: &process.options.tokens,
 						};
 						if let Some(output) = session
@@ -788,7 +787,6 @@ impl Component {
 							id: &process.node,
 							metadata,
 							remotes,
-							source: tg::process::Source::Auto,
 							tokens: &process.options.tokens,
 						};
 						session

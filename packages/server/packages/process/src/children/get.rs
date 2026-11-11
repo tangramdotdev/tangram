@@ -33,7 +33,6 @@ struct GetProcessChildrenLocalArg<'a> {
 	initial: Option<Output>,
 	length: u64,
 	position: u64,
-	source: tg::process::Source,
 }
 
 impl Component {
@@ -81,8 +80,7 @@ impl Component {
 		}
 		let id = process.clone().right();
 		let process = &process;
-		if !arg.source.is_index()
-			&& let Some(id) = &id
+		if let Some(id) = &id
 			&& let Some(stream) = self
 				.try_get_process_children_runner(session, id, &arg)
 				.await?
@@ -387,7 +385,7 @@ impl Component {
 		let deadline = session.server.control_read_deadline();
 		let output = loop {
 			tokio::select! {
-				output = self.get_process_children_local_inner(session, id, start, length, arg.source, deadline) => break output?,
+				output = self.get_process_children_local_inner(session, id, start, length, deadline) => break output?,
 				wakeup = async {
 					match &mut wakeups {
 						Some(wakeups) => wakeups.next().await,
@@ -459,7 +457,6 @@ impl Component {
 		id: &tg::process::Id,
 		position: u64,
 		length: u64,
-		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Output> {
 		// Get the children from the process's holder or the index, which answers for a process that has its children or that is starting.
@@ -475,7 +472,6 @@ impl Component {
 			fallback: true,
 			options,
 			request,
-			source,
 			wakeups: None,
 		};
 		let output = self
@@ -534,7 +530,6 @@ impl Component {
 						initial: initial.take(),
 						length: size,
 						position,
-						source: arg.source,
 					};
 					tokio::select! {
 						output = self.get_process_children_local(session, children_arg) => break output?,
@@ -618,15 +613,12 @@ impl Component {
 			initial,
 			length,
 			position,
-			source,
 		} = arg;
 		let output = match initial {
 			Some(output) => output,
 			None => {
-				self.get_process_children_local_inner(
-					session, id, position, length, source, deadline,
-				)
-				.await?
+				self.get_process_children_local_inner(session, id, position, length, deadline)
+					.await?
 			},
 		};
 		if let Some(output) = output.control {

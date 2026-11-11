@@ -14,7 +14,6 @@ struct TryGetSandboxRemotesArg<'a> {
 	cached: bool,
 	id: &'a tg::sandbox::Id,
 	remotes: &'a [tangram_server_core::location::Remote],
-	source: tg::sandbox::Source,
 	tokens: &'a tg::authorization::Tokens,
 	ttl: tg::remote::cache::Ttl,
 }
@@ -23,7 +22,6 @@ struct TryGetSandboxRemoteArg<'a> {
 	cached: bool,
 	id: &'a tg::sandbox::Id,
 	remote: &'a tangram_server_core::location::Remote,
-	source: tg::sandbox::Source,
 	tokens: &'a tg::authorization::Tokens,
 	ttl: tg::remote::cache::Ttl,
 }
@@ -35,15 +33,12 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		let runner = if arg.source.is_index() {
-			None
-		} else {
-			self.try_get_sandbox_runner(session, id, &arg)
-				.boxed()
-				.await?
-		};
+		let runner = self
+			.try_get_sandbox_runner(session, id, &arg)
+			.boxed()
+			.await?;
 		if let Some(output) = &runner
-			&& (arg.source.is_runner() || !output.data.status.is_destroyed())
+			&& !output.data.status.is_destroyed()
 		{
 			return Ok(runner);
 		}
@@ -61,7 +56,7 @@ impl Component {
 
 		// Read the sandbox and authorize it without a search.
 		let node = if current {
-			self.try_get_sandbox_local_inner(session, id, arg.source, false)
+			self.try_get_sandbox_local_inner(session, id, false)
 				.boxed()
 				.await?
 		} else {
@@ -73,7 +68,6 @@ impl Component {
 					session,
 					id,
 					arg.tokens.local_authorization(),
-					arg.source,
 					node.clone(),
 					false,
 				)
@@ -92,20 +86,13 @@ impl Component {
 			if !current {
 				return Ok(None);
 			}
-			self.try_get_sandbox_local(
-				session,
-				id,
-				arg.tokens.local_authorization(),
-				arg.source,
-				node,
-				true,
-			)
-			.await
+			self.try_get_sandbox_local(session, id, arg.tokens.local_authorization(), node, true)
+				.await
 		};
 		let regions_and_remotes_future = async {
 			if let Some(local) = &locations.local
 				&& let Some(output) = self
-					.try_get_sandbox_regions(session, id, &local.regions, &arg.tokens, arg.source)
+					.try_get_sandbox_regions(session, id, &local.regions, &arg.tokens)
 					.await
 					.map_err(
 						|error| tg::error!(!error, %id, "failed to get the sandbox from another region"),
@@ -116,7 +103,6 @@ impl Component {
 				cached: arg.cached,
 				id,
 				remotes: &locations.remotes,
-				source: arg.source,
 				tokens: &arg.tokens,
 				ttl: arg.ttl,
 			};
@@ -197,7 +183,6 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		tokens: &[tg::authorization::Token],
-		source: tg::sandbox::Source,
 		node: Option<tg::sandbox::get::Output>,
 		exhaustive: bool,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
@@ -216,7 +201,7 @@ impl Component {
 		let output = match node {
 			Some(node) => Some(node),
 			None => {
-				self.try_get_sandbox_local_inner(session, id, source, exhaustive)
+				self.try_get_sandbox_local_inner(session, id, exhaustive)
 					.boxed()
 					.await?
 			},
@@ -240,7 +225,6 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
-		source: tg::sandbox::Source,
 		exhaustive: bool,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		// Subscribe before reading to avoid missing a status change between the read and subscription.
@@ -250,7 +234,7 @@ impl Component {
 
 		// Get the sandbox from its holder or the index. A destroyed sandbox requires the index.
 		let deadline = session.server.control_read_deadline();
-		let arg = Self::get_sandbox_holder_arg(session, source, deadline, exhaustive);
+		let arg = Self::get_sandbox_holder_arg(session, deadline, exhaustive);
 		let arg = crate::holder::Arg {
 			wakeups: Some(&mut wakeups),
 			..arg
@@ -293,7 +277,6 @@ impl Component {
 	/// Create the arg for a get request to the holder of a sandbox, which the index answers when the holder does not.
 	pub(super) fn get_sandbox_holder_arg(
 		session: &Session,
-		source: tg::sandbox::Source,
 		deadline: tokio::time::Instant,
 		exhaustive: bool,
 	) -> crate::holder::Arg<'static> {
@@ -309,7 +292,6 @@ impl Component {
 			fallback: true,
 			options,
 			request,
-			source,
 			wakeups: None,
 		}
 	}
@@ -377,11 +359,10 @@ impl Component {
 		id: &tg::sandbox::Id,
 		regions: &[String],
 		tokens: &tg::authorization::Tokens,
-		source: tg::sandbox::Source,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_sandbox_region(session, id, region, tokens, source))
+			.map(|region| self.try_get_sandbox_region(session, id, region, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -408,7 +389,6 @@ impl Component {
 		id: &tg::sandbox::Id,
 		region: &str,
 		tokens: &tg::authorization::Tokens,
-		source: tg::sandbox::Source,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		let client = session.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -418,7 +398,6 @@ impl Component {
 		});
 		let arg = tg::sandbox::get::Arg {
 			location: Some(location.clone().into()),
-			source,
 			tokens: tokens.for_location(&location),
 			..tg::sandbox::get::Arg::default()
 		};
@@ -451,7 +430,6 @@ impl Component {
 			cached,
 			id,
 			remotes,
-			source,
 			tokens,
 			ttl,
 		} = arg;
@@ -462,7 +440,6 @@ impl Component {
 					cached,
 					id,
 					remote,
-					source,
 					tokens,
 					ttl,
 				};
@@ -495,7 +472,6 @@ impl Component {
 			cached,
 			id,
 			remote,
-			source,
 			tokens,
 			ttl,
 		} = arg;
@@ -511,7 +487,6 @@ impl Component {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			source,
 			tokens: tokens.for_location(&location),
 			ttl: tg::remote::cache::Ttl::default(),
 		};
@@ -533,14 +508,13 @@ impl Component {
 		let trusted = client.trusted();
 
 		// Get a cached response.
-		if source.is_auto()
-			&& let Some(tangram_server_remote_core::cache::Response::SandboxGet(response)) = session
-				.server
-				.components
-				.remote
-				.try_get_cached_remote_response(session, &remote.name, &request, ttl)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
+		if let Some(tangram_server_remote_core::cache::Response::SandboxGet(response)) = session
+			.server
+			.components
+			.remote
+			.try_get_cached_remote_response(session, &remote.name, &request, ttl)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 			&& let Some(mut output) = response.output
 		{
 			let valid = tangram_server_remote_common::tokens_valid(
@@ -557,7 +531,7 @@ impl Component {
 				return Ok(Some(output));
 			}
 		}
-		if cached && source.is_auto() {
+		if cached {
 			return Ok(None);
 		}
 

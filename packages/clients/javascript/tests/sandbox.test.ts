@@ -4,7 +4,7 @@ import * as tg from "../src/index.ts";
 import { Client } from "../src/client.ts";
 import { Body, Response } from "../src/http.ts";
 
-test("sandbox reads send authorization tokens and the requested source", async () => {
+test("sandbox reads send authorization tokens", async () => {
 	let utf8 = tg.encoding.utf8;
 	tg.encoding.utf8 = {
 		encode: (value) => new TextEncoder().encode(value),
@@ -20,15 +20,11 @@ test("sandbox reads send authorization tokens and the requested source", async (
 			requests++;
 			let query = new URLSearchParams(request.uri.query);
 			assert.equal(query.get("tokens[local][0]"), "sandbox-read-token");
-			assert.equal(query.get("source"), "index");
 			return new Response(404, {}, Body.empty());
 		};
 		let output = await client.tryGetSandbox(
 			"sbx_0006gdjpbwe1rhb2rpq4hrpc0z34",
-			{
-				source: "index",
-				tokens,
-			},
+			{ tokens },
 		);
 		assert.equal(output, null);
 		assert.equal(requests, 1);

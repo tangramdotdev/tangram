@@ -267,12 +267,9 @@ export namespace Sandbox {
 		export let from = (value: number | Cpu): Cpu => Resource.from(value, true);
 	}
 
-	export type Source = tg.Process.Source;
-
 	export namespace Get {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
-			source?: Source | undefined;
 			tokens?: tg.Authorization.Tokens.Data | undefined;
 		};
 

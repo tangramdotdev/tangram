@@ -29,10 +29,6 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	/// Select the source of process or sandbox state.
-	#[arg(long, default_value = "auto", value_parser = tangram_cli_core::source_parser())]
-	pub source: tg::process::Source,
-
 	#[command(flatten)]
 	pub ttl: tangram_cli_reference::Ttl,
 }
@@ -106,7 +102,6 @@ pub(crate) async fn print_get_output(
 			locations: locations.clone(),
 			metadata: args.metadata,
 			print,
-			source: args.source,
 		};
 		tangram_cli_process::get::run_inner(cli, process, options).await?;
 
@@ -201,7 +196,6 @@ pub(crate) async fn print_get_output(
 					locations,
 					print,
 					sandbox,
-					source: args.source,
 					ttl: args.ttl,
 				};
 				tangram_cli_sandbox::get::run(cli, args).await?;

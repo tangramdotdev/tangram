@@ -16,6 +16,6 @@ for reference in [$path $'($path)#tangram'] {
 	let outcome = tg wait $id | from json
 	assert ((tg get $outcome.error) | str contains '"message":"boom"')
 	tg index
-	let process = tg process get --source index $id | from json
+	let process = tg process get $id | from json
 	assert equal $process.status finished "the failed process should be finished in the index"
 }

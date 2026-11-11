@@ -24,7 +24,8 @@ let destroyer = job spawn {
 tg --url $local_owner.url checkpoint wait --timeout 10s sandbox.destroy.index $index 0 | ignore
 tg --url $local_owner.url checkpoint wait --timeout 10s sandbox.destroy.control $control 0 | ignore
 tg --url $runner.url sandbox destroy $sandbox
-timeout 10s tg --url $local_owner.url sandbox wait --source=index $sandbox | ignore
+timeout 10s tg --url $local_owner.url sandbox wait $sandbox | ignore
+tg --url $local_owner.url index
 tg --url $local_owner.url checkpoint unwatch sandbox.destroy.index $index
 let output = job recv --tag $destroyer --timeout 5sec
 assert equal $output.status 409
