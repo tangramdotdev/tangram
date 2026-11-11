@@ -8,7 +8,7 @@ let secret = 'export default "server-side secret";'
 $secret | save $secret_path
 
 let root_token = random chars
-let port = random int 20000..50000
+let port = port
 let url = $'http://127.0.0.1:($port)'
 let local = server spawn --url $url --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
