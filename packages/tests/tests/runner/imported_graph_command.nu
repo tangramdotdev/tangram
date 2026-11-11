@@ -9,14 +9,12 @@ let remote = server spawn --name remote --config {
 	advanced: { multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
-	verification: { permissions: { initial: false, final: false } },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, trusted: true, url: $remote.url } },
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
-	verification: { permissions: { initial: false, final: false } },
 	vfs: true,
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
