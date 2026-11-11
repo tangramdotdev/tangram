@@ -200,7 +200,16 @@ impl Component {
 			tokens,
 		} = arg;
 		let Some(tg::process::get::Output { data, location, .. }) = self
-			.try_get_process_local(session, id, false, false, tokens, None, true)
+			.try_get_process_local(
+				session,
+				id,
+				tangram_server_core::control::id(),
+				false,
+				false,
+				tokens,
+				None,
+				true,
+			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?
 		else {

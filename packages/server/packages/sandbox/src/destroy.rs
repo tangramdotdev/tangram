@@ -95,10 +95,13 @@ impl Component {
 
 		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
+		// Create the request's ID, which the passes without and with a search share, so that the holder acts on the request once.
+		let request_id = tangram_server_core::control::id();
+
 		// Destroy the sandbox locally without a search.
 		if current
 			&& let Some(output) = self
-				.try_destroy_sandbox_local(session, id, &arg, false)
+				.try_destroy_sandbox_local(session, id, &request_id, &arg, false)
 				.boxed()
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?
@@ -111,7 +114,7 @@ impl Component {
 			if !current {
 				return Ok(None);
 			}
-			self.try_destroy_sandbox_local(session, id, &arg, true)
+			self.try_destroy_sandbox_local(session, id, &request_id, &arg, true)
 				.boxed()
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))
@@ -200,6 +203,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
+		request_id: &str,
 		arg: &tg::sandbox::destroy::Arg,
 		exhaustive: bool,
 	) -> tg::Result<Option<bool>> {
@@ -225,7 +229,11 @@ impl Component {
 		let error = self
 			.get_sandbox_destroy_error(session, arg.error.clone())
 			.await?;
+		let mut next_request_id = request_id.to_owned();
 		let destroyed = loop {
+			// Use the call's request ID for the first request, and a new one for each later request, which asks again after the sandbox changed.
+			let request_id =
+				std::mem::replace(&mut next_request_id, tangram_server_core::control::id());
 			let request = tg::sandbox::control::ServerRequestArg::Destroy(
 				tg::sandbox::control::DestroyServerRequestArg {
 					error: error.clone(),
@@ -238,6 +246,7 @@ impl Component {
 				deadline: session.server.control_read_deadline(),
 				exhaustive,
 				fallback: false,
+				id: request_id,
 				options,
 				request,
 				wakeups: Some(&mut wakeups),

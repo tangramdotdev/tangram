@@ -54,9 +54,10 @@ impl Component {
 
 		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-		// Read the sandbox and authorize it without a search.
+		// Read the sandbox and authorize it without a search, and then with a search, with one request ID, so that the sandbox's holder answers both reads once.
+		let request_id = tangram_server_core::control::id();
 		let node = if current {
-			self.try_get_sandbox_local_inner(session, id, false)
+			self.try_get_sandbox_local_inner(session, id, request_id.clone(), false)
 				.boxed()
 				.await?
 		} else {
@@ -67,6 +68,7 @@ impl Component {
 				.try_get_sandbox_local(
 					session,
 					id,
+					request_id.clone(),
 					arg.tokens.local_authorization(),
 					node.clone(),
 					false,
@@ -86,8 +88,15 @@ impl Component {
 			if !current {
 				return Ok(None);
 			}
-			self.try_get_sandbox_local(session, id, arg.tokens.local_authorization(), node, true)
-				.await
+			self.try_get_sandbox_local(
+				session,
+				id,
+				request_id,
+				arg.tokens.local_authorization(),
+				node,
+				true,
+			)
+			.await
 		};
 		let regions_and_remotes_future = async {
 			if let Some(local) = &locations.local
@@ -182,6 +191,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
+		request_id: String,
 		tokens: &[tg::authorization::Token],
 		node: Option<tg::sandbox::get::Output>,
 		exhaustive: bool,
@@ -201,7 +211,7 @@ impl Component {
 		let output = match node {
 			Some(node) => Some(node),
 			None => {
-				self.try_get_sandbox_local_inner(session, id, exhaustive)
+				self.try_get_sandbox_local_inner(session, id, request_id, exhaustive)
 					.boxed()
 					.await?
 			},
@@ -225,6 +235,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
+		request_id: String,
 		exhaustive: bool,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		// Subscribe before reading to avoid missing a status change between the read and subscription.
@@ -234,7 +245,7 @@ impl Component {
 
 		// Get the sandbox from its holder or the index. A destroyed sandbox requires the index.
 		let deadline = session.server.control_read_deadline();
-		let arg = Self::get_sandbox_holder_arg(session, deadline, exhaustive);
+		let arg = Self::get_sandbox_holder_arg(session, deadline, request_id, exhaustive);
 		let arg = crate::holder::Arg {
 			wakeups: Some(&mut wakeups),
 			..arg
@@ -278,6 +289,7 @@ impl Component {
 	pub(super) fn get_sandbox_holder_arg(
 		session: &Session,
 		deadline: tokio::time::Instant,
+		id: String,
 		exhaustive: bool,
 	) -> crate::holder::Arg<'static> {
 		let request = tg::sandbox::control::ServerRequestArg::Get(
@@ -290,6 +302,7 @@ impl Component {
 			deadline,
 			exhaustive,
 			fallback: true,
+			id,
 			options,
 			request,
 			wakeups: None,

@@ -3,12 +3,19 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod replies;
+
+pub use self::replies::{Begin, Replies};
+
 pub struct Arg<'a, Request> {
 	/// The time until which a read waits for the holder's reply, and a write waits for the holder of an item that the index does not have.
 	pub deadline: tokio::time::Instant,
 
 	/// Whether to wait for indexing, and then for a holder until the deadline, if the index does not have the item.
 	pub exhaustive: bool,
+
+	/// The ID of the request, which every copy of the request carries, so that the holder acts on the request once however many copies reach it.
+	pub id: String,
 
 	/// Whether the index answers when the holder does not. A read sets this, so that the index answers for a holder that does not reply by the deadline. A write does not, so that only a terminal state or a missing item ends its wait.
 	pub fallback: bool,
@@ -48,6 +55,7 @@ pub trait Kind: Sync {
 	fn send(
 		&self,
 		request: Self::Request,
+		id: String,
 		options: crate::control::Options,
 		resend: Option<BoxStream<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>>;
@@ -75,6 +83,7 @@ pub async fn request<K: Kind>(
 		deadline,
 		exhaustive,
 		fallback,
+		id,
 		options,
 		request,
 		mut wakeups,
@@ -89,7 +98,7 @@ pub async fn request<K: Kind>(
 	let resend = wakeups
 		.is_some()
 		.then(|| tokio_stream::wrappers::WatchStream::from_changes(resend_receiver).boxed());
-	let mut request_future = kind.send(request, options, resend);
+	let mut request_future = kind.send(request, id, options, resend);
 
 	loop {
 		// A read waits for the holder until the deadline, and a write does so only if the index does not have the item, because only a holder can then show that the item exists.

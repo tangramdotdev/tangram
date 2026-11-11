@@ -30,10 +30,13 @@ impl Component {
 
 		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
+		// Create the request's ID, which the passes without and with a search share, so that the holder acts on the request once.
+		let request_id = tangram_server_core::control::id();
+
 		// Start the sandbox locally without a search.
 		if current
 			&& let Some(output) = self
-				.try_start_sandbox_local(session, id, &arg, false)
+				.try_start_sandbox_local(session, id, &request_id, &arg, false)
 				.boxed()
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to start the sandbox"))?
@@ -46,7 +49,7 @@ impl Component {
 			if !current {
 				return Ok(None);
 			}
-			self.try_start_sandbox_local(session, id, &arg, true)
+			self.try_start_sandbox_local(session, id, &request_id, &arg, true)
 				.boxed()
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to start the sandbox"))
@@ -128,6 +131,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
+		request_id: &str,
 		arg: &tg::sandbox::start::Arg,
 		exhaustive: bool,
 	) -> tg::Result<Option<bool>> {
@@ -150,7 +154,11 @@ impl Component {
 			.await?;
 
 		// Send the request to the sandbox's holder until the sandbox is starting or started, or this start reserves the next boot of a stopped sandbox.
+		let mut next_request_id = request_id.to_owned();
 		let boot = loop {
+			// Use the call's request ID for the first request, and a new one for each later request, which asks again after the sandbox changed.
+			let request_id =
+				std::mem::replace(&mut next_request_id, tangram_server_core::control::id());
 			let request = tg::sandbox::control::ServerRequestArg::Start(
 				tg::sandbox::control::StartServerRequestArg {},
 			);
@@ -161,6 +169,7 @@ impl Component {
 				deadline: session.server.control_read_deadline(),
 				exhaustive,
 				fallback: false,
+				id: request_id,
 				options,
 				request,
 				wakeups: Some(&mut wakeups),

@@ -385,6 +385,12 @@ pub struct Control {
 	/// The maximum time to wait for a live process or sandbox read response.
 	pub read_timeout: Duration,
 
+	/// The number of replies that a holder of processes or sandboxes remembers, so that it answers a duplicate request without acting on it again.
+	pub reply_capacity: usize,
+
+	/// How long a holder of processes or sandboxes remembers a reply after it was last used.
+	pub reply_ttl: Duration,
+
 	/// The retry for process, sandbox, and runner control requests.
 	pub request_retry: Retry,
 
@@ -2345,6 +2351,8 @@ impl Default for Control {
 		Self {
 			get_retry: get_retry.into(),
 			read_timeout: Duration::from_secs(1),
+			reply_capacity: 65_536,
+			reply_ttl: Duration::from_mins(10),
 			request_retry: request_retry.into(),
 			request_timeout: Duration::from_secs(10),
 			stream_inbox_ttl: Duration::from_mins(1),

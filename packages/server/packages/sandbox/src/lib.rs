@@ -32,6 +32,10 @@ pub struct Component(Arc<State>);
 
 pub struct State {
 	pub(crate) control: Control,
+
+	/// The replies that the holders that this server serves recently sent, so that a duplicate request is answered without acting on it again.
+	pub(crate) holder_replies:
+		tangram_server_core::holder::Replies<tg::sandbox::control::ClientResponse>,
 }
 
 pub(crate) struct Control {
@@ -70,7 +74,15 @@ impl Component {
 		};
 
 		// Create the state.
-		let state = State { control };
+		let holder_replies = tangram_server_core::holder::Replies::new(
+			arg.config.control.reply_capacity,
+			arg.config.control.reply_ttl,
+			arg.config.control.request_timeout,
+		);
+		let state = State {
+			control,
+			holder_replies,
+		};
 		let component = Self(Arc::new(state));
 
 		Ok(component)

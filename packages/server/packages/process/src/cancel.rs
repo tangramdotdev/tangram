@@ -37,11 +37,14 @@ impl Component {
 
 		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
+		// Create the request's ID, which the passes without and with a search share, so that the holder acts on the request once.
+		let request_id = tangram_server_core::control::id();
+
 		// Cancel the process locally without a search.
 		if current
 			&& let Some(id) = &id
 			&& let Some(output) = self
-				.try_cancel_process_local(session, id, arg.clone(), false)
+				.try_cancel_process_local(session, id, &request_id, arg.clone(), false)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to cancel the process"))?
 		{
@@ -53,7 +56,7 @@ impl Component {
 			let (true, Some(id)) = (current, &id) else {
 				return Ok(None);
 			};
-			self.try_cancel_process_local(session, id, arg.clone(), true)
+			self.try_cancel_process_local(session, id, &request_id, arg.clone(), true)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to cancel the process"))
 		};
@@ -140,6 +143,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
+		request_id: &str,
 		arg: tg::process::cancel::Arg,
 		exhaustive: bool,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
@@ -159,6 +163,7 @@ impl Component {
 			deadline: session.server.control_read_deadline(),
 			exhaustive,
 			fallback: false,
+			id: request_id.to_owned(),
 			options,
 			request,
 			wakeups: Some(&mut wakeups),

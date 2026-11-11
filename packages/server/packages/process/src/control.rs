@@ -876,7 +876,8 @@ impl Component {
 		arg: tg::process::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 	) -> tg::Result<tg::Result<tg::process::control::ClientResponseOutput>> {
-		self.send_process_control_request(session, id, arg, options, None)
+		let request_id = tangram_server_core::control::id();
+		self.send_process_control_request(session, id, request_id, arg, options, None)
 			.boxed()
 			.await?
 			.await
@@ -928,6 +929,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
+		request_id: String,
 		arg: tg::process::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 		resend: Option<futures::stream::BoxStream<'static, ()>>,
@@ -937,7 +939,6 @@ impl Component {
 			tg::Result<tg::Result<tg::process::control::ClientResponseOutput>>,
 		>,
 	> {
-		let request_id = tangram_server_core::control::id();
 		let request = ServerMessage(tg::process::control::ServerMessage::Request(
 			tg::process::control::ServerRequest {
 				arg,

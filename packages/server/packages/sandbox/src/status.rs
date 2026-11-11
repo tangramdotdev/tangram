@@ -444,7 +444,12 @@ impl Component {
 		id: &tg::sandbox::Id,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Option<tg::sandbox::Data>> {
-		let arg = Self::get_sandbox_holder_arg(session, deadline, true);
+		let arg = Self::get_sandbox_holder_arg(
+			session,
+			deadline,
+			tangram_server_core::control::id(),
+			true,
+		);
 		let output = self
 			.request_sandbox_holder(session, id, arg, |_| false)
 			.boxed()

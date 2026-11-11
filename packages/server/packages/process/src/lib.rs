@@ -46,6 +46,11 @@ pub struct Component(Arc<State>);
 pub struct State {
 	pub(crate) attach: Attach,
 	pub(crate) control: Control,
+
+	/// The replies that the holders that this server serves recently sent, so that a duplicate request is answered without acting on it again.
+	pub(crate) holder_replies:
+		tangram_server_core::holder::Replies<tg::process::control::ClientResponse>,
+
 	pub(crate) remote_put_tasks: tangram_futures::task::Set<()>,
 }
 
@@ -118,9 +123,15 @@ impl Component {
 		};
 
 		// Create the state.
+		let holder_replies = tangram_server_core::holder::Replies::new(
+			arg.config.control.reply_capacity,
+			arg.config.control.reply_ttl,
+			arg.config.control.request_timeout,
+		);
 		let state = State {
 			attach,
 			control,
+			holder_replies,
 			remote_put_tasks: tangram_futures::task::Set::default(),
 		};
 		let component = Self(Arc::new(state));
@@ -483,8 +494,18 @@ impl tangram_server_core::process::Component for Component {
 		availability: bool,
 		tokens: &'a [tg::authorization::Token],
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>> {
-		self.try_get_process_local(session, id, metadata, availability, tokens, None, true)
-			.boxed()
+		let request_id = tangram_server_core::control::id();
+		self.try_get_process_local(
+			session,
+			id,
+			request_id,
+			metadata,
+			availability,
+			tokens,
+			None,
+			true,
+		)
+		.boxed()
 	}
 
 	fn authorize_with_process_control_service<'a>(
@@ -649,7 +670,8 @@ impl tangram_server_core::process::Component for Component {
 		id: &'a tg::process::Id,
 		metadata: bool,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>> {
-		self.try_get_process_local_inner(session, id, metadata, true)
+		let request_id = tangram_server_core::control::id();
+		self.try_get_process_local_inner(session, id, request_id, metadata, true)
 			.boxed()
 	}
 

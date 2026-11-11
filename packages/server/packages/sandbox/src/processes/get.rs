@@ -433,6 +433,7 @@ impl Component {
 			deadline,
 			exhaustive: true,
 			fallback: true,
+			id: tangram_server_core::control::id(),
 			options,
 			request,
 			wakeups: None,

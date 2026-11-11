@@ -44,6 +44,9 @@ pub struct Component(Arc<State>);
 pub struct State {
 	pub control: tokio::sync::watch::Sender<Option<RunnerSender>>,
 
+	/// The replies to recent offers of boots, by request ID, so that an offer that the scheduler sends again is answered with its reply, even after the boot that it created ended. The replies outlast the scheduler's time to live of the runner, after which the scheduler no longer sends an offer again.
+	pub offers: tangram_server_core::holder::Replies<tg::runner::control::ClientMessage>,
+
 	#[cfg(target_os = "linux")]
 	pub ip_pool: tangram_sandbox::network::ip::Pool,
 
@@ -89,8 +92,14 @@ impl Component {
 		let (control, _) = tokio::sync::watch::channel(None);
 
 		// Create the state.
+		let offers = tangram_server_core::holder::Replies::new(
+			arg.config.control.reply_capacity,
+			arg.config.scheduler.runner_ttl,
+			arg.config.control.request_timeout,
+		);
 		let state = State {
 			control,
+			offers,
 
 			#[cfg(target_os = "linux")]
 			ip_pool,
@@ -649,6 +658,9 @@ impl Component {
 
 		tracing::info!(runner = %id, scheduler = %header.scheduler, yielded_sandboxes = header.sandboxes.len(), "connected the runner to the scheduler");
 
+		// Remember the replies to offers for longer than the scheduler keeps the runner, so that the scheduler never sends an offer again after its reply is forgotten.
+		self.offers.set_ttl(header.runner_ttl.saturating_mul(2));
+
 		// Report the previous sandboxes' stops and destructions before accepting work, or, after a reconnection, give up the sandboxes that the server took over when the runner's heartbeat expired.
 		let mut index = 1;
 		if *cleanup {
@@ -1163,6 +1175,13 @@ impl Component {
 			};
 			tangram_server_core::checkpoint!(session.server, "runner.control.create_sandbox", sandbox = %request.sandbox).await;
 
+			// Answer an offer that the scheduler sent again with the reply to the offer, without acting on it again, so that a boot that ended is not created again.
+			if let tangram_server_core::holder::Begin::Replied(message) = self.offers.begin(&id) {
+				tangram_server_core::checkpoint!(session.server, "runner.control.create_sandbox.replied", sandbox = %request.sandbox).await;
+				sender.send(message).await?;
+				continue;
+			}
+
 			// Acquire the storage of a stopped sandbox that starts again, which the scheduler places without it because this runner keeps it reserved.
 			let mut requested = request.capacity;
 			if request.boot > 0 {
@@ -1188,6 +1207,7 @@ impl Component {
 						output,
 					)),
 				);
+				self.offers.finish(&id, message.clone());
 				sender.send(message).await?;
 				continue;
 			}
@@ -1199,6 +1219,7 @@ impl Component {
 					id.clone(),
 					Err(tg::error!(%sandbox, "missing the sandbox authentication token")),
 				);
+				self.offers.finish(&id, message.clone());
 				sender.send(message).await?;
 				continue;
 			};
@@ -1241,6 +1262,7 @@ impl Component {
 						output,
 					)),
 				);
+				self.offers.finish(&id, message.clone());
 				sender.send(message).await?;
 				continue;
 			};
@@ -1275,6 +1297,7 @@ impl Component {
 					output,
 				)),
 			);
+			self.offers.finish(&id, message.clone());
 			sender.send(message).await?;
 		}
 

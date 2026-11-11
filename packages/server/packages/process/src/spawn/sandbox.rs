@@ -284,6 +284,7 @@ impl Component {
 				deadline: session.server.control_read_deadline(),
 				exhaustive: true,
 				fallback: false,
+				id: tangram_server_core::control::id(),
 				options,
 				request,
 				wakeups: Some(&mut wakeups),

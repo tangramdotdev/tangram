@@ -658,6 +658,15 @@ pub struct Control {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_timeout: Option<Duration>,
 
+	/// The number of replies that a holder of processes or sandboxes remembers, so that it answers a duplicate request without acting on it again.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reply_capacity: Option<usize>,
+
+	/// How long in seconds a holder of processes or sandboxes remembers a reply after it was last used.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reply_ttl: Option<Duration>,
+
 	/// The retry for process, sandbox, and runner control requests.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request_retry: Option<Retry>,
