@@ -1,6 +1,6 @@
 import * as tg from "../../index.ts";
 import { Request, percentEncode } from "../../http.ts";
-import type { Client } from "../../client.ts";
+import { backoff, isTransportError, type Client } from "../../client.ts";
 
 export namespace Wait {
 	export type Arg = {
@@ -50,11 +50,21 @@ async function waitProcessLoop(
 	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<tg.Process.Outcome | null> {
+	// Wait again after an end without an outcome, or after an early end with backoff.
+	let attempt = 0;
 	while (true) {
-		let outcome = await waitProcessOnce(client, id, arg);
-		if (outcome !== null) {
-			return outcome;
+		let { ended, outcome } = await waitProcessOnce(client, id, arg);
+		if (ended) {
+			if (outcome !== null) {
+				return outcome;
+			}
+			continue;
 		}
+		if (attempt >= client.streamRetry.maxRetries) {
+			throw new Error("the process wait stream ended before its end event");
+		}
+		await backoff(client.streamRetry, attempt);
+		attempt += 1;
 	}
 }
 
@@ -62,7 +72,7 @@ async function waitProcessOnce(
 	client: Client,
 	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
-): Promise<tg.Process.Outcome | null> {
+): Promise<{ ended: boolean; outcome: tg.Process.Outcome | null }> {
 	let method = "POST";
 	let uri = `/processes/${percentEncode(id)}/wait`;
 	let headers = {
@@ -87,10 +97,25 @@ async function waitProcessOnce(
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
+	// Read the events, which a lost connection ends early and an error event fails.
 	let outcome: tg.Process.Outcome | null = null;
-	for await (let event of response.sse()) {
+	let events = response.sse()[Symbol.asyncIterator]();
+	while (true) {
+		let next;
+		try {
+			next = await events.next();
+		} catch (error) {
+			if (isTransportError(error)) {
+				return { ended: false, outcome: null };
+			}
+			throw error;
+		}
+		if (next.done) {
+			return { ended: false, outcome: null };
+		}
+		let event = next.value;
 		if (event.event === "end") {
-			break;
+			return { ended: true, outcome };
 		} else if (event.event === "outcome") {
 			let data: tg.Process.Outcome.Data = JSON.parse(event.data);
 			outcome = tg.Process.Outcome.fromData(data);
@@ -105,5 +130,4 @@ async function waitProcessOnce(
 			throw new Error("invalid process wait event");
 		}
 	}
-	return outcome;
 }

@@ -55,10 +55,20 @@ async def try_wait_process_promise(
 
 
 async def wait_process_loop(client: "Client", id, arg):
+    from tangram.client import backoff
+
+    # Wait again after an end without an outcome, or after an early end with backoff.
+    attempt = 0
     while True:
-        outcome = await wait_process_once(client, id, arg)
-        if outcome is not None:
-            return outcome
+        ended, outcome = await wait_process_once(client, id, arg)
+        if ended:
+            if outcome is not None:
+                return outcome
+            continue
+        if attempt >= client.stream_retry["max_retries"]:
+            raise ConnectionError("the process wait stream ended before its end event")
+        await backoff(client.stream_retry, attempt)
+        attempt += 1
 
 
 async def wait_process_once(client: "Client", id, arg):
@@ -81,10 +91,22 @@ async def wait_process_once(client: "Client", id, arg):
         raise ValueError("failed to find the process")
     elif response.status < 200 or response.status >= 300:
         raise Error.from_data(cast(ErrorData, await response.json()))
+    from tangram.client import is_transport_error
+
+    # Read the events, which a lost connection ends early and an error event fails.
     outcome = None
-    async for event in response.sse():
+    events = response.sse().__aiter__()
+    while True:
+        try:
+            event = await events.__anext__()
+        except StopAsyncIteration:
+            return False, None
+        except Exception as error:
+            if is_transport_error(error):
+                return False, None
+            raise
         if event.get("event") == "end":
-            break
+            return True, outcome
         elif event.get("event") == "outcome":
             outcome = Outcome.from_data(json.loads(event["data"]))
         elif event.get("event") == "error":
@@ -94,4 +116,3 @@ async def wait_process_once(client: "Client", id, arg):
             )
         else:
             raise ValueError("invalid process wait event")
-    return outcome
