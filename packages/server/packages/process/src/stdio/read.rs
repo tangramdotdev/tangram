@@ -857,7 +857,7 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		request: tg::process::control::ServerRequest,
-		resend: Option<futures::stream::BoxStream<'static, ()>>,
+		resend: futures::stream::BoxStream<'static, ()>,
 	) -> tg::Result<futures::future::BoxFuture<'static, tg::Result<()>>> {
 		let request_id = request.id.clone();
 		let request =
@@ -885,7 +885,7 @@ impl Component {
 			marker: std::marker::PhantomData,
 			options,
 			request,
-			resend,
+			resend: Some(resend),
 			response: |message: crate::control::ClientMessage| match message.0 {
 				tg::process::control::ClientMessage::Response(response) => {
 					let id = response.id.clone();

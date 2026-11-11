@@ -3,9 +3,7 @@ use {
 		Component,
 		control::{ClientMessage, ServerMessage},
 	},
-	futures::{
-		FutureExt as _, StreamExt as _, TryStreamExt as _, future::BoxFuture, stream::BoxStream,
-	},
+	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture, stream::BoxStream},
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
@@ -449,10 +447,11 @@ impl<M: StreamMethod> tangram_server_core::holder::Stream for Stream<'_, M> {
 					),
 					id: relay,
 				};
+				// Send the open again on each status wakeup until a holder acknowledges it, as a request to a holder is, because the process may have a new holder.
 				let resend = self
-					.start
-					.clone()
-					.map(|start| start.map(|_| ()).into_stream().boxed());
+					.component
+					.create_process_status_wakeup_stream(session, id, None, None)
+					.await?;
 				self.component
 					.send_process_control_open(session, id, request, resend)
 					.await?
