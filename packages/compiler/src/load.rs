@@ -389,6 +389,13 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		.enumerate()
 		.map(|(index, name)| (name.clone(), format!("{prefix}_import_{index}")))
 		.collect::<BTreeMap<_, _>>();
+	let input_imports = interface
+		.imports
+		.iter()
+		.enumerate()
+		.filter(|(_, (_, module))| module.kind != tg::module::Kind::Python)
+		.map(|(index, (name, _))| (name.clone(), format!("{prefix}_inputs_{index}")))
+		.collect::<BTreeMap<_, _>>();
 	if !imports.is_empty() || !modules.is_empty() {
 		output.push_str("# /// script\n");
 		for (name, module) in &imports {
@@ -431,6 +438,15 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 			};
 			writeln!(output, "    from {module} import {name} as {module}_{name}").unwrap();
 		}
+		for (name, inputs) in &input_imports {
+			let module = &imports[name];
+			writeln!(
+				output,
+				"    from {module} import {} as {inputs}",
+				python::INPUTS
+			)
+			.unwrap();
+		}
 	}
 	let client = if bindings.contains_key("tg") {
 		writeln!(output, "import tangram as {prefix}_client").unwrap();
@@ -445,7 +461,10 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		.keys()
 		.enumerate()
 		.map(|(index, name)| {
-			let alias = if python::is_identifier(name) && !bindings.contains_key(name) {
+			let alias = if python::is_identifier(name)
+				&& !bindings.contains_key(name)
+				&& name != python::INPUTS
+			{
 				name.clone()
 			} else {
 				format!("{prefix}_type_{index}")
@@ -457,6 +476,13 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		client: client.clone(),
 		definitions,
 		imports,
+		input_definitions: interface
+			.definitions
+			.keys()
+			.enumerate()
+			.map(|(index, name)| (name.clone(), format!("{prefix}_input_{index}")))
+			.collect(),
+		input_imports,
 		literals: std::cell::RefCell::default(),
 		prefix: prefix.clone(),
 		typing: typing.clone(),
@@ -466,7 +492,12 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 	let definitions = interface
 		.definitions
 		.iter()
-		.map(|(name, type_)| python::definition(&names.definitions[name], type_, &names))
+		.map(|(name, type_)| python::definition(name, type_, &names, python::View::Value))
+		.collect::<Vec<_>>();
+	let inputs = interface
+		.definitions
+		.iter()
+		.map(|(name, type_)| python::definition(name, type_, &names, python::View::Input))
 		.collect::<Vec<_>>();
 	let commands = bindings
 		.iter()
@@ -475,11 +506,15 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 	let types = commands
 		.iter()
 		.map(|(_, (_, export))| {
-			if export.reexport.is_some() {
-				python::type_(&crate::interface::untyped_command(), &names)
-			} else {
-				python::export(export, &names)
+			if export.reexport.is_none() {
+				return python::export(export, &names);
 			}
+			let type_ = Some(crate::interface::untyped_command());
+			let export = tg::interface::Export {
+				type_,
+				..(*export).clone()
+			};
+			python::export(&export, &names)
 		})
 		.collect::<Vec<_>>();
 	for literal in names.literals.borrow().iter() {
@@ -487,6 +522,25 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 	}
 	for definition in &definitions {
 		writeln!(output, "{definition}").unwrap();
+	}
+	for input in inputs {
+		writeln!(output, "{input}").unwrap();
+	}
+	writeln!(output, "class {}:", python::INPUTS).unwrap();
+	if names.definitions.is_empty() {
+		writeln!(output, "    pass").unwrap();
+	}
+	for (name, alias) in &names.definitions {
+		// Bind the typed dict of a record itself, so that checking a field through the namespace reports one error, and alias any other type, so that diagnostics name the type as the source does.
+		let input = &names.input_definitions[name];
+		if matches!(
+			interface.definitions[name],
+			tg::interface::Type::Record { .. }
+		) {
+			writeln!(output, "    {alias} = {input}").unwrap();
+		} else {
+			writeln!(output, "    type {alias} = {input}").unwrap();
+		}
 	}
 
 	// Define a function for each re-export whose module's kind is known only at runtime, so that the re-export can be a command for this module's export if Python cannot bind it to the module.
@@ -905,7 +959,15 @@ mod tests {
 			"{text}"
 		);
 		assert!(
-			text.contains("greeting = _tg_typing.cast(\"tg.Command[tuple[str, *tuple[Options, ...]], tg.File]\", tg.command(_tg_function_0))\n"),
+			text.contains("_tg_input_0 = _tg_typing.TypedDict(\"Options\", {\"loud\": \"_tg_typing.NotRequired[_tg_typing.ReadOnly[bool]]\"}, closed=True)\n"),
+			"{text}"
+		);
+		assert!(
+			text.contains("greeting = _tg_typing.cast(\"tg.Command[tuple[str, *tuple[__tangram_inputs__.Options, ...]], tg.File]\", tg.command(_tg_function_0))\n"),
+			"{text}"
+		);
+		assert!(
+			text.contains("class __tangram_inputs__:\n    Options = _tg_input_0\n"),
 			"{text}"
 		);
 	}
