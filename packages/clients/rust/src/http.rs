@@ -20,6 +20,9 @@ use {
 	tower_http::ServiceBuilderExt as _,
 };
 
+#[cfg(test)]
+mod tests;
+
 type Affinities = Arc<Mutex<weak_table::WeakValueHashMap<Affinity, Weak<Guard>>>>;
 
 type Guard = tangram_pool::SharedGuard<Connection, Error>;
@@ -749,15 +752,22 @@ impl tg::Session {
 		B::Error: Into<tangram_http::Error> + Clone + Send,
 	{
 		self.apply_context_headers(&mut request);
+		let repeatable = is_repeatable(request.method());
 		tangram_futures::retry(&self.client().retry, || {
 			let request = request.clone().boxed_body();
 			async move {
-				// Continue only if the request cannot have been handled, because a request that timed out may have been handled.
+				// Continue if the request cannot have been handled, or if it failed before the response and repeating it is safe, because a request that timed out or whose stream was reset may have been handled.
 				let future = self.client().service.clone().call(request);
 				let response = match future.await {
 					Ok(response) => response,
 					Err(Error::Connection(error)) => return Ok(ControlFlow::Continue(error)),
-					Err(Error::Hyper(source)) if is_retryable_error(&source) => {
+					Err(Error::Timeout(error)) if repeatable => {
+						return Ok(ControlFlow::Continue(error));
+					},
+					Err(Error::Hyper(source))
+						if is_retryable_error(&source)
+							|| (repeatable && is_transport_error(&source)) =>
+					{
 						let error =
 							tg::error!(unavailable, source = source, "failed to send the request");
 						return Ok(ControlFlow::Continue(error));
@@ -844,6 +854,11 @@ async fn response_attempt(
 	}
 
 	ControlFlow::Break(response)
+}
+
+/// Whether a request with this method is safe to repeat after a failure before its response, because the method only reads.
+fn is_repeatable(method: &http::Method) -> bool {
+	matches!(*method, http::Method::GET | http::Method::HEAD)
 }
 
 fn is_transport_error(error: &hyper::Error) -> bool {

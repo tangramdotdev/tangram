@@ -12,10 +12,18 @@ const server = http2.createServer();
 server.on("stream", (stream, headers) => {
 	const path = headers[":path"];
 	if (path.startsWith("/processes/")) appendFileSync(log, `${path}\n`);
-	// Reset the first request to each of the given process endpoints before forwarding it, like a network failure.
-	const endpoint = path.startsWith("/processes/")
-		? path.split("?")[0].split("/").pop()
-		: null;
+	// Reset the first request to each of the given endpoints before forwarding it, like a network failure. A process endpoint is named by its last segment, a get of a process or a sandbox by its kind, and a sandbox endpoint by its last segment after "sandbox-".
+	const segments = path.split("?")[0].split("/").filter(Boolean);
+	const endpoint =
+		segments[0] === "processes"
+			? segments.length === 2
+				? "process"
+				: segments.at(-1)
+			: segments[0] === "sandboxes" && segments.length >= 2
+				? segments.length === 2
+					? "sandbox"
+					: `sandbox-${segments.at(-1)}`
+				: null;
 	if (resets.delete(endpoint)) {
 		appendFileSync(log, `reset ${endpoint}\n`);
 		stream.close();
