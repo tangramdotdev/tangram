@@ -504,7 +504,7 @@ impl Component {
 
 		// Get the process from its holder or the index. A finished process requires the index, because the holder does not have its log.
 		let deadline = session.server.control_read_deadline();
-		let arg = Self::get_process_holder_arg(session, id, source, deadline, exhaustive);
+		let arg = Self::get_process_holder_arg(session, source, deadline, exhaustive);
 		let arg = crate::holder::Arg {
 			wakeups: Some(&mut wakeups),
 			..arg
@@ -518,7 +518,7 @@ impl Component {
 				)
 		};
 		let output = self
-			.request_process_holder(session, arg, index_required)
+			.request_process_holder(session, id, arg, index_required)
 			.boxed()
 			.await?
 			.ok_or_else(|| tg::error!("the process status wakeup stream ended"))?;
@@ -551,13 +551,12 @@ impl Component {
 	}
 
 	/// Create the arg for a get request to the holder of a process, which the index answers when the holder does not.
-	pub(super) fn get_process_holder_arg<'a>(
+	pub(super) fn get_process_holder_arg(
 		session: &Session,
-		id: &'a tg::process::Id,
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 		exhaustive: bool,
-	) -> crate::holder::Arg<'a> {
+	) -> crate::holder::Arg<'static> {
 		let request = tg::process::control::ServerRequestArg::Get(
 			tg::process::control::GetServerRequestArg {},
 		);
@@ -568,7 +567,6 @@ impl Component {
 			deadline,
 			exhaustive,
 			fallback: true,
-			id,
 			options,
 			request,
 			source,

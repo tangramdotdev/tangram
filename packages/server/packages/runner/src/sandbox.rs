@@ -274,12 +274,45 @@ impl Component {
 		}
 	}
 
+	/// Whether a message is from a server and is for a boot that the server took over.
+	fn sandbox_is_yielded(session: &Session, id: &tg::sandbox::Id, message: &Message) -> bool {
+		matches!(message.sender, Reply::Remote { .. })
+			&& session
+				.server
+				.components
+				.runner
+				.state()
+				.sandboxes
+				.get_by_id(id)
+				.is_some_and(|sandbox| sandbox.yielded)
+	}
+
+	/// Create the reply of a boot that the runner does not hold.
+	#[must_use]
+	fn sandbox_not_holder_output() -> tg::sandbox::control::ClientResponseOutput {
+		tg::sandbox::control::ClientResponseOutput::NotHolder(
+			tg::sandbox::control::NotHolderClientResponseOutput {},
+		)
+	}
+
+	async fn send_sandbox_not_holder_response(message: Message) -> tg::Result<()> {
+		message
+			.sender
+			.send(Ok(Self::sandbox_not_holder_output()))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))
+	}
+
 	async fn handle_destroyed_sandbox_control_request(
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
 		message: Message,
 	) -> tg::Result<()> {
+		// Reply that the runner does not hold the boot to a request from a server if the server took the boot over, so that the boot does not answer for the next one.
+		if Self::sandbox_is_yielded(session, id, &message) {
+			return Self::send_sandbox_not_holder_response(message).await;
+		}
 		let result = match message.arg {
 			tg::sandbox::control::ServerRequestArg::Destroy(_) => {
 				Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
@@ -312,10 +345,15 @@ impl Component {
 				})
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
 			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => {
-				if Self::sandbox_status(session, id).is_some_and(|status| !status.is_destroyed()) {
-					Err(tg::error!(%id, "the sandbox is not started"))
-				} else {
+				// Reply to a server that the runner does not hold a boot that is stopping or stopped, so that the spawn reaches the sandbox's next boot.
+				let destroyed =
+					Self::sandbox_status(session, id).is_none_or(|status| status.is_destroyed());
+				if destroyed {
 					Err(tg::error!(%id, "the sandbox was destroyed"))
+				} else if matches!(message.sender, Reply::Remote { .. }) {
+					Ok(Self::sandbox_not_holder_output())
+				} else {
+					Err(tg::error!(%id, "the sandbox is not started"))
 				}
 			},
 			tg::sandbox::control::ServerRequestArg::Stop(_) => {
@@ -746,6 +784,8 @@ impl Component {
 			usage: None,
 
 			vfs: create_output.vfs.as_ref().map(|vfs| vfs.provider()),
+
+			yielded: false,
 		};
 		self.state.sandboxes.insert(index, entry);
 		let server = session.server.clone();
@@ -1576,6 +1616,12 @@ impl Component {
 						let Some(message) = message else {
 							break;
 						};
+
+						// Reply that the runner does not hold the boot to a request from a server if the server took the boot over, so that the boot does not answer for the next one.
+						if Self::sandbox_is_yielded(session, &id, &message) {
+							Self::send_sandbox_not_holder_response(message).boxed().await?;
+							continue;
+						}
 						let mut end = false;
 						let result = match message.arg {
 							tg::sandbox::control::ServerRequestArg::Destroy(request) => {
@@ -1974,7 +2020,7 @@ impl Component {
 				},
 				message = control.recv() => {
 					if let Some(message) = message? {
-						self.handle_destroyed_sandbox_control_request(session, &id, message).await?;
+						self.handle_destroyed_sandbox_control_request(session, &id, message).boxed().await?;
 					}
 				},
 			}
@@ -2027,7 +2073,7 @@ impl Component {
 				},
 				message = control.recv() => {
 					if let Some(message) = message? {
-						self.handle_destroyed_sandbox_control_request(session, &id, message).await?;
+						self.handle_destroyed_sandbox_control_request(session, &id, message).boxed().await?;
 					}
 				},
 			}
@@ -2045,7 +2091,7 @@ impl Component {
 					let message = message
 						.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
 					if let Some(message) = message {
-						self.handle_destroyed_sandbox_control_request(session, &id, message).await?;
+						self.handle_destroyed_sandbox_control_request(session, &id, message).boxed().await?;
 					}
 				},
 			}
@@ -2140,7 +2186,7 @@ impl Component {
 				},
 				message = control.recv() => {
 					if let Some(message) = message? {
-						self.handle_destroyed_sandbox_control_request(&session, id, message).await?;
+						self.handle_destroyed_sandbox_control_request(&session, id, message).boxed().await?;
 					}
 				},
 			}

@@ -278,14 +278,45 @@ impl Component {
 		let mut control = connection::Connection::new(stream, sender_high, sender_low, config);
 		let control_sender = control.sender();
 
-		// Serve the requests to the process's holder with the connection.
+		// Serve the requests to the process's holder by passing them to the connection.
+		let handle = {
+			let forwarded_requests = forwarded_requests.clone();
+			let sender = control_sender.clone();
+			move |message: tg::process::control::ServerMessage| {
+				let forwarded_requests = forwarded_requests.clone();
+				let sender = sender.clone();
+				async move {
+					let acknowledged_request = match &message {
+						tg::process::control::ServerMessage::Ack(ack) => Some(ack.id.clone()),
+						_ => None,
+					};
+					if let tg::process::control::ServerMessage::Request(request) = &message {
+						forwarded_requests.insert(request.id.clone());
+					}
+					let low = matches!(
+						&message,
+						tg::process::control::ServerMessage::Request(
+							tg::process::control::ServerRequest {
+								arg: tg::process::control::ServerRequestArg::Open(_),
+								..
+							}
+						)
+					);
+					if low {
+						sender.send_low(message).await?;
+					} else {
+						sender.send(message).await?;
+					}
+					if let Some(id) = acknowledged_request {
+						forwarded_requests.remove(&id);
+					}
+					Ok(())
+				}
+				.boxed()
+			}
+		};
 		let request_task = self
-			.serve_process_holder(
-				session,
-				&id,
-				control_sender.clone(),
-				forwarded_requests.clone(),
-			)
+			.serve_process_holder(&session.server, &id, handle)
 			.await?;
 
 		let response_task = Task::spawn({
@@ -300,7 +331,7 @@ impl Component {
 						tg::process::control::ClientMessage::Ack(ack) => {
 							if forwarded_requests.contains(&ack.id) {
 								component
-									.publish_process_holder_ack(&session, &id, ack)
+									.publish_process_holder_ack(&session.server, &id, ack)
 									.await?;
 							}
 						},
@@ -418,7 +449,7 @@ impl Component {
 									.transpose()?;
 							}
 							component
-								.publish_process_holder_response(&session, &id, response)
+								.publish_process_holder_response(&session.server, &id, response)
 								.boxed()
 								.await?;
 						},
@@ -980,6 +1011,16 @@ impl Component {
 			hold,
 			is_ack: |message: &ClientMessage| {
 				matches!(&message.0, tg::process::control::ClientMessage::Ack(_))
+			},
+			is_not_holder: |message: &ClientMessage| match &message.0 {
+				tg::process::control::ClientMessage::Response(
+					tg::process::control::ClientResponse {
+						id,
+						output: Some(tg::process::control::ClientResponseOutput::NotHolder(_)),
+						..
+					},
+				) => Some(id.clone()),
+				_ => None,
 			},
 			marker: std::marker::PhantomData,
 			options,

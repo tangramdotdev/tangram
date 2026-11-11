@@ -75,7 +75,7 @@ impl Component {
 
 		// Read the sandbox and authorize it without a search.
 		let node = if current {
-			self.try_get_sandbox_local_inner(session, id, arg.source)
+			self.try_get_sandbox_local_inner(session, id, arg.source, false)
 				.boxed()
 				.await?
 		} else {
@@ -230,7 +230,7 @@ impl Component {
 		let output = match node {
 			Some(node) => Some(node),
 			None => {
-				self.try_get_sandbox_local_inner(session, id, source)
+				self.try_get_sandbox_local_inner(session, id, source, exhaustive)
 					.boxed()
 					.await?
 			},
@@ -255,32 +255,47 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		source: tg::sandbox::Source,
+		exhaustive: bool,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		// Subscribe before reading to avoid missing a status change between the read and subscription.
 		let mut wakeups = self
 			.create_sandbox_status_wakeup_stream(session, id, None, None)
 			.await?;
-		let deadline = session.server.control_read_deadline();
-		let output = loop {
-			let arg = GetSandboxStateLocalArg {
-				control_future: self.get_sandbox_from_control(session, id),
-				deadline,
-				id,
-				index_required: |data: &tg::sandbox::get::Output| data.data.status.is_destroyed(),
-				processes: false,
-				source,
-			};
-			tokio::select! {
-				output = self.get_sandbox_state_local(session, arg).boxed() => break output?,
-				wakeup = wakeups.next() => {
-					if wakeup.is_none() {
-						return Err(tg::error!("the sandbox status wakeup stream ended"));
-					}
-				},
-			}
-		};
 
-		let output = match (output.control, output.indexed) {
+		// Get the sandbox from its holder or the index. A destroyed sandbox requires the index.
+		let request = tg::sandbox::control::ServerRequestArg::Get(
+			tg::sandbox::control::GetServerRequestArg {},
+		);
+		let retry = session.server.config.control.get_retry.clone().into();
+		let timeout = session.server.config.control.read_timeout;
+		let options = tangram_server_core::control::Options { retry, timeout };
+		let arg = crate::holder::Arg {
+			deadline: session.server.control_read_deadline(),
+			exhaustive,
+			fallback: true,
+			options,
+			request,
+			source,
+			wakeups: Some(&mut wakeups),
+		};
+		let index_required = |reply: &tg::sandbox::control::ClientResponseOutput| {
+			matches!(
+				reply,
+				tg::sandbox::control::ClientResponseOutput::Get(output)
+					if output.data.data.status.is_destroyed()
+			)
+		};
+		let output = self
+			.request_sandbox_holder(session, id, arg, index_required)
+			.boxed()
+			.await?
+			.ok_or_else(|| tg::error!("the sandbox status wakeup stream ended"))?;
+		let control = output
+			.reply
+			.and_then(Result::ok)
+			.and_then(|reply| Self::try_get_sandbox_from_holder_reply(session, reply));
+
+		let output = match (control, output.indexed) {
 			(None, None) => return Ok(None),
 			(None, Some(indexed)) => {
 				let Some(data) = indexed.data else {
@@ -296,6 +311,18 @@ impl Component {
 		};
 
 		Ok(Some(output))
+	}
+
+	/// Get the sandbox from its holder's reply to a get request.
+	fn try_get_sandbox_from_holder_reply(
+		session: &Session,
+		reply: tg::sandbox::control::ClientResponseOutput,
+	) -> Option<tg::sandbox::get::Output> {
+		let mut output = reply.try_unwrap_get().ok()?.data;
+		output.location = Some(tg::Location::Local(tg::location::Local {
+			region: session.server.config.region.clone(),
+		}));
+		Some(output)
 	}
 
 	pub(super) async fn get_sandbox_state_local<T, F, R>(

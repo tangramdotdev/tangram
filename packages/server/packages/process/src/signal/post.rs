@@ -210,14 +210,13 @@ impl Component {
 			deadline: session.server.control_read_deadline(),
 			exhaustive,
 			fallback: false,
-			id,
 			options,
 			request,
 			source: tg::process::Source::Auto,
 			wakeups: Some(&mut wakeups),
 		};
 		let output = self
-			.request_process_holder(session, arg, |_| false)
+			.request_process_holder(session, id, arg, |_| false)
 			.boxed()
 			.await?
 			.ok_or_else(|| tg::error!("the process status wakeup stream ended"))?;

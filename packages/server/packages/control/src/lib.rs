@@ -99,21 +99,30 @@ pub struct StreamOptions {
 
 pub struct SendControlRequestArg<I, O, Response, AckFn, IsAckFn, ResponseFn> {
 	pub ack: AckFn,
+
 	pub client_subject: String,
 
 	/// While this future is pending, no peer is expected, so the retries are not spent.
 	pub hold: Option<futures::future::BoxFuture<'static, ()>>,
 
 	pub is_ack: IsAckFn,
+
+	/// Get the ID of a response from a server that does not hold the request's item. The request is sent again after such a response unless a holder answers first.
+	pub is_not_holder: fn(&I) -> Option<String>,
+
 	pub marker: PhantomData<fn() -> (I, Response)>,
 	pub options: Options,
+
 	pub request: O,
+
 	pub response: ResponseFn,
+
 	pub server_subject: String,
 }
 
 pub enum ReceiveControlRequestOutput<Response> {
 	Ack,
+	NotHolder { id: String },
 	Response { id: String, response: Response },
 }
 

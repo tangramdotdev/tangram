@@ -150,6 +150,10 @@ pub enum ClientResponseOutput {
 	#[tangram_serialize(id = 2)]
 	GetProcesses(GetProcessesClientResponseOutput),
 
+	/// The responder does not hold the sandbox, so the request did nothing.
+	#[tangram_serialize(id = 5)]
+	NotHolder(NotHolderClientResponseOutput),
+
 	#[tangram_serialize(id = 3)]
 	SpawnProcess(SpawnProcessClientResponseOutput),
 
@@ -384,6 +388,16 @@ pub struct SpawnProcessServerRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub process: tg::runner::control::Process,
 }
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct NotHolderClientResponseOutput {}
 
 #[derive(
 	Clone,

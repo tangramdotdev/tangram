@@ -11,6 +11,7 @@ use {
 	tangram_server_service as service,
 };
 
+mod holder;
 mod notification;
 mod runner;
 
@@ -224,6 +225,25 @@ impl tangram_server_core::sandbox::Component for Component {
 		Self::publish_sandbox_process_spawned(server, id).boxed()
 	}
 
+	fn publish_sandbox_holder_ack<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::sandbox::Id,
+		ack: tg::sandbox::control::ClientAck,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.publish_sandbox_holder_ack(server, id, ack).boxed()
+	}
+
+	fn publish_sandbox_holder_response<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::sandbox::Id,
+		response: tg::sandbox::control::ClientResponse,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.publish_sandbox_holder_response(server, id, response)
+			.boxed()
+	}
+
 	fn request_sandbox_control_with_hold<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
@@ -234,6 +254,15 @@ impl tangram_server_core::sandbox::Component for Component {
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>>> {
 		self.request_sandbox_control_with_hold(session, id, arg, options, hold)
 			.boxed()
+	}
+
+	fn serve_sandbox_holder<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::sandbox::Id,
+		handle: tangram_server_core::sandbox::HolderHandle,
+	) -> BoxFuture<'a, tg::Result<tangram_futures::task::Task<tg::Result<()>>>> {
+		self.serve_sandbox_holder(server, id, handle).boxed()
 	}
 
 	fn spawn_publish_sandbox_status_task(&self, server: &Server, id: &tg::sandbox::Id) {

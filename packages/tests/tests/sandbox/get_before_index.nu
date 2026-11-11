@@ -1,9 +1,8 @@
 use ../../util/test.nu *
 
-# A read of a sandbox whose runner has not connected returns the record that the scheduler wrote.
+# A read of a sandbox whose runner has accepted it but has not connected returns the record that the scheduler wrote, once no holder answers.
 let local_owner = server spawn --name local-owner --config {
 	advanced: { checkpoints: true },
-	control: { read_timeout: 60 },
 	roles: [api indexer scheduler],
 }
 let created = tg --url $local_owner.url runner create | from json

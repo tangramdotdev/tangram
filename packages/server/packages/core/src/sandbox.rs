@@ -9,6 +9,11 @@ use {
 
 pub type ConnectionFuture = BoxFuture<'static, tg::Result<()>>;
 
+/// A function that a sandbox's holder handles each message to it with.
+pub type HolderHandle = Box<
+	dyn FnMut(tg::sandbox::control::ServerMessage) -> BoxFuture<'static, tg::Result<()>> + Send,
+>;
+
 /// The sandbox component.
 pub trait Component: crate::component::Lifecycle {
 	fn create_sandbox<'a>(
@@ -145,6 +150,20 @@ pub trait Component: crate::component::Lifecycle {
 		id: &'a tg::sandbox::Id,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
+	fn publish_sandbox_holder_ack<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::sandbox::Id,
+		ack: tg::sandbox::control::ClientAck,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
+	fn publish_sandbox_holder_response<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::sandbox::Id,
+		response: tg::sandbox::control::ClientResponse,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
 	fn request_sandbox_control_with_hold<'a>(
 		&'a self,
 		session: &'a Session,
@@ -153,6 +172,13 @@ pub trait Component: crate::component::Lifecycle {
 		options: crate::control::Options,
 		hold: Option<BoxFuture<'static, ()>>,
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>>>;
+
+	fn serve_sandbox_holder<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::sandbox::Id,
+		handle: HolderHandle,
+	) -> BoxFuture<'a, tg::Result<tangram_futures::task::Task<tg::Result<()>>>>;
 
 	fn spawn_publish_sandbox_status_task(&self, server: &Server, id: &tg::sandbox::Id);
 

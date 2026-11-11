@@ -65,9 +65,22 @@ struct Owned {
 struct Scheduler {
 	component: Component,
 	config: Config,
+	holder_sender: tokio::sync::mpsc::UnboundedSender<HolderMessage>,
 	id: tg::scheduler::Id,
 	sender: request::Sender,
 	server: Server,
+}
+
+/// A message about a sandbox whose holder this scheduler serves.
+enum HolderMessage {
+	/// The sandbox's control connection was established, so its runner serves its holder.
+	Connected { sandbox: tg::sandbox::Id },
+
+	/// A request to the sandbox's holder.
+	Request {
+		request: tg::sandbox::control::ServerRequest,
+		sandbox: tg::sandbox::Id,
+	},
 }
 
 struct SchedulerState {
@@ -145,10 +158,15 @@ enum Operation {
 	RetrySandbox {
 		sandbox: tg::sandbox::Id,
 	},
+	ServeSandboxHolder {
+		result: tg::Result<[Task<tg::Result<()>>; 2]>,
+		sandbox: tg::sandbox::Id,
+	},
 }
 
 enum Event {
 	CleanerTick,
+	HolderMessage(HolderMessage),
 	Notification(Notification),
 	Operation(Operation),
 	Request(request::Request),
@@ -530,9 +548,11 @@ impl Scheduler {
 			.boxed();
 
 		// Create the scheduler.
+		let (holder_sender, holder_receiver) = tokio::sync::mpsc::unbounded_channel();
 		let scheduler = Self {
 			component: component.clone(),
 			config,
+			holder_sender,
 			id,
 			sender: endpoint.sender(),
 			server: server.clone(),
@@ -559,7 +579,7 @@ impl Scheduler {
 		// Spawn the scheduling task.
 		let task = Task::spawn(move |_| async move {
 			scheduler
-				.message_handler_task(notifications, request_receiver)
+				.message_handler_task(notifications, request_receiver, holder_receiver)
 				.await
 		});
 
@@ -576,6 +596,7 @@ impl Scheduler {
 		&self,
 		mut notifications: NotificationStream,
 		mut requests: tokio::sync::mpsc::Receiver<request::Request>,
+		mut holder_messages: tokio::sync::mpsc::UnboundedReceiver<HolderMessage>,
 	) -> tg::Result<()> {
 		let mut state = SchedulerState::new();
 
@@ -590,12 +611,16 @@ impl Scheduler {
 					&mut state,
 					&mut notifications,
 					&mut requests,
+					&mut holder_messages,
 					&mut cleaner_interval,
 				)
 				.await?;
 			match event {
 				Event::CleanerTick => {
 					self.handle_cleaner_tick(&mut state);
+				},
+				Event::HolderMessage(message) => {
+					state.handle_sandbox_holder_message(self, message);
 				},
 				Event::Notification(notification) => {
 					self.handle_notification(&mut state, notification);
@@ -618,10 +643,12 @@ impl Scheduler {
 		state: &mut SchedulerState,
 		notifications: &mut NotificationStream,
 		requests: &mut tokio::sync::mpsc::Receiver<request::Request>,
+		holder_messages: &mut tokio::sync::mpsc::UnboundedReceiver<HolderMessage>,
 		cleaner_interval: &mut tangram_server_core::clock::Interval,
 	) -> tg::Result<Event> {
 		let event = tokio::select! {
 			_ = cleaner_interval.tick() => Event::CleanerTick,
+			Some(message) = holder_messages.recv() => Event::HolderMessage(message),
 			result = Self::receive_notification(notifications) => Event::Notification(result?),
 			request = requests.recv() => Event::Request(request.ok_or_else(|| tg::error!("the scheduler request task stopped"))?),
 			operation = state.operations.next(), if !state.operations.is_empty() => Event::Operation(operation.unwrap()),
@@ -784,6 +811,9 @@ impl Scheduler {
 					tracing::error!(error = %error.trace(), "{context}");
 				}
 			},
+			Operation::ServeSandboxHolder { result, sandbox } => {
+				state.handle_serve_sandbox_holder_completion(&sandbox, result);
+			},
 			Operation::Recovered { statuses } => {
 				state.handle_recovered(self, statuses);
 			},
@@ -811,6 +841,7 @@ impl Scheduler {
 
 	fn handle_cleaner_tick(&self, state: &mut SchedulerState) {
 		state.prune_placed_sandboxes(self);
+		state.prune_sandbox_holders();
 		let now = self.server.clock.instant();
 		let expired = state.runners.expired(now, self.config.runner_ttl);
 		for (runner, registration_index) in expired {
