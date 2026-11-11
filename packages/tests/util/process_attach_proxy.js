@@ -2,11 +2,18 @@ import { appendFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import http2 from "node:http2";
 
-const [socketPath, port, log, ready] = process.argv.slice(2);
+const [socketPath, port, log, ready, mode] = process.argv.slice(2);
+let resetWait = mode === "reset-first-wait";
 const server = http2.createServer();
 server.on("stream", (stream, headers) => {
 	const path = headers[":path"];
 	if (path.startsWith("/processes/")) appendFileSync(log, `${path}\n`);
+	// Reset the first process wait before forwarding it, like a network failure.
+	if (resetWait && path.startsWith("/processes/") && path.split("?")[0].endsWith("/wait")) {
+		resetWait = false;
+		stream.close();
+		return;
+	}
 	// Give each bidirectional stream its own HTTP/1 connection.
 	const request = http.request(
 		{

@@ -158,20 +158,23 @@ impl tg::Session {
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
-		let method = http::Method::POST;
+		// Send the request, retrying with backoff while it cannot reach a server or its stream fails before the response, which is safe because a wait may be repeated.
 		let path = format!("/processes/{process}/wait");
 		let uri = Uri::builder().path(&path).build().unwrap();
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-			.arg(&arg, tangram_http::body::Empty::new())
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.unwrap();
-		let response = self
-			.send_with_retry(request)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+		let options = self.arg().stream_retry;
+		let response = tangram_futures::retry(&options, || {
+			let request = http::request::Builder::default()
+				.method(http::Method::POST)
+				.uri(uri.clone())
+				.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
+				.arg(&arg, tangram_http::body::Empty::new())
+				.map_err(|error| tg::error!(!error, "failed to serialize the arg"));
+			async move { self.send_attempt(request?.unwrap()).await }
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+
+		// Read the response.
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
 		}
@@ -216,6 +219,7 @@ impl tg::Session {
 				data
 			})
 		});
+
 		Ok(Some(future.boxed()))
 	}
 }
