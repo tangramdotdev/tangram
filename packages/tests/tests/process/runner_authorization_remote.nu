@@ -117,7 +117,7 @@ timeout 30s tg --url $remote.url --token $remote_root wait $process | ignore
 
 for wait in $waits {
 	let response = job recv --tag $wait.job --timeout 10sec
-	let output = $response | into string | lines | where { $in starts-with 'data: ' } | last | str substring 6.. | from json
+	let output = $response | into string | lines | window 2 | where {|pair| $pair.0 == 'event: outcome' } | last | get 1 | str substring 6.. | from json
 	assert equal $output.exit 0
 	assert ($output.output.value | str contains 'tokens[') "waiting with an output object capability must mint an output capability"
 	tg --url $wait.target.server.url --token $wait.target.root checkpoint unwatch verification.index $wait.index_watch

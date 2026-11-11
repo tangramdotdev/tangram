@@ -8,6 +8,11 @@ const resets = new Set(
 		? mode.slice("reset-first:".length).split(",")
 		: [],
 );
+const bodyResets = new Set(
+	mode?.startsWith("reset-body-first:")
+		? mode.slice("reset-body-first:".length).split(",")
+		: [],
+);
 const server = http2.createServer();
 server.on("stream", (stream, headers) => {
 	const path = headers[":path"];
@@ -64,6 +69,16 @@ server.on("stream", (stream, headers) => {
 				console.error(`the upstream response for ${path} failed: ${error}`);
 				stream.close();
 			});
+			// Reset the first response of each of the given endpoints after its first byte, like a network failure after the response started.
+			if (bodyResets.delete(endpoint)) {
+				response.once("data", (chunk) => {
+					appendFileSync(log, `reset body ${endpoint}\n`);
+					stream.write(chunk.subarray(0, 1));
+					stream.close(http2.constants.NGHTTP2_INTERNAL_ERROR);
+					response.destroy();
+				});
+				return;
+			}
 			response.pipe(stream);
 		},
 	);

@@ -1,10 +1,10 @@
 use {
 	crate::prelude::*,
 	futures::{
-		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
+		FutureExt as _, StreamExt as _, TryStreamExt as _,
 		future::{self, BoxFuture},
+		stream::BoxStream,
 	},
-	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 };
@@ -38,6 +38,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug)]
 pub enum Event {
+	End,
 	Outcome(tg::process::outcome::Data),
 }
 
@@ -146,6 +147,57 @@ impl tg::Session {
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
+		// Send the request.
+		let Some(stream) = self.try_wait_process_stream(process, &arg).await? else {
+			return Ok(None);
+		};
+
+		// Read the events until the end event, and send the request again with backoff when the stream ends before it, which is how a stream reports a lost connection, and which is safe because a wait may be repeated.
+		let session = self.clone();
+		let process = process.clone();
+		let future = async move {
+			let mut stream = stream;
+			let mut retries = None;
+			loop {
+				let mut outcome = None;
+				let mut ended = false;
+				while let Some(event) = stream.try_next().await? {
+					match event {
+						Event::End => {
+							ended = true;
+							break;
+						},
+						Event::Outcome(data) => {
+							outcome = Some(data);
+						},
+					}
+				}
+				if ended {
+					return Ok(outcome);
+				}
+				let retries = retries.get_or_insert_with(|| {
+					tangram_futures::retry::stream(session.arg().stream_retry).boxed()
+				});
+				if retries.next().await.is_none() {
+					return Err(tg::error!(
+						"the process wait stream ended before its end event"
+					));
+				}
+				stream = session
+					.try_wait_process_stream(&process, &arg)
+					.await?
+					.ok_or_else(|| tg::error!("failed to find the process"))?;
+			}
+		};
+
+		Ok(Some(future.boxed()))
+	}
+
+	async fn try_wait_process_stream(
+		&self,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		arg: &tg::process::wait::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<Event>>>> {
 		// Send the request, retrying with backoff while it cannot reach a server or its stream fails before the response, which is safe because a wait may be repeated.
 		let path = format!("/processes/{process}/wait");
 		let uri = Uri::builder().path(&path).build().unwrap();
@@ -155,7 +207,7 @@ impl tg::Session {
 				.method(http::Method::POST)
 				.uri(uri.clone())
 				.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-				.arg(&arg, tangram_http::body::Empty::new())
+				.arg(arg, tangram_http::body::Empty::new())
 				.map_err(|error| tg::error!(!error, "failed to serialize the arg"));
 			async move { self.send_attempt(request?.unwrap()).await }
 		})
@@ -186,29 +238,11 @@ impl tg::Session {
 		) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let stream = response
-			.sse()
-			.map_err(|error| tg::error!(!error, "failed to read an event"))
-			.and_then(|event| {
-				future::ready(
-					if event.event.as_deref().is_some_and(|event| event == "error") {
-						match event.try_into() {
-							Ok(error) | Err(error) => Err(error),
-						}
-					} else {
-						event.try_into()
-					},
-				)
-			})
+		let stream = crate::http::sse_until_lost(response)
+			.and_then(|event| future::ready(event.try_into()))
 			.boxed();
-		let future = stream.boxed().try_last().map_ok(|option| {
-			option.map(|event| {
-				let Event::Outcome(data) = event;
-				data
-			})
-		});
 
-		Ok(Some(future.boxed()))
+		Ok(Some(stream))
 	}
 }
 
@@ -217,6 +251,10 @@ impl TryFrom<Event> for tangram_http::sse::Event {
 
 	fn try_from(value: Event) -> Result<Self, Self::Error> {
 		let event = match value {
+			Event::End => tangram_http::sse::Event {
+				event: Some("end".to_owned()),
+				..Default::default()
+			},
 			Event::Outcome(outcome) => {
 				let data = serde_json::to_string(&outcome)
 					.map_err(|error| tg::error!(!error, "failed to serialize the event"))?;
@@ -236,6 +274,7 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 
 	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
 		match value.event.as_deref() {
+			Some("end") => Ok(Self::End),
 			Some("outcome") => {
 				let data = serde_json::from_str(&value.data)
 					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;

@@ -76,7 +76,7 @@ tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.c
 assert equal (job recv --tag $status_job --timeout 10sec) 'data: "finished"'
 assert equal (job recv --tag $status_job --timeout 10sec) 'event: end'
 let output = job recv --tag $wait_job --timeout 10sec
-let output = $output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
+let output = $output | lines | window 2 | where {|pair| $pair.0 == 'event: outcome' } | last | get 1 | str substring 6.. | from json
 assert equal $output.exit 0
 assert ($output.output.value | str contains 'location=local') "the locally available output must stay local"
 let contents = tg --url $runner.url cat $output.output.value | str trim

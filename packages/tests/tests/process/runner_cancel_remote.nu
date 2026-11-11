@@ -64,5 +64,5 @@ assert equal $output.status 404 "finishing the process must preserve its remote 
 # Finished remote process data can still satisfy a local wait.
 let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket --headers { Accept: 'text/event-stream' } $'http://localhost/processes/($process)/wait?($query)' ''
 assert equal $output.status 200
-let output = $output.body | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
+let output = $output.body | lines | window 2 | where {|pair| $pair.0 == 'event: outcome' } | last | get 1 | str substring 6.. | from json
 assert equal $output.exit 1

@@ -89,7 +89,9 @@ async function waitProcessOnce(
 	}
 	let outcome: tg.Process.Outcome | null = null;
 	for await (let event of response.sse()) {
-		if (event.event === "outcome") {
+		if (event.event === "end") {
+			break;
+		} else if (event.event === "outcome") {
 			let data: tg.Process.Outcome.Data = JSON.parse(event.data);
 			outcome = tg.Process.Outcome.fromData(data);
 		} else if (event.event === "error") {

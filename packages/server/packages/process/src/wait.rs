@@ -142,12 +142,17 @@ impl Component {
 		let Some(future) = self.try_wait_process_future(session, process, arg).await? else {
 			return Ok(None);
 		};
-		let stream = stream::once(future).filter_map(|result| async move {
-			match result {
-				Ok(Some(outcome)) => Some(Ok(tg::process::wait::Event::Outcome(outcome))),
-				Ok(None) => None,
-				Err(error) => Some(Err(error)),
-			}
+		// Send the outcome, if there is one, and then the end event, so that the client can tell a completed wait from a lost connection.
+		let stream = stream::once(future).flat_map(|result| {
+			let events = match result {
+				Ok(Some(outcome)) => vec![
+					Ok(tg::process::wait::Event::Outcome(outcome)),
+					Ok(tg::process::wait::Event::End),
+				],
+				Ok(None) => vec![Ok(tg::process::wait::Event::End)],
+				Err(error) => vec![Err(error)],
+			};
+			stream::iter(events)
 		});
 		Ok(Some(stream))
 	}

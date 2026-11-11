@@ -42,7 +42,7 @@ let process_watch = tg --token $root_token checkpoint watch index.write --params
 tg --token $root_token checkpoint unwatch runner.process.finish $finish_watch
 tg --token $root_token checkpoint wait --timeout 10s index.write $object_watch 0 | ignore
 let output = job recv --tag $wait_job --timeout 10sec
-let output = $output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
+let output = $output | lines | window 2 | where {|pair| $pair.0 == 'event: outcome' } | last | get 1 | str substring 6.. | from json
 assert equal $output.exit 1 "the runner wait must return before permission preparation completes"
 tg --token $root_token checkpoint unwatch index.write $object_watch
 tg --token $root_token checkpoint wait --timeout 10s index.write $process_watch 0 | ignore
