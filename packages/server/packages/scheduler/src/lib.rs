@@ -153,6 +153,10 @@ enum Operation {
 	RetrySandbox {
 		sandbox: tg::sandbox::Id,
 	},
+	RetrySandboxOffer {
+		offer: String,
+		sandbox: tg::sandbox::Id,
+	},
 	ServeSandboxHolder {
 		result: tg::Result<Vec<Task<tg::Result<()>>>>,
 		sandbox: tg::sandbox::Id,
@@ -172,6 +176,7 @@ enum Event {
 #[derive(Clone)]
 struct Config {
 	create_sandbox_queue_capacity: usize,
+	create_sandbox_retry: tangram_futures::retry::Options,
 	create_sandbox_timeout: Duration,
 	default_capacity: tg::runner::Capacity,
 	max_create_sandbox_attempts: usize,
@@ -434,6 +439,7 @@ impl Scheduler {
 		let request_config = config.request.clone();
 		let config = Config {
 			create_sandbox_queue_capacity: config.create_sandbox_queue_capacity,
+			create_sandbox_retry: config.create_sandbox_retry.clone().into(),
 			create_sandbox_timeout: config.create_sandbox_timeout,
 			default_capacity: config.default_capacity(),
 			max_create_sandbox_attempts: config.max_create_sandbox_attempts,
@@ -723,6 +729,9 @@ impl Scheduler {
 			},
 			Operation::RetrySandbox { sandbox } => {
 				state.handle_retry_sandbox(&sandbox);
+			},
+			Operation::RetrySandboxOffer { offer, sandbox } => {
+				state.handle_retry_sandbox_offer(self, &sandbox, &offer);
 			},
 		}
 	}

@@ -925,10 +925,10 @@ impl Component {
 		runner: &tg::runner::Id,
 		scheduler: &tg::scheduler::Id,
 		registration_index: u64,
+		id: String,
 		arg: tg::runner::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 	) -> tg::Result<tg::Result<tg::runner::control::ClientResponseOutput>> {
-		let id = tangram_server_core::control::id();
 		let request =
 			tg::runner::control::ServerMessage::Request(tg::runner::control::ServerRequest {
 				arg,
