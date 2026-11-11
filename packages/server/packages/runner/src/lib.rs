@@ -995,7 +995,9 @@ impl Component {
 	pub(crate) async fn request_runner_sandbox_usage(
 		sender: &RunnerSender,
 		arg: tg::runner::control::ReportSandboxUsageClientRequestArg,
-	) -> tg::Result<ControlFlow<(), tg::Error>> {
+	) -> tg::Result<
+		ControlFlow<tg::runner::control::ReportSandboxUsageServerResponseOutput, tg::Error>,
+	> {
 		let request = tg::runner::control::ClientRequest {
 			arg: tg::runner::control::ClientRequestArg::ReportSandboxUsage(arg),
 			id: tangram_server_core::control::id(),
@@ -1026,13 +1028,13 @@ impl Component {
 				"the report sandbox usage request failed"
 			));
 		}
-		let Some(tg::runner::control::ServerResponseOutput::ReportSandboxUsage(_)) =
+		let Some(tg::runner::control::ServerResponseOutput::ReportSandboxUsage(output)) =
 			response.output
 		else {
 			return Err(tg::error!("expected a report sandbox usage response"));
 		};
 
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn run_get_runner_control_stream(
