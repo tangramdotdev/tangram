@@ -8,7 +8,7 @@ use {
 };
 
 /// Get the options for an index in the cloud databases' cluster, or `None` if the cloud databases are not available.
-fn options() -> Option<crate::Options> {
+pub(super) fn options() -> Option<crate::Options> {
 	let cluster = tangram_tests_util::database::cluster()?;
 	let options = options_with_cluster(cluster);
 	Some(options)

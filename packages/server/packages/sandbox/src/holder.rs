@@ -231,18 +231,16 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		async {}.boxed()
 	}
 
-	/// The index answers for a sandbox that is stopped or destroyed, or that lives in a remote, and for the processes that it has. The scheduler answers for a starting sandbox.
+	/// The index answers for a sandbox that is stopped or destroyed, that is being destroyed while it is stopped, or that lives in a remote, and for the processes that it has. The scheduler answers for a starting sandbox.
 	fn is_decisive(&self, indexed: Option<&Self::Indexed>, _fallback: bool) -> bool {
 		indexed.is_some_and(|sandbox| {
 			self.processes
-				|| sandbox
-					.data
-					.as_ref()
-					.is_some_and(|data| data.data.status.is_stopped_or_destroyed())
-				|| sandbox
-					.location
-					.as_ref()
-					.is_some_and(tg::Location::is_remote)
+				|| sandbox.data.as_ref().is_some_and(|data| {
+					data.data.status.is_stopped_or_destroyed() || is_destroying_stopped(&data.data)
+				}) || sandbox
+				.location
+				.as_ref()
+				.is_some_and(tg::Location::is_remote)
 		})
 	}
 
@@ -250,7 +248,9 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		indexed.is_some_and(|sandbox| {
 			self.processes
 				|| sandbox.data.as_ref().is_some_and(|data| {
-					data.data.status.is_starting() || data.data.status.is_stopped_or_destroyed()
+					data.data.status.is_starting()
+						|| data.data.status.is_stopped_or_destroyed()
+						|| is_destroying_stopped(&data.data)
 				})
 		})
 	}
@@ -258,4 +258,9 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool {
 		indexed.is_some_and(|sandbox| sandbox.data.is_some())
 	}
+}
+
+/// Whether a sandbox is being destroyed while it is stopped, in which case the index holds it and the runner that has its directory removes the directory.
+pub(crate) fn is_destroying_stopped(data: &tg::sandbox::Data) -> bool {
+	data.status.is_destroying() && data.stopped_at.is_some()
 }

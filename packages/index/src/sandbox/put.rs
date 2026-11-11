@@ -45,7 +45,7 @@ pub struct Arg {
 	#[tangram_serialize(id = 4)]
 	pub runner: Option<tg::runner::Id>,
 
-	/// The boot that the sandbox must be stopped at when this put is applied, which reserves the next boot for one start, because the put is rejected for every other start.
+	/// The boot that the sandbox must be stopped at when this put is applied, which makes the put a conditional change of a stopped sandbox, such as a start that reserves the next boot or a destroy, so that of several such changes only the first is applied.
 	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]
 	pub stopped_boot: Option<u64>,
 
