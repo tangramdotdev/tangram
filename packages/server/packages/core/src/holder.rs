@@ -20,8 +20,8 @@ pub struct Arg<'a, Request> {
 	/// The ID of the request, which every copy of the request carries, so that the holder acts on the request once however many copies reach it.
 	pub id: String,
 
-	/// Whether the index answers when the holder does not. A read sets this, so that the index answers for a holder that does not reply by the deadline. A write does not, so that only a terminal state or a missing item ends its wait.
-	pub fallback: bool,
+	/// Whether the request is a read or a write, which decides whether the index answers when the holder does not.
+	pub mode: Mode,
 
 	/// The retry and timeout of the request to the holder.
 	pub options: crate::control::Options,
@@ -38,6 +38,16 @@ pub struct Output<Indexed, Reply> {
 
 	/// The holder's reply, if the holder replied before the index answered.
 	pub reply: Option<tg::Result<Reply>>,
+}
+
+/// Whether a request to a holder is a read or a write.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Mode {
+	/// A read, which the index answers for a holder that does not reply by the deadline.
+	Read,
+
+	/// A write, which only the holder's reply, a terminal state, or a missing item ends.
+	Write,
 }
 
 /// The state of an item's record in the index, which decides whether the index answers a request and whether it has everything that a holder's reply does not.
@@ -102,8 +112,8 @@ pub async fn request<'c, I: Item>(
 		checkpoint: prefix,
 		deadline,
 		exhaustive,
-		fallback,
 		id,
+		mode,
 		options,
 		request,
 		mut wakeups,
@@ -137,7 +147,7 @@ pub async fn request<'c, I: Item>(
 			&indexed,
 			Some(indexed) if item.state(indexed.as_ref()) == State::Missing,
 		);
-		let wait_until_deadline = fallback || missing;
+		let wait_until_deadline = mode == Mode::Read || missing;
 
 		tokio::select! {
 			result = async { index_future.as_mut().unwrap().await }, if index_future.is_some() => {
@@ -148,7 +158,7 @@ pub async fn request<'c, I: Item>(
 				let state = item.state(result.as_ref());
 				let answers = match state {
 					State::Final | State::Remote => true,
-					State::Starting => fallback,
+					State::Starting => mode == Mode::Read,
 					State::Held | State::Missing | State::StartingHeld => false,
 				};
 				if answers || (!exhaustive && state == State::Missing) {
@@ -198,10 +208,9 @@ pub async fn request<'c, I: Item>(
 
 			() = tokio::time::sleep_until(deadline), if wait_until_deadline => {
 				// Answer a read from the index, and a write with the missing item.
-				let indexed = if fallback {
-					item.reindex(exhaustive).await?
-				} else {
-					indexed.flatten()
+				let indexed = match mode {
+					Mode::Read => item.reindex(exhaustive).await?,
+					Mode::Write => indexed.flatten(),
 				};
 				let output = Output {
 					indexed,
