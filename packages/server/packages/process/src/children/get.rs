@@ -459,6 +459,11 @@ impl Component {
 		length: u64,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Output> {
+		// Subscribe to the process's status, so that the request is sent again to a holder that starts the process during the read.
+		let mut wakeups = self
+			.create_process_status_wakeup_stream(session, id, None, None)
+			.await?;
+
 		// Get the children from the process's holder or the index, which answers for a process that has its children or that is starting.
 		let request = tg::process::control::ServerRequestArg::GetChildren(
 			tg::process::control::GetChildrenServerRequestArg { length, position },
@@ -474,7 +479,7 @@ impl Component {
 			mode: tangram_server_core::holder::Mode::Read,
 			options,
 			request,
-			wakeups: None,
+			wakeups: Some(&mut wakeups),
 		};
 		let output = self
 			.request_process_holder(session, id, arg, |_| false)
