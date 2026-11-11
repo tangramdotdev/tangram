@@ -84,6 +84,54 @@ async fn check_one_change_of_a_stopped_sandbox_wins(index: &Index, destroy_first
 	assert_eq!(status(index, &id).await, expected);
 }
 
+/// Check that a reservation of the next boot of a stopped sandbox writes the boot and the scheduler's request in one transaction, or writes nothing if the sandbox is no longer stopped at the boot.
+async fn check_a_reservation_writes_all_or_nothing(index: &Index) {
+	let id = tg::sandbox::Id::new();
+	let scheduler = tg::scheduler::Id::new();
+	put(index, put_arg(&id, 0, tg::sandbox::Status::Stopped, None))
+		.await
+		.unwrap();
+	let reservation = |boot| {
+		let sandbox = put_arg(&id, boot + 1, tg::sandbox::Status::Starting, Some(boot));
+		let request = tangram_index::scheduler::sandbox::put::Arg {
+			boot: boot + 1,
+			request: b"request".to_vec(),
+			sandbox: id.clone(),
+			scheduler: scheduler.clone(),
+		};
+		tangram_index::write::Arg {
+			items: vec![
+				tangram_index::Item::PutSandbox(Box::new(sandbox)),
+				tangram_index::Item::PutSchedulerSandbox(Box::new(request)),
+			],
+		}
+	};
+
+	// A reservation of a boot that the sandbox is not stopped at writes nothing.
+	assert!(index.write(reservation(1)).await.unwrap().is_err());
+	assert_eq!(status(index, &id).await, (0, tg::sandbox::Status::Stopped));
+	assert_eq!(index.try_get_sandbox_scheduler(&id).await.unwrap(), None);
+	assert!(
+		index
+			.get_scheduler_sandboxes(&scheduler)
+			.await
+			.unwrap()
+			.is_empty()
+	);
+
+	// A reservation of the boot that the sandbox is stopped at writes the next boot and the scheduler's request.
+	index.write(reservation(0)).await.unwrap().unwrap();
+	assert_eq!(status(index, &id).await, (1, tg::sandbox::Status::Starting));
+	assert_eq!(
+		index.try_get_sandbox_scheduler(&id).await.unwrap(),
+		Some(scheduler.clone())
+	);
+	let sandboxes = index.get_scheduler_sandboxes(&scheduler).await.unwrap();
+	assert_eq!(sandboxes.len(), 1);
+	assert_eq!(sandboxes[0].id, id);
+	assert_eq!(sandboxes[0].request, b"request".to_vec());
+}
+
 #[tokio::test]
 async fn a_destroy_of_a_stopped_sandbox_rejects_a_later_start() {
 	let Some(options) = super::process::options() else {
@@ -102,6 +150,17 @@ async fn a_start_of_a_stopped_sandbox_rejects_a_later_destroy() {
 	};
 	super::run(&options, async |index| {
 		check_one_change_of_a_stopped_sandbox_wins(index, false).await;
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn a_reservation_of_the_next_boot_writes_all_or_nothing() {
+	let Some(options) = super::process::options() else {
+		return;
+	};
+	super::run(&options, async |index| {
+		check_a_reservation_writes_all_or_nothing(index).await;
 	})
 	.await;
 }
