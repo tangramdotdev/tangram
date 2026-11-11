@@ -229,7 +229,9 @@ impl State {
 		messages: &mut mpsc::Receiver<Message>,
 		updates: &mut mpsc::UnboundedReceiver<Update>,
 	) -> tg::Result<()> {
-		let mut retry = tokio::time::interval(self.config.resend_interval);
+		// Resend unacknowledged messages one interval after they are sent, rather than at once.
+		let resend_interval = self.config.resend_interval;
+		let mut retry = tokio::time::interval_at(Instant::now() + resend_interval, resend_interval);
 		retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
 			if self.pending.is_empty() && self.untracked.is_empty() {
