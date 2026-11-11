@@ -586,6 +586,10 @@ pub enum StoppedSandboxRemoval {
 	/// The index records the sandbox as destroying, and the directory is all that is left of it.
 	#[tangram_serialize(id = 1)]
 	Destroying,
+
+	/// The index records the sandbox as held by another runner.
+	#[tangram_serialize(id = 2)]
+	OtherRunner,
 }
 
 #[derive(

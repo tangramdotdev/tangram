@@ -22,6 +22,9 @@ use {
 	tokio::task::JoinSet,
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
 pub(crate) struct ClientMessage(pub(crate) tg::runner::control::ClientMessage);
 
@@ -589,23 +592,7 @@ impl Component {
 				sandbox,
 				usage,
 			} = reported;
-			let status = indexed
-				.as_ref()
-				.and_then(|indexed| indexed.data.as_ref())
-				.map(|data| data.data.status);
-			let action = match status {
-				Some(tg::sandbox::Status::Destroyed) => {
-					tg::runner::control::StoppedSandboxAction::Remove(
-						tg::runner::control::StoppedSandboxRemoval::Destroyed,
-					)
-				},
-				Some(tg::sandbox::Status::Destroying) => {
-					tg::runner::control::StoppedSandboxAction::Remove(
-						tg::runner::control::StoppedSandboxRemoval::Destroying,
-					)
-				},
-				_ => tg::runner::control::StoppedSandboxAction::Keep,
-			};
+			let action = stopped_sandbox_action(indexed.as_ref(), runner);
 			let accepted = indexed.filter(|indexed| {
 				indexed.runner.as_ref() == Some(runner)
 					&& indexed.data.as_ref().is_some_and(|data| {
@@ -1037,5 +1024,34 @@ impl tangram_messenger::Payload for ServerMessage {
 	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
 		let message = serde_json::to_vec(self).map_err(tangram_messenger::Error::serialization)?;
 		Ok(message.into())
+	}
+}
+
+/// Decide what a runner does with the directory of a stopped sandbox that it reported. It removes the directory of a sandbox that the index records as destroyed or destroying or as held by another runner, and keeps every other, including a sandbox that the index does not have, because a lagging index may not have a sandbox that the runner holds yet.
+fn stopped_sandbox_action(
+	indexed: Option<&tangram_index::sandbox::Sandbox>,
+	runner: &tg::runner::Id,
+) -> tg::runner::control::StoppedSandboxAction {
+	let Some(indexed) = indexed else {
+		return tg::runner::control::StoppedSandboxAction::Keep;
+	};
+	let status = indexed.data.as_ref().map(|data| data.data.status);
+	match status {
+		Some(tg::sandbox::Status::Destroyed) => tg::runner::control::StoppedSandboxAction::Remove(
+			tg::runner::control::StoppedSandboxRemoval::Destroyed,
+		),
+		Some(tg::sandbox::Status::Destroying) => tg::runner::control::StoppedSandboxAction::Remove(
+			tg::runner::control::StoppedSandboxRemoval::Destroying,
+		),
+		_ if indexed
+			.runner
+			.as_ref()
+			.is_some_and(|indexed| indexed != runner) =>
+		{
+			tg::runner::control::StoppedSandboxAction::Remove(
+				tg::runner::control::StoppedSandboxRemoval::OtherRunner,
+			)
+		},
+		_ => tg::runner::control::StoppedSandboxAction::Keep,
 	}
 }

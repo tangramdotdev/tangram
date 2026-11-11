@@ -2691,7 +2691,7 @@ impl Component {
 			reports.push(report);
 		}
 
-		// Report the stopped sandboxes in batches, and remove the directory of each sandbox that the index records as destroying or destroyed, unless a boot of it is starting or running on this runner.
+		// Report the stopped sandboxes in batches, and remove the directory of each sandbox that the index records as destroying or destroyed or as held by another runner, unless a boot of it is starting or running on this runner.
 		let batch_size = session
 			.server
 			.config
@@ -2711,17 +2711,28 @@ impl Component {
 				},
 			};
 			for reply in output.sandboxes {
-				let tg::runner::control::StoppedSandboxAction::Remove(_) = reply.action else {
+				let tg::runner::control::StoppedSandboxAction::Remove(removal) = reply.action
+				else {
 					continue;
 				};
 				if self.sandbox_is_booted(&reply.sandbox) {
 					continue;
 				}
-				if let Err(error) = self
-					.remove_stopped_sandbox(session, &reply.sandbox, None, &sender)
-					.await
-				{
-					tracing::error!(error = %error.trace(), sandbox = %reply.sandbox, "failed to remove the destroyed sandbox");
+
+				// Remove the directory, and report the destruction of a sandbox that the index records as destroying or destroyed. A sandbox that the index records as another runner's has nothing of this runner's to report.
+				let result = match removal {
+					tg::runner::control::StoppedSandboxRemoval::Destroyed
+					| tg::runner::control::StoppedSandboxRemoval::Destroying => {
+						self.remove_stopped_sandbox(session, &reply.sandbox, None, &sender)
+							.await
+					},
+					tg::runner::control::StoppedSandboxRemoval::OtherRunner => {
+						self.remove_stopped_sandbox_directory(session, &reply.sandbox)
+							.await
+					},
+				};
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), sandbox = %reply.sandbox, "failed to remove the stopped sandbox's directory");
 					continue;
 				}
 				removed.insert(reply.sandbox);
