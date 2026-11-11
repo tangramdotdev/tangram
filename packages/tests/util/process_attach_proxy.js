@@ -3,14 +3,21 @@ import http from "node:http";
 import http2 from "node:http2";
 
 const [socketPath, port, log, ready, mode] = process.argv.slice(2);
-let resetWait = mode === "reset-first-wait";
+const resets = new Set(
+	mode?.startsWith("reset-first:")
+		? mode.slice("reset-first:".length).split(",")
+		: [],
+);
 const server = http2.createServer();
 server.on("stream", (stream, headers) => {
 	const path = headers[":path"];
 	if (path.startsWith("/processes/")) appendFileSync(log, `${path}\n`);
-	// Reset the first process wait before forwarding it, like a network failure.
-	if (resetWait && path.startsWith("/processes/") && path.split("?")[0].endsWith("/wait")) {
-		resetWait = false;
+	// Reset the first request to each of the given process endpoints before forwarding it, like a network failure.
+	const endpoint = path.startsWith("/processes/")
+		? path.split("?")[0].split("/").pop()
+		: null;
+	if (resets.delete(endpoint)) {
+		appendFileSync(log, `reset ${endpoint}\n`);
 		stream.close();
 		return;
 	}

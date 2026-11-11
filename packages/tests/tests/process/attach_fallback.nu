@@ -9,7 +9,7 @@ let log = mktemp
 let ready = mktemp -d | path join ready
 ^mkfifo $ready
 let socket = $remote.directory | path join socket
-let proxy = job spawn { node $proxy_path $socket $port $log $ready reset-first-wait }
+let proxy = job spawn { node $proxy_path $socket $port $log $ready reset-first:wait }
 success (timeout 30s cat $ready | complete) "the proxy should listen"
 let local = server spawn --name local --config { remotes: { default: { url: $'http://127.0.0.1:($port)' } } }
 let path = artifact {
