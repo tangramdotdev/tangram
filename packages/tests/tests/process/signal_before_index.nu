@@ -9,6 +9,7 @@ let remote = server spawn --name remote --config {
 	roles: [api indexer scheduler],
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
+let registration = checkpoint watch runner.registration.accept --params { runner: $created.data.id } --token $root_token --url $remote.url
 let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
@@ -29,6 +30,10 @@ let path = artifact {
 }
 
 let id = checkin push $remote $path --token $root_token
+
+# Let the scheduler finish recovery and accept the runner before holding the index writes that recovery awaits.
+checkpoint pass $registration | ignore
+checkpoint unwatch $registration
 
 # Hold the index writes of the child, so that the index does not have it.
 let write = checkpoint watch index.write --token $root_token --url $remote.url
