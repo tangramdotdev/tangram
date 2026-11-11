@@ -261,32 +261,32 @@ impl tangram_server_core::holder::Item for Item<'_> {
 		async {}.boxed()
 	}
 
-	/// The index answers for a sandbox that is stopped or destroyed, that is being destroyed while it is stopped, or that lives in a remote, and for the processes that it has. The scheduler answers for a starting sandbox.
-	fn is_decisive(&self, indexed: Option<&Self::Indexed>, _fallback: bool) -> bool {
-		indexed.is_some_and(|sandbox| {
-			self.processes
-				|| sandbox.data.as_ref().is_some_and(|data| {
-					data.data.status.is_stopped_or_destroyed() || is_destroying_stopped(&data.data)
-				}) || sandbox
-				.location
-				.as_ref()
-				.is_some_and(tg::Location::is_remote)
-		})
-	}
-
-	fn is_complete(&self, indexed: Option<&Self::Indexed>) -> bool {
-		indexed.is_some_and(|sandbox| {
-			self.processes
-				|| sandbox.data.as_ref().is_some_and(|data| {
-					data.data.status.is_starting()
-						|| data.data.status.is_stopped_or_destroyed()
-						|| is_destroying_stopped(&data.data)
-				})
-		})
-	}
-
-	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool {
-		indexed.is_some_and(|sandbox| sandbox.data.is_some())
+	/// A request for a sandbox's processes is answered by a record that has them, a sandbox that is stopped or destroyed or that is being destroyed while it is stopped is final, a sandbox in a remote is answered by the index and is complete when it is final or starting, and the scheduler answers for a starting sandbox.
+	fn state(&self, indexed: Option<&Self::Indexed>) -> tangram_server_core::holder::State {
+		let Some(sandbox) = indexed else {
+			return tangram_server_core::holder::State::Missing;
+		};
+		let remote = sandbox
+			.location
+			.as_ref()
+			.is_some_and(tg::Location::is_remote);
+		let data = sandbox.data.as_ref().map(|data| &data.data);
+		match data {
+			_ if self.processes => tangram_server_core::holder::State::Final,
+			Some(data)
+				if data.status.is_stopped_or_destroyed()
+					|| is_destroying_stopped(data)
+					|| (remote && data.status.is_starting()) =>
+			{
+				tangram_server_core::holder::State::Final
+			},
+			_ if remote => tangram_server_core::holder::State::Remote,
+			Some(data) if data.status.is_starting() => {
+				tangram_server_core::holder::State::StartingHeld
+			},
+			Some(_) => tangram_server_core::holder::State::Held,
+			None => tangram_server_core::holder::State::Missing,
+		}
 	}
 }
 

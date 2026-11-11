@@ -393,30 +393,25 @@ impl tangram_server_core::holder::Item for Item<'_> {
 		.boxed()
 	}
 
-	/// The index answers for a process that finished or that lives in a remote, and a read is also answered for a starting process.
-	fn is_decisive(&self, indexed: Option<&Self::Indexed>, fallback: bool) -> bool {
-		indexed.is_some_and(|(process, _)| {
-			self.children
-				|| process.status.is_some_and(|status| {
-					status.is_finished() || (fallback && status.is_starting())
-				}) || process
-				.location
-				.as_ref()
-				.is_some_and(tg::Location::is_remote)
-		})
-	}
-
-	fn is_complete(&self, indexed: Option<&Self::Indexed>) -> bool {
-		indexed.is_some_and(|(process, _)| {
-			self.children
-				|| process
-					.status
-					.is_some_and(|status| status.is_finished() || status.is_starting())
-		})
-	}
-
-	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool {
-		indexed.is_some_and(|(process, _)| self.children || process.status.is_some())
+	/// A request for a process's children is answered by a record that has them or by a starting process, a finished process is final, a process in a remote is answered by the index and is complete when it is finished or starting, and the index answers a read for a starting process.
+	fn state(&self, indexed: Option<&Self::Indexed>) -> tangram_server_core::holder::State {
+		let Some((process, _)) = indexed else {
+			return tangram_server_core::holder::State::Missing;
+		};
+		let remote = process
+			.location
+			.as_ref()
+			.is_some_and(tg::Location::is_remote);
+		match process.status {
+			_ if self.children => tangram_server_core::holder::State::Final,
+			Some(status) if status.is_finished() || (remote && status.is_starting()) => {
+				tangram_server_core::holder::State::Final
+			},
+			_ if remote => tangram_server_core::holder::State::Remote,
+			Some(status) if status.is_starting() => tangram_server_core::holder::State::Starting,
+			Some(_) => tangram_server_core::holder::State::Held,
+			None => tangram_server_core::holder::State::Missing,
+		}
 	}
 }
 

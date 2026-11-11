@@ -37,6 +37,28 @@ pub struct Output<Indexed, Reply> {
 	pub reply: Option<tg::Result<Reply>>,
 }
 
+/// The state of an item's record in the index, which decides whether the index answers a request and whether it has everything that a holder's reply does not.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum State {
+	/// The index answers every request and has everything that a holder's reply does not, such as for an item in a terminal state.
+	Final,
+
+	/// The item has a holder that answers every request, and the index does not have everything that the holder's reply does not.
+	Held,
+
+	/// The index does not have the item's status, so that only a holder can show that the item exists.
+	Missing,
+
+	/// The item lives in a remote, so that the index answers every request, although it does not have everything that a holder's reply does not.
+	Remote,
+
+	/// The item is starting, so that the index answers a read and has everything that a holder's reply does not, and a write waits for the holder.
+	Starting,
+
+	/// The item is starting at a holder that answers every request, and the index has everything that the holder's reply does not.
+	StartingHeld,
+}
+
 /// An item that has a holder, which is a process or a sandbox.
 pub trait Item: Sync {
 	type Indexed: Send;
@@ -63,14 +85,8 @@ pub trait Item: Sync {
 	/// Observe that a reply requires the index.
 	fn index_required(&self) -> BoxFuture<'_, ()>;
 
-	/// Whether the index's answer ends a request to the holder.
-	fn is_decisive(&self, indexed: Option<&Self::Indexed>, fallback: bool) -> bool;
-
-	/// Whether the index has everything that a holder's reply does not.
-	fn is_complete(&self, indexed: Option<&Self::Indexed>) -> bool;
-
-	/// Whether the index has the item's status, without which only a holder can show that the item exists.
-	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool;
+	/// The state of the item's record in the index.
+	fn state(&self, indexed: Option<&Self::Indexed>) -> State;
 }
 
 /// Send a request to the holder of an item while reading the item from the index, and return the holder's reply or the index's answer, whichever is decisive first. Return `None` if the wakeups end.
@@ -104,7 +120,7 @@ pub async fn request<I: Item>(
 		// A read waits for the holder until the deadline, and a write does so only if the index does not have the item, because only a holder can then show that the item exists.
 		let missing = matches!(
 			&indexed,
-			Some(indexed) if !item.has_status(indexed.as_ref()),
+			Some(indexed) if item.state(indexed.as_ref()) == State::Missing,
 		);
 		let wait_until_deadline = fallback || missing;
 
@@ -113,10 +129,14 @@ pub async fn request<I: Item>(
 				index_future = None;
 				let result = result?;
 
-				// Return the index's answer if it is decisive, or if the index does not have the item and the request is not exhaustive.
-				if item.is_decisive(result.as_ref(), fallback)
-					|| (!exhaustive && !item.has_status(result.as_ref()))
-				{
+				// Return the index's answer if it answers the request, or if the index does not have the item and the request is not exhaustive. The index answers every request for an item that is final or that lives in a remote, and a read for a starting item.
+				let state = item.state(result.as_ref());
+				let answers = match state {
+					State::Final | State::Remote => true,
+					State::Starting => fallback,
+					State::Held | State::Missing | State::StartingHeld => false,
+				};
+				if answers || (!exhaustive && state == State::Missing) {
 					let output = Output {
 						indexed: result,
 						reply: None,
@@ -136,7 +156,11 @@ pub async fn request<I: Item>(
 							Some(index_future) => index_future.await?,
 							None => indexed.flatten(),
 						};
-						if item.is_complete(indexed.as_ref()) {
+						let complete = match item.state(indexed.as_ref()) {
+							State::Final | State::Starting | State::StartingHeld => true,
+							State::Held | State::Missing | State::Remote => false,
+						};
+						if complete {
 							indexed
 						} else {
 							item.reindex(exhaustive).await?
