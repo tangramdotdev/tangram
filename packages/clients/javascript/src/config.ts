@@ -150,7 +150,7 @@ export namespace Retry {
 			backoff: 0.01,
 			jitter: 0.01,
 			maxDelay: 1,
-			maxRetries: Number.MAX_SAFE_INTEGER,
+			maxRetries: 16,
 		};
 	}
 	export function validate(options: Retry): void {

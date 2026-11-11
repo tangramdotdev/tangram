@@ -31,12 +31,12 @@ class ConfigTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             config["stream_retry"],
-            {"backoff": 0.01, "jitter": 0.01, "max_delay": 1, "max_retries": 2**53 - 1},
+            {"backoff": 0.01, "jitter": 0.01, "max_delay": 1, "max_retries": 16},
         )
         client = Client(config)
         self.assertEqual(client.http["request_timeout"], 60)
         self.assertEqual(client.process["attach"]["max_messages"], 128)
-        self.assertEqual(client.stream_retry["max_retries"], 2**53 - 1)
+        self.assertEqual(client.stream_retry["max_retries"], 16)
 
     def test_http_timeouts(self):
         for value in (0, -1, math.nan, math.inf, "1"):

@@ -102,7 +102,7 @@ def default_stream_retry_options() -> RetryOptions:
         "backoff": 0.01,
         "jitter": 0.01,
         "max_delay": 1,
-        "max_retries": 2**53 - 1,
+        "max_retries": 16,
     }
 
 

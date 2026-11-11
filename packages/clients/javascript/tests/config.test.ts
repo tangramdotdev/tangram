@@ -17,12 +17,12 @@ test("the default configuration is valid", () => {
 		backoff: 0.01,
 		jitter: 0.01,
 		maxDelay: 1,
-		maxRetries: Number.MAX_SAFE_INTEGER,
+		maxRetries: 16,
 	});
 	let client = new Client(config);
 	assert.equal(client.http.requestTimeout, 60);
 	assert.equal(client.process.attach.maxMessages, 128);
-	assert.equal(client.streamRetry.maxRetries, Number.MAX_SAFE_INTEGER);
+	assert.equal(client.streamRetry.maxRetries, 16);
 });
 
 test("HTTP timeouts must be positive and finite", () => {
