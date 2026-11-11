@@ -188,6 +188,14 @@ impl SchedulerState {
 		let runners = std::mem::take(&mut recovery.runners);
 		for (runner, registration_index) in runners {
 			tracing::warn!(%runner, "the runner did not report after the scheduler restarted");
+
+			// Leave the restarts that are queued for the runner to this scheduler, which holds them.
+			let queued = recovery
+				.requests
+				.iter()
+				.filter(|(_, request)| request.boot > 0 && request.runner.as_ref() == Some(&runner))
+				.map(|(id, _)| id.clone())
+				.collect::<Vec<_>>();
 			let request = RemoveRunnerRequestArg {
 				registration_index,
 				runner,
@@ -195,7 +203,7 @@ impl SchedulerState {
 			let scheduler = scheduler.clone();
 			self.operations.push(
 				async move {
-					let result = scheduler.remove_runner(request).boxed().await;
+					let result = scheduler.remove_runner(request, queued).boxed().await;
 					Operation::RemoveRunner { id: None, result }
 				}
 				.boxed(),
