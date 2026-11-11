@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Process connection falls back to an available location when the preferred one is unavailable.
+# Process connection falls back to an available location when the preferred one is unavailable, and a wait on the remote survives a reset of its stream.
 
 const proxy_path = path self ../../util/process_attach_proxy.js
 let remote = server spawn --name remote
@@ -9,7 +9,7 @@ let log = mktemp
 let ready = mktemp -d | path join ready
 ^mkfifo $ready
 let socket = $remote.directory | path join socket
-let proxy = job spawn { node $proxy_path $socket $port $log $ready }
+let proxy = job spawn { node $proxy_path $socket $port $log $ready reset-first:wait }
 success (timeout 30s cat $ready | complete) "the proxy should listen"
 let local = server spawn --name local --config { remotes: { default: { url: $'http://127.0.0.1:($port)' } } }
 let path = artifact {
