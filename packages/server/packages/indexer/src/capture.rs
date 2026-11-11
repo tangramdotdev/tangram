@@ -1,7 +1,7 @@
 use {
 	super::{Indexer, partition},
 	futures::{FutureExt as _, future},
-	std::collections::BTreeMap,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_index::permission::capture::{Entry, enqueue},
@@ -77,16 +77,11 @@ impl Indexer {
 			}
 			let mut failed = false;
 			for entry in entries {
-				let result = tokio::select! {
+				let flow = tokio::select! {
 					() = stopper.wait() => return Ok(()),
-					result = async {
-						self.permission_capture_entry(&entry).boxed().await?;
-						self.server.index.complete_permission_capture(&entry).await?;
-						Ok::<_, tg::Error>(())
-					} => result,
+					flow = self.permission_capture_attempt(&entry) => flow,
 				};
-
-				if let Err(error) = result {
+				if let ControlFlow::Continue(error) = flow {
 					tracing::error!(error = %error.trace(), "failed to capture permissions");
 					failed = true;
 				}
@@ -100,17 +95,42 @@ impl Indexer {
 		}
 	}
 
-	async fn permission_capture_entry(&self, entry: &Entry) -> tg::Result<()> {
+	/// Capture an entry's permissions once and complete it, and return `Continue` if reading or writing the index failed, so that the entry is captured again.
+	async fn permission_capture_attempt(&self, entry: &Entry) -> ControlFlow<(), tg::Error> {
+		// Capture the best permissions that the search finds, and end the capture with what it found if it fails for a reason that capturing again cannot fix.
+		match self.permission_capture_entry(entry).boxed().await {
+			Ok(ControlFlow::Break(())) => (),
+			Ok(ControlFlow::Continue(error)) => return ControlFlow::Continue(error),
+			Err(error) => {
+				tracing::error!(error = %error.trace(), "failed to capture permissions, so the capture ends with what it found");
+			},
+		}
+
+		// Complete the entry.
+		if let Err(error) = self.server.index.complete_permission_capture(entry).await {
+			return ControlFlow::Continue(error);
+		}
+
+		ControlFlow::Break(())
+	}
+
+	async fn permission_capture_entry(
+		&self,
+		entry: &Entry,
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
 		let arg = &entry.arg;
 		if let Some(version) = &arg.version {
 			let id = tg::tag::Id::try_from(arg.resource.clone())?;
-			let mut tags = self.server.index.try_get_tags(&[id]).await?;
+			let mut tags = match self.server.index.try_get_tags(&[id]).await {
+				Ok(tags) => tags,
+				Err(error) => return Ok(ControlFlow::Continue(error)),
+			};
 			if tags
 				.pop()
 				.unwrap()
 				.is_none_or(|tag| tag.version != *version)
 			{
-				return Ok(());
+				return Ok(ControlFlow::Break(()));
 			}
 		}
 		for root in &arg.roots {
@@ -132,6 +152,7 @@ impl Indexer {
 		for root in arg.roots.iter().rev().cloned() {
 			push_root(&mut pending, &mut stack, &visited, root);
 		}
+		// Capture the permissions of each root, and descend into its children unless its permissions cover its subtree or its search is exhausted, in which case the capture keeps what the search found.
 		let mut error = None;
 		while let Some(id) = stack.pop() {
 			let root = pending.remove(&id).unwrap();
@@ -144,14 +165,14 @@ impl Indexer {
 					continue;
 				},
 			};
-			self.capture_permissions(arg, &root.node, output.permissions)
-				.await?;
+			if let ControlFlow::Continue(source) = self
+				.capture_permissions(arg, &root.node, output.permissions)
+				.await?
+			{
+				error.get_or_insert(source);
+				continue;
+			}
 			if output.outcome == tangram_server_core::authorization::Outcome::Exhausted {
-				error.get_or_insert_with(|| {
-					tangram_index::verify::search_exhausted_error(
-						"the permission capture search exhausted",
-					)
-				});
 				continue;
 			}
 			if covers_subtree(&root.node, output.permissions) || output.permissions.is_empty() {
@@ -174,11 +195,12 @@ impl Indexer {
 				push_root(&mut pending, &mut stack, &visited, child);
 			}
 		}
+		// Capture the entry again if reading or writing the index failed.
 		if let Some(error) = error {
-			return Err(error);
+			return Ok(ControlFlow::Continue(error));
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn capture_permissions(
@@ -186,7 +208,7 @@ impl Indexer {
 		arg: &enqueue::Arg,
 		resource: &tg::Id,
 		permissions: tg::authorization::permission::Set,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
 		self.permission_capture_checkpoint_with_resource(
 			"permission_capture.advance",
 			arg,
@@ -220,7 +242,9 @@ impl Indexer {
 				time_to_touch: None,
 				version: arg.version.clone(),
 			};
-			self.server.index.put_permissions(&[permission]).await?;
+			if let Err(error) = self.server.index.put_permissions(&[permission]).await {
+				return Ok(ControlFlow::Continue(error));
+			}
 			self.permission_capture_checkpoint_with_resource(
 				"permission_capture.written",
 				arg,
@@ -234,7 +258,8 @@ impl Indexer {
 			resource,
 		)
 		.await;
-		Ok(())
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn try_get_permission_capture_children(
