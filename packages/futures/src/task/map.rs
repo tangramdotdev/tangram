@@ -217,6 +217,11 @@ where
 	}
 
 	#[must_use]
+	pub fn keys(&self) -> Vec<K> {
+		self.0.iter().map(|entry| entry.key().clone()).collect()
+	}
+
+	#[must_use]
 	pub fn len(&self) -> usize {
 		self.0.len()
 	}
