@@ -81,11 +81,9 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: &tg::sandbox::wait::Arg,
 	) -> tg::Result<Option<WaitFuture>> {
-		let Some(mut runner) = session
-			.server
-			.components
-			.runner
-			.try_get_sandbox_runner(id, arg.location.as_ref())
+		let Some(mut runner) = self
+			.try_get_sandbox_boot_runner(session, id, arg.location.as_ref())
+			.await?
 		else {
 			return Ok(None);
 		};

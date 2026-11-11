@@ -84,11 +84,9 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: &tg::sandbox::start::Arg,
 	) -> tg::Result<Option<bool>> {
-		let Some(runner) = session
-			.server
-			.components
-			.runner
-			.try_get_sandbox_runner(id, arg.location.as_ref())
+		let Some(runner) = self
+			.try_get_sandbox_boot_runner(session, id, arg.location.as_ref())
+			.await?
 		else {
 			return Ok(None);
 		};

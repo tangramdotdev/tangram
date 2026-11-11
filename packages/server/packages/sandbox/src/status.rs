@@ -171,11 +171,9 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: &tg::sandbox::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
-		let Some(runner) = session
-			.server
-			.components
-			.runner
-			.try_get_sandbox_runner(id, arg.location.as_ref())
+		let Some(runner) = self
+			.try_get_sandbox_boot_runner(session, id, arg.location.as_ref())
+			.await?
 		else {
 			return Ok(None);
 		};
