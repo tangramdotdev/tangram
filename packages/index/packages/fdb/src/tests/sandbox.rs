@@ -290,3 +290,55 @@ async fn a_maybe_committed_write_of_a_stopped_sandbox_is_its_own() {
 	})
 	.await;
 }
+
+#[tokio::test]
+async fn concurrent_writes_of_one_sandbox_and_a_write_across_sandboxes_are_applied() {
+	let Some(options) = super::process::options() else {
+		return;
+	};
+	super::run(&options, async |index| {
+		// Write boots of one sandbox concurrently with writes of other sandboxes, so that the writes share lanes and transactions.
+		let id = tg::sandbox::Id::new();
+		let others = (0..8).map(|_| tg::sandbox::Id::new()).collect::<Vec<_>>();
+		let boots = (0..16).map(|boot| {
+			put(
+				index,
+				put_arg(&id, boot, tg::sandbox::Status::Started, None),
+			)
+		});
+		let others_puts = others
+			.iter()
+			.map(|other| put(index, put_arg(other, 0, tg::sandbox::Status::Started, None)));
+		let (boots, others_puts) = futures::future::join(
+			futures::future::join_all(boots),
+			futures::future::join_all(others_puts),
+		)
+		.await;
+		assert!(boots.iter().chain(&others_puts).all(Result::is_ok));
+		assert_eq!(status(index, &id).await, (15, tg::sandbox::Status::Started));
+
+		// A write of two sandboxes, which the writer may split across lanes, answers once and applies both.
+		let a = tg::sandbox::Id::new();
+		let b = tg::sandbox::Id::new();
+		let arg = tangram_index::write::Arg {
+			items: vec![
+				tangram_index::Item::PutSandbox(Box::new(put_arg(
+					&a,
+					0,
+					tg::sandbox::Status::Stopped,
+					None,
+				))),
+				tangram_index::Item::PutSandbox(Box::new(put_arg(
+					&b,
+					0,
+					tg::sandbox::Status::Stopped,
+					None,
+				))),
+			],
+		};
+		index.write(arg).await.unwrap().unwrap();
+		assert_eq!(status(index, &a).await, (0, tg::sandbox::Status::Stopped));
+		assert_eq!(status(index, &b).await, (0, tg::sandbox::Status::Stopped));
+	})
+	.await;
+}

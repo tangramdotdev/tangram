@@ -90,6 +90,28 @@ pub enum Item {
 	PutUser(Box<crate::user::put::Arg>),
 }
 
+/// What an item changes in common with other items, so that items with the same affinity run in sequence in one transaction rather than conflict in concurrent ones.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Affinity {
+	Sandbox(tg::sandbox::Id),
+}
+
+impl Item {
+	/// Get the affinity of this item, which is the sandbox that a sandbox put changes, or the sandbox of the process that a process put changes if the put knows it.
+	#[must_use]
+	pub fn affinity(&self) -> Option<Affinity> {
+		match self {
+			Self::PutProcess(arg) => arg
+				.sandbox
+				.clone()
+				.or_else(|| arg.data.as_ref().and_then(|data| data.sandbox.clone()))
+				.map(Affinity::Sandbox),
+			Self::PutSandbox(arg) => Some(Affinity::Sandbox(arg.id.clone())),
+			_ => None,
+		}
+	}
+}
+
 impl Item {
 	/// Get the process that grants authority and the other process that receives it, for a delegation or a permission capture from one process to another.
 	#[must_use]
@@ -111,5 +133,19 @@ impl Item {
 			Self::PutSandbox(arg) => arg.process.as_deref(),
 			_ => None,
 		}
+	}
+}
+
+impl Affinity {
+	/// Hash the affinity with 64-bit FNV-1a over its sandbox ID's string, which is the same on every server and in every process and version.
+	#[must_use]
+	pub fn stable_hash(&self) -> u64 {
+		let Self::Sandbox(id) = self;
+		let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+		for byte in id.to_string().bytes() {
+			hash ^= u64::from(byte);
+			hash = hash.wrapping_mul(0x0100_0000_01b3);
+		}
+		hash
 	}
 }
