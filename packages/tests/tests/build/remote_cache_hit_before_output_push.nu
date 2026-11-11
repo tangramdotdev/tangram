@@ -52,8 +52,11 @@ let process = tg --url $local_first.url build --no-tokens --detach --remote --us
 let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $push_watch 0 | complete
 success $output "the first build should reach its outcome sync"
 
+# Index the first process, so that the second build finds it, and require a cached process, so that a new process cannot win over the cache hit.
+tg --url $remote.url --token $root_token index
+
 # The second build must be a cache hit for the first process while its outcome sync is held.
-let cached = tg --url $local_second.url build --no-tokens --detach --remote --user $alice.user.id $path | referent node
+let cached = tg --url $local_second.url build --cached --no-tokens --detach --remote --user $alice.user.id $path | referent node
 assert equal $cached $process "the second build should reuse the first process while its outcome sync is held"
 
 # The cached process's wait completes and names the output file.
