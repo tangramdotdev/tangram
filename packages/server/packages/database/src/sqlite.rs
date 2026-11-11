@@ -59,7 +59,7 @@ fn create_schema_with_transaction(
 	crate::retry!(result, "failed to execute the statements");
 	let id = tg::remote::Id::new();
 	let sql = format!(
-		"insert into remotes (id, name, trusted, url) values ('{id}', 'default', 1, 'https://cloud.tangram.dev');"
+		"insert into remotes (id, name, trusted, url) values ('{id}', 'default', 1, 'https://tangram.cloud');"
 	);
 	let result = transaction
 		.execute_batch(&sql)
