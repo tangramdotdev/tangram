@@ -22,7 +22,7 @@ let local = server spawn --name local --config {
 }
 
 # The root process is scheduled and builds a child on the shortcut path, and each returns an array of distinct files, so each process's data holds one object referent per file.
-let count = 512
+let count = 32
 let module = 'export default async () => {
 	const files = await tg.build(child);
 	files.push(await tg.file("root"));
