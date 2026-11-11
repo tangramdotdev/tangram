@@ -122,14 +122,17 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 		tg::interface::Type::Boolean => "bool".to_owned(),
 		tg::interface::Type::Bytes => "bytes".to_owned(),
 		tg::interface::Type::Command { args, output } => {
+			// Print the args of a command that takes any values as a tuple of any type, so that a command with typed args is assignable to it, because a tuple of values would accept only a command that takes any values.
 			let args = match args.as_ref() {
-				tg::interface::Type::Array { item } => {
+				tg::interface::Type::Array { item }
+					if !matches!(item.as_ref(), tg::interface::Type::Value) =>
+				{
 					format!("tuple[{}, ...]", self::type_(item, names))
 				},
 				tg::interface::Type::Tuple { elements, rest } => {
 					args_tuple(elements, rest.as_deref(), names)
 				},
-				_ => format!("tuple[{client}.Value.Type, ...]"),
+				_ => format!("tuple[{typing}.Any, ...]"),
 			};
 			let output = self::type_(output, names);
 			format!("{client}.Command[{args}, {output}]")

@@ -770,7 +770,7 @@ mod tests {
 		assert!(ruff_python_parser::parse_module(&text).is_ok());
 		assert!(
 			text.contains(
-				"hello = _tg_typing.cast(\"tg.Command[tuple[tg.Value.Type, ...], tg.Value.Type]\", tg.command(_tg_function_0))\n\"Say hello.\"\n"
+				"hello = _tg_typing.cast(\"tg.Command[tuple[_tg_typing.Any, ...], tg.Value.Type]\", tg.command(_tg_function_0))\n\"Say hello.\"\n"
 			),
 			"{text}"
 		);
@@ -820,7 +820,7 @@ mod tests {
 			text.contains("_tg_function_2.__tangram_export__ = \"lambda\"\n"),
 			"{text}"
 		);
-		assert!(text.contains("\nlambda___ = _tg_typing.cast(\"tg.Command[tuple[tg.Value.Type, ...], tg.Value.Type]\", tg.command(_tg_function_2))"), "{text}");
+		assert!(text.contains("\nlambda___ = _tg_typing.cast(\"tg.Command[tuple[_tg_typing.Any, ...], tg.Value.Type]\", tg.command(_tg_function_2))"), "{text}");
 		assert!(text.contains("__all__ = [\"lambda_\",\"lambda__\",\"lambda___\"]\n"));
 	}
 
