@@ -1388,10 +1388,10 @@ impl Component {
 		tangram_server_core::checkpoint!(session.server, "runner.process.control.finish.sent", process = %id).await;
 		tracing::debug!(process = %id, "sent the process finish request");
 
-		// Push the outcome objects concurrently with the finish request, and retain control until the pushes complete.
+		// Push the outcome objects concurrently with the finish request, and retain control until the pushes complete. Track the push, so that a graceful stop waits for it.
 		let component = self.clone();
 		let session = session.clone();
-		let mut outcome_task = Task::spawn(move |_| {
+		let mut outcome_task = self.push_tasks.spawn(id.clone(), move |_| {
 			async move {
 				if let Some(task) = command_push {
 					let result = task

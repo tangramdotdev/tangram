@@ -1173,6 +1173,9 @@ pub struct Runner {
 
 	pub progress_update_interval: Duration,
 
+	/// The time that a graceful stop of the runner waits for the pushes of finished processes' objects before it abandons them.
+	pub push_drain_timeout: Duration,
+
 	pub remote: Option<String>,
 
 	pub resources: RunnerResources,
@@ -3026,6 +3029,7 @@ impl Default for Runner {
 			progress_log_delay: Duration::from_secs(2),
 			progress_log_interval: Duration::from_secs(1),
 			progress_update_interval: Duration::from_millis(100),
+			push_drain_timeout: Duration::from_secs(30),
 			remote: None,
 			resources: RunnerResources::default(),
 			restart_delay: Duration::from_secs(1),

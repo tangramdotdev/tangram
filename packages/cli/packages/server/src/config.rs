@@ -1995,6 +1995,9 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.progress_update_interval {
 		target.progress_update_interval = value;
 	}
+	if let Some(value) = source.push_drain_timeout {
+		target.push_drain_timeout = value;
+	}
 	if let Some(value) = source.restart_delay {
 		target.restart_delay = value;
 	}

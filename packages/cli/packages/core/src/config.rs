@@ -1904,6 +1904,11 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub progress_update_interval: Option<Duration>,
 
+	/// The time that a graceful stop of the runner waits for the pushes of finished processes' objects before it abandons them.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub push_drain_timeout: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 

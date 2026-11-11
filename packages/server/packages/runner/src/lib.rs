@@ -50,6 +50,9 @@ pub struct State {
 	#[cfg(target_os = "linux")]
 	pub ip_pool: tangram_sandbox::network::ip::Pool,
 
+	/// The tasks that push the objects of finished processes to their locations, which a graceful stop waits for.
+	pub push_tasks: tangram_futures::task::Map<tg::process::Id, ()>,
+
 	pub sandbox_assets: crate::assets::Assets,
 
 	pub sandbox_pool: crate::sandbox::pool::Pool,
@@ -79,7 +82,8 @@ impl Component {
 				.map(|range| (range.min.to_bits(), range.max.to_bits())),
 		);
 
-		// Create the sandbox tasks.
+		// Create the push and sandbox tasks.
+		let push_tasks = tangram_futures::task::Map::default();
 		let sandbox_tasks = tangram_futures::task::Map::default();
 
 		// Prepare the runner's reusable sandbox assets.
@@ -103,6 +107,8 @@ impl Component {
 
 			#[cfg(target_os = "linux")]
 			ip_pool,
+
+			push_tasks,
 
 			sandbox_assets,
 
@@ -1444,7 +1450,7 @@ impl tangram_server_core::component::Lifecycle for Component {
 		.boxed()
 	}
 
-	fn stop<'a>(&'a self, _server: &'a Server) -> BoxFuture<'a, ()> {
+	fn stop<'a>(&'a self, server: &'a Server) -> BoxFuture<'a, ()> {
 		async move {
 			// Stop the runner task.
 			let task = self.task.lock().unwrap().take();
@@ -1458,6 +1464,19 @@ impl tangram_server_core::component::Lifecycle for Component {
 				}
 				tracing::trace!("runner task");
 			}
+
+			// Wait for the pushes of finished processes' objects while the components that they use still run, and abandon the pushes that the push drain timeout outlasts.
+			let timeout = server.config.runner.push_drain_timeout;
+			if tokio::time::timeout(timeout, self.push_tasks.wait())
+				.await
+				.is_err()
+			{
+				for process in self.push_tasks.keys() {
+					tracing::warn!(%process, "abandoned the push of a finished process's objects");
+				}
+				self.push_tasks.abort_all();
+			}
+			tracing::trace!("push tasks");
 
 			// Abort the sandbox tasks.
 			self.sandbox_tasks.abort_all();
