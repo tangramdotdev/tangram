@@ -36,6 +36,8 @@ To run all tests, run `tg run .#test`. The most important tests are the e2e test
 
 The FoundationDB index tests and the cloud instance tests in `packages/cli/tests` and `packages/server/tests` use the cloud databases too, and skip themselves when they are not running.
 
+To run the Rust tests of one crate, build the workspace with all features and filter by package, such as `cargo nextest run --workspace --all-features -E 'package(tangram_server_process)'`. Never use `cargo nextest run --package` or `cargo test --package`, because a crate whose backends are behind features does not compile on its own.
+
 ## macOS
 
 The macOS app uses XcodeGen. Commit changes to `packages/macos/project.yml`, and do not commit the generated Xcode project or build directory.
