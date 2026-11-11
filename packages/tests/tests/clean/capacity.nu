@@ -14,6 +14,7 @@ let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 		}
 	}
 	object: { ttl: 86400 }
+	scheduler: { runner_ttl: 300 }
 }
 
 # Watch every object deletion before the put, because capacity cleaning may collect the object as soon as it is indexed.
