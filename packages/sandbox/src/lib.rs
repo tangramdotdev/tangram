@@ -1134,11 +1134,12 @@ impl Sandbox {
 				return Err(error);
 			};
 			let status = status?;
-			return Err(tg::error!(
+			let error = tg::error!(
 				!error,
 				status = ?status,
 				"failed to spawn a process in the sandbox"
-			));
+			);
+			return Err(self.termination_error(error).await);
 		}
 		Ok(())
 	}
