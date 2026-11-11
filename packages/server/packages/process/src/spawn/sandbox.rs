@@ -1,7 +1,7 @@
 use {
 	super::local::Output,
 	crate::Component,
-	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
@@ -268,58 +268,66 @@ impl Component {
 			.runner
 			.try_get_sandbox_control_runner(&sandbox, location)
 		{
-			control_sender.request(request).await
+			control_sender.request(request).await.map_err(
+				|error| tg::error!(!error, %sandbox, process = %id, "the spawn process request failed"),
+			)?
 		} else {
-			// Send the request right away, and let the sandbox's status decide what happens if nobody answers.
-			let check = Self::create_check_sandbox_started_future(session, &sandbox);
-			let hold = check.clone().map(|_| ()).boxed();
-			let request_future = session
+			// Subscribe before sending the request, so that a stop or destroy between the request and the wait cannot be missed.
+			let mut wakeups = session
 				.server
 				.components
 				.sandbox
-				.request_sandbox_control_with_hold(session, &sandbox, request, options, Some(hold));
-			let check_future = async move {
-				match check.await {
-					Ok(()) => future::pending().await,
-					Err(error) => error,
-				}
+				.create_sandbox_status_wakeup_stream(
+					session,
+					&sandbox,
+					session.context.stopper.clone(),
+					None,
+				)
+				.await?;
+
+			// Send the request to the sandbox's holder, which holds it while the sandbox is starting.
+			let arg = tangram_server_core::holder::Arg {
+				deadline: session.server.control_read_deadline(),
+				exhaustive: true,
+				fallback: false,
+				options,
+				request,
+				source: tg::sandbox::Source::Auto,
+				wakeups: Some(&mut wakeups),
 			};
-			let result = match future::select(request_future, pin!(check_future)).await {
-				future::Either::Left((result, _)) => result,
-				future::Either::Right((error, _)) => return Err(error),
-			};
-			match result {
-				Ok(response) => response,
-				Err(error) => {
-					// Report a sandbox that is not running rather than the failure to reach it.
-					let status = session
-						.server
-						.components
-						.sandbox
-						.try_get_sandbox_from_index(session, &sandbox)
-						.await
-						.ok()
-						.flatten()
-						.and_then(|sandbox| sandbox.data)
-						.map(|data| data.data.status);
-					return Err(match status {
-						Some(tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying) => {
-							tg::error!(!error, %sandbox, "the sandbox was destroyed")
-						},
-						Some(tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping) => {
-							tg::error!(!error, %sandbox, "the sandbox is not started")
-						},
-						Some(tg::sandbox::Status::Started | tg::sandbox::Status::Starting)
-						| None => {
-							tg::error!(!error, %sandbox, process = %id, "failed to send the spawn process request")
-						},
-					});
+			let output = session
+				.server
+				.components
+				.sandbox
+				.request_sandbox_holder(session, &sandbox, arg)
+				.await?
+				.ok_or_else(|| tg::error!("the sandbox status wakeup stream ended"))?;
+
+			// A sandbox that is stopped or destroyed has no holder to spawn the process.
+			let status = output
+				.indexed
+				.and_then(|sandbox| sandbox.data)
+				.map(|data| data.data.status);
+			match (output.reply, status) {
+				(Some(Ok(response)), _) => response,
+				(_, Some(tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying)) => {
+					return Err(tg::error!(%sandbox, "the sandbox was destroyed"));
+				},
+				(_, Some(tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping)) => {
+					return Err(tg::error!(%sandbox, "the sandbox is not started"));
+				},
+				(Some(Err(error)), _) => {
+					return Err(
+						tg::error!(!error, %sandbox, process = %id, "the spawn process request failed"),
+					);
+				},
+				(None, _) => {
+					return Err(
+						tg::error!(%sandbox, process = %id, "failed to find the sandbox to spawn the process"),
+					);
 				},
 			}
-		}
-		.map_err(
-			|error| tg::error!(!error, %sandbox, process = %id, "the spawn process request failed"),
-		)?;
+		};
 		let output = response
 			.try_unwrap_spawn_process()
 			.map_err(|_| tg::error!("expected a spawn process response"))?;
@@ -336,69 +344,6 @@ impl Component {
 		};
 
 		Ok(connected_event)
-	}
-
-	/// Create a future that waits for a sandbox that is starting to connect, and fails if the index records that the sandbox is not running, waiting for pending indexing before trusting a stopped status, because a start that just finished may not be indexed yet.
-	fn create_check_sandbox_started_future(
-		session: &Session,
-		sandbox: &tg::sandbox::Id,
-	) -> future::Shared<future::BoxFuture<'static, tg::Result<()>>> {
-		let session = session.clone();
-		let sandbox = sandbox.clone();
-		async move { Self::check_sandbox_started(&session, &sandbox).await }
-			.boxed()
-			.shared()
-	}
-
-	async fn check_sandbox_started(session: &Session, sandbox: &tg::sandbox::Id) -> tg::Result<()> {
-		let mut wakeups = session
-			.server
-			.components
-			.sandbox
-			.create_sandbox_status_wakeup_stream(
-				session,
-				sandbox,
-				session.context.stopper.clone(),
-				None,
-			)
-			.await?;
-		let mut indexed = true;
-		loop {
-			let status = session
-				.server
-				.components
-				.sandbox
-				.try_get_sandbox_from_index(session, sandbox)
-				.await?
-				.and_then(|sandbox| sandbox.data)
-				.map(|data| data.data.status);
-			match status {
-				Some(tg::sandbox::Status::Destroyed | tg::sandbox::Status::Destroying) => {
-					return Err(tg::error!(%sandbox, "the sandbox was destroyed"));
-				},
-				Some(tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping) if indexed => {
-					indexed = false;
-					session
-						.index(tg::index::Arg::default())
-						.await
-						.map_err(|error| tg::error!(!error, "failed to index"))?
-						.try_last()
-						.await
-						.map_err(|error| tg::error!(!error, "failed to index"))?;
-				},
-				Some(tg::sandbox::Status::Stopped | tg::sandbox::Status::Stopping) => {
-					return Err(tg::error!(%sandbox, "the sandbox is not started"));
-				},
-				Some(tg::sandbox::Status::Starting) => {
-					if wakeups.next().await.is_none() {
-						return Err(tg::error!("the sandbox status wakeup stream ended"));
-					}
-				},
-				Some(tg::sandbox::Status::Started) | None => {
-					return Ok(());
-				},
-			}
-		}
 	}
 
 	#[tracing::instrument(name = "process.spawn_new", level = "debug", skip_all, fields(process = %output.id, sandbox = output.data.sandbox.as_ref().map(ToString::to_string)), err(level = "debug"))]

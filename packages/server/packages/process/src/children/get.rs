@@ -2,7 +2,7 @@ use {
 	crate::Component,
 	futures::{
 		FutureExt as _, StreamExt as _,
-		future::{self, BoxFuture},
+		future::BoxFuture,
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
@@ -462,111 +462,37 @@ impl Component {
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Output> {
-		// Create the index future, which reads only the process record, and which is complete for a process that is starting, because it has no children yet.
-		let get_index = || async {
-			let indexed = self.try_get_process_from_index(session, id).await?;
-			let indexed = indexed.filter(|process| {
-				process.set.children || process.status.is_some_and(|status| status.is_starting())
-			});
-			Ok::<_, tg::Error>(indexed)
-		};
-		let index_future = async {
-			let indexed = get_index().await;
-			tangram_server_core::checkpoint!(session.server, "process.get.index", process = %id)
-				.await;
-			indexed
-		}
-		.boxed();
-
-		// Create the control future.
-		let control_future = self.get_process_children_from_control(session, id, position, length);
-		let control_future = session
-			.server
-			.read_control_response_until(deadline, async {
-				let output = control_future.await;
-				tangram_server_core::checkpoint!(session.server, "process.get.control", process = %id).await;
-				output
-			})
-			.boxed();
-
-		match source {
-			tg::process::Source::Auto => {},
-			tg::process::Source::Index => {
-				let indexed = index_future.await?;
-				let output = Output {
-					control: None,
-					indexed,
-				};
-				return Ok(output);
-			},
-			tg::process::Source::Runner => {
-				let control = control_future.await.ok();
-				let output = Output {
-					control,
-					indexed: None,
-				};
-				return Ok(output);
-			},
-		}
-
-		// Race the index against control, and return the indexed process if the index finds it first.
-		let control = match future::select(index_future, control_future).await {
-			future::Either::Left((indexed, control_future)) => {
-				let indexed = indexed?;
-				if indexed.is_some() {
-					let output = Output {
-						control: None,
-						indexed,
-					};
-					return Ok(output);
-				}
-				control_future.await
-			},
-			future::Either::Right((control, _)) => control,
-		};
-
-		// Fall back to the index if the control read fails.
-		let output = match control {
-			Err(_) => {
-				let indexed = get_index().await?;
-				Output {
-					control: None,
-					indexed,
-				}
-			},
-			Ok(control) => Output {
-				control: Some(control),
-				indexed: None,
-			},
-		};
-
-		Ok(output)
-	}
-
-	async fn get_process_children_from_control(
-		&self,
-		session: &Session,
-		id: &tg::process::Id,
-		position: u64,
-		length: u64,
-	) -> tg::Result<tg::process::control::GetChildrenClientResponseOutput> {
+		// Get the children from the process's holder or the index, which answers for a process that has its children or that is starting.
 		let request = tg::process::control::ServerRequestArg::GetChildren(
 			tg::process::control::GetChildrenServerRequestArg { length, position },
 		);
 		let retry = session.server.config.control.request_retry.clone().into();
 		let timeout = session.server.config.control.read_timeout;
 		let options = tangram_server_core::control::Options { retry, timeout };
-		let response = self
-			.request_process_control(session, id, request, options)
+		let arg = crate::holder::Arg {
+			deadline,
+			exhaustive: true,
+			fallback: true,
+			options,
+			request,
+			source,
+			wakeups: None,
+		};
+		let output = self
+			.request_process_holder(session, id, arg, |_| false)
 			.boxed()
-			.await
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to send the get children control request"),
-			)?
-			.map_err(|error| tg::error!(!error, %id, "the get children control request failed"))?;
-		let output = response
-			.try_unwrap_get_children()
-			.map_err(|_| tg::error!("expected a get children response"))?;
+			.await?
+			.ok_or_else(|| tg::error!("the process status wakeup stream ended"))?;
+		let control = output
+			.reply
+			.and_then(Result::ok)
+			.and_then(|reply| reply.try_unwrap_get_children().ok());
+		let indexed = if control.is_some() {
+			None
+		} else {
+			output.indexed.map(|(process, _)| process)
+		};
+		let output = Output { control, indexed };
 
 		Ok(output)
 	}

@@ -21,9 +21,12 @@ pub(crate) type Output =
 
 /// The process whose holder a request is sent to.
 struct Kind<'a> {
+	cancel: bool,
+	children: bool,
 	component: &'a Component,
 	get: bool,
 	id: &'a tg::process::Id,
+	lease: bool,
 	session: &'a Session,
 }
 
@@ -36,11 +39,27 @@ impl Component {
 		arg: Arg<'_>,
 		index_required: impl Fn(&tg::process::control::ClientResponseOutput) -> bool + Send,
 	) -> tg::Result<Option<Output>> {
-		let get = matches!(arg.request, tg::process::control::ServerRequestArg::Get(_));
+		let children = matches!(
+			arg.request,
+			tg::process::control::ServerRequestArg::GetChildren(_)
+		);
+		let get = children || matches!(arg.request, tg::process::control::ServerRequestArg::Get(_));
+		let cancel = matches!(
+			arg.request,
+			tg::process::control::ServerRequestArg::ReleaseLease(_)
+		);
+		let lease = cancel
+			|| matches!(
+				arg.request,
+				tg::process::control::ServerRequestArg::AcquireLease(_)
+			);
 		let kind = Kind {
+			cancel,
+			children,
 			component: self,
 			get,
 			id,
+			lease,
 			session,
 		};
 		tangram_server_core::holder::request(&kind, arg, index_required).await
@@ -158,13 +177,15 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 
 	type Request = tg::process::control::ServerRequestArg;
 
-	const HOLD: bool = true;
-
 	fn index(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
 		async move {
 			let indexed = self.reindex(exhaustive).await;
 			if self.get {
 				tangram_server_core::checkpoint!(self.session.server, "process.get.index", process = %self.id)
+					.await;
+			}
+			if self.cancel {
+				tangram_server_core::checkpoint!(self.session.server, "process.cancel.index", process = %self.id)
 					.await;
 			}
 			indexed
@@ -173,9 +194,23 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 	}
 
 	fn reindex(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
-		self.component
-			.try_get_process_with_data_from_index_with_exhaustive(self.session, self.id, exhaustive)
-			.boxed()
+		async move {
+			// A request for a process's children requires a record that has them, or a starting process, which has none yet.
+			let indexed = self
+				.component
+				.try_get_process_with_data_from_index_with_exhaustive(
+					self.session,
+					self.id,
+					exhaustive,
+				)
+				.await?;
+			Ok(indexed.filter(|(process, _)| {
+				!self.children
+					|| process.set.children
+					|| process.status.is_some_and(|status| status.is_starting())
+			}))
+		}
+		.boxed()
 	}
 
 	fn send(
@@ -185,6 +220,10 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		hold: Option<BoxFuture<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>> {
 		async move {
+			if self.cancel {
+				tangram_server_core::checkpoint!(self.session.server, "process.cancel.control", process = %self.id)
+					.await;
+			}
 			let output = async {
 				self.component
 					.send_process_control_request(self.session, self.id, request, options, hold)
@@ -214,6 +253,11 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		})
 	}
 
+	/// A request for a lease is sent right away, because the scheduler answers it for a queued process.
+	fn holds(&self) -> bool {
+		!self.lease
+	}
+
 	fn index_required(&self) -> BoxFuture<'_, ()> {
 		async move {
 			if self.get {
@@ -225,27 +269,28 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 	}
 
 	/// The index answers for a process that finished or that lives in a remote, and a read is also answered for a starting process.
-	fn is_decisive(indexed: Option<&Self::Indexed>, fallback: bool) -> bool {
+	fn is_decisive(&self, indexed: Option<&Self::Indexed>, fallback: bool) -> bool {
 		indexed.is_some_and(|(process, _)| {
-			process
-				.status
-				.is_some_and(|status| status.is_finished() || (fallback && status.is_starting()))
+			self.children
+				|| process.status.is_some_and(|status| {
+					status.is_finished() || (fallback && status.is_starting())
+				}) || process
+				.location
+				.as_ref()
+				.is_some_and(tg::Location::is_remote)
+		})
+	}
+
+	fn is_complete(&self, indexed: Option<&Self::Indexed>) -> bool {
+		indexed.is_some_and(|(process, _)| {
+			self.children
 				|| process
-					.location
-					.as_ref()
-					.is_some_and(tg::Location::is_remote)
+					.status
+					.is_some_and(|status| status.is_finished() || status.is_starting())
 		})
 	}
 
-	fn is_complete(indexed: Option<&Self::Indexed>) -> bool {
-		indexed.is_some_and(|(process, _)| {
-			process
-				.status
-				.is_some_and(|status| status.is_finished() || status.is_starting())
-		})
-	}
-
-	fn has_status(indexed: Option<&Self::Indexed>) -> bool {
-		indexed.is_some_and(|(process, _)| process.status.is_some())
+	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool {
+		indexed.is_some_and(|(process, _)| self.children || process.status.is_some())
 	}
 }

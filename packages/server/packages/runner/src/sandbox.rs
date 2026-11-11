@@ -356,6 +356,18 @@ impl Component {
 					Err(tg::error!(%id, "the sandbox is not started"))
 				}
 			},
+			tg::sandbox::control::ServerRequestArg::Start(_) => session
+				.server
+				.components
+				.runner
+				.state()
+				.try_get_sandbox(id)
+				.map(|data| {
+					tg::sandbox::control::ClientResponseOutput::Start(
+						tg::sandbox::control::StartClientResponseOutput { data },
+					)
+				})
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
 			tg::sandbox::control::ServerRequestArg::Stop(_) => {
 				if Self::sandbox_status(session, id).is_some_and(|status| !status.is_destroyed()) {
 					Ok(tg::sandbox::control::ClientResponseOutput::Stop(
@@ -1668,6 +1680,17 @@ impl Component {
 								let task = self.spawn_process_task(session, arg);
 								pending.push(wait_for_process_control_connection(task, Some(message.sender)));
 								continue;
+							},
+							tg::sandbox::control::ServerRequestArg::Start(_) => {
+								let data = session
+									.server
+									.components
+									.runner
+									.state()
+									.try_get_sandbox(&id)
+									.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+								let output = tg::sandbox::control::StartClientResponseOutput { data };
+								Ok(tg::sandbox::control::ClientResponseOutput::Start(output))
 							},
 							tg::sandbox::control::ServerRequestArg::Stop(_) => {
 								Self::cancel_sandbox_processes(session, &id, None)?;

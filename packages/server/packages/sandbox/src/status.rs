@@ -455,16 +455,17 @@ impl Component {
 		source: tg::sandbox::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Option<tg::sandbox::Data>> {
-		let arg = crate::get::GetSandboxStateLocalArg {
-			control_future: self.get_sandbox_from_control(session, id),
-			deadline,
-			id,
-			index_required: |_: &tg::sandbox::get::Output| false,
-			processes: false,
-			source,
-		};
-		let output = self.get_sandbox_state_local(session, arg).boxed().await?;
-		if let Some(output) = output.control {
+		let arg = Self::get_sandbox_holder_arg(session, source, deadline, true);
+		let output = self
+			.request_sandbox_holder(session, id, arg, |_| false)
+			.boxed()
+			.await?
+			.ok_or_else(|| tg::error!("the sandbox status wakeup stream ended"))?;
+		let control = output
+			.reply
+			.and_then(Result::ok)
+			.and_then(|reply| Self::try_get_sandbox_from_holder_reply(session, reply));
+		if let Some(output) = control {
 			return Ok(Some(output.data));
 		}
 		let Some(sandbox) = output.indexed else {

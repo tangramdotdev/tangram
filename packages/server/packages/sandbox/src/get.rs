@@ -1,6 +1,6 @@
 use {
 	crate::Component,
-	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{
@@ -9,20 +9,6 @@ use {
 	tangram_index::prelude::*,
 	tangram_server_core::{Session, location::await_local_future_over_regions_remotes_futures},
 };
-
-pub(super) struct Output<T> {
-	pub control: Option<T>,
-	pub indexed: Option<tangram_index::sandbox::Sandbox>,
-}
-
-pub(super) struct GetSandboxStateLocalArg<'a, F, R> {
-	pub control_future: F,
-	pub deadline: tokio::time::Instant,
-	pub id: &'a tg::sandbox::Id,
-	pub index_required: R,
-	pub processes: bool,
-	pub source: tg::sandbox::Source,
-}
 
 struct TryGetSandboxRemotesArg<'a> {
 	cached: bool,
@@ -263,20 +249,11 @@ impl Component {
 			.await?;
 
 		// Get the sandbox from its holder or the index. A destroyed sandbox requires the index.
-		let request = tg::sandbox::control::ServerRequestArg::Get(
-			tg::sandbox::control::GetServerRequestArg {},
-		);
-		let retry = session.server.config.control.get_retry.clone().into();
-		let timeout = session.server.config.control.read_timeout;
-		let options = tangram_server_core::control::Options { retry, timeout };
+		let deadline = session.server.control_read_deadline();
+		let arg = Self::get_sandbox_holder_arg(session, source, deadline, exhaustive);
 		let arg = crate::holder::Arg {
-			deadline: session.server.control_read_deadline(),
-			exhaustive,
-			fallback: true,
-			options,
-			request,
-			source,
 			wakeups: Some(&mut wakeups),
+			..arg
 		};
 		let index_required = |reply: &tg::sandbox::control::ClientResponseOutput| {
 			matches!(
@@ -313,8 +290,32 @@ impl Component {
 		Ok(Some(output))
 	}
 
+	/// Create the arg for a get request to the holder of a sandbox, which the index answers when the holder does not.
+	pub(super) fn get_sandbox_holder_arg(
+		session: &Session,
+		source: tg::sandbox::Source,
+		deadline: tokio::time::Instant,
+		exhaustive: bool,
+	) -> crate::holder::Arg<'static> {
+		let request = tg::sandbox::control::ServerRequestArg::Get(
+			tg::sandbox::control::GetServerRequestArg {},
+		);
+		let retry = session.server.config.control.get_retry.clone().into();
+		let timeout = session.server.config.control.read_timeout;
+		let options = tangram_server_core::control::Options { retry, timeout };
+		crate::holder::Arg {
+			deadline,
+			exhaustive,
+			fallback: true,
+			options,
+			request,
+			source,
+			wakeups: None,
+		}
+	}
+
 	/// Get the sandbox from its holder's reply to a get request.
-	fn try_get_sandbox_from_holder_reply(
+	pub(super) fn try_get_sandbox_from_holder_reply(
 		session: &Session,
 		reply: tg::sandbox::control::ClientResponseOutput,
 	) -> Option<tg::sandbox::get::Output> {
@@ -323,123 +324,6 @@ impl Component {
 			region: session.server.config.region.clone(),
 		}));
 		Some(output)
-	}
-
-	pub(super) async fn get_sandbox_state_local<T, F, R>(
-		&self,
-		session: &Session,
-		arg: GetSandboxStateLocalArg<'_, F, R>,
-	) -> tg::Result<Output<T>>
-	where
-		T: Send,
-		F: Future<Output = tg::Result<T>> + Send,
-		R: Fn(&T) -> bool + Send,
-	{
-		let GetSandboxStateLocalArg {
-			control_future,
-			deadline,
-			id,
-			index_required,
-			processes,
-			source,
-		} = arg;
-		let index_complete = |sandbox: &tangram_index::sandbox::Sandbox| {
-			processes
-				|| sandbox.data.as_ref().is_some_and(|data| {
-					data.data.status.is_starting() || data.data.status.is_stopped_or_destroyed()
-				})
-		};
-		let get_index = || async {
-			let indexed = self.try_get_sandbox_from_index(session, id).await?;
-			Ok::<_, tg::Error>(indexed.filter(|sandbox| !processes || sandbox.set.processes))
-		};
-		let index_future = async {
-			let indexed = get_index().await;
-			tangram_server_core::checkpoint!(session.server, "sandbox.get.index", sandbox = %id)
-				.await;
-			indexed
-		}
-		.boxed();
-		let control_future = session
-			.server
-			.read_control_response_until(deadline, async {
-				let output = control_future.await;
-				tangram_server_core::checkpoint!(session.server, "sandbox.get.control", sandbox = %id).await;
-				output
-			})
-			.boxed();
-
-		match source {
-			tg::sandbox::Source::Auto => {},
-			tg::sandbox::Source::Index => {
-				let indexed = index_future.await?;
-				return Ok(Output {
-					control: None,
-					indexed,
-				});
-			},
-			tg::sandbox::Source::Runner => {
-				let control = control_future.await.ok();
-				return Ok(Output {
-					control,
-					indexed: None,
-				});
-			},
-		}
-
-		let (control, indexed) = match future::select(index_future, control_future).await {
-			future::Either::Left((indexed, control_future)) => {
-				let indexed = indexed?;
-				if indexed.as_ref().is_some_and(|sandbox| {
-					index_complete(sandbox)
-						|| sandbox
-							.location
-							.as_ref()
-							.is_some_and(tg::Location::is_remote)
-				}) {
-					let output = Output {
-						control: None,
-						indexed,
-					};
-					return Ok(output);
-				}
-				let control = control_future.await;
-				let indexed = if control.as_ref().is_ok_and(&index_required) {
-					get_index().await?
-				} else {
-					indexed
-				};
-				(control, indexed)
-			},
-			future::Either::Right((control, index_future)) => {
-				let indexed = if control.as_ref().is_ok_and(&index_required) {
-					let indexed = index_future.await?;
-					if indexed.as_ref().is_some_and(index_complete) {
-						indexed
-					} else {
-						get_index().await?
-					}
-				} else {
-					None
-				};
-				(control, indexed)
-			},
-		};
-
-		let control = match control {
-			Err(_) => {
-				let indexed = get_index().await?;
-				let output = Output {
-					control: None,
-					indexed,
-				};
-				return Ok(output);
-			},
-			Ok(control) => Some(control),
-		};
-		let output = Output { control, indexed };
-
-		Ok(output)
 	}
 
 	pub async fn get_sandbox_from_index(
@@ -485,35 +369,6 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?;
 		session.server.index.try_get_sandbox(id).await
-	}
-
-	pub(crate) async fn get_sandbox_from_control(
-		&self,
-		session: &Session,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<tg::sandbox::get::Output> {
-		let request = tg::sandbox::control::ServerRequestArg::Get(
-			tg::sandbox::control::GetServerRequestArg {},
-		);
-		let retry = session.server.config.control.get_retry.clone().into();
-		let timeout = session.server.config.control.read_timeout;
-		let options = tangram_server_core::control::Options { retry, timeout };
-		let response = self
-			.request_sandbox_control(session, id, request, options)
-			.boxed()
-			.await
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to send the get sandbox control request"),
-			)?
-			.map_err(|error| tg::error!(!error, %id, "the get sandbox control request failed"))?;
-		let response = response
-			.try_unwrap_get()
-			.map_err(|_| tg::error!("expected a get response"))?;
-		let mut output = response.data;
-		output.location = Some(tg::Location::Local(tg::location::Local {
-			region: session.server.config.region.clone(),
-		}));
-		Ok(output)
 	}
 
 	async fn try_get_sandbox_regions(

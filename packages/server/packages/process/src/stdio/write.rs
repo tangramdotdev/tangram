@@ -93,30 +93,17 @@ impl Component {
 		let process = &process;
 		Self::validate_process_stdio_write_streams(&arg.streams)?;
 		let stdin = arg.streams.contains(&tg::process::stdio::Stream::Stdin);
-		if stdin
-			&& let Some(id) = &id
-			&& let Some(control) = self
-				.try_get_process_control_runner(
-					session,
-					id,
-					arg.location.as_ref(),
-					&arg.tokens,
-					tg::authorization::permission::process::Set::PARENT,
-				)
+		let input = if stdin && let Some(id) = &id {
+			match self
+				.try_write_process_stdio_runner(session, id, &arg, input)
 				.await?
-		{
-			let write_arg = WriteProcessStdioWithControlArg {
-				control_sender: Some(control.control_sender),
-				data: control.data,
-				id,
-				input,
-				open: None,
-				stopper: session.context.stopper.clone(),
-				streams: &arg.streams,
-			};
-			let stream = self.write_process_stdio_with_control(session, write_arg);
-			return Ok(ControlFlow::Break(Some(stream)));
-		}
+			{
+				ControlFlow::Break(stream) => return Ok(ControlFlow::Break(Some(stream))),
+				ControlFlow::Continue(input) => input,
+			}
+		} else {
+			input
+		};
 		let location = session.server.location(arg.location.as_ref())?;
 		let output = match location {
 			tg::Location::Local(tg::location::Local {
@@ -157,6 +144,45 @@ impl Component {
 		};
 
 		Ok(output)
+	}
+
+	/// Write through this server's runner if it holds the process, and return the input otherwise.
+	async fn try_write_process_stdio_runner(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+		arg: &tg::process::stdio::write::stream::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
+	) -> tg::Result<
+		ControlFlow<
+			BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>,
+			BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
+		>,
+	> {
+		let Some(control) = self
+			.try_get_process_control_runner(
+				session,
+				id,
+				arg.location.as_ref(),
+				&arg.tokens,
+				tg::authorization::permission::process::Set::PARENT,
+			)
+			.await?
+		else {
+			return Ok(ControlFlow::Continue(input));
+		};
+		let write_arg = WriteProcessStdioWithControlArg {
+			control_sender: Some(control.control_sender),
+			data: control.data,
+			id,
+			input,
+			open: None,
+			stopper: session.context.stopper.clone(),
+			streams: &arg.streams,
+		};
+		let stream = self.write_process_stdio_with_control(session, write_arg);
+
+		Ok(ControlFlow::Break(stream))
 	}
 
 	pub(crate) async fn try_write_process_stdio_local(

@@ -120,14 +120,8 @@ pub struct SandboxEndedNotification {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum RequestArg {
-	#[tangram_serialize(id = 0)]
-	AcquireProcessLease(AcquireProcessLeaseRequestArg),
-
 	#[tangram_serialize(id = 1)]
 	AddRunner(AddRunnerRequestArg),
-
-	#[tangram_serialize(id = 2)]
-	CancelSandboxStop(CancelSandboxStopRequestArg),
 
 	#[tangram_serialize(id = 3)]
 	DequeueSandbox(DequeueSandboxRequestArg),
@@ -135,14 +129,8 @@ pub enum RequestArg {
 	#[tangram_serialize(id = 4)]
 	DestroyRunnerSandbox(DestroyRunnerSandboxRequestArg),
 
-	#[tangram_serialize(id = 5)]
-	EndSandbox(EndSandboxRequestArg),
-
 	#[tangram_serialize(id = 6)]
 	EnqueueSandbox(EnqueueSandboxRequestArg),
-
-	#[tangram_serialize(id = 7)]
-	ReleaseProcessLease(ReleaseProcessLeaseRequestArg),
 
 	#[tangram_serialize(id = 8)]
 	RemoveRunner(RemoveRunnerRequestArg),
@@ -159,14 +147,8 @@ pub enum RequestArg {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ResponseOutput {
-	#[tangram_serialize(id = 0)]
-	AcquireProcessLease(AcquireProcessLeaseResponseOutput),
-
 	#[tangram_serialize(id = 1)]
 	AddRunner(AddRunnerResponseOutput),
-
-	#[tangram_serialize(id = 2)]
-	CancelSandboxStop(CancelSandboxStopResponseOutput),
 
 	#[tangram_serialize(id = 3)]
 	DequeueSandbox(DequeueSandboxResponseOutput),
@@ -174,76 +156,11 @@ pub enum ResponseOutput {
 	#[tangram_serialize(id = 4)]
 	DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput),
 
-	#[tangram_serialize(id = 5)]
-	EndSandbox(EndSandboxResponseOutput),
-
 	#[tangram_serialize(id = 6)]
 	EnqueueSandbox(EnqueueSandboxResponseOutput),
 
-	#[tangram_serialize(id = 7)]
-	ReleaseProcessLease(ReleaseProcessLeaseResponseOutput),
-
 	#[tangram_serialize(id = 8)]
 	RemoveRunner(RemoveRunnerResponseOutput),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct AcquireProcessLeaseRequestArg {
-	#[tangram_serialize(id = 0)]
-	pub sandbox: tg::sandbox::Id,
-}
-
-/// The lease is `None` if the scheduler no longer holds the process's leases, because the process's request was sent to a runner.
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct AcquireProcessLeaseResponseOutput {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub lease: Option<tg::process::Lease>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ReleaseProcessLeaseRequestArg {
-	#[tangram_serialize(id = 0)]
-	pub lease: tg::process::Lease,
-
-	#[tangram_serialize(id = 1)]
-	pub sandbox: tg::sandbox::Id,
-}
-
-/// The output is `None` if the scheduler no longer holds the process's leases, and otherwise whether the lease was released.
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ReleaseProcessLeaseResponseOutput {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub released: Option<bool>,
 }
 
 #[derive(
@@ -375,71 +292,6 @@ pub struct DestroyRunnerSandboxRequestArg {
 pub struct DestroyRunnerSandboxResponseOutput {
 	#[tangram_serialize(id = 0)]
 	pub destroyed: bool,
-}
-
-/// A cancellation of a stop that the scheduler holds for a sandbox that has not started.
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct CancelSandboxStopRequestArg {
-	#[tangram_serialize(id = 0)]
-	pub sandbox: tg::sandbox::Id,
-}
-
-/// The output is `false` if this scheduler does not hold the sandbox.
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct CancelSandboxStopResponseOutput {
-	#[tangram_serialize(id = 0)]
-	pub held: bool,
-}
-
-/// A stop or destroy of a sandbox that the scheduler owns, because its runner has not connected.
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct EndSandboxRequestArg {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::error::Data>,
-
-	#[tangram_serialize(id = 1)]
-	pub sandbox: tg::sandbox::Id,
-
-	/// Whether to stop the sandbox rather than destroy it. A sandbox that a runner already holds cannot be stopped until it connects.
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "std::ops::Not::not")]
-	pub stop: bool,
-}
-
-/// The output is `false` if this scheduler does not own the sandbox.
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct EndSandboxResponseOutput {
-	#[tangram_serialize(id = 0)]
-	pub ended: bool,
 }
 
 #[derive(

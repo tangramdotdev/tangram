@@ -3,7 +3,7 @@ use {
 		Component,
 		control::{ClientMessage, ServerMessage},
 	},
-	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future::BoxFuture},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::TryExt as _, task::Task},
 	tangram_messenger::Messenger as _,
@@ -13,18 +13,19 @@ use {
 /// The record of a sandbox in the index.
 pub(crate) type Indexed = tangram_index::sandbox::Sandbox;
 
-pub(crate) type Arg<'a> =
-	tangram_server_core::holder::Arg<'a, tg::sandbox::control::ServerRequestArg>;
+pub(crate) type Arg<'a> = tangram_server_core::sandbox::HolderArg<'a>;
 
-pub(crate) type Output =
-	tangram_server_core::holder::Output<Indexed, tg::sandbox::control::ClientResponseOutput>;
+pub(crate) type Output = tangram_server_core::sandbox::HolderOutput;
 
 /// The sandbox whose holder a request is sent to.
 struct Kind<'a> {
 	component: &'a Component,
+	destroy: bool,
 	get: bool,
 	id: &'a tg::sandbox::Id,
+	processes: bool,
 	session: &'a Session,
+	spawn: bool,
 }
 
 impl Component {
@@ -36,14 +37,66 @@ impl Component {
 		arg: Arg<'_>,
 		index_required: impl Fn(&tg::sandbox::control::ClientResponseOutput) -> bool + Send,
 	) -> tg::Result<Option<Output>> {
+		let destroy = matches!(
+			arg.request,
+			tg::sandbox::control::ServerRequestArg::Destroy(_)
+		);
 		let get = matches!(arg.request, tg::sandbox::control::ServerRequestArg::Get(_));
+		let processes = matches!(
+			arg.request,
+			tg::sandbox::control::ServerRequestArg::GetProcesses(_)
+		);
+		let spawn = matches!(
+			arg.request,
+			tg::sandbox::control::ServerRequestArg::SpawnProcess(_)
+		);
 		let kind = Kind {
 			component: self,
+			destroy,
 			get,
 			id,
+			processes,
 			session,
+			spawn,
 		};
 		tangram_server_core::holder::request(&kind, arg, index_required).await
+	}
+
+	/// Create a future that waits for a sandbox to leave the starting status.
+	fn create_wait_sandbox_start_future(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+	) -> BoxFuture<'static, ()> {
+		let component = self.clone();
+		let session = session.clone();
+		let id = id.clone();
+		async move {
+			let Ok(mut wakeups) = component
+				.create_sandbox_status_wakeup_stream(
+					&session,
+					&id,
+					session.context.stopper.clone(),
+					None,
+				)
+				.await
+			else {
+				return;
+			};
+			loop {
+				let starting = component
+					.try_get_sandbox_from_index(&session, &id)
+					.await
+					.ok()
+					.flatten()
+					.and_then(|sandbox| sandbox.data)
+					.is_some_and(|data| data.data.status.is_starting());
+				if !starting || wakeups.next().await.is_none() {
+					return;
+				}
+			}
+		}
+		.boxed()
 	}
 
 	/// Serve the requests to the holder of a sandbox by passing each message to the holder, which answers a request or replies that it does not hold the sandbox.
@@ -114,6 +167,7 @@ impl Component {
 			Some(tg::sandbox::control::ClientResponseOutput::GetProcesses(_)) => "get_processes",
 			Some(tg::sandbox::control::ClientResponseOutput::NotHolder(_)) => "not_holder",
 			Some(tg::sandbox::control::ClientResponseOutput::SpawnProcess(_)) => "spawn_process",
+			Some(tg::sandbox::control::ClientResponseOutput::Start(_)) => "start",
 			Some(tg::sandbox::control::ClientResponseOutput::Stop(_)) => "stop",
 			None => "error",
 		};
@@ -145,8 +199,6 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 
 	type Request = tg::sandbox::control::ServerRequestArg;
 
-	const HOLD: bool = false;
-
 	fn index(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
 		async move {
 			let mut indexed = self.reindex(exhaustive).await?;
@@ -168,6 +220,10 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 				tangram_server_core::checkpoint!(self.session.server, "sandbox.get.index", sandbox = %self.id)
 					.await;
 			}
+			if self.destroy {
+				tangram_server_core::checkpoint!(self.session.server, "sandbox.destroy.index", sandbox = %self.id)
+					.await;
+			}
 
 			Ok(indexed)
 		}
@@ -175,9 +231,15 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 	}
 
 	fn reindex(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
-		self.component
-			.try_get_sandbox_from_index_with_exhaustive(self.session, self.id, exhaustive)
-			.boxed()
+		async move {
+			// A request for a sandbox's processes requires a record that has them.
+			let indexed = self
+				.component
+				.try_get_sandbox_from_index_with_exhaustive(self.session, self.id, exhaustive)
+				.await?;
+			Ok(indexed.filter(|sandbox| !self.processes || sandbox.set.processes))
+		}
+		.boxed()
 	}
 
 	fn send(
@@ -187,6 +249,10 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		hold: Option<BoxFuture<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>> {
 		async move {
+			if self.destroy {
+				tangram_server_core::checkpoint!(self.session.server, "sandbox.destroy.control", sandbox = %self.id)
+					.await;
+			}
 			let output = async {
 				self.component
 					.send_sandbox_control_request(self.session, self.id, request, options, hold)
@@ -204,21 +270,33 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		.boxed()
 	}
 
-	fn hold(&self, _indexed: Option<&Self::Indexed>) -> Option<BoxFuture<'static, ()>> {
-		None
+	fn hold(&self, indexed: Option<&Self::Indexed>) -> Option<BoxFuture<'static, ()>> {
+		let starting = indexed
+			.and_then(|sandbox| sandbox.data.as_ref())
+			.is_some_and(|data| data.data.status.is_starting());
+		starting.then(|| {
+			self.component
+				.create_wait_sandbox_start_future(self.session, self.id)
+		})
+	}
+
+	/// A spawn reads the index before it sends its request, so that the request is held while the sandbox is starting.
+	fn holds(&self) -> bool {
+		self.spawn
 	}
 
 	fn index_required(&self) -> BoxFuture<'_, ()> {
 		async {}.boxed()
 	}
 
-	/// The index answers for a sandbox that is stopped or destroyed, or that lives in a remote. The scheduler answers for a starting sandbox.
-	fn is_decisive(indexed: Option<&Self::Indexed>, _fallback: bool) -> bool {
+	/// The index answers for a sandbox that is stopped or destroyed, or that lives in a remote, and for the processes that it has. The scheduler answers for a starting sandbox.
+	fn is_decisive(&self, indexed: Option<&Self::Indexed>, _fallback: bool) -> bool {
 		indexed.is_some_and(|sandbox| {
-			sandbox
-				.data
-				.as_ref()
-				.is_some_and(|data| data.data.status.is_stopped_or_destroyed())
+			self.processes
+				|| sandbox
+					.data
+					.as_ref()
+					.is_some_and(|data| data.data.status.is_stopped_or_destroyed())
 				|| sandbox
 					.location
 					.as_ref()
@@ -226,15 +304,16 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 		})
 	}
 
-	fn is_complete(indexed: Option<&Self::Indexed>) -> bool {
+	fn is_complete(&self, indexed: Option<&Self::Indexed>) -> bool {
 		indexed.is_some_and(|sandbox| {
-			sandbox.data.as_ref().is_some_and(|data| {
-				data.data.status.is_starting() || data.data.status.is_stopped_or_destroyed()
-			})
+			self.processes
+				|| sandbox.data.as_ref().is_some_and(|data| {
+					data.data.status.is_starting() || data.data.status.is_stopped_or_destroyed()
+				})
 		})
 	}
 
-	fn has_status(indexed: Option<&Self::Indexed>) -> bool {
+	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool {
 		indexed.is_some_and(|sandbox| sandbox.data.is_some())
 	}
 }

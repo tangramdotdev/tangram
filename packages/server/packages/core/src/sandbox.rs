@@ -9,6 +9,15 @@ use {
 
 pub type ConnectionFuture = BoxFuture<'static, tg::Result<()>>;
 
+/// The arg of a request to a sandbox's holder.
+pub type HolderArg<'a> = crate::holder::Arg<'a, tg::sandbox::control::ServerRequestArg>;
+
+/// The output of a request to a sandbox's holder.
+pub type HolderOutput = crate::holder::Output<
+	tangram_index::sandbox::Sandbox,
+	tg::sandbox::control::ClientResponseOutput,
+>;
+
 /// A function that a sandbox's holder handles each message to it with.
 pub type HolderHandle = Box<
 	dyn FnMut(tg::sandbox::control::ServerMessage) -> BoxFuture<'static, tg::Result<()>> + Send,
@@ -164,14 +173,12 @@ pub trait Component: crate::component::Lifecycle {
 		response: tg::sandbox::control::ClientResponse,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn request_sandbox_control_with_hold<'a>(
+	fn request_sandbox_holder<'a>(
 		&'a self,
 		session: &'a Session,
 		id: &'a tg::sandbox::Id,
-		arg: tg::sandbox::control::ServerRequestArg,
-		options: crate::control::Options,
-		hold: Option<BoxFuture<'static, ()>>,
-	) -> BoxFuture<'a, tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>>>;
+		arg: HolderArg<'a>,
+	) -> BoxFuture<'a, tg::Result<Option<HolderOutput>>>;
 
 	fn serve_sandbox_holder<'a>(
 		&'a self,

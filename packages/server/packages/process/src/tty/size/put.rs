@@ -31,26 +31,13 @@ impl Component {
 		}
 		let id = process.clone().right();
 		let process = &process;
+		// Set the size if this server's runner holds the process.
 		if let Some(id) = &id
-			&& let Some(control) = self
-				.try_get_process_control_runner(
-					session,
-					id,
-					arg.location.as_ref(),
-					&arg.tokens,
-					tg::authorization::permission::process::Set::PARENT,
-				)
+			&& let Some(output) = self
+				.try_set_process_tty_size_runner(session, id, &arg)
 				.await?
 		{
-			return self
-				.set_process_tty_size_with_control(
-					session,
-					id,
-					control.data,
-					arg.size,
-					Some(control.control_sender),
-				)
-				.await;
+			return Ok(Some(output));
 		}
 		let locations = session
 			.locations(arg.location.as_ref())
@@ -129,6 +116,43 @@ impl Component {
 		Ok(output)
 	}
 
+	async fn try_set_process_tty_size_runner(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+		arg: &tg::process::tty::size::put::Arg,
+	) -> tg::Result<Option<()>> {
+		let Some(control) = self
+			.try_get_process_control_runner(
+				session,
+				id,
+				arg.location.as_ref(),
+				&arg.tokens,
+				tg::authorization::permission::process::Set::PARENT,
+			)
+			.await?
+		else {
+			return Ok(None);
+		};
+		if control.data.tty.is_none() {
+			return Err(tg::error!(%id, "the process does not have a tty associated with it"));
+		}
+		if control.data.status.is_finished() {
+			return Ok(Some(()));
+		}
+
+		// Send the request to the runner. A runner that no longer holds the process has finished it, so there is nothing left to resize.
+		let request = tg::process::control::ServerRequestArg::Tty(
+			tg::process::control::TtyServerRequestArg { size: arg.size },
+		);
+		let reply = control.control_sender.request(request).await?;
+		match reply {
+			tg::process::control::ClientResponseOutput::NotHolder(_)
+			| tg::process::control::ClientResponseOutput::Tty(_) => Ok(Some(())),
+			_ => Err(tg::error!("expected a tty response")),
+		}
+	}
+
 	pub(crate) async fn try_set_process_tty_size_local(
 		&self,
 		session: &Session,
@@ -137,63 +161,35 @@ impl Component {
 		tokens: &[tg::authorization::Token],
 		exhaustive: bool,
 	) -> tg::Result<Option<()>> {
-		let Some(output) = self
-			.try_get_process_local(
-				session,
-				id,
-				false,
-				false,
-				tokens,
-				tg::process::Source::Auto,
-				None,
-				exhaustive,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-		else {
-			return Ok(None);
-		};
-
-		if output
-			.location
-			.as_ref()
-			.is_some_and(tg::Location::is_remote)
-		{
+		// Authorize the request.
+		let node = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		);
+		let authorized = self
+			.authorize_process_get(session, id, false, false, tokens, exhaustive)
+			.boxed()
+			.await?;
+		if !authorized.permissions.contains(node) {
 			return Ok(None);
 		}
-		let permission = tg::authorization::Permission::Process(
+		let parent = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Parent,
 		);
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let authorized = session
-			.authorize_with_exhaustive(resource, permission, exhaustive)
+			.authorize_with_exhaustive(resource, parent, exhaustive)
 			.await?
 			.check_exhaustion()?;
-		if !authorized.permissions.contains(permission) {
+		if !authorized.permissions.contains(parent) {
 			return Ok(None);
 		}
 
-		self.set_process_tty_size_with_control(session, id, output.data, size, None)
-			.await
-	}
+		// Subscribe before sending the request, so that a finish between the request and the wait cannot be missed.
+		let mut wakeups = self
+			.create_process_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
+			.await?;
 
-	async fn set_process_tty_size_with_control(
-		&self,
-		session: &Session,
-		id: &tg::process::Id,
-		data: tg::process::Data,
-		size: tg::process::tty::Size,
-		control_sender: Option<tangram_server_process_core::control::local::Local>,
-	) -> tg::Result<Option<()>> {
-		// Check if the process has a tty.
-		if data.tty.is_none() {
-			return Err(tg::error!(%id, "the process does not have a tty associated with it"));
-		}
-		if data.status.is_finished() {
-			return Ok(Some(()));
-		}
-
-		// Send the control request.
+		// Send the request to the process's holder.
 		let request = tg::process::control::ServerRequestArg::Tty(
 			tg::process::control::TtyServerRequestArg { size },
 		);
@@ -209,23 +205,45 @@ impl Component {
 			session.server.config.control.request_timeout
 		};
 		let options = tangram_server_core::control::Options { retry, timeout };
-		let response = if let Some(control_sender) = control_sender {
-			control_sender.request(request).await?
-		} else {
-			let starting = data.status.is_starting();
-			let Some(response) = self
-				.try_request_process_control(session, id, request, options, starting)
-				.await?
-			else {
-				return Ok(Some(()));
-			};
-			response?
+		let arg = crate::holder::Arg {
+			deadline: session.server.control_read_deadline(),
+			exhaustive,
+			fallback: false,
+			options,
+			request,
+			source: tg::process::Source::Auto,
+			wakeups: Some(&mut wakeups),
 		};
-		response
-			.try_unwrap_tty()
-			.map_err(|_| tg::error!("expected a tty response"))?;
+		let output = self
+			.request_process_holder(session, id, arg, |_| false)
+			.boxed()
+			.await?
+			.ok_or_else(|| tg::error!("the process status wakeup stream ended"))?;
 
-		Ok(Some(()))
+		// A process in a remote is not resized here, and a process without a tty cannot be resized.
+		let (process, data) = output.indexed.unzip();
+		if process
+			.as_ref()
+			.and_then(|process| process.location.as_ref())
+			.is_some_and(tg::Location::is_remote)
+		{
+			return Ok(None);
+		}
+		if data.flatten().is_some_and(|data| data.tty.is_none()) {
+			return Err(tg::error!(%id, "the process does not have a tty associated with it"));
+		}
+
+		// A finished process has nothing left to resize, and a process that neither the index nor a holder has does not exist.
+		let finished = process
+			.and_then(|process| process.status)
+			.is_some_and(|status| status.is_finished());
+		match output.reply {
+			Some(Ok(tg::process::control::ClientResponseOutput::Tty(_))) => Ok(Some(())),
+			Some(Ok(_)) => Err(tg::error!("expected a tty response")),
+			Some(Err(_)) | None if finished => Ok(Some(())),
+			Some(Err(error)) => Err(error),
+			None => Ok(None),
+		}
 	}
 
 	async fn try_set_process_tty_size_regions(

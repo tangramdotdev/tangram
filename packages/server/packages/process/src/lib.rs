@@ -569,6 +569,25 @@ impl tangram_server_core::process::Component for Component {
 			.boxed()
 	}
 
+	fn publish_process_holder_ack<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::process::Id,
+		ack: tg::process::control::ClientAck,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.publish_process_holder_ack(server, id, ack).boxed()
+	}
+
+	fn publish_process_holder_response<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::process::Id,
+		response: tg::process::control::ClientResponse,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.publish_process_holder_response(server, id, response)
+			.boxed()
+	}
+
 	fn request_process_control<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
@@ -578,6 +597,15 @@ impl tangram_server_core::process::Component for Component {
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::process::control::ClientResponseOutput>>> {
 		self.request_process_control(session, id, arg, options)
 			.boxed()
+	}
+
+	fn serve_process_holder<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::process::Id,
+		handle: tangram_server_core::process::HolderHandle,
+	) -> BoxFuture<'a, tg::Result<tangram_futures::task::Task<tg::Result<()>>>> {
+		self.serve_process_holder(server, id, handle).boxed()
 	}
 
 	fn set_process_children_from_index<'a>(

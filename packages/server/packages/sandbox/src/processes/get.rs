@@ -17,7 +17,11 @@ use {
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
-type Output = crate::get::Output<tg::sandbox::control::GetProcessesClientResponseOutput>;
+/// The processes of a sandbox from its holder and from the index.
+struct Output {
+	control: Option<tg::sandbox::control::GetProcessesClientResponseOutput>,
+	indexed: Option<tangram_index::sandbox::Sandbox>,
+}
 
 struct GetSandboxProcessesLocalArg<'a> {
 	deadline: tokio::time::Instant,
@@ -422,41 +426,34 @@ impl Component {
 		source: tg::sandbox::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Output> {
-		let arg = crate::get::GetSandboxStateLocalArg {
-			control_future: self.get_sandbox_processes_from_control(session, id, position, length),
-			deadline,
-			id,
-			index_required: |_: &tg::sandbox::control::GetProcessesClientResponseOutput| false,
-			processes: true,
-			source,
-		};
-		self.get_sandbox_state_local(session, arg).boxed().await
-	}
-
-	async fn get_sandbox_processes_from_control(
-		&self,
-		session: &Session,
-		id: &tg::sandbox::Id,
-		position: u64,
-		length: u64,
-	) -> tg::Result<tg::sandbox::control::GetProcessesClientResponseOutput> {
 		let request = tg::sandbox::control::ServerRequestArg::GetProcesses(
 			tg::sandbox::control::GetProcessesServerRequestArg { length, position },
 		);
 		let retry = session.server.config.control.request_retry.clone().into();
 		let timeout = session.server.config.control.read_timeout;
 		let options = tangram_server_core::control::Options { retry, timeout };
-		let response = self
-			.request_sandbox_control(session, id, request, options)
+		let arg = crate::holder::Arg {
+			deadline,
+			exhaustive: true,
+			fallback: true,
+			options,
+			request,
+			source,
+			wakeups: None,
+		};
+		let output = self
+			.request_sandbox_holder(session, id, arg, |_| false)
 			.boxed()
-			.await
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to send the get processes control request"),
-			)?
-			.map_err(|error| tg::error!(!error, %id, "the get processes control request failed"))?;
-		let output = response
-			.try_unwrap_get_processes()
-			.map_err(|_| tg::error!("expected a get processes response"))?;
+			.await?
+			.ok_or_else(|| tg::error!("the sandbox status wakeup stream ended"))?;
+		let control = output
+			.reply
+			.and_then(Result::ok)
+			.and_then(|reply| reply.try_unwrap_get_processes().ok());
+		let output = Output {
+			control,
+			indexed: output.indexed,
+		};
 
 		Ok(output)
 	}

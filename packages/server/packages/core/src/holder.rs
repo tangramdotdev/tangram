@@ -40,9 +40,6 @@ pub trait Kind: Sync {
 
 	type Request: Clone + Send;
 
-	/// Whether a write reads the index before it sends its request, so that the request is held while the item is starting.
-	const HOLD: bool;
-
 	/// Read the item from the index, awaiting indexing on a miss only if the read is exhaustive.
 	fn index(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>>;
 
@@ -60,17 +57,20 @@ pub trait Kind: Sync {
 	/// Create the future that holds a write's request while the item is starting.
 	fn hold(&self, indexed: Option<&Self::Indexed>) -> Option<BoxFuture<'static, ()>>;
 
+	/// Whether a write reads the index before it sends its request, so that the request is held while the item is starting.
+	fn holds(&self) -> bool;
+
 	/// Observe that a reply requires the index.
 	fn index_required(&self) -> BoxFuture<'_, ()>;
 
 	/// Whether the index's answer ends a request to the holder.
-	fn is_decisive(indexed: Option<&Self::Indexed>, fallback: bool) -> bool;
+	fn is_decisive(&self, indexed: Option<&Self::Indexed>, fallback: bool) -> bool;
 
 	/// Whether the index has everything that a holder's reply does not.
-	fn is_complete(indexed: Option<&Self::Indexed>) -> bool;
+	fn is_complete(&self, indexed: Option<&Self::Indexed>) -> bool;
 
 	/// Whether the index has the item's status, without which only a holder can show that the item exists.
-	fn has_status(indexed: Option<&Self::Indexed>) -> bool;
+	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool;
 }
 
 /// Send a request to the holder of an item while reading the item from the index, and return the holder's reply or the index's answer, whichever is decisive first. Return `None` if the wakeups end.
@@ -100,7 +100,7 @@ pub async fn request<K: Kind>(
 		timeout,
 	};
 	let mut sent = false;
-	let mut request_future = if source.is_index() || (!fallback && K::HOLD) {
+	let mut request_future = if source.is_index() || (!fallback && kind.holds()) {
 		None
 	} else {
 		sent = true;
@@ -111,7 +111,7 @@ pub async fn request<K: Kind>(
 		// A read waits for the holder until the deadline, and a write does so only if the index does not have the item, because only a holder can then show that the item exists.
 		let missing = matches!(
 			&indexed,
-			Some(indexed) if !K::has_status(indexed.as_ref()),
+			Some(indexed) if !kind.has_status(indexed.as_ref()),
 		);
 		let wait_until_deadline = (fallback && !source.is_index()) || missing;
 
@@ -122,8 +122,8 @@ pub async fn request<K: Kind>(
 
 				// Return the index's answer if it is decisive, or if the index does not have the item and the request is not exhaustive.
 				if source.is_index()
-					|| K::is_decisive(result.as_ref(), fallback)
-					|| (!exhaustive && !K::has_status(result.as_ref()))
+					|| kind.is_decisive(result.as_ref(), fallback)
+					|| (!exhaustive && !kind.has_status(result.as_ref()))
 				{
 					let output = Output {
 						indexed: result,
@@ -150,7 +150,7 @@ pub async fn request<K: Kind>(
 							Some(index_future) => index_future.await?,
 							None => indexed.flatten(),
 						};
-						if K::is_complete(indexed.as_ref()) {
+						if kind.is_complete(indexed.as_ref()) {
 							indexed
 						} else {
 							kind.reindex(exhaustive).await?

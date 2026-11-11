@@ -43,6 +43,11 @@ pub struct TryGetProcessRemotesArg<'a> {
 	pub tokens: &'a tg::authorization::Tokens,
 }
 
+/// A function that a process's holder handles each message to it with.
+pub type HolderHandle = Box<
+	dyn FnMut(tg::process::control::ServerMessage) -> BoxFuture<'static, tg::Result<()>> + Send,
+>;
+
 /// The process component.
 pub trait Component: crate::component::Lifecycle {
 	fn try_get_process_local<'a>(
@@ -283,6 +288,20 @@ pub trait Component: crate::component::Lifecycle {
 		options: tangram_server_process_core::put::Options,
 	) -> BoxFuture<'a, tg::Result<tg::process::put::Output>>;
 
+	fn publish_process_holder_ack<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::process::Id,
+		ack: tg::process::control::ClientAck,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
+	fn publish_process_holder_response<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::process::Id,
+		response: tg::process::control::ClientResponse,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
 	fn request_process_control<'a>(
 		&'a self,
 		session: &'a Session,
@@ -290,6 +309,13 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::process::control::ServerRequestArg,
 		options: crate::control::Options,
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::process::control::ClientResponseOutput>>>;
+
+	fn serve_process_holder<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::process::Id,
+		handle: HolderHandle,
+	) -> BoxFuture<'a, tg::Result<tangram_futures::task::Task<tg::Result<()>>>>;
 
 	fn set_process_children_from_index<'a>(
 		&'a self,

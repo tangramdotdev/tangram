@@ -1,9 +1,7 @@
 use {
 	crate::Component,
-	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
-	std::pin::pin,
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
-	tangram_futures::stream::TryExt as _,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
@@ -184,64 +182,12 @@ impl Component {
 		}
 		tangram_server_core::checkpoint!(session.server, "sandbox.destroy.runner", sandbox = %id)
 			.await;
-		let output = self
-			.destroy_sandbox_with_control(session, id, arg.error.clone(), Some(control_sender))
+		let error = self
+			.get_sandbox_destroy_error(session, arg.error.clone())
+			.await?;
+		self.destroy_sandbox_with_runner(session, id, error, control_sender, arg.wait)
 			.boxed()
-			.await?;
-		if arg.wait {
-			self.wait_for_sandbox_destroy(session, id).await?;
-		}
-
-		Ok(output)
-	}
-
-	/// Wait for a sandbox's teardown to finish.
-	async fn wait_for_sandbox_destroy(
-		&self,
-		session: &Session,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<()> {
-		let wakeups = self
-			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
-			.await?;
-		self.wait_for_sandbox_destroy_local(session, id, wakeups)
-			.await?;
-
-		Ok(())
-	}
-
-	/// Ask the scheduler that owns a sandbox to destroy it, which returns `None` if the sandbox's runner owns it.
-	async fn try_destroy_sandbox_with_scheduler(
-		&self,
-		session: &Session,
-		id: &tg::sandbox::Id,
-		scheduler: &tg::scheduler::Id,
-		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
-	) -> tg::Result<Option<bool>> {
-		let error = match error {
-			Some(tg::Either::Left(data)) => Some(data),
-			Some(tg::Either::Right(id)) => Some(
-				tg::Error::with_id(id)
-					.data_with_instance(session)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
-			),
-			None => None,
-		};
-		let arg = tangram_server_scheduler_core::EndSandboxRequestArg {
-			error,
-			sandbox: id.clone(),
-			stop: false,
-		};
-		let ended = session
-			.server
-			.components
-			.scheduler
-			.end_sandbox(session, scheduler, arg)
 			.await
-			.map_err(|error| tg::error!(!error, %id, %scheduler, "failed to end the sandbox"))?;
-
-		Ok(ended.then_some(true))
 	}
 
 	pub(crate) async fn try_destroy_sandbox_local(
@@ -251,109 +197,104 @@ impl Component {
 		arg: &tg::sandbox::destroy::Arg,
 		exhaustive: bool,
 	) -> tg::Result<Option<bool>> {
+		// Authorize the destroy.
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Parent,
 		);
 		let resource = tg::Referent::with_node_and_tokens(id.clone(), arg.tokens.clone());
-		let authorize_future = session.authorize_with_exhaustive(resource, permission, exhaustive);
-		let get_future = self.try_get_sandbox_from_index_with_exhaustive(session, id, exhaustive);
-		let (authorized, sandbox) = future::try_join(authorize_future, get_future).await?;
-		let authorized = authorized.check_exhaustion()?;
-		let Some(sandbox) = sandbox else {
+		let authorized = session
+			.authorize_with_exhaustive(resource, permission, exhaustive)
+			.await?
+			.check_exhaustion()?;
+		if !authorized.permissions.contains(permission) {
 			return Ok(None);
+		}
+
+		// Subscribe before sending the request, so that the destroy cannot be missed.
+		let mut wakeups = self
+			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
+			.await?;
+
+		// Send the request to the sandbox's holder.
+		let error = self
+			.get_sandbox_destroy_error(session, arg.error.clone())
+			.await?;
+		let request = tg::sandbox::control::ServerRequestArg::Destroy(
+			tg::sandbox::control::DestroyServerRequestArg {
+				error: error.clone(),
+			},
+		);
+		let retry = session.server.config.control.request_retry.clone().into();
+		let timeout = session.server.config.control.request_timeout;
+		let options = tangram_server_core::control::Options { retry, timeout };
+		let holder_arg = crate::holder::Arg {
+			deadline: session.server.control_read_deadline(),
+			exhaustive,
+			fallback: false,
+			options,
+			request,
+			source: tg::sandbox::Source::Auto,
+			wakeups: Some(&mut wakeups),
 		};
-		if sandbox
-			.location
+		let output = self
+			.request_sandbox_holder(session, id, holder_arg, |_| false)
+			.boxed()
+			.await?
+			.ok_or_else(|| tg::error!("the sandbox status wakeup stream ended"))?;
+
+		// A sandbox in a remote is not destroyed here.
+		if output
+			.indexed
 			.as_ref()
+			.and_then(|sandbox| sandbox.location.as_ref())
 			.is_some_and(tg::Location::is_remote)
-			|| !authorized.permissions.contains(permission)
 		{
 			return Ok(None);
 		}
 
-		// Send the destroy to the sandbox's scheduler if its runner has not connected.
-		let status = sandbox.data.as_ref().map(|data| data.data.status);
-		let scheduler = if matches!(
-			status,
-			Some(tg::sandbox::Status::Destroying | tg::sandbox::Status::Starting)
-		) {
-			session
-				.server
-				.index
-				.try_get_sandbox_scheduler(id)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox's scheduler"))?
-		} else {
-			None
-		};
-		let output = match (&scheduler, status) {
-			(Some(_), Some(tg::sandbox::Status::Destroying)) => Some(false),
-			(Some(scheduler), Some(tg::sandbox::Status::Starting)) => {
-				self.try_destroy_sandbox_with_scheduler(session, id, scheduler, arg.error.clone())
-					.await?
-			},
-			_ => None,
-		};
-		if let Some(output) = output {
-			if arg.wait {
-				self.wait_for_sandbox_destroy(session, id).await?;
-			}
-			return Ok(Some(output));
-		}
-
-		// Destroy a stopped sandbox without its runner, because it has no control connection. Confirm the stop after pending indexing, because a start may not be indexed yet.
-		let mut stopped = sandbox
-			.data
+		// A destroyed sandbox has nothing left to destroy, a stopped sandbox has no holder, so its runner destroys its directory, and a sandbox that neither the index nor a holder has does not exist.
+		let runner = output
+			.indexed
 			.as_ref()
-			.is_some_and(|data| data.data.status.is_stopped());
-		if stopped {
-			session
-				.index(tg::index::Arg::default())
-				.await?
-				.try_last()
+			.and_then(|sandbox| sandbox.runner.clone());
+		let status = output
+			.indexed
+			.and_then(|sandbox| sandbox.data)
+			.map(|data| data.data.status);
+		let destroyed = match (output.reply, status) {
+			(Some(Ok(tg::sandbox::control::ClientResponseOutput::Destroy(output))), _) => {
+				output.destroyed
+			},
+			(Some(Ok(_)), _) => {
+				return Err(tg::error!(%id, "expected a destroy sandbox response"));
+			},
+			(_, Some(tg::sandbox::Status::Destroyed)) => false,
+			(_, Some(tg::sandbox::Status::Stopped)) => {
+				self.destroy_stopped_sandbox(session, id, error, runner.as_ref())
+					.await?;
+				true
+			},
+			(Some(Err(error)), _) => {
+				return Err(tg::error!(!error, %id, "the destroy sandbox control request failed"));
+			},
+			(None, _) => return Ok(None),
+		};
+
+		// Wait for the sandbox to be destroyed if requested.
+		if arg.wait {
+			self.wait_for_sandbox_destroy(session, id, &mut wakeups)
 				.await?;
-			stopped = self
-				.try_get_sandbox_from_index(session, id)
-				.await?
-				.and_then(|sandbox| sandbox.data)
-				.is_some_and(|data| data.data.status.is_stopped());
-		}
-		let running = session
-			.server
-			.components
-			.runner
-			.state()
-			.sandboxes()
-			.get_by_id(id)
-			.is_some_and(|state| !state.status.is_stopped_or_destroyed());
-		if stopped && !running {
-			self.destroy_stopped_sandbox(session, id, arg.error.clone(), sandbox.runner.as_ref())
-				.await?;
-			if arg.wait {
-				self.wait_for_sandbox_destroy(session, id).await?;
-			}
-			return Ok(Some(true));
 		}
 
-		let output = self
-			.destroy_sandbox_with_control(session, id, arg.error.clone(), None)
-			.boxed()
-			.await?;
-		if arg.wait && output.is_some() {
-			self.wait_for_sandbox_destroy(session, id).await?;
-		}
-
-		Ok(output)
+		Ok(Some(destroyed))
 	}
 
-	async fn destroy_stopped_sandbox(
+	/// Get the error that a destroy records, if the destroy has one.
+	async fn get_sandbox_destroy_error(
 		&self,
 		session: &Session,
-		id: &tg::sandbox::Id,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
-		runner: Option<&tg::runner::Id>,
-	) -> tg::Result<()> {
-		// Ask the sandbox's runner to destroy it. The runner's report marks the sandbox destroyed, because the runner is the sandbox's source of truth.
+	) -> tg::Result<Option<tg::error::Data>> {
 		let error = match error {
 			Some(tg::Either::Left(data)) => Some(data),
 			Some(tg::Either::Right(id)) => Some(
@@ -364,6 +305,75 @@ impl Component {
 			),
 			None => None,
 		};
+
+		Ok(error)
+	}
+
+	/// Destroy a sandbox that this server's runner holds.
+	async fn destroy_sandbox_with_runner(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		error: Option<tg::error::Data>,
+		control_sender: tangram_server_sandbox_core::control::local::Local,
+		wait: bool,
+	) -> tg::Result<Option<bool>> {
+		// Subscribe before sending the request, so that the destroy cannot be missed.
+		let mut wakeups = self
+			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
+			.await?;
+
+		// Send the request to the runner.
+		let request = tg::sandbox::control::ServerRequestArg::Destroy(
+			tg::sandbox::control::DestroyServerRequestArg { error },
+		);
+		let response = match control_sender.send_request(request).await {
+			Err(error) => Err(error),
+			Ok(response) => response.await,
+		};
+		let destroyed = || {
+			session
+				.server
+				.components
+				.runner
+				.state()
+				.sandboxes()
+				.get_by_id(id)
+				.is_some_and(|sandbox| sandbox.status.is_destroyed())
+		};
+		let destroyed = match response {
+			// Destroy the sandbox through its holder if this server's runner no longer holds it.
+			Ok(Ok(tg::sandbox::control::ClientResponseOutput::NotHolder(_))) => return Ok(None),
+			Ok(Ok(tg::sandbox::control::ClientResponseOutput::Destroy(output))) => output.destroyed,
+			Ok(Ok(_)) => return Err(tg::error!(%id, "expected a destroy sandbox response")),
+			Ok(Err(_)) | Err(_) if destroyed() => false,
+			Ok(Err(error)) => {
+				return Err(tg::error!(!error, %id, "the destroy sandbox control request failed"));
+			},
+			Err(error) => {
+				return Err(
+					tg::error!(!error, %id, "failed to send the destroy sandbox control request"),
+				);
+			},
+		};
+
+		// Wait for the sandbox to be destroyed if requested.
+		if wait {
+			self.wait_for_sandbox_destroy(session, id, &mut wakeups)
+				.await?;
+		}
+
+		Ok(Some(destroyed))
+	}
+
+	/// Ask the runner of a stopped sandbox to destroy it. The runner's report marks the sandbox destroyed, because the runner has the sandbox's directory.
+	async fn destroy_stopped_sandbox(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		error: Option<tg::error::Data>,
+		runner: Option<&tg::runner::Id>,
+	) -> tg::Result<()> {
 		let runner = runner.ok_or_else(|| tg::error!(%id, "the sandbox has no runner"))?;
 		let destroyed = session
 			.server
@@ -378,129 +388,30 @@ impl Component {
 		Ok(())
 	}
 
-	async fn destroy_sandbox_with_control(
+	/// Wait for a sandbox's teardown to finish.
+	async fn wait_for_sandbox_destroy(
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
-		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
-		control_sender: Option<tangram_server_sandbox_core::control::local::Local>,
-	) -> tg::Result<Option<bool>> {
-		let error = match error {
-			Some(tg::Either::Left(data)) => data,
-			Some(tg::Either::Right(id)) => tg::Error::with_id(id)
-				.data_with_instance(session)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
-			None => tg::error::Data {
-				code: Some(tg::error::Code::Cancellation),
-				message: Some("the process was canceled".into()),
-				..Default::default()
-			},
-		};
-		let request = tg::sandbox::control::ServerRequestArg::Destroy(
-			tg::sandbox::control::DestroyServerRequestArg { error: Some(error) },
-		);
-		let retry = session.server.config.control.request_retry.clone().into();
-		let timeout = session.server.config.control.request_timeout;
-		let options = tangram_server_core::control::Options { retry, timeout };
-		let runner = control_sender.is_some();
-		let response = if let Some(control_sender) = control_sender {
-			match control_sender.send_request(request).await {
-				Err(error) => Err(error),
-				Ok(response) => response.await,
-			}
-		} else {
-			let wakeups = self
-				.create_sandbox_status_wakeup_stream(
-					session,
-					id,
-					session.context.stopper.clone(),
-					None,
-				)
-				.await?;
-			let destroy_future = async {
-				tangram_server_core::checkpoint!(session.server, "sandbox.destroy.control", sandbox = %id).await;
-				self.request_sandbox_control(session, id, request, options)
-					.boxed()
-					.await
-			};
-			let get_future = self.wait_for_sandbox_destroy_local(session, id, wakeups);
-			match future::select(pin!(destroy_future), pin!(get_future)).await {
-				future::Either::Left((response, _)) => response,
-				future::Either::Right((output, _)) => return output,
-			}
-		};
-		if response.is_err() {
-			if runner
-				&& session
-					.server
-					.components
-					.runner
-					.state()
-					.sandboxes()
-					.get_by_id(id)
-					.is_some_and(|sandbox| sandbox.status.is_destroyed())
-			{
-				return Ok(Some(false));
-			}
-			if self
-				.try_get_sandbox_from_index(session, id)
-				.await?
-				.is_some_and(|sandbox| {
-					(runner
-						|| !sandbox
-							.location
-							.as_ref()
-							.is_some_and(tg::Location::is_remote))
-						&& sandbox
-							.data
-							.as_ref()
-							.is_some_and(|output| output.data.status.is_destroyed())
-				}) {
-				return Ok(Some(false));
-			}
-		}
-		let response = response
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to send the destroy sandbox control request"),
-			)?
-			.map_err(
-				|error| tg::error!(!error, %id, "the destroy sandbox control request failed"),
-			)?;
-		let response = response
-			.try_unwrap_destroy()
-			.map_err(|_| tg::error!(%id, "expected a destroy sandbox response"))?;
-		Ok(Some(response.destroyed))
-	}
-
-	async fn wait_for_sandbox_destroy_local(
-		&self,
-		session: &Session,
-		id: &tg::sandbox::Id,
-		mut wakeups: futures::stream::BoxStream<'static, ()>,
-	) -> tg::Result<Option<bool>> {
+		wakeups: &mut futures::stream::BoxStream<'static, ()>,
+	) -> tg::Result<()> {
 		loop {
-			let sandbox = self.try_get_sandbox_from_index(session, id).await;
-			tangram_server_core::checkpoint!(session.server, "sandbox.destroy.index", sandbox = %id)
-				.await;
-			let Some(sandbox) =
-				sandbox.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox"))?
-			else {
-				return Ok(None);
-			};
-			if sandbox
-				.location
-				.as_ref()
-				.is_some_and(tg::Location::is_remote)
-			{
-				return Ok(None);
-			}
-			if sandbox
-				.data
-				.as_ref()
-				.is_some_and(|output| output.data.status.is_destroyed())
-			{
-				return Ok(Some(false));
+			let sandbox = self
+				.try_get_sandbox_from_index(session, id)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox"))?;
+			let destroyed = sandbox.is_none_or(|sandbox| {
+				sandbox
+					.location
+					.as_ref()
+					.is_some_and(tg::Location::is_remote)
+					|| sandbox
+						.data
+						.as_ref()
+						.is_some_and(|data| data.data.status.is_destroyed())
+			});
+			if destroyed {
+				return Ok(());
 			}
 			if wakeups.next().await.is_none() {
 				return Err(tg::error!("the sandbox status wakeup stream ended"));
