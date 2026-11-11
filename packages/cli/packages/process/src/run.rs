@@ -356,12 +356,13 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 		}
 	} else if let Some(mut signals) = signals {
 		// Await the process unless a signal arrived while spawning it.
-		let received = match spawn_signal {
-			Some(signal) => tg::Either::Right(signal),
-			None => tokio::select! {
+		let received = if let Some(signal) = spawn_signal {
+			tg::Either::Right(signal)
+		} else {
+			tokio::select! {
 				result = &mut wait_future => tg::Either::Left(result),
 				signal = signals.recv() => tg::Either::Right(signal?),
-			},
+			}
 		};
 		match received {
 			tg::Either::Left(result) => {
