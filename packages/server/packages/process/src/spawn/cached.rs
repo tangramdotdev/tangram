@@ -459,9 +459,17 @@ impl Component {
 				output.data = data;
 				return Ok(output.data.cacheable.then_some(output));
 			}
+			// Treat a reply that this server's runner no longer holds the process as a failure, which reads the finished process.
 			match control_sender.send_request(request).await {
 				Err(error) => Err(error),
-				Ok(response) => response.await,
+				Ok(response) => response.await.map(|result| {
+					result.and_then(|response| match response {
+						std::ops::ControlFlow::Break(output) => Ok(output),
+						std::ops::ControlFlow::Continue(_) => {
+							Err(tg::error!("the runner does not hold the process"))
+						},
+					})
+				}),
 			}
 		} else {
 			// Send the request to the process's holder, which is its scheduler while the process is queued.

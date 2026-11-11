@@ -376,9 +376,13 @@ impl Component {
 		};
 		let destroyed = match response {
 			// Destroy the sandbox through its holder if this server's runner no longer holds it.
-			Ok(Ok(tg::sandbox::control::ClientResponseOutput::NotHolder(_))) => return Ok(None),
-			Ok(Ok(tg::sandbox::control::ClientResponseOutput::Destroy(output))) => output.destroyed,
-			Ok(Ok(_)) => return Err(tg::error!(%id, "expected a destroy sandbox response")),
+			Ok(Ok(std::ops::ControlFlow::Continue(_))) => return Ok(None),
+			Ok(Ok(std::ops::ControlFlow::Break(
+				tg::sandbox::control::ClientResponseOutput::Destroy(output),
+			))) => output.destroyed,
+			Ok(Ok(std::ops::ControlFlow::Break(_))) => {
+				return Err(tg::error!(%id, "expected a destroy sandbox response"));
+			},
 			Ok(Err(_)) | Err(_) if destroyed() => false,
 			Ok(Err(error)) => {
 				return Err(tg::error!(!error, %id, "the destroy sandbox control request failed"));

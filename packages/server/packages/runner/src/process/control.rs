@@ -143,12 +143,12 @@ impl Component {
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))
 	}
 
-	/// Create the reply of a runner that does not hold the process.
+	/// Create the reply of a runner that does not hold the process, which asks the request's sender to send the request again.
 	#[must_use]
-	fn process_control_not_holder_output() -> tg::process::control::ClientResponseOutput {
-		tg::process::control::ClientResponseOutput::NotHolder(
-			tg::process::control::NotHolderClientResponseOutput {},
-		)
+	fn process_control_not_holder_response(id: String) -> tg::process::control::ClientMessage {
+		let response =
+			tg::process::control::ClientResponse::with_retry(id, tg::control::Retry::NotHolder);
+		tg::process::control::ClientMessage::Response(response)
 	}
 
 	#[must_use]
@@ -177,6 +177,7 @@ impl Component {
 			error,
 			id,
 			output,
+			retry: None,
 		})
 	}
 
@@ -501,17 +502,18 @@ impl Component {
 										.runner
 										.state()
 										.try_get_process(process);
-									let output = match data {
-										Some(data) => {
-											tg::process::control::ClientResponseOutput::Get(
-												tg::process::control::GetClientResponseOutput {
-													data,
-													sync: None,
-												},
-											)
-										},
-										None => Self::process_control_not_holder_output(),
+									let Some(data) = data else {
+										let response =
+											Self::process_control_not_holder_response(request_id);
+										sender.send(response).await?;
+										continue;
 									};
+									let output = tg::process::control::ClientResponseOutput::Get(
+										tg::process::control::GetClientResponseOutput {
+											data,
+											sync: None,
+										},
+									);
 									Ok(output)
 								},
 								_ => Err(tg::error!("expected a process principal")),
@@ -586,7 +588,14 @@ impl Component {
 											tg::error!(%process, "cannot signal cacheable processes"),
 										)),
 										Some(_) => None,
-										None => Some(Ok(Self::process_control_not_holder_output())),
+										None => {
+											let response =
+												Self::process_control_not_holder_response(
+													request_id,
+												);
+											sender.send(response).await?;
+											continue;
+										},
 									}
 								},
 								_ => Some(Err(tg::error!("expected a process principal"))),
@@ -620,8 +629,8 @@ impl Component {
 								_ => false,
 							};
 							if released {
-								let result = Ok(Self::process_control_not_holder_output());
-								let response = Self::process_control_response(request_id, result);
+								let response =
+									Self::process_control_not_holder_response(request_id);
 								sender.send(response).await?;
 								continue;
 							}

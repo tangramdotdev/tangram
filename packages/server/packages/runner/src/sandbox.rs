@@ -287,18 +287,11 @@ impl Component {
 				.is_some_and(|sandbox| sandbox.yielded)
 	}
 
-	/// Create the reply of a boot that the runner does not hold.
-	#[must_use]
-	fn sandbox_not_holder_output() -> tg::sandbox::control::ClientResponseOutput {
-		tg::sandbox::control::ClientResponseOutput::NotHolder(
-			tg::sandbox::control::NotHolderClientResponseOutput {},
-		)
-	}
-
+	/// Reply that the runner does not hold the boot, which asks the request's sender to send the request again.
 	async fn send_sandbox_not_holder_response(message: Message) -> tg::Result<()> {
 		message
 			.sender
-			.send(Ok(Self::sandbox_not_holder_output()))
+			.send_retry(tg::control::Retry::NotHolder)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))
 	}
@@ -351,7 +344,7 @@ impl Component {
 				if destroyed {
 					Err(tg::error!(%id, "the sandbox was destroyed"))
 				} else if matches!(message.sender, Reply::Remote { .. }) {
-					Ok(Self::sandbox_not_holder_output())
+					return Self::send_sandbox_not_holder_response(message).await;
 				} else {
 					Err(tg::error!(%id, "the sandbox is not started"))
 				}
@@ -1803,6 +1796,7 @@ impl Component {
 
 			Ok::<_, tg::Error>(())
 		}
+		.boxed()
 		.await;
 		if let Err(error) = result {
 			tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox failed");
@@ -2380,8 +2374,10 @@ impl Component {
 				tg::sandbox::control::DestroyServerRequestArg { error },
 			);
 			let response = control_sender.send_request(request).await?;
+			let std::ops::ControlFlow::Break(response) = response.await?? else {
+				return Err(tg::error!(%id, "the runner does not hold the sandbox"));
+			};
 			let destroyed = response
-				.await??
 				.try_unwrap_destroy()
 				.map_err(|_| tg::error!("expected a destroy sandbox response"))?
 				.destroyed;

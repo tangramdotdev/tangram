@@ -828,7 +828,7 @@ impl Component {
 			tracing::warn!(sandbox = %id, "giving up a sandbox that the server took over");
 			tokio::spawn(async move {
 				let result = async {
-					control_sender.send_request(request).await?.await??;
+					let _response = control_sender.send_request(request).await?.await??;
 					Ok::<_, tg::Error>(())
 				}
 				.await;

@@ -882,28 +882,19 @@ impl Component {
 			is_ack: |message: &crate::control::ClientMessage| {
 				matches!(message.0, tg::process::control::ClientMessage::Ack(_))
 			},
-			is_deferral: |message: &crate::control::ClientMessage| match &message.0 {
-				tg::process::control::ClientMessage::Response(
-					tg::process::control::ClientResponse {
-						id,
-						output: Some(output),
-						..
-					},
-				) if output.is_deferral() => Some(id.clone()),
-				_ => None,
-			},
 			marker: std::marker::PhantomData,
 			options,
 			request,
 			resend,
 			response: |message: crate::control::ClientMessage| match message.0 {
 				tg::process::control::ClientMessage::Response(response) => {
-					let result = if let Some(error) = response.error {
-						Err(tg::Error::try_from(error)?)
-					} else {
-						Ok(())
+					let id = response.id.clone();
+					let response = match response.into_result() {
+						Ok(ControlFlow::Break(_)) => ControlFlow::Break(Ok(())),
+						Ok(ControlFlow::Continue(retry)) => ControlFlow::Continue(retry),
+						Err(error) => ControlFlow::Break(Err(error)),
 					};
-					Ok(Some((response.id, result)))
+					Ok(Some((id, response)))
 				},
 				_ => Ok(None),
 			},

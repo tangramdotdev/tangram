@@ -262,9 +262,13 @@ impl Component {
 			.runner
 			.try_get_sandbox_control_runner(&sandbox, location)
 		{
-			control_sender.request(request).await.map_err(
+			let response = control_sender.request(request).await.map_err(
 				|error| tg::error!(!error, %sandbox, process = %id, "the spawn process request failed"),
-			)?
+			)?;
+			let std::ops::ControlFlow::Break(response) = response else {
+				return Err(tg::error!(%sandbox, process = %id, "the sandbox is not started"));
+			};
+			response
 		} else {
 			// Subscribe before sending the request, so that a stop or destroy between the request and the wait cannot be missed.
 			let mut wakeups = session

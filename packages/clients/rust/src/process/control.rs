@@ -7,6 +7,8 @@ use {
 	tangram_util::serde::is_default,
 };
 
+pub type ClientResponse = tg::control::Response<ClientResponseOutput, tg::control::Retry>;
+
 mod connection;
 
 pub use connection::{Connection, Priority, Response, Sender};
@@ -308,25 +310,6 @@ pub struct SandboxCreate {
 #[derive(
 	Clone,
 	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ClientResponse {
-	#[tangram_serialize(id = 1)]
-	pub error: Option<tg::error::Data>,
-
-	#[tangram_serialize(id = 0)]
-	pub id: String,
-
-	#[tangram_serialize(id = 2)]
-	pub output: Option<ClientResponseOutput>,
-}
-
-#[derive(
-	Clone,
-	Debug,
 	derive_more::TryUnwrap,
 	serde::Deserialize,
 	serde::Serialize,
@@ -346,14 +329,6 @@ pub enum ClientResponseOutput {
 
 	#[tangram_serialize(id = 8)]
 	GetChildren(GetChildrenClientResponseOutput),
-
-	/// The responder does not hold the process, so the request did nothing.
-	#[tangram_serialize(id = 9)]
-	NotHolder(NotHolderClientResponseOutput),
-
-	/// The responder holds the process but cannot act on the request until the process starts, so the request did nothing.
-	#[tangram_serialize(id = 10)]
-	NotReady(NotReadyClientResponseOutput),
 
 	#[tangram_serialize(id = 0)]
 	Open(OpenClientResponseOutput),
@@ -429,26 +404,6 @@ pub struct GetChildrenClientResponseOutput {
 	#[tangram_serialize(id = 2)]
 	pub status: tg::process::Status,
 }
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct NotHolderClientResponseOutput {}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct NotReadyClientResponseOutput {}
 
 #[derive(
 	Clone,
@@ -762,14 +717,6 @@ pub struct Config {
 	pub max_untracked_messages: usize,
 	pub message_capacity: usize,
 	pub resend_interval: Duration,
-}
-
-impl ClientResponseOutput {
-	/// Whether the reply defers the request, because the responder does not hold the process or cannot act on the request until the process starts, so that the request is sent again.
-	#[must_use]
-	pub fn is_deferral(&self) -> bool {
-		matches!(self, Self::NotHolder(_) | Self::NotReady(_))
-	}
 }
 
 impl Config {

@@ -1,6 +1,7 @@
 use {
 	crate::Server,
 	futures::{FutureExt as _, StreamExt as _},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_messenger::{Messenger as _, Payload},
 };
@@ -33,7 +34,11 @@ impl Server {
 			Response,
 			impl Fn(String) -> O + Clone + Send + Sync + 'static,
 			impl Fn(&I) -> bool + Clone + Send + Sync + 'static,
-			impl Fn(I) -> tg::Result<Option<(String, Response)>> + Clone + Send + Sync + 'static,
+			impl Fn(I) -> tg::Result<Option<(String, ControlFlow<Response, tg::control::Retry>)>>
+			+ Clone
+			+ Send
+			+ Sync
+			+ 'static,
 		>,
 	) -> tg::Result<Response>
 	where
@@ -52,7 +57,11 @@ impl Server {
 			Response,
 			impl Fn(String) -> O + Clone + Send + Sync + 'static,
 			impl Fn(&I) -> bool + Clone + Send + Sync + 'static,
-			impl Fn(I) -> tg::Result<Option<(String, Response)>> + Clone + Send + Sync + 'static,
+			impl Fn(I) -> tg::Result<Option<(String, ControlFlow<Response, tg::control::Retry>)>>
+			+ Clone
+			+ Send
+			+ Sync
+			+ 'static,
 		>,
 	) -> tg::Result<futures::future::BoxFuture<'static, tg::Result<Response>>>
 	where
@@ -64,7 +73,6 @@ impl Server {
 			ack,
 			client_subject,
 			is_ack,
-			is_deferral,
 			marker: _,
 			options,
 			request,
@@ -91,19 +99,19 @@ impl Server {
 
 			let mut acknowledged = false;
 			let mut initial = true;
-			let mut deferral = None;
-			let mut deferral_delay = retry.backoff;
-			let mut deferral_waited = false;
+			let mut retry_after = None;
+			let mut retry_delay = retry.backoff;
+			let mut retry_waited = false;
 			let max_delay = retry.max_delay;
 			let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
 			loop {
-				// After a response that defers the request, from a server that does not hold the item or that cannot act on the request until the item starts, wait for a holder's response before sending the request again, without spending a retry, because the response shows that a handoff or a start is in progress.
+				// After a response that asks for the request again, from a server that does not hold the item or that cannot act on the request until the item starts, wait for a holder's response before sending the request again, without spending a retry, because the response shows that a handoff or a start is in progress.
 				let mut timeout = timeout;
-				if let Some(delay) = deferral.take() {
+				if let Some(delay) = retry_after.take() {
 					timeout = delay;
-					deferral_waited = true;
-				} else if deferral_waited && !acknowledged {
-					deferral_waited = false;
+					retry_waited = true;
+				} else if retry_waited && !acknowledged {
+					retry_waited = false;
 					server
 						.messenger
 						.publish(server_subject.clone(), request.clone())
@@ -136,13 +144,18 @@ impl Server {
 						if is_ack(&message.payload) {
 							return Ok::<_, tg::Error>(ReceiveControlRequestOutput::Ack);
 						}
-						if let Some(id) = is_deferral(&message.payload) {
-							return Ok(ReceiveControlRequestOutput::Deferral { id });
-						}
 						let Some((id, response)) = response(message.payload)? else {
 							continue;
 						};
-						return Ok(ReceiveControlRequestOutput::Response { id, response });
+						let output = match response {
+							ControlFlow::Break(response) => {
+								ReceiveControlRequestOutput::Response { id, response }
+							},
+							ControlFlow::Continue(retry) => {
+								ReceiveControlRequestOutput::Retry { id, retry }
+							},
+						};
+						return Ok(output);
 					}
 				};
 
@@ -159,7 +172,7 @@ impl Server {
 
 				match result {
 					Ok(Ok(ReceiveControlRequestOutput::Ack)) => acknowledged = true,
-					Ok(Ok(ReceiveControlRequestOutput::Deferral { id })) => {
+					Ok(Ok(ReceiveControlRequestOutput::Retry { id, retry: _ })) => {
 						let ack = ack(id);
 						server
 							.messenger
@@ -169,8 +182,8 @@ impl Server {
 								tg::error!(!source, "failed to acknowledge the control response")
 							})?;
 						acknowledged = false;
-						deferral = Some(deferral_delay);
-						deferral_delay = (deferral_delay * 2).min(max_delay);
+						retry_after = Some(retry_delay);
+						retry_delay = (retry_delay * 2).min(max_delay);
 					},
 					Ok(Ok(ReceiveControlRequestOutput::Response { id, response })) => {
 						let ack = ack(id);

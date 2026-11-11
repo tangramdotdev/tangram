@@ -3,6 +3,7 @@ use {
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future},
 	std::{
 		fmt::{Debug, Display},
+		ops::ControlFlow,
 		sync::{Arc, RwLock},
 		time::Duration,
 	},
@@ -217,7 +218,6 @@ pub async fn send<K: Kind>(
 		ack: |id| ServerMessage::Ack(Ack { id }),
 		client_subject: client_subject::<K>(request_id),
 		is_ack: |message: &ClientMessage<K::Output>| matches!(message, ClientMessage::Ack(_)),
-		is_deferral: |_| None,
 		marker: std::marker::PhantomData,
 		options,
 		request,
@@ -230,14 +230,14 @@ pub async fn send<K: Kind>(
 					let error = tg::Error::try_from(error).map_err(|source| {
 						tg::error!(!source, "failed to deserialize the {name} error")
 					})?;
-					return Ok(Some((message.id, Some(Err(error)))));
+					return Ok(Some((message.id, ControlFlow::Break(Some(Err(error))))));
 				}
 				let Some(output) = message.output else {
 					return Err(tg::error!("missing {name} response output"));
 				};
-				Ok(Some((message.id, Some(Ok(output)))))
+				Ok(Some((message.id, ControlFlow::Break(Some(Ok(output))))))
 			},
-			ClientMessage::Unavailable(message) => Ok(Some((message.id, None))),
+			ClientMessage::Unavailable(message) => Ok(Some((message.id, ControlFlow::Break(None)))),
 		},
 		server_subject: server_subject::<K>(id),
 	};
