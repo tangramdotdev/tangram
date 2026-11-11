@@ -28,8 +28,8 @@ pub struct Arg<'a, Request> {
 
 	pub request: Request,
 
-	/// The status wakeups, each of which reads the item from the index again.
-	pub wakeups: Option<&'a mut BoxStream<'static, ()>>,
+	/// The status wakeups, each of which reads the item from the index again and sends the request again, because the item may have a new holder.
+	pub wakeups: &'a mut BoxStream<'static, ()>,
 }
 
 pub struct Output<Indexed, Reply> {
@@ -38,6 +38,9 @@ pub struct Output<Indexed, Reply> {
 
 	/// The holder's reply, if the holder replied before the index answered.
 	pub reply: Option<tg::Result<Reply>>,
+
+	/// Whether a status wakeup arrived during the request, so that a caller that follows the item reads again instead of waiting for the next wakeup.
+	pub woken: bool,
 }
 
 /// Whether a request to a holder is a read or a write.
@@ -94,7 +97,7 @@ pub trait Item: Sync {
 		request: Self::Request,
 		id: String,
 		options: crate::control::Options,
-		resend: Option<BoxStream<'static, ()>>,
+		resend: BoxStream<'static, ()>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>>;
 
 	/// The state of the item's record in the index.
@@ -116,7 +119,7 @@ pub async fn request<'c, I: Item>(
 		mode,
 		options,
 		request,
-		mut wakeups,
+		wakeups,
 	} = arg;
 
 	// Read the item from the index, and then hit the request's index checkpoint.
@@ -136,10 +139,9 @@ pub async fn request<'c, I: Item>(
 
 	// Send the request to the holder, and send it again on each status wakeup, because the item may have a new holder.
 	let (resend_sender, resend_receiver) = tokio::sync::watch::channel(());
-	let resend = wakeups
-		.is_some()
-		.then(|| tokio_stream::wrappers::WatchStream::from_changes(resend_receiver).boxed());
+	let resend = tokio_stream::wrappers::WatchStream::from_changes(resend_receiver).boxed();
 	let mut request_future = item.send(request, id, options, resend);
+	let mut woken = false;
 
 	loop {
 		// A read waits for the holder until the deadline, and a write does so only if the index does not have the item, because only a holder can then show that the item exists.
@@ -165,6 +167,7 @@ pub async fn request<'c, I: Item>(
 					let output = Output {
 						indexed: result,
 						reply: None,
+						woken,
 					};
 					return Ok(Some(output));
 				}
@@ -202,6 +205,7 @@ pub async fn request<'c, I: Item>(
 				let output = Output {
 					indexed,
 					reply: Some(reply),
+					woken,
 				};
 				return Ok(Some(output));
 			},
@@ -215,16 +219,18 @@ pub async fn request<'c, I: Item>(
 				let output = Output {
 					indexed,
 					reply: None,
+					woken,
 				};
 				return Ok(Some(output));
 			},
 
-			wakeup = async { wakeups.as_mut().unwrap().next().await }, if wakeups.is_some() => {
+			wakeup = wakeups.next() => {
 				if wakeup.is_none() {
 					return Ok(None);
 				}
 
 				// Read the item from the index again, and send the request again, because its status changed and the item may have a new holder.
+				woken = true;
 				index_future = Some(index());
 				resend_sender.send_replace(());
 			},

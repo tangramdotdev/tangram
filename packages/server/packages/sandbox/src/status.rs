@@ -19,6 +19,22 @@ use {
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
+/// A sandbox's data that a principal observes.
+pub(super) struct Observation {
+	pub data: tg::sandbox::Data,
+
+	/// Whether the sandbox's status changed during the read, so that a stream that follows the sandbox reads it again.
+	pub woken: bool,
+}
+
+/// A sandbox's data from its holder or the index.
+struct DataOutput {
+	data: Option<tg::sandbox::Data>,
+
+	/// Whether the sandbox's status changed during the read, so that a stream that follows the sandbox reads it again.
+	woken: bool,
+}
+
 impl Component {
 	pub async fn try_get_sandbox_status_stream(
 		&self,
@@ -133,34 +149,24 @@ impl Component {
 			)
 		};
 		let deadline = session.server.control_read_deadline();
-		let initial = loop {
-			tokio::select! {
-				output = self.try_get_sandbox_observation_local(
-					session,
-					id,
-					arg.tokens.local_authorization(),
-					deadline,
-					exhaustive,
-				) => break output?,
-				wakeup = async {
-					match &mut wakeups {
-						Some(wakeups) => wakeups.next().await,
-						None => std::future::pending().await,
-					}
-				} => {
-					if wakeup.is_none() { return Ok(None); }
-				},
-			}
-		};
-		let Some(sandbox) = initial else {
+		let Some(observation) = self
+			.try_get_sandbox_observation_local(
+				session,
+				id,
+				arg.tokens.local_authorization(),
+				deadline,
+				exhaustive,
+				wakeups.as_mut(),
+			)
+			.await?
+		else {
 			return Ok(None);
 		};
-		let stream = self.create_sandbox_status_stream_local_with_wakeups(
-			session,
-			id,
-			Some(sandbox),
-			wakeups,
-		);
+
+		// Read the sandbox again in the stream if its status changed during the read and the stream follows the sandbox.
+		let initial = (!(observation.woken && wakeups.is_some())).then_some(observation.data);
+		let stream =
+			self.create_sandbox_status_stream_local_with_wakeups(session, id, initial, wakeups);
 
 		Ok(Some(stream))
 	}
@@ -286,20 +292,32 @@ impl Component {
 		tokens: &[tg::authorization::Token],
 		deadline: tokio::time::Instant,
 		exhaustive: bool,
-	) -> tg::Result<Option<tg::sandbox::Data>> {
+		wakeups: Option<&mut BoxStream<'static, ()>>,
+	) -> tg::Result<Option<Observation>> {
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Node,
 		);
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let authorize_future = session.authorize_with_exhaustive(resource, permission, exhaustive);
-		let get_future = self.try_get_sandbox_data_local(session, id, deadline);
+		let get_future = self.try_get_sandbox_data_local(session, id, deadline, wakeups);
 		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
 		let permissions = permissions.check_exhaustion()?;
 
 		if !permissions.permissions.contains(permission) {
 			return Ok(None);
 		}
-		Ok(output)
+
+		// Return nothing if the wakeups ended or the sandbox was not found.
+		let Some(DataOutput {
+			data: Some(data),
+			woken,
+		}) = output
+		else {
+			return Ok(None);
+		};
+		let observation = Observation { data, woken };
+
+		Ok(Some(observation))
 	}
 
 	pub fn create_sandbox_status_stream_local_with_wakeups(
@@ -401,28 +419,24 @@ impl Component {
 		mut wakeups: Option<BoxStream<'static, ()>>,
 	) -> tg::Result<()> {
 		loop {
+			// Read the sandbox, and stop if the wakeups ended during the read.
 			let deadline = session.server.control_read_deadline();
-			let data = if let Some(initial) = initial.take() {
-				Some(initial)
+			let (data, woken) = if let Some(initial) = initial.take() {
+				(Some(initial), false)
 			} else {
-				match &mut wakeups {
-					None => {
-						self.try_get_sandbox_data_local(session, id, deadline)
-							.await?
-					},
-					Some(wakeups) => loop {
-						tokio::select! {
-							result = self.try_get_sandbox_data_local(session, id, deadline) => break result?,
-							wakeup = wakeups.next() => {
-								if wakeup.is_none() { return Ok(()); }
-							},
-						}
-					},
-				}
-			}
-			.ok_or_else(
+				let Some(output) = self
+					.try_get_sandbox_data_local(session, id, deadline, wakeups.as_mut())
+					.await?
+				else {
+					return Ok(());
+				};
+				(output.data, output.woken)
+			};
+			let data = data.ok_or_else(
 				|| tg::error!(%id, "failed to find the sandbox while observing its status"),
 			)?;
+
+			// Send the data, and stop if the sandbox was destroyed or the stream does not follow the sandbox.
 			let finished = data.status.is_destroyed();
 			if sender.send(Ok(data)).await.is_err() || finished {
 				return Ok(());
@@ -430,51 +444,70 @@ impl Component {
 			let Some(wakeups) = &mut wakeups else {
 				return Ok(());
 			};
-			if wakeups.next().await.is_none() {
+
+			// Wait for the next wakeup, unless the sandbox's status changed during the read.
+			if !woken && wakeups.next().await.is_none() {
 				return Ok(());
 			}
 		}
 	}
 
+	/// Get a sandbox's data from its holder or the index, sending the request to the holder again on each of the given wakeups, or on the sandbox's status wakeups if none are given. Returns `None` if the wakeups end.
 	async fn try_get_sandbox_data_local(
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
 		deadline: tokio::time::Instant,
-	) -> tg::Result<Option<tg::sandbox::Data>> {
+		wakeups: Option<&mut BoxStream<'static, ()>>,
+	) -> tg::Result<Option<DataOutput>> {
+		// Subscribe to the sandbox's status if the caller does not follow the sandbox, so that the request is sent again to a holder that starts the sandbox during the read.
+		let mut subscription = None;
+		let wakeups = if let Some(wakeups) = wakeups {
+			wakeups
+		} else {
+			let wakeups = self
+				.create_sandbox_status_wakeup_stream(session, id, None, None)
+				.await?;
+			subscription.insert(wakeups)
+		};
+
+		// Get the sandbox from its holder or the index.
 		let arg = Self::get_sandbox_holder_arg(
 			session,
 			deadline,
 			tangram_server_core::control::id(),
 			true,
+			wakeups,
 		);
-		let output = self
+		let Some(output) = self
 			.request_sandbox_holder(session, id, arg, |_| false)
 			.boxed()
 			.await?
-			.ok_or_else(|| tg::error!("the sandbox status wakeup stream ended"))?;
+		else {
+			return Ok(None);
+		};
+		let woken = output.woken;
 		let control = output
 			.reply
 			.and_then(Result::ok)
 			.and_then(|reply| Self::try_get_sandbox_from_holder_reply(session, reply));
-		if let Some(output) = control {
-			return Ok(Some(output.data));
-		}
-		let Some(sandbox) = output.indexed else {
-			return Ok(None);
+		let data = match (control, output.indexed) {
+			(Some(output), _) => Some(output.data),
+			(None, Some(sandbox)) => {
+				let remote = sandbox
+					.location
+					.as_ref()
+					.is_some_and(tg::Location::is_remote);
+				sandbox
+					.data
+					.filter(|output| output.data.status.is_destroyed() || !remote)
+					.map(|output| output.data)
+			},
+			(None, None) => None,
 		};
-		let Some(output) = sandbox.data else {
-			return Ok(None);
-		};
-		if !output.data.status.is_destroyed()
-			&& sandbox
-				.location
-				.as_ref()
-				.is_some_and(tg::Location::is_remote)
-		{
-			return Ok(None);
-		}
-		Ok(Some(output.data))
+		let output = DataOutput { data, woken };
+
+		Ok(Some(output))
 	}
 
 	async fn try_get_sandbox_status_stream_regions(

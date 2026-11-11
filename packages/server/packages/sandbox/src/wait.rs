@@ -144,20 +144,23 @@ impl Component {
 			.create_sandbox_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
 			.await?;
 		let deadline = session.server.control_read_deadline();
-		let sandbox = loop {
-			tokio::select! {
-				output = self.try_get_sandbox_observation_local(session, id, tokens, deadline, exhaustive) => break output?,
-				wakeup = wakeups.next() => {
-					if wakeup.is_none() { return Ok(None); }
-				},
-			}
-		};
-		let Some(sandbox) = sandbox else {
+		let Some(observation) = self
+			.try_get_sandbox_observation_local(
+				session,
+				id,
+				tokens,
+				deadline,
+				exhaustive,
+				Some(&mut wakeups),
+			)
+			.await?
+		else {
 			return Ok(None);
 		};
 
-		let mut stream =
-			self.create_sandbox_data_stream_local(session, id, Some(sandbox), Some(wakeups));
+		// Read the sandbox again in the stream if its status changed during the read.
+		let initial = (!observation.woken).then_some(observation.data);
+		let mut stream = self.create_sandbox_data_stream_local(session, id, initial, Some(wakeups));
 		let future = async move {
 			let data = loop {
 				let data = stream.try_next().await?.ok_or_else(|| {

@@ -225,7 +225,7 @@ impl tangram_server_core::holder::Item for Item<'_> {
 		request: Self::Request,
 		id: String,
 		options: tangram_server_core::control::Options,
-		resend: Option<BoxStream<'static, ()>>,
+		resend: BoxStream<'static, ()>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>> {
 		let destroy = matches!(request, tg::sandbox::control::ServerRequestArg::Destroy(_));
 		let get = matches!(request, tg::sandbox::control::ServerRequestArg::Get(_));
@@ -236,7 +236,7 @@ impl tangram_server_core::holder::Item for Item<'_> {
 			}
 			let output = async {
 				self.component
-					.send_sandbox_control_request(self.session, self.id, id, request, options, resend)
+					.send_sandbox_control_request(self.session, self.id, id, request, options, Some(resend))
 					.boxed()
 					.await?
 					.await?

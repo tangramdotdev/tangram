@@ -174,7 +174,7 @@ impl Component {
 				mode: tangram_server_core::holder::Mode::Write,
 				options,
 				request,
-				wakeups: Some(&mut wakeups),
+				wakeups: &mut wakeups,
 			};
 			let mut output = self
 				.request_sandbox_holder(session, id, holder_arg, |_| false)

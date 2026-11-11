@@ -19,12 +19,20 @@ use {
 
 struct Output {
 	control: Option<tg::process::control::GetChildrenClientResponseOutput>,
+
 	indexed: Option<tangram_index::process::Process>,
+
+	/// Whether the process's status or children changed during the read, so that a stream that follows the process reads them again.
+	woken: bool,
 }
 
 struct LocalChildren {
 	children: Vec<tg::process::data::Child>,
+
 	status: tg::process::Status,
+
+	/// Whether the process's status or children changed during the read, so that a stream that follows the process reads them again.
+	woken: bool,
 }
 
 struct GetProcessChildrenLocalArg<'a> {
@@ -33,6 +41,7 @@ struct GetProcessChildrenLocalArg<'a> {
 	initial: Option<Output>,
 	length: u64,
 	position: u64,
+	wakeups: Option<&'a mut BoxStream<'static, ()>>,
 }
 
 impl Component {
@@ -383,27 +392,27 @@ impl Component {
 			std::io::SeekFrom::Current(_) | std::io::SeekFrom::End(_) => (0, 0),
 		};
 		let deadline = session.server.control_read_deadline();
-		let output = loop {
-			tokio::select! {
-				output = self.get_process_children_local_inner(session, id, start, length, deadline) => break output?,
-				wakeup = async {
-					match &mut wakeups {
-						Some(wakeups) => wakeups.next().await,
-						None => std::future::pending().await,
-					}
-				} => {
-					if wakeup.is_none() {
-						return Ok(None);
-					}
-				},
-			}
+		let Some(output) = self
+			.get_process_children_local_inner(
+				session,
+				id,
+				start,
+				length,
+				deadline,
+				wakeups.as_mut(),
+			)
+			.await?
+		else {
+			return Ok(None);
 		};
 		if output.control.is_none() && output.indexed.is_none() {
 			return Ok(None);
 		}
+
+		// Read the children again in the stream if they changed during the read and the stream follows the process.
 		let mut arg = arg;
 		let initial = match position {
-			std::io::SeekFrom::Start(_) => Some(output),
+			std::io::SeekFrom::Start(_) => (!(output.woken && wakeups.is_some())).then_some(output),
 			std::io::SeekFrom::Current(seek) | std::io::SeekFrom::End(seek) => {
 				let length = if let Some(control) = &output.control {
 					control.length
@@ -458,11 +467,18 @@ impl Component {
 		position: u64,
 		length: u64,
 		deadline: tokio::time::Instant,
-	) -> tg::Result<Output> {
-		// Subscribe to the process's status, so that the request is sent again to a holder that starts the process during the read.
-		let mut wakeups = self
-			.create_process_status_wakeup_stream(session, id, None, None)
-			.await?;
+		wakeups: Option<&mut BoxStream<'static, ()>>,
+	) -> tg::Result<Option<Output>> {
+		// Subscribe to the process's status if the caller does not follow the process, so that the request is sent again to a holder that starts the process during the read.
+		let mut subscription = None;
+		let wakeups = if let Some(wakeups) = wakeups {
+			wakeups
+		} else {
+			let wakeups = self
+				.create_process_status_wakeup_stream(session, id, None, None)
+				.await?;
+			subscription.insert(wakeups)
+		};
 
 		// Get the children from the process's holder or the index, which answers for a process that has its children or that is starting.
 		let request = tg::process::control::ServerRequestArg::GetChildren(
@@ -479,13 +495,16 @@ impl Component {
 			mode: tangram_server_core::holder::Mode::Read,
 			options,
 			request,
-			wakeups: Some(&mut wakeups),
+			wakeups,
 		};
-		let output = self
+		let Some(output) = self
 			.request_process_holder(session, id, arg, |_| false)
 			.boxed()
 			.await?
-			.ok_or_else(|| tg::error!("the process status wakeup stream ended"))?;
+		else {
+			return Ok(None);
+		};
+		let woken = output.woken;
 		let control = output
 			.reply
 			.and_then(Result::ok)
@@ -495,9 +514,13 @@ impl Component {
 		} else {
 			output.indexed.map(|(process, _)| process)
 		};
-		let output = Output { control, indexed };
+		let output = Output {
+			control,
+			indexed,
+			woken,
+		};
 
-		Ok(output)
+		Ok(Some(output))
 	}
 
 	async fn try_get_process_children_local_task(
@@ -521,6 +544,7 @@ impl Component {
 		// Send the events.
 		loop {
 			// Send as many data events as possible.
+			let mut woken = false;
 			let status = loop {
 				// Determine the size.
 				let size = match arg.length {
@@ -530,28 +554,21 @@ impl Component {
 
 				// Read the chunk.
 				let deadline = session.server.control_read_deadline();
-				let output = loop {
-					let children_arg = GetProcessChildrenLocalArg {
-						deadline,
-						id,
-						initial: initial.take(),
-						length: size,
-						position,
-					};
-					tokio::select! {
-						output = self.get_process_children_local(session, children_arg) => break output?,
-						wakeup = async {
-							match &mut wakeups {
-								Some(wakeups) => wakeups.next().await,
-								None => std::future::pending().await,
-							}
-						} => {
-							if wakeup.is_none() {
-								return Ok(());
-							}
-						},
-					}
+				let children_arg = GetProcessChildrenLocalArg {
+					deadline,
+					id,
+					initial: initial.take(),
+					length: size,
+					position,
+					wakeups: wakeups.as_mut(),
 				};
+				let Some(output) = self
+					.get_process_children_local(session, children_arg)
+					.await?
+				else {
+					return Ok(());
+				};
+				woken |= output.woken;
 
 				// If the chunk is empty, then break.
 				if output.children.is_empty() {
@@ -593,7 +610,7 @@ impl Component {
 				break;
 			}
 
-			// Wait for an event before returning to the top of the loop.
+			// Wait for an event before returning to the top of the loop, unless the process's status or children changed during a read.
 			let Some(wakeups) = &mut wakeups else {
 				sender
 					.send(Ok(tg::process::children::get::Event::End))
@@ -601,7 +618,7 @@ impl Component {
 					.ok();
 				break;
 			};
-			if wakeups.next().await.is_none() {
+			if !woken && wakeups.next().await.is_none() {
 				break;
 			}
 		}
@@ -613,26 +630,36 @@ impl Component {
 		&self,
 		session: &Session,
 		arg: GetProcessChildrenLocalArg<'_>,
-	) -> tg::Result<LocalChildren> {
+	) -> tg::Result<Option<LocalChildren>> {
 		let GetProcessChildrenLocalArg {
 			deadline,
 			id,
 			initial,
 			length,
 			position,
+			wakeups,
 		} = arg;
-		let output = match initial {
-			Some(output) => output,
-			None => {
-				self.get_process_children_local_inner(session, id, position, length, deadline)
-					.await?
-			},
+		let output = if let Some(output) = initial {
+			output
+		} else {
+			let Some(output) = self
+				.get_process_children_local_inner(session, id, position, length, deadline, wakeups)
+				.await?
+			else {
+				return Ok(None);
+			};
+			output
 		};
+		let woken = output.woken;
 		if let Some(output) = output.control {
 			let children = output.children;
 			let status = output.status;
-			let output = LocalChildren { children, status };
-			return Ok(output);
+			let output = LocalChildren {
+				children,
+				status,
+				woken,
+			};
+			return Ok(Some(output));
 		}
 		let process = output
 			.indexed
@@ -647,9 +674,13 @@ impl Component {
 			.try_get_process_children(id, std::io::SeekFrom::Start(position), length)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		let output = LocalChildren { children, status };
+		let output = LocalChildren {
+			children,
+			status,
+			woken,
+		};
 
-		Ok(output)
+		Ok(Some(output))
 	}
 
 	async fn try_get_process_children_regions(

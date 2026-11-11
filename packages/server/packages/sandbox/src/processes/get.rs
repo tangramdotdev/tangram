@@ -20,7 +20,11 @@ use {
 /// The processes of a sandbox from its holder and from the index.
 struct Output {
 	control: Option<tg::sandbox::control::GetProcessesClientResponseOutput>,
+
 	indexed: Option<tangram_index::sandbox::Sandbox>,
+
+	/// Whether the sandbox's status or processes changed during the read, so that a stream that follows the sandbox reads them again.
+	woken: bool,
 }
 
 struct GetSandboxProcessesLocalArg<'a> {
@@ -29,11 +33,16 @@ struct GetSandboxProcessesLocalArg<'a> {
 	initial: Option<Output>,
 	length: u64,
 	position: u64,
+	wakeups: Option<&'a mut BoxStream<'static, ()>>,
 }
 
 struct LocalProcesses {
 	processes: Vec<tg::process::Id>,
+
 	status: tg::sandbox::Status,
+
+	/// Whether the sandbox's status or processes changed during the read, so that a stream that follows the sandbox reads them again.
+	woken: bool,
 }
 
 impl Component {
@@ -345,27 +354,27 @@ impl Component {
 			std::io::SeekFrom::Current(_) | std::io::SeekFrom::End(_) => (0, 0),
 		};
 		let deadline = session.server.control_read_deadline();
-		let output = loop {
-			tokio::select! {
-				output = self.get_sandbox_processes_local_inner(session, id, start, length, deadline) => break output?,
-				wakeup = async {
-					match &mut wakeups {
-						Some(wakeups) => wakeups.next().await,
-						None => std::future::pending().await,
-					}
-				} => {
-					if wakeup.is_none() {
-						return Ok(None);
-					}
-				},
-			}
+		let Some(output) = self
+			.get_sandbox_processes_local_inner(
+				session,
+				id,
+				start,
+				length,
+				deadline,
+				wakeups.as_mut(),
+			)
+			.await?
+		else {
+			return Ok(None);
 		};
 		if output.control.is_none() && output.indexed.is_none() {
 			return Ok(None);
 		}
+
+		// Read the processes again in the stream if they changed during the read and the stream follows the sandbox.
 		let mut arg = arg;
 		let initial = match position {
-			std::io::SeekFrom::Start(_) => Some(output),
+			std::io::SeekFrom::Start(_) => (!(output.woken && wakeups.is_some())).then_some(output),
 			std::io::SeekFrom::Current(seek) | std::io::SeekFrom::End(seek) => {
 				let length = if let Some(control) = &output.control {
 					control.length
@@ -420,7 +429,20 @@ impl Component {
 		position: u64,
 		length: u64,
 		deadline: tokio::time::Instant,
-	) -> tg::Result<Output> {
+		wakeups: Option<&mut BoxStream<'static, ()>>,
+	) -> tg::Result<Option<Output>> {
+		// Subscribe to the sandbox's status if the caller does not follow the sandbox, so that the request is sent again to a holder that starts the sandbox during the read.
+		let mut subscription = None;
+		let wakeups = if let Some(wakeups) = wakeups {
+			wakeups
+		} else {
+			let wakeups = self
+				.create_sandbox_status_wakeup_stream(session, id, None, None)
+				.await?;
+			subscription.insert(wakeups)
+		};
+
+		// Get the processes from the sandbox's holder or the index.
 		let request = tg::sandbox::control::ServerRequestArg::GetProcesses(
 			tg::sandbox::control::GetProcessesServerRequestArg { length, position },
 		);
@@ -435,13 +457,16 @@ impl Component {
 			mode: tangram_server_core::holder::Mode::Read,
 			options,
 			request,
-			wakeups: None,
+			wakeups,
 		};
-		let output = self
+		let Some(output) = self
 			.request_sandbox_holder(session, id, arg, |_| false)
 			.boxed()
 			.await?
-			.ok_or_else(|| tg::error!("the sandbox status wakeup stream ended"))?;
+		else {
+			return Ok(None);
+		};
+		let woken = output.woken;
 		let control = output
 			.reply
 			.and_then(Result::ok)
@@ -449,9 +474,10 @@ impl Component {
 		let output = Output {
 			control,
 			indexed: output.indexed,
+			woken,
 		};
 
-		Ok(output)
+		Ok(Some(output))
 	}
 
 	async fn try_get_sandbox_processes_local_task(
@@ -475,6 +501,7 @@ impl Component {
 		// Send the events.
 		loop {
 			// Send as many data events as possible.
+			let mut woken = false;
 			let status = loop {
 				// Determine the size.
 				let size = match arg.length {
@@ -484,28 +511,19 @@ impl Component {
 
 				// Read the chunk.
 				let deadline = session.server.control_read_deadline();
-				let output = loop {
-					let local_arg = GetSandboxProcessesLocalArg {
-						deadline,
-						id,
-						initial: initial.take(),
-						length: size,
-						position,
-					};
-					tokio::select! {
-						output = self.get_sandbox_processes_local(session, local_arg) => break output?,
-						wakeup = async {
-							match &mut wakeups {
-								Some(wakeups) => wakeups.next().await,
-								None => std::future::pending().await,
-							}
-						} => {
-							if wakeup.is_none() {
-								return Ok(());
-							}
-						},
-					}
+				let local_arg = GetSandboxProcessesLocalArg {
+					deadline,
+					id,
+					initial: initial.take(),
+					length: size,
+					position,
+					wakeups: wakeups.as_mut(),
 				};
+				let Some(output) = self.get_sandbox_processes_local(session, local_arg).await?
+				else {
+					return Ok(());
+				};
+				woken |= output.woken;
 
 				// If the chunk is empty, then break.
 				if output.processes.is_empty() {
@@ -544,7 +562,7 @@ impl Component {
 				break;
 			}
 
-			// Wait for an event before returning to the top of the loop.
+			// Wait for an event before returning to the top of the loop, unless the sandbox's status or processes changed during a read.
 			let Some(wakeups) = &mut wakeups else {
 				sender
 					.send(Ok(tg::sandbox::processes::get::Event::End))
@@ -552,7 +570,7 @@ impl Component {
 					.ok();
 				break;
 			};
-			if wakeups.next().await.is_none() {
+			if !woken && wakeups.next().await.is_none() {
 				break;
 			}
 		}
@@ -564,27 +582,34 @@ impl Component {
 		&self,
 		session: &Session,
 		arg: GetSandboxProcessesLocalArg<'_>,
-	) -> tg::Result<LocalProcesses> {
+	) -> tg::Result<Option<LocalProcesses>> {
 		let GetSandboxProcessesLocalArg {
 			deadline,
 			id,
 			initial,
 			length,
 			position,
+			wakeups,
 		} = arg;
-		let output = match initial {
-			Some(output) => output,
-			None => {
-				self.get_sandbox_processes_local_inner(session, id, position, length, deadline)
-					.await?
-			},
+		let output = if let Some(output) = initial {
+			output
+		} else {
+			let Some(output) = self
+				.get_sandbox_processes_local_inner(session, id, position, length, deadline, wakeups)
+				.await?
+			else {
+				return Ok(None);
+			};
+			output
 		};
+		let woken = output.woken;
 		if let Some(output) = output.control {
 			let output = LocalProcesses {
 				processes: output.processes,
 				status: output.status,
+				woken,
 			};
-			return Ok(output);
+			return Ok(Some(output));
 		}
 		let sandbox = output
 			.indexed
@@ -600,8 +625,13 @@ impl Component {
 			.try_get_sandbox_processes(id, std::io::SeekFrom::Start(position), length)
 			.await?
 			.ok_or_else(|| tg::error!("missing the sandbox processes"))?;
-		let output = LocalProcesses { processes, status };
-		Ok(output)
+		let output = LocalProcesses {
+			processes,
+			status,
+			woken,
+		};
+
+		Ok(Some(output))
 	}
 
 	async fn try_get_sandbox_processes_regions(

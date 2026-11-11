@@ -1,6 +1,9 @@
 use {
 	crate::Component,
-	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
+	futures::{
+		FutureExt as _, StreamExt as _,
+		stream::{BoxStream, FuturesUnordered},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{
@@ -243,11 +246,8 @@ impl Component {
 
 		// Get the sandbox from its holder or the index. A destroyed sandbox requires the index.
 		let deadline = session.server.control_read_deadline();
-		let arg = Self::get_sandbox_holder_arg(session, deadline, request_id, exhaustive);
-		let arg = crate::holder::Arg {
-			wakeups: Some(&mut wakeups),
-			..arg
-		};
+		let arg =
+			Self::get_sandbox_holder_arg(session, deadline, request_id, exhaustive, &mut wakeups);
 		let index_required = |reply: &tg::sandbox::control::ClientResponseOutput| {
 			matches!(
 				reply,
@@ -284,12 +284,13 @@ impl Component {
 	}
 
 	/// Create the arg for a get request to the holder of a sandbox, which the index answers when the holder does not.
-	pub(super) fn get_sandbox_holder_arg(
+	pub(super) fn get_sandbox_holder_arg<'a>(
 		session: &Session,
 		deadline: tokio::time::Instant,
 		id: String,
 		exhaustive: bool,
-	) -> crate::holder::Arg<'static> {
+		wakeups: &'a mut BoxStream<'static, ()>,
+	) -> crate::holder::Arg<'a> {
 		let request = tg::sandbox::control::ServerRequestArg::Get(
 			tg::sandbox::control::GetServerRequestArg {},
 		);
@@ -304,7 +305,7 @@ impl Component {
 			mode: tangram_server_core::holder::Mode::Read,
 			options,
 			request,
-			wakeups: None,
+			wakeups,
 		}
 	}
 

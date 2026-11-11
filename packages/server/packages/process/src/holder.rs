@@ -330,7 +330,7 @@ impl tangram_server_core::holder::Item for Item<'_> {
 		request: Self::Request,
 		id: String,
 		options: tangram_server_core::control::Options,
-		resend: Option<BoxStream<'static, ()>>,
+		resend: BoxStream<'static, ()>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>> {
 		let cancel = matches!(
 			request,
@@ -348,7 +348,7 @@ impl tangram_server_core::holder::Item for Item<'_> {
 			}
 			let output = async {
 				self.component
-					.send_process_control_request(self.session, self.id, id, request, options, resend)
+					.send_process_control_request(self.session, self.id, id, request, options, Some(resend))
 					.boxed()
 					.await?
 					.await?

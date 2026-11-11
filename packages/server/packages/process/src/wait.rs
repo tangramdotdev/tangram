@@ -535,20 +535,25 @@ impl Component {
 		requested.insert(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
 		requested.insert(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
 		let deadline = session.server.control_read_deadline();
-		let process = loop {
-			tokio::select! {
-				output = self.try_get_process_observation_local_with_permissions(session, id, &tokens, deadline, requested, exhaustive) => break output?,
-				wakeup = wakeups.next() => {
-					if wakeup.is_none() { return Ok(None); }
-				},
-			}
-		};
-		let Some((process, permissions)) = process else {
+		let Some(observation) = self
+			.try_get_process_observation_local_with_permissions(
+				session,
+				id,
+				&tokens,
+				deadline,
+				requested,
+				exhaustive,
+				Some(&mut wakeups),
+			)
+			.await?
+		else {
 			return Ok(None);
 		};
+		let permissions = observation.permissions;
 
-		let mut stream =
-			self.create_process_data_stream_local(session, id, Some(process), Some(wakeups));
+		// Read the process again in the stream if its status changed during the read.
+		let initial = (!observation.woken).then_some(observation.data);
+		let mut stream = self.create_process_data_stream_local(session, id, initial, Some(wakeups));
 		let future = async move {
 			let process = loop {
 				let process = stream.try_next().await?.ok_or_else(|| {

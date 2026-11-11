@@ -19,6 +19,24 @@ use {
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
+/// A process's data and the permissions of the principal that observes it.
+pub(super) struct Observation {
+	pub data: tg::process::Data,
+
+	pub permissions: tg::authorization::permission::process::Set,
+
+	/// Whether the process's status changed during the read, so that a stream that follows the process reads it again.
+	pub woken: bool,
+}
+
+/// A process's data from its holder or the index.
+struct DataOutput {
+	data: Option<tg::process::Data>,
+
+	/// Whether the process's status changed during the read, so that a stream that follows the process reads it again.
+	woken: bool,
+}
+
 impl Component {
 	pub async fn try_get_process_status_stream(
 		&self,
@@ -160,34 +178,24 @@ impl Component {
 			)
 		};
 		let deadline = session.server.control_read_deadline();
-		let initial = loop {
-			tokio::select! {
-				output = self.try_get_process_observation_local(
-					session,
-					id,
-					arg.tokens.local_authorization(),
-					deadline,
-					exhaustive,
-				) => break output?,
-				wakeup = async {
-					match &mut wakeups {
-						Some(wakeups) => wakeups.next().await,
-						None => std::future::pending().await,
-					}
-				} => {
-					if wakeup.is_none() { return Ok(None); }
-				},
-			}
-		};
-		let Some(process) = initial else {
+		let Some(observation) = self
+			.try_get_process_observation_local(
+				session,
+				id,
+				arg.tokens.local_authorization(),
+				deadline,
+				exhaustive,
+				wakeups.as_mut(),
+			)
+			.await?
+		else {
 			return Ok(None);
 		};
-		let stream = self.create_process_status_stream_local_with_wakeups(
-			session,
-			id,
-			Some(process),
-			wakeups,
-		);
+
+		// Read the process again in the stream if its status changed during the read and the stream follows the process.
+		let initial = (!(observation.woken && wakeups.is_some())).then_some(observation.data);
+		let stream =
+			self.create_process_status_stream_local_with_wakeups(session, id, initial, wakeups);
 
 		Ok(Some(stream))
 	}
@@ -304,16 +312,16 @@ impl Component {
 		tokens: &[tg::authorization::Token],
 		deadline: tokio::time::Instant,
 		exhaustive: bool,
-	) -> tg::Result<Option<tg::process::Data>> {
+		wakeups: Option<&mut BoxStream<'static, ()>>,
+	) -> tg::Result<Option<Observation>> {
 		let requested = tg::authorization::permission::process::Set::NODE;
-		let output = self
-			.try_get_process_observation_local_with_permissions(
-				session, id, tokens, deadline, requested, exhaustive,
-			)
-			.await?;
-		Ok(output.map(|(data, _)| data))
+		self.try_get_process_observation_local_with_permissions(
+			session, id, tokens, deadline, requested, exhaustive, wakeups,
+		)
+		.await
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	pub(super) async fn try_get_process_observation_local_with_permissions(
 		&self,
 		session: &Session,
@@ -322,12 +330,8 @@ impl Component {
 		deadline: tokio::time::Instant,
 		requested: tg::authorization::permission::process::Set,
 		exhaustive: bool,
-	) -> tg::Result<
-		Option<(
-			tg::process::Data,
-			tg::authorization::permission::process::Set,
-		)>,
-	> {
+		wakeups: Option<&mut BoxStream<'static, ()>>,
+	) -> tg::Result<Option<Observation>> {
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let required = tg::authorization::permission::Set::Process(
 			tg::authorization::permission::process::Set::NODE,
@@ -338,7 +342,7 @@ impl Component {
 			required,
 			exhaustive,
 		);
-		let get_future = self.try_get_process_data_local(session, id, deadline);
+		let get_future = self.try_get_process_data_local(session, id, deadline, wakeups);
 		let (mut permissions, output) = future::try_join(authorize_future, get_future).await?;
 		let Some(tg::authorization::permission::Set::Process(permissions)) =
 			Some(permissions.pop().unwrap().check_exhaustion()?.permissions)
@@ -348,7 +352,22 @@ impl Component {
 		if !permissions.contains(tg::authorization::permission::process::Set::NODE) {
 			return Ok(None);
 		}
-		Ok(output.map(|data| (data, permissions)))
+
+		// Return nothing if the wakeups ended or the process was not found.
+		let Some(DataOutput {
+			data: Some(data),
+			woken,
+		}) = output
+		else {
+			return Ok(None);
+		};
+		let observation = Observation {
+			data,
+			permissions,
+			woken,
+		};
+
+		Ok(Some(observation))
 	}
 
 	fn create_process_status_stream_local_with_wakeups(
@@ -450,28 +469,24 @@ impl Component {
 		mut wakeups: Option<BoxStream<'static, ()>>,
 	) -> tg::Result<()> {
 		loop {
+			// Read the process, and stop if the wakeups ended during the read.
 			let deadline = session.server.control_read_deadline();
-			let data = if let Some(initial) = initial.take() {
-				Some(initial)
+			let (data, woken) = if let Some(initial) = initial.take() {
+				(Some(initial), false)
 			} else {
-				match &mut wakeups {
-					None => {
-						self.try_get_process_data_local(session, id, deadline)
-							.await?
-					},
-					Some(wakeups) => loop {
-						tokio::select! {
-							result = self.try_get_process_data_local(session, id, deadline) => break result?,
-							wakeup = wakeups.next() => {
-								if wakeup.is_none() { return Ok(()); }
-							},
-						}
-					},
-				}
-			}
-			.ok_or_else(
+				let Some(output) = self
+					.try_get_process_data_local(session, id, deadline, wakeups.as_mut())
+					.await?
+				else {
+					return Ok(());
+				};
+				(output.data, output.woken)
+			};
+			let data = data.ok_or_else(
 				|| tg::error!(%id, "failed to find the process while observing its status"),
 			)?;
+
+			// Send the data, and stop if the process finished or the stream does not follow the process.
 			let finished = data.status.is_finished();
 			if sender.send(Ok(data)).await.is_err() || finished {
 				return Ok(());
@@ -479,51 +494,67 @@ impl Component {
 			let Some(wakeups) = &mut wakeups else {
 				return Ok(());
 			};
-			if wakeups.next().await.is_none() {
+
+			// Wait for the next wakeup, unless the process's status changed during the read.
+			if !woken && wakeups.next().await.is_none() {
 				return Ok(());
 			}
 		}
 	}
 
+	/// Get a process's data from its holder or the index, sending the request to the holder again on each of the given wakeups, or on the process's status wakeups if none are given. Returns `None` if the wakeups end.
 	async fn try_get_process_data_local(
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
 		deadline: tokio::time::Instant,
-	) -> tg::Result<Option<tg::process::Data>> {
+		wakeups: Option<&mut BoxStream<'static, ()>>,
+	) -> tg::Result<Option<DataOutput>> {
+		// Subscribe to the process's status if the caller does not follow the process, so that the request is sent again to a holder that starts the process during the read.
+		let mut subscription = None;
+		let wakeups = if let Some(wakeups) = wakeups {
+			wakeups
+		} else {
+			let wakeups = self
+				.create_process_status_wakeup_stream(session, id, None, None)
+				.await?;
+			subscription.insert(wakeups)
+		};
+
+		// Get the process from its holder or the index.
 		let arg = Self::get_process_holder_arg(
 			session,
 			deadline,
 			tangram_server_core::control::id(),
 			true,
+			wakeups,
 		);
-		let output = self
+		let Some(output) = self
 			.request_process_holder(session, id, arg, |_| false)
 			.boxed()
 			.await?
-			.ok_or_else(|| tg::error!("the process status wakeup stream ended"))?;
+		else {
+			return Ok(None);
+		};
+		let woken = output.woken;
 		let control = output
 			.reply
 			.and_then(Result::ok)
 			.and_then(Self::try_get_process_data_from_holder_reply);
-		if let Some(data) = control {
-			return Ok(Some(data));
-		}
-		let Some((process, data)) = output.indexed else {
-			return Ok(None);
+		let data = match (control, output.indexed) {
+			(Some(data), _) => Some(data),
+			(None, Some((process, Some(data)))) => {
+				let remote = process
+					.location
+					.as_ref()
+					.is_some_and(tg::Location::is_remote);
+				(data.status.is_finished() || !remote).then_some(data)
+			},
+			(None, _) => None,
 		};
-		let Some(data) = data else {
-			return Ok(None);
-		};
-		if !data.status.is_finished()
-			&& process
-				.location
-				.as_ref()
-				.is_some_and(tg::Location::is_remote)
-		{
-			return Ok(None);
-		}
-		Ok(Some(data))
+		let output = DataOutput { data, woken };
+
+		Ok(Some(output))
 	}
 
 	async fn try_get_process_status_stream_regions(

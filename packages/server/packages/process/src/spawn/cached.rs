@@ -489,7 +489,7 @@ impl Component {
 				mode: tangram_server_core::holder::Mode::Write,
 				options,
 				request,
-				wakeups: Some(&mut wakeups),
+				wakeups: &mut wakeups,
 			};
 			let reply = self
 				.request_process_holder(session, &output.id, arg, |_| false)
