@@ -201,7 +201,7 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 		None
 	};
 
-	// Spawn the process. After a signal, finish spawning so that the process can be stopped, unless another signal arrives.
+	// Spawn the process. After a signal, finish spawning so that the process can be stopped, and exit with the code for the signal if the spawn fails or another signal arrives.
 	let print = (!options.detach).then(|| options.print.clone());
 	let mut spawn_signal = None;
 	let process = {
@@ -217,10 +217,14 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 			Some(signals) => tokio::select! {
 				result = &mut spawn_future => result?,
 				signal = signals.recv() => {
-					spawn_signal = Some(signal?);
+					let signal = signal?;
+					spawn_signal = Some(signal);
 					tokio::select! {
-						result = spawn_future => result?,
-						signal = signals.recv() => exit_with_signal(signal?),
+						result = spawn_future => result.unwrap_or_else(|error| {
+							tracing::warn!(?error, "failed to spawn the process");
+							exit_with_signal(signal)
+						}),
+						received = signals.recv() => exit_with_signal(received?),
 					}
 				},
 			},
@@ -568,9 +572,10 @@ async fn stop_process<O>(
 	Ok(!state.cacheable)
 }
 
-/// Exit with the code for a signal without returning, because the runtime's shutdown can wait indefinitely for a blocked write.
+/// Exit with the code for a signal without shutting down the runtime or flushing the standard output, either of which can wait indefinitely for a blocked write.
 fn exit_with_signal(signal: tg::process::Signal) -> ! {
-	std::process::exit(128 + i32::from(signal as u8))
+	// SAFETY: _exit has no memory safety preconditions.
+	unsafe { libc::_exit(128 + i32::from(signal as u8)) }
 }
 
 async fn stop_view_task(view_task: Task<tg::Result<()>>) {
