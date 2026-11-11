@@ -43,7 +43,7 @@ let output = tg check $path | complete
 failure $output
 assert ($output.stderr | str contains 'tangram.ts:5:') $output.stderr
 
-# Command arguments are contravariant and outputs are covariant.
+# A command can be used in place of another only when it accepts every argument that the other accepts and returns only outputs that the other may return.
 let path = artifact {
 	tangram.py: '
 		def default(command: tg.Command[tuple[str | float], str]) -> tg.Command[tuple[str], str | float]:
@@ -61,6 +61,49 @@ for types in [
 	failure $output
 	assert ($output.stderr | str contains 'tangram.py:2:') $output.stderr
 }
+
+# A command with typed args can be passed from Python to a TypeScript command that takes a command of any args, whose output is still checked.
+let lib = '
+	export function shout(text: string) { return tg.file(`${text}!`); }
+	export async function apply(command: tg.Command, text: string): Promise<tg.File> {
+		return (await command.build(text)) as tg.File;
+	}
+	export async function file(command: tg.Command<Array<tg.Value>, tg.File>): Promise<tg.File> {
+		return await command.build("text");
+	}
+'
+let path = artifact {
+	tangram.py: '
+		# /// script
+		# [tool.tangram.dependencies.lib]
+		# specifier = "./lib.tg.ts"
+		# ///
+		from lib import apply, shout
+		async def default() -> str:
+		    file = await apply.build(shout, "hey")
+		    return await file.text()
+	'
+	lib.tg.ts: $lib
+}
+success (tg check $path | complete)
+let output = tg build $path | complete
+success $output
+assert equal ($output.stdout | from json) 'hey!'
+let path = artifact {
+	tangram.py: '
+		# /// script
+		# [tool.tangram.dependencies.lib]
+		# specifier = "./lib.tg.ts"
+		# ///
+		from lib import file
+		def default(command: tg.Command[tuple[str], str]):
+		    file.build(command)
+	'
+	lib.tg.ts: $lib
+}
+let output = tg check $path | complete
+failure $output
+assert ($output.stderr | str contains 'tangram.py:7:') $output.stderr
 
 # All invocation methods use the receiver's record type to check dictionary literals.
 for method in [build run spawn exec] {
