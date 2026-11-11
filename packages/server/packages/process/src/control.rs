@@ -259,8 +259,6 @@ impl Component {
 				}
 			},
 		}
-		Self::spawn_publish_process_status_task(&session.server, &id);
-
 		// Answer the requests for the process for as long as the connection lasts.
 		let service_arg = service::Arg {
 			indexed: resumed,
@@ -318,6 +316,9 @@ impl Component {
 		let request_task = self
 			.serve_process_holder(&session.server, &id, handle)
 			.await?;
+
+		// Publish the process's status only now that the connection serves the process's holder, so that a request sent again on the status change reaches the holder.
+		Self::spawn_publish_process_status_task(&session.server, &id);
 
 		let response_task = Task::spawn({
 			let component = self.clone();

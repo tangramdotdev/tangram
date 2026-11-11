@@ -221,7 +221,6 @@ impl Component {
 				.await;
 		}
 
-		Self::spawn_publish_sandbox_status_task(&session.server, &id);
 		let created_at = if let Some(created_at) = arg.created_at {
 			created_at
 		} else {
@@ -366,6 +365,9 @@ impl Component {
 		let server_messages_task = self
 			.serve_sandbox_holder(&session.server, &id, handle)
 			.await?;
+
+		// Publish the sandbox's status only now that the connection serves the sandbox's holder, so that a request sent again on the status change reaches the holder.
+		Self::spawn_publish_sandbox_status_task(&session.server, &id);
 
 		let control_task = Task::spawn({
 			let component = self.clone();
