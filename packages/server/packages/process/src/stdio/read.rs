@@ -283,6 +283,7 @@ impl Component {
 			.try_get_process_local(
 				session,
 				id,
+				tangram_server_core::control::id(),
 				false,
 				false,
 				arg.tokens.local_authorization(),

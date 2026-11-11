@@ -28,10 +28,13 @@ impl Component {
 
 		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
+		// Create the request's ID, which the passes without and with a search share, so that the holder acts on the request once.
+		let request_id = tangram_server_core::control::id();
+
 		// Stop the sandbox locally without a search.
 		if current
 			&& let Some(output) = self
-				.try_stop_sandbox_local(session, id, &arg, false)
+				.try_stop_sandbox_local(session, id, &request_id, &arg, false)
 				.boxed()
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to stop the sandbox"))?
@@ -44,7 +47,7 @@ impl Component {
 			if !current {
 				return Ok(None);
 			}
-			self.try_stop_sandbox_local(session, id, &arg, true)
+			self.try_stop_sandbox_local(session, id, &request_id, &arg, true)
 				.boxed()
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to stop the sandbox"))
@@ -118,6 +121,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
+		request_id: &str,
 		arg: &tg::sandbox::stop::Arg,
 		exhaustive: bool,
 	) -> tg::Result<Option<bool>> {
@@ -150,6 +154,7 @@ impl Component {
 			deadline: session.server.control_read_deadline(),
 			exhaustive,
 			fallback: false,
+			id: request_id.to_owned(),
 			options,
 			request,
 			wakeups: Some(&mut wakeups),

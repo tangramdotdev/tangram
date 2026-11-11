@@ -209,7 +209,9 @@ impl Component {
 				.collect()
 		};
 
+		let runner_ttl = session.server.config.scheduler.runner_ttl;
 		let header = tg::runner::control::Header {
+			runner_ttl,
 			sandboxes,
 			scheduler: scheduler.clone(),
 		};

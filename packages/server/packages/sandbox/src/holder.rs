@@ -74,13 +74,30 @@ impl Component {
 			.subscribe::<ServerMessage>(subject)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the message stream"))?;
+		let component = self.clone();
+		let server = server.clone();
+		let id = id.clone();
 		let task = Task::spawn(move |_| async move {
 			while let Some(message) = messages
 				.try_next()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the message"))?
 			{
-				handle(message.payload.0).await?;
+				// Answer a duplicate of a request from the replies that the holder sent, without passing it to the holder again, and drop a duplicate of a request that the holder is acting on, whose reply will reach its sender.
+				let message = message.payload.0;
+				if let tg::sandbox::control::ServerMessage::Request(request) = &message {
+					match component.0.holder_replies.begin(&request.id) {
+						tangram_server_core::holder::Begin::New => (),
+						tangram_server_core::holder::Begin::Pending => continue,
+						tangram_server_core::holder::Begin::Replied(response) => {
+							component
+								.publish_sandbox_holder_response(&server, &id, response)
+								.await?;
+							continue;
+						},
+					}
+				}
+				handle(message).await?;
 			}
 			Ok::<_, tg::Error>(())
 		});
@@ -95,6 +112,7 @@ impl Component {
 		id: &tg::sandbox::Id,
 		ack: tg::sandbox::control::ClientAck,
 	) -> tg::Result<()> {
+		self.0.holder_replies.acknowledge(&ack.id);
 		let subject = format!("sandboxes.{id}.control.client.{}", ack.id);
 		let payload = ClientMessage(tg::sandbox::control::ClientMessage::Ack(ack));
 		server
@@ -118,6 +136,16 @@ impl Component {
 		id: &tg::sandbox::Id,
 		response: tg::sandbox::control::ClientResponse,
 	) -> tg::Result<()> {
+		// Remember the reply, so that a duplicate of the request is answered with it, unless the reply asks the sender to send the request again, after which a copy of the request is acted on again.
+		if response
+			.output
+			.as_ref()
+			.is_some_and(tg::sandbox::control::ClientResponseOutput::is_deferral)
+		{
+			self.0.holder_replies.forget(&response.id);
+		} else {
+			self.0.holder_replies.finish(&response.id, response.clone());
+		}
 		let kind = match response.output.as_ref() {
 			Some(tg::sandbox::control::ClientResponseOutput::Destroy(_)) => "destroy",
 			Some(tg::sandbox::control::ClientResponseOutput::Get(_)) => "get",
@@ -203,6 +231,7 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 	fn send(
 		&self,
 		request: Self::Request,
+		id: String,
 		options: tangram_server_core::control::Options,
 		resend: Option<BoxStream<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>> {
@@ -213,7 +242,7 @@ impl tangram_server_core::holder::Kind for Kind<'_> {
 			}
 			let output = async {
 				self.component
-					.send_sandbox_control_request(self.session, self.id, request, options, resend)
+					.send_sandbox_control_request(self.session, self.id, id, request, options, resend)
 					.boxed()
 					.await?
 					.await?

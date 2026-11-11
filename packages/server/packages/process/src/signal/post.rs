@@ -47,6 +47,9 @@ impl Component {
 
 		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
+		// Create the request's ID, which the passes without and with a search share, so that the holder acts on the request once.
+		let request_id = tangram_server_core::control::id();
+
 		// Signal the process locally without a search.
 		if current
 			&& let Some(id) = &id
@@ -54,6 +57,7 @@ impl Component {
 				.try_post_process_signal_local(
 					session,
 					id,
+					&request_id,
 					arg.signal,
 					arg.tokens.local_authorization(),
 					false,
@@ -72,6 +76,7 @@ impl Component {
 			self.try_post_process_signal_local(
 				session,
 				id,
+				&request_id,
 				arg.signal,
 				arg.tokens.local_authorization(),
 				true,
@@ -158,6 +163,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
+		request_id: &str,
 		signal: tg::process::Signal,
 		tokens: &[tg::authorization::Token],
 		exhaustive: bool,
@@ -210,6 +216,7 @@ impl Component {
 			deadline: session.server.control_read_deadline(),
 			exhaustive,
 			fallback: false,
+			id: request_id.to_owned(),
 			options,
 			request,
 			wakeups: Some(&mut wakeups),

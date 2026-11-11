@@ -477,6 +477,7 @@ impl Component {
 				deadline: session.server.control_read_deadline(),
 				exhaustive: true,
 				fallback: false,
+				id: tangram_server_core::control::id(),
 				options,
 				request,
 				wakeups: Some(&mut wakeups),
@@ -502,7 +503,13 @@ impl Component {
 					return Ok(output.data.cacheable.then_some(output));
 				}
 				if let Some(process) = self
-					.try_get_process_local_inner(session, &output.id, false, true)
+					.try_get_process_local_inner(
+						session,
+						&output.id,
+						tangram_server_core::control::id(),
+						false,
+						true,
+					)
 					.await? && process.data.status.is_finished()
 				{
 					output.data = process.data;

@@ -63,9 +63,10 @@ impl Component {
 
 		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-		// Read the process and authorize it without a search.
+		// Read the process and authorize it without a search, and then with a search, with one request ID, so that the process's holder answers both reads once.
+		let request_id = tangram_server_core::control::id();
 		let node = if current {
-			self.try_get_process_local_inner(session, id, arg.metadata, false)
+			self.try_get_process_local_inner(session, id, request_id.clone(), arg.metadata, false)
 				.boxed()
 				.await?
 		} else {
@@ -76,6 +77,7 @@ impl Component {
 				.try_get_process_local(
 					session,
 					id,
+					request_id.clone(),
 					arg.metadata,
 					arg.availability,
 					arg.tokens.local_authorization(),
@@ -100,6 +102,7 @@ impl Component {
 			self.try_get_process_local(
 				session,
 				id,
+				request_id,
 				arg.metadata,
 				arg.availability,
 				arg.tokens.local_authorization(),
@@ -255,7 +258,13 @@ impl Component {
 			return Ok(None);
 		}
 		let Some(mut output) = self
-			.try_get_process_local_inner(session, id, metadata, true)
+			.try_get_process_local_inner(
+				session,
+				id,
+				tangram_server_core::control::id(),
+				metadata,
+				true,
+			)
 			.await?
 		else {
 			return Ok(None);
@@ -273,6 +282,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
+		request_id: String,
 		metadata: bool,
 		availability: bool,
 		tokens: &[tg::authorization::Token],
@@ -297,7 +307,7 @@ impl Component {
 		let mut output = match node {
 			Some(node) => Some(node),
 			None => {
-				self.try_get_process_local_inner(session, id, metadata, exhaustive)
+				self.try_get_process_local_inner(session, id, request_id, metadata, exhaustive)
 					.boxed()
 					.await?
 			},
@@ -319,7 +329,13 @@ impl Component {
 				return Ok(None);
 			}
 			output = self
-				.try_get_process_local_inner(session, id, metadata, exhaustive)
+				.try_get_process_local_inner(
+					session,
+					id,
+					tangram_server_core::control::id(),
+					metadata,
+					exhaustive,
+				)
 				.boxed()
 				.await?;
 		}
@@ -440,7 +456,13 @@ impl Component {
 		metadata: bool,
 	) -> tg::Result<tg::process::get::Output> {
 		let output = self
-			.try_get_process_local_inner(session, id, metadata, true)
+			.try_get_process_local_inner(
+				session,
+				id,
+				tangram_server_core::control::id(),
+				metadata,
+				true,
+			)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 
@@ -483,6 +505,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
+		request_id: String,
 		metadata: bool,
 		exhaustive: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
@@ -493,7 +516,7 @@ impl Component {
 
 		// Get the process from its holder or the index. A finished process requires the index, because the holder does not have its log.
 		let deadline = session.server.control_read_deadline();
-		let arg = Self::get_process_holder_arg(session, deadline, exhaustive);
+		let arg = Self::get_process_holder_arg(session, deadline, request_id, exhaustive);
 		let arg = crate::holder::Arg {
 			wakeups: Some(&mut wakeups),
 			..arg
@@ -543,6 +566,7 @@ impl Component {
 	pub(super) fn get_process_holder_arg(
 		session: &Session,
 		deadline: tokio::time::Instant,
+		id: String,
 		exhaustive: bool,
 	) -> crate::holder::Arg<'static> {
 		let request = tg::process::control::ServerRequestArg::Get(
@@ -555,6 +579,7 @@ impl Component {
 			deadline,
 			exhaustive,
 			fallback: true,
+			id,
 			options,
 			request,
 			wakeups: None,

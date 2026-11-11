@@ -78,7 +78,7 @@ pub fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(checkouts) = source.checkouts {
 		target.checkouts = checkouts;
 	}
-	if let Some(source) = source.control {
+	if let Some(source) = &source.control {
 		target.control = resolve_control(source);
 	}
 	if let Some(source) = source.database {
@@ -615,13 +615,19 @@ fn resolve_checkin_solve(source: CheckinSolve) -> server::CheckinSolve {
 	target
 }
 
-fn resolve_control(source: Control) -> server::Control {
+fn resolve_control(source: &Control) -> server::Control {
 	let mut target = server::Control::default();
 	if let Some(source) = source.get_retry {
 		target.get_retry = resolve_retry_with_default(source, target.get_retry);
 	}
 	if let Some(value) = source.read_timeout {
 		target.read_timeout = value;
+	}
+	if let Some(value) = source.reply_capacity {
+		target.reply_capacity = value;
+	}
+	if let Some(value) = source.reply_ttl {
+		target.reply_ttl = value;
 	}
 	if let Some(source) = source.request_retry {
 		target.request_retry = resolve_retry_with_default(source, target.request_retry);

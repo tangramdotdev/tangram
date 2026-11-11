@@ -658,6 +658,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::sandbox::Id,
+		request_id: String,
 		arg: tg::sandbox::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 		resend: Option<futures::stream::BoxStream<'static, ()>>,
@@ -676,7 +677,6 @@ impl Component {
 			tg::sandbox::control::ServerRequestArg::Stop(_) => "stop",
 		};
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.request", sandbox = %id, kind).await;
-		let request_id = tangram_server_core::control::id();
 		let request = ServerMessage(tg::sandbox::control::ServerMessage::Request(
 			tg::sandbox::control::ServerRequest {
 				arg,
