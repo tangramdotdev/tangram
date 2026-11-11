@@ -314,7 +314,6 @@ impl Component {
 		Ok(output.map(|(data, _)| data))
 	}
 
-	#[expect(clippy::too_many_arguments)]
 	pub(super) async fn try_get_process_observation_local_with_permissions(
 		&self,
 		session: &Session,

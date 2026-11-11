@@ -826,7 +826,7 @@ impl SchedulerState {
 				return;
 			},
 			HolderMessage::ProcessRequest { request, sandbox } => {
-				self.handle_process_holder_request(scheduler, sandbox, request);
+				self.handle_process_holder_request(scheduler, &sandbox, request);
 				return;
 			},
 			HolderMessage::Request { request, sandbox } => (request, sandbox),
@@ -988,7 +988,7 @@ impl SchedulerState {
 	fn handle_process_holder_request(
 		&mut self,
 		scheduler: &Scheduler,
-		sandbox: tg::sandbox::Id,
+		sandbox: &tg::sandbox::Id,
 		request: tg::process::control::ServerRequest,
 	) {
 		let tg::process::control::ServerRequest { arg, id } = request;
@@ -997,16 +997,16 @@ impl SchedulerState {
 		let entry = self
 			.sandboxes
 			.entries
-			.get_mut(&sandbox)
+			.get_mut(sandbox)
 			.filter(|entry| matches!(entry.state, SandboxState::Pending));
-		if entry.is_none() && !self.sandboxes.holders.contains_key(&sandbox) {
+		if entry.is_none() && !self.sandboxes.holders.contains_key(sandbox) {
 			return;
 		}
 		let Some(process) = entry.and_then(|entry| {
 			let process = entry.request.process.as_ref()?.id.clone()?;
 			Some(process)
 		}) else {
-			let Some(process) = self.try_get_served_process(&sandbox) else {
+			let Some(process) = self.try_get_served_process(sandbox) else {
 				return;
 			};
 			let output = tg::process::control::ClientResponseOutput::NotHolder(
@@ -1015,7 +1015,7 @@ impl SchedulerState {
 			self.publish_process_holder_response(scheduler, process, id, None, output);
 			return;
 		};
-		let entry = self.sandboxes.entries.get_mut(&sandbox).unwrap();
+		let entry = self.sandboxes.entries.get_mut(sandbox).unwrap();
 		let queued = entry.request.process.as_mut().unwrap();
 
 		match arg {
@@ -1064,9 +1064,9 @@ impl SchedulerState {
 				}
 				let scheduler_ = scheduler.clone();
 				let write = if last {
-					self.remove_queued_sandbox(&sandbox);
+					self.remove_queued_sandbox(sandbox);
 					let request = self
-						.remove_sandbox_entry(scheduler, &sandbox)
+						.remove_sandbox_entry(scheduler, sandbox)
 						.unwrap()
 						.request;
 					self.queue.wake();

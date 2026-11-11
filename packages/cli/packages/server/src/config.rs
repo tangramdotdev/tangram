@@ -2145,7 +2145,7 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	if let Some(value) = source.create_sandbox_queue_capacity {
 		target.create_sandbox_queue_capacity = value;
 	}
-	if let Some(source) = source.create_sandbox_retry.clone() {
+	if let Some(source) = source.create_sandbox_retry {
 		target.create_sandbox_retry =
 			resolve_retry_with_default(source, target.create_sandbox_retry);
 	}

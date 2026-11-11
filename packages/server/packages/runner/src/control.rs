@@ -919,6 +919,7 @@ impl Component {
 		Ok(response)
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	pub async fn send_runner_control_request(
 		&self,
 		session: &Session,
