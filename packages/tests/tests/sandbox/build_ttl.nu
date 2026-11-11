@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 # A build's sandbox with a ttl accepts runs after the build finishes, and it is destroyed once it is idle for the ttl.
 
-let server = server spawn --now '2026-01-01T00:00:00Z'
+let server = server spawn --now '2026-01-01T00:00:00Z' --config { scheduler: { runner_ttl: 300 } }
 
 let path = artifact {
 	tangram.ts: '

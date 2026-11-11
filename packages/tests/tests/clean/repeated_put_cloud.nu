@@ -5,6 +5,7 @@ use ../../util/test.nu *
 let local = server spawn --cloud --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true },
 	object: { ttl: 60, ttt: 0 },
+	scheduler: { runner_ttl: 300 },
 }
 let keyspace = open $local.config_path | get cache.keyspace
 

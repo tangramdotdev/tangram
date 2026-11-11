@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 # A server's virtual clock reports its time, moves only when set or advanced, and can be set to an earlier time.
 
-let local = server spawn --now '2026-01-01T00:00:00Z'
+let local = server spawn --now '2026-01-01T00:00:00Z' --config { scheduler: { runner_ttl: 300 } }
 assert equal (tg clock get | from json | get now) '2026-01-01T00:00:00Z'
 
 # Advancing the clock moves its time by the duration.

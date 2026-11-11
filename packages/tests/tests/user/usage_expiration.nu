@@ -17,6 +17,7 @@ let local = server spawn --now '2025-12-29T00:00:00Z' --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer runner scheduler],
+	scheduler: { runner_ttl: 300 },
 	usage: {
 		day_time_to_live: 2678400,
 		delta_time_to_live: 3600,
