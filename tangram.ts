@@ -139,7 +139,7 @@ export const cliSudo = async (...args: Array<string>) => {
 
 export const imageBuild = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
-	await tg.run`cargo build --all-features --release && docker build -t ghcr.io/tangramdotdev/tangram:latest . "$@"`
+	await tg.run`docker buildx build --load -t ghcr.io/tangramdotdev/tangram:latest . "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
@@ -149,6 +149,15 @@ export const imageBuild = async (...args: Array<string>) => {
 export const imagePush = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
 	await tg.run`docker push ghcr.io/tangramdotdev/tangram:latest "$@"`
+		.executable("sh")
+		.args(["--", ...args])
+		.cwd(cwd)
+		.env(env);
+};
+
+export const imagePublish = async (...args: Array<string>) => {
+	const { cwd, env } = await context();
+	await tg.run`docker buildx build --platform linux/amd64,linux/arm64 --push . "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)

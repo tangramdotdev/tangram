@@ -5,6 +5,7 @@ use {
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
+	println!("cargo:rustc-check-cfg=cfg(tangram_v8_snapshot)");
 
 	javascript();
 
@@ -12,7 +13,10 @@ fn main() {
 	self::quickjs::bytecode();
 
 	#[cfg(feature = "v8")]
-	self::v8::snapshot();
+	if std::env::var("HOST").unwrap() == std::env::var("TARGET").unwrap() {
+		println!("cargo:rustc-cfg=tangram_v8_snapshot");
+		self::v8::snapshot();
+	}
 }
 
 fn javascript() {

@@ -143,7 +143,7 @@ have their hooks invoked automatically.
 | `cli`, `cliRelease`, `cliSudo` | Run the local CLI in debug, release, or elevated mode |
 | `run`, `runRelease` | Build and run a Tangram target with the local CLI |
 | `test`, `testRust` | Full test suite or the Rust tests |
-| `imageBuild`, `imagePush` | Build or publish the container image |
+| `imageBuild`, `imagePush`, `imagePublish` | Build or publish the container image |
 | `canary` | Build and publish the canary release |
 | `clean` | Remove checkout state, dependencies, and build output |
 
@@ -167,3 +167,28 @@ With tracked edits or non-ignored untracked files, they use a single Git tree ha
 of the working-tree contents instead. Computing it leaves the staging
 area unchanged. Commands warn when the connected server's version differs;
 automatic local-server mode also restarts the server with the installed binary.
+
+### Container architectures
+
+The Dockerfile builds the CLI and its native dependencies against Debian and
+supports Linux amd64 and arm64 builds from an x86 Linux host. On an x86 Linux
+host, install Docker Buildx and QEMU user-mode binfmt support for ARM runtime
+image assembly; the Rust compilation itself uses a cross compiler.
+
+```nu
+tg run .#imageBuild -- --platform linux/arm64
+```
+
+To publish a multiarchitecture image index:
+
+```nu
+tg run .#imagePublish -- --tag ghcr.io/tangramdotdev/tangram:latest
+```
+
+Keep build and runtime libc versions aligned rather than copying a binary
+linked on a rolling host into an older runtime image. ARM execution and build
+workloads still need verification on native ARM hardware.
+
+Cross-built V8 runtimes initialize the bundled JavaScript on the target instead
+of embedding a snapshot generated for the build host's architecture. Native
+builds continue to use the startup snapshot.

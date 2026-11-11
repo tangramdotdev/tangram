@@ -29,7 +29,11 @@ mod module;
 mod promise;
 mod syscall;
 
+#[cfg(tangram_v8_snapshot)]
 const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.heapsnapshot"));
+
+#[cfg(not(tangram_v8_snapshot))]
+const SOURCE: &str = include_str!(concat!(env!("OUT_DIR"), "/main.js"));
 
 const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"));
 
@@ -94,7 +98,9 @@ impl Runtime {
 		let repl = arg.repl.take();
 
 		// Create the isolate params.
-		let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT.into());
+		let params = v8::CreateParams::default();
+		#[cfg(tangram_v8_snapshot)]
+		let params = params.snapshot_blob(SNAPSHOT.into());
 
 		// Create the isolate.
 		let mut isolate = v8::Isolate::new(params);
@@ -126,6 +132,23 @@ impl Runtime {
 			v8::scope!(scope, &mut isolate);
 			let context = v8::Context::new(scope, v8::ContextOptions::default());
 			let scope = &mut v8::ContextScope::new(scope, context);
+
+			// Compile the bootstrap on the target when the build host cannot produce a compatible snapshot.
+			#[cfg(not(tangram_v8_snapshot))]
+			{
+				let source = v8::String::new(scope, SOURCE)
+					.ok_or_else(|| tg::error!("failed to create the bootstrap source"))?;
+				let name = v8::String::new(scope, "main").unwrap().into();
+				let origin = v8::ScriptOrigin::new(
+					scope, name, 0, 0, false, 0, None, true, false, false, None,
+				);
+				let script = v8::Script::compile(scope, source, Some(&origin))
+					.ok_or_else(|| tg::error!("failed to compile the bootstrap"))?;
+				script
+					.run(scope)
+					.ok_or_else(|| tg::error!("failed to run the bootstrap"))?;
+			}
+
 			v8::Global::new(scope, context)
 		};
 
