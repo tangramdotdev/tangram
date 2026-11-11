@@ -1,6 +1,9 @@
 use {
-	std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*,
+	std::path::PathBuf,
+	tangram_cli_core::Cli,
+	tangram_client::prelude::*,
 	tangram_futures::task::Task,
+	tokio::signal::unix::{Signal, SignalKind, signal},
 };
 
 /// Spawn and await a process.
@@ -76,6 +79,13 @@ pub enum View {
 	None,
 	Inline,
 	Fullscreen,
+}
+
+/// The signals that end tg run.
+struct Signals {
+	hangup: Signal,
+	interrupt: Signal,
+	terminate: Signal,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -176,6 +186,10 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 	} else {
 		tg::process::attach::Mode::Run
 	};
+
+	// Determine whether a sandboxed process runs in a sandbox that this run creates for it, which is destroyed once it is unused.
+	let ephemeral_sandbox = !matches!(options.spawn.sandbox.get(), Some(tg::Either::Right(_)))
+		&& options.spawn.sandbox.time_to_live.get() == Some(std::time::Duration::ZERO);
 
 	// Spawn the process.
 	let print = (!options.detach).then(|| options.print.clone());
@@ -311,6 +325,45 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 				}
 			},
 		}
+	} else if process.node().id().is_right() {
+		// Await the sandboxed process, which does not receive the signals that end tg run, so stop it when tg run receives one.
+		let mut signals = Signals::new()?;
+		tokio::select! {
+			result = &mut wait_future => {
+				// Exit on a later signal, because the signal handlers remain installed.
+				tokio::spawn(async move {
+					if let Ok(signal) = signals.recv().await {
+						std::process::exit(128 + i32::from(signal as u8));
+					}
+				});
+				result
+			},
+			signal = signals.recv() => {
+				let signal = signal?;
+
+				// Stop the process if this run spawned it, and await it if it stops, so that it stops before tg run exits. Exit without waiting on another signal.
+				if process.node().lease().is_some() {
+					let stop = async {
+						match stop_process(&client, process.node(), ephemeral_sandbox).await {
+							Ok(true) => {
+								wait_future.await.ok();
+							},
+							Ok(false) => (),
+							Err(error) => {
+								tracing::warn!(?error, "failed to stop the process");
+							},
+						}
+					};
+					tokio::select! {
+						() = stop => (),
+						_ = signals.recv() => (),
+					}
+				}
+
+				cli.exit.replace((128 + signal as u8).into());
+				return Ok(tg::Value::Null);
+			},
+		}
 	} else {
 		wait_future.await
 	}
@@ -420,6 +473,77 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 	}
 
 	Ok(output)
+}
+
+impl Signals {
+	fn new() -> tg::Result<Self> {
+		let hangup = signal(SignalKind::hangup())
+			.map_err(|error| tg::error!(!error, "failed to install the SIGHUP handler"))?;
+		let interrupt = signal(SignalKind::interrupt())
+			.map_err(|error| tg::error!(!error, "failed to install the SIGINT handler"))?;
+		let terminate = signal(SignalKind::terminate())
+			.map_err(|error| tg::error!(!error, "failed to install the SIGTERM handler"))?;
+		let signals = Self {
+			hangup,
+			interrupt,
+			terminate,
+		};
+		Ok(signals)
+	}
+
+	async fn recv(&mut self) -> tg::Result<tg::process::Signal> {
+		let signal = tokio::select! {
+			signal = self.hangup.recv() => signal.map(|()| tg::process::Signal::SIGHUP),
+			signal = self.interrupt.recv() => signal.map(|()| tg::process::Signal::SIGINT),
+			signal = self.terminate.recv() => signal.map(|()| tg::process::Signal::SIGTERM),
+		};
+		signal.ok_or_else(|| tg::error!("the signal stream ended"))
+	}
+}
+
+/// Stop a process that this run spawned, and return whether it stops, which a cacheable process does not if another run also holds it.
+async fn stop_process<O>(
+	client: &tg::Client,
+	process: &tg::Process<O>,
+	ephemeral_sandbox: bool,
+) -> tg::Result<bool> {
+	// Load the process.
+	let state = process
+		.load_with_instance(client)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to load the process"))?;
+
+	// Release this run's lease on a cacheable process, which another run may also hold.
+	if state.cacheable {
+		let options = tg::process::cancel::Options::default();
+		process
+			.cancel_with_instance(client, options)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
+		return Ok(false);
+	}
+
+	// Destroy the sandbox that this run created for the process, which also stops the processes that it started, or else cancel the process.
+	if ephemeral_sandbox && let Some(sandbox) = &state.sandbox {
+		let arg = tg::sandbox::destroy::Arg {
+			error: None,
+			location: process.location(),
+			tokens: process.tokens(),
+			wait: true,
+		};
+		client
+			.destroy_sandbox(sandbox, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %sandbox, "failed to destroy the sandbox"))?;
+	} else {
+		let options = tg::process::cancel::Options::default();
+		process
+			.cancel_with_instance(client, options)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
+	}
+
+	Ok(true)
 }
 
 async fn stop_view_task(view_task: Task<tg::Result<()>>) {
