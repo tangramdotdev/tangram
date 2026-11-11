@@ -143,6 +143,14 @@ impl Component {
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))
 	}
 
+	/// Create the reply of a runner that does not hold the process.
+	#[must_use]
+	fn process_control_not_holder_output() -> tg::process::control::ClientResponseOutput {
+		tg::process::control::ClientResponseOutput::NotHolder(
+			tg::process::control::NotHolderClientResponseOutput {},
+		)
+	}
+
 	#[must_use]
 	pub(super) fn process_control_response(
 		id: String,
@@ -484,24 +492,28 @@ impl Component {
 							sender.send(response).await?;
 						},
 						tg::process::control::ServerRequestArg::Get(_) => {
+							// Reply with the process, or that the runner does not hold it if the runner has released it.
 							let result = match &session.context.principal {
-								tg::Principal::Process(process) => session
-									.server
-									.components
-									.runner
-									.state()
-									.try_get_process(process)
-									.map(|data| {
-										tg::process::control::ClientResponseOutput::Get(
-											tg::process::control::GetClientResponseOutput {
-												data,
-												sync: None,
-											},
-										)
-									})
-									.ok_or_else(
-										|| tg::error!(%process, "failed to find the process"),
-									),
+								tg::Principal::Process(process) => {
+									let data = session
+										.server
+										.components
+										.runner
+										.state()
+										.try_get_process(process);
+									let output = match data {
+										Some(data) => {
+											tg::process::control::ClientResponseOutput::Get(
+												tg::process::control::GetClientResponseOutput {
+													data,
+													sync: None,
+												},
+											)
+										},
+										None => Self::process_control_not_holder_output(),
+									};
+									Ok(output)
+								},
 								_ => Err(tg::error!("expected a process principal")),
 							};
 							let response = Self::process_control_response(request_id, result);
@@ -559,6 +571,33 @@ impl Component {
 						},
 						tg::process::control::ServerRequestArg::Signal(signal) => {
 							tangram_server_core::checkpoint!(session.server, "runner.process.control.signal.received", process = %session.context.principal).await;
+
+							// Reply that the runner does not hold the process if the runner has released it, and reject a signal to a cacheable process.
+							let result = match &session.context.principal {
+								tg::Principal::Process(process) => {
+									let data = session
+										.server
+										.components
+										.runner
+										.state()
+										.try_get_process(process);
+									match data {
+										Some(data) if data.cacheable => Some(Err(
+											tg::error!(%process, "cannot signal cacheable processes"),
+										)),
+										Some(_) => None,
+										None => Some(Ok(Self::process_control_not_holder_output())),
+									}
+								},
+								_ => Some(Err(tg::error!("expected a process principal"))),
+							};
+							if let Some(result) = result {
+								let response = Self::process_control_response(request_id, result);
+								sender.send(response).await?;
+								continue;
+							}
+
+							// Queue the signal.
 							signal_sender
 								.send((request_id, signal, sender))
 								.await

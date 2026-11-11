@@ -13,6 +13,7 @@ use {
 	tangram_server_service as service,
 };
 
+mod holder;
 mod notification;
 mod push;
 mod runner;
@@ -631,7 +632,7 @@ impl tangram_server_core::process::Component for Component {
 		metadata: bool,
 		source: tg::process::Source,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>> {
-		self.try_get_process_local_inner(session, id, metadata, source)
+		self.try_get_process_local_inner(session, id, metadata, source, true)
 			.boxed()
 	}
 

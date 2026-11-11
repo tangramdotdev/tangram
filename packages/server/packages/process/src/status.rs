@@ -504,18 +504,17 @@ impl Component {
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Option<tg::process::Data>> {
+		let arg = Self::get_process_holder_arg(session, id, source, deadline, true);
 		let output = self
-			.get_process_state_local(
-				session,
-				id,
-				self.get_process_from_control(session, id),
-				|_| false,
-				source,
-				deadline,
-			)
+			.request_process_holder(session, arg, |_| false)
 			.boxed()
-			.await?;
-		if let Some(data) = output.control {
+			.await?
+			.ok_or_else(|| tg::error!("the process status wakeup stream ended"))?;
+		let control = output
+			.reply
+			.and_then(Result::ok)
+			.and_then(Self::try_get_process_data_from_holder_reply);
+		if let Some(data) = control {
 			return Ok(Some(data));
 		}
 		let Some((process, data)) = output.indexed else {

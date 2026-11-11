@@ -157,6 +157,19 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 - In `tangram_server`, keep HTTP request handlers thin.
 - In `tangram_server`, place HTTP request handlers after the underlying domain methods.
 
+### Process and Sandbox Methods
+
+- Each process and each sandbox boot has one holder: the scheduler while it is queued, the runner while it runs, and the index once its state is terminal. Say "holder", not "owner", which names the principal that owns a resource.
+- The index lags the holder, except that a terminal state in the index is final.
+- A method that reads or writes live state is holder-routed. Name its functions `try_X`, `try_X_runner`, `try_X_local`, `try_X_regions`, and `try_X_remotes`, such as `try_get_process` and `try_post_process_signal`.
+- In `try_X`, act through this server's runner in `try_X_runner` if it holds the item, then call `try_X_local` without a search, then call `try_X_local` with a search alongside `try_X_regions` followed by `try_X_remotes`.
+- In `try_X_local`, authorize, then call the holder helper, such as `request_process_holder`, which sends the request to the holder while it reads the index, and returns the holder's reply or the index's answer. Do not write another way to reach a holder.
+- A read lets the index answer when the holder does not reply. A write waits for the holder, and treats a terminal state as nothing left to do.
+- A holder answers through the serving helper, such as `serve_process_holder`. A server that does not hold the item replies that it is not the holder, and the caller sends the request again.
+- Every request to a holder must be safe to send twice.
+- A method that only reads or writes the index has no holder step. Lists and searches read the index and may lag.
+- A create gives an item its first holder by enqueueing it to a scheduler.
+
 ### Compatibility
 
 - Treat Tangram as prerelease software.

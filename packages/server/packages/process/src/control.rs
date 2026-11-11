@@ -278,51 +278,15 @@ impl Component {
 		let mut control = connection::Connection::new(stream, sender_high, sender_low, config);
 		let control_sender = control.sender();
 
-		let subject = format!("processes.{id}.control.server");
-		let mut requests = session
-			.server
-			.messenger
-			.subscribe::<ServerMessage>(subject)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the message stream"))?;
-		let request_sender = control_sender.clone();
-		let request_task = Task::spawn({
-			let forwarded_requests = forwarded_requests.clone();
-			move |_| async move {
-				while let Some(message) = requests
-					.try_next()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the message"))?
-				{
-					let message = message.payload.0;
-					let acknowledged_request = match &message {
-						tg::process::control::ServerMessage::Ack(ack) => Some(ack.id.clone()),
-						_ => None,
-					};
-					if let tg::process::control::ServerMessage::Request(request) = &message {
-						forwarded_requests.insert(request.id.clone());
-					}
-					let low = matches!(
-						&message,
-						tg::process::control::ServerMessage::Request(
-							tg::process::control::ServerRequest {
-								arg: tg::process::control::ServerRequestArg::Open(_),
-								..
-							}
-						)
-					);
-					if low {
-						request_sender.send_low(message).await?;
-					} else {
-						request_sender.send(message).await?;
-					}
-					if let Some(id) = acknowledged_request {
-						forwarded_requests.remove(&id);
-					}
-				}
-				Ok::<_, tg::Error>(())
-			}
-		});
+		// Serve the requests to the process's holder with the connection.
+		let request_task = self
+			.serve_process_holder(
+				session,
+				&id,
+				control_sender.clone(),
+				forwarded_requests.clone(),
+			)
+			.await?;
 
 		let response_task = Task::spawn({
 			let component = self.clone();
@@ -336,7 +300,7 @@ impl Component {
 						tg::process::control::ClientMessage::Ack(ack) => {
 							if forwarded_requests.contains(&ack.id) {
 								component
-									.publish_process_control_ack(&session, &id, ack)
+									.publish_process_holder_ack(&session, &id, ack)
 									.await?;
 							}
 						},
@@ -454,7 +418,7 @@ impl Component {
 									.transpose()?;
 							}
 							component
-								.publish_process_control_response(&session, &id, response)
+								.publish_process_holder_response(&session, &id, response)
 								.boxed()
 								.await?;
 						},
@@ -716,77 +680,6 @@ impl Component {
 				"invalid token for a process on the shortcut path"
 			));
 		}
-		Ok(())
-	}
-
-	async fn publish_process_control_ack(
-		&self,
-		session: &Session,
-		id: &tg::process::Id,
-		ack: tg::process::control::ClientAck,
-	) -> tg::Result<()> {
-		let subject = format!("processes.{id}.control.client.{}", ack.id);
-		let payload = ClientMessage(tg::process::control::ClientMessage::Ack(ack));
-		session
-			.server
-			.messenger
-			.publish(subject, payload)
-			.await
-			.map_err(|source| {
-				tg::error!(
-					!source,
-					"failed to publish the process control acknowledgement"
-				)
-			})?;
-
-		Ok(())
-	}
-
-	async fn publish_process_control_response(
-		&self,
-		session: &Session,
-		id: &tg::process::Id,
-		response: tg::process::control::ClientResponse,
-	) -> tg::Result<()> {
-		let kind = match response.output.as_ref() {
-			Some(tg::process::control::ClientResponseOutput::AcquireLease(_)) => "acquire_lease",
-			Some(tg::process::control::ClientResponseOutput::Finish(_)) => "finish",
-			Some(tg::process::control::ClientResponseOutput::Get(_)) => "get",
-			Some(tg::process::control::ClientResponseOutput::GetChildren(_)) => "get_children",
-			Some(tg::process::control::ClientResponseOutput::Open(_)) => "open",
-			Some(tg::process::control::ClientResponseOutput::ReleaseLease(_)) => "release_lease",
-			Some(tg::process::control::ClientResponseOutput::Signal(_)) => "signal",
-			Some(tg::process::control::ClientResponseOutput::Tty(_)) => "tty",
-			None => "error",
-		};
-		let request = response.id.clone();
-		tangram_server_core::checkpoint!(
-			session.server,
-			"process.control.response.publish",
-			kind = %kind,
-			process = %id,
-			request = request.clone(),
-		)
-		.await;
-		let subject = format!("processes.{id}.control.client.{}", response.id);
-		let payload = ClientMessage(tg::process::control::ClientMessage::Response(response));
-		session
-			.server
-			.messenger
-			.publish(subject, payload)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to publish the process control response")
-			})?;
-		tangram_server_core::checkpoint!(
-			session.server,
-			"process.control.response.published",
-			kind = %kind,
-			process = %id,
-			request,
-		)
-		.await;
-
 		Ok(())
 	}
 
