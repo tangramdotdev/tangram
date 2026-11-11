@@ -4,6 +4,7 @@ use {
 		request::{EnqueueRequestArg, RequestArg},
 	},
 	futures::future,
+	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 	tangram_server_core::{Server, indexer::EnqueueArg},
 };
@@ -23,17 +24,25 @@ enum Item {
 impl Component {
 	#[tracing::instrument(name = "indexer.enqueue_items", level = "debug", skip_all, fields(archive = arg.archive.items.len(), index = arg.index.items.len()), err(level = "debug"))]
 	pub(crate) async fn enqueue(&self, server: &Server, arg: EnqueueArg) -> tg::Result<()> {
-		// Pack the items into requests.
-		let requests = pack(arg, server.config.indexer.enqueue.request_size)?;
+		// Group the items by the indexer that they target, which is chosen by the item's affinity, or at random for an item without one.
+		let start = tangram_server_core::service::start();
+		let groups = group(arg, start);
+
+		// Pack each group's items into requests.
+		let mut requests = Vec::new();
+		for (start, arg) in groups {
+			for request in pack(arg, server.config.indexer.enqueue.request_size)? {
+				requests.push((start, request));
+			}
+		}
 		if requests.is_empty() {
 			return Ok(());
 		}
 
-		// Send every request to one indexer until it answers, and move a request to another indexer only if the indexer is unavailable.
-		let start = tangram_server_core::service::start();
+		// Send each request to its target indexer until it answers, and move a request to another indexer only if the indexer is unavailable.
 		let requests = requests
 			.into_iter()
-			.map(|arg| self.enqueue_request(server, start, arg));
+			.map(|(start, arg)| self.enqueue_request(server, start, arg));
 		future::try_join_all(requests).await?;
 
 		Ok(())
@@ -79,6 +88,21 @@ impl Request {
 	fn is_empty(&self) -> bool {
 		self.archive.is_empty() && self.index.is_empty()
 	}
+}
+
+/// Group a call's items by their target, which is the stable hash of an index item's affinity, the same hash that chooses the item's lane in the writer, or the call's start for an archive item or an index item without an affinity. The groups are in the order of their targets.
+fn group(arg: EnqueueArg, start: u64) -> BTreeMap<u64, EnqueueArg> {
+	let mut groups = BTreeMap::<u64, EnqueueArg>::new();
+	if !arg.archive.is_empty() {
+		groups.entry(start).or_default().archive = arg.archive;
+	}
+	for item in arg.index.items {
+		let target = item
+			.affinity()
+			.map_or(start, |affinity| affinity.stable_hash());
+		groups.entry(target).or_default().index.items.push(item);
+	}
+	groups
 }
 
 fn pack(arg: EnqueueArg, request_size: usize) -> tg::Result<Vec<EnqueueRequestArg>> {
@@ -137,7 +161,11 @@ fn pack(arg: EnqueueArg, request_size: usize) -> tg::Result<Vec<EnqueueRequestAr
 
 #[cfg(test)]
 mod tests {
-	use {super::pack, tangram_client::prelude::*, tangram_server_core::indexer::EnqueueArg};
+	use {
+		super::{group, pack},
+		tangram_client::prelude::*,
+		tangram_server_core::indexer::EnqueueArg,
+	};
 
 	fn index_item() -> tangram_index::Item {
 		tangram_index::Item::DeleteCheckout(Box::new(tangram_index::checkout::delete::Arg {
@@ -217,5 +245,74 @@ mod tests {
 			index: tangram_index::write::Arg::default(),
 		};
 		assert!(pack(arg, 1).unwrap().is_empty());
+	}
+
+	fn sandbox_put(id: &tg::sandbox::Id) -> tangram_index::Item {
+		let arg = tangram_index::sandbox::put::Arg {
+			account: None,
+			created_at: 0,
+			data: None,
+			id: id.clone(),
+			location: None,
+			permissions: Vec::new(),
+			principal: tg::Principal::Sandbox(id.clone()),
+			process: None,
+			processes: None,
+			registration: None,
+			runner: None,
+			stopped_boot: None,
+			stopped_usage: None,
+			touched_at: 0,
+		};
+		tangram_index::Item::PutSandbox(Box::new(arg))
+	}
+
+	#[test]
+	fn groups_the_items_of_a_sandbox_by_its_affinity() {
+		// Create items of two sandboxes, an index item without an affinity, and an archive item.
+		let a = tg::sandbox::Id::new();
+		let b = tg::sandbox::Id::new();
+		let archive = tangram_server_core::archive::batch::Item {
+			object: tg::blob::Id::new(b"blob").into(),
+			put: [0; 16],
+		};
+		let archive = tangram_server_core::archive::batch::Arg {
+			items: vec![archive],
+		};
+		let index = tangram_index::write::Arg {
+			items: vec![
+				sandbox_put(&a),
+				index_item(),
+				sandbox_put(&b),
+				sandbox_put(&a),
+			],
+		};
+		let arg = EnqueueArg { archive, index };
+
+		// The items of each sandbox target the hash of its affinity, and the others target the start.
+		let start = 7;
+		let groups = group(arg, start);
+		let hash_a = tangram_index::Affinity::Sandbox(a.clone()).stable_hash();
+		let hash_b = tangram_index::Affinity::Sandbox(b.clone()).stable_hash();
+		assert_eq!(groups.len(), 3);
+		assert_eq!(groups[&hash_a].index.items.len(), 2);
+		assert!(groups[&hash_a].archive.is_empty());
+		assert_eq!(groups[&hash_b].index.items.len(), 1);
+		assert_eq!(groups[&start].index.items.len(), 1);
+		assert_eq!(groups[&start].archive.items.len(), 1);
+	}
+
+	#[test]
+	fn groups_the_items_of_a_call_without_affinities_at_the_start() {
+		let index = tangram_index::write::Arg {
+			items: vec![index_item(), index_item()],
+		};
+		let arg = EnqueueArg {
+			archive: tangram_server_core::archive::batch::Arg::default(),
+			index,
+		};
+		let groups = group(arg, 3);
+		assert_eq!(groups.len(), 1);
+		assert_eq!(groups[&3].index.items.len(), 2);
 	}
 }
