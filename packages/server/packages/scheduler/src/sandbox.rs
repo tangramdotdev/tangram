@@ -8,7 +8,7 @@ use {
 	},
 	futures::{FutureExt as _, StreamExt as _, future},
 	std::{
-		collections::{HashMap, HashSet},
+		collections::{BTreeMap, HashMap, HashSet},
 		sync::Arc,
 	},
 	tangram_client::prelude::*,
@@ -20,6 +20,9 @@ use {
 		control::accept::{Accept, Path},
 	},
 };
+
+#[cfg(test)]
+mod tests;
 
 pub(super) struct Parents(HashMap<tg::sandbox::Id, Parent, tg::id::BuildHasher>);
 
@@ -73,12 +76,21 @@ pub(super) struct Placed {
 /// A boot that a runner accepted.
 struct Scheduled {
 	boot: u64,
+
+	/// The parent of the sandbox, if the scheduler knows it.
+	parent: Option<tg::sandbox::Id>,
+
 	registration_index: u64,
+
 	runner: tg::runner::Id,
 }
 
 struct Parent {
 	borrowable: Option<Borrowable>,
+
+	/// The runner of each child that the scheduler offered to a runner or that a runner accepted, so that the scheduler prefers the runner with the most of a parent's children for its next child.
+	children: BTreeMap<tg::sandbox::Id, tg::runner::Id>,
+
 	queue: Queue,
 }
 
@@ -147,6 +159,14 @@ enum Placement {
 struct RunnerRef {
 	registration_index: u64,
 	id: tg::runner::Id,
+}
+
+/// A runner that can take a sandbox, with its score and its number of the sandbox's siblings.
+struct Candidate<'a> {
+	id: &'a tg::runner::Id,
+	registration_index: u64,
+	score: (u128, u128),
+	siblings: usize,
 }
 
 struct CreateSandboxArg<'a> {
@@ -288,6 +308,13 @@ impl Sandboxes {
 	}
 }
 
+impl Parent {
+	/// Whether the entry has no queued children, no capacity to lend, and no children on runners, so that it can be dropped.
+	fn is_empty(&self) -> bool {
+		self.queue.len() == 0 && self.borrowable.is_none() && self.children.is_empty()
+	}
+}
+
 impl Borrowable {
 	#[must_use]
 	fn new(
@@ -357,7 +384,7 @@ impl SchedulerState {
 				self.send_enqueue_responses(scheduler, ids, Ok(()));
 				return;
 			}
-			self.sandboxes.scheduled.remove(&request.sandbox);
+			self.forget_scheduled_sandbox(&request.sandbox);
 		}
 
 		if self.sandboxes.entries.contains_key(&request.sandbox) {
@@ -529,6 +556,9 @@ impl SchedulerState {
 		id: &tg::sandbox::Id,
 	) -> Option<Sandbox> {
 		let sandbox = self.sandboxes.entries.remove(id)?;
+		if let Some(parent) = &sandbox.request.parent {
+			self.remove_child(parent, id);
+		}
 		self.stop_serving_sandbox_holder(id);
 		let error =
 			tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
@@ -633,6 +663,7 @@ impl SchedulerState {
 				.entry(parent)
 				.or_insert_with(|| Parent {
 					borrowable: None,
+					children: BTreeMap::new(),
 					queue: Queue::new(),
 				})
 				.queue
@@ -1301,6 +1332,7 @@ impl SchedulerState {
 		&mut self,
 		sandbox: tg::sandbox::Id,
 		boot: u64,
+		parent: Option<&tg::sandbox::Id>,
 		runner: &tg::runner::Id,
 		registration_index: u64,
 	) {
@@ -1312,12 +1344,64 @@ impl SchedulerState {
 		{
 			return;
 		}
+
+		// Count the boot as a child of its parent on its runner, keeping the parent that the scheduler already knows if this report does not name it.
+		let parent = parent.cloned().or_else(|| {
+			self.sandboxes
+				.scheduled
+				.get(&sandbox)
+				.and_then(|scheduled| scheduled.parent.clone())
+		});
+		if let Some(parent) = &parent {
+			self.insert_child(parent, &sandbox, runner);
+		}
 		let scheduled = Scheduled {
 			boot,
+			parent,
 			registration_index,
 			runner: runner.clone(),
 		};
 		self.sandboxes.scheduled.insert(sandbox, scheduled);
+	}
+
+	/// Forget a boot that a runner accepted, and its count as a child of its parent.
+	fn forget_scheduled_sandbox(&mut self, sandbox: &tg::sandbox::Id) {
+		let Some(scheduled) = self.sandboxes.scheduled.remove(sandbox) else {
+			return;
+		};
+		if let Some(parent) = &scheduled.parent {
+			self.remove_child(parent, sandbox);
+		}
+	}
+
+	/// Record the runner of a parent's child.
+	fn insert_child(
+		&mut self,
+		parent: &tg::sandbox::Id,
+		child: &tg::sandbox::Id,
+		runner: &tg::runner::Id,
+	) {
+		self.parents
+			.0
+			.entry(parent.clone())
+			.or_insert_with(|| Parent {
+				borrowable: None,
+				children: BTreeMap::new(),
+				queue: Queue::new(),
+			})
+			.children
+			.insert(child.clone(), runner.clone());
+	}
+
+	/// Forget the runner of a parent's child, and the parent's entry if it is empty.
+	fn remove_child(&mut self, parent: &tg::sandbox::Id, child: &tg::sandbox::Id) {
+		let Some(entry) = self.parents.0.get_mut(parent) else {
+			return;
+		};
+		entry.children.remove(child);
+		if entry.is_empty() {
+			self.parents.0.remove(parent);
+		}
 	}
 
 	/// Forget a boot that its runner reports ended.
@@ -1332,7 +1416,7 @@ impl SchedulerState {
 					&& scheduled.boot == notification.boot
 			});
 		if ended {
-			self.sandboxes.scheduled.remove(&notification.sandbox);
+			self.forget_scheduled_sandbox(&notification.sandbox);
 		}
 	}
 
@@ -1492,6 +1576,7 @@ impl SchedulerState {
 			.entry(parent_id.clone())
 			.or_insert_with(|| Parent {
 				borrowable: None,
+				children: BTreeMap::new(),
 				queue: Queue::new(),
 			});
 		let borrowable =
@@ -1511,7 +1596,7 @@ impl SchedulerState {
 			runner.borrowable.insert(parent_id.clone());
 		}
 		let sandbox = parent.queue.head().cloned();
-		if parent.queue.len() == 0 && parent.borrowable.is_none() {
+		if parent.is_empty() {
 			self.parents.0.remove(&parent_id);
 		}
 		if let Some(sandbox) = sandbox
@@ -1556,7 +1641,7 @@ impl SchedulerState {
 			runner.borrowable.remove(&parent_id);
 			if let Some(parent) = self.parents.0.get_mut(&parent_id) {
 				parent.borrowable = None;
-				if parent.queue.len() == 0 {
+				if parent.is_empty() {
 					self.parents.0.remove(&parent_id);
 				}
 			}
@@ -1673,6 +1758,7 @@ impl SchedulerState {
 				self.track_scheduled_sandbox(
 					id.clone(),
 					request.boot,
+					request.parent.as_ref(),
 					&runner_ref.id,
 					runner_ref.registration_index,
 				);
@@ -1762,9 +1848,16 @@ impl SchedulerState {
 		let Some(runner) = self.runners.entries.remove(id) else {
 			return Vec::new();
 		};
-		self.sandboxes
+		let forgotten = self
+			.sandboxes
 			.scheduled
-			.retain(|_, scheduled| scheduled.runner != *id);
+			.iter()
+			.filter(|(_, scheduled)| scheduled.runner == *id)
+			.map(|(sandbox, _)| sandbox.clone())
+			.collect::<Vec<_>>();
+		for sandbox in forgotten {
+			self.forget_scheduled_sandbox(&sandbox);
+		}
 		for parent_id in runner.borrowable {
 			let Some(parent) = self.parents.0.get_mut(&parent_id) else {
 				continue;
@@ -1775,7 +1868,7 @@ impl SchedulerState {
 			});
 			if remove {
 				parent.borrowable = None;
-				if parent.queue.len() == 0 {
+				if parent.is_empty() {
 					self.parents.0.remove(&parent_id);
 				}
 			}
@@ -1860,7 +1953,13 @@ impl SchedulerState {
 			return Some(placement);
 		}
 
-		let mut best: Option<(RunnerRef, (u128, u128))> = None;
+		// Find the runners that can take the sandbox, with their scores and their numbers of the sandbox's siblings.
+		let parent = sandbox
+			.request
+			.parent
+			.as_ref()
+			.and_then(|parent| self.parents.0.get(parent));
+		let mut candidates = Vec::new();
 		for (id, runner) in &self.runners.entries {
 			let blocked = sandbox.blocked.get(id).is_some_and(|block| {
 				block.registration_index == runner.registration_index
@@ -1889,18 +1988,42 @@ impl SchedulerState {
 				continue;
 			}
 			let score = score(runner, available, sandbox.capacity);
-			if best.as_ref().is_none_or(|(best_runner, best_score)| {
-				score < *best_score || (score == *best_score && id < &best_runner.id)
-			}) {
-				let runner = RunnerRef {
-					registration_index: runner.registration_index,
-					id: id.clone(),
-				};
-				best = Some((runner, score));
-			}
+			let siblings = parent.map_or(0, |parent| {
+				parent
+					.children
+					.values()
+					.filter(|runner| *runner == id)
+					.count()
+			});
+			let candidate = Candidate {
+				id,
+				registration_index: runner.registration_index,
+				score,
+				siblings,
+			};
+			candidates.push(candidate);
 		}
 
-		best.map(|(runner, _)| Placement::Regular { runner })
+		// Prefer the runner that runs the sandbox's parent, which the scheduler knows from the parent's boot, and then the runner that runs the most of its siblings.
+		let parent_runner = sandbox
+			.request
+			.parent
+			.as_ref()
+			.and_then(|parent| self.sandboxes.scheduled.get(parent))
+			.filter(|scheduled| {
+				self.runners
+					.entries
+					.get(&scheduled.runner)
+					.is_some_and(|runner| runner.registration_index == scheduled.registration_index)
+			})
+			.map(|scheduled| &scheduled.runner);
+		let candidate = choose_runner(&candidates, parent_runner)?;
+		let runner = RunnerRef {
+			registration_index: candidate.registration_index,
+			id: candidate.id.clone(),
+		};
+
+		Some(Placement::Regular { runner })
 	}
 
 	fn borrowed_placement(&self, sandbox: &Sandbox, request_limit: usize) -> Option<Placement> {
@@ -1949,6 +2072,9 @@ impl SchedulerState {
 	}
 
 	fn requeue_sandbox(&mut self, id: &tg::sandbox::Id) {
+		if let Some(parent) = self.sandboxes.entries[id].request.parent.clone() {
+			self.remove_child(&parent, id);
+		}
 		self.sandboxes.entries.get_mut(id).unwrap().state = SandboxState::Pending;
 		self.queue_sandbox(id);
 	}
@@ -1962,6 +2088,7 @@ impl SchedulerState {
 				.entry(parent)
 				.or_insert_with(|| Parent {
 					borrowable: None,
+					children: BTreeMap::new(),
 					queue: Queue::new(),
 				})
 				.queue
@@ -1976,7 +2103,7 @@ impl SchedulerState {
 			&& let Some(parent) = self.parents.0.get_mut(&parent_id)
 		{
 			parent.queue.remove(id);
-			if parent.queue.len() == 0 && parent.borrowable.is_none() {
+			if parent.is_empty() {
 				self.parents.0.remove(&parent_id);
 			}
 		}
@@ -2085,6 +2212,9 @@ impl SchedulerState {
 		add(&mut runner.reserved, reserved);
 		let entry = Reservation { capacity: reserved };
 		runner.reservations.insert(id.clone(), entry);
+		if let Some(parent) = self.sandboxes.entries[id].request.parent.clone() {
+			self.insert_child(&parent, id, &runner_ref.id);
+		}
 		self.sandboxes.entries.get_mut(id).unwrap().state = SandboxState::Creating {
 			offer: tangram_server_core::control::id(),
 			placement,
@@ -2716,6 +2846,29 @@ fn score(
 	let memory = u128::from(remaining.memory.max.unwrap_or_default()) * 1_000_000
 		/ u128::from(total.memory.max.unwrap_or(1).max(1));
 	(cpu.max(memory), cpu + memory)
+}
+
+/// Choose a runner for a sandbox among the runners that can take it: the runner of the sandbox's parent, then the runner with the most of its siblings, and then the runner with the best score, breaking ties by score and then by runner ID.
+fn choose_runner<'a>(
+	candidates: &'a [Candidate<'a>],
+	parent_runner: Option<&tg::runner::Id>,
+) -> Option<&'a Candidate<'a>> {
+	if let Some(parent_runner) = parent_runner
+		&& let Some(candidate) = candidates
+			.iter()
+			.find(|candidate| candidate.id == parent_runner)
+	{
+		return Some(candidate);
+	}
+	let best = |a: &&Candidate, b: &&Candidate| (a.score, a.id).cmp(&(b.score, b.id));
+	if let Some(candidate) = candidates
+		.iter()
+		.filter(|candidate| candidate.siblings > 0)
+		.min_by(|a, b| b.siblings.cmp(&a.siblings).then_with(|| best(a, b)))
+	{
+		return Some(candidate);
+	}
+	candidates.iter().min_by(best)
 }
 
 /// Subtract a request from a sum of requests.

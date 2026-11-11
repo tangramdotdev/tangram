@@ -117,6 +117,7 @@ impl SchedulerState {
 			self.track_scheduled_sandbox(
 				sandbox.id.clone(),
 				sandbox.boot,
+				None,
 				&request.runner,
 				registration_index,
 			);
