@@ -1,5 +1,5 @@
 use {
-	futures::{StreamExt as _, future::BoxFuture, stream::BoxStream},
+	futures::{FutureExt as _, StreamExt as _, future::BoxFuture, stream::BoxStream},
 	tangram_client::prelude::*,
 };
 
@@ -8,6 +8,9 @@ mod replies;
 pub use self::replies::{Begin, Replies};
 
 pub struct Arg<'a, Request> {
+	/// The prefix of the names of the checkpoints that the request hits, such as `process.get`, which hits `process.get.index` after each read of the item from the index and `process.get.index.required` when a reply requires the index.
+	pub checkpoint: Option<&'static str>,
+
 	/// The time until which a read waits for the holder's reply, and a write waits for the holder of an item that the index does not have.
 	pub deadline: tokio::time::Instant,
 
@@ -17,8 +20,8 @@ pub struct Arg<'a, Request> {
 	/// The ID of the request, which every copy of the request carries, so that the holder acts on the request once however many copies reach it.
 	pub id: String,
 
-	/// Whether the index answers when the holder does not. A read sets this, so that the index answers for a holder that does not reply by the deadline. A write does not, so that only a terminal state or a missing item ends its wait.
-	pub fallback: bool,
+	/// Whether the request is a read or a write, which decides whether the index answers when the holder does not.
+	pub mode: Mode,
 
 	/// The retry and timeout of the request to the holder.
 	pub options: crate::control::Options,
@@ -37,8 +40,40 @@ pub struct Output<Indexed, Reply> {
 	pub reply: Option<tg::Result<Reply>>,
 }
 
-/// A kind of item that has a holder, which is a process or a sandbox.
-pub trait Kind: Sync {
+/// Whether a request to a holder is a read or a write.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Mode {
+	/// A read, which the index answers for a holder that does not reply by the deadline.
+	Read,
+
+	/// A write, which only the holder's reply, a terminal state, or a missing item ends.
+	Write,
+}
+
+/// The state of an item's record in the index, which decides whether the index answers a request and whether it has everything that a holder's reply does not.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum State {
+	/// The index answers every request and has everything that a holder's reply does not, such as for an item in a terminal state.
+	Final,
+
+	/// The item has a holder that answers every request, and the index does not have everything that the holder's reply does not.
+	Held,
+
+	/// The index does not have the item's status, so that only a holder can show that the item exists.
+	Missing,
+
+	/// The item lives in a remote, so that the index answers every request, although it does not have everything that a holder's reply does not.
+	Remote,
+
+	/// The item is starting, so that the index answers a read and has everything that a holder's reply does not, and a write waits for the holder.
+	Starting,
+
+	/// The item is starting at a holder that answers every request, and the index has everything that the holder's reply does not.
+	StartingHeld,
+}
+
+/// An item that has a holder, which is a process or a sandbox.
+pub trait Item: Sync {
 	type Indexed: Send;
 
 	type Reply: Send;
@@ -49,7 +84,9 @@ pub trait Kind: Sync {
 	fn index(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>>;
 
 	/// Read the item from the index again after a reply or the deadline.
-	fn reindex(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>>;
+	fn reindex(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
+		self.index(exhaustive)
+	}
 
 	/// Send the request to the holder, and send it again on each item of the resend stream until a holder acknowledges it.
 	fn send(
@@ -60,63 +97,71 @@ pub trait Kind: Sync {
 		resend: Option<BoxStream<'static, ()>>,
 	) -> BoxFuture<'_, tg::Result<Self::Reply>>;
 
-	/// Observe that a reply requires the index.
-	fn index_required(&self) -> BoxFuture<'_, ()>;
-
-	/// Whether the index's answer ends a request to the holder.
-	fn is_decisive(&self, indexed: Option<&Self::Indexed>, fallback: bool) -> bool;
-
-	/// Whether the index has everything that a holder's reply does not.
-	fn is_complete(&self, indexed: Option<&Self::Indexed>) -> bool;
-
-	/// Whether the index has the item's status, without which only a holder can show that the item exists.
-	fn has_status(&self, indexed: Option<&Self::Indexed>) -> bool;
+	/// The state of the item's record in the index.
+	fn state(&self, indexed: Option<&Self::Indexed>) -> State;
 }
 
-/// Send a request to the holder of an item while reading the item from the index, and return the holder's reply or the index's answer, whichever is decisive first. Return `None` if the wakeups end.
-pub async fn request<K: Kind>(
-	kind: &K,
-	arg: Arg<'_, K::Request>,
-	index_required: impl Fn(&K::Reply) -> bool + Send,
-) -> tg::Result<Option<Output<K::Indexed, K::Reply>>> {
+/// Send a request to the holder of an item while reading the item from the index, and return the holder's reply or the index's answer, whichever is decisive first. Hit each of the request's checkpoints with the checkpoint function. Return `None` if the wakeups end.
+pub async fn request<'c, I: Item>(
+	item: &I,
+	arg: Arg<'_, I::Request>,
+	checkpoint: impl Fn(String) -> BoxFuture<'c, ()> + Sync,
+	index_required: impl Fn(&I::Reply) -> bool + Send,
+) -> tg::Result<Option<Output<I::Indexed, I::Reply>>> {
 	let Arg {
+		checkpoint: prefix,
 		deadline,
 		exhaustive,
-		fallback,
 		id,
+		mode,
 		options,
 		request,
 		mut wakeups,
 	} = arg;
 
-	// Read the item from the index.
-	let mut index_future = Some(kind.index(exhaustive));
-	let mut indexed: Option<Option<K::Indexed>> = None;
+	// Read the item from the index, and then hit the request's index checkpoint.
+	let index = || {
+		let checkpoint = &checkpoint;
+		async move {
+			let result = item.index(exhaustive).await;
+			if let Some(prefix) = prefix {
+				checkpoint(format!("{prefix}.index")).await;
+			}
+			result
+		}
+		.boxed()
+	};
+	let mut index_future = Some(index());
+	let mut indexed: Option<Option<I::Indexed>> = None;
 
 	// Send the request to the holder, and send it again on each status wakeup, because the item may have a new holder.
 	let (resend_sender, resend_receiver) = tokio::sync::watch::channel(());
 	let resend = wakeups
 		.is_some()
 		.then(|| tokio_stream::wrappers::WatchStream::from_changes(resend_receiver).boxed());
-	let mut request_future = kind.send(request, id, options, resend);
+	let mut request_future = item.send(request, id, options, resend);
 
 	loop {
 		// A read waits for the holder until the deadline, and a write does so only if the index does not have the item, because only a holder can then show that the item exists.
 		let missing = matches!(
 			&indexed,
-			Some(indexed) if !kind.has_status(indexed.as_ref()),
+			Some(indexed) if item.state(indexed.as_ref()) == State::Missing,
 		);
-		let wait_until_deadline = fallback || missing;
+		let wait_until_deadline = mode == Mode::Read || missing;
 
 		tokio::select! {
 			result = async { index_future.as_mut().unwrap().await }, if index_future.is_some() => {
 				index_future = None;
 				let result = result?;
 
-				// Return the index's answer if it is decisive, or if the index does not have the item and the request is not exhaustive.
-				if kind.is_decisive(result.as_ref(), fallback)
-					|| (!exhaustive && !kind.has_status(result.as_ref()))
-				{
+				// Return the index's answer if it answers the request, or if the index does not have the item and the request is not exhaustive. The index answers every request for an item that is final or that lives in a remote, and a read for a starting item.
+				let state = item.state(result.as_ref());
+				let answers = match state {
+					State::Final | State::Remote => true,
+					State::Starting => mode == Mode::Read,
+					State::Held | State::Missing | State::StartingHeld => false,
+				};
+				if answers || (!exhaustive && state == State::Missing) {
 					let output = Output {
 						indexed: result,
 						reply: None,
@@ -131,22 +176,28 @@ pub async fn request<K: Kind>(
 				let indexed = match &reply {
 					// Read the item from the index if the reply requires it, because the holder does not have everything that the index does.
 					Ok(output) if index_required(output) => {
-						kind.index_required().await;
+						if let Some(prefix) = prefix {
+							checkpoint(format!("{prefix}.index.required")).await;
+						}
 						let indexed = match index_future.take() {
 							Some(index_future) => index_future.await?,
 							None => indexed.flatten(),
 						};
-						if kind.is_complete(indexed.as_ref()) {
+						let complete = match item.state(indexed.as_ref()) {
+							State::Final | State::Starting | State::StartingHeld => true,
+							State::Held | State::Missing | State::Remote => false,
+						};
+						if complete {
 							indexed
 						} else {
-							kind.reindex(exhaustive).await?
+							item.reindex(exhaustive).await?
 						}
 					},
 
 					Ok(_) => indexed.flatten(),
 
 					// Read the item from the index again if the request failed, because the item may have reached a terminal state.
-					Err(_) => kind.reindex(exhaustive).await?,
+					Err(_) => item.reindex(exhaustive).await?,
 				};
 				let output = Output {
 					indexed,
@@ -157,10 +208,9 @@ pub async fn request<K: Kind>(
 
 			() = tokio::time::sleep_until(deadline), if wait_until_deadline => {
 				// Answer a read from the index, and a write with the missing item.
-				let indexed = if fallback {
-					kind.reindex(exhaustive).await?
-				} else {
-					indexed.flatten()
+				let indexed = match mode {
+					Mode::Read => item.reindex(exhaustive).await?,
+					Mode::Write => indexed.flatten(),
 				};
 				let output = Output {
 					indexed,
@@ -175,7 +225,7 @@ pub async fn request<K: Kind>(
 				}
 
 				// Read the item from the index again, and send the request again, because its status changed and the item may have a new holder.
-				index_future = Some(kind.index(exhaustive));
+				index_future = Some(index());
 				resend_sender.send_replace(());
 			},
 		}

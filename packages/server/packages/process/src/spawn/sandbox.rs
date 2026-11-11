@@ -285,10 +285,11 @@ impl Component {
 
 			// Send the request to the sandbox's holder, and send it again on each status wakeup, so that it reaches the runner once the sandbox starts.
 			let arg = tangram_server_core::holder::Arg {
+				checkpoint: None,
 				deadline: session.server.control_read_deadline(),
 				exhaustive: true,
-				fallback: false,
 				id: tangram_server_core::control::id(),
+				mode: tangram_server_core::holder::Mode::Write,
 				options,
 				request,
 				wakeups: Some(&mut wakeups),
