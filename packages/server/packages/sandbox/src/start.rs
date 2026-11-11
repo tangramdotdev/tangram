@@ -266,7 +266,7 @@ impl Component {
 						break boot;
 					}
 
-					// Finish the start of the boot that a start reserved, which may be this start, if the index applied its reservation and reported a failure, and read the sandbox again.
+					// Finish the start of the boot that another start reserved, and read the sandbox again.
 					self.resume_reserved_sandbox_boot(session, id).await?;
 					let indexed = self
 						.try_get_sandbox_from_index(session, id)

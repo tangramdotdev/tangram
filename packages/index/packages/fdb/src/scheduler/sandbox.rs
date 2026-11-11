@@ -106,7 +106,7 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 
-	async fn try_get_sandbox_scheduler_record_with_transaction(
+	pub(crate) async fn try_get_sandbox_scheduler_record_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		sandbox: &tg::sandbox::Id,

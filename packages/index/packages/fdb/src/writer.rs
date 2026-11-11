@@ -847,6 +847,7 @@ impl Index {
 	) -> Result<Vec<Response>, TransactionError> {
 		let start = std::time::Instant::now();
 		let mut attempt_count = 0;
+		let mut maybe_committed = false;
 
 		let transaction = database.create_trx();
 		let result = match transaction {
@@ -863,6 +864,7 @@ impl Index {
 					subspace,
 					requests,
 					config,
+					maybe_committed,
 				)
 				.await;
 				let responses = match result {
@@ -887,6 +889,9 @@ impl Index {
 						if Self::is_transaction_too_old(*error) {
 							break Err(TransactionError::FoundationDb(error.into()));
 						}
+
+						// Remember that a commit may have succeeded, so that the next attempt can recognize its own write.
+						maybe_committed |= error.is_maybe_committed();
 						match error.on_error().await {
 							Ok(value) => {
 								transaction = value;
@@ -923,10 +928,12 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		requests: &[Request],
 		config: ExecutionConfig<'_>,
+		maybe_committed: bool,
 	) -> tg::Result<ControlFlow<Vec<Response>, fdb::FdbError>> {
 		let mut responses = Vec::with_capacity(requests.len());
 		for request in requests {
-			let result = Self::execute_request(txn, subspace, request, config).await;
+			let result =
+				Self::execute_request(txn, subspace, request, config, maybe_committed).await;
 			let response = crate::propagate!(result);
 			responses.push(response);
 		}
@@ -939,6 +946,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		request: &Request,
 		config: ExecutionConfig<'_>,
+		maybe_committed: bool,
 	) -> tg::Result<ControlFlow<Response, fdb::FdbError>> {
 		let ExecutionConfig {
 			max_process_depth,
@@ -974,6 +982,7 @@ impl Index {
 					&arg.items,
 					config.partition_totals,
 					config.process_data_fragment_size,
+					maybe_committed,
 				)
 				.await;
 				let result = crate::propagate!(result);

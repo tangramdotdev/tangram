@@ -132,6 +132,116 @@ async fn check_a_reservation_writes_all_or_nothing(index: &Index) {
 	assert_eq!(sandboxes[0].request, b"request".to_vec());
 }
 
+/// Run a write in one transaction as the retry of an attempt whose commit may or may not have succeeded.
+async fn write_again(
+	index: &Index,
+	arg: &tangram_index::write::Arg,
+	maybe_committed: bool,
+	process_data_fragment_size: usize,
+) -> tg::Result<()> {
+	crate::run(&index.database, async |txn| {
+		Index::write_with_transaction(
+			txn,
+			&index.subspace,
+			&arg.items,
+			index.partition_totals,
+			process_data_fragment_size,
+			maybe_committed,
+		)
+		.await
+	})
+	.await
+	.unwrap()
+}
+
+/// Check that a retry of a write of a stopped sandbox, whose earlier attempt may have committed, is accepted as its own write if the index has what it produces, and is rejected otherwise.
+async fn check_a_maybe_committed_write_of_a_stopped_sandbox_is_its_own(
+	index: &Index,
+	process_data_fragment_size: usize,
+) {
+	let id = tg::sandbox::Id::new();
+	let scheduler = tg::scheduler::Id::new();
+	put(index, put_arg(&id, 0, tg::sandbox::Status::Stopped, None))
+		.await
+		.unwrap();
+	let reservation = |request: &[u8]| {
+		let sandbox = put_arg(&id, 1, tg::sandbox::Status::Starting, Some(0));
+		let request = tangram_index::scheduler::sandbox::put::Arg {
+			boot: 1,
+			request: request.to_vec(),
+			sandbox: id.clone(),
+			scheduler: scheduler.clone(),
+		};
+		tangram_index::write::Arg {
+			items: vec![
+				tangram_index::Item::PutSandbox(Box::new(sandbox)),
+				tangram_index::Item::PutSchedulerSandbox(Box::new(request)),
+			],
+		}
+	};
+
+	// Commit the reservation, as the first attempt whose commit reported an unknown result.
+	let arg = reservation(b"request");
+	index.write(arg.clone()).await.unwrap().unwrap();
+
+	// A retry that knows the first attempt may have committed recognizes its own reservation.
+	write_again(index, &arg, true, process_data_fragment_size)
+		.await
+		.unwrap();
+
+	// A retry that does not know it, or a reservation by a different start, is rejected.
+	assert!(
+		write_again(index, &arg, false, process_data_fragment_size)
+			.await
+			.is_err()
+	);
+	let other = reservation(b"other");
+	assert!(
+		write_again(index, &other, true, process_data_fragment_size)
+			.await
+			.is_err()
+	);
+
+	// A destroy conditioned on the stopped boot is rejected although its attempt may have committed, because the index has the reservation and not the destruction.
+	let destroy = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutSandbox(Box::new(put_arg(
+			&id,
+			0,
+			tg::sandbox::Status::Destroying,
+			Some(0),
+		)))],
+	};
+	assert!(
+		write_again(index, &destroy, true, process_data_fragment_size)
+			.await
+			.is_err()
+	);
+	assert_eq!(status(index, &id).await, (1, tg::sandbox::Status::Starting));
+
+	// A retry of a destroy of a stopped sandbox whose attempt may have committed recognizes its own destruction.
+	let id = tg::sandbox::Id::new();
+	put(index, put_arg(&id, 0, tg::sandbox::Status::Stopped, None))
+		.await
+		.unwrap();
+	let destroy = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutSandbox(Box::new(put_arg(
+			&id,
+			0,
+			tg::sandbox::Status::Destroying,
+			Some(0),
+		)))],
+	};
+	index.write(destroy.clone()).await.unwrap().unwrap();
+	write_again(index, &destroy, true, process_data_fragment_size)
+		.await
+		.unwrap();
+	assert!(
+		write_again(index, &destroy, false, process_data_fragment_size)
+			.await
+			.is_err()
+	);
+}
+
 #[tokio::test]
 async fn a_destroy_of_a_stopped_sandbox_rejects_a_later_start() {
 	let Some(options) = super::process::options() else {
@@ -161,6 +271,22 @@ async fn a_reservation_of_the_next_boot_writes_all_or_nothing() {
 	};
 	super::run(&options, async |index| {
 		check_a_reservation_writes_all_or_nothing(index).await;
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn a_maybe_committed_write_of_a_stopped_sandbox_is_its_own() {
+	let Some(options) = super::process::options() else {
+		return;
+	};
+	let process_data_fragment_size = options.process_data_fragment_size;
+	super::run(&options, async |index| {
+		check_a_maybe_committed_write_of_a_stopped_sandbox_is_its_own(
+			index,
+			process_data_fragment_size,
+		)
+		.await;
 	})
 	.await;
 }
