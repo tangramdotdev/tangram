@@ -3,6 +3,7 @@ use rustls_platform_verifier::BuilderVerifierExt as _;
 use tangram_http::body::Ext as _;
 use {
 	crate::prelude::*,
+	futures::{StreamExt as _, TryStreamExt as _},
 	std::{
 		ops::ControlFlow,
 		path::Path,
@@ -63,6 +64,25 @@ pub(crate) enum Error {
 
 	/// A failure to receive a response in time, after which the server may have handled the request.
 	Timeout(tg::Error),
+}
+
+/// Decode the events of a response from a reader that ends when the body fails, because a lost connection ends the stream early, and the caller sends the request again unless the stream reached its end event.
+pub(crate) fn sse_until_lost(
+	response: http::Response<tangram_http::body::Boxed>,
+) -> impl futures::Stream<Item = tg::Result<tangram_http::sse::Event>> + Send + 'static {
+	let body = tangram_http::body::BodyStream::new(response.into_body())
+		.take_while(|result| {
+			if let Err(error) = result {
+				tracing::debug!(%error, "failed to read the response body");
+			}
+			std::future::ready(result.is_ok())
+		})
+		.filter_map(|result| {
+			std::future::ready(result.ok().and_then(|frame| frame.into_data().ok()))
+		})
+		.map(Ok::<_, std::io::Error>);
+	let reader = tokio_util::io::StreamReader::new(body);
+	tangram_http::sse::decode(reader).map_err(|error| tg::error!(!error, "failed to read an event"))
 }
 
 impl Affinity {

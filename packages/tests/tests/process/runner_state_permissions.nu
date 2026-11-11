@@ -81,7 +81,7 @@ tg --token $root_token checkpoint unwatch process.wait.attach $attach_watch
 tg --token $root_token checkpoint unwatch runner.process.finish $runner_finish_watch
 tg --token $root_token checkpoint wait --timeout 30s process.control.finish $finish_watch 0 | ignore
 let result = job recv --tag $wait_job --timeout 10sec
-let result = $result | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
+let result = $result | lines | window 2 | where {|pair| $pair.0 == 'event: outcome' } | last | get 1 | str substring 6.. | from json
 assert equal $result.exit 0
 assert (not ($result.output.value | str contains 'tokens[')) "a node reader must not receive an output capability"
 let output = tg --token $bob.token cat $result.output.value | complete

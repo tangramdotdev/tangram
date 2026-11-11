@@ -337,13 +337,18 @@ impl Component {
 		};
 
 		// Create the stream.
+		// Send the outcome, if there is one, and then the end event, so that the client can tell a completed wait from a lost connection.
 		let stream = stream::once(future)
-			.filter_map(|result| async move {
-				match result {
-					Ok(Some(outcome)) => Some(Ok(tg::sandbox::wait::Event::Outcome(outcome))),
-					Ok(None) => None,
-					Err(error) => Some(Err(error)),
-				}
+			.flat_map(|result| {
+				let events = match result {
+					Ok(Some(outcome)) => vec![
+						Ok(tg::sandbox::wait::Event::Outcome(outcome)),
+						Ok(tg::sandbox::wait::Event::End),
+					],
+					Ok(None) => vec![Ok(tg::sandbox::wait::Event::End)],
+					Err(error) => vec![Err(error)],
+				};
+				stream::iter(events)
 			})
 			.with_stopper(session.context.stopper.clone());
 

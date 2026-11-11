@@ -84,7 +84,7 @@ for location in [local remote] {
 				error make { msg: $'($location) ($field) wait did not return after the finished-process batch was indexed' }
 			}
 		}
-		let output = $output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
+		let output = $output | lines | window 2 | where {|pair| $pair.0 == 'event: outcome' } | last | get 1 | str substring 6.. | from json
 		if $field == output {
 			assert equal $output.exit 0 "the process must succeed before reading its output"
 		} else {
@@ -93,7 +93,7 @@ for location in [local remote] {
 		let object = if $field == output { $output.output.value } else { $output.error }
 		let object_id = $object | split row '?' | first
 		let node_output_objects = job recv --tag $node_wait_job --timeout 10sec
-		let node_output_objects = $node_output_objects | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
+		let node_output_objects = $node_output_objects | lines | window 2 | where {|pair| $pair.0 == 'event: outcome' } | last | get 1 | str substring 6.. | from json
 		let node_object = if $field == output { $node_output_objects.output.value } else { $node_output_objects.error }
 		assert equal ($node_object | split row '?' | first) $object_id
 		if $location == remote and $field == error {

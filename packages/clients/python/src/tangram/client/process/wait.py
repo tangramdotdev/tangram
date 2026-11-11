@@ -83,7 +83,9 @@ async def wait_process_once(client: "Client", id, arg):
         raise Error.from_data(cast(ErrorData, await response.json()))
     outcome = None
     async for event in response.sse():
-        if event.get("event") == "outcome":
+        if event.get("event") == "end":
+            break
+        elif event.get("event") == "outcome":
             outcome = Outcome.from_data(json.loads(event["data"]))
         elif event.get("event") == "error":
             data = json.loads(event["data"])
