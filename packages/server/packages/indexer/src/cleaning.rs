@@ -166,6 +166,18 @@ impl Component {
 		let max_process_touched_at = now - process_time_to_live.as_secs().to_i64().unwrap();
 		let max_sandbox_touched_at = now - sandbox_time_to_live.as_secs().to_i64().unwrap();
 
+		// Wait for the cached process touches before cleaning the index.
+		let guard = if !server.config.advanced.multi_server
+			&& matches!(
+				server.config.index,
+				tangram_server_core::config::Index::Lmdb(_)
+			) {
+			Some(server.index_cleaning_lock.write().await)
+		} else {
+			None
+		};
+		tangram_server_core::checkpoint!(server, "index.clean").await;
+
 		// Clean.
 		let mut output = server
 			.index
@@ -179,6 +191,7 @@ impl Component {
 				partition_start,
 			})
 			.await?;
+		drop(guard);
 
 		// Remove the cleaned nodes from retained runner state.
 		let runner = server.components.runner.state();

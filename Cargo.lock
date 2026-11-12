@@ -10441,7 +10441,7 @@ dependencies = [
 name = "tangram_index_lmdb"
 version = "0.0.0"
 dependencies = [
- "crossbeam-channel",
+ "async-channel",
  "foundationdb-tuple",
  "futures",
  "heed",

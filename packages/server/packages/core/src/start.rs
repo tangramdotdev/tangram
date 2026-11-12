@@ -199,6 +199,7 @@ impl Server {
 
 		// Create the index.
 		let index = Self::create_index(&config, &original_path, checkpoints.clone())?;
+		let index_cleaning_lock = Arc::new(tokio::sync::RwLock::new(()));
 
 		// Create the library.
 		let library = Mutex::new(None);
@@ -266,6 +267,7 @@ impl Server {
 			database,
 			diagnostics,
 			index,
+			index_cleaning_lock,
 			library,
 			lock,
 			messenger,

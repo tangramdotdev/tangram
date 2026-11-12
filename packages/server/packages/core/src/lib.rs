@@ -116,6 +116,7 @@ pub struct State {
 	pub database: Database,
 	pub diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	pub index: Index,
+	pub index_cleaning_lock: Arc<tokio::sync::RwLock<()>>,
 	pub library: Mutex<Option<Arc<Temp>>>,
 	pub lock: Mutex<Option<tokio::fs::File>>,
 	pub messenger: Messenger,

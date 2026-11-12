@@ -1297,13 +1297,13 @@ fn execute_write_requests(
 	requests: Vec<crate::Request>,
 	write_operation_batch_size: usize,
 ) -> Vec<tg::Result<crate::Response>> {
-	let (sender_high, receiver_high) = crossbeam_channel::unbounded();
-	let (sender_medium, receiver_medium) = crossbeam_channel::unbounded();
-	let (sender_low, receiver_low) = crossbeam_channel::unbounded();
+	let (sender_high, receiver_high) = async_channel::unbounded();
+	let (sender_medium, receiver_medium) = async_channel::unbounded();
+	let (sender_low, receiver_low) = async_channel::unbounded();
 	let mut receivers = Vec::new();
 	for request in requests {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		sender_medium.send((request, sender)).unwrap();
+		sender_medium.try_send((request, sender)).unwrap();
 		receivers.push(receiver);
 	}
 	drop(sender_high);

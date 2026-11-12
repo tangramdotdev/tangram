@@ -245,7 +245,8 @@ impl Component {
 						|| !matches!(
 							Self::cached_process_error_code(data),
 							Some(tg::error::Code::ChecksumMismatch)
-						) || actual_checksum.algorithm() != expected_checksum.algorithm()
+						)
+						|| actual_checksum.algorithm() != expected_checksum.algorithm()
 					{
 						return None;
 					}
@@ -519,7 +520,8 @@ impl Component {
 						false,
 						true,
 					)
-					.await? && process.data.status.is_finished()
+					.await?
+					&& process.data.status.is_finished()
 				{
 					output.data = process.data;
 					return Ok(output.data.cacheable.then_some(output));
@@ -600,29 +602,47 @@ impl Component {
 			.as_secs()
 			.to_i64()
 			.unwrap();
-		if process.touched_at > now - time_to_index {
-			return Ok(true);
-		}
 		let time_to_touch = session.server.config.process.time_to_touch;
 
-		// Touch the process in the background unless a clean could reach it within the time to index, so that a lookup does not wait behind other index writes.
-		let time_to_live = session
-			.server
-			.config
-			.process
-			.time_to_live
-			.as_secs()
-			.to_i64()
-			.unwrap();
-		if process.touched_at > now - time_to_live + time_to_index {
-			let server = session.server.clone();
-			let id = id.clone();
-			tokio::spawn(async move {
-				let result = server.index.touch_process(&id, now, time_to_touch).await;
-				if let Err(error) = result {
-					tracing::warn!(error = %error.trace(), %id, "failed to touch the cached process");
-				}
-			});
+		// Keep the local cleaner from deleting the process until its background touch finishes.
+		if !session.server.config.advanced.multi_server
+			&& matches!(
+				session.server.config.index,
+				tangram_server_core::config::Index::Lmdb(_)
+			) {
+			tangram_server_core::checkpoint!(session.server, "process.spawn.cached.touch", process = %id).await;
+			let guard = session
+				.server
+				.index_cleaning_lock
+				.clone()
+				.read_owned()
+				.await;
+			let process = session.server.index.try_get_process(id).await.map_err(
+				|error| tg::error!(!error, %id, "failed to get the cached process after cleaning"),
+			)?;
+			let Some(process) = process else {
+				return Ok(false);
+			};
+			if process.touched_at > now - time_to_index {
+				return Ok(true);
+			}
+			self.cached_touch_tasks
+				.get_or_spawn_detached(id.clone(), |_| {
+					let server = session.server.clone();
+					let id = id.clone();
+					async move {
+						tangram_server_core::checkpoint!(server, "process.spawn.cached.touch.write", process = %id).await;
+						let result = server.index.touch_process(&id, now, time_to_touch).await;
+						drop(guard);
+						if let Err(error) = result {
+							tracing::warn!(error = %error.trace(), %id, "failed to touch the cached process");
+						}
+					}
+				})
+				.detach();
+			return Ok(true);
+		}
+		if process.touched_at > now - time_to_index {
 			return Ok(true);
 		}
 

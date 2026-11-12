@@ -3,13 +3,13 @@ use {
 		Db, Index, Request, Response,
 		request::{Kind, Operation, Priority},
 	},
-	crossbeam_channel as crossbeam, foundationdb_tuple as fdbt, heed as lmdb,
+	foundationdb_tuple as fdbt, heed as lmdb,
 	std::{collections::VecDeque, sync::Arc},
 	tangram_client::prelude::*,
 };
 
-pub(super) type RequestReceiver = crossbeam::Receiver<(Request, ResponseSender)>;
-pub(super) type RequestSender = crossbeam::Sender<(Request, ResponseSender)>;
+pub(super) type RequestReceiver = async_channel::Receiver<(Request, ResponseSender)>;
+pub(super) type RequestSender = async_channel::Sender<(Request, ResponseSender)>;
 pub(super) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
 
 #[derive(Clone, Copy)]
@@ -88,35 +88,33 @@ impl Index {
 
 			// If still empty, block until a request arrives.
 			if queue_high.is_empty() && queue_medium.is_empty() && queue_low.is_empty() {
-				crossbeam::select! {
-					recv(receiver_high) -> result => {
-						if let Ok(item) = result {
+				futures::executor::block_on(async {
+					tokio::select! {
+						biased;
+						Ok(item) = receiver_high.recv() => {
 							queue_high.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
 								write_operation_batch_size,
 							));
 						}
-					},
-					recv(receiver_medium) -> result => {
-						if let Ok(item) = result {
+						Ok(item) = receiver_medium.recv() => {
 							queue_medium.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
 								write_operation_batch_size,
 							));
 						}
-					},
-					recv(receiver_low) -> result => {
-						if let Ok(item) = result {
+						Ok(item) = receiver_low.recv() => {
 							queue_low.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
 								write_operation_batch_size,
 							));
 						}
-					},
-				}
+						else => {},
+					}
+				});
 
 				// After waking, drain all receivers.
 				queue_high.extend(Self::create_batches(
@@ -359,6 +357,7 @@ impl Index {
 		let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
 		sender
 			.send((request, response_sender))
+			.await
 			.map_err(|error| tg::error!(!error, "failed to send the write request"))?;
 		let response = response_receiver
 			.await

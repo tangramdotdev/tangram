@@ -3,7 +3,7 @@ use {
 		request::{Clean, Request, TouchCheckouts, TouchObjects, TouchProcesses, Update},
 		response::Response,
 	},
-	crossbeam_channel as crossbeam, foundationdb_tuple as fdbt, heed as lmdb,
+	foundationdb_tuple as fdbt, heed as lmdb,
 	std::{path::PathBuf, sync::Arc},
 	tangram_client::prelude::*,
 };
@@ -127,11 +127,11 @@ impl Index {
 			.unwrap_commit();
 
 		let (writer_sender_high, writer_receiver_high) =
-			crossbeam::bounded(config.write_channel_capacity);
+			async_channel::bounded(config.write_channel_capacity);
 		let (writer_sender_medium, writer_receiver_medium) =
-			crossbeam::bounded(config.write_channel_capacity);
+			async_channel::bounded(config.write_channel_capacity);
 		let (writer_sender_low, writer_receiver_low) =
-			crossbeam::bounded(config.write_channel_capacity);
+			async_channel::bounded(config.write_channel_capacity);
 
 		let subspace = fdbt::Subspace::all();
 

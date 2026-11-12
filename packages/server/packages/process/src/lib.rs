@@ -45,6 +45,7 @@ pub struct Component(Arc<State>);
 
 pub struct State {
 	pub(crate) attach: Attach,
+	pub(crate) cached_touch_tasks: tangram_futures::task::Map<tg::process::Id, ()>,
 	pub(crate) control: Control,
 
 	/// The replies that the holders that this server serves recently sent, so that a duplicate request is answered without acting on it again.
@@ -130,6 +131,7 @@ impl Component {
 		);
 		let state = State {
 			attach,
+			cached_touch_tasks: tangram_futures::task::Map::default(),
 			control,
 			holder_replies,
 			remote_put_tasks: tangram_futures::task::Set::default(),
@@ -460,6 +462,10 @@ impl std::ops::Deref for Component {
 impl tangram_server_core::component::Lifecycle for Component {
 	fn stop<'a>(&'a self, _server: &'a Server) -> BoxFuture<'a, ()> {
 		async move {
+			// Abort the cached process touches.
+			self.cached_touch_tasks.abort_all();
+			self.cached_touch_tasks.wait().await;
+
 			// Abort the remote put tasks.
 			self.remote_put_tasks.abort_all();
 			self.remote_put_tasks.wait().await;
@@ -480,6 +486,7 @@ impl tangram_server_core::component::Lifecycle for Component {
 
 	fn abort(&self) {
 		self.attach.service_tasks.abort_all();
+		self.cached_touch_tasks.abort_all();
 		self.control.service_tasks.abort_all();
 		self.remote_put_tasks.abort_all();
 	}
