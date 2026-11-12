@@ -187,10 +187,6 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 		tg::process::attach::Mode::Run
 	};
 
-	// Determine whether a sandboxed process runs in a sandbox that this run creates for it, which is destroyed once it is unused.
-	let ephemeral_sandbox = !matches!(options.spawn.sandbox.get(), Some(tg::Either::Right(_)))
-		&& options.spawn.sandbox.time_to_live.get() == Some(std::time::Duration::ZERO);
-
 	// Install the signal handlers before spawning a sandboxed process that this run awaits without a viewer, because the process does not receive the signals that end tg run.
 	let mut signals = if !options.detach
 		&& options.spawn.sandboxed()
@@ -201,7 +197,7 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 		None
 	};
 
-	// Spawn the process. After a signal, finish spawning so that the process can be stopped, and exit with the code for the signal if the spawn fails or another signal arrives.
+	// Spawn the process. After a signal, finish spawning so that the signal can be forwarded or the lease released, and exit with the code for the signal if the spawn fails or another signal arrives.
 	let print = (!options.detach).then(|| options.print.clone());
 	let mut spawn_signal = None;
 	let process = {
@@ -375,21 +371,21 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 				result
 			},
 			tg::Either::Right(signal) => {
-				// Stop the process if this run spawned it, and exit. Exit at once on another signal.
+				// Forward the signal or release the lease if this run spawned the process, and exit. Exit at once on another signal.
 				if process.node().lease().is_some() {
-					let stop = async {
-						match stop_process(&client, process.node(), ephemeral_sandbox).await {
+					let forward = async {
+						match signal_process(&client, process.node(), signal).await {
 							Ok(true) => {
 								wait_future.await.ok();
 							},
 							Ok(false) => (),
 							Err(error) => {
-								tracing::warn!(?error, "failed to stop the process");
+								tracing::warn!(?error, "failed to handle the signal");
 							},
 						}
 					};
 					tokio::select! {
-						() = stop => (),
+						() = forward => (),
 						_ = signals.recv() => (),
 					}
 				}
@@ -533,11 +529,11 @@ impl Signals {
 	}
 }
 
-/// Stop a process that this run spawned, and return whether it stops.
-async fn stop_process<O>(
+/// Forward the signal or release the lease, and return whether to await the process.
+async fn signal_process<O>(
 	client: &tg::Client,
 	process: &tg::Process<O>,
-	ephemeral_sandbox: bool,
+	signal: tg::process::Signal,
 ) -> tg::Result<bool> {
 	// Load the process.
 	let state = process
@@ -545,32 +541,24 @@ async fn stop_process<O>(
 		.await
 		.map_err(|error| tg::error!(!error, "failed to load the process"))?;
 
-	// Destroy the sandbox that this run created for a process that no other run can hold, which also stops the processes that the process started.
-	if !state.cacheable
-		&& ephemeral_sandbox
-		&& let Some(sandbox) = &state.sandbox
-	{
-		let arg = tg::sandbox::destroy::Arg {
-			error: None,
-			location: process.location(),
-			tokens: process.tokens(),
-			wait: true,
-		};
-		client
-			.destroy_sandbox(sandbox, arg)
+	// Release this run's lease on a cacheable process without waiting for other runs to release theirs.
+	if state.cacheable {
+		let options = tg::process::cancel::Options::default();
+		process
+			.cancel_with_instance(client, options)
 			.await
-			.map_err(|error| tg::error!(!error, %sandbox, "failed to destroy the sandbox"))?;
-		return Ok(true);
+			.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
+		return Ok(false);
 	}
 
-	// Otherwise, cancel the process, which only releases this run's lease on a cacheable process that another run also holds.
-	let options = tg::process::cancel::Options::default();
+	// Forward the original signal and keep the lease while the process handles it.
+	let options = tg::process::signal::Options::default();
 	process
-		.cancel_with_instance(client, options)
+		.signal_with_instance(client, signal, options)
 		.await
-		.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
+		.map_err(|error| tg::error!(!error, "failed to signal the process"))?;
 
-	Ok(!state.cacheable)
+	Ok(true)
 }
 
 /// Exit with the code for a signal without shutting down the runtime or flushing the standard output, either of which can wait indefinitely for a blocked write.

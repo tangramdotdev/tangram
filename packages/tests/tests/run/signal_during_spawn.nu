@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A signal while tg run spawns a sandboxed process stops the process once the spawn finishes, before tg run exits.
+# A signal while tg run spawns a sandboxed process is forwarded once the spawn finishes, before tg run exits.
 
 let server = server spawn --config { advanced: { checkpoints: true } }
 let tangram = which tg | where type == external | get path | first

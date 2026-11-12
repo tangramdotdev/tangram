@@ -991,7 +991,7 @@ impl Sandbox {
 }
 
 impl TimeToLive {
-	pub(crate) fn get(&self) -> Option<Duration> {
+	fn get(&self) -> Option<Duration> {
 		if self.no_time_to_live {
 			None
 		} else {
