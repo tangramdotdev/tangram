@@ -908,11 +908,8 @@ impl Component {
 					&& tg::module::try_get_root_module_file_name_sync(ancestor)?.is_some()
 					&& ignorer
 						.as_mut()
-						.map(|ignorer| ignorer.matches(Some(ancestor), &path, None))
-						.transpose()
-						.map_err(|error| {
-							tg::error!(!error, "failed to check if the path is ignored")
-						})?
+						.map(|ignorer| path_is_ignored_within(ignorer, ancestor, &path))
+						.transpose()?
 						.is_none_or(|ignore| !ignore)
 				{
 					output.replace(ancestor.to_owned());
@@ -1031,4 +1028,27 @@ impl tangram_server_core::checkin::Component for Component {
 	) -> BoxFuture<'a, tg::Result<http::Response<BoxBody>>> {
 		self.checkin_request(session, request).boxed()
 	}
+}
+
+fn path_is_ignored_within(
+	ignorer: &mut ignore::Ignorer,
+	root: &Path,
+	path: &Path,
+) -> tg::Result<bool> {
+	// Check each path from the root down to the path, so that a path inside an ignored directory is ignored.
+	let mut paths = path
+		.ancestors()
+		.take_while(|ancestor| *ancestor != root)
+		.collect::<Vec<_>>();
+	paths.reverse();
+	for path in paths {
+		let ignored = ignorer.matches(Some(root), path, None).map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to check if the path is ignored"),
+		)?;
+		if ignored {
+			return Ok(true);
+		}
+	}
+
+	Ok(false)
 }
