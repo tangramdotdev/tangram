@@ -130,11 +130,11 @@ impl Component {
 			.map(|location| session.server.location(Some(location)))
 			.transpose()?;
 		let options = tg::referent::Options {
-			artifact: reference_options.artifact.clone(),
 			id: reference_options.id.clone(),
 			location,
 			name: reference_options.name.clone(),
 			path: reference_options.path.clone(),
+			store: reference_options.store.clone(),
 			tag: reference_options.tag.clone(),
 			tokens: reference_options.tokens.clone(),
 		};
@@ -270,11 +270,11 @@ impl Component {
 						.path()
 						.map_or_else(|| path.into(), |p| p.join(path));
 					let options = tg::referent::Options {
-						artifact: dependency.0.artifact().cloned(),
 						id: dependency.0.id().cloned(),
 						location: dependency.0.location().cloned(),
 						name: dependency.0.name().map(ToOwned::to_owned),
 						path: Some(path),
+						store: dependency.0.store().cloned(),
 						tag: dependency.0.tag().cloned(),
 						tokens: dependency.0.tokens().clone(),
 					};
@@ -632,11 +632,11 @@ impl Component {
 						.as_ref()
 						.map_or_else(|| path.into(), |p| p.join(path));
 					let options = tg::referent::Options {
-						artifact: options.artifact.clone(),
 						id: options.id.clone(),
 						location: options.location.clone(),
 						name: options.name.clone(),
 						path: Some(path),
+						store: options.store.clone(),
 						tag: options.tag.clone(),
 						tokens: options.tokens.clone(),
 					};

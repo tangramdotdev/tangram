@@ -24,11 +24,6 @@ impl Import {
 					.map_err(|error| tg::error!(!error, "invalid module kind"))
 			})
 			.transpose()?;
-		let artifact = attributes
-			.as_mut()
-			.and_then(|attributes| attributes.remove("artifact"))
-			.map(|artifact| artifact.parse())
-			.transpose()?;
 		let get = attributes
 			.as_mut()
 			.and_then(|attributes| attributes.remove("get"))
@@ -58,6 +53,11 @@ impl Import {
 			.as_mut()
 			.and_then(|attributes| attributes.remove("source"))
 			.map(Into::into);
+		let store = attributes
+			.as_mut()
+			.and_then(|attributes| attributes.remove("store"))
+			.map(|store| store.parse())
+			.transpose()?;
 		let tag = attributes
 			.as_mut()
 			.and_then(|attributes| attributes.remove("tag"))
@@ -65,7 +65,6 @@ impl Import {
 			.transpose()?;
 
 		let options = tg::reference::Options {
-			artifact: artifact.or(reference.options().artifact.clone()),
 			follow: reference.options().follow,
 			get: get.or(reference.options().get.clone()),
 			id: id.or(reference.options().id.clone()),
@@ -73,6 +72,7 @@ impl Import {
 			name: name.or(reference.options().name.clone()),
 			path: path.or(reference.options().path.clone()),
 			source: source.or(reference.options().source.clone()),
+			store: store.or(reference.options().store.clone()),
 			tag: tag.or(reference.options().tag.clone()),
 			tokens: reference.options().tokens.clone(),
 		};

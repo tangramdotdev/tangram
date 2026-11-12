@@ -319,7 +319,7 @@ impl Component {
 					None => return Ok::<_, tg::Error>((reference, None)),
 				};
 				let index = self.checkout_create_lock_inner(session, state, &edge)?;
-				let artifact = if state.dependencies {
+				let store = if state.dependencies {
 					let id = state.ids[index].clone().try_into().unwrap();
 					Some(id)
 				} else {
@@ -327,7 +327,7 @@ impl Component {
 				};
 				let node = Some(tg::graph::data::Edge::Index(index));
 				let options = tg::referent::Options {
-					artifact,
+					store,
 					..referent.options
 				};
 				let referent = tg::Referent::new(node, options);
@@ -526,7 +526,7 @@ impl Component {
 					},
 					None => return Ok::<_, tg::Error>((reference, None)),
 				};
-				let artifact = if state.dependencies {
+				let store = if state.dependencies {
 					let id = state.ids[index].clone().try_into().unwrap();
 					Some(id)
 				} else {
@@ -534,7 +534,7 @@ impl Component {
 				};
 				let node = Some(tg::graph::data::Edge::Index(index));
 				let options = tg::referent::Options {
-					artifact,
+					store,
 					..referent.options
 				};
 				let referent = tg::Referent::new(node, options);

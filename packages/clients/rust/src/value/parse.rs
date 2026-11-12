@@ -220,10 +220,10 @@ fn object_id_with_token(input: &mut Input) -> ModalResult<tg::Object> {
 	.verify_map(|string: &str| {
 		let referent = string.parse::<tg::Referent<tg::object::Id>>().ok()?;
 		let options = &referent.options;
-		if options.artifact.is_some()
-			|| options.id.is_some()
+		if options.id.is_some()
 			|| options.name.is_some()
 			|| options.path.is_some()
+			|| options.store.is_some()
 			|| options.tag.is_some()
 		{
 			return None;
@@ -1475,24 +1475,14 @@ fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
 }
 
 fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Options> {
-	let mut artifact = None;
 	let mut id = None;
 	let mut location = None;
 	let mut name = None;
 	let mut path = None;
+	let mut store = None;
 	let mut tag = None;
 	for (key, value) in map {
 		match key.as_str() {
-			"artifact" => {
-				let value = value
-					.try_unwrap_string_ref()
-					.map_err(|_| tg::error!("expected string for artifact"))?;
-				artifact = Some(
-					value
-						.parse()
-						.map_err(|error| tg::error!(!error, "failed to parse artifact"))?,
-				);
-			},
 			"id" => {
 				let value = value
 					.try_unwrap_string_ref()
@@ -1525,6 +1515,16 @@ fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Opti
 					.map_err(|_| tg::error!("expected string for path"))?;
 				path = Some(PathBuf::from(value));
 			},
+			"store" => {
+				let value = value
+					.try_unwrap_string_ref()
+					.map_err(|_| tg::error!("expected string for store"))?;
+				store = Some(
+					value
+						.parse()
+						.map_err(|error| tg::error!(!error, "failed to parse store"))?,
+				);
+			},
 			"tag" => {
 				let value = value
 					.try_unwrap_string_ref()
@@ -1541,11 +1541,11 @@ fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Opti
 		}
 	}
 	Ok(tg::referent::Options {
-		artifact,
 		id,
 		location,
 		name,
 		path,
+		store,
 		tag,
 		tokens: tg::authorization::Tokens::default(),
 	})

@@ -15,25 +15,25 @@ from .referent import decode_uri_component, encode_uri_component
 
 
 class Options(TypedDict, total=False):
-    artifact: str | None
     get: str | None
     id: str | None
     location: ArgObject | None
     name: str | None
     path: str | None
     source: str | None
+    store: str | None
     tag: str | None
     tokens: dict[str, list[str]] | None
 
 
 class DataOptions(TypedDict, total=False):
-    artifact: str | None
     get: str | None
     id: str | None
     location: str | None
     name: str | None
     path: str | None
     source: str | None
+    store: str | None
     tag: str | None
     tokens: dict[str, list[str]] | None
 
@@ -69,13 +69,13 @@ class Reference[T]:
         options = {
             key: (self.options or {})[key]
             for key in (
-                "artifact",
                 "get",
                 "id",
                 "location",
                 "name",
                 "path",
                 "source",
+                "store",
                 "tag",
                 "tokens",
             )
@@ -109,13 +109,13 @@ class Reference[T]:
         options = {
             key: raw[key]
             for key in (
-                "artifact",
                 "get",
                 "id",
                 "location",
                 "name",
                 "path",
                 "source",
+                "store",
                 "tag",
                 "tokens",
             )
@@ -130,13 +130,13 @@ class Reference[T]:
         string = str(node)
         params = []
         for name in (
-            "artifact",
             "get",
             "id",
             "location",
             "name",
             "path",
             "source",
+            "store",
             "tag",
         ):
             value = (self.options or {}).get(name)
@@ -174,7 +174,7 @@ class Reference[T]:
             if not separator:
                 raise ValueError("missing value")
             value = value.split("=", 1)[0]
-            if key in ("artifact", "get", "id", "name", "path", "source", "tag"):
+            if key in ("get", "id", "name", "path", "source", "store", "tag"):
                 options[key] = decode_uri_component(value)
             elif key == "location":
                 options[key] = Arg.from_data_string(decode_uri_component(value))

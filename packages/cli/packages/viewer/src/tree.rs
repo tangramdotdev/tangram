@@ -1025,12 +1025,6 @@ impl Tree {
 						} else {
 							map.insert("node".into(), tg::Value::Null);
 						}
-						if let Some(artifact) = &dependency.0.options.artifact {
-							map.insert(
-								"artifact".to_owned(),
-								tg::Value::String(artifact.to_string()),
-							);
-						}
 						if let Some(id) = &dependency.0.options.id {
 							map.insert("id".to_owned(), tg::Value::String(id.to_string()));
 						}
@@ -1042,6 +1036,9 @@ impl Tree {
 								"path".to_owned(),
 								tg::Value::String(path.to_string_lossy().to_string()),
 							);
+						}
+						if let Some(store) = &dependency.0.options.store {
+							map.insert("store".to_owned(), tg::Value::String(store.to_string()));
 						}
 						if let Some(tag) = &dependency.0.options.tag {
 							map.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
@@ -1192,12 +1189,6 @@ impl Tree {
 								} else {
 									map.insert("node".into(), tg::Value::Null);
 								}
-								if let Some(artifact) = &dependency.0.options.artifact {
-									map.insert(
-										"artifact".to_owned(),
-										tg::Value::String(artifact.to_string()),
-									);
-								}
 								if let Some(id) = &dependency.0.options.id {
 									map.insert("id".to_owned(), tg::Value::String(id.to_string()));
 								}
@@ -1208,6 +1199,12 @@ impl Tree {
 									map.insert(
 										"path".to_owned(),
 										tg::Value::String(path.to_string_lossy().to_string()),
+									);
+								}
+								if let Some(store) = &dependency.0.options.store {
+									map.insert(
+										"store".to_owned(),
+										tg::Value::String(store.to_string()),
 									);
 								}
 								if let Some(tag) = &dependency.0.options.tag {

@@ -11,13 +11,13 @@ export namespace Reference {
 	};
 
 	export type Options = {
-		artifact?: tg.Artifact.Id | null;
 		get?: string | null;
 		id?: tg.Object.Id | null;
 		location?: tg.Location.Arg | null;
 		name?: string | null;
 		path?: string | null;
 		source?: string | null;
+		store?: tg.Artifact.Id | null;
 		tag?: tg.Tag | null;
 		tokens?: tg.Authorization.Tokens.Data | null;
 	};
@@ -28,12 +28,6 @@ export namespace Reference {
 	): tg.Reference.Data<U> => {
 		let node = f(value.node);
 		let options: tg.Reference.Data.Options = {};
-		if (
-			value.options?.artifact !== undefined &&
-			value.options.artifact !== null
-		) {
-			options.artifact = value.options.artifact;
-		}
 		if (value.options?.get !== undefined && value.options.get !== null) {
 			options.get = value.options.get;
 		}
@@ -55,6 +49,9 @@ export namespace Reference {
 		if (value.options?.source !== undefined && value.options.source !== null) {
 			options.source = value.options.source;
 		}
+		if (value.options?.store !== undefined && value.options.store !== null) {
+			options.store = value.options.store;
+		}
 		if (value.options?.tag !== undefined && value.options.tag !== null) {
 			options.tag = value.options.tag;
 		}
@@ -74,12 +71,6 @@ export namespace Reference {
 		tg.assert(typeof data === "object");
 		let node = f(data.node);
 		let options: tg.Reference.Options = {};
-		if (
-			data.options?.artifact !== undefined &&
-			data.options.artifact !== null
-		) {
-			options.artifact = data.options.artifact;
-		}
 		if (data.options?.get !== undefined && data.options.get !== null) {
 			options.get = data.options.get;
 		}
@@ -101,6 +92,9 @@ export namespace Reference {
 		if (data.options?.source !== undefined && data.options.source !== null) {
 			options.source = data.options.source;
 		}
+		if (data.options?.store !== undefined && data.options.store !== null) {
+			options.store = data.options.store;
+		}
 		if (data.options?.tag !== undefined && data.options.tag !== null) {
 			options.tag = data.options.tag;
 		}
@@ -120,12 +114,6 @@ export namespace Reference {
 		let node = f(value.node);
 		let string = node.toString();
 		let params = [];
-		if (
-			value.options?.artifact !== undefined &&
-			value.options.artifact !== null
-		) {
-			params.push(`artifact=${encodeURIComponent(value.options.artifact)}`);
-		}
 		if (value.options?.get !== undefined && value.options.get !== null) {
 			params.push(`get=${encodeURIComponent(value.options.get)}`);
 		}
@@ -147,6 +135,9 @@ export namespace Reference {
 		}
 		if (value.options?.source !== undefined && value.options.source !== null) {
 			params.push(`source=${encodeURIComponent(value.options.source)}`);
+		}
+		if (value.options?.store !== undefined && value.options.store !== null) {
+			params.push(`store=${encodeURIComponent(value.options.store)}`);
 		}
 		if (value.options?.tag !== undefined && value.options.tag !== null) {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
@@ -179,10 +170,6 @@ export namespace Reference {
 					throw new Error("missing value");
 				}
 				switch (key) {
-					case "artifact": {
-						options.artifact = decodeURIComponent(value);
-						break;
-					}
 					case "get": {
 						options.get = decodeURIComponent(value);
 						break;
@@ -207,6 +194,10 @@ export namespace Reference {
 					}
 					case "source": {
 						options.source = decodeURIComponent(value);
+						break;
+					}
+					case "store": {
+						options.store = decodeURIComponent(value);
 						break;
 					}
 					case "tag": {
@@ -266,13 +257,13 @@ export namespace Reference {
 		};
 
 		export type Options = {
-			artifact?: tg.Artifact.Id | null;
 			get?: string | null;
 			id?: tg.Object.Id | null;
 			location?: string | null;
 			name?: string | null;
 			path?: string | null;
 			source?: string | null;
+			store?: tg.Artifact.Id | null;
 			tag?: tg.Tag | null;
 			tokens?: tg.Authorization.Tokens.Data | null;
 		};

@@ -173,17 +173,17 @@ pub fn flatten_directory(
 
 pub fn format_referrer<T>(referrer: &tg::Referent<T>) -> String {
 	let tg::referent::Options {
-		artifact,
 		id,
 		location: _,
 		name,
 		path,
+		store,
 		tag,
 		tokens: _,
 	} = referrer.options();
 	let mut name = name
 		.clone()
-		.or_else(|| artifact.as_ref().map(tg::artifact::Id::to_string))
+		.or_else(|| store.as_ref().map(tg::artifact::Id::to_string))
 		.or_else(|| tag.as_ref().map(ToString::to_string))
 		.unwrap_or_default();
 	if let Some(path) = path {

@@ -351,7 +351,7 @@ impl Component {
 				tg::Either::Right(target) => tg::Id::from(target.clone()),
 			});
 			if named_node.id == node.node
-				&& let Some(expected_artifact) = &node.options.artifact
+				&& let Some(expected_artifact) = &node.options.store
 			{
 				let target = target.as_ref().ok_or_else(
 					|| tg::error!(id = %named_node.id, "the tag does not have a target"),
