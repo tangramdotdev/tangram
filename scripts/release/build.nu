@@ -99,8 +99,8 @@ def build_linux [target: string, commit: string, stage_path: path] {
 	let script = [
 		'set -eu'
 		'tar -xf - -C /build'
-		$'cargo build --release --locked --package tangram_cli --bin tangram --target ($target)'
-		$'install -m 755 target/($target)/release/tangram /output/tangram'
+		'cargo build --release --locked --package tangram_cli --bin tangram'
+		'install -m 755 target/release/tangram /output/tangram'
 		'chown "$OUTPUT_OWNER" /output/tangram'
 	] | str join "\n"
 	let owner = $'(^id -u | str trim):(^id -g | str trim)'
