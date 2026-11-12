@@ -81,7 +81,7 @@ impl Ignorer {
 			.components()
 			.peekable();
 
-		// Get or create the nodes.
+		// Get or create the parent nodes.
 		let mut path = PathBuf::from("/");
 		let mut indexes = vec![0];
 		while let Some(component) = components.next() {
@@ -89,13 +89,16 @@ impl Ignorer {
 			let std::path::Component::Normal(name) = component else {
 				return Err(Error::Path);
 			};
+			if components.peek().is_none() {
+				break;
+			}
 			let index = if let Some(child) = self.nodes[*indexes.last().unwrap()]
 				.children
 				.get(name)
 				.copied()
 			{
 				child
-			} else if components.peek().is_some() {
+			} else {
 				let child = Self::node_with_path_and_file_names(&path, &self.file_names)?;
 				let index = self.nodes.len();
 				self.nodes.push(child);
@@ -103,8 +106,6 @@ impl Ignorer {
 					.children
 					.insert(name.to_owned(), index);
 				index
-			} else {
-				break;
 			};
 			indexes.push(index);
 		}

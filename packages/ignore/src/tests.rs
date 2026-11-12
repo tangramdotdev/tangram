@@ -34,7 +34,7 @@ async fn test() {
 			.DS_Store
 		"
 	);
-	let mut matcher = Ignorer::new(file_names, Some(global)).unwrap();
+	let mut ignorer = Ignorer::new(file_names, Some(global)).unwrap();
 	let right = vec![
 		(".DS_Store", true),
 		(".gitignore", false),
@@ -47,8 +47,41 @@ async fn test() {
 	];
 	let mut left = Vec::new();
 	for (path, _) in &right {
-		let matches = matcher.matches(None, &root.join(path), None).unwrap();
+		let matches = ignorer.matches(None, &root.join(path), None).unwrap();
 		left.push((*path, matches));
 	}
 	assert_eq!(left, right);
+}
+
+// Matching a directory uses its parents' ignore files even after its children have been matched.
+#[tokio::test]
+async fn cached_directory() {
+	let temp = tangram_util::fs::Temp::new().unwrap();
+	std::fs::create_dir(temp.path()).unwrap();
+	let root = temp.path().join("root");
+	let artifact = Artifact::from(util::directory! {
+		".gitignore" => util::file!("/ignored"),
+		"ignored" => util::directory! {
+			"file.txt" => util::file!(""),
+		},
+		"visible" => util::directory! {
+			".gitignore" => util::file!("/visible"),
+			"file.txt" => util::file!(""),
+		},
+	});
+	artifact.to_path(&root).await.unwrap();
+	let paths = [
+		("ignored/file.txt", false),
+		("ignored", true),
+		("visible/file.txt", false),
+		("visible", false),
+	];
+	for root_path in [None, Some(root.as_path())] {
+		let file_names = vec![".gitignore".into()];
+		let mut ignorer = Ignorer::new(file_names, None).unwrap();
+		for (path, expected) in paths {
+			let actual = ignorer.matches(root_path, &root.join(path), None).unwrap();
+			assert_eq!(actual, expected, "{path}");
+		}
+	}
 }
