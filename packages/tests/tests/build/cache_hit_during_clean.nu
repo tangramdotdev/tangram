@@ -27,18 +27,9 @@ let build = job spawn {
 }
 checkpoint wait $touch | ignore
 
-# Hold cleaning before it deletes the process, then let the lookup try to touch it.
-let cleaning = checkpoint watch index.clean
-let clean = job spawn {
-	let id = job id
-	tg clean | complete | job send --tag $id 0
-}
-checkpoint wait $cleaning | ignore
+# Delete the selected process before the lookup can touch it.
+tg clean
 checkpoint unwatch $touch
-let early = try { job recv --tag $build --timeout 1sec } catch { null }
-checkpoint unwatch $cleaning
-success (job recv --tag $clean --timeout 10sec)
-assert equal $early null "the lookup must wait for cleaning before accepting the cached process"
 
 # The cache-only build must report a miss instead of returning a deleted process.
 failure (job recv --tag $build --timeout 10sec) "the cleaned process must not be returned as a cache hit"

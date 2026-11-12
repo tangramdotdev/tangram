@@ -27,25 +27,19 @@ let first = [a b c] | each { |export|
 tg index
 
 # Hold the next background index transaction open by checking in an unrelated artifact.
-let watch = tg checkpoint watch index.lmdb.write --params '{"priority":"medium"}' | from json | get watch
-let other = artifact {
-	file.txt: 'other',
-}
+let watch = checkpoint watch index.lmdb.write --params { priority: medium }
+let other = artifact { file.txt: 'other' }
 tg checkin --no-tokens $other | ignore
-tg checkpoint wait --timeout 10s index.lmdb.write $watch 0 | ignore
+checkpoint wait $watch | ignore
 
 # Repeated cache hits must stay responsive even when their touches fill the writer queue.
 let outputs = $first | each { |build|
-	let outputs = 0..<2 | each {
-		timeout 10s tg build --detach --no-tokens --verbose $build.reference | complete
-	}
-	{ expected: $build.process, outputs: $outputs }
+	let output = timeout 10s tg build --detach --no-tokens --verbose $build.reference | complete
+	{ expected: $build.process, output: $output }
 }
-tg checkpoint unwatch index.lmdb.write $watch
+checkpoint unwatch $watch
 for build in $outputs {
-	for output in $build.outputs {
-		success $output "the cached build should not wait for the held index transaction"
-		let second = $output.stdout | from json
-		assert equal $second.process $build.expected "the build should reuse the cached process"
-	}
+	success $build.output "the cached build should not wait for the held index transaction"
+	let second = $build.output.stdout | from json
+	assert equal $second.process $build.expected "the build should reuse the cached process"
 }

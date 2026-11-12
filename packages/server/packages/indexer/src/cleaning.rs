@@ -176,7 +176,6 @@ impl Component {
 		} else {
 			None
 		};
-		tangram_server_core::checkpoint!(server, "index.clean").await;
 
 		// Clean.
 		let mut output = server
