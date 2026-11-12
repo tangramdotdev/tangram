@@ -24,6 +24,9 @@ use {
 #[cfg(test)]
 mod tests;
 
+/// The write of the terminal state of a boot that the scheduler ended, which the response that follows it and the release of the boot share.
+pub(super) type Write = future::Shared<future::BoxFuture<'static, tg::Result<()>>>;
+
 pub(super) struct Parents(HashMap<tg::sandbox::Id, Parent, tg::id::BuildHasher>);
 
 pub(super) struct Queue {
@@ -136,6 +139,12 @@ enum SandboxState {
 		retries: u64,
 	},
 
+	/// The scheduler ended the boot before placing it, and holds it until the index has recorded its terminal state.
+	Ended {
+		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+		status: tg::sandbox::Status,
+	},
+
 	Pending,
 }
 
@@ -198,8 +207,13 @@ pub(super) struct DequeueCompletion {
 
 pub(super) struct DiscardedSandbox {
 	pub error: tg::Either<tg::error::Data, tg::error::Id>,
+
 	pub request: EnqueueSandboxRequestArg,
+
 	pub sandbox: tg::sandbox::Id,
+
+	/// The write of the failure, if the scheduler held the boot and already began it.
+	pub write: Option<Write>,
 }
 
 impl Parents {
@@ -387,6 +401,17 @@ impl SchedulerState {
 			self.forget_scheduled_sandbox(&request.sandbox);
 		}
 
+		// Reply to an enqueue of a boot that this scheduler ended, or of an older boot, without enqueueing it again, and replace the ended boot with a later boot, whose holder this scheduler keeps serving.
+		if let Some(entry) = self.sandboxes.entries.get(&request.sandbox)
+			&& matches!(entry.state, SandboxState::Ended { .. })
+		{
+			if request.boot <= entry.request.boot {
+				self.send_enqueue_responses(scheduler, ids, Ok(()));
+				return;
+			}
+			self.sandboxes.entries.remove(&request.sandbox);
+		}
+
 		if self.sandboxes.entries.contains_key(&request.sandbox) {
 			let sandbox = request.sandbox;
 			self.finish_enqueue(scheduler, ids, &sandbox, Ok(()));
@@ -498,6 +523,7 @@ impl SchedulerState {
 		if result.is_ok()
 			&& let Some(entry) = self.sandboxes.entries.get(sandbox)
 			&& !entry.persisted
+			&& !matches!(entry.state, SandboxState::Ended { .. })
 		{
 			// Write the sandbox to the index queue concurrently with its handoff to a runner.
 			let request = entry.request.clone();
@@ -565,6 +591,86 @@ impl SchedulerState {
 		self.finish_accept(scheduler, id, Path::Handled, Err(error));
 
 		Some(sandbox)
+	}
+
+	/// End a boot that this scheduler holds and has not placed, fail its acceptance's handoff, and write its terminal state. Keep holding the boot until the index has recorded the terminal state, so that an enqueue of the boot that the lagging index sends again does not start it. Return the write, which a response that follows it awaits.
+	fn end_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::sandbox::Id,
+		status: tg::sandbox::Status,
+		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	) -> Write {
+		// End the boot.
+		self.remove_queued_sandbox(id);
+		let entry = self.sandboxes.entries.get_mut(id).unwrap();
+		entry.state = SandboxState::Ended {
+			error: error.clone(),
+			status,
+		};
+		let request = entry.request.clone();
+		if let Some(parent) = &request.parent {
+			self.remove_child(parent, id);
+		}
+		let source =
+			tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
+		self.finish_accept(scheduler, id, Path::Handled, Err(source));
+
+		// Write the terminal state.
+		let boot = request.boot;
+		let write = {
+			let scheduler = scheduler.clone();
+			async move {
+				scheduler
+					.put_sandbox_status(&request, status, error, None)
+					.await
+			}
+			.boxed()
+			.shared()
+		};
+
+		// Stop holding the boot once the index has recorded the terminal state.
+		let scheduler = scheduler.clone();
+		let sandbox = id.clone();
+		let written = write.clone();
+		self.operations.push(
+			async move {
+				if written.await.is_ok() {
+					let session = scheduler.server.session(&scheduler.server.context);
+					let result = async {
+						scheduler
+							.server
+							.components
+							.indexer
+							.index(&session, tg::index::Arg::default())
+							.await?
+							.try_last()
+							.await?;
+						Ok::<_, tg::Error>(())
+					}
+					.await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace(), %sandbox, "failed to await the indexing of the ended sandbox");
+					}
+				}
+				Operation::ReleaseEndedSandbox { boot, sandbox }
+			}
+			.boxed(),
+		);
+
+		write
+	}
+
+	/// Stop holding a boot that this scheduler ended once the index has recorded its terminal state, unless a later boot replaced it.
+	pub(super) fn handle_release_ended_sandbox(&mut self, sandbox: &tg::sandbox::Id, boot: u64) {
+		let ended = self.sandboxes.entries.get(sandbox).is_some_and(|entry| {
+			matches!(entry.state, SandboxState::Ended { .. }) && entry.request.boot == boot
+		});
+		if !ended {
+			return;
+		}
+		self.sandboxes.entries.remove(sandbox);
+		self.stop_serving_sandbox_holder(sandbox);
 	}
 
 	fn send_enqueue_responses(
@@ -865,12 +971,20 @@ impl SchedulerState {
 		let tg::sandbox::control::ServerRequest { arg, id } = request;
 
 		// Ignore a request for a sandbox that this scheduler does not serve.
-		let pending = self
+		let state = self
 			.sandboxes
 			.entries
 			.get(&sandbox)
-			.map(|entry| matches!(entry.state, SandboxState::Pending));
+			.map(|entry| &entry.state);
+		let ended = matches!(state, Some(SandboxState::Ended { .. }));
+		let pending = state.map(|state| matches!(state, SandboxState::Pending));
 		if pending.is_none() && !self.sandboxes.holders.contains_key(&sandbox) {
+			return;
+		}
+
+		// Answer a request for a boot that this scheduler ended with the boot's terminal state, which the index may not have recorded yet.
+		if ended {
+			self.handle_ended_sandbox_holder_request(scheduler, sandbox, id, &arg);
 			return;
 		}
 
@@ -895,24 +1009,13 @@ impl SchedulerState {
 		match arg {
 			// Destroy a queued sandbox by removing it.
 			tg::sandbox::control::ServerRequestArg::Destroy(arg) => {
-				self.remove_queued_sandbox(&sandbox);
-				let request = self
-					.remove_sandbox_entry(scheduler, &sandbox)
-					.unwrap()
-					.request;
+				let status = tg::sandbox::Status::Destroyed;
+				let error = arg.error.map(tg::Either::Left);
+				let write = self.end_sandbox(scheduler, &sandbox, status, error).boxed();
 				self.queue.wake();
 				let output = tg::sandbox::control::ClientResponseOutput::Destroy(
 					tg::sandbox::control::DestroyClientResponseOutput { destroyed: true },
 				);
-				let scheduler_ = scheduler.clone();
-				let write = async move {
-					let status = tg::sandbox::Status::Destroyed;
-					let error = arg.error.map(tg::Either::Left);
-					scheduler_
-						.put_sandbox_status(&request, status, error, None)
-						.await
-				}
-				.boxed();
 				self.publish_sandbox_holder_response(scheduler, sandbox, id, Some(write), output);
 			},
 
@@ -975,18 +1078,10 @@ impl SchedulerState {
 				);
 				let scheduler_ = scheduler.clone();
 				let write = if entry.request.boot > 0 {
-					self.remove_queued_sandbox(&sandbox);
-					let request = self
-						.remove_sandbox_entry(scheduler, &sandbox)
-						.unwrap()
-						.request;
+					let status = tg::sandbox::Status::Stopped;
+					let write = self.end_sandbox(scheduler, &sandbox, status, None).boxed();
 					self.queue.wake();
-					async move {
-						scheduler_
-							.put_sandbox_status(&request, tg::sandbox::Status::Stopped, None, None)
-							.await
-					}
-					.boxed()
+					write
 				} else {
 					entry.request.stop = true;
 					let request = entry.request.clone();
@@ -997,13 +1092,82 @@ impl SchedulerState {
 		}
 	}
 
+	/// Answer a request to the holder of a boot that this scheduler ended. A get, a get of the processes, and a start are answered with the boot's terminal state, so that a start of a stopped boot reserves the next boot, and a stop of a stopped boot and a destroy of a destroyed boot have nothing left to do. Any other request waits for the index, which answers it once it has recorded the terminal state.
+	fn handle_ended_sandbox_holder_request(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: tg::sandbox::Id,
+		id: String,
+		arg: &tg::sandbox::control::ServerRequestArg,
+	) {
+		let entry = &self.sandboxes.entries[&sandbox];
+		let SandboxState::Ended { error, status } = &entry.state else {
+			return;
+		};
+		let status = *status;
+		let data = Self::sandbox_get_output(scheduler, &entry.request, status, error.clone());
+		let output = match arg {
+			tg::sandbox::control::ServerRequestArg::Destroy(_) if status.is_destroyed() => {
+				tg::sandbox::control::ClientResponseOutput::Destroy(
+					tg::sandbox::control::DestroyClientResponseOutput { destroyed: false },
+				)
+			},
+			tg::sandbox::control::ServerRequestArg::Get(_) => {
+				tg::sandbox::control::ClientResponseOutput::Get(
+					tg::sandbox::control::GetClientResponseOutput { data },
+				)
+			},
+			tg::sandbox::control::ServerRequestArg::GetProcesses(_) => {
+				tg::sandbox::control::ClientResponseOutput::GetProcesses(
+					tg::sandbox::control::GetProcessesClientResponseOutput {
+						length: 0,
+						processes: Vec::new(),
+						status,
+					},
+				)
+			},
+			tg::sandbox::control::ServerRequestArg::Start(_) => {
+				tg::sandbox::control::ClientResponseOutput::Start(
+					tg::sandbox::control::StartClientResponseOutput { data },
+				)
+			},
+			tg::sandbox::control::ServerRequestArg::Stop(_) if status.is_stopped() => {
+				tg::sandbox::control::ClientResponseOutput::Stop(
+					tg::sandbox::control::StopClientResponseOutput { stopped: false },
+				)
+			},
+			tg::sandbox::control::ServerRequestArg::Destroy(_)
+			| tg::sandbox::control::ServerRequestArg::SpawnProcess(_)
+			| tg::sandbox::control::ServerRequestArg::Stop(_) => {
+				self.publish_sandbox_holder_retry(
+					scheduler,
+					sandbox,
+					id,
+					tg::control::Retry::NotReady,
+				);
+				return;
+			},
+		};
+		self.publish_sandbox_holder_response(scheduler, sandbox, id, None, output);
+	}
+
 	/// Create the output of a get of a queued boot.
 	fn queued_sandbox_get_output(
 		scheduler: &Scheduler,
 		request: &EnqueueSandboxRequestArg,
 	) -> tg::sandbox::get::Output {
-		let data =
-			tangram_server_scheduler_core::sandbox_data(request, tg::sandbox::Status::Starting);
+		Self::sandbox_get_output(scheduler, request, tg::sandbox::Status::Starting, None)
+	}
+
+	/// Create the output of a get of a boot that this scheduler holds.
+	fn sandbox_get_output(
+		scheduler: &Scheduler,
+		request: &EnqueueSandboxRequestArg,
+		status: tg::sandbox::Status,
+		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	) -> tg::sandbox::get::Output {
+		let mut data = tangram_server_scheduler_core::sandbox_data(request, status);
+		data.error = error;
 		let location = tg::Location::Local(tg::location::Local {
 			region: scheduler.server.config.region.clone(),
 		});
@@ -1022,6 +1186,22 @@ impl SchedulerState {
 		request: tg::process::control::ServerRequest,
 	) {
 		let tg::process::control::ServerRequest { arg, id } = request;
+
+		// Reply that this scheduler is not ready for a request of the process of a boot that it ended, which the index answers once it has recorded the finished process.
+		if let Some(entry) = self.sandboxes.entries.get(sandbox)
+			&& matches!(entry.state, SandboxState::Ended { .. })
+		{
+			let Some(process) = entry
+				.request
+				.process
+				.as_ref()
+				.and_then(|process| process.id.clone())
+			else {
+				return;
+			};
+			self.publish_process_holder_retry(scheduler, process, id, tg::control::Retry::NotReady);
+			return;
+		}
 
 		// Ignore a request for a process whose sandbox this scheduler does not serve.
 		let entry = self
@@ -1096,25 +1276,16 @@ impl SchedulerState {
 				}
 				let scheduler_ = scheduler.clone();
 				let write = if last {
-					self.remove_queued_sandbox(sandbox);
-					let request = self
-						.remove_sandbox_entry(scheduler, sandbox)
-						.unwrap()
-						.request;
-					self.queue.wake();
 					let error = tg::error::Data {
 						code: Some(tg::error::Code::Cancellation),
 						message: Some("the process was canceled".to_owned()),
 						..Default::default()
 					};
-					async move {
-						let status = tg::sandbox::Status::Destroyed;
-						let error = Some(tg::Either::Left(error));
-						scheduler_
-							.put_sandbox_status(&request, status, error, None)
-							.await
-					}
-					.boxed()
+					let status = tg::sandbox::Status::Destroyed;
+					let error = Some(tg::Either::Left(error));
+					let write = self.end_sandbox(scheduler, sandbox, status, error).boxed();
+					self.queue.wake();
+					write
 				} else {
 					let request = entry.request.clone();
 					async move { scheduler_.persist_sandbox(&request).await }.boxed()
@@ -1550,6 +1721,7 @@ impl SchedulerState {
 					error: error.to_data_or_id(),
 					request,
 					sandbox,
+					write: None,
 				};
 				scheduler.publish_sandbox_discarded(self, discarded);
 				continue;
@@ -1671,10 +1843,25 @@ impl SchedulerState {
 				sandbox.dequeue_requests.push(request_id);
 				None
 			},
+
+			// Report that a boot that this scheduler ended is dequeued only if it is destroyed, so that the caller destroys a stopped boot.
+			SandboxState::Ended { status, .. } => Some(DequeueSandboxResponseOutput {
+				dequeued: status.is_destroyed(),
+			}),
+
 			SandboxState::Pending => {
-				self.remove_queued_sandbox(&id);
-				let request = self.remove_sandbox_entry(scheduler, &id).unwrap().request;
-				self.finish_destroy_sandbox(scheduler, request, None);
+				let status = tg::sandbox::Status::Destroyed;
+				let write = self.end_sandbox(scheduler, &id, status, None);
+				self.operations.push(
+					async move {
+						let result = write.await;
+						Operation::Publish {
+							context: "failed to record the destroyed sandbox",
+							result,
+						}
+					}
+					.boxed(),
+				);
 				Some(DequeueSandboxResponseOutput { dequeued: true })
 			},
 		};
@@ -1791,12 +1978,7 @@ impl SchedulerState {
 						"failed to create the sandbox after too many attempts"
 					);
 					tracing::error!(error = %error.trace(), "giving up on the sandbox");
-					let request = self.remove_sandbox_entry(scheduler, &id).unwrap().request;
-					discarded = Some(DiscardedSandbox {
-						error: error.to_data_or_id(),
-						request,
-						sandbox: id.clone(),
-					});
+					discarded = Some(self.discard_sandbox(scheduler, &id, &error));
 				} else {
 					if matches!(placement, Placement::Regular { .. })
 						&& let Some(runner) = self.runners.entries.get(&runner_ref.id)
@@ -1914,17 +2096,30 @@ impl SchedulerState {
 			.collect::<Vec<_>>();
 		let mut discarded = Vec::new();
 		for id in ids {
-			self.remove_queued_sandbox(&id);
-			let request = self.remove_sandbox_entry(scheduler, &id).unwrap().request;
 			let error = tg::error!(sandbox = %id, %runner, "the sandbox's runner is unavailable");
-			let sandbox = DiscardedSandbox {
-				error: error.to_data_or_id(),
-				request,
-				sandbox: id,
-			};
+			let sandbox = self.discard_sandbox(scheduler, &id, &error);
 			discarded.push(sandbox);
 		}
 		discarded
+	}
+
+	/// End a boot that this scheduler holds and gives up on, which records the failure in the sandbox's error field. A new sandbox is destroyed, and a sandbox that was starting again is stopped.
+	fn discard_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::sandbox::Id,
+		error: &tg::Error,
+	) -> DiscardedSandbox {
+		let error = error.to_data_or_id();
+		let request = self.sandboxes.entries[id].request.clone();
+		let status = failed_sandbox_status(&request);
+		let write = self.end_sandbox(scheduler, id, status, Some(error.clone()));
+		DiscardedSandbox {
+			error,
+			request,
+			sandbox: id.clone(),
+			write: Some(write),
+		}
 	}
 
 	pub(super) fn schedule_one(&mut self, scheduler: &Scheduler) {
@@ -2158,13 +2353,7 @@ impl SchedulerState {
 			if elapsed >= timeout {
 				let error = tg::error!(sandbox = %id, "no runners available");
 				tracing::error!(error = %error.trace(), "giving up on the sandbox");
-				self.remove_queued_sandbox(id);
-				let request = self.remove_sandbox_entry(scheduler, id).unwrap().request;
-				let discarded = DiscardedSandbox {
-					error: error.to_data_or_id(),
-					request,
-					sandbox: id.clone(),
-				};
+				let discarded = self.discard_sandbox(scheduler, id, &error);
 				scheduler.publish_sandbox_discarded(self, discarded);
 				return false;
 			}
@@ -2320,7 +2509,7 @@ impl SchedulerState {
 							entry.registration_index == runner.registration_index
 						})
 				},
-				SandboxState::Pending => false,
+				SandboxState::Ended { .. } | SandboxState::Pending => false,
 			});
 		if current {
 			self.offer_sandbox(scheduler, id);
@@ -2453,11 +2642,7 @@ impl Scheduler {
 		request: &EnqueueSandboxRequestArg,
 		error: tg::Either<tg::error::Data, tg::error::Id>,
 	) -> tg::Result<()> {
-		let status = if request.boot == 0 {
-			tg::sandbox::Status::Destroyed
-		} else {
-			tg::sandbox::Status::Stopped
-		};
+		let status = failed_sandbox_status(request);
 		self.put_sandbox_status(request, status, Some(error), None)
 			.await
 	}
@@ -2801,6 +2986,15 @@ fn available(runner: &Runner) -> tg::runner::Capacity {
 
 fn cpu_limit(runner: &Runner) -> u64 {
 	runner.capacity.cpu_limit
+}
+
+/// Get the status that records a failure of a boot after its acceptance, which destroys a new sandbox and stops a sandbox that was starting again.
+fn failed_sandbox_status(request: &EnqueueSandboxRequestArg) -> tg::sandbox::Status {
+	if request.boot == 0 {
+		tg::sandbox::Status::Destroyed
+	} else {
+		tg::sandbox::Status::Stopped
+	}
 }
 
 fn matches_host(runner: &Runner, request: &EnqueueSandboxRequestArg) -> bool {

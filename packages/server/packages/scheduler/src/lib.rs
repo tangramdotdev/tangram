@@ -142,6 +142,10 @@ enum Operation {
 		statuses: recovery::Statuses,
 	},
 	RecoveryExpired,
+	ReleaseEndedSandbox {
+		boot: u64,
+		sandbox: tg::sandbox::Id,
+	},
 	RemoveRunner {
 		id: Option<String>,
 		result: tg::Result<RemoveRunnerResponseOutput>,
@@ -708,6 +712,9 @@ impl Scheduler {
 			Operation::RecoveryExpired => {
 				state.handle_recovery_expired(self);
 			},
+			Operation::ReleaseEndedSandbox { boot, sandbox } => {
+				state.handle_release_ended_sandbox(&sandbox, boot);
+			},
 			Operation::RemoveRunner { id, result } => {
 				if let Some(id) = id {
 					let result = result.map(ResponseOutput::RemoveRunner);
@@ -755,9 +762,12 @@ impl Scheduler {
 		let server = self.server.clone();
 		state.operations.push(
 			async move {
-				// Record the failure in the sandbox's error field, and then wake the callers.
+				// Record the failure in the sandbox's error field, unless the scheduler already began the write, and then wake the callers.
 				let request = discarded.request;
-				let result = scheduler.fail_sandbox(&request, error).await;
+				let result = match discarded.write {
+					Some(write) => write.await,
+					None => scheduler.fail_sandbox(&request, error).await,
+				};
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), sandbox = %request.sandbox, "failed to record the discarded sandbox");
 				}
