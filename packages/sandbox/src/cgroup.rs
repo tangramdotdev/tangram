@@ -180,14 +180,23 @@ impl Cgroup {
 		let parent = OwnedFd::from(parent);
 		let path = current.join(&name);
 
-		// Create the sandbox cgroup and cleanup state.
-		std::fs::create_dir(&path).map_err(|error| {
+		// Create the sandbox cgroup, replacing a cgroup of the same name that a previous boot of the sandbox left without processes when its runner was killed.
+		let result = match std::fs::create_dir(&path) {
+			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+				remove_stale(&parent, &name, &path)?;
+				std::fs::create_dir(&path)
+			},
+			result => result,
+		};
+		result.map_err(|error| {
 			tg::error!(
 				!error,
 				path = %path.display(),
 				"failed to create the cgroup"
 			)
 		})?;
+
+		// Create the cleanup state.
 		let directory = std::fs::OpenOptions::new()
 			.read(true)
 			.custom_flags(libc::O_DIRECTORY | libc::O_PATH)
@@ -793,6 +802,35 @@ fn remove_descendants(directory: &OwnedFd) -> tg::Result<()> {
 			current = parent;
 		}
 	}
+
+	Ok(())
+}
+
+/// Remove a cgroup that has no processes, and its descendants, which a sandbox process leaves when it is killed before it removes its cgroup. Refuse to remove a cgroup that has processes, because a live sandbox may use it.
+fn remove_stale(parent: &OwnedFd, name: &str, path: &Path) -> tg::Result<()> {
+	// Open the cgroup.
+	let flags = OFlags::CLOEXEC | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::PATH;
+	let directory = openat(parent, name, flags, Mode::empty()).map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to open the stale cgroup"),
+	)?;
+
+	// Refuse to remove a cgroup that has processes.
+	let contents = read_file_at(&directory, c"cgroup.events").map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to read the stale cgroup events"),
+	)?;
+	if parse_populated(&contents)? {
+		return Err(tg::error!(
+			path = %path.display(),
+			"the cgroup already exists and has processes"
+		));
+	}
+
+	// Remove the cgroup after its descendants.
+	tracing::warn!(path = %path.display(), "removing a stale cgroup");
+	remove_descendants(&directory)?;
+	unlinkat(parent, name, AtFlags::REMOVEDIR).map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to remove the stale cgroup"),
+	)?;
 
 	Ok(())
 }
