@@ -49,11 +49,11 @@ impl Runners {
 	pub fn expired(
 		&self,
 		now: tangram_server_core::clock::Instant,
-		ttl: Duration,
+		time_to_live: Duration,
 	) -> Vec<(tg::runner::Id, u64)> {
 		self.entries
 			.iter()
-			.filter(|(_, runner)| now - runner.heartbeat_at > ttl)
+			.filter(|(_, runner)| now - runner.heartbeat_at > time_to_live)
 			.map(|(id, runner)| (id.clone(), runner.registration_index))
 			.collect()
 	}
@@ -365,7 +365,7 @@ impl Component {
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
 			)?;
 		for (sandbox, indexed) in std::iter::zip(sandboxes, indexed) {
-			// Destroy a sandbox with a zero time to live, because its processes are lost, and stop the others.
+			// Destroy a sandbox with a zero ttl, because its processes are lost, and stop the others.
 			let error = tg::error::Data {
 				code: Some(tg::error::Code::Internal),
 				message: Some("heartbeat expired".to_owned()),

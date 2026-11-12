@@ -66,10 +66,10 @@ enum Response<T: Send + Sync + 'static, E: Send + 'static> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Options {
-	pub min: usize,
 	pub max: usize,
+	pub min: usize,
 	pub shared: usize,
-	pub ttl: Option<Duration>,
+	pub time_to_live: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
@@ -100,10 +100,10 @@ pub struct SharedGuard<T: Send + Sync + 'static, E: Send + 'static> {
 impl Default for Options {
 	fn default() -> Self {
 		Self {
-			min: 0,
 			max: usize::MAX,
+			min: 0,
 			shared: 1,
-			ttl: None,
+			time_to_live: None,
 		}
 	}
 }
@@ -121,10 +121,10 @@ where
 	{
 		let max = options.max.max(1);
 		let options = Options {
-			min: options.min.min(max),
 			max,
+			min: options.min.min(max),
 			shared: options.shared.max(1),
-			ttl: options.ttl,
+			time_to_live: options.time_to_live,
 		};
 		let state = State {
 			entries: Vec::new(),
@@ -138,7 +138,7 @@ where
 		let create = Arc::new(move || create().boxed());
 		let state = Arc::new(Mutex::new(state));
 		let (expiration_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-		let expiration_task = options.ttl.map(|_| {
+		let expiration_task = options.time_to_live.map(|_| {
 			let expiration_task = Task::spawn({
 				let state = state.clone();
 				|_| expiration_task(state, receiver)
@@ -531,7 +531,7 @@ where
 	}
 
 	fn expires_at(&self) -> Instant {
-		Instant::now() + self.options.ttl.unwrap_or_default()
+		Instant::now() + self.options.time_to_live.unwrap_or_default()
 	}
 
 	fn next_id(&mut self) -> usize {
@@ -541,7 +541,7 @@ where
 	}
 
 	fn prune_expired(&mut self) {
-		if self.options.ttl.is_none() {
+		if self.options.time_to_live.is_none() {
 			return;
 		}
 		let now = Instant::now();
@@ -565,7 +565,7 @@ where
 	}
 
 	fn next_expiration(&self) -> Option<Instant> {
-		self.options.ttl?;
+		self.options.time_to_live?;
 		if self.entries.len() <= self.options.min {
 			return None;
 		}
@@ -864,16 +864,16 @@ mod tests {
 
 	fn options(max: usize) -> Options {
 		Options {
-			min: 0,
 			max,
+			min: 0,
 			shared: 1,
-			ttl: None,
+			time_to_live: None,
 		}
 	}
 
-	// A pool without a time to live does not spawn the expiration task and can be constructed outside of an async runtime.
+	// A pool without a ttl does not spawn the expiration task and can be constructed outside of an async runtime.
 	#[test]
-	fn pool_without_ttl_can_be_created_without_a_runtime() {
+	fn pool_without_time_to_live_can_be_created_without_a_runtime() {
 		let _pool = Pool::new(options(1), || async { Ok::<_, Error>(0) });
 	}
 
@@ -1420,18 +1420,18 @@ mod tests {
 		assert_eq!(attempts.load(Ordering::SeqCst), 2);
 	}
 
-	// A value created under a zero time to live is not pruned before the requesting checkout receives it.
+	// A value created under a zero ttl is not pruned before the requesting checkout receives it.
 	#[tokio::test]
-	async fn zero_ttl_does_not_expire_a_newly_created_value_before_checkout() {
+	async fn zero_time_to_live_does_not_expire_a_newly_created_value_before_checkout() {
 		let mut options = options(1);
-		options.ttl = Some(Duration::ZERO);
+		options.time_to_live = Some(Duration::ZERO);
 		let pool = Pool::new(options, || async { Ok::<_, Error>(0) });
 		assert_eq!(*pool.get_exclusive(Priority::default()).await.unwrap(), 0);
 	}
 
 	// When several values are available, an exclusive lease reuses the value with the most recent expiration first.
 	#[tokio::test]
-	async fn ttl_reuse_is_most_recent_first() {
+	async fn time_to_live_reuse_is_most_recent_first() {
 		let pool = Pool::new(options(2), || async { Ok::<_, Error>(0) });
 		pool.add(1);
 		pool.add(2);
@@ -1445,10 +1445,10 @@ mod tests {
 
 	// Expiration prunes expired values down to the configured minimum, leaving exactly the minimum number available.
 	#[tokio::test]
-	async fn ttl_expiration_drops_to_min() {
+	async fn time_to_live_expiration_drops_to_min() {
 		let mut options = options(3);
 		options.min = 1;
-		options.ttl = Some(Duration::from_millis(1));
+		options.time_to_live = Some(Duration::from_millis(1));
 		let pool = Pool::new(options, || async { Ok::<_, Error>(0) });
 		pool.add(1);
 		pool.add(2);
@@ -1459,10 +1459,10 @@ mod tests {
 
 	// When pruning down to the minimum, expiration keeps the most recently added values and discards the older ones.
 	#[tokio::test]
-	async fn ttl_expiration_keeps_the_most_recent_min_values() {
+	async fn time_to_live_expiration_keeps_the_most_recent_min_values() {
 		let mut options = options(2);
 		options.min = 1;
-		options.ttl = Some(Duration::from_millis(1));
+		options.time_to_live = Some(Duration::from_millis(1));
 		let pool = Pool::new(options, || async { Ok::<_, Error>(0) });
 		pool.add(1);
 		tokio::time::sleep(Duration::from_millis(2)).await;
@@ -1473,10 +1473,10 @@ mod tests {
 
 	// The background expiration task prunes expired values down to the minimum without any further pool activity.
 	#[tokio::test]
-	async fn ttl_task_expires_values_without_pool_activity() {
+	async fn time_to_live_task_expires_values_without_pool_activity() {
 		let mut options = options(3);
 		options.min = 1;
-		options.ttl = Some(Duration::from_millis(1));
+		options.time_to_live = Some(Duration::from_millis(1));
 		let drops = Arc::new(AtomicUsize::new(0));
 		let pool = Pool::new(options, || async { Err::<DropCounter, Error>("unused") });
 		pool.add(DropCounter(drops.clone()));
@@ -1486,11 +1486,11 @@ mod tests {
 		assert_eq!(drops.load(Ordering::SeqCst), 2);
 	}
 
-	// The background expiration task does not hold a strong reference to the pool, so dropping the pool drops its values even with a long time to live.
+	// The background expiration task does not hold a strong reference to the pool, so dropping the pool drops its values even with a long ttl.
 	#[tokio::test]
-	async fn ttl_task_does_not_keep_the_pool_alive() {
+	async fn time_to_live_task_does_not_keep_the_pool_alive() {
 		let mut options = options(1);
-		options.ttl = Some(Duration::from_mins(1));
+		options.time_to_live = Some(Duration::from_mins(1));
 		let drops = Arc::new(AtomicUsize::new(0));
 		{
 			let pool = Pool::new(options, || async { Err::<DropCounter, Error>("unused") });
@@ -1502,9 +1502,9 @@ mod tests {
 
 	// After expiring one value, the background expiration task reschedules and continues to expire the next value at its later deadline.
 	#[tokio::test]
-	async fn ttl_task_continues_to_the_next_expiration() {
+	async fn time_to_live_task_continues_to_the_next_expiration() {
 		let mut options = options(3);
-		options.ttl = Some(Duration::from_millis(20));
+		options.time_to_live = Some(Duration::from_millis(20));
 		let drops = Arc::new(AtomicUsize::new(0));
 		let pool = Pool::new(options, || async { Err::<DropCounter, Error>("unused") });
 		pool.add(DropCounter(drops.clone()));

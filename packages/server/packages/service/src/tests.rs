@@ -51,7 +51,7 @@ fn messenger() -> Messenger {
 
 fn options() -> Options {
 	Options {
-		attempt_ttl: Duration::from_millis(200),
+		attempt_time_to_live: Duration::from_millis(200),
 		heartbeat_interval: Duration::from_millis(20),
 		idle_timeout: Duration::from_millis(100),
 		recovery_timeout: Duration::from_millis(500),

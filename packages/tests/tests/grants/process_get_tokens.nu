@@ -18,8 +18,8 @@ def object-token [referent: string] {
 let root = random chars
 let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	authentication: { root: { token: $root }, users: { providers: { insecure: true } } }
-	object: { permission_time_to_live: 60 }
-	process: { permission_time_to_live: 60 }
+	object: { permission_ttl: 60 }
+	process: { permission_ttl: 60 }
 }
 let owner = tg login --verbose --name owner | from json
 let reader = tg login --verbose --name reader | from json

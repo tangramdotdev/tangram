@@ -24,7 +24,7 @@ mod write;
 
 use super::{Config, Index};
 
-/// The usage delta time to live that the tests aggregate and read usage with.
+/// The usage delta ttl that the tests aggregate and read usage with.
 const USAGE_DELTA_TIME_TO_LIVE: std::time::Duration = std::time::Duration::from_hours(1);
 
 fn new_index() -> (tempfile::TempDir, Index) {

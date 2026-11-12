@@ -540,7 +540,7 @@ impl Component {
 					None,
 					false,
 					None,
-					prefetch.arg.options.tag_ttl,
+					prefetch.arg.options.tag_time_to_live,
 				)
 				.await
 				.map_err(|error| tg::error!(!error, %pattern, "failed to list the items"))?

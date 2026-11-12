@@ -36,11 +36,11 @@ pub struct Arg {
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub tags: bool,
 
+	#[serde(alias = "ttl", default, skip_serializing_if = "is_default")]
+	pub time_to_live: tg::remote::cache::TimeToLive,
+
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	pub tokens: tg::authorization::Tokens,
-
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub ttl: tg::remote::cache::Ttl,
 
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub users: bool,
@@ -61,8 +61,8 @@ impl Default for Arg {
 			pattern: tg::specifier::Pattern::default(),
 			reverse: false,
 			tags: true,
+			time_to_live: tg::remote::cache::TimeToLive::default(),
 			tokens: tg::authorization::Tokens::default(),
-			ttl: tg::remote::cache::Ttl::default(),
 			users: true,
 		}
 	}

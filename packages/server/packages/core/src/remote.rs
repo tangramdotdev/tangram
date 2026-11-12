@@ -64,7 +64,7 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		remote: &'a str,
 		request: &'a tangram_server_remote_core::cache::Request,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> BoxFuture<'a, tg::Result<Option<tangram_server_remote_core::cache::Response>>>;
 
 	fn put_cached_remote_response<'a>(

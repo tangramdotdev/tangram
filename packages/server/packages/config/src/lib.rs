@@ -138,7 +138,7 @@ pub struct ArchivePool {
 
 	pub min: usize,
 
-	pub ttl: Option<Duration>,
+	pub time_to_live: Option<Duration>,
 }
 
 #[derive(Clone, Debug)]
@@ -217,7 +217,7 @@ pub struct Authentication {
 pub struct AuthenticationCache {
 	pub capacity: u64,
 
-	pub ttl: Duration,
+	pub time_to_live: Duration,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -229,7 +229,7 @@ pub struct RootAuthentication {
 pub struct AuthenticationTokens {
 	pub secrets: TokenSecrets,
 
-	pub ttl: Duration,
+	pub time_to_live: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -238,7 +238,7 @@ pub struct UserAuthentication {
 
 	pub providers: AuthenticationProviders,
 
-	pub ttl: Duration,
+	pub time_to_live: Duration,
 
 	pub web_url: Option<String>,
 }
@@ -389,7 +389,7 @@ pub struct Control {
 	pub reply_capacity: usize,
 
 	/// How long a holder of processes or sandboxes remembers a reply after it was last used.
-	pub reply_ttl: Duration,
+	pub reply_time_to_live: Duration,
 
 	/// The retry for process, sandbox, and runner control requests.
 	pub request_retry: Retry,
@@ -397,8 +397,8 @@ pub struct Control {
 	/// The maximum time to wait for a process, sandbox, or runner control response.
 	pub request_timeout: Duration,
 
-	/// The time to live of unacknowledged messages in a control stream inbox.
-	pub stream_inbox_ttl: Duration,
+	/// The ttl of unacknowledged messages in a control stream inbox.
+	pub stream_inbox_time_to_live: Duration,
 
 	/// The retry for resending unacknowledged control stream messages.
 	pub stream_retry: Retry,
@@ -444,7 +444,7 @@ pub struct DatabasePool {
 
 	pub min: Option<usize>,
 
-	pub ttl: Option<Duration>,
+	pub time_to_live: Option<Duration>,
 }
 
 #[derive(Clone, Debug)]
@@ -618,7 +618,7 @@ pub struct Indexer {
 pub struct IndexerBillingCleanup {
 	pub poll_interval: Duration,
 
-	pub webhook_ttl: Duration,
+	pub webhook_time_to_live: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -686,7 +686,7 @@ pub struct IndexerRequest {
 
 	pub poll_interval: Duration,
 
-	pub response_ttl: Duration,
+	pub response_time_to_live: Duration,
 
 	pub retry: Retry,
 
@@ -938,11 +938,8 @@ pub enum ScyllaCacheCapacity {
 #[derive(Clone, Debug)]
 pub struct ScyllaCachePrometheusCapacity {
 	pub available_query: String,
-
+	pub time_to_live: Duration,
 	pub total_query: String,
-
-	pub ttl: Duration,
-
 	pub url: Uri,
 }
 
@@ -1163,7 +1160,7 @@ pub struct Runner {
 
 	pub process_control_channel_capacity: usize,
 
-	pub process_state_ttl: Duration,
+	pub process_state_time_to_live: Duration,
 
 	pub progress_channel_capacity: usize,
 
@@ -1186,12 +1183,12 @@ pub struct Runner {
 
 	pub sandbox_pool_size: usize,
 
-	pub sandbox_state_ttl: Duration,
+	pub sandbox_state_time_to_live: Duration,
 
 	/// The number of sandboxes that the runner runs at once, which defaults to its number of hardware threads.
 	pub sandboxes: Option<u64>,
 
-	pub scheduler_ttl: Duration,
+	pub scheduler_time_to_live: Duration,
 
 	pub stdio_buffer_chunks: usize,
 
@@ -1199,7 +1196,7 @@ pub struct Runner {
 
 	pub stdio_drain_timeout: Duration,
 
-	pub stdio_drained_ttl: Duration,
+	pub stdio_drained_time_to_live: Duration,
 
 	/// The interval at which the runner reports its stopped sandboxes and destroys its expired stopped sandboxes.
 	pub stopped_sandbox_interval: Duration,
@@ -1326,7 +1323,7 @@ pub struct Scheduler {
 
 	pub restart_delay: Duration,
 
-	pub runner_ttl: Duration,
+	pub runner_time_to_live: Duration,
 
 	/// How long a request that no runner could fit stays queued before it fails, where zero rejects the request and `None` waits indefinitely.
 	pub unplaceable_timeout: Option<Duration>,
@@ -1344,7 +1341,7 @@ pub struct SchedulerRequest {
 	/// The maximum number of concurrent message publications.
 	pub concurrency: usize,
 
-	pub response_ttl: Duration,
+	pub response_time_to_live: Duration,
 
 	pub retry: Retry,
 
@@ -1761,7 +1758,7 @@ pub enum VfsPassthrough {
 pub struct Watch {
 	pub channel_capacity: usize,
 
-	pub ttl: Duration,
+	pub time_to_live: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -2072,26 +2069,20 @@ impl Usage {
 	pub fn validate(&self) -> tg::Result<()> {
 		// Retain each input kind for at least one complete parent period.
 		if self.delta_time_to_live < Duration::from_hours(1) {
-			return Err(tg::error!(
-				"the usage delta time to live must be at least one hour"
-			));
+			return Err(tg::error!("the usage delta ttl must be at least one hour"));
 		}
 		if self.hour_time_to_live < Duration::from_hours(24) {
-			return Err(tg::error!(
-				"the usage hour time to live must be at least 24 hours"
-			));
+			return Err(tg::error!("the usage hour ttl must be at least 24 hours"));
 		}
 
 		// Retain each hour total for as long as a late delta can recompute an hour of its day, because recomputing the day reads every hour total of the day.
 		if self.hour_time_to_live < self.delta_time_to_live + Duration::from_hours(23) {
 			return Err(tg::error!(
-				"the usage hour time to live must be at least 23 hours longer than the usage delta time to live"
+				"the usage hour ttl must be at least 23 hours longer than the usage delta ttl"
 			));
 		}
 		if self.day_time_to_live < Duration::from_hours(31 * 24) {
-			return Err(tg::error!(
-				"the usage day time to live must be at least 31 days"
-			));
+			return Err(tg::error!("the usage day ttl must be at least 31 days"));
 		}
 
 		Ok(())
@@ -2118,7 +2109,7 @@ impl Default for AuthenticationCache {
 	fn default() -> Self {
 		Self {
 			capacity: 10_000,
-			ttl: Duration::from_secs(60),
+			time_to_live: Duration::from_secs(60),
 		}
 	}
 }
@@ -2127,7 +2118,7 @@ impl Default for AuthenticationTokens {
 	fn default() -> Self {
 		Self {
 			secrets: TokenSecrets::default(),
-			ttl: default_authentication_token_ttl(),
+			time_to_live: default_authentication_token_time_to_live(),
 		}
 	}
 }
@@ -2280,7 +2271,7 @@ impl Default for ArchivePool {
 		Self {
 			max: 64,
 			min: 8,
-			ttl: Some(Duration::from_mins(5)),
+			time_to_live: Some(Duration::from_mins(5)),
 		}
 	}
 }
@@ -2304,7 +2295,7 @@ impl Default for UserAuthentication {
 		Self {
 			interval: default_login_interval(),
 			providers: AuthenticationProviders::default(),
-			ttl: default_login_ttl(),
+			time_to_live: default_login_time_to_live(),
 			web_url: None,
 		}
 	}
@@ -2358,10 +2349,10 @@ impl Default for Control {
 			get_retry: get_retry.into(),
 			read_timeout: Duration::from_secs(1),
 			reply_capacity: 65_536,
-			reply_ttl: Duration::from_mins(10),
+			reply_time_to_live: Duration::from_mins(10),
 			request_retry: request_retry.into(),
 			request_timeout: Duration::from_secs(10),
-			stream_inbox_ttl: Duration::from_mins(1),
+			stream_inbox_time_to_live: Duration::from_mins(1),
 			stream_retry: stream_retry.into(),
 		}
 	}
@@ -2556,7 +2547,7 @@ impl Default for IndexerBillingCleanup {
 	fn default() -> Self {
 		Self {
 			poll_interval: Duration::from_hours(1),
-			webhook_ttl: Duration::from_hours(35 * 24),
+			webhook_time_to_live: Duration::from_hours(35 * 24),
 		}
 	}
 }
@@ -2630,7 +2621,7 @@ impl Default for IndexerRequest {
 			channel_capacity: 256,
 			concurrency: 64,
 			poll_interval: Duration::from_millis(10),
-			response_ttl: Duration::from_mins(1),
+			response_time_to_live: Duration::from_mins(1),
 			retry: message_retry_default(),
 			timeout: Duration::from_secs(1),
 			wait_concurrency: 1024,
@@ -2852,8 +2843,8 @@ impl Default for ScyllaCachePrometheusCapacity {
 	fn default() -> Self {
 		Self {
 			available_query: String::new(),
+			time_to_live: Duration::from_secs(1),
 			total_query: String::new(),
-			ttl: Duration::from_secs(1),
 			url: "http://localhost:9090".parse().unwrap(),
 		}
 	}
@@ -2867,7 +2858,7 @@ impl Default for Process {
 			control: tg::process::control::Config::default(),
 			control_channel_capacity: 512,
 			control_service: tangram_messenger::service::Options {
-				attempt_ttl: Duration::from_secs(10),
+				attempt_time_to_live: Duration::from_secs(10),
 				heartbeat_interval: Duration::from_secs(1),
 				idle_timeout: Duration::from_secs(60),
 				recovery_timeout: Duration::from_secs(10),
@@ -2938,7 +2929,7 @@ impl Default for ProcessAttach {
 			max_pending_messages: 64,
 			max_unacknowledged_responses: 196,
 			service: tangram_messenger::service::Options {
-				attempt_ttl: Duration::from_secs(10),
+				attempt_time_to_live: Duration::from_secs(10),
 				heartbeat_interval: Duration::from_secs(1),
 				idle_timeout: Duration::from_secs(60),
 				recovery_timeout: Duration::from_secs(10),
@@ -3024,7 +3015,7 @@ impl Default for Runner {
 			memory_sampling_interval: Duration::from_secs(1),
 			overcommit: tg::runner::Overcommit::default(),
 			process_control_channel_capacity: 256,
-			process_state_ttl: Duration::from_mins(1),
+			process_state_time_to_live: Duration::from_mins(1),
 			progress_channel_capacity: 16,
 			progress_log_delay: Duration::from_secs(2),
 			progress_log_interval: Duration::from_secs(1),
@@ -3035,13 +3026,13 @@ impl Default for Runner {
 			restart_delay: Duration::from_secs(1),
 			sandbox_channel_capacity: 256,
 			sandbox_pool_size: 1,
-			sandbox_state_ttl: Duration::from_mins(1),
+			sandbox_state_time_to_live: Duration::from_mins(1),
 			sandboxes: None,
-			scheduler_ttl: Duration::from_secs(10),
+			scheduler_time_to_live: Duration::from_secs(10),
 			stdio_buffer_chunks: 16 * 1024,
 			stdio_buffer_size: 8 * 1024 * 1024,
 			stdio_drain_timeout: Duration::from_secs(1),
-			stdio_drained_ttl: Duration::from_secs(10),
+			stdio_drained_time_to_live: Duration::from_secs(10),
 			stopped_sandbox_interval: Duration::from_mins(1),
 			stopped_sandbox_report_batch_size: 256,
 			storage: None,
@@ -3067,7 +3058,7 @@ impl Default for Scheduler {
 				default_scheduler_max_create_sandbox_requests_per_runner(),
 			request: SchedulerRequest::default(),
 			restart_delay: Duration::from_secs(1),
-			runner_ttl: Duration::from_secs(20),
+			runner_time_to_live: Duration::from_secs(20),
 			unplaceable_timeout: Some(Duration::from_secs(10)),
 		}
 	}
@@ -3086,7 +3077,7 @@ impl Default for SchedulerRequest {
 		Self {
 			channel_capacity: 256,
 			concurrency: 64,
-			response_ttl: Duration::from_mins(1),
+			response_time_to_live: Duration::from_mins(1),
 			retry: message_retry_default(),
 			timeout: Duration::from_secs(10),
 		}
@@ -3102,7 +3093,7 @@ impl Default for Sandbox {
 			connect_timeout: Duration::from_secs(5),
 			control_channel_capacity: 256,
 			control_service: tangram_messenger::service::Options {
-				attempt_ttl: Duration::from_secs(10),
+				attempt_time_to_live: Duration::from_secs(10),
 				heartbeat_interval: Duration::from_secs(1),
 				idle_timeout: Duration::from_secs(60),
 				recovery_timeout: Duration::from_secs(10),
@@ -3179,7 +3170,7 @@ impl Default for Sync {
 			put: SyncPut::default(),
 			retry: sync_retry_default(),
 			service: tangram_messenger::service::Options {
-				attempt_ttl: Duration::from_secs(10),
+				attempt_time_to_live: Duration::from_secs(10),
 				heartbeat_interval: Duration::from_secs(1),
 				idle_timeout: Duration::from_secs(60),
 				recovery_timeout: Duration::from_secs(10),
@@ -3422,7 +3413,7 @@ impl Default for Watch {
 	fn default() -> Self {
 		Self {
 			channel_capacity: 1024,
-			ttl: Duration::from_hours(1),
+			time_to_live: Duration::from_hours(1),
 		}
 	}
 }
@@ -3562,11 +3553,11 @@ fn default_login_interval() -> Duration {
 	Duration::from_secs(5)
 }
 
-fn default_login_ttl() -> Duration {
+fn default_login_time_to_live() -> Duration {
 	Duration::from_mins(15)
 }
 
-fn default_authentication_token_ttl() -> Duration {
+fn default_authentication_token_time_to_live() -> Duration {
 	Duration::from_hours(24)
 }
 

@@ -1,10 +1,10 @@
 use ../../util/test.nu *
 
-# Remote cache reads use the configured default TTL and honor finite and infinite overrides.
+# Remote cache reads use the configured default ttl and honor finite and infinite overrides.
 
 let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config {
-	remote_cache: { time_to_live: 0 }
+	remote_cache: { ttl: 0 }
 	remotes: { default: { url: $remote.url } }
 }
 

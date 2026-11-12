@@ -105,7 +105,7 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 		sandbox.location = None;
 		sandbox.data = Some(
 			serde_json::from_value(serde_json::json!({
-				"data": { "id": id, "status": "destroyed", "ttl": null },
+				"data": { "id": id, "status": "destroyed", "time_to_live": null },
 			}))
 			.unwrap(),
 		);

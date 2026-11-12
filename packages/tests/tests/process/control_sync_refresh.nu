@@ -7,7 +7,7 @@ let root_token = random chars
 let remote = server spawn --name remote --now $now --config {
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
-	sync: { permission_time_to_live: 2 },
+	sync: { permission_ttl: 2 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --now $now --config {
@@ -21,7 +21,7 @@ let path = artifact {
 	tangram.ts: 'export default async () => tg.file("refreshed");',
 }
 
-# Hold the process before it finishes and advance the clocks past the sync token's time to live.
+# Hold the process before it finishes and advance the clocks past the sync token's ttl.
 let watch = tg --url $runner.url checkpoint watch runner.process.finish | from json | get watch
 let build = job spawn {
 	let id = job id

@@ -345,10 +345,10 @@ impl Client {
 		let context = Context::new(arg.token);
 		let sender = Self::handshake_h2(stream, http).await?;
 		let options = tangram_pool::Options {
-			min: 1,
 			max: 1,
+			min: 1,
 			shared: pool_options.shared,
-			ttl: None,
+			time_to_live: None,
 		};
 		let pool = self::http::Pool::new(options, || async {
 			Err(self::http::Error::Other(tg::error!(
@@ -486,10 +486,10 @@ impl Deref for Client {
 impl Default for Arg {
 	fn default() -> Self {
 		let pool = tangram_pool::Options {
-			min: 0,
 			max: 1,
+			min: 0,
 			shared: usize::MAX,
-			ttl: None,
+			time_to_live: None,
 		};
 		// Reconnect a stream for about ten seconds, so that a stream survives a server restart and fails once its server stays down.
 		let stream_retry = tangram_futures::retry::Options {

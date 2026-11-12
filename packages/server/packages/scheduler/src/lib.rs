@@ -178,7 +178,7 @@ struct Config {
 	max_create_sandbox_attempts: usize,
 	max_create_sandbox_requests: usize,
 	max_create_sandbox_requests_per_runner: usize,
-	runner_ttl: Duration,
+	runner_time_to_live: Duration,
 	unplaceable_timeout: Option<Duration>,
 }
 
@@ -441,7 +441,7 @@ impl Scheduler {
 			max_create_sandbox_attempts: config.max_create_sandbox_attempts,
 			max_create_sandbox_requests: config.max_create_sandbox_requests,
 			max_create_sandbox_requests_per_runner: config.max_create_sandbox_requests_per_runner,
-			runner_ttl: config.runner_ttl,
+			runner_time_to_live: config.runner_time_to_live,
 			unplaceable_timeout: config.unplaceable_timeout,
 		};
 
@@ -450,7 +450,7 @@ impl Scheduler {
 			server,
 			&id,
 			request_config.channel_capacity,
-			request_config.response_ttl,
+			request_config.response_time_to_live,
 		)
 		.await?;
 		let notifications = server
@@ -521,7 +521,7 @@ impl Scheduler {
 		// Recover the accepted requests before handling messages.
 		self.recover(&mut state).await?;
 
-		let mut cleaner_interval = self.server.clock.interval(self.config.runner_ttl);
+		let mut cleaner_interval = self.server.clock.interval(self.config.runner_time_to_live);
 		cleaner_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
 			let event = self
@@ -730,9 +730,9 @@ impl Scheduler {
 		state.prune_placed_sandboxes(self);
 		state.prune_sandbox_holders();
 		let now = self.server.clock.instant();
-		let expired = state.runners.expired(now, self.config.runner_ttl);
+		let expired = state.runners.expired(now, self.config.runner_time_to_live);
 		for (runner, registration_index) in expired {
-			tracing::warn!(%runner, registration_index, ttl_ms = self.config.runner_ttl.as_millis(), "the runner heartbeat expired");
+			tracing::warn!(%runner, registration_index, time_to_live_ms = self.config.runner_time_to_live.as_millis(), "the runner heartbeat expired");
 			let request = RemoveRunnerRequestArg {
 				registration_index,
 				runner,

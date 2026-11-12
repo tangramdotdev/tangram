@@ -27,16 +27,16 @@ impl Indexer {
 	}
 
 	async fn clean_billing_webhooks(&self, now: i64) -> tg::Result<()> {
-		let ttl = self
+		let time_to_live = self
 			.server
 			.config
 			.indexer
 			.billing_cleanup
-			.webhook_ttl
+			.webhook_time_to_live
 			.as_secs()
 			.to_i64()
 			.unwrap_or(i64::MAX);
-		let max_created_at = now.saturating_sub(ttl);
+		let max_created_at = now.saturating_sub(time_to_live);
 		self.server
 			.database
 			.run(|transaction| {

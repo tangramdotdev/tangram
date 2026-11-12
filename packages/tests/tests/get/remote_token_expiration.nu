@@ -5,7 +5,7 @@ use ../../util/test.nu *
 # Give both servers a simulated clock, so that tokens expire without waiting.
 let now = '2026-01-01T00:00:00Z'
 let remote = server spawn --cloud --name remote --now $now --config {
-	sync: { permission_time_to_live: 1 }
+	sync: { permission_ttl: 1 }
 }
 let local = server spawn --name local --now $now --config {
 	remotes: { default: { url: $remote.url } }

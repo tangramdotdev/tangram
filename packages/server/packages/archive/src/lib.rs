@@ -18,7 +18,7 @@ impl Archive {
 			max: config.pool.max,
 			min: config.pool.min,
 			shared: 1,
-			ttl: config.pool.ttl,
+			time_to_live: config.pool.time_to_live,
 		};
 		let reconnect = tangram_futures::retry::Options {
 			backoff: config.reconnect.backoff,

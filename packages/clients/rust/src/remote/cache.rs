@@ -13,14 +13,14 @@ use {crate::tg, std::time::Duration};
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 )]
-pub enum Ttl {
+pub enum TimeToLive {
 	#[default]
 	Default,
 	Duration(Duration),
 	Infinite,
 }
 
-impl std::fmt::Display for Ttl {
+impl std::fmt::Display for TimeToLive {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Default => write!(f, "default"),
@@ -30,11 +30,11 @@ impl std::fmt::Display for Ttl {
 	}
 }
 
-impl std::str::FromStr for Ttl {
+impl std::str::FromStr for TimeToLive {
 	type Err = tg::Error;
 
 	fn from_str(value: &str) -> tg::Result<Self> {
-		let ttl = match value {
+		let time_to_live = match value {
 			"default" => Self::Default,
 			"infinite" => Self::Infinite,
 			value => {
@@ -44,7 +44,7 @@ impl std::str::FromStr for Ttl {
 			},
 		};
 
-		Ok(ttl)
+		Ok(time_to_live)
 	}
 }
 
@@ -53,17 +53,17 @@ mod tests {
 	use {super::*, std::str::FromStr as _};
 
 	#[test]
-	fn ttl_roundtrips() {
+	fn time_to_live_roundtrips() {
 		let values = [
-			Ttl::Default,
-			Ttl::Duration(Duration::from_mins(5)),
-			Ttl::Infinite,
+			TimeToLive::Default,
+			TimeToLive::Duration(Duration::from_mins(5)),
+			TimeToLive::Infinite,
 		];
 		for value in values {
 			let string = value.to_string();
-			assert_eq!(Ttl::from_str(&string).unwrap(), value);
+			assert_eq!(TimeToLive::from_str(&string).unwrap(), value);
 			let json = serde_json::to_string(&value).unwrap();
-			assert_eq!(serde_json::from_str::<Ttl>(&json).unwrap(), value);
+			assert_eq!(serde_json::from_str::<TimeToLive>(&json).unwrap(), value);
 		}
 	}
 }

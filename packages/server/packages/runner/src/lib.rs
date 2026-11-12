@@ -44,7 +44,7 @@ pub struct Component(Arc<State>);
 pub struct State {
 	pub control: tokio::sync::watch::Sender<Option<RunnerSender>>,
 
-	/// The replies to recent offers of boots, by request ID, so that an offer that the scheduler sends again is answered with its reply, even after the boot that it created ended. The replies outlast the scheduler's time to live of the runner, after which the scheduler no longer sends an offer again.
+	/// The replies to recent offers of boots, by request ID, so that an offer that the scheduler sends again is answered with its reply, even after the boot that it created ended. The replies outlast the scheduler's ttl of the runner, after which the scheduler no longer sends an offer again.
 	pub offers: tangram_server_core::holder::Replies<tg::runner::control::ClientMessage>,
 
 	#[cfg(target_os = "linux")]
@@ -98,7 +98,7 @@ impl Component {
 		// Create the state.
 		let offers = tangram_server_core::holder::Replies::new(
 			arg.config.control.reply_capacity,
-			arg.config.scheduler.runner_ttl,
+			arg.config.scheduler.runner_time_to_live,
 			arg.config.control.request_timeout,
 		);
 		let state = State {
@@ -665,7 +665,8 @@ impl Component {
 		tracing::info!(runner = %id, scheduler = %header.scheduler, yielded_sandboxes = header.sandboxes.len(), "connected the runner to the scheduler");
 
 		// Remember the replies to offers for longer than the scheduler keeps the runner, so that the scheduler never sends an offer again after its reply is forgotten.
-		self.offers.set_ttl(header.runner_ttl.saturating_mul(2));
+		self.offers
+			.set_time_to_live(header.runner_time_to_live.saturating_mul(2));
 
 		// Report the previous sandboxes' stops and destructions before accepting work, or, after a reconnection, give up the sandboxes that the server took over when the runner's heartbeat expired.
 		let mut index = 1;
@@ -804,7 +805,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// Stop or destroy each running sandbox that the server stopped, destroyed, or started at another boot when the runner's heartbeat expired, applying the same rule as the server: destroy a sandbox whose time to live is zero, and stop the others.
+	/// Stop or destroy each running sandbox that the server stopped, destroyed, or started at another boot when the runner's heartbeat expired, applying the same rule as the server: destroy a sandbox whose ttl is zero, and stop the others.
 	fn yield_runner_sandboxes(&self, sandboxes: &[tg::sandbox::Id]) {
 		let sandboxes = sandboxes
 			.iter()
@@ -1088,14 +1089,14 @@ impl Component {
 			.into_iter()
 			.map(|(id, boot)| tg::runner::control::ArgSandbox { boot, id })
 			.collect();
-		let scheduler_ttl = session.server.config.runner.scheduler_ttl;
+		let scheduler_time_to_live = session.server.config.runner.scheduler_time_to_live;
 		let arg = tg::runner::control::Arg {
 			heartbeat,
 			host,
 			id: id.clone(),
 			location,
 			sandboxes,
-			scheduler_ttl,
+			scheduler_time_to_live,
 		};
 		let output = self
 			.get_runner_control_stream_with_context(session, arg, input_stream)

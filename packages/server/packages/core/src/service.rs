@@ -352,7 +352,7 @@ impl<K: Kind> Endpoint<K> {
 		server: &Server,
 		id: &K::Id,
 		channel_capacity: usize,
-		response_ttl: Duration,
+		response_time_to_live: Duration,
 	) -> tg::Result<Self> {
 		let name = K::NAME;
 		let messages = server
@@ -365,7 +365,7 @@ impl<K: Kind> Endpoint<K> {
 			.boxed();
 		let (sender, receiver) = tokio::sync::mpsc::channel(channel_capacity);
 		let mut options = crate::control::stream_options(&server.config.control);
-		options.outbox_ttl = Some(response_ttl);
+		options.outbox_time_to_live = Some(response_time_to_live);
 		let control = crate::control::Stream::new(messages, sender, options);
 		let endpoint = Self { control, receiver };
 

@@ -58,7 +58,7 @@ export class Client {
 	readonly version: string;
 
 	constructor(readonly options: Config = {}) {
-		this.pool = options.pool ?? PoolConfig.defaultValue();
+		this.pool = PoolConfig.normalize(options.pool ?? PoolConfig.defaultValue());
 		PoolConfig.validate(this.pool);
 		this.http = options.http ?? HttpConfig.defaultValue();
 		HttpConfig.validate(this.http);

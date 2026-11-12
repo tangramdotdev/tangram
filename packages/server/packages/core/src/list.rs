@@ -32,9 +32,9 @@ pub struct PageArg<'a> {
 
 	pub scope: Scope,
 
-	pub tokens: &'a tg::authorization::Tokens,
+	pub time_to_live: tg::remote::cache::TimeToLive,
 
-	pub ttl: tg::remote::cache::Ttl,
+	pub tokens: &'a tg::authorization::Tokens,
 }
 
 /// The specifiers that a page of local items is listed from.

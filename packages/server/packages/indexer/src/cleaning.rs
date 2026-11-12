@@ -28,7 +28,7 @@ enum CleanMode {
 	Capacity,
 
 	#[default]
-	Ttl,
+	TimeToLive,
 }
 
 impl Indexer {
@@ -60,7 +60,7 @@ impl Indexer {
 						}
 					},
 					Err(error) => {
-						mode = CleanMode::Ttl;
+						mode = CleanMode::TimeToLive;
 						tracing::error!(error = %error.trace(), "failed to get the cleaning capacity");
 					},
 				}
@@ -69,7 +69,7 @@ impl Indexer {
 			let now = self.server.clock.unix_timestamp();
 			let (object_time_to_live, process_time_to_live, sandbox_time_to_live) = match mode {
 				CleanMode::Capacity => (Duration::ZERO, Duration::ZERO, Duration::ZERO),
-				CleanMode::Ttl => (
+				CleanMode::TimeToLive => (
 					self.server.config.object.time_to_live,
 					self.server.config.process.time_to_live,
 					self.server.config.sandbox.time_to_live,
@@ -395,8 +395,10 @@ impl CleanMode {
 			Self::Capacity if !config.should_stop(capacity.available, capacity.total) => {
 				Self::Capacity
 			},
-			Self::Ttl if config.should_start(capacity.available, capacity.total) => Self::Capacity,
-			Self::Capacity | Self::Ttl => Self::Ttl,
+			Self::TimeToLive if config.should_start(capacity.available, capacity.total) => {
+				Self::Capacity
+			},
+			Self::Capacity | Self::TimeToLive => Self::TimeToLive,
 		}
 	}
 }

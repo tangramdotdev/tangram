@@ -7,30 +7,23 @@ pub struct Args {
 	/// Get the availability.
 	#[arg(long)]
 	pub availability: bool,
-
 	/// Get the object's raw bytes.
 	#[arg(long)]
 	pub bytes: bool,
-
 	/// Only use cached remote results. Do not fetch from remotes.
 	#[arg(long)]
 	pub cached: bool,
-
 	#[command(flatten)]
 	pub locations: tangram_cli_core::location::Args,
-
 	/// Get the metadata.
 	#[arg(long)]
 	pub metadata: bool,
-
-	#[arg(index = 1)]
-	pub reference: tg::Reference,
-
 	#[command(flatten)]
 	pub print: tangram_cli_core::print::Options,
-
+	#[arg(index = 1)]
+	pub reference: tg::Reference,
 	#[command(flatten)]
-	pub ttl: tangram_cli_reference::Ttl,
+	pub time_to_live: tangram_cli_reference::TimeToLive,
 }
 
 pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
@@ -38,7 +31,7 @@ pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 	let reference = args.locations.apply_to_reference(&args.reference);
 	let arg = tg::get::Arg {
 		cached: args.cached,
-		ttl: args.ttl.get(),
+		time_to_live: args.time_to_live.get(),
 		..Default::default()
 	};
 	let referent = tangram_cli_reference::get_with_arg(cli, &reference, arg)
@@ -114,8 +107,8 @@ pub(crate) async fn print_get_output(
 				let arg = tg::user::get::Arg {
 					cached: args.cached,
 					location: locations.get(),
+					time_to_live: args.time_to_live.get(),
 					tokens,
-					ttl: args.ttl.get(),
 				};
 				let user = tg::user::Selector::Id(id.try_into()?);
 				let user = client
@@ -131,8 +124,8 @@ pub(crate) async fn print_get_output(
 				let arg = tg::group::get::Arg {
 					cached: args.cached,
 					location: locations.get(),
+					time_to_live: args.time_to_live.get(),
 					tokens,
-					ttl: args.ttl.get(),
 				};
 				let group = tg::group::Selector::Id(id.try_into()?);
 				let group = client
@@ -148,8 +141,8 @@ pub(crate) async fn print_get_output(
 				let arg = tg::organization::get::Arg {
 					cached: args.cached,
 					location: locations.get(),
+					time_to_live: args.time_to_live.get(),
 					tokens,
-					ttl: args.ttl.get(),
 				};
 				let organization = tg::organization::Selector::Id(id.try_into()?);
 				let organization = client
@@ -169,8 +162,8 @@ pub(crate) async fn print_get_output(
 				let arg = tg::tag::get::Arg {
 					cached: args.cached,
 					location: locations.get(),
+					time_to_live: args.time_to_live.get(),
 					tokens,
-					ttl: args.ttl.get(),
 				};
 				let tag = tg::tag::Selector::Id(id.try_into()?);
 				let tag = client
@@ -196,7 +189,7 @@ pub(crate) async fn print_get_output(
 					locations,
 					print,
 					sandbox,
-					ttl: args.ttl,
+					time_to_live: args.time_to_live,
 				};
 				tangram_cli_sandbox::get::run(cli, args).await?;
 			},

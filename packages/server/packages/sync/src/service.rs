@@ -169,7 +169,7 @@ impl Component {
 						finish_closed = true;
 						Err(tg::error!(code = tg::error::Code::Cancellation, "the sync was cancelled"))
 					};
-					// Reject the requests of a cancelled sync for one attempt TTL, instead of staying subscribed while requesters retry.
+					// Reject the requests of a cancelled sync for one attempt ttl, instead of staying subscribed while requesters retry.
 					if finished.is_none()
 						&& cancelled_at.is_none()
 						&& result.as_ref().err().is_some_and(error_is_cancellation)
@@ -219,10 +219,11 @@ impl Component {
 				},
 			}
 
-			// Stop once a cancelled sync has rejected requests for one attempt TTL, or once the index records that the sync finished and the sync has no attempts left.
+			// Stop once a cancelled sync has rejected requests for one attempt ttl, or once the index records that the sync finished and the sync has no attempts left.
 			let now = Instant::now();
 			let status = service.status();
-			if cancelled_at.is_some_and(|cancelled_at| now >= cancelled_at + options.attempt_ttl)
+			if cancelled_at
+				.is_some_and(|cancelled_at| now >= cancelled_at + options.attempt_time_to_live)
 				|| (recorded && status.attempts == 0)
 			{
 				break Ok(());
@@ -267,7 +268,7 @@ impl Component {
 			// Record that the sync finished.
 			let time_to_live = server.config.sync.permission_time_to_live.as_secs();
 			let time_to_live = i64::try_from(time_to_live)
-				.map_err(|source| tg::error!(!source, "invalid sync permission time to live"))?;
+				.map_err(|source| tg::error!(!source, "invalid sync permission ttl"))?;
 			let expires_at = server.clock.unix_timestamp() + time_to_live;
 			let arg = tangram_index::sync::put::Arg {
 				expires_at,

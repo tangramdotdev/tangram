@@ -59,7 +59,7 @@ impl Component {
 			&self.indexers,
 			server,
 			&retry,
-			server.config.indexer.request.response_ttl,
+			server.config.indexer.request.response_time_to_live,
 			start,
 			|indexer, id| {
 				let arg = RequestArg::Enqueue(arg.clone());

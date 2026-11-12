@@ -106,22 +106,30 @@ typedef struct {
 
 // The configuration for a provider. A zero field selects the default.
 typedef struct {
-	// The server's data directory, whose store and checkouts directory the fast path reads directly. NULL disables the fast path.
-	const char *data_directory;
-	// The sweep interval for expired cache-only nodes.
-	uint64_t node_eviction_interval_secs;
-	// The retention of an unreferenced cache-only node after its last access.
-	uint64_t node_ttl_secs;
-	// The map size with which to open the store. It must be at least the server's.
-	uint64_t cache_map_size;
 	// The local cache backend: zero selects LMDB, one selects RocksDB, and two disables the fast path for Fjall.
 	uint32_t cache_kind;
+
+	// The map size with which to open the store. It must be at least the server's.
+	uint64_t cache_map_size;
+
 	// The store's path within the data directory. NULL or empty selects the default.
 	const char *cache_path;
+
 	// The prefix for the store's POSIX lock semaphores. It must match the server's. NULL or empty selects the default hash-derived names.
 	const char *cache_posix_sem_prefix;
+
+	// The server's data directory, whose store and checkouts directory the fast path reads directly. NULL disables the fast path.
+	const char *data_directory;
+
+	// The sweep interval for expired cache-only nodes.
+	uint64_t node_eviction_interval_secs;
+
+	// The retention of an unreferenced cache-only node after its last access.
+	uint64_t node_time_to_live_secs;
+
 	// The principal the mount serves, in the display form of a principal. NULL or empty leaves the mount unenforced.
 	const char *principal;
+
 	// The authorization tokens the mount holds, as a JSON array of authorization tokens. NULL or empty provides no tokens.
 	const char *tokens;
 } TgConfig;

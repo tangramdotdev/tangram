@@ -7,10 +7,10 @@ let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 		checkpoints: true,
 	},
 	process: {
-		time_to_live: 1,
+		ttl: 1,
 	},
 	# The sandbox retains its processes until it is cleaned.
-	sandbox: { time_to_live: 1 },
+	sandbox: { ttl: 1 },
 	tracing: {
 		stderr_format: 'json',
 	},

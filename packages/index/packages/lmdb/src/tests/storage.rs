@@ -257,7 +257,7 @@ async fn get_usage(
 	let period =
 		tangram_index::usage::Period::containing(tangram_index::usage::PeriodKind::Hour, now);
 
-	// Read with a delta time to live that spans from the deltas' synthetic times to the current time, so that their later deltas are not dropped as late.
+	// Read with a delta ttl that spans from the deltas' synthetic times to the current time, so that their later deltas are not dropped as late.
 	let delta_time_to_live = std::time::Duration::from_secs(u64::from(u32::MAX));
 	index
 		.get_usage(account, period, now, delta_time_to_live)
@@ -889,7 +889,7 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 			};
 			index.write(arg).await.unwrap().unwrap();
 
-			// Expire the push retention after a two-hour TTL.
+			// Expire the push retention after a two-hour ttl.
 			for _ in 0..4 {
 				let arg = tangram_index::clean::Arg {
 					batch_size: 100,

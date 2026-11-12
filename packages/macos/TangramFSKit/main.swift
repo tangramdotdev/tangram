@@ -44,7 +44,7 @@ private func mountOptions(_ options: FSTaskOptions) -> [String: String] {
 	return result
 }
 
-private let nodeTTLSeconds: UInt64 = 60
+private let nodeTimeToLiveSeconds: UInt64 = 60
 
 private let nodeEvictionIntervalSeconds: UInt64 = 30
 
@@ -348,13 +348,13 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 						principal.withCString { principal in
 							tokens.withCString { tokens in
 								var config = TgConfig(
-									data_directory: dataDirectory,
-									node_eviction_interval_secs: nodeEvictionIntervalSeconds,
-									node_ttl_secs: nodeTTLSeconds,
-									cache_map_size: cacheMapSize,
 									cache_kind: cacheKind,
+									cache_map_size: cacheMapSize,
 									cache_path: cachePath,
 									cache_posix_sem_prefix: cachePosixSemPrefix,
+									data_directory: dataDirectory,
+									node_eviction_interval_secs: nodeEvictionIntervalSeconds,
+									node_time_to_live_secs: nodeTimeToLiveSeconds,
 									principal: principal,
 									tokens: tokens,
 								)

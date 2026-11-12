@@ -24,8 +24,8 @@ impl Component {
 				pattern: pattern.clone(),
 				reverse: false,
 				tags: true,
+				time_to_live: tg::remote::cache::TimeToLive::default(),
 				tokens: tg::authorization::Tokens::default(),
-				ttl: tg::remote::cache::Ttl::default(),
 				users: false,
 			})
 			.await

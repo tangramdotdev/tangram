@@ -498,7 +498,7 @@ impl Component {
 			let now = Instant::now();
 			let status = service_server.status();
 			if finished_at.is_some_and(|finished_at| {
-				now >= finished_at + options.attempt_ttl && status.attempts == 0
+				now >= finished_at + options.attempt_time_to_live && status.attempts == 0
 			}) {
 				break;
 			}

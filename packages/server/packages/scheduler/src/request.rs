@@ -38,7 +38,7 @@ impl Component {
 			&self.schedulers,
 			server,
 			&retry,
-			config.response_ttl,
+			config.response_time_to_live,
 			service::start(),
 			|scheduler, id| {
 				let arg = arg.clone();
@@ -66,7 +66,7 @@ impl Component {
 		let server = &session.server;
 		let config = &server.config.scheduler.request;
 		let retry = config.retry.clone().into();
-		service::retry_to(&retry, config.response_ttl, |id| {
+		service::retry_to(&retry, config.response_time_to_live, |id| {
 			let arg = arg.clone();
 			async move { Self::send_scheduler_request_inner(server, scheduler, &id, arg).await }
 		})

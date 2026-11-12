@@ -49,7 +49,7 @@ pub trait Output {
 
 pub struct Stream<I, O> {
 	inbox: Arc<DashMap<String, ()>>,
-	inbox_ttl: Duration,
+	inbox_time_to_live: Duration,
 	inner: BoxStream<'static, tg::Result<tg::control::Event<I>>>,
 	send_tasks: [tokio::task::JoinHandle<()>; 2],
 	sender: Sender<I, O>,
@@ -61,7 +61,7 @@ pub struct Sender<I, O> {
 	inner_low: tokio::sync::mpsc::Sender<O>,
 	notify: Arc<tokio::sync::Notify>,
 	outbox: Arc<DashMap<String, OutboxEntry<O>>>,
-	outbox_ttl: Option<Duration>,
+	outbox_time_to_live: Option<Duration>,
 	responses: Arc<DashMap<String, tokio::sync::oneshot::Sender<I>>>,
 	sequence: Arc<AtomicU64>,
 }
@@ -92,8 +92,8 @@ pub struct Options {
 }
 
 pub struct StreamOptions {
-	pub inbox_ttl: Duration,
-	pub outbox_ttl: Option<Duration>,
+	pub inbox_time_to_live: Duration,
+	pub outbox_time_to_live: Option<Duration>,
 	pub retry: tangram_futures::retry::Options,
 }
 
@@ -154,8 +154,8 @@ where
 #[must_use]
 pub fn stream_options(config: &tangram_server_config::Control) -> StreamOptions {
 	StreamOptions {
-		inbox_ttl: config.stream_inbox_ttl,
-		outbox_ttl: None,
+		inbox_time_to_live: config.stream_inbox_time_to_live,
+		outbox_time_to_live: None,
 		retry: config.stream_retry.clone().into(),
 	}
 }
@@ -200,8 +200,8 @@ where
 		options: StreamOptions,
 	) -> Self {
 		let StreamOptions {
-			inbox_ttl,
-			outbox_ttl,
+			inbox_time_to_live,
+			outbox_time_to_live,
 			retry,
 		} = options;
 		let inbox = Arc::new(DashMap::new());
@@ -211,7 +211,7 @@ where
 			inner_low: sender_low,
 			notify: Arc::new(tokio::sync::Notify::new()),
 			outbox: Arc::new(DashMap::new()),
-			outbox_ttl,
+			outbox_time_to_live,
 			responses: Arc::new(DashMap::new()),
 			sequence: Arc::new(AtomicU64::new(0)),
 		};
@@ -231,7 +231,7 @@ where
 		});
 		Self {
 			inbox,
-			inbox_ttl,
+			inbox_time_to_live,
 			inner: stream,
 			send_tasks,
 			sender,
@@ -316,9 +316,9 @@ where
 					if self.sender.acknowledge(id) && self.inbox.contains_key(id) {
 						let id = id.to_owned();
 						let inbox = self.inbox.clone();
-						let ttl = self.inbox_ttl;
+						let time_to_live = self.inbox_time_to_live;
 						tokio::spawn(async move {
-							tokio::time::sleep(ttl).await;
+							tokio::time::sleep(time_to_live).await;
 							inbox.remove(&id);
 						});
 					}
@@ -429,14 +429,14 @@ where
 			};
 			let previous = self.outbox.insert(id.clone(), entry);
 			if previous.is_none()
-				&& let Some(ttl) = self.outbox_ttl
+				&& let Some(time_to_live) = self.outbox_time_to_live
 			{
 				let id = id.clone();
 				let inbox = self.inbox.clone();
 				let notify = self.notify.clone();
 				let outbox = self.outbox.clone();
 				tokio::spawn(async move {
-					tokio::time::sleep(ttl).await;
+					tokio::time::sleep(time_to_live).await;
 					if outbox.remove(&id).is_some() {
 						inbox.remove(&id);
 						if outbox.is_empty() {
@@ -545,7 +545,7 @@ impl<I, O> Clone for Sender<I, O> {
 			inner_low: self.inner_low.clone(),
 			notify: self.notify.clone(),
 			outbox: self.outbox.clone(),
-			outbox_ttl: self.outbox_ttl,
+			outbox_time_to_live: self.outbox_time_to_live,
 			responses: self.responses.clone(),
 			sequence: self.sequence.clone(),
 		}

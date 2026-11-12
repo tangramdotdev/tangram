@@ -1427,7 +1427,7 @@ impl Tree {
 			recursive: false,
 			reverse: false,
 			tags: true,
-			ttl: tg::remote::cache::Ttl::default(),
+			time_to_live: tg::remote::cache::TimeToLive::default(),
 			users: false,
 		};
 		let output = client
@@ -2769,8 +2769,8 @@ impl Tree {
 								let arg = tg::tag::get::Arg {
 									cached: false,
 									location: tag.location.clone().map(Into::into),
+									time_to_live: tg::remote::cache::TimeToLive::default(),
 									tokens: tag.tokens.clone(),
-									ttl: tg::remote::cache::Ttl::default(),
 								};
 								client
 									.try_get_tag(&tg::tag::Selector::Id(tag.id), arg)

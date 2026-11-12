@@ -18,11 +18,11 @@ let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	roles: [api indexer runner scheduler],
 	scheduler: { runner_ttl: 300 },
 	usage: {
-		day_time_to_live: 2678400,
-		delta_time_to_live: 3600,
-		hour_time_to_live: 86400,
-		month_time_to_live: 2678400,
-		week_time_to_live: 604800,
+		day_ttl: 2678400,
+		delta_ttl: 3600,
+		hour_ttl: 86400,
+		month_ttl: 2678400,
+		week_ttl: 604800,
 	},
 }
 let alice = tg login --verbose --name alice | from json
@@ -35,7 +35,7 @@ set_time $local '2026-01-01T23:59:59Z'
 tg --token $alice.token clean
 assert equal (usage $alice.token --hour 2026-01-01T00:00:00Z).object_count 2
 
-# After the day is aggregated and the hourly TTL elapses, expiration can remove the first hour.
+# After the day is aggregated and the hourly ttl elapses, expiration can remove the first hour.
 set_time $local '2026-01-02T01:00:00Z'
 tg --token $alice.token clean
 unavailable $alice.token --hour 2026-01-01T00:00:00Z

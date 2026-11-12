@@ -6,9 +6,9 @@ let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
-	object: { permission_time_to_live: 60 }
+	object: { permission_ttl: 60 }
 	scheduler: { runner_ttl: 300 }
-	sync: { permission_time_to_live: 60 }
+	sync: { permission_ttl: 60 }
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let bob = tg --url $remote.url login --verbose --name bob | from json

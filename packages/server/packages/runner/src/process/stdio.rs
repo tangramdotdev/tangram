@@ -221,8 +221,8 @@ impl Component {
 			stdout_position: 0,
 			streams,
 		};
-		let drained_ttl = session.server.config.runner.stdio_drained_ttl;
-		Self::run_process_stdio_pipe_task(pipe, receiver, drained_ttl)
+		let drained_time_to_live = session.server.config.runner.stdio_drained_time_to_live;
+		Self::run_process_stdio_pipe_task(pipe, receiver, drained_time_to_live)
 			.boxed()
 			.await?;
 
@@ -232,7 +232,7 @@ impl Component {
 	async fn run_process_stdio_pipe_task(
 		mut pipe: Pipe,
 		mut receiver: tokio::sync::mpsc::Receiver<Message>,
-		drained_ttl: std::time::Duration,
+		drained_time_to_live: std::time::Duration,
 	) -> tg::Result<()> {
 		let mut reads = Vec::<Read>::new();
 		let mut drained = BTreeSet::new();
@@ -303,7 +303,7 @@ impl Component {
 			if !finished {
 				drained_deadline = None;
 			} else if drained_deadline.is_none() {
-				drained_deadline = Some(tokio::time::Instant::now() + drained_ttl);
+				drained_deadline = Some(tokio::time::Instant::now() + drained_time_to_live);
 			}
 
 			// Wait for input, a new read, a deadline, or room in a sink.

@@ -31,7 +31,7 @@ async fn request_arg_preserves_list_and_node_options() {
 			"reverse": true,
 			"tags": false,
 			"tokens": tokens,
-			"ttl": "infinite",
+			"time_to_live": "infinite",
 			"users": false,
 		});
 		let mut request = http::Request::builder()
@@ -53,7 +53,7 @@ async fn request_arg_preserves_list_and_node_options() {
 		assert!(arg.recursive);
 		assert!(arg.reverse);
 		assert!(!arg.tags);
-		assert_eq!(arg.ttl, tg::remote::cache::Ttl::Infinite);
+		assert_eq!(arg.time_to_live, tg::remote::cache::TimeToLive::Infinite);
 		assert!(!arg.users);
 		assert_eq!(options.name.as_deref(), Some(name.as_str()));
 		assert_eq!(options.path, Some("child".into()));

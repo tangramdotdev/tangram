@@ -203,6 +203,21 @@ pub struct Debug {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Sandbox {
+	#[command(flatten)]
+	pub arg: tangram_cli_sandbox::Options,
+	#[arg(
+		default_missing_value = "true",
+		id = "spawn.sandbox.disabled",
+		long = "no-sandbox",
+		num_args = 0..=1,
+		overrides_with = "spawn.sandbox.value",
+		require_equals = true,
+	)]
+	disabled: Option<bool>,
+	#[command(flatten)]
+	pub time_to_live: TimeToLive,
+	#[command(flatten)]
+	pub time_to_stop: TimeToStop,
 	/// Whether to sandbox the process, or an existing sandbox to use.
 	#[arg(
 		default_missing_value = "true",
@@ -213,25 +228,6 @@ pub struct Sandbox {
 		require_equals = true,
 	)]
 	value: Option<tg::Either<bool, tg::Referent<tg::sandbox::Id>>>,
-
-	#[arg(
-		default_missing_value = "true",
-		id = "spawn.sandbox.disabled",
-		long = "no-sandbox",
-		num_args = 0..=1,
-		overrides_with = "spawn.sandbox.value",
-		require_equals = true,
-	)]
-	disabled: Option<bool>,
-
-	#[command(flatten)]
-	pub arg: tangram_cli_sandbox::Options,
-
-	#[command(flatten)]
-	pub time_to_live: TimeToLive,
-
-	#[command(flatten)]
-	pub time_to_stop: TimeToStop,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]

@@ -301,14 +301,14 @@ impl Server {
 						read: tangram_database_postgres::PoolOptions {
 							max: options.read.pool.max.unwrap_or(parallelism),
 							min: options.read.pool.min.unwrap_or(0),
-							ttl: options.read.pool.ttl,
+							time_to_live: options.read.pool.time_to_live,
 							url: options.read.url.clone(),
 						},
 						retry: options.retry.clone().into(),
 						write: tangram_database_postgres::PoolOptions {
 							max: options.write.pool.max.unwrap_or(parallelism),
 							min: options.write.pool.min.unwrap_or(0),
-							ttl: options.write.pool.ttl,
+							time_to_live: options.write.pool.time_to_live,
 							url: options.write.url.clone(),
 						},
 					};
@@ -335,7 +335,7 @@ impl Server {
 						min: config.pool.min.unwrap_or(0),
 						path: path.join(&config.path),
 						retry: config.retry.clone().into(),
-						ttl: config.pool.ttl,
+						time_to_live: config.pool.time_to_live,
 					};
 					let database = tangram_database_sqlite::Database::new(options)
 						.await
@@ -364,7 +364,7 @@ impl Server {
 						min: config.pool.min.unwrap_or(0),
 						path: path.join(&config.path),
 						retry: config.retry.clone().into(),
-						ttl: config.pool.ttl,
+						time_to_live: config.pool.time_to_live,
 					};
 					let database = tangram_database_turso::Database::new(options)
 						.await

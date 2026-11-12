@@ -5,10 +5,10 @@ use ../../util/test.nu *
 let root_token = random chars
 let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
-	indexer: { permission_capture: { delegation_time_to_live: 60 } }
-	object: { permission_time_to_live: 60 }
+	indexer: { permission_capture: { delegation_ttl: 60 } }
+	object: { permission_ttl: 60 }
 	scheduler: { runner_ttl: 300 }
-	sync: { permission_time_to_live: 60 }
+	sync: { permission_ttl: 60 }
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

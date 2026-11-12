@@ -205,7 +205,7 @@ impl Cache {
 		let entries = (config.capacity != 0).then(|| {
 			moka::future::Cache::builder()
 				.max_capacity(config.capacity)
-				.time_to_live(config.ttl)
+				.time_to_live(config.time_to_live)
 				.support_invalidation_closures()
 				.build()
 		});

@@ -65,8 +65,8 @@ impl Component {
 			query: tangram_server_core::list::remote::Query::Match(arg.clone()),
 			reverse: arg.reverse,
 			scope,
+			time_to_live: arg.time_to_live,
 			tokens: &arg.tokens,
-			ttl: arg.ttl,
 		};
 		let page = session
 			.server

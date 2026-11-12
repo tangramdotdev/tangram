@@ -14,7 +14,7 @@ use {
 };
 
 impl Component {
-	/// Stop or destroy the sandboxes that the index records as running on a runner other than this server's, because a single server's restart loses the runners' registrations, so that their heartbeats can no longer expire. Apply the same rule as heartbeat expiration: destroy a sandbox whose time to live is zero, and stop the others.
+	/// Stop or destroy the sandboxes that the index records as running on a runner other than this server's, because a single server's restart loses the runners' registrations, so that their heartbeats can no longer expire. Apply the same rule as heartbeat expiration: destroy a sandbox whose ttl is zero, and stop the others.
 	pub(crate) async fn expire_unfinished_sandboxes(&self, server: &Server) -> tg::Result<()> {
 		let local_runner = server.components.runner.local_runner_id(server);
 		let limit = 1024;

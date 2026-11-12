@@ -534,7 +534,7 @@ impl Component {
 			server,
 			&indexer.id,
 			config.request.channel_capacity,
-			config.request.response_ttl,
+			config.request.response_time_to_live,
 		)
 		.await?;
 		let request_task = tangram_futures::task::Shared::spawn({

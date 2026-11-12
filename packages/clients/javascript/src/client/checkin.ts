@@ -49,9 +49,10 @@ export namespace Checkin {
 			) {
 				options.source_dependencies = arg.options.localDependencies;
 			}
-			if (arg.options.ttl !== undefined) {
-				options.tag_ttl =
-					arg.options.ttl === null ? "infinite" : `${arg.options.ttl}s`;
+			let { timeToLive } = tg.Sandbox.Arg.normalizeTimeToLive(arg.options);
+			if (timeToLive !== undefined) {
+				options.tag_time_to_live =
+					timeToLive === null ? "infinite" : `${timeToLive}s`;
 			}
 			if (arg.options.unsolvedDependencies) {
 				options.unsolved_dependencies = arg.options.unsolvedDependencies;
@@ -85,6 +86,7 @@ export namespace Checkin {
 		locked?: boolean;
 		solve?: boolean;
 		unsolvedDependencies?: boolean;
+		timeToLive?: number | null;
 		ttl?: number | null;
 		watch?: boolean;
 	};

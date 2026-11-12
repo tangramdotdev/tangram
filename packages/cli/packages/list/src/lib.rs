@@ -42,7 +42,7 @@ pub struct Args {
 	pub reverse: bool,
 
 	#[command(flatten)]
-	pub ttl: Ttl,
+	pub time_to_live: TimeToLive,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -117,16 +117,17 @@ pub struct Entries {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct Ttl {
+pub struct TimeToLive {
 	#[arg(
-		id = "list.ttl.no_ttl",
-		long = "no-ttl",
-		overrides_with = "list.ttl.ttl"
+		alias = "no-ttl",
+		id = "list.time_to_live.no_time_to_live",
+		long = "no-time-to-live",
+		overrides_with = "list.time_to_live.time_to_live"
 	)]
-	pub no_ttl: bool,
+	pub no_time_to_live: bool,
 
-	#[arg(id = "list.ttl.ttl", long = "ttl", overrides_with = "list.ttl.no_ttl", value_parser = humantime::parse_duration)]
-	pub ttl: Option<Duration>,
+	#[arg(alias = "ttl", id = "list.time_to_live.time_to_live", long = "time-to-live", overrides_with = "list.time_to_live.no_time_to_live", value_parser = humantime::parse_duration)]
+	pub time_to_live: Option<Duration>,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -135,7 +136,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		let reference = args.locations.apply_to_reference(reference);
 		let arg = tg::get::Arg {
 			cached: args.cached,
-			ttl: args.ttl.get(),
+			time_to_live: args.time_to_live.get(),
 			..tg::get::Arg::default()
 		};
 		let output = tangram_cli_reference::get_with_arg(cli, &reference, arg).await?;
@@ -166,7 +167,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		recursive: args.recursive,
 		reverse: args.reverse,
 		tags: args.entries.tags(),
-		ttl: args.ttl.get(),
+		time_to_live: args.time_to_live.get(),
 		users: args.entries.users(),
 	};
 	let output = if args.all {
@@ -224,14 +225,14 @@ impl Entries {
 	}
 }
 
-impl Ttl {
+impl TimeToLive {
 	#[must_use]
-	pub fn get(&self) -> tg::remote::cache::Ttl {
-		if self.no_ttl {
-			tg::remote::cache::Ttl::Infinite
+	pub fn get(&self) -> tg::remote::cache::TimeToLive {
+		if self.no_time_to_live {
+			tg::remote::cache::TimeToLive::Infinite
 		} else {
-			self.ttl
-				.map(tg::remote::cache::Ttl::Duration)
+			self.time_to_live
+				.map(tg::remote::cache::TimeToLive::Duration)
 				.unwrap_or_default()
 		}
 	}

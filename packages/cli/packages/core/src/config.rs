@@ -264,8 +264,8 @@ pub struct ArchivePool {
 	pub min: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ttl: Option<Duration>,
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
@@ -380,8 +380,8 @@ pub struct AuthenticationCache {
 	pub capacity: Option<u64>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ttl: Option<Duration>,
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -402,8 +402,8 @@ pub struct AuthenticationTokens {
 	pub secret: Option<BoolOr<TokenSecret>>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ttl: Option<Duration>,
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
 }
 
 #[serde_as]
@@ -418,8 +418,8 @@ pub struct UserAuthentication {
 	pub providers: Option<AuthenticationProviders>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ttl: Option<Duration>,
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub web_url: Option<String>,
@@ -664,8 +664,8 @@ pub struct Control {
 
 	/// How long in seconds a holder of processes or sandboxes remembers a reply after it was last used.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub reply_ttl: Option<Duration>,
+	#[serde(alias = "reply_ttl", default, skip_serializing_if = "Option::is_none")]
+	pub reply_time_to_live: Option<Duration>,
 
 	/// The retry for process, sandbox, and runner control requests.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -676,10 +676,14 @@ pub struct Control {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request_timeout: Option<Duration>,
 
-	/// The time to live in seconds of unacknowledged messages in a control stream inbox.
+	/// The ttl in seconds of unacknowledged messages in a control stream inbox.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stream_inbox_ttl: Option<Duration>,
+	#[serde(
+		alias = "stream_inbox_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub stream_inbox_time_to_live: Option<Duration>,
 
 	/// The retry for resending unacknowledged control stream messages.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -746,8 +750,8 @@ pub struct DatabasePool {
 	pub min: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ttl: Option<Duration>,
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
 }
 
 #[serde_as]
@@ -1024,8 +1028,12 @@ pub struct IndexerBillingCleanup {
 	pub poll_interval: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub webhook_ttl: Option<Duration>,
+	#[serde(
+		alias = "webhook_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub webhook_time_to_live: Option<Duration>,
 }
 
 #[serde_as]
@@ -1048,7 +1056,11 @@ pub struct IndexerPermissionCapture {
 	pub concurrency: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(
+		alias = "delegation_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
 	pub delegation_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -1118,8 +1130,12 @@ pub struct IndexerRequest {
 	pub poll_interval: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub response_ttl: Option<Duration>,
+	#[serde(
+		alias = "response_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub response_time_to_live: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
@@ -1277,7 +1293,11 @@ pub struct Object {
 	pub index_queue: Option<IndexQueue>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(
+		alias = "permission_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
 	pub permission_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -1500,12 +1520,12 @@ pub struct ScyllaCachePrometheusCapacity {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub available_query: Option<String>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub total_query: Option<String>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ttl: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Uri>,
@@ -1578,11 +1598,15 @@ pub struct Process {
 	pub log_cache_partition_total: Option<u64>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(alias = "log_ttl", default, skip_serializing_if = "Option::is_none")]
 	pub log_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(
+		alias = "permission_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
 	pub permission_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -1834,7 +1858,7 @@ pub struct ServerClient {
 #[serde(deny_unknown_fields)]
 pub struct RemoteCache {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_live: Option<Duration>,
 }
 
@@ -1886,8 +1910,12 @@ pub struct Runner {
 	pub process_control_channel_capacity: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub process_state_ttl: Option<Duration>,
+	#[serde(
+		alias = "process_state_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub process_state_time_to_live: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub progress_channel_capacity: Option<usize>,
@@ -1926,16 +1954,24 @@ pub struct Runner {
 	pub sandbox_pool_size: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub sandbox_state_ttl: Option<Duration>,
+	#[serde(
+		alias = "sandbox_state_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub sandbox_state_time_to_live: Option<Duration>,
 
 	/// The number of sandboxes that the runner runs at once, which defaults to its number of hardware threads.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sandboxes: Option<u64>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub scheduler_ttl: Option<Duration>,
+	#[serde(
+		alias = "scheduler_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub scheduler_time_to_live: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdio_buffer_chunks: Option<usize>,
@@ -1948,8 +1984,12 @@ pub struct Runner {
 	pub stdio_drain_timeout: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdio_drained_ttl: Option<Duration>,
+	#[serde(
+		alias = "stdio_drained_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub stdio_drained_time_to_live: Option<Duration>,
 
 	/// The interval at which the runner reports its stopped sandboxes and destroys its expired stopped sandboxes.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -2163,8 +2203,8 @@ pub struct Scheduler {
 	pub restart_delay: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub runner_ttl: Option<Duration>,
+	#[serde(alias = "runner_ttl", default, skip_serializing_if = "Option::is_none")]
+	pub runner_time_to_live: Option<Duration>,
 
 	/// How long a request that no runner could fit stays queued before it fails, where zero rejects the request and null waits indefinitely.
 	#[serde(
@@ -2195,8 +2235,12 @@ pub struct SchedulerRequest {
 	pub concurrency: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub response_ttl: Option<Duration>,
+	#[serde(
+		alias = "response_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub response_time_to_live: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
@@ -2248,7 +2292,11 @@ pub struct Sandbox {
 	pub nice: Option<u8>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(
+		alias = "process_permission_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
 	pub process_permission_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -2380,7 +2428,11 @@ pub struct SyncOptions {
 	pub metadata_poll_interval: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(
+		alias = "permission_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
 	pub permission_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -2409,8 +2461,12 @@ pub struct SyncOptions {
 #[serde(deny_unknown_fields)]
 pub struct Service {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub attempt_ttl: Option<Duration>,
+	#[serde(
+		alias = "attempt_ttl",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub attempt_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2855,8 +2911,8 @@ pub struct Watch {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub channel_capacity: Option<usize>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ttl: Option<Duration>,
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
 }
 
 #[serde_as]
@@ -2864,23 +2920,23 @@ pub struct Watch {
 #[serde(deny_unknown_fields)]
 pub struct Usage {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(alias = "day_ttl", default, skip_serializing_if = "Option::is_none")]
 	pub day_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(alias = "delta_ttl", default, skip_serializing_if = "Option::is_none")]
 	pub delta_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(alias = "hour_ttl", default, skip_serializing_if = "Option::is_none")]
 	pub hour_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(alias = "month_ttl", default, skip_serializing_if = "Option::is_none")]
 	pub month_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(alias = "week_ttl", default, skip_serializing_if = "Option::is_none")]
 	pub week_time_to_live: Option<Duration>,
 }
 
@@ -3015,8 +3071,8 @@ pub struct ClientProcessControl {
 
 	/// The time to remember an acknowledged incoming request, so that a redelivered request is acknowledged without being delivered again.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub inbox_ttl: Option<Duration>,
+	#[serde(alias = "inbox_ttl", default, skip_serializing_if = "Option::is_none")]
+	pub inbox_time_to_live: Option<Duration>,
 
 	/// The maximum number of buffered events awaiting delivery.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3050,7 +3106,7 @@ pub struct ClientProgress {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClientSandbox {
-	/// The default time to live for a created sandbox.
+	/// The default ttl for a created sandbox.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_live: Option<Duration>,
@@ -3093,10 +3149,10 @@ pub struct Pool {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub shared: Option<usize>,
 
-	/// The time to live for a connection.
+	/// The ttl for a connection.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ttl: Option<Duration>,
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -3319,8 +3375,8 @@ pub(crate) fn resolve_client_pool(source: &Pool) -> tangram_pool::Options {
 	if let Some(value) = source.shared {
 		target.shared = value;
 	}
-	if let Some(value) = source.ttl {
-		target.ttl = Some(value);
+	if let Some(value) = source.time_to_live {
+		target.time_to_live = Some(value);
 	}
 	target
 }
@@ -3775,5 +3831,43 @@ mod tests {
 		let error = resolve_client_http(source).unwrap_err();
 
 		assert_eq!(error.to_string(), "invalid client HTTP/2 configuration");
+	}
+
+	#[test]
+	fn time_to_live_aliases_serialize_with_canonical_names() {
+		for (name, runner_name, permission_name) in [
+			(
+				"time_to_live",
+				"runner_time_to_live",
+				"process_permission_time_to_live",
+			),
+			("ttl", "runner_ttl", "process_permission_ttl"),
+		] {
+			let value = serde_json::json!({
+				"sandbox": {name: 1.5, permission_name: 2},
+				"scheduler": {runner_name: 30},
+				"watch": {name: {"secs": 5, "nanos": 0}},
+			});
+			let config: Config = serde_json::from_value(value).unwrap();
+			let value = serde_json::to_value(config).unwrap();
+			assert_eq!(
+				value,
+				serde_json::json!({
+					"sandbox": {"time_to_live": 1.5, "process_permission_time_to_live": 2.0},
+					"scheduler": {"runner_time_to_live": 30.0},
+					"watch": {"time_to_live": {"secs": 5, "nanos": 0}},
+				})
+			);
+		}
+	}
+
+	#[test]
+	fn rejects_duplicate_time_to_live_aliases() {
+		for value in [
+			serde_json::json!({"sandbox": {"time_to_live": 1, "ttl": 2}}),
+			serde_json::json!({"scheduler": {"runner_time_to_live": 1, "runner_ttl": 2}}),
+		] {
+			assert!(serde_json::from_value::<Config>(value).is_err());
+		}
 	}
 }

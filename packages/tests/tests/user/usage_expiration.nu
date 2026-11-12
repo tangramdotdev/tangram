@@ -19,11 +19,11 @@ let local = server spawn --now '2025-12-29T00:00:00Z' --config {
 	roles: [api indexer runner scheduler],
 	scheduler: { runner_ttl: 300 },
 	usage: {
-		day_time_to_live: 2678400,
-		delta_time_to_live: 3600,
-		hour_time_to_live: 86400,
-		month_time_to_live: 5184000,
-		week_time_to_live: 3456000,
+		day_ttl: 2678400,
+		delta_ttl: 3600,
+		hour_ttl: 86400,
+		month_ttl: 5184000,
+		week_ttl: 3456000,
 	},
 }
 set_time $local '2026-01-01T00:00:00Z'
@@ -58,7 +58,7 @@ tg --token $alice.token clean
 assert equal (usage $alice.token --hour 2026-01-01T01:00:00Z) $alice_hour_1
 assert equal (usage $bob.token --hour 2026-01-01T01:00:00Z) $bob_hour_1
 
-# An hourly aggregate expires at the exact TTL boundary, while the next hour remains available.
+# An hourly aggregate expires at the exact ttl boundary, while the next hour remains available.
 set_time $local '2026-01-02T01:00:00Z'
 tg --token $alice.token clean
 unavailable $alice.token --hour 2026-01-01T00:00:00Z

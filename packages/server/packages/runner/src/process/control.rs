@@ -302,11 +302,11 @@ impl Component {
 
 			Ok::<_, tg::Error>(())
 		};
-		let retention_ttl = session.server.config.runner.process_state_ttl;
+		let retention_time_to_live = session.server.config.runner.process_state_time_to_live;
 		tokio::select! {
 			result = stdio_task => result?,
 			() = retention_stopper.wait() => {},
-			() = session.server.clock.sleep(retention_ttl) => {},
+			() = session.server.clock.sleep(retention_time_to_live) => {},
 		}
 
 		tangram_server_core::checkpoint!(

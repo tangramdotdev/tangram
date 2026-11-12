@@ -310,10 +310,11 @@ impl Component {
 		principal: token::Principal,
 	) -> tg::Result<String> {
 		let now = server.clock.unix_timestamp();
-		let ttl = i64::try_from(server.config.authentication.tokens.ttl.as_secs())
-			.map_err(|_| tg::error!("invalid authentication token ttl"))?;
+		let time_to_live =
+			i64::try_from(server.config.authentication.tokens.time_to_live.as_secs())
+				.map_err(|_| tg::error!("invalid authentication token ttl"))?;
 		let expires_at = now
-			.checked_add(ttl)
+			.checked_add(time_to_live)
 			.ok_or_else(|| tg::error!("invalid authentication token expiration"))?;
 		let secret = server
 			.authentication_tokens

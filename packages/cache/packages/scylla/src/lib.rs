@@ -26,8 +26,8 @@ pub struct Config {
 #[derive(Clone, Debug)]
 pub struct CapacityConfig {
 	pub available_query: String,
+	pub time_to_live: std::time::Duration,
 	pub total_query: String,
-	pub ttl: std::time::Duration,
 	pub url: String,
 }
 

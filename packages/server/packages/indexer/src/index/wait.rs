@@ -139,12 +139,15 @@ impl Component {
 		// Send the wait with one request ID until the indexer answers, so that a resend does not replace an active wait with a later barrier.
 		let config = &server.config.indexer.request;
 		let retry = config.retry.clone().into();
-		let output =
-			tangram_server_core::service::retry_to(&retry, config.response_ttl, |id| async move {
+		let output = tangram_server_core::service::retry_to(
+			&retry,
+			config.response_time_to_live,
+			|id| async move {
 				self.send_indexer_request(server, indexer, &id, crate::request::RequestArg::Wait)
 					.await
-			})
-			.await?;
+			},
+		)
+		.await?;
 		output
 			.map_err(|source| tg::error!(!source, %indexer, "the indexer failed to wait"))?
 			.try_unwrap_wait()

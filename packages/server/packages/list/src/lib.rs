@@ -105,8 +105,8 @@ impl Component {
 			query: tangram_server_core::list::remote::Query::List(arg.clone()),
 			reverse: arg.reverse,
 			scope,
+			time_to_live: arg.time_to_live,
 			tokens: &tokens,
-			ttl: arg.ttl,
 		};
 		let page = self.list_page(session, page_arg).await?;
 
@@ -151,7 +151,7 @@ impl Component {
 				let query = query.clone();
 				async move {
 					let name = remote.name.clone();
-					self.list_remote(session, remote, arg.cached, arg.ttl, query)
+					self.list_remote(session, remote, arg.cached, arg.time_to_live, query)
 						.await
 						.map_err(
 							|error| tg::error!(!error, remote = %name, "failed to query the remote items"),

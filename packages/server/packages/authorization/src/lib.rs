@@ -771,7 +771,7 @@ impl Component {
 					.delegation_time_to_live
 					.as_secs(),
 			)
-			.map_err(|error| tg::error!(!error, "failed to convert the delegation time to live"))?;
+			.map_err(|error| tg::error!(!error, "failed to convert the delegation ttl"))?;
 			let expires_at = created_at
 				.checked_add(time_to_live)
 				.ok_or_else(|| tg::error!("the delegation expiration overflowed"))?;

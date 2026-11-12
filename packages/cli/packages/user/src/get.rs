@@ -15,7 +15,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 
 	#[command(flatten)]
-	pub ttl: tangram_cli_reference::Ttl,
+	pub time_to_live: tangram_cli_reference::TimeToLive,
 
 	#[arg(index = 1)]
 	pub user: tg::Referent<tg::user::Selector>,
@@ -26,8 +26,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let arg = tg::user::get::Arg {
 		cached: args.cached,
 		location: args.location.get_for_options(&args.user),
+		time_to_live: args.time_to_live.get(),
 		tokens: args.user.options.tokens,
-		ttl: args.ttl.get(),
 	};
 	let user = client
 		.try_get_user(&args.user.node, arg)

@@ -470,7 +470,9 @@ where
 					}
 				},
 			}
-			if closed_at.is_some_and(|time| Instant::now() >= time + self.options.attempt_ttl) {
+			if closed_at
+				.is_some_and(|time| Instant::now() >= time + self.options.attempt_time_to_live)
+			{
 				break;
 			}
 		}
@@ -482,7 +484,7 @@ where
 		let options = self.options;
 		self.state
 			.heartbeats
-			.retain(|_, heartbeat| now < heartbeat.sent_at + options.attempt_ttl);
+			.retain(|_, heartbeat| now < heartbeat.sent_at + options.attempt_time_to_live);
 		if !open {
 			return false;
 		}
@@ -571,15 +573,20 @@ where
 
 	async fn message(&mut self, message: Message) {
 		match message {
-			Message::HeartbeatResponse { attempt, id, ttl } => {
+			Message::HeartbeatResponse {
+				attempt,
+				id,
+				time_to_live,
+			} => {
 				if let Some(heartbeat) = self.state.heartbeats.remove(&id) {
 					let now = Instant::now();
 					if self
 						.state
 						.last_heartbeat
 						.is_none_or(|time| heartbeat.sent_at >= time)
-						&& let Some(deadline) = heartbeat.sent_at.checked_add(ttl)
-						&& now < deadline && now < heartbeat.sent_at + self.options.attempt_ttl
+						&& let Some(deadline) = heartbeat.sent_at.checked_add(time_to_live)
+						&& now < deadline && now
+						< heartbeat.sent_at + self.options.attempt_time_to_live
 					{
 						let changed = self
 							.state
@@ -608,7 +615,11 @@ where
 				self.publish(server_subject(&self.state.subject), message)
 					.await;
 			},
-			Message::RequestAck { attempt, id, ttl } => {
+			Message::RequestAck {
+				attempt,
+				id,
+				time_to_live,
+			} => {
 				let Some(request) = self.state.requests.get(&id) else {
 					return;
 				};
@@ -620,8 +631,9 @@ where
 					Some(current) if current.id == attempt => (),
 					None if sent_without_attempt => {
 						let now = Instant::now();
-						let Some(deadline) =
-							sent_at.checked_add(ttl).filter(|deadline| now < *deadline)
+						let Some(deadline) = sent_at
+							.checked_add(time_to_live)
+							.filter(|deadline| now < *deadline)
 						else {
 							return;
 						};

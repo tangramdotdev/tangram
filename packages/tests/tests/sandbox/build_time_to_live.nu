@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A build's sandbox with a ttl accepts runs after the build finishes, and it is destroyed once it is idle for the ttl.
+# A build's sandbox accepts runs after the build finishes and is destroyed after its idle ttl expires.
 
 let server = server spawn --now '2026-01-01T00:00:00Z' --config { scheduler: { runner_ttl: 300 } }
 
@@ -25,7 +25,7 @@ let path = artifact {
 let write = tg build $'($path)#write' | str trim
 let read = tg build $'($path)#read' | str trim
 
-# Build with a ttl, then run in the build's sandbox.
+# Set the ttl, then run in the build's sandbox.
 let process = tg build --no-tokens --detach --ttl 1min $write | referent node
 success (tg process wait $process | complete) "the build should succeed"
 let sandbox = tg get $process | from json | get sandbox
@@ -33,7 +33,7 @@ let output = tg run $'--sandbox=($sandbox)' $read | complete
 success $output "the run in the build's sandbox should succeed"
 assert ($output.stdout | str contains "hello") "the run should see the build's file"
 
-# Advance past the ttl, and the sandbox is destroyed.
+# Advance past the ttl so that the sandbox is destroyed.
 advance_time $server 2min
-success (timeout 10s tg sandbox wait $sandbox | complete) "the sandbox should be destroyed after the ttl"
+success (timeout 10s tg sandbox wait $sandbox | complete) "the sandbox should be destroyed after its ttl expires"
 assert equal (tg sandbox get $sandbox | from json | get data.status) destroyed

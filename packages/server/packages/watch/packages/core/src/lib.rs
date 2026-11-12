@@ -36,7 +36,7 @@ pub struct Watch {
 	#[expect(dead_code)]
 	task: Task<()>,
 
-	ttl: Duration,
+	time_to_live: Duration,
 }
 
 pub struct NewArg<F> {
@@ -293,8 +293,8 @@ impl Watch {
 		});
 
 		// Spawn the timeout task.
-		let ttl = config.ttl;
-		let timeout = Self::spawn_timeout_task(&clock, ttl, &expire);
+		let time_to_live = config.time_to_live;
+		let timeout = Self::spawn_timeout_task(&clock, time_to_live, &expire);
 		state.lock().unwrap().timeout_task.replace(timeout);
 
 		Self {
@@ -304,7 +304,7 @@ impl Watch {
 			options,
 			state,
 			task,
-			ttl,
+			time_to_live,
 		}
 	}
 
@@ -474,7 +474,7 @@ impl Watch {
 		// Reset the timeout task.
 		state.timeout_task.replace(Self::spawn_timeout_task(
 			&self.clock,
-			self.ttl,
+			self.time_to_live,
 			&self.expire,
 		));
 
@@ -514,13 +514,13 @@ impl Watch {
 		changes
 	}
 
-	fn spawn_timeout_task(clock: &Clock, ttl: Duration, expire: &Expire) -> Task<()> {
+	fn spawn_timeout_task(clock: &Clock, time_to_live: Duration, expire: &Expire) -> Task<()> {
 		Task::spawn({
 			let clock = clock.clone();
 			let expire = expire.clone();
 			async move |_stop| {
-				// Wait for the TTL to expire.
-				clock.sleep(ttl).await;
+				// Wait for the ttl to expire.
+				clock.sleep(time_to_live).await;
 
 				// Expire the watch.
 				expire().await;

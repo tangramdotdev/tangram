@@ -124,8 +124,8 @@ impl Component {
 
 		// Get the expiration time.
 		let now = session.server.clock.unix_timestamp();
-		let ttl = authentication.ttl.as_secs();
-		let expires_at = now + i64::try_from(ttl).unwrap_or(i64::MAX);
+		let time_to_live = authentication.time_to_live.as_secs();
+		let expires_at = now + i64::try_from(time_to_live).unwrap_or(i64::MAX);
 
 		// Get the specifier.
 		let name = arg
@@ -239,8 +239,8 @@ impl Component {
 
 		// Get the expiration time.
 		let now = session.server.clock.unix_timestamp();
-		let ttl = authentication.ttl.as_secs();
-		let expires_at = now + i64::try_from(ttl).unwrap_or(i64::MAX);
+		let time_to_live = authentication.time_to_live.as_secs();
+		let expires_at = now + i64::try_from(time_to_live).unwrap_or(i64::MAX);
 		let interval = i64::try_from(authentication.interval.as_secs()).unwrap_or(i64::MAX);
 
 		// Create the login.

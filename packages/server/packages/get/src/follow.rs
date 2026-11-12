@@ -23,8 +23,8 @@ struct TryGetRemoteTagTargetArg {
 	remote: tg::location::Remote,
 	specifier: tg::Specifier,
 	target: tg::Either<tg::object::Id, tg::process::Id>,
+	time_to_live: tg::remote::cache::TimeToLive,
 	tokens: tg::authorization::Tokens,
-	ttl: tg::remote::cache::Ttl,
 }
 
 impl Component {
@@ -65,7 +65,7 @@ impl Component {
 				options.location.as_ref(),
 				&options.tokens,
 				arg.cached,
-				arg.ttl,
+				arg.time_to_live,
 			)
 			.await?;
 		let Some(output) = output else {
@@ -140,7 +140,7 @@ impl Component {
 			tokens,
 		};
 		let output = self
-			.try_get_named_node_target(session, node, arg.cached, arg.ttl)
+			.try_get_named_node_target(session, node, arg.cached, arg.time_to_live)
 			.await?;
 		let output = match output {
 			None => None,
@@ -177,7 +177,7 @@ impl Component {
 			cached: arg.cached,
 			checkin: arg.checkin.clone(),
 			options,
-			ttl: arg.ttl,
+			time_to_live: arg.time_to_live,
 		};
 		let client = session
 			.get_region_session(region)
@@ -258,7 +258,7 @@ impl Component {
 			.server
 			.components
 			.remote
-			.try_get_cached_remote_response(session, &remote.name, &request, arg.ttl)
+			.try_get_cached_remote_response(session, &remote.name, &request, arg.time_to_live)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
@@ -343,13 +343,19 @@ impl Component {
 		arg: &tg::get::Arg,
 	) -> tg::Result<Option<tg::get::Output>> {
 		let node = self
-			.try_get_named_node_for_pattern(session, specifier, options, arg.cached, arg.ttl)
+			.try_get_named_node_for_pattern(
+				session,
+				specifier,
+				options,
+				arg.cached,
+				arg.time_to_live,
+			)
 			.await?;
 		let Some(node) = node else {
 			return Ok(None);
 		};
 		let output = if options.follow {
-			self.try_get_named_node_target(session, node, arg.cached, arg.ttl)
+			self.try_get_named_node_target(session, node, arg.cached, arg.time_to_live)
 				.await?
 		} else {
 			let options = tg::referent::Options {
@@ -377,7 +383,7 @@ impl Component {
 		pattern: &tg::specifier::Pattern,
 		options: &tg::reference::Options,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> tg::Result<Option<NamedNode>> {
 		if !pattern.is_empty() && !pattern.contains_operators() {
 			let specifier = pattern.to_specifier();
@@ -388,7 +394,7 @@ impl Component {
 					options.location.as_ref(),
 					&options.tokens,
 					cached,
-					ttl,
+					time_to_live,
 				)
 				.await?;
 			let Some(output) = output else {
@@ -423,8 +429,8 @@ impl Component {
 						let arg = tg::tag::get::Arg {
 							cached,
 							location: options.location.clone(),
+							time_to_live,
 							tokens: options.tokens.clone(),
-							ttl,
 						};
 						session
 							.server
@@ -466,8 +472,8 @@ impl Component {
 			pattern: pattern.clone(),
 			reverse: true,
 			tags: true,
+			time_to_live,
 			tokens: options.tokens.clone(),
-			ttl,
 			users: true,
 		};
 		let output = session.match_(arg).await.map_err(
@@ -483,19 +489,22 @@ impl Component {
 		session: &Session,
 		node: NamedNode,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> tg::Result<Option<tg::get::Output>> {
 		let tag = if node.id.kind() == tg::id::Kind::Tag {
 			node
 		} else {
-			let tag = self.try_get_top_tag(session, node, cached, ttl).await?;
+			let tag = self
+				.try_get_top_tag(session, node, cached, time_to_live)
+				.await?;
 			let Some(tag) = tag else {
 				return Ok(None);
 			};
 			tag
 		};
 
-		self.try_get_tag_target(session, tag, cached, ttl).await
+		self.try_get_tag_target(session, tag, cached, time_to_live)
+			.await
 	}
 
 	async fn try_get_top_tag(
@@ -503,7 +512,7 @@ impl Component {
 		session: &Session,
 		node: NamedNode,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> tg::Result<Option<NamedNode>> {
 		let Some(location) = node.location.clone() else {
 			return Ok(None);
@@ -525,7 +534,7 @@ impl Component {
 			recursive: false,
 			reverse: true,
 			tags: true,
-			ttl,
+			time_to_live,
 			users: false,
 		};
 		let items = session.list(arg).await?.data;
@@ -547,7 +556,7 @@ impl Component {
 		session: &Session,
 		tag: NamedNode,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> tg::Result<Option<tg::get::Output>> {
 		let id = tg::tag::Id::try_from(tag.id)?;
 		let target = tag
@@ -561,7 +570,14 @@ impl Component {
 				region: Some(region),
 			})) => {
 				return self
-					.try_get_region_tag_target(session, region, specifier, tokens, cached, ttl)
+					.try_get_region_tag_target(
+						session,
+						region,
+						specifier,
+						tokens,
+						cached,
+						time_to_live,
+					)
 					.await;
 			},
 			Some(tg::Location::Remote(remote)) => {
@@ -570,8 +586,8 @@ impl Component {
 					remote: remote.clone(),
 					specifier,
 					target,
+					time_to_live,
 					tokens,
-					ttl,
 				};
 				return self.try_get_remote_tag_target(session, arg).await;
 			},
@@ -604,7 +620,7 @@ impl Component {
 		specifier: tg::Specifier,
 		tokens: tg::authorization::Tokens,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> tg::Result<Option<tg::get::Output>> {
 		let source = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -622,7 +638,7 @@ impl Component {
 		let arg = tg::get::Arg {
 			cached,
 			options,
-			ttl,
+			time_to_live,
 			..tg::get::Arg::default()
 		};
 		let client = session
@@ -667,8 +683,8 @@ impl Component {
 			remote,
 			specifier,
 			target,
+			time_to_live,
 			tokens,
-			ttl,
 		} = arg;
 
 		// Create the remote request.
@@ -713,7 +729,7 @@ impl Component {
 			.server
 			.components
 			.remote
-			.try_get_cached_remote_response(session, &remote.name, &request, ttl)
+			.try_get_cached_remote_response(session, &remote.name, &request, time_to_live)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
@@ -905,7 +921,7 @@ impl Component {
 			.unix_timestamp()
 			.checked_add(
 				i64::try_from(time_to_live.as_secs())
-					.map_err(|error| tg::error!(!error, "invalid permission time to live"))?,
+					.map_err(|error| tg::error!(!error, "invalid permission ttl"))?,
 			)
 			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
 		let expires_at = authorization
@@ -1017,7 +1033,7 @@ impl Component {
 		location: Option<&tg::location::Arg>,
 		cached: bool,
 		length: Option<u64>,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> tg::Result<tg::match_::Output> {
 		let mut pattern = pattern.clone();
 		if !pattern.is_empty() && !pattern.contains_operators() {
@@ -1029,7 +1045,7 @@ impl Component {
 					location,
 					&tg::authorization::Tokens::default(),
 					cached,
-					ttl,
+					time_to_live,
 				)
 				.await?;
 			if let Some(output) = output {
@@ -1046,8 +1062,8 @@ impl Component {
 						let arg = tg::tag::get::Arg {
 							cached,
 							location: options.location.map(Into::into),
+							time_to_live,
 							tokens: options.tokens,
-							ttl,
 						};
 						let Some(output) =
 							session.try_get_tag(&tg::tag::Selector::Id(id), arg).await?
@@ -1109,8 +1125,8 @@ impl Component {
 			pattern,
 			reverse: true,
 			tags: true,
+			time_to_live,
 			tokens: tg::authorization::Tokens::default(),
-			ttl,
 			users: false,
 		};
 		let mut output = session.match_all(arg).await.map_err(

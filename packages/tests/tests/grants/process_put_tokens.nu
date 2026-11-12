@@ -22,7 +22,7 @@ def put-process [socket: string, token: string, id: string, command: string, out
 let root = random chars
 let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	authentication: { root: { token: $root }, users: { providers: { insecure: true } } }
-	object: { permission_time_to_live: 60 }
+	object: { permission_ttl: 60 }
 	scheduler: { runner_ttl: 300 }
 }
 let alice = tg login --verbose --name alice | from json

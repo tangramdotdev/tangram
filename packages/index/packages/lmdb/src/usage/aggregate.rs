@@ -690,7 +690,7 @@ pub(crate) fn delta_cutoff(
 	delta_time_to_live: std::time::Duration,
 ) -> tg::Result<i64> {
 	let delta_time_to_live = i64::try_from(delta_time_to_live.as_secs())
-		.map_err(|_| tg::error!("the usage delta time to live is out of range"))?;
+		.map_err(|_| tg::error!("the usage delta ttl is out of range"))?;
 	let cutoff = now.as_second().saturating_sub(delta_time_to_live);
 
 	Ok(cutoff)

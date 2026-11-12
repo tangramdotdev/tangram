@@ -76,7 +76,7 @@ impl Component {
 		// Create the state.
 		let holder_replies = tangram_server_core::holder::Replies::new(
 			arg.config.control.reply_capacity,
-			arg.config.control.reply_ttl,
+			arg.config.control.reply_time_to_live,
 			arg.config.control.request_timeout,
 		);
 		let state = State {

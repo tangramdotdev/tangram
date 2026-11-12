@@ -458,7 +458,7 @@ def arg_to_data(arg):
     if arg.get("wait"):
         output["wait"] = arg["wait"]
 
-    # Copy the time to live, which `ttl` aliases.
+    # Copy the ttl, which `ttl` aliases.
     time_to_live = normalize_time_to_live(arg)
     if "time_to_live" in time_to_live:
         output["time_to_live"] = time_to_live["time_to_live"]

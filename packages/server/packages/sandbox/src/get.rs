@@ -17,16 +17,16 @@ struct TryGetSandboxRemotesArg<'a> {
 	cached: bool,
 	id: &'a tg::sandbox::Id,
 	remotes: &'a [tangram_server_core::location::Remote],
+	time_to_live: tg::remote::cache::TimeToLive,
 	tokens: &'a tg::authorization::Tokens,
-	ttl: tg::remote::cache::Ttl,
 }
 
 struct TryGetSandboxRemoteArg<'a> {
 	cached: bool,
 	id: &'a tg::sandbox::Id,
 	remote: &'a tangram_server_core::location::Remote,
+	time_to_live: tg::remote::cache::TimeToLive,
 	tokens: &'a tg::authorization::Tokens,
-	ttl: tg::remote::cache::Ttl,
 }
 
 impl Component {
@@ -115,8 +115,8 @@ impl Component {
 				cached: arg.cached,
 				id,
 				remotes: &locations.remotes,
+				time_to_live: arg.time_to_live,
 				tokens: &arg.tokens,
-				ttl: arg.ttl,
 			};
 			self.try_get_sandbox_remotes(session, remotes_arg)
 				.await
@@ -443,8 +443,8 @@ impl Component {
 			cached,
 			id,
 			remotes,
+			time_to_live,
 			tokens,
-			ttl,
 		} = arg;
 		let mut futures = remotes
 			.iter()
@@ -453,8 +453,8 @@ impl Component {
 					cached,
 					id,
 					remote,
+					time_to_live,
 					tokens,
-					ttl,
 				};
 				self.try_get_sandbox_remote(session, arg)
 			})
@@ -485,8 +485,8 @@ impl Component {
 			cached,
 			id,
 			remote,
+			time_to_live,
 			tokens,
-			ttl,
 		} = arg;
 		// Create the remote request.
 		let location = tg::Location::Remote(tg::location::Remote {
@@ -500,8 +500,8 @@ impl Component {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			time_to_live: tg::remote::cache::TimeToLive::default(),
 			tokens: tokens.for_location(&location),
-			ttl: tg::remote::cache::Ttl::default(),
 		};
 		let request = tangram_server_remote_core::cache::Request::SandboxGet(
 			tangram_server_remote_core::cache::SandboxGetRequest {
@@ -525,7 +525,7 @@ impl Component {
 			.server
 			.components
 			.remote
-			.try_get_cached_remote_response(session, &remote.name, &request, ttl)
+			.try_get_cached_remote_response(session, &remote.name, &request, time_to_live)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 			&& let Some(mut output) = response.output

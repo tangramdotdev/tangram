@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A sandbox lives until it is destroyed by default, and it is destroyed after its time to live expires, which `--ttl` also sets.
+# A sandbox lives until it is destroyed by default, and it is destroyed after its ttl expires, which `--ttl` also sets.
 
 let local = server spawn --name local --now '2026-01-01T00:00:00Z' --config { advanced: { checkpoints: true }, control: { read_timeout: 0.25 }, indexer: { cleaning: {} }, runner: { sandbox_state_ttl: 0 }, sandbox: { ttl: 0 } }
 

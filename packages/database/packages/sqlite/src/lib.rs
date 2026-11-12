@@ -35,7 +35,7 @@ pub struct DatabaseOptions {
 	pub min: usize,
 	pub path: PathBuf,
 	pub retry: tangram_futures::retry::Options,
-	pub ttl: Option<Duration>,
+	pub time_to_live: Option<Duration>,
 }
 
 pub struct Database {
@@ -139,10 +139,10 @@ struct QueryAllMessage {
 impl Database {
 	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
 		let entry = pool::Options {
-			min: 1,
 			max: 1,
+			min: 1,
 			shared: 1,
-			ttl: None,
+			time_to_live: None,
 		};
 		let write_pool = Pool::new(entry, || async {
 			Err(Error::Other("expected a pooled connection".into()))
@@ -176,10 +176,10 @@ impl Database {
 			}
 		};
 		let entry = pool::Options {
-			min: options.min,
 			max: options.max,
+			min: options.min,
 			shared: 1,
-			ttl: options.ttl,
+			time_to_live: options.time_to_live,
 		};
 		let read_pool = Pool::new(entry, create);
 		for _ in 0..options.min {

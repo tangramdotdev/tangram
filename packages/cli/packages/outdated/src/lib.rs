@@ -93,8 +93,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 				pattern: pattern.clone(),
 				reverse: true,
 				tags: true,
+				time_to_live: tg::remote::cache::TimeToLive::default(),
 				tokens: tg::authorization::Tokens::default(),
-				ttl: tg::remote::cache::Ttl::default(),
 				users: false,
 			};
 			let compatible = client
@@ -115,8 +115,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 				pattern,
 				reverse: true,
 				tags: true,
+				time_to_live: tg::remote::cache::TimeToLive::default(),
 				tokens: tg::authorization::Tokens::default(),
-				ttl: tg::remote::cache::Ttl::default(),
 				users: false,
 			};
 			let latest = client

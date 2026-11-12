@@ -202,9 +202,14 @@ impl Component {
 		};
 		let handle = self.spawn_process_control_service_task_with_state(session, state);
 
-		// Keep answering for the service's attempt time to live.
-		let ttl = session.server.config.process.control_service.attempt_ttl;
-		let sleep = session.server.clock.sleep(ttl);
+		// Keep answering for the service's attempt ttl.
+		let time_to_live = session
+			.server
+			.config
+			.process
+			.control_service
+			.attempt_time_to_live;
+		let sleep = session.server.clock.sleep(time_to_live);
 		tokio::spawn(async move {
 			sleep.await;
 			drop(handle);
