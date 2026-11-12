@@ -52,3 +52,36 @@ async fn test() {
 	}
 	assert_eq!(left, right);
 }
+
+// Matching a directory uses its parents' ignore files even after its children have been matched.
+#[tokio::test]
+async fn cached_directory() {
+	let temp = tangram_util::fs::Temp::new().unwrap();
+	std::fs::create_dir(temp.path()).unwrap();
+	let root = temp.path().join("root");
+	let artifact = Artifact::from(util::directory! {
+		".gitignore" => util::file!("/ignored"),
+		"ignored" => util::directory! {
+			"file.txt" => util::file!(""),
+		},
+		"visible" => util::directory! {
+			".gitignore" => util::file!("/visible"),
+			"file.txt" => util::file!(""),
+		},
+	});
+	artifact.to_path(&root).await.unwrap();
+	let paths = [
+		("ignored/file.txt", false),
+		("ignored", true),
+		("visible/file.txt", false),
+		("visible", false),
+	];
+	for root_path in [None, Some(root.as_path())] {
+		let file_names = vec![".gitignore".into()];
+		let mut matcher = Ignorer::new(file_names, None).unwrap();
+		for (path, expected) in paths {
+			let actual = matcher.matches(root_path, &root.join(path), None).unwrap();
+			assert_eq!(actual, expected, "{path}");
+		}
+	}
+}
