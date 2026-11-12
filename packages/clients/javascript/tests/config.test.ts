@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { Client } from "../src/client.ts";
-import { Config, Http, ProcessAttach, Retry } from "../src/config.ts";
+import { Config, Http, Pool, ProcessAttach, Retry } from "../src/config.ts";
 
 test("the default configuration is valid", () => {
 	let config = Config.defaultValue();
@@ -101,6 +101,21 @@ test("pool lifetime aliases normalize to the canonical name", () => {
 			new Client({
 				pool: { max: 1, min: 0, shared: 1, timeToLive: 1, ttl: 2 },
 			}),
+		/may not both be set/,
+	);
+});
+
+test("pool validation checks either lifetime spelling", () => {
+	for (let name of ["timeToLive", "ttl"]) {
+		for (let value of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+			assert.throws(
+				() => Pool.validate({ max: 1, min: 0, shared: 1, [name]: value }),
+				/invalid pool options/,
+			);
+		}
+	}
+	assert.throws(
+		() => Pool.validate({ max: 1, min: 0, shared: 1, timeToLive: 1, ttl: 2 }),
 		/may not both be set/,
 	);
 });

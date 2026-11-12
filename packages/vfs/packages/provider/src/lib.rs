@@ -152,20 +152,28 @@ pub struct TgDirEntryPlus {
 pub struct TgConfig {
 	/// The local cache backend: zero selects LMDB, one selects `RocksDB`, and two disables the fast path for Fjall.
 	pub cache_kind: u32,
+
 	/// The map size with which to open the cache. It must be at least the server's, so the server sends its own.
 	pub cache_map_size: u64,
+
 	/// The cache's path within the data directory, a null-terminated UTF-8 string owned by the caller. A null pointer or an empty string selects the default.
 	pub cache_path: *const c_char,
+
 	/// The prefix for the cache's POSIX lock semaphores, a null-terminated UTF-8 string owned by the caller. It must match the prefix the server opens the cache with so that the sandboxed provider and the server share the same lock. A null pointer or an empty string selects the default hash-derived names.
 	pub cache_posix_sem_prefix: *const c_char,
+
 	/// The server's data directory, a null-terminated UTF-8 string owned by the caller. The fast path reads the cache and the checkouts directory within it directly instead of sending a request to the server. A null pointer disables the fast path.
 	pub data_directory: *const c_char,
+
 	/// The interval in seconds at which expired cache-only nodes are swept.
 	pub node_eviction_interval_secs: u64,
+
 	/// The duration in seconds a cache-only node created by directory enumeration is retained after its most recent access before it becomes eligible for eviction.
 	pub node_time_to_live_secs: u64,
+
 	/// The principal the mount serves, a null-terminated UTF-8 string owned by the caller in the display form of a principal. A null pointer or an empty string leaves the mount unenforced.
 	pub principal: *const c_char,
+
 	/// The authorization tokens the mount holds, a null-terminated UTF-8 string owned by the caller containing a JSON array of authorization tokens. A null pointer or an empty string provides no tokens.
 	pub tokens: *const c_char,
 }

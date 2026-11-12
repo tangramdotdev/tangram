@@ -117,6 +117,7 @@ export namespace Pool {
 		return { max: 1, min: 0, shared: Number.MAX_SAFE_INTEGER };
 	}
 	export function validate(config: Pool): void {
+		config = normalize(config);
 		if (
 			!Number.isSafeInteger(config.max) ||
 			config.max < 1 ||

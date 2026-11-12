@@ -348,13 +348,13 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 						principal.withCString { principal in
 							tokens.withCString { tokens in
 								var config = TgConfig(
+									cache_kind: cacheKind,
+									cache_map_size: cacheMapSize,
+									cache_path: cachePath,
+									cache_posix_sem_prefix: cachePosixSemPrefix,
 									data_directory: dataDirectory,
 									node_eviction_interval_secs: nodeEvictionIntervalSeconds,
 									node_time_to_live_secs: nodeTimeToLiveSeconds,
-									cache_map_size: cacheMapSize,
-									cache_kind: cacheKind,
-									cache_path: cachePath,
-									cache_posix_sem_prefix: cachePosixSemPrefix,
 									principal: principal,
 									tokens: tokens,
 								)

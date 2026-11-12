@@ -156,6 +156,7 @@ def validate_http2_config(config: Http2Config) -> None:
 
 
 def validate_pool_options(options: PoolOptions) -> None:
+    options = normalize_pool_options(options)
     for name in ("max", "min", "shared"):
         if type(options[name]) is not int or not 0 <= options[name] <= 2**53 - 1:
             raise ValueError("invalid pool options")
