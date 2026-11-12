@@ -178,6 +178,42 @@ export const installDev = async (...args: Array<string>) => {
 		.env(env);
 };
 
+export const releaseBuild = async (...args: Array<string>) => {
+	const { cwd, env } = await context();
+	await tg.run`nu scripts/release/build.nu "$@"`
+		.executable("sh")
+		.args(["--", ...args])
+		.cwd(cwd)
+		.env(env);
+};
+
+export const releaseBump = async (...args: Array<string>) => {
+	const { cwd, env } = await context();
+	await tg.run`nu scripts/release/bump.nu "$@"`
+		.executable("sh")
+		.args(["--", ...args])
+		.cwd(cwd)
+		.env(env);
+};
+
+export const releasePublish = async (...args: Array<string>) => {
+	const { cwd, env } = await context();
+	await tg.run`nu scripts/release/publish.nu "$@"`
+		.executable("sh")
+		.args(["--", ...args])
+		.cwd(cwd)
+		.env(env);
+};
+
+export const releaseVerify = async (...args: Array<string>) => {
+	const { cwd, env } = await context();
+	await tg.run`nu scripts/release/verify.nu "$@"`
+		.executable("sh")
+		.args(["--", ...args])
+		.cwd(cwd)
+		.env(env);
+};
+
 export const run = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
 	const path = tg.path.join(cwd, "target/debug");

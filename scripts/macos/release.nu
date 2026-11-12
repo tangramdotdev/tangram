@@ -35,7 +35,10 @@ def main [
 	^nu $doctor --release --notary-profile $profile
 
 	step "Building the Tangram helper"
-	^cargo build --release -p tangram_cli -p tangram_vfs_provider
+	let commit = (^python3 ($root | path join "scripts/version.py") | str trim)
+	with-env { TANGRAM_CLI_COMMIT_HASH: $commit } {
+		^cargo build --release -p tangram_cli -p tangram_vfs_provider
+	}
 
 	step "Generating the Xcode project"
 	$env.TANGRAM_DEVELOPMENT_TEAM = (identifiers).development_team

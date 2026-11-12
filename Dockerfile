@@ -3,6 +3,9 @@ FROM --platform=$BUILDPLATFORM rust:1.99.0-trixie AS build
 
 ARG TARGETARCH
 
+# Accept the commit to report in the version.
+ARG TANGRAM_CLI_COMMIT_HASH
+
 # Install host tools and target libraries using the runtime's libc baseline.
 RUN set -eu; \
     case "$TARGETARCH" in amd64|arm64) ;; *) exit 1 ;; esac; \
@@ -41,6 +44,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     esac; \
     rustup target add "$triple"; \
     export PKG_CONFIG_ALLOW_CROSS=1; \
+    if [ -z "${TANGRAM_CLI_COMMIT_HASH:-}" ]; then unset TANGRAM_CLI_COMMIT_HASH; fi; \
     export PKG_CONFIG_LIBDIR="/usr/lib/$multiarch/pkgconfig:/usr/share/pkgconfig"; \
     cargo build --locked --all-features --release --target "$triple" --jobs 4; \
     install -Dm755 "target/$triple/release/tangram" /output/tangram

@@ -146,6 +146,7 @@ have their hooks invoked automatically.
 | `test`, `testRust` | Full test suite or the Rust tests |
 | `imageBuild`, `imagePush`, `imagePublish` | Build or publish the container image |
 | `canary` | Build and publish the canary release |
+| `releaseBump`, `releaseBuild`, `releaseVerify`, `releasePublish` | Set the version, then build, verify, and publish the release archives |
 | `clean` | Remove checkout state, dependencies, and build output |
 
 Packages own their commands in local `tangram.ts` files. For example, run
