@@ -35,7 +35,8 @@ class PoolOptions(TypedDict):
     max: int
     min: int
     shared: int
-    ttl: float | None
+    time_to_live: NotRequired[float | None]
+    ttl: NotRequired[float | None]
 
 
 class ProcessConfig(TypedDict):
@@ -82,7 +83,17 @@ def default_http2_config() -> Http2Config:
 
 
 def default_pool_options() -> PoolOptions:
-    return {"max": 1, "min": 0, "shared": 2**53 - 1, "ttl": None}
+    return {"max": 1, "min": 0, "shared": 2**53 - 1, "time_to_live": None}
+
+
+def normalize_pool_options(options: PoolOptions) -> PoolOptions:
+    if "ttl" not in options:
+        return options
+    if "time_to_live" in options:
+        raise ValueError("ttl and time_to_live may not both be set")
+    output = options.copy()
+    output["time_to_live"] = output.pop("ttl")
+    return output
 
 
 def default_process_config() -> ProcessConfig:
@@ -150,9 +161,11 @@ def validate_pool_options(options: PoolOptions) -> None:
             raise ValueError("invalid pool options")
     if options["max"] == 0 or options["shared"] == 0 or options["min"] > options["max"]:
         raise ValueError("invalid pool options")
-    ttl = options["ttl"]
-    if ttl is not None and (not math.isfinite(ttl) or ttl < 0):
-        raise ValueError("invalid pool TTL")
+    time_to_live = options.get("time_to_live")
+    if time_to_live is not None and (
+        not math.isfinite(time_to_live) or time_to_live < 0
+    ):
+        raise ValueError("invalid pool time to live")
 
 
 def validate_process_config(config: ProcessConfig) -> None:

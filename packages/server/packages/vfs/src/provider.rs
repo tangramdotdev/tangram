@@ -1097,7 +1097,7 @@ impl Provider {
 			recursive: false,
 			reverse: false,
 			tags: true,
-			ttl: tg::remote::cache::Ttl::default(),
+			time_to_live: tg::remote::cache::TimeToLive::default(),
 			users: root,
 		};
 		let output = session
@@ -1703,10 +1703,11 @@ impl Provider {
 
 	fn token_expiration(&self, expiration: Option<i64>) -> std::io::Result<i64> {
 		let now = self.server.clock.unix_timestamp();
-		let ttl = i64::try_from(self.server.config.object.permission_time_to_live.as_secs())
-			.map_err(std::io::Error::other)?;
+		let time_to_live =
+			i64::try_from(self.server.config.object.permission_time_to_live.as_secs())
+				.map_err(std::io::Error::other)?;
 		let expires_at = now
-			.checked_add(ttl)
+			.checked_add(time_to_live)
 			.ok_or_else(|| std::io::Error::other("the token expiration overflowed"))?;
 		Ok(expiration.map_or(expires_at, |expiration| expiration.min(expires_at)))
 	}

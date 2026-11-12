@@ -133,5 +133,5 @@ class Pool:
         self.schedule_expiration()
 
     def expiration(self) -> float:
-        ttl = self.options["ttl"]
-        return float("inf") if ttl is None else time.monotonic() + ttl
+        time_to_live = self.options.get("time_to_live")
+        return float("inf") if time_to_live is None else time.monotonic() + time_to_live

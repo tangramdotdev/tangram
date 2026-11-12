@@ -39,7 +39,7 @@ pub struct Args {
 	pub reverse: bool,
 
 	#[command(flatten)]
-	pub ttl: tangram_cli_list::Ttl,
+	pub time_to_live: tangram_cli_list::TimeToLive,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -54,8 +54,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		pattern: args.pattern.clone(),
 		reverse: args.reverse,
 		tags: args.entries.tags(),
+		time_to_live: args.time_to_live.get(),
 		tokens: tg::authorization::Tokens::default(),
-		ttl: args.ttl.get(),
 		users: args.entries.users(),
 	};
 	let output = if args.all {

@@ -96,7 +96,7 @@ impl Component {
 		BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
 	)> {
 		let id = arg.id.clone();
-		let scheduler_ttl = arg.scheduler_ttl;
+		let scheduler_time_to_live = arg.scheduler_time_to_live;
 
 		// Allocate the registration in the index that enforces it, so that a runner does not need to keep it.
 		let registration_index = session
@@ -212,9 +212,9 @@ impl Component {
 				.collect()
 		};
 
-		let runner_ttl = session.server.config.scheduler.runner_ttl;
+		let runner_time_to_live = session.server.config.scheduler.runner_time_to_live;
 		let header = tg::runner::control::Header {
-			runner_ttl,
+			runner_time_to_live,
 			sandboxes,
 			scheduler: scheduler.clone(),
 		};
@@ -280,7 +280,7 @@ impl Component {
 			let server = session.server.clone();
 			let scheduler = scheduler.clone();
 			let scheduler_unavailable = scheduler_unavailable.clone();
-			let timeout = scheduler_ttl;
+			let timeout = scheduler_time_to_live;
 			move |_| async move {
 				let mut heartbeat_acks = std::pin::pin!(heartbeat_acks);
 				let mut heartbeat_acks_ended = false;

@@ -161,10 +161,10 @@ impl State {
 		match update {
 			Update::Acknowledge { id, priority } => {
 				// Expire an acknowledged id that did not arrive on the connection, such as the start request, because no tracked response will set its deadline.
-				let inbox_ttl = self.config.inbox_ttl;
+				let inbox_time_to_live = self.config.inbox_time_to_live;
 				self.inbox
 					.entry(id.clone())
-					.or_insert_with(|| Some(Instant::now() + inbox_ttl));
+					.or_insert_with(|| Some(Instant::now() + inbox_time_to_live));
 				self.untracked
 					.push_back((ServerMessage::Ack(ServerAck { id }), priority));
 			},
@@ -188,7 +188,7 @@ impl State {
 					} else {
 						self.pending.shift_remove(&ack.id);
 						if let Some(deadline) = self.inbox.get_mut(&ack.id) {
-							*deadline = Some(Instant::now() + self.config.inbox_ttl);
+							*deadline = Some(Instant::now() + self.config.inbox_time_to_live);
 						}
 					}
 				}

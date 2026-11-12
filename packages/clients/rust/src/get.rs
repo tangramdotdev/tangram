@@ -20,8 +20,8 @@ pub struct Arg {
 	#[serde(flatten)]
 	pub options: tg::reference::Options,
 
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub ttl: tg::remote::cache::Ttl,
+	#[serde(alias = "ttl", default, skip_serializing_if = "is_default")]
+	pub time_to_live: tg::remote::cache::TimeToLive,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

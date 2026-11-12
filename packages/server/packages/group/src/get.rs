@@ -36,7 +36,7 @@ impl Component {
 				arg.location.as_ref(),
 				&arg.tokens,
 				arg.cached,
-				arg.ttl,
+				arg.time_to_live,
 			)
 			.await?
 		else {
@@ -114,7 +114,7 @@ impl Component {
 	) -> tg::Result<Option<tg::group::get::Output>> {
 		let cached = arg.cached;
 		let cacheable = arg.tokens.is_empty();
-		let ttl = arg.ttl;
+		let time_to_live = arg.time_to_live;
 		let location = tg::Location::Remote(remote.clone());
 		let client = session
 			.server
@@ -134,7 +134,7 @@ impl Component {
 			})
 			.into(),
 		);
-		arg.ttl = tg::remote::cache::Ttl::default();
+		arg.time_to_live = tg::remote::cache::TimeToLive::default();
 		let mut cache_arg = arg.clone();
 		cache_arg.tokens.clear();
 		let request = tangram_server_remote_core::cache::Request::GroupGet(
@@ -147,7 +147,7 @@ impl Component {
 			.server
 			.components
 			.remote
-			.try_get_cached_remote_response(session, &remote.name, &request, ttl)
+			.try_get_cached_remote_response(session, &remote.name, &request, time_to_live)
 			.await?
 		{
 			let mut output = response.output;

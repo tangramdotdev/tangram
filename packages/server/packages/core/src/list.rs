@@ -15,26 +15,17 @@ pub enum Cursor {
 pub struct PageArg<'a> {
 	/// The key to continue after.
 	pub after: Option<Vec<u8>>,
-
 	pub cached: bool,
-
 	/// The filter that the local items must pass, in addition to visibility.
 	pub filter: Box<dyn Fn(&tg::list::Item) -> bool + Send + Sync + 'a>,
-
 	pub limit: usize,
-
 	pub location: Option<&'a tg::location::Arg>,
-
 	/// The query to send to each remote, whose cursor and limit are set for each page.
 	pub query: self::remote::Query,
-
 	pub reverse: bool,
-
 	pub scope: Scope,
-
+	pub time_to_live: tg::remote::cache::TimeToLive,
 	pub tokens: &'a tg::authorization::Tokens,
-
-	pub ttl: tg::remote::cache::Ttl,
 }
 
 /// The specifiers that a page of local items is listed from.

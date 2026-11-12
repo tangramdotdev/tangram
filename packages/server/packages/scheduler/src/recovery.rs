@@ -114,7 +114,7 @@ impl Scheduler {
 		{
 			state.release_recovery(self);
 		} else {
-			let sleep = self.server.clock.sleep(self.config.runner_ttl);
+			let sleep = self.server.clock.sleep(self.config.runner_time_to_live);
 			state.operations.push(
 				async move {
 					sleep.await;

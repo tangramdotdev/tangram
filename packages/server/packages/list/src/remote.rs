@@ -24,10 +24,10 @@ impl Component {
 		session: &Session,
 		remote: Remote,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 		query: Query,
 	) -> tg::Result<Page> {
-		self.list_remote_inner(session, remote, cached, ttl, query)
+		self.list_remote_inner(session, remote, cached, time_to_live, query)
 			.await
 	}
 
@@ -36,7 +36,7 @@ impl Component {
 		session: &Session,
 		remote: Remote,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 		query: Query,
 	) -> tg::Result<Page> {
 		let client = session
@@ -73,7 +73,7 @@ impl Component {
 			.server
 			.components
 			.remote
-			.try_get_cached_remote_response(session, &remote.name, &request, ttl)
+			.try_get_cached_remote_response(session, &remote.name, &request, time_to_live)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
@@ -253,13 +253,13 @@ fn query_with_remote(mut query: Query, remote: &Remote) -> Query {
 			arg.tokens = tokens_for_remote(&arg.tokens, &remote.name);
 		},
 	}
-	let (cached, query_location, ttl) = match &mut query {
-		Query::List(arg) => (&mut arg.cached, &mut arg.location, &mut arg.ttl),
-		Query::Match(arg) => (&mut arg.cached, &mut arg.location, &mut arg.ttl),
+	let (cached, query_location, time_to_live) = match &mut query {
+		Query::List(arg) => (&mut arg.cached, &mut arg.location, &mut arg.time_to_live),
+		Query::Match(arg) => (&mut arg.cached, &mut arg.location, &mut arg.time_to_live),
 	};
 	*cached = false;
 	*query_location = location;
-	*ttl = tg::remote::cache::Ttl::default();
+	*time_to_live = tg::remote::cache::TimeToLive::default();
 
 	query
 }

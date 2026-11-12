@@ -2117,8 +2117,8 @@ impl Component {
 		}
 
 		// Retain the sandbox state and control stream.
-		let retention_ttl = session.server.config.runner.sandbox_state_ttl;
-		let retention_future = session.server.clock.sleep(retention_ttl);
+		let retention_time_to_live = session.server.config.runner.sandbox_state_time_to_live;
+		let retention_future = session.server.clock.sleep(retention_time_to_live);
 		let mut retention_future = pin!(retention_future);
 		loop {
 			tokio::select! {

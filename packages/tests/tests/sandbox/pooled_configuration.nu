@@ -48,7 +48,7 @@ for backend in $backends {
 			let checkpoint = checkpoint watch runner.sandbox.pool.take
 			let job = job spawn {
 				let job_id = job id
-				tg sandbox create --no-tokens --no-ttl --cpu-min 0.25 --cpu $bounds.cpu --memory-min 33554432 --memory $bounds.memory --hostname configured --mount $'($source):/target,ro' --mount $'($source):/etc,ro' ...$mounts ...$network | job send --tag $job_id 0
+				tg sandbox create --no-tokens --no-time-to-live --cpu-min 0.25 --cpu $bounds.cpu --memory-min 33554432 --memory $bounds.memory --hostname configured --mount $'($source):/target,ro' --mount $'($source):/etc,ro' ...$mounts ...$network | job send --tag $job_id 0
 			}
 			checkpoint pass $checkpoint | ignore
 			checkpoint unwatch $checkpoint

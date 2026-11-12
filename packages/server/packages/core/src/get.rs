@@ -45,7 +45,7 @@ pub trait Component: crate::component::Lifecycle {
 		location: Option<&'a tg::location::Arg>,
 		cached: bool,
 		length: Option<u64>,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> BoxFuture<'a, tg::Result<tg::match_::Output>>;
 
 	fn try_get_with_selector<'a>(
@@ -55,6 +55,6 @@ pub trait Component: crate::component::Lifecycle {
 		location: Option<&'a tg::location::Arg>,
 		tokens: &'a tg::authorization::Tokens,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> BoxFuture<'a, tg::Result<Option<tg::get::Output>>>;
 }

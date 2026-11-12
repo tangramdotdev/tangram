@@ -85,6 +85,6 @@ fn control_arg(id: tg::runner::Id) -> tg::runner::control::Arg {
 		id,
 		location: None,
 		sandboxes: Vec::new(),
-		scheduler_ttl: Duration::from_secs(300),
+		scheduler_time_to_live: Duration::from_secs(300),
 	}
 }

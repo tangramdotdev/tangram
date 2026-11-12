@@ -9,7 +9,7 @@ let root = random chars
 let secret = 'whsec_mock'
 let common = {
 	advanced: { checkpoints: true },
-	authentication: { cache: { ttl: 60 }, root: { token: $root }, users: { providers: { insecure: true } } },
+	authentication: { cache: { time_to_live: 60 }, root: { token: $root }, users: { providers: { insecure: true } } },
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: $secret } },
 	database: { index_queue: { wakeup_interval: 0.01 } },
 }

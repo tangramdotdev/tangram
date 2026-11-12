@@ -83,3 +83,24 @@ test("the stream retry options are validated", () => {
 		/invalid retry duration/,
 	);
 });
+
+test("pool lifetime aliases normalize to the canonical name", () => {
+	for (let name of ["timeToLive", "ttl"]) {
+		let client = new Client({
+			pool: { max: 1, min: 0, shared: 1, [name]: 1.5 },
+		});
+		assert.deepEqual(client.pool, {
+			max: 1,
+			min: 0,
+			shared: 1,
+			timeToLive: 1.5,
+		});
+	}
+	assert.throws(
+		() =>
+			new Client({
+				pool: { max: 1, min: 0, shared: 1, timeToLive: 1, ttl: 2 },
+			}),
+		/may not both be set/,
+	);
+});

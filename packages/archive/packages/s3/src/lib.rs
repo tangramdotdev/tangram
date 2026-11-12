@@ -87,7 +87,7 @@ mod tests {
 				max: 4,
 				min: 2,
 				shared: 1,
-				ttl: None,
+				time_to_live: None,
 			},
 			reconnect: tangram_futures::retry::Options::default(),
 			region,

@@ -84,7 +84,7 @@ impl Component {
 					options.location.as_ref(),
 					&options.tokens,
 					arg.cached,
-					arg.ttl,
+					arg.time_to_live,
 				)
 				.await?;
 			let event = tg::progress::Event::Output(output);
@@ -97,8 +97,8 @@ impl Component {
 			let entry = tg::sandbox::get::Arg {
 				cached: arg.cached,
 				location: options.location.clone(),
+				time_to_live: arg.time_to_live,
 				tokens: options.tokens.clone(),
-				ttl: arg.ttl,
 			};
 			let sandbox = session.try_get_sandbox(&id, entry).await?;
 			let output = sandbox.map(|sandbox| {
@@ -220,7 +220,7 @@ impl Component {
 				options.location.as_ref(),
 				&options.tokens,
 				arg.cached,
-				arg.ttl,
+				arg.time_to_live,
 			)
 			.await?;
 		let Some(output) = output else {
@@ -409,9 +409,9 @@ impl tangram_server_core::get::Component for Component {
 		location: Option<&'a tg::location::Arg>,
 		cached: bool,
 		length: Option<u64>,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> BoxFuture<'a, tg::Result<tg::match_::Output>> {
-		self.match_tags_for_get(session, pattern, location, cached, length, ttl)
+		self.match_tags_for_get(session, pattern, location, cached, length, time_to_live)
 			.boxed()
 	}
 
@@ -422,9 +422,9 @@ impl tangram_server_core::get::Component for Component {
 		location: Option<&'a tg::location::Arg>,
 		tokens: &'a tg::authorization::Tokens,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> BoxFuture<'a, tg::Result<Option<tg::get::Output>>> {
-		self.try_get_with_selector(session, selector, location, tokens, cached, ttl)
+		self.try_get_with_selector(session, selector, location, tokens, cached, time_to_live)
 			.boxed()
 	}
 

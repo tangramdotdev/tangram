@@ -47,8 +47,8 @@ pub struct Arg {
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub tags: bool,
 
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub ttl: tg::remote::cache::Ttl,
+	#[serde(alias = "ttl", default, skip_serializing_if = "is_default")]
+	pub time_to_live: tg::remote::cache::TimeToLive,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
@@ -89,7 +89,7 @@ impl Default for Arg {
 			recursive: false,
 			reverse: false,
 			tags: true,
-			ttl: tg::remote::cache::Ttl::default(),
+			time_to_live: tg::remote::cache::TimeToLive::default(),
 			users: true,
 		}
 	}

@@ -7,7 +7,7 @@ let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
-	scheduler: { default_cpu: 1, runner_ttl: 3 },
+	scheduler: { default_cpu: 1, runner_time_to_live: 3 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
@@ -27,7 +27,7 @@ let start = job spawn {
 checkpoint pass $enqueued
 checkpoint unwatch $enqueued
 
-# Kill the runner and advance the remote's clock past the runner ttl so that the scheduler expires it.
+# Kill the runner and advance the remote's clock past the runner time_to_live so that the scheduler expires it.
 let runner_pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid

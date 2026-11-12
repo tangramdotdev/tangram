@@ -34,16 +34,16 @@ impl Component {
 		session: &Session,
 		remote: &str,
 		request: &Request,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> tg::Result<Option<Response>> {
-		let ttl = match ttl {
-			tg::remote::cache::Ttl::Default => {
+		let time_to_live = match time_to_live {
+			tg::remote::cache::TimeToLive::Default => {
 				Some(session.server.config.remote_cache.time_to_live)
 			},
-			tg::remote::cache::Ttl::Duration(duration) => Some(duration),
-			tg::remote::cache::Ttl::Infinite => None,
+			tg::remote::cache::TimeToLive::Duration(duration) => Some(duration),
+			tg::remote::cache::TimeToLive::Infinite => None,
 		};
-		if ttl == Some(Duration::ZERO) {
+		if time_to_live == Some(Duration::ZERO) {
 			return Ok(None);
 		}
 		let Some(entry) = Self::try_get_remote_cache(session, remote, request).await? else {
@@ -53,7 +53,7 @@ impl Component {
 		let age = u64::try_from((now - entry.timestamp).max(0))
 			.map(Duration::from_secs)
 			.map_err(|error| tg::error!(!error, "invalid remote cache age"))?;
-		if ttl.is_some_and(|ttl| age >= ttl) {
+		if time_to_live.is_some_and(|time_to_live| age >= time_to_live) {
 			return Ok(None);
 		}
 		let response = entry.response;

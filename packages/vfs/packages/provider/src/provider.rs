@@ -33,7 +33,7 @@ const CHECKOUTS_DIRECTORY_NAME: &str = "checkouts";
 const DEFAULT_NODE_EVICTION_INTERVAL: Duration = Duration::from_secs(30);
 
 /// The default duration a cache-only node created by directory enumeration is retained after its most recent access before it becomes eligible for eviction.
-const DEFAULT_NODE_TTL: Duration = Duration::from_mins(1);
+const DEFAULT_NODE_TIME_TO_LIVE: Duration = Duration::from_mins(1);
 
 /// The default map size with which the cache is opened. It is the server's default, and the server sends its own if it is configured with another.
 const DEFAULT_CACHE_MAP_SIZE: usize = 1_099_511_627_776;
@@ -66,7 +66,7 @@ pub struct Config {
 	pub node_eviction_interval: Duration,
 
 	/// The duration a cache-only node created by directory enumeration is retained after its most recent access before it becomes eligible for eviction.
-	pub node_ttl: Duration,
+	pub node_time_to_live: Duration,
 
 	/// The principal the mount serves. When it is `None` or the root principal, the mount is unenforced and every artifact is accessible. Otherwise the provider authorizes access to each artifact subtree.
 	pub principal: Option<tg::Principal>,
@@ -271,12 +271,12 @@ impl Provider {
 		// Spawn a background task that evicts cache-only nodes the kernel never referenced, bounding node table growth; it is aborted when the runtime is dropped with the provider.
 		runtime.spawn({
 			let inner = inner.clone();
-			let ttl = config.node_ttl;
+			let time_to_live = config.node_time_to_live;
 			let interval = config.node_eviction_interval;
 			async move {
 				loop {
 					tokio::time::sleep(interval).await;
-					inner.nodes.evict_expired(ttl);
+					inner.nodes.evict_expired(time_to_live);
 				}
 			}
 		});
@@ -767,7 +767,7 @@ impl Inner {
 			recursive: false,
 			reverse: false,
 			tags: true,
-			ttl: tg::remote::cache::Ttl::default(),
+			time_to_live: tg::remote::cache::TimeToLive::default(),
 			users: root,
 		};
 		let output = session.list_all(arg).await.map_err(eio)?;
@@ -2348,7 +2348,7 @@ impl Nodes {
 		}
 	}
 
-	fn evict_expired(&self, ttl: Duration) {
+	fn evict_expired(&self, time_to_live: Duration) {
 		let now = Instant::now();
 		let mut state = self.state.lock().unwrap();
 		// Collect the cache-only leaf nodes whose time to live has elapsed; a node with a nonzero lookup count is still referenced and a node with children is not a leaf, so neither is eligible.
@@ -2359,7 +2359,7 @@ impl Nodes {
 				let evict = id != vfs::ROOT_NODE_ID
 					&& node.lookup_count == 0
 					&& node.children.is_empty()
-					&& now.duration_since(node.accessed) >= ttl;
+					&& now.duration_since(node.accessed) >= time_to_live;
 				evict.then_some((id, node.parent, node.name.clone()))
 			})
 			.collect::<Vec<_>>();
@@ -2562,7 +2562,7 @@ impl Default for Config {
 			cache_posix_sem_prefix: None,
 			data_directory: None,
 			node_eviction_interval: DEFAULT_NODE_EVICTION_INTERVAL,
-			node_ttl: DEFAULT_NODE_TTL,
+			node_time_to_live: DEFAULT_NODE_TIME_TO_LIVE,
 			principal: None,
 			tokens: Vec::new(),
 		}

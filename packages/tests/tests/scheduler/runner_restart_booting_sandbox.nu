@@ -7,7 +7,7 @@ let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
-	scheduler: { default_cpu: 1, default_memory: 1_073_741_824, runner_ttl: 300 },
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824, runner_time_to_live: 300 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
@@ -31,7 +31,7 @@ kill --signal 9 $pid
 wait_for_exit $pid
 checkpoint unwatch $connect
 
-# The runner restarts within its heartbeat ttl, and the sandbox starts on it.
+# The runner restarts within its heartbeat time_to_live, and the sandbox starts on it.
 let runner = server start $runner
 success (timeout 30s tg --url $remote.url --token $root_token sandbox start --wait $sandbox | complete) "the sandbox should start after its runner restarts"
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) started

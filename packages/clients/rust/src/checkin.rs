@@ -63,8 +63,8 @@ pub struct Options {
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub source_dependencies: bool,
 
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub tag_ttl: tg::remote::cache::Ttl,
+	#[serde(alias = "tag_ttl", default, skip_serializing_if = "is_default")]
+	pub tag_time_to_live: tg::remote::cache::TimeToLive,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_false", skip_serializing_if = "is_false")]
@@ -209,7 +209,7 @@ impl Default for Options {
 			root: false,
 			solve: true,
 			source_dependencies: true,
-			tag_ttl: tg::remote::cache::Ttl::default(),
+			tag_time_to_live: tg::remote::cache::TimeToLive::default(),
 			unsolved_dependencies: false,
 			watch: None,
 		}

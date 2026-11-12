@@ -102,8 +102,8 @@ impl Cache {
 			tangram_server_config::ScyllaCacheCapacity::Prometheus(capacity) => {
 				tangram_cache_scylla::CapacityConfig {
 					available_query: capacity.available_query.clone(),
+					time_to_live: capacity.time_to_live,
 					total_query: capacity.total_query.clone(),
-					ttl: capacity.ttl,
 					url: capacity.url.to_string(),
 				}
 			},

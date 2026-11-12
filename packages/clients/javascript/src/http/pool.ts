@@ -152,9 +152,9 @@ export class Pool {
 		})();
 	}
 	#expiration(): number {
-		return this.options.ttl === undefined
+		return this.options.timeToLive === undefined
 			? Infinity
-			: Date.now() + this.options.ttl * 1000;
+			: Date.now() + this.options.timeToLive * 1000;
 	}
 	#notify(): void {
 		for (let waiter of this.#waiters.splice(0)) waiter();

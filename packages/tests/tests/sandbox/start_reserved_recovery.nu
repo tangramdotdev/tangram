@@ -7,12 +7,12 @@ let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
-	scheduler: { runner_ttl: 2 },
+	scheduler: { runner_time_to_live: 2 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
-	runner: { id: $created.data.id, remote: "default", scheduler_ttl: 1, token: $created.token.token },
+	runner: { id: $created.data.id, remote: "default", scheduler_time_to_live: 1, token: $created.token.token },
 }
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 

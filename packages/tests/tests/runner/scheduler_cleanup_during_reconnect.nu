@@ -8,7 +8,7 @@ let common = {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root } },
 	messenger: { kind: nats, url: $nats.url },
-	scheduler: { runner_ttl: 2 },
+	scheduler: { runner_time_to_live: 2 },
 }
 let instance = instance --cloud --config $common
 
@@ -23,7 +23,7 @@ let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root } },
 	remotes: { default: { token: $created.token.token, url: $gateway.url } },
-	runner: { heartbeat_interval: 0.1, id: $created.data.id, remote: default, scheduler_ttl: 1, token: $created.token.token },
+	runner: { heartbeat_interval: 0.1, id: $created.data.id, remote: default, scheduler_time_to_live: 1, token: $created.token.token },
 }
 checkpoint pass $added | ignore
 checkpoint unwatch $added

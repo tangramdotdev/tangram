@@ -4,7 +4,7 @@ use ../../util/test.nu *
 
 let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true },
-	runner: { process_state_ttl: 1 },
+	runner: { process_state_time_to_live: 1 },
 }
 
 let path = artifact {

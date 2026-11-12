@@ -203,7 +203,7 @@ async fn spawn_metadata_uses_native_types() {
 			"location": "local",
 			"memory": 1_048_576,
 			"network": {"kind": "host"},
-			"ttl": 60.125
+			"time_to_live": 60.125
 		},
 		"stderr": "log",
 		"stdin": "pipe",

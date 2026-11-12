@@ -10,7 +10,7 @@ mod tests;
 /// The replies that a component recently sent to requests, by request ID, so that a duplicate of a request is answered without acting on it again. The memory keeps each reply for a time to live after it was last used, and at most a capacity of replies. A request that is neither acknowledged nor answered within the pending time to live is acted on again, because the component did not take it up.
 pub struct Replies<R> {
 	capacity: usize,
-	pending_ttl: Duration,
+	pending_time_to_live: Duration,
 	state: Mutex<State<R>>,
 }
 
@@ -30,7 +30,7 @@ pub enum Begin<R> {
 struct State<R> {
 	entries: HashMap<String, Entry<R>>,
 	order: VecDeque<(tokio::time::Instant, String)>,
-	ttl: Duration,
+	time_to_live: Duration,
 }
 
 struct Entry<R> {
@@ -42,15 +42,15 @@ struct Entry<R> {
 
 impl<R: Clone> Replies<R> {
 	#[must_use]
-	pub fn new(capacity: usize, ttl: Duration, pending_ttl: Duration) -> Self {
+	pub fn new(capacity: usize, time_to_live: Duration, pending_time_to_live: Duration) -> Self {
 		let state = State {
 			entries: HashMap::new(),
 			order: VecDeque::new(),
-			ttl,
+			time_to_live,
 		};
 		Self {
 			capacity,
-			pending_ttl,
+			pending_time_to_live,
 			state: Mutex::new(state),
 		}
 	}
@@ -68,13 +68,13 @@ impl<R: Clone> Replies<R> {
 		let now = tokio::time::Instant::now();
 		let mut state = self.state.lock().unwrap();
 		self.prune(&mut state, now);
-		let pending_ttl = self.pending_ttl;
+		let pending_time_to_live = self.pending_time_to_live;
 		let begin = if let Some(entry) = state.entries.get_mut(id) {
 			entry.used_at = now;
 			match &entry.reply {
 				Some(reply) => Begin::Replied(reply.clone()),
 				None if !entry.acknowledged
-					&& now.saturating_duration_since(entry.started_at) >= pending_ttl =>
+					&& now.saturating_duration_since(entry.started_at) >= pending_time_to_live =>
 				{
 					entry.started_at = now;
 					Begin::New
@@ -118,9 +118,9 @@ impl<R: Clone> Replies<R> {
 	}
 
 	/// Set the time to live of the replies.
-	pub fn set_ttl(&self, ttl: Duration) {
+	pub fn set_time_to_live(&self, time_to_live: Duration) {
 		let mut state = self.state.lock().unwrap();
-		state.ttl = ttl;
+		state.time_to_live = time_to_live;
 	}
 
 	/// Forget the replies that were not used within the time to live, and the least recently used replies beyond the capacity.
@@ -130,7 +130,7 @@ impl<R: Clone> Replies<R> {
 				.entries
 				.get(id)
 				.is_some_and(|entry| entry.used_at == *used_at);
-			let expired = now.saturating_duration_since(*used_at) >= state.ttl;
+			let expired = now.saturating_duration_since(*used_at) >= state.time_to_live;
 			let full = state.entries.len() > self.capacity;
 			if current && !expired && !full {
 				break;

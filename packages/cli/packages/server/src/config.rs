@@ -216,8 +216,8 @@ fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
 		if let Some(value) = source.min {
 			pool.min = value;
 		}
-		if let Some(value) = source.ttl {
-			pool.ttl = Some(value);
+		if let Some(value) = source.time_to_live {
+			pool.time_to_live = Some(value);
 		}
 	}
 	let reconnect = source
@@ -303,8 +303,8 @@ fn resolve_authentication_cache(source: AuthenticationCache) -> server::Authenti
 	if let Some(value) = source.capacity {
 		target.capacity = value;
 	}
-	if let Some(value) = source.ttl {
-		target.ttl = value;
+	if let Some(value) = source.time_to_live {
+		target.time_to_live = value;
 	}
 	target
 }
@@ -328,8 +328,8 @@ fn resolve_authentication_tokens(
 	if let Some(source) = source.secret {
 		target.secrets.secret = resolve_bool_or(source, resolve_token_secret)?;
 	}
-	if let Some(value) = source.ttl {
-		target.ttl = value;
+	if let Some(value) = source.time_to_live {
+		target.time_to_live = value;
 	}
 
 	Ok(target)
@@ -345,8 +345,8 @@ fn resolve_user_authentication(
 	if let Some(value) = source.interval {
 		target.interval = value;
 	}
-	if let Some(value) = source.ttl {
-		target.ttl = value;
+	if let Some(value) = source.time_to_live {
+		target.time_to_live = value;
 	}
 	if let Some(value) = source.web_url {
 		target.web_url = Some(value);
@@ -626,8 +626,8 @@ fn resolve_control(source: &Control) -> server::Control {
 	if let Some(value) = source.reply_capacity {
 		target.reply_capacity = value;
 	}
-	if let Some(value) = source.reply_ttl {
-		target.reply_ttl = value;
+	if let Some(value) = source.reply_time_to_live {
+		target.reply_time_to_live = value;
 	}
 	if let Some(source) = source.request_retry {
 		target.request_retry = resolve_retry_with_default(source, target.request_retry);
@@ -635,8 +635,8 @@ fn resolve_control(source: &Control) -> server::Control {
 	if let Some(value) = source.request_timeout {
 		target.request_timeout = value;
 	}
-	if let Some(value) = source.stream_inbox_ttl {
-		target.stream_inbox_ttl = value;
+	if let Some(value) = source.stream_inbox_time_to_live {
+		target.stream_inbox_time_to_live = value;
 	}
 	if let Some(source) = source.stream_retry {
 		target.stream_retry = resolve_retry_with_default(source, target.stream_retry);
@@ -738,8 +738,8 @@ fn resolve_database_pool(source: DatabasePool) -> server::DatabasePool {
 	if let Some(value) = source.min {
 		target.min = Some(value);
 	}
-	if let Some(value) = source.ttl {
-		target.ttl = Some(value);
+	if let Some(value) = source.time_to_live {
+		target.time_to_live = Some(value);
 	}
 	target
 }
@@ -790,8 +790,8 @@ pub(crate) fn resolve_client_pool(source: &Pool) -> tangram_pool::Options {
 	if let Some(value) = source.shared {
 		target.shared = value;
 	}
-	if let Some(value) = source.ttl {
-		target.ttl = Some(value);
+	if let Some(value) = source.time_to_live {
+		target.time_to_live = Some(value);
 	}
 	target
 }
@@ -801,8 +801,8 @@ fn resolve_client_process_control(source: ClientProcessControl) -> tg::process::
 	if let Some(value) = source.event_capacity {
 		target.event_capacity = value;
 	}
-	if let Some(value) = source.inbox_ttl {
-		target.inbox_ttl = value;
+	if let Some(value) = source.inbox_time_to_live {
+		target.inbox_time_to_live = value;
 	}
 	if let Some(value) = source.max_deliveries {
 		target.max_deliveries = value;
@@ -1017,8 +1017,8 @@ fn resolve_indexer_billing_cleanup(source: IndexerBillingCleanup) -> server::Ind
 	if let Some(value) = source.poll_interval {
 		target.poll_interval = value;
 	}
-	if let Some(value) = source.webhook_ttl {
-		target.webhook_ttl = value;
+	if let Some(value) = source.webhook_time_to_live {
+		target.webhook_time_to_live = value;
 	}
 
 	target
@@ -1134,8 +1134,8 @@ fn resolve_indexer_request(source: IndexerRequest) -> server::IndexerRequest {
 	if let Some(value) = source.poll_interval {
 		target.poll_interval = value;
 	}
-	if let Some(value) = source.response_ttl {
-		target.response_ttl = value;
+	if let Some(value) = source.response_time_to_live {
+		target.response_time_to_live = value;
 	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
@@ -1564,8 +1564,8 @@ fn resolve_scylla_cache_capacity(
 				url,
 				..server::ScyllaCachePrometheusCapacity::default()
 			};
-			if let Some(value) = source.ttl {
-				target.ttl = value;
+			if let Some(value) = source.time_to_live {
+				target.time_to_live = value;
 			}
 			server::ScyllaCacheCapacity::Prometheus(target)
 		},
@@ -1867,8 +1867,8 @@ pub(crate) fn resolve_retry(source: Retry) -> tg::Result<server::Retry> {
 }
 
 fn resolve_service(source: Service, target: &mut tangram_messenger::service::Options) {
-	if let Some(value) = source.attempt_ttl {
-		target.attempt_ttl = value;
+	if let Some(value) = source.attempt_time_to_live {
+		target.attempt_time_to_live = value;
 	}
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;
@@ -1983,8 +1983,8 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;
 	}
-	if let Some(value) = source.process_state_ttl {
-		target.process_state_ttl = value;
+	if let Some(value) = source.process_state_time_to_live {
+		target.process_state_time_to_live = value;
 	}
 	if let Some(value) = source.progress_log_delay {
 		target.progress_log_delay = value;
@@ -2007,11 +2007,11 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.sandboxes {
 		target.sandboxes = Some(value);
 	}
-	if let Some(value) = source.sandbox_state_ttl {
-		target.sandbox_state_ttl = value;
+	if let Some(value) = source.sandbox_state_time_to_live {
+		target.sandbox_state_time_to_live = value;
 	}
-	if let Some(value) = source.scheduler_ttl {
-		target.scheduler_ttl = value;
+	if let Some(value) = source.scheduler_time_to_live {
+		target.scheduler_time_to_live = value;
 	}
 	if let Some(value) = source.stdio_buffer_chunks {
 		target.stdio_buffer_chunks = value;
@@ -2022,8 +2022,8 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.stdio_drain_timeout {
 		target.stdio_drain_timeout = value;
 	}
-	if let Some(value) = source.stdio_drained_ttl {
-		target.stdio_drained_ttl = value;
+	if let Some(value) = source.stdio_drained_time_to_live {
+		target.stdio_drained_time_to_live = value;
 	}
 	if let Some(value) = source.stopped_sandbox_interval {
 		target.stopped_sandbox_interval = value;
@@ -2185,8 +2185,8 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	if let Some(value) = source.max_create_sandbox_requests_per_runner {
 		target.max_create_sandbox_requests_per_runner = value;
 	}
-	if let Some(value) = source.runner_ttl {
-		target.runner_ttl = value;
+	if let Some(value) = source.runner_time_to_live {
+		target.runner_time_to_live = value;
 	}
 	target
 }
@@ -2208,8 +2208,8 @@ fn resolve_scheduler_request(source: SchedulerRequest) -> server::SchedulerReque
 	if let Some(value) = source.concurrency {
 		target.concurrency = value;
 	}
-	if let Some(value) = source.response_ttl {
-		target.response_ttl = value;
+	if let Some(value) = source.response_time_to_live {
+		target.response_time_to_live = value;
 	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
@@ -2823,8 +2823,8 @@ fn resolve_watch(source: Watch) -> server::Watch {
 	if let Some(value) = source.channel_capacity {
 		target.channel_capacity = value;
 	}
-	if let Some(value) = source.ttl {
-		target.ttl = value;
+	if let Some(value) = source.time_to_live {
+		target.time_to_live = value;
 	}
 	target
 }
@@ -2869,15 +2869,15 @@ mod tests {
 	#[test]
 	fn resolves_authentication_cache() {
 		let source: Authentication = serde_json::from_value(serde_json::json!({
-			"cache": { "capacity": 42, "ttl": 1.5 }
+			"cache": { "capacity": 42, "time_to_live": 1.5 }
 		}))
 		.unwrap();
 		let target = resolve_authentication(source).unwrap();
 		assert_eq!(target.cache.capacity, 42);
-		assert_eq!(target.cache.ttl, Duration::from_millis(1500));
+		assert_eq!(target.cache.time_to_live, Duration::from_millis(1500));
 		let target = resolve_authentication(Authentication::default()).unwrap();
 		assert_eq!(target.cache.capacity, 10_000);
-		assert_eq!(target.cache.ttl, Duration::from_secs(60));
+		assert_eq!(target.cache.time_to_live, Duration::from_secs(60));
 	}
 
 	#[test]
@@ -2915,7 +2915,7 @@ mod tests {
 				"kind": "prometheus",
 				"available_query": "sum(kubelet_volume_stats_available_bytes)",
 				"total_query": "sum(kubelet_volume_stats_capacity_bytes)",
-				"ttl": 2.5,
+				"time_to_live": 2.5,
 				"url": "http://127.0.0.1:9090",
 			},
 			"keyspace": "cache",
@@ -2933,7 +2933,7 @@ mod tests {
 			capacity.total_query,
 			"sum(kubelet_volume_stats_capacity_bytes)"
 		);
-		assert_eq!(capacity.ttl, Duration::from_millis(2_500));
+		assert_eq!(capacity.time_to_live, Duration::from_millis(2_500));
 		assert_eq!(capacity.url.to_string(), "http://127.0.0.1:9090");
 	}
 
@@ -2990,7 +2990,7 @@ mod tests {
 				"pool": {
 					"max": 32,
 					"min": 4,
-					"ttl": 30,
+					"time_to_live": 30,
 				},
 				"reconnect": {
 					"max_retries": 12,
@@ -3010,7 +3010,7 @@ mod tests {
 		assert!(!target.path_style);
 		assert_eq!(target.pool.max, 32);
 		assert_eq!(target.pool.min, 4);
-		assert_eq!(target.pool.ttl, Some(Duration::from_secs(30)));
+		assert_eq!(target.pool.time_to_live, Some(Duration::from_secs(30)));
 		assert_eq!(target.reconnect.max_retries, 12);
 		assert_eq!(target.region, "us-east-1");
 		assert_eq!(target.secret_key, "secret");
@@ -3543,7 +3543,7 @@ mod tests {
 				"request": {
 					"concurrency": 43,
 					"poll_interval": 0.25,
-					"response_ttl": 90,
+					"response_time_to_live": 90,
 					"retry": {
 						"backoff": 0.11,
 						"jitter": 0.12,
@@ -3613,7 +3613,10 @@ mod tests {
 		);
 		assert_eq!(target.indexer.request.retry.max_retries, 5);
 		assert_eq!(target.indexer.request.timeout, Duration::from_secs(2));
-		assert_eq!(target.indexer.request.response_ttl, Duration::from_secs(90));
+		assert_eq!(
+			target.indexer.request.response_time_to_live,
+			Duration::from_secs(90)
+		);
 		assert_eq!(target.indexer.updates.permissions.partitions.end, 11);
 		assert_eq!(target.indexer.updates.permissions.partitions.start, 5);
 		assert_eq!(target.indexer.updates.max_process_depth, 64);

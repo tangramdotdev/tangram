@@ -7,18 +7,14 @@ pub struct Args {
 	/// Only use cached remote results. Do not fetch from remotes.
 	#[arg(long)]
 	pub cached: bool,
-
-	#[arg(index = 1)]
-	pub organization: tg::Referent<tg::organization::Selector>,
-
 	#[command(flatten)]
 	pub location: tangram_cli_core::location::Args,
-
+	#[arg(index = 1)]
+	pub organization: tg::Referent<tg::organization::Selector>,
 	#[command(flatten)]
 	pub print: tangram_cli_core::print::Options,
-
 	#[command(flatten)]
-	pub ttl: tangram_cli_reference::Ttl,
+	pub time_to_live: tangram_cli_reference::TimeToLive,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -26,8 +22,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let arg = tg::organization::get::Arg {
 		cached: args.cached,
 		location: args.location.get_for_options(&args.organization),
+		time_to_live: args.time_to_live.get(),
 		tokens: args.organization.options.tokens,
-		ttl: args.ttl.get(),
 	};
 	let organization = client
 		.try_get_organization(&args.organization.node, arg)

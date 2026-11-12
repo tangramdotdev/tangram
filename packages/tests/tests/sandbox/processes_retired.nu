@@ -12,7 +12,7 @@ let runner = server spawn --name runner --config {
 	control: { read_timeout: 0.25 },
 	remotes: { default: { url: $local_owner.url } },
 	roles: [api indexer runner],
-	runner: { id: $created.data.id, process_state_ttl: 0, remote: default, sandbox_state_ttl: 60, token: $created.token.token },
+	runner: { id: $created.data.id, process_state_time_to_live: 0, remote: default, sandbox_state_time_to_live: 60, token: $created.token.token },
 }
 let remote_slow = server spawn --name remote-slow --config { control: { read_timeout: 60 } }
 let local_client = server spawn --name local-client --config {

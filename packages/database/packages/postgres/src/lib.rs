@@ -34,7 +34,7 @@ pub struct DatabaseOptions {
 pub struct PoolOptions {
 	pub max: usize,
 	pub min: usize,
-	pub ttl: Option<Duration>,
+	pub time_to_live: Option<Duration>,
 	pub url: Uri,
 }
 
@@ -174,10 +174,10 @@ async fn create_pool(
 		}
 	};
 	let entry = pool::Options {
-		min: options.min,
 		max: options.max,
+		min: options.min,
 		shared: 1,
-		ttl: options.ttl,
+		time_to_live: options.time_to_live,
 	};
 	let pool = Pool::new(entry, create);
 	for _ in 0..options.min {

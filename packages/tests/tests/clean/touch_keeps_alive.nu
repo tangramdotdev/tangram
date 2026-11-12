@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 # Background cleaning collects an untouched object after its time to live while a touched object survives.
 
-let local = server spawn --now 2026-01-01T00:00:00Z --config { advanced: { checkpoints: true }, indexer: { cleaning: {} }, object: { ttl: 2, ttt: 0 } }
+let local = server spawn --now 2026-01-01T00:00:00Z --config { advanced: { checkpoints: true }, indexer: { cleaning: {} }, object: { time_to_live: 2, ttt: 0 } }
 
 let touched = tg put --no-tokens 'tg.file("keep me alive")' | referent node
 let untouched = tg put --no-tokens 'tg.file("let me die")' | referent node

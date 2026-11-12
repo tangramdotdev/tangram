@@ -41,7 +41,7 @@ impl Record {
 
 fn options() -> Options {
 	Options {
-		attempt_ttl: Duration::from_millis(200),
+		attempt_time_to_live: Duration::from_millis(200),
 		heartbeat_interval: Duration::from_millis(20),
 		idle_timeout: Duration::from_millis(100),
 		recovery_timeout: Duration::from_millis(500),
@@ -136,7 +136,7 @@ async fn the_connections_of_a_client_share_one_response_subscription() {
 async fn a_request_sent_before_the_server_starts_is_recovered_when_the_server_announces() {
 	// Use a retry interval far longer than the test, so that only the announcement can deliver the request in time.
 	let options = Options {
-		attempt_ttl: Duration::from_secs(60),
+		attempt_time_to_live: Duration::from_secs(60),
 		heartbeat_interval: Duration::from_secs(30),
 		idle_timeout: Duration::from_secs(60),
 		recovery_timeout: Duration::from_secs(60),
@@ -157,14 +157,15 @@ async fn a_request_sent_before_the_server_starts_is_recovered_when_the_server_an
 }
 
 #[tokio::test]
-async fn heartbeats_keep_a_request_alive_while_the_server_takes_longer_than_the_attempt_ttl() {
+async fn heartbeats_keep_a_request_alive_while_the_server_takes_longer_than_the_attempt_time_to_live()
+ {
 	let messenger = TestMessenger::default();
 	let server = server(&messenger, options()).await;
 	let client = client(&messenger, options());
 	let request = spawn_request(&client, "slow");
 	let (_, reply) = server.next().await.unwrap();
 	reply.acknowledge();
-	tokio::time::sleep(options().attempt_ttl * 3).await;
+	tokio::time::sleep(options().attempt_time_to_live * 3).await;
 	assert!(!reply.is_cancelled());
 	reply.send(&Bytes::from("done")).unwrap();
 	assert_eq!(request.await.unwrap().unwrap(), Bytes::from("done"));
@@ -262,7 +263,7 @@ async fn the_server_cancels_the_requests_of_an_attempt_whose_heartbeats_stop() {
 	let _request = spawn_request(&client, "abandoned");
 	let (_, reply) = server.next().await.unwrap();
 	client.stop();
-	tokio::time::timeout(options().attempt_ttl * 5, cancelled(&reply))
+	tokio::time::timeout(options().attempt_time_to_live * 5, cancelled(&reply))
 		.await
 		.expect("the attempt must expire");
 }
@@ -357,7 +358,7 @@ async fn a_stopped_server_finishes_once_its_responses_are_acknowledged() {
 	let (_, reply) = server.next().await.unwrap();
 	reply.send(&Bytes::from("ok")).unwrap();
 	server.stop();
-	tokio::time::timeout(options().attempt_ttl * 5, server.wait())
+	tokio::time::timeout(options().attempt_time_to_live * 5, server.wait())
 		.await
 		.expect("the server must finish");
 	assert_eq!(request.await.unwrap().unwrap(), Bytes::from("ok"));
@@ -433,7 +434,7 @@ fn messages_roundtrip() {
 		Message::HeartbeatResponse {
 			attempt: string(),
 			id: string(),
-			ttl: Duration::from_millis(1234),
+			time_to_live: Duration::from_millis(1234),
 		},
 		Message::Request {
 			attempt: Some(string()),
@@ -450,7 +451,7 @@ fn messages_roundtrip() {
 		Message::RequestAck {
 			attempt: string(),
 			id: string(),
-			ttl: Duration::from_millis(1234),
+			time_to_live: Duration::from_millis(1234),
 		},
 		Message::Response {
 			attempt: string(),

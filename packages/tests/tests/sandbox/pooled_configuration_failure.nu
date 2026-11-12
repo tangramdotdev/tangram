@@ -62,7 +62,7 @@ for backend in $backends {
 with socket.socket() as listener:
     listener.bind(("127.0.0.1", 0))
     print(listener.getsockname()[1])' | str trim
-		let args = [--no-tokens --no-ttl --cpu 1 --memory 268435456 --storage-min 134217728 --storage 134217728 --hostname configured --network --port $'127.0.0.1:($port):8080' --mount $'($source):/target,ro'] | append $mounts
+		let args = [--no-tokens --no-time-to-live --cpu 1 --memory 268435456 --storage-min 134217728 --storage 134217728 --hostname configured --network --port $'127.0.0.1:($port):8080' --mount $'($source):/target,ro'] | append $mounts
 
 		# Remove the source before configuration and restore it after the mount failure, so cold fallback can succeed.
 		let configure = checkpoint watch runner.sandbox.pool.configure

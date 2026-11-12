@@ -94,8 +94,24 @@ export namespace Http2 {
 			);
 	}
 }
-export type Pool = { max: number; min: number; shared: number; ttl?: number };
+export type Pool = {
+	max: number;
+	min: number;
+	shared: number;
+	timeToLive?: number;
+	ttl?: number;
+};
 export namespace Pool {
+	export function normalize(config: Pool): Pool {
+		if (config.ttl === undefined) {
+			return config;
+		}
+		if (config.timeToLive !== undefined) {
+			throw new Error("ttl and timeToLive may not both be set");
+		}
+		let { ttl: timeToLive, ...rest } = config;
+		return { ...rest, timeToLive };
+	}
 	export function defaultValue(): Pool {
 		return { max: 1, min: 0, shared: Number.MAX_SAFE_INTEGER };
 	}
@@ -108,8 +124,8 @@ export namespace Pool {
 			config.min > config.max ||
 			!Number.isSafeInteger(config.shared) ||
 			config.shared < 1 ||
-			(config.ttl !== undefined &&
-				(!Number.isFinite(config.ttl) || config.ttl < 0))
+			(config.timeToLive !== undefined &&
+				(!Number.isFinite(config.timeToLive) || config.timeToLive < 0))
 		)
 			throw new Error("invalid pool options");
 	}

@@ -4,7 +4,7 @@ use ../../util/test.nu *
 
 let instance = instance --cloud --config {
 	advanced: { checkpoints: true },
-	indexer: { request: { response_ttl: 1 } },
+	indexer: { request: { response_time_to_live: 1 } },
 }
 let indexer = server spawn --instance $instance --name indexer --config { roles: [api indexer] }
 let api = server spawn --instance $instance --name api --config { roles: [api] }

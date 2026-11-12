@@ -7,7 +7,7 @@ let config = {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
-	scheduler: { default_cpu: 1, default_memory: 1_073_741_824, runner_ttl: 2 },
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824, runner_time_to_live: 2 },
 }
 let remote = server spawn --name remote --config $config
 let created = tg --url $remote.url --token $root_token runner create | from json
@@ -18,7 +18,7 @@ let runner = server spawn --name runner --config {
 		id: $created.data.id,
 		overcommit: { cpu: 1 },
 		remote: "default",
-		scheduler_ttl: 1,
+		scheduler_time_to_live: 1,
 		token: $created.token.token,
 	},
 }

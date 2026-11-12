@@ -229,7 +229,7 @@ where
 			tokio::select! {
 				() = async { stop.wait_for(|stop| *stop).await.ok(); }, if stopping_at.is_none() => {
 					// Stop delivering new requests, and drain the responses for at most the attempt time to live.
-					stopping_at = Some(Instant::now() + self.options.attempt_ttl);
+					stopping_at = Some(Instant::now() + self.options.attempt_time_to_live);
 					self.incoming = None;
 				},
 				message = messages.next() => {
@@ -332,7 +332,7 @@ where
 	}
 
 	async fn heartbeat(&mut self, client: String, id: String) {
-		let ttl = self.options.attempt_ttl;
+		let time_to_live = self.options.attempt_time_to_live;
 		let attempt = self.attempt(&client);
 
 		// Answer a retransmitted heartbeat with its response, without extending the attempt again.
@@ -345,11 +345,11 @@ where
 		}
 
 		// Extend the attempt and respond.
-		entry.expires_at = Instant::now() + ttl;
+		entry.expires_at = Instant::now() + time_to_live;
 		let response = Message::HeartbeatResponse {
 			attempt: attempt.clone(),
 			id: id.clone(),
-			ttl,
+			time_to_live,
 		};
 		let heartbeat = Entry {
 			acknowledged_at: None,
@@ -378,7 +378,7 @@ where
 		let attempt = attempt.unwrap_or_else(|| {
 			let attempt = self.attempt(&client);
 			let entry = self.state.attempts.get_mut(&attempt).unwrap();
-			entry.expires_at = Instant::now() + self.options.attempt_ttl;
+			entry.expires_at = Instant::now() + self.options.attempt_time_to_live;
 			attempt
 		});
 
@@ -400,7 +400,7 @@ where
 				None if previous.received => Some(Message::RequestAck {
 					attempt: attempt.clone(),
 					id: id.clone(),
-					ttl: self.options.attempt_ttl,
+					time_to_live: self.options.attempt_time_to_live,
 				}),
 				None => None,
 			};
@@ -455,7 +455,7 @@ where
 		let message = Message::RequestAck {
 			attempt,
 			id,
-			ttl: self.options.attempt_ttl,
+			time_to_live: self.options.attempt_time_to_live,
 		};
 		self.publish(&client, message).await;
 	}
@@ -501,7 +501,7 @@ where
 			cancelled: BTreeSet::new(),
 			client: client.to_owned(),
 			entries: BTreeMap::new(),
-			expires_at: Instant::now() + self.options.attempt_ttl,
+			expires_at: Instant::now() + self.options.attempt_time_to_live,
 		};
 		self.state.attempts.insert(attempt.clone(), entry);
 		self.state
@@ -514,11 +514,13 @@ where
 	/// Expire the attempts whose clients stopped sending heartbeats, and the acknowledged responses.
 	fn expire(&mut self) {
 		let now = Instant::now();
-		let ttl = self.options.attempt_ttl;
+		let time_to_live = self.options.attempt_time_to_live;
 		self.state.attempts.retain(|_, attempt| {
-			attempt
-				.entries
-				.retain(|_, entry| entry.acknowledged_at.is_none_or(|time| now < time + ttl));
+			attempt.entries.retain(|_, entry| {
+				entry
+					.acknowledged_at
+					.is_none_or(|time| now < time + time_to_live)
+			});
 			let alive = now < attempt.expires_at;
 			if !alive {
 				for entry in attempt.entries.values() {

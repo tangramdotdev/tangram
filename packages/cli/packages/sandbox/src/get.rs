@@ -18,7 +18,7 @@ pub struct Args {
 	pub sandbox: tg::Referent<tg::sandbox::Id>,
 
 	#[command(flatten)]
-	pub ttl: tangram_cli_reference::Ttl,
+	pub time_to_live: tangram_cli_reference::TimeToLive,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -33,7 +33,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let sandbox = tg::Sandbox::new(id.clone(), entry);
 	let options = tg::sandbox::get::Options {
 		cached: args.cached,
-		ttl: args.ttl.get(),
+		time_to_live: args.time_to_live.get(),
 	};
 	let output = sandbox
 		.try_get_with_instance(&client, options)

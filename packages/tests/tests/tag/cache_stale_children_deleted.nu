@@ -23,9 +23,9 @@ assert equal $k $old "the branch should resolve to its newest child"
 
 # Delete one child on the remote, then bust the cache.
 tg --url $remote.url tag delete "a/k/l"
-let k2 = tg --url $local.url get --no-tokens --ttl 0 "a/k?follow=true" | str trim
+let k2 = tg --url $local.url get --no-tokens --time-to-live 0 "a/k?follow=true" | str trim
 assert equal $k2 $old "the branch should still resolve via the remaining child"
 
 # The deleted child should be gone from the cache after the refresh.
-let l = tg --url $local.url get --remote --cached --no-ttl "a/k/l?follow=true" | complete
+let l = tg --url $local.url get --remote --cached --no-time-to-live "a/k/l?follow=true" | complete
 assert ($l.exit_code != 0) "the deleted child should be removed from the cache"

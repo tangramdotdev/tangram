@@ -14,8 +14,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub ttl: tg::remote::cache::Ttl,
+	#[serde(alias = "ttl", default, skip_serializing_if = "is_default")]
+	pub time_to_live: tg::remote::cache::TimeToLive,
 
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	pub tokens: tg::authorization::Tokens,
@@ -49,7 +49,7 @@ pub struct Output {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub cached: bool,
-	pub ttl: tg::remote::cache::Ttl,
+	pub time_to_live: tg::remote::cache::TimeToLive,
 }
 
 impl tg::Sandbox {
@@ -93,8 +93,8 @@ impl tg::Sandbox {
 		let arg = tg::sandbox::get::Arg {
 			cached: options.cached,
 			location: self.location(),
+			time_to_live: options.time_to_live,
 			tokens: self.tokens(),
-			ttl: options.ttl,
 		};
 		let Some(output) = instance.try_get_sandbox(self.id(), arg).await? else {
 			return Ok(None);

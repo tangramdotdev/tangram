@@ -10,7 +10,7 @@ let remote = server spawn --name remote --config {
 	http: { http2: { connection_window_size: 536_870_912, max_concurrent_streams: 8, stream_window_size: 33_554_432 } },
 	index: { map_size: 268_435_456 },
 	roles: [api indexer scheduler],
-	scheduler: { runner_ttl: 3 },
+	scheduler: { runner_time_to_live: 3 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
@@ -68,7 +68,7 @@ success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s 
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.finish.succeeded $finish_watch 0 | complete) 'Finish should be acknowledged while the outcome sync is held'
 tg --url $runner.url checkpoint unwatch runner.process.control.finish.succeeded $finish_watch
 
-# Observe repeated heartbeats over several runner TTLs while the outcome sync is held.
+# Observe repeated heartbeats over several runner time to lives while the outcome sync is held.
 let heartbeat_watch = tg --url $remote.url --token $root_token checkpoint watch runner.control.heartbeat.received --params ({ runner: $created.data.id } | to json --raw) | from json | get watch
 for index in 0..8 {
 	success (tg --url $remote.url --token $root_token checkpoint wait --timeout 5s runner.control.heartbeat.received $heartbeat_watch $index | complete) 'heartbeats should continue while the sync window is full'

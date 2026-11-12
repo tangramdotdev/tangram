@@ -21,17 +21,17 @@ tg --url $remote.url tag put -p "a/c/d" $id
 tg --url $local.url get "a/b?follow=true" | ignore
 tg --url $local.url get "a/c/d?follow=true" | ignore
 
-# The tags are cached. Use --no-ttl to bypass the expiry check.
-let before_b = tg --url $local.url get --remote --cached --no-ttl "a/b?follow=true" | complete
+# The tags are cached. Use --no-time-to-live to bypass the expiry check.
+let before_b = tg --url $local.url get --remote --cached --no-time-to-live "a/b?follow=true" | complete
 assert ($before_b.exit_code == 0) "tag a/b should be in the cache before clean"
-let before_d = tg --url $local.url get --remote --cached --no-ttl "a/c/d?follow=true" | complete
+let before_d = tg --url $local.url get --remote --cached --no-time-to-live "a/c/d?follow=true" | complete
 assert ($before_d.exit_code == 0) "tag a/c/d should be in the cache before clean"
 
 # Clean deletes all cached remote tags.
 tg --url $local.url clean
-let after_b = tg --url $local.url get --remote --cached --no-ttl "a/b?follow=true" | complete
+let after_b = tg --url $local.url get --remote --cached --no-time-to-live "a/b?follow=true" | complete
 assert ($after_b.exit_code != 0) "leaf tag a/b should be cleaned"
-let after_d = tg --url $local.url get --remote --cached --no-ttl "a/c/d?follow=true" | complete
+let after_d = tg --url $local.url get --remote --cached --no-time-to-live "a/c/d?follow=true" | complete
 assert ($after_d.exit_code != 0) "leaf tag a/c/d should be cleaned"
 
 # The tags are still available from the remote.

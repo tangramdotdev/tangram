@@ -33,7 +33,7 @@ for case in [
 		let memory = if $explicit { 134217728 } else { $case.memory }
 
 		# Check the number of CPUs available to a process in the sandbox.
-		let sandbox = tg sandbox create --no-tokens --no-ttl ...$args | referent node
+		let sandbox = tg sandbox create --no-tokens --no-time-to-live ...$args | referent node
 		let output = tg run --no-tokens $'--sandbox=($sandbox)' $nproc | complete
 		success $output 'the process should report its CPUs'
 		let observed = $output.stdout | str trim | into int
@@ -49,7 +49,7 @@ for case in [
 		# Allocate more memory than the expected limit, or a large amount of memory when the sandbox is unlimited.
 		let size = if $memory == null { 402653184 } else { $memory * 3 // 2 }
 		let allocate = tg build $module --arg-string $'dd if=/dev/zero of=/dev/null bs=($size) count=1' | str trim
-		let sandbox = tg sandbox create --no-tokens --no-ttl ...$args | referent node
+		let sandbox = tg sandbox create --no-tokens --no-time-to-live ...$args | referent node
 		let process = tg spawn --no-tokens $'--sandbox=($sandbox)' $allocate | referent node
 		let output = tg wait $process | complete
 		success $output 'the process should finish'

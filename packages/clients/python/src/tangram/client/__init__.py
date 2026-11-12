@@ -19,6 +19,7 @@ from ..config import (
     default_process_config,
     default_retry_options,
     default_stream_retry_options,
+    normalize_pool_options,
     validate_http_config,
     validate_pool_options,
     validate_process_config,
@@ -121,7 +122,7 @@ async def backoff(options: RetryOptions, attempt: int) -> None:
 class Client:
     def __init__(self, config: Config | None = None, **options: Unpack[Config]):
         config = {**(config or {}), **options}
-        self.pool = config.get("pool", default_pool_options())
+        self.pool = normalize_pool_options(config.get("pool", default_pool_options()))
         validate_pool_options(self.pool)
         self.http = config.get("http", default_http_config())
         validate_http_config(self.http)

@@ -69,7 +69,7 @@ async fn token_and_principal_invalidation() {
 async fn fixed_expiry() {
 	let config = AuthenticationCache {
 		capacity: 10,
-		ttl: Duration::from_secs(1),
+		time_to_live: Duration::from_secs(1),
 	};
 	let cache = Cache::new(&config);
 	cache.set_ready(true);

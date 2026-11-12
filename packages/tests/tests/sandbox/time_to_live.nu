@@ -1,22 +1,22 @@
 use ../../util/test.nu *
 
-# A sandbox lives until it is destroyed by default, and it is destroyed after its time to live expires, which `--ttl` also sets.
+# A sandbox lives until it is destroyed by default, and it is destroyed after its time to live expires, which `--time-to-live` also sets.
 
-let local = server spawn --name local --now '2026-01-01T00:00:00Z' --config { advanced: { checkpoints: true }, control: { read_timeout: 0.25 }, indexer: { cleaning: {} }, runner: { sandbox_state_ttl: 0 }, sandbox: { ttl: 0 } }
+let local = server spawn --name local --now '2026-01-01T00:00:00Z' --config { advanced: { checkpoints: true }, control: { read_timeout: 0.25 }, indexer: { cleaning: {} }, runner: { sandbox_state_time_to_live: 0 }, sandbox: { time_to_live: 0 } }
 
 let default = tg sandbox create --no-tokens | referent node
 let sandbox = tg sandbox get $default | from json | get data
 assert ($sandbox.time_to_live? | is-empty) "a sandbox should live until it is destroyed by default"
 tg sandbox destroy $default
 
-let id = tg sandbox create --no-tokens --ttl 1s | referent node
+let id = tg sandbox create --no-tokens --time-to-live 1s | referent node
 let delete = checkpoint watch cleaning.sandbox.delete --params { sandbox: $id }
 let removed = checkpoint watch runner.sandbox.state.removed --params { sandbox: $id }
 
 let output = tg sandbox get $id | complete
 success $output
 
-# Advance the clock past the ttl once the sandbox is ready, wait for the sandbox to be destroyed, and advance past the cleaning interval so that cleaning deletes it from the index and the runner discards its state.
+# Advance the clock past the time_to_live once the sandbox is ready, wait for the sandbox to be destroyed, and advance past the cleaning interval so that cleaning deletes it from the index and the runner discards its state.
 wait_for_log $local $'the sandbox is ready, sandbox=($id)'
 advance_time $local 1sec
 tg sandbox wait $id | ignore

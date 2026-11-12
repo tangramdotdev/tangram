@@ -11,6 +11,7 @@ from ..http import Stream
 from ..http.uri import primitive_string
 from ..progress import Event
 from ..referent import Referent
+from ..sandbox import normalize_time_to_live
 
 
 class Options(TypedDict, total=False):
@@ -24,6 +25,7 @@ class Options(TypedDict, total=False):
     locked: bool
     solve: bool
     unsolved_dependencies: bool
+    time_to_live: float | None
     ttl: float | None
     watch: bool
 
@@ -41,7 +43,7 @@ class ArgObject(TypedDict):
 class Arg:
     @staticmethod
     def to_json(arg: ArgObject) -> dict[str, Any]:
-        source = arg["options"]
+        source = normalize_time_to_live(arg["options"])
         options = {}
         checkout_pointers = source.get(
             "checkout_pointers", source.get("checkoutPointers")
@@ -74,10 +76,12 @@ class Arg:
             "local_dependencies" in source or "localDependencies" in source
         ) and not local_dependencies:
             options["source_dependencies"] = local_dependencies
-        if "ttl" in source:
-            ttl = source["ttl"]
-            options["tag_ttl"] = (
-                "infinite" if ttl is None else primitive_string(ttl) + "s"
+        if "time_to_live" in source:
+            time_to_live = source["time_to_live"]
+            options["tag_time_to_live"] = (
+                "infinite"
+                if time_to_live is None
+                else primitive_string(time_to_live) + "s"
             )
         unsolved_dependencies = source.get(
             "unsolved_dependencies", source.get("unsolvedDependencies")

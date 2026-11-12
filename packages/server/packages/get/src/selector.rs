@@ -20,10 +20,10 @@ impl Component {
 		location: Option<&tg::location::Arg>,
 		tokens: &tg::authorization::Tokens,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> tg::Result<Option<tg::get::Output>> {
 		let mut output = self
-			.try_get_with_selector_inner(session, selector, location, tokens, cached, ttl)
+			.try_get_with_selector_inner(session, selector, location, tokens, cached, time_to_live)
 			.await?;
 		if let Some(output) = &mut output {
 			output.referent.options.tokens.inherit(tokens);
@@ -38,7 +38,7 @@ impl Component {
 		location: Option<&tg::location::Arg>,
 		tokens: &tg::authorization::Tokens,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> tg::Result<Option<tg::get::Output>> {
 		let locations = session
 			.locations(location)
@@ -98,8 +98,15 @@ impl Component {
 					return Ok(Some(output));
 				}
 			}
-			self.try_get_with_selector_remotes(session, selector, remotes, tokens, cached, ttl)
-				.await
+			self.try_get_with_selector_remotes(
+				session,
+				selector,
+				remotes,
+				tokens,
+				cached,
+				time_to_live,
+			)
+			.await
 		};
 
 		// Return the first result for an immutable ID, and prefer the local result for a specifier.
@@ -229,7 +236,7 @@ impl Component {
 		remotes: Vec<Remote>,
 		tokens: &tg::authorization::Tokens,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> tg::Result<Option<tg::get::Output>> {
 		let results = remotes
 			.into_iter()
@@ -240,7 +247,12 @@ impl Component {
 					let name = remote.name.clone();
 					let result = self
 						.try_get_with_selector_remote(
-							session, &selector, remote, &tokens, cached, ttl,
+							session,
+							&selector,
+							remote,
+							&tokens,
+							cached,
+							time_to_live,
 						)
 						.await;
 					(name, result)
@@ -336,7 +348,7 @@ impl Component {
 		remote: Remote,
 		tokens: &tg::authorization::Tokens,
 		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> tg::Result<Option<tg::get::Output>> {
 		// Create the remote request.
 		let source = tg::Location::Remote(tg::location::Remote {
@@ -388,7 +400,7 @@ impl Component {
 			.server
 			.components
 			.remote
-			.try_get_cached_remote_response(session, &remote.name, &request, ttl)
+			.try_get_cached_remote_response(session, &remote.name, &request, time_to_live)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{

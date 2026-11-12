@@ -21,13 +21,13 @@ for backend in $backends {
 				let checkpoint = checkpoint watch runner.sandbox.pool.take
 				let job = job spawn {
 					let job_id = job id
-					tg sandbox create --no-tokens --no-ttl ...$case.args ...$mounts | job send --tag $job_id 0
+					tg sandbox create --no-tokens --no-time-to-live ...$case.args ...$mounts | job send --tag $job_id 0
 				}
 				checkpoint pass $checkpoint | ignore
 				checkpoint unwatch $checkpoint
 				job recv --tag $job | referent node
 			} else {
-				tg sandbox create --no-tokens --no-ttl ...$case.args ...$mounts | referent node
+				tg sandbox create --no-tokens --no-time-to-live ...$case.args ...$mounts | referent node
 			}
 			let script = r#'
 				set -eu

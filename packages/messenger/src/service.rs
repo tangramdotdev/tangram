@@ -68,7 +68,7 @@ pub struct Ignore;
 #[derive(Clone, Copy, Debug)]
 pub struct Options {
 	/// How long an attempt lives without a heartbeat, and how long an acknowledged response is retained.
-	pub attempt_ttl: Duration,
+	pub attempt_time_to_live: Duration,
 
 	/// How often a client with pending requests sends a heartbeat.
 	pub heartbeat_interval: Duration,
@@ -114,7 +114,7 @@ enum Message {
 	HeartbeatResponse {
 		attempt: String,
 		id: String,
-		ttl: Duration,
+		time_to_live: Duration,
 	},
 	Request {
 		attempt: Option<String>,
@@ -125,7 +125,7 @@ enum Message {
 	RequestAck {
 		attempt: String,
 		id: String,
-		ttl: Duration,
+		time_to_live: Duration,
 	},
 	Response {
 		attempt: String,
@@ -142,7 +142,7 @@ impl<Req> Observer<Req> for Ignore {
 
 impl Options {
 	pub fn validate(&self) -> Result<(), Error> {
-		if self.attempt_ttl.is_zero()
+		if self.attempt_time_to_live.is_zero()
 			|| self.heartbeat_interval.is_zero()
 			|| self.retry_interval.is_zero()
 		{
@@ -191,11 +191,15 @@ impl Payload for Message {
 				put_string(&mut bytes, client);
 				put_string(&mut bytes, id);
 			},
-			Self::HeartbeatResponse { attempt, id, ttl } => {
+			Self::HeartbeatResponse {
+				attempt,
+				id,
+				time_to_live,
+			} => {
 				bytes.put_u8(4);
 				put_string(&mut bytes, attempt);
 				put_string(&mut bytes, id);
-				bytes.put_u64(ttl.as_millis().try_into().unwrap_or(u64::MAX));
+				bytes.put_u64(time_to_live.as_millis().try_into().unwrap_or(u64::MAX));
 			},
 			Self::Request {
 				attempt,
@@ -209,11 +213,15 @@ impl Payload for Message {
 				put_string(&mut bytes, id);
 				bytes.put_slice(request);
 			},
-			Self::RequestAck { attempt, id, ttl } => {
+			Self::RequestAck {
+				attempt,
+				id,
+				time_to_live,
+			} => {
 				bytes.put_u8(6);
 				put_string(&mut bytes, attempt);
 				put_string(&mut bytes, id);
-				bytes.put_u64(ttl.as_millis().try_into().unwrap_or(u64::MAX));
+				bytes.put_u64(time_to_live.as_millis().try_into().unwrap_or(u64::MAX));
 			},
 			Self::Response {
 				attempt,
@@ -269,8 +277,12 @@ impl Payload for Message {
 				if bytes.remaining() != 8 {
 					return Err(invalid());
 				}
-				let ttl = Duration::from_millis(bytes.get_u64());
-				Self::HeartbeatResponse { attempt, id, ttl }
+				let time_to_live = Duration::from_millis(bytes.get_u64());
+				Self::HeartbeatResponse {
+					attempt,
+					id,
+					time_to_live,
+				}
 			},
 			5 => {
 				let attempt = get_optional_string(&mut bytes)?;
@@ -289,8 +301,12 @@ impl Payload for Message {
 				if bytes.remaining() != 8 {
 					return Err(invalid());
 				}
-				let ttl = Duration::from_millis(bytes.get_u64());
-				Self::RequestAck { attempt, id, ttl }
+				let time_to_live = Duration::from_millis(bytes.get_u64());
+				Self::RequestAck {
+					attempt,
+					id,
+					time_to_live,
+				}
 			},
 			7 => {
 				let attempt = get_string(&mut bytes)?;

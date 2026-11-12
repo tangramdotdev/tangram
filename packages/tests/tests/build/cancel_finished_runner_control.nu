@@ -4,7 +4,7 @@ use ../../util/test.nu *
 
 let local = server spawn --config {
 	advanced: { checkpoints: true },
-	runner: { process_state_ttl: 0 },
+	runner: { process_state_time_to_live: 0 },
 }
 let finish_watch = tg checkpoint watch runner.process.finish | from json | get watch
 let cancel_watch = tg checkpoint watch process.cancel.runner | from json | get watch

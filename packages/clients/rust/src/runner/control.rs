@@ -652,7 +652,8 @@ pub struct Arg {
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	#[tangram_serialize(id = 4)]
-	pub scheduler_ttl: Duration,
+	#[serde(alias = "scheduler_ttl")]
+	pub scheduler_time_to_live: Duration,
 }
 
 #[derive(
@@ -684,7 +685,8 @@ pub struct Header {
 	/// How long the scheduler keeps the runner after its last heartbeat, after which the scheduler no longer sends the runner a request again.
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	#[tangram_serialize(id = 2)]
-	pub runner_ttl: Duration,
+	#[serde(alias = "runner_ttl")]
+	pub runner_time_to_live: Duration,
 
 	/// The sandboxes in the arg that the server stopped, destroyed, or started at another boot while the runner's heartbeat was expired.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]

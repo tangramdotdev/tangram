@@ -712,7 +712,7 @@ pub struct StartServerResponseOutput {}
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
 	pub event_capacity: usize,
-	pub inbox_ttl: Duration,
+	pub inbox_time_to_live: Duration,
 	pub max_deliveries: usize,
 	pub max_untracked_messages: usize,
 	pub message_capacity: usize,
@@ -726,7 +726,7 @@ impl Config {
 				"expected the event capacity to be greater than zero"
 			));
 		}
-		if self.inbox_ttl.is_zero() {
+		if self.inbox_time_to_live.is_zero() {
 			return Err(tg::error!(
 				"expected the inbox time to live to be greater than zero"
 			));
@@ -836,7 +836,7 @@ impl Default for Config {
 	fn default() -> Self {
 		Self {
 			event_capacity: 64,
-			inbox_ttl: Duration::from_mins(1),
+			inbox_time_to_live: Duration::from_mins(1),
 			max_deliveries: 64,
 			max_untracked_messages: 256,
 			message_capacity: 256,

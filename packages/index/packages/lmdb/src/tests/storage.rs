@@ -889,7 +889,7 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 			};
 			index.write(arg).await.unwrap().unwrap();
 
-			// Expire the push retention after a two-hour TTL.
+			// Expire the push retention after a two-hour time to live.
 			for _ in 0..4 {
 				let arg = tangram_index::clean::Arg {
 					batch_size: 100,

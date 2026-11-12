@@ -61,7 +61,7 @@ pub struct Options {
 	pub source_dependencies: SourceDependencies,
 
 	#[command(flatten)]
-	pub tag_ttl: TagTtl,
+	pub tag_time_to_live: TagTimeToLive,
 
 	#[command(flatten)]
 	pub unsolved_dependencies: UnsolvedDependencies,
@@ -71,16 +71,16 @@ pub struct Options {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct TagTtl {
-	#[arg(id = "checkin.tag_ttl.tag_ttl", long = "tag-ttl", overrides_with = "checkin.tag_ttl.no_tag_ttl", value_parser = humantime::parse_duration)]
-	pub tag_ttl: Option<Duration>,
-
+pub struct TagTimeToLive {
 	#[arg(
-		id = "checkin.tag_ttl.no_tag_ttl",
-		long = "no-tag-ttl",
-		overrides_with = "checkin.tag_ttl.tag_ttl"
+		alias = "no-tag-ttl",
+		id = "checkin.tag_time_to_live.no_tag_time_to_live",
+		long = "no-tag-time-to-live",
+		overrides_with = "checkin.tag_time_to_live.tag_time_to_live"
 	)]
-	pub no_tag_ttl: bool,
+	pub no_tag_time_to_live: bool,
+	#[arg(alias = "tag-ttl", id = "checkin.tag_time_to_live.tag_time_to_live", long = "tag-time-to-live", overrides_with = "checkin.tag_time_to_live.no_tag_time_to_live", value_parser = humantime::parse_duration)]
+	pub tag_time_to_live: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -278,13 +278,13 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	Ok(())
 }
 
-impl TagTtl {
-	fn get(&self) -> tg::remote::cache::Ttl {
-		if self.no_tag_ttl {
-			tg::remote::cache::Ttl::Infinite
+impl TagTimeToLive {
+	fn get(&self) -> tg::remote::cache::TimeToLive {
+		if self.no_tag_time_to_live {
+			tg::remote::cache::TimeToLive::Infinite
 		} else {
-			self.tag_ttl
-				.map(tg::remote::cache::Ttl::Duration)
+			self.tag_time_to_live
+				.map(tg::remote::cache::TimeToLive::Duration)
 				.unwrap_or_default()
 		}
 	}
@@ -368,7 +368,7 @@ impl Options {
 			root: self.root,
 			solve: self.solve.get(),
 			source_dependencies: self.source_dependencies.get(),
-			tag_ttl: self.tag_ttl.get(),
+			tag_time_to_live: self.tag_time_to_live.get(),
 			unsolved_dependencies: self.unsolved_dependencies.get(),
 			watch: self.watch.get_option(),
 		}

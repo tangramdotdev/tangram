@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Remote cache reads use the configured default TTL and honor finite and infinite overrides.
+# Remote cache reads use the configured default time to live and honor finite and infinite overrides.
 
 let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config {
@@ -21,10 +21,10 @@ assert equal (tg --url $local.url tag get foo | from json | get target.id) $seco
 
 # A finite override accepts the cached response.
 tg --url $remote.url tag --force foo $third
-assert equal (tg --url $local.url tag get --ttl 1h foo | from json | get target.id) $second
+assert equal (tg --url $local.url tag get --time-to-live 1h foo | from json | get target.id) $second
 
 # An infinite override also accepts the cached response.
-assert equal (tg --url $local.url tag get --no-ttl foo | from json | get target.id) $second
+assert equal (tg --url $local.url tag get --no-time-to-live foo | from json | get target.id) $second
 
 # An explicit zero bypasses the cache.
-assert equal (tg --url $local.url tag get --ttl 0 foo | from json | get target.id) $third
+assert equal (tg --url $local.url tag get --time-to-live 0 foo | from json | get target.id) $third

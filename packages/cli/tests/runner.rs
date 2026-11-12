@@ -32,7 +32,7 @@ async fn destroy_sandbox_requires_ownership() -> tg::Result<()> {
 		"advanced": { "multi_server": true },
 		"authentication": { "root": { "token": root_token } },
 		"roles": ["api", "indexer", "scheduler"],
-		"scheduler": { "runner_ttl": 300 },
+		"scheduler": { "runner_time_to_live": 300 },
 	}));
 	let remote = Server::start(tangram, config).await?;
 	let created = remote.create_runner(root_token, None).await?;
@@ -176,7 +176,7 @@ async fn destroy_sandbox(
 		id: runner.data.id.clone(),
 		location: None,
 		sandboxes: Vec::new(),
-		scheduler_ttl: std::time::Duration::from_secs(300),
+		scheduler_time_to_live: std::time::Duration::from_secs(300),
 	};
 	let (_, stream) = match session
 		.get_runner_control_stream(arg, receiver.boxed())

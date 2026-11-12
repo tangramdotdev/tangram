@@ -13,8 +13,8 @@ pub(super) struct Client {
 	available_query: String,
 	cache: Mutex<Option<CacheEntry>>,
 	http: reqwest::Client,
+	time_to_live: Duration,
 	total_query: String,
-	ttl: Duration,
 	url: reqwest::Url,
 }
 
@@ -50,9 +50,9 @@ impl Client {
 		if config.total_query.trim().is_empty() {
 			return Err(tg::error!("the Prometheus total query must not be empty"));
 		}
-		if config.ttl.is_zero() {
+		if config.time_to_live.is_zero() {
 			return Err(tg::error!(
-				"the Prometheus capacity TTL must be greater than zero"
+				"the Prometheus capacity time to live must be greater than zero"
 			));
 		}
 		let url = config.url.trim_end_matches('/');
@@ -63,14 +63,14 @@ impl Client {
 		let cache = Mutex::new(None);
 		let total_query = config.total_query.clone();
 		let http = reqwest::Client::new();
-		let ttl = config.ttl;
+		let time_to_live = config.time_to_live;
 
 		Ok(Self {
 			available_query,
 			cache,
 			http,
+			time_to_live,
 			total_query,
-			ttl,
 			url,
 		})
 	}
@@ -78,7 +78,7 @@ impl Client {
 	pub async fn get(&self) -> tg::Result<Capacity> {
 		let mut cache = self.cache.lock().await;
 		if let Some(entry) = cache.as_ref()
-			&& entry.cached_at.elapsed() < self.ttl
+			&& entry.cached_at.elapsed() < self.time_to_live
 		{
 			return entry.result.clone();
 		}
@@ -155,7 +155,7 @@ mod tests {
 	use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 	#[tokio::test]
-	async fn caches_capacity_results_until_the_ttl_expires() {
+	async fn caches_capacity_results_until_the_time_to_live_expires() {
 		let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
 			.await
 			.unwrap();
@@ -176,8 +176,8 @@ mod tests {
 		});
 		let config = CapacityConfig {
 			available_query: "sum(available)".into(),
+			time_to_live: Duration::from_secs(1),
 			total_query: "sum(total)".into(),
-			ttl: Duration::from_secs(1),
 			url: format!("http://{address}"),
 		};
 		let client = Client::new(&config).unwrap();
@@ -200,15 +200,15 @@ mod tests {
 	fn uses_the_configured_prometheus_queries() {
 		let config = CapacityConfig {
 			available_query: "sum(available)".into(),
+			time_to_live: Duration::from_secs(1),
 			total_query: "sum(total)".into(),
-			ttl: Duration::from_secs(1),
 			url: "http://prometheus:9090/".into(),
 		};
 		let client = Client::new(&config).unwrap();
 
 		assert_eq!(client.available_query, "sum(available)");
 		assert_eq!(client.total_query, "sum(total)");
-		assert_eq!(client.ttl, Duration::from_secs(1));
+		assert_eq!(client.time_to_live, Duration::from_secs(1));
 		assert_eq!(client.url.as_str(), "http://prometheus:9090/api/v1/query");
 	}
 }

@@ -165,9 +165,9 @@ impl tangram_server_core::remote::Component for Component {
 		session: &'a tangram_server_core::Session,
 		remote: &'a str,
 		request: &'a Request,
-		ttl: tg::remote::cache::Ttl,
+		time_to_live: tg::remote::cache::TimeToLive,
 	) -> BoxFuture<'a, tg::Result<Option<Response>>> {
-		self.try_get_cached_remote_response(session, remote, request, ttl)
+		self.try_get_cached_remote_response(session, remote, request, time_to_live)
 			.boxed()
 	}
 

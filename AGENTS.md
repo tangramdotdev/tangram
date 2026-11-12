@@ -72,6 +72,9 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 
 ### Naming
 
+- Use `time_to_live` in code, documentation, and serialized output, including compound names such as `runner_time_to_live`. Use `timeToLive` in JavaScript.
+- Accept `ttl` as an input alias for `time_to_live`, including compound serialized fields and CLI flags such as `runner_ttl` and `--ttl`. Reject inputs that set both field names.
+
 - Use conventional type names such as `Arg`, `Options`, `Output`, `Data`, `State`, `Builder`, etc.
 - Name constructors `new` or `with_*`.
 - Use bare nouns for getters.

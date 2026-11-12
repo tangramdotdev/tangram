@@ -111,7 +111,7 @@ typedef struct {
 	// The sweep interval for expired cache-only nodes.
 	uint64_t node_eviction_interval_secs;
 	// The retention of an unreferenced cache-only node after its last access.
-	uint64_t node_ttl_secs;
+	uint64_t node_time_to_live_secs;
 	// The map size with which to open the store. It must be at least the server's.
 	uint64_t cache_map_size;
 	// The local cache backend: zero selects LMDB, one selects RocksDB, and two disables the fast path for Fjall.

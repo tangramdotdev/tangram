@@ -3,12 +3,17 @@ use {
 };
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct Ttl {
-	#[arg(id = "get.ttl.no_ttl", long = "no-ttl", overrides_with = "get.ttl.ttl")]
-	pub no_ttl: bool,
+pub struct TimeToLive {
+	#[arg(
+		alias = "no-ttl",
+		id = "get.time_to_live.no_time_to_live",
+		long = "no-time-to-live",
+		overrides_with = "get.time_to_live.time_to_live"
+	)]
+	pub no_time_to_live: bool,
 
-	#[arg(id = "get.ttl.ttl", long = "ttl", overrides_with = "get.ttl.no_ttl", value_parser = humantime::parse_duration)]
-	pub ttl: Option<Duration>,
+	#[arg(alias = "ttl", id = "get.time_to_live.time_to_live", long = "time-to-live", overrides_with = "get.time_to_live.no_time_to_live", value_parser = humantime::parse_duration)]
+	pub time_to_live: Option<Duration>,
 }
 
 pub async fn get_with_follow(
@@ -299,13 +304,13 @@ pub async fn get_module(cli: &mut Cli, reference: &tg::Reference) -> tg::Result<
 	Ok(module)
 }
 
-impl Ttl {
-	pub fn get(&self) -> tg::remote::cache::Ttl {
-		if self.no_ttl {
-			tg::remote::cache::Ttl::Infinite
+impl TimeToLive {
+	pub fn get(&self) -> tg::remote::cache::TimeToLive {
+		if self.no_time_to_live {
+			tg::remote::cache::TimeToLive::Infinite
 		} else {
-			self.ttl
-				.map(tg::remote::cache::Ttl::Duration)
+			self.time_to_live
+				.map(tg::remote::cache::TimeToLive::Duration)
 				.unwrap_or_default()
 		}
 	}
