@@ -110,6 +110,7 @@ export namespace Pool {
 			throw new Error("ttl and timeToLive may not both be set");
 		}
 		let { ttl: timeToLive, ...rest } = config;
+
 		return { ...rest, timeToLive };
 	}
 	export function defaultValue(): Pool {
