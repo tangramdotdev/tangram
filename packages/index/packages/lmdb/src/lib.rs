@@ -78,6 +78,13 @@ type Db = lmdb::Database<'static, lmdb::types::Bytes, lmdb::types::Bytes>;
 
 impl Index {
 	pub fn new(config: &Config) -> tg::Result<Self> {
+		Self::with_checkpoints(config, None)
+	}
+
+	pub fn with_checkpoints(
+		config: &Config,
+		checkpoints: Option<Arc<tangram_server_checkpoint_core::State>>,
+	) -> tg::Result<Self> {
 		Self::validate_config(config)?;
 
 		std::fs::OpenOptions::new()
@@ -164,6 +171,7 @@ impl Index {
 			let write_operation_batch_size = config.write_operation_batch_size;
 			move || {
 				Self::writer_task(writer::Arg {
+					checkpoints: checkpoints.as_ref(),
 					db: &db,
 					env: &env,
 					max_process_depth,

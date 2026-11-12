@@ -34,6 +34,7 @@ tangram_client = { workspace = true }
 tangram_index = { workspace = true }
 tangram_index_verify = { workspace = true }
 tangram_serialize = { workspace = true }
+tangram_server_checkpoint_core = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

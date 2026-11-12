@@ -1310,6 +1310,7 @@ fn execute_write_requests(
 	drop(sender_medium);
 	drop(sender_low);
 	let arg = crate::writer::Arg {
+		checkpoints: None,
 		db: &index.db,
 		env: &index.env,
 		max_process_depth: None,

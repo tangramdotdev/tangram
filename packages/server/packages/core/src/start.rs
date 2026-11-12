@@ -198,7 +198,7 @@ impl Server {
 		let clock = crate::clock::Clock::new(config.advanced.clock.as_ref(), checkpoints.clone());
 
 		// Create the index.
-		let index = Self::create_index(&config, &original_path)?;
+		let index = Self::create_index(&config, &original_path, checkpoints.clone())?;
 
 		// Create the library.
 		let library = Mutex::new(None);
@@ -377,7 +377,11 @@ impl Server {
 		Ok(database)
 	}
 
-	fn create_index(config: &Config, directory: &Path) -> tg::Result<Index> {
+	fn create_index(
+		config: &Config,
+		directory: &Path,
+		checkpoints: Option<Arc<crate::checkpoint::State>>,
+	) -> tg::Result<Index> {
 		let index = match &config.index {
 			crate::config::Index::Fdb(options) => {
 				#[cfg(not(feature = "foundationdb"))]
@@ -430,7 +434,7 @@ impl Server {
 			crate::config::Index::Lmdb(options) => {
 				#[cfg(not(feature = "lmdb"))]
 				{
-					let _ = (options, directory);
+					let _ = (checkpoints, options, directory);
 					return Err(tg::error!(
 						"this version of tangram was not compiled with lmdb support"
 					));
@@ -459,7 +463,7 @@ impl Server {
 						write_channel_capacity: options.write_channel_capacity,
 						write_operation_batch_size: options.write_operation_batch_size,
 					};
-					Index::new_lmdb(&config)
+					Index::new_lmdb(&config, checkpoints)
 						.map_err(|error| tg::error!(!error, "failed to create the index"))?
 				}
 			},

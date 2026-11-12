@@ -10455,6 +10455,7 @@ dependencies = [
  "tangram_index",
  "tangram_index_verify",
  "tangram_serialize",
+ "tangram_server_checkpoint_core",
  "tangram_util",
  "tempfile",
  "tokio",
@@ -11308,6 +11309,7 @@ dependencies = [
  "tangram_index",
  "tangram_index_fdb",
  "tangram_index_lmdb",
+ "tangram_server_checkpoint_core",
 ]
 
 [[package]]

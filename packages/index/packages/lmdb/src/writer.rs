@@ -4,7 +4,7 @@ use {
 		request::{Kind, Operation, Priority},
 	},
 	crossbeam_channel as crossbeam, foundationdb_tuple as fdbt, heed as lmdb,
-	std::collections::VecDeque,
+	std::{collections::VecDeque, sync::Arc},
 	tangram_client::prelude::*,
 };
 
@@ -14,6 +14,7 @@ pub(super) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Respons
 
 #[derive(Clone, Copy)]
 pub(super) struct Arg<'a> {
+	pub checkpoints: Option<&'a Arc<tangram_server_checkpoint_core::State>>,
 	pub db: &'a Db,
 	pub env: &'a lmdb::Env,
 	pub max_process_depth: Option<u64>,
@@ -42,6 +43,7 @@ struct Batch {
 impl Index {
 	pub(super) fn writer_task(arg: Arg<'_>) {
 		let Arg {
+			checkpoints,
 			db,
 			env,
 			max_process_depth,
@@ -135,12 +137,12 @@ impl Index {
 			}
 
 			// Pop a batch from high-priority first, then medium, then low-priority.
-			let batch = if let Some(batch) = queue_high.pop_front() {
-				batch
+			let (batch, priority) = if let Some(batch) = queue_high.pop_front() {
+				(batch, "high")
 			} else if let Some(batch) = queue_medium.pop_front() {
-				batch
+				(batch, "medium")
 			} else if let Some(batch) = queue_low.pop_front() {
-				batch
+				(batch, "low")
 			} else {
 				break;
 			};
@@ -158,6 +160,13 @@ impl Index {
 					continue;
 				},
 			};
+
+			// Hit the checkpoint while the transaction is open, so that a test can hold the writer during a transaction of a priority.
+			if let Some(checkpoints) = checkpoints {
+				let mut params = tg::checkpoint::Params::new();
+				params.insert("priority".to_owned(), priority.into());
+				futures::executor::block_on(checkpoints.hit("index.lmdb.write", params));
+			}
 
 			// Process all requests in the batch.
 			let mut results: Vec<tg::Result<Response>> = Vec::new();

@@ -27,3 +27,4 @@ tangram_client = { workspace = true }
 tangram_index = { workspace = true }
 tangram_index_fdb = { workspace = true, optional = true }
 tangram_index_lmdb = { workspace = true, optional = true }
+tangram_server_checkpoint_core = { workspace = true }

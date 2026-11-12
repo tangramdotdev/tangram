@@ -32,8 +32,14 @@ impl Index {
 	}
 
 	#[cfg(feature = "lmdb")]
-	pub fn new_lmdb(config: &tangram_index_lmdb::Config) -> tg::Result<Self> {
-		Ok(Self::Lmdb(tangram_index_lmdb::Index::new(config)?))
+	pub fn new_lmdb(
+		config: &tangram_index_lmdb::Config,
+		checkpoints: Option<std::sync::Arc<tangram_server_checkpoint_core::State>>,
+	) -> tg::Result<Self> {
+		Ok(Self::Lmdb(tangram_index_lmdb::Index::with_checkpoints(
+			config,
+			checkpoints,
+		)?))
 	}
 }
 
