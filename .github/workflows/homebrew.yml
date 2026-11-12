@@ -1,0 +1,71 @@
+name: homebrew
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  formula:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Download the checksums
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHASUMS256.txt
+      - name: Write the formula
+        run: |
+          digest() { awk -v name="tangram_$1.tar.gz" '$2 == name { print $1 }' SHASUMS256.txt; }
+          url='https://github.com/tangramdotdev/tangram/releases/download/v#{version}'
+          cat > tangram.rb <<EOF
+          class Tangram < Formula
+            desc "Build system and package manager"
+            homepage "https://www.tangram.dev"
+            version "${TAG#v}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "$url/tangram_aarch64-darwin.tar.gz"
+                sha256 "$(digest aarch64-darwin)"
+              end
+              on_intel do
+                url "$url/tangram_x86_64-darwin.tar.gz"
+                sha256 "$(digest x86_64-darwin)"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "$url/tangram_aarch64-linux.tar.gz"
+                sha256 "$(digest aarch64-linux)"
+              end
+              on_intel do
+                url "$url/tangram_x86_64-linux.tar.gz"
+                sha256 "$(digest x86_64-linux)"
+              end
+            end
+
+            def install
+              bin.install "tangram"
+              bin.install_symlink "tangram" => "tg"
+              bin.install "tgx"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/tangram --version")
+            end
+          end
+          EOF
+          cat tangram.rb
+          ! grep -q 'sha256 ""' tangram.rb
+      - name: Push the formula to the tap
+        run: |
+          gh repo clone tangramdotdev/homebrew-tap tap
+          cp tangram.rb tap/tangram.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:$GH_TOKEN@github.com/tangramdotdev/homebrew-tap.git"
+          git commit --all --message "tangram ${TAG#v}"
+          git push

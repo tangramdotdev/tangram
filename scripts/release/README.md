@@ -101,3 +101,13 @@ Each line must print `tangram <version>+<commit>`.
 ### 5. Report
 
 Send back the complete output of each `verify.nu` run, the output of step 4, and how long the build took. If a step fails, send its output and stop; do not work around it on the machine.
+
+## Releasing
+
+The `release` workflow builds and verifies every archive on the self-hosted runners, builds the notarized macOS app, pushes the container image tagged with the version, and creates a draft GitHub release with the archives, the app, and `SHASUMS256.txt`.
+
+1. Run `nu scripts/release/bump.nu <version>`, and merge the result.
+2. Run the `release` workflow from the Actions tab with the same version.
+3. Review the draft release and publish it. Publishing makes it the latest release, which is what the install script downloads, and runs the `homebrew` workflow, which updates the formula in `tangramdotdev/homebrew-tap`.
+
+The workflows require a macOS ARM64 runner, a Linux ARM64 runner, and a Linux X64 runner registered to this repository, each validated as described above, and a `HOMEBREW_TAP_TOKEN` secret that can push to the tap.
