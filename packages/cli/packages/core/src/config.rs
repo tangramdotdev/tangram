@@ -1519,11 +1519,14 @@ pub enum ScyllaCacheCapacity {
 pub struct ScyllaCachePrometheusCapacity {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub available_query: Option<String>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_live: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub total_query: Option<String>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Uri>,
 }
