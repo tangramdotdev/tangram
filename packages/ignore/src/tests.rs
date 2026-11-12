@@ -34,7 +34,7 @@ async fn test() {
 			.DS_Store
 		"
 	);
-	let mut matcher = Ignorer::new(file_names, Some(global)).unwrap();
+	let mut ignorer = Ignorer::new(file_names, Some(global)).unwrap();
 	let right = vec![
 		(".DS_Store", true),
 		(".gitignore", false),
@@ -47,7 +47,7 @@ async fn test() {
 	];
 	let mut left = Vec::new();
 	for (path, _) in &right {
-		let matches = matcher.matches(None, &root.join(path), None).unwrap();
+		let matches = ignorer.matches(None, &root.join(path), None).unwrap();
 		left.push((*path, matches));
 	}
 	assert_eq!(left, right);
@@ -78,9 +78,9 @@ async fn cached_directory() {
 	];
 	for root_path in [None, Some(root.as_path())] {
 		let file_names = vec![".gitignore".into()];
-		let mut matcher = Ignorer::new(file_names, None).unwrap();
+		let mut ignorer = Ignorer::new(file_names, None).unwrap();
 		for (path, expected) in paths {
-			let actual = matcher.matches(root_path, &root.join(path), None).unwrap();
+			let actual = ignorer.matches(root_path, &root.join(path), None).unwrap();
 			assert_eq!(actual, expected, "{path}");
 		}
 	}
