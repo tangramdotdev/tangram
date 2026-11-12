@@ -603,10 +603,34 @@ impl Component {
 		if process.touched_at > now - time_to_index {
 			return Ok(true);
 		}
+		let time_to_touch = session.server.config.process.time_to_touch;
+
+		// Touch the process in the background unless a clean could reach it within the time to index, so that a lookup does not wait behind other index writes.
+		let time_to_live = session
+			.server
+			.config
+			.process
+			.time_to_live
+			.as_secs()
+			.to_i64()
+			.unwrap();
+		if process.touched_at > now - time_to_live + time_to_index {
+			let server = session.server.clone();
+			let id = id.clone();
+			tokio::spawn(async move {
+				let result = server.index.touch_process(&id, now, time_to_touch).await;
+				if let Err(error) = result {
+					tracing::warn!(error = %error.trace(), %id, "failed to touch the cached process");
+				}
+			});
+			return Ok(true);
+		}
+
+		// Touch the process and wait, so that a process which a clean may have removed is not used.
 		let process = session
 			.server
 			.index
-			.touch_process(id, now, session.server.config.process.time_to_touch)
+			.touch_process(id, now, time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?;
 		Ok(process.is_some())
