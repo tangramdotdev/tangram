@@ -2465,10 +2465,9 @@ impl Component {
 			.map(|sandbox| sandbox.status)
 	}
 
-	/// Move pooled sandboxes' temps to their sandboxes' paths, and reserve the filesystem project IDs of the sandboxes' directories.
-	/// Create the runner's cgroup, named from the server's directory so that a restarted runner finds the cgroup of its previous run, which the creation sweeps, because a starting runner has no sandboxes.
+	/// Create the runner's cgroup, named from the server's directory so that a restarted runner finds the cgroup of its previous run, which the creation sweeps, because a starting runner has no sandboxes. If the creation fails, the sandboxes' cgroups are created beside the runner's cgroup.
 	#[cfg(target_os = "linux")]
-	pub(crate) async fn create_cgroup_parent(&self, server: &Server) -> tg::Result<()> {
+	pub(crate) async fn create_cgroup_parent(&self, server: &Server) {
 		use std::os::unix::ffi::OsStrExt as _;
 
 		// Name the cgroup from the server's canonical directory.
@@ -2481,15 +2480,20 @@ impl Component {
 		// Create the cgroup.
 		let interval = server.config.sandbox.cgroup_cleanup_interval;
 		let timeout = server.config.sandbox.cgroup_cleanup_timeout;
-		let parent = tokio::task::spawn_blocking(move || {
+		let result = tokio::task::spawn_blocking(move || {
 			tangram_sandbox::cgroup::Parent::try_new(&name, interval, timeout)
 		})
 		.await
-		.map_err(|error| tg::error!(!error, "the cgroup creation task panicked"))?
-		.map_err(|error| tg::error!(!error, "failed to create the runner cgroup"))?;
+		.map_err(|error| tg::error!(!error, "the cgroup creation task panicked"))
+		.and_then(|result| result);
+		let parent = match result {
+			Ok(parent) => parent,
+			Err(error) => {
+				tracing::error!(error = %error.trace(), "failed to create the runner cgroup");
+				return;
+			},
+		};
 		*self.cgroup_parent.lock().unwrap() = parent;
-
-		Ok(())
 	}
 
 	/// Remove the runner's cgroup.
@@ -2507,6 +2511,7 @@ impl Component {
 		}
 	}
 
+	/// Move pooled sandboxes' temps to their sandboxes' paths, and reserve the filesystem project IDs of the sandboxes' directories.
 	pub(crate) async fn reclaim_sandbox_directories(&self, server: &Server) {
 		let path = server.path.join("sandboxes");
 		let mut entries = match tokio::fs::read_dir(&path).await {

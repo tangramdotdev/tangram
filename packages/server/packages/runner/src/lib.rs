@@ -1446,7 +1446,7 @@ impl tangram_server_core::component::Lifecycle for Component {
 				.contains(&tangram_server_core::config::Role::Runner)
 			{
 				#[cfg(target_os = "linux")]
-				self.create_cgroup_parent(server).await?;
+				self.create_cgroup_parent(server).await;
 				self.reclaim_sandbox_directories(server).await;
 			}
 
