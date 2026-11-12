@@ -6,6 +6,8 @@ Tangram is a build system and package manager that makes builds and tests fast a
 
 Write commit messages in lowercase.
 
+Use simple lowercase, dash-separated branch names, such as `standardize-ttl-naming`. Do not use slashes or prefixes such as `nitsky/`.
+
 Work in the current checkout. Do not create additional Git worktrees.
 
 Force pushing branches other than `main` is allowed. Never force push `main`.
