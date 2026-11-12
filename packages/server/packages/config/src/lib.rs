@@ -397,7 +397,7 @@ pub struct Control {
 	/// The maximum time to wait for a process, sandbox, or runner control response.
 	pub request_timeout: Duration,
 
-	/// The time to live of unacknowledged messages in a control stream inbox.
+	/// The ttl of unacknowledged messages in a control stream inbox.
 	pub stream_inbox_time_to_live: Duration,
 
 	/// The retry for resending unacknowledged control stream messages.
@@ -2069,26 +2069,20 @@ impl Usage {
 	pub fn validate(&self) -> tg::Result<()> {
 		// Retain each input kind for at least one complete parent period.
 		if self.delta_time_to_live < Duration::from_hours(1) {
-			return Err(tg::error!(
-				"the usage delta time to live must be at least one hour"
-			));
+			return Err(tg::error!("the usage delta ttl must be at least one hour"));
 		}
 		if self.hour_time_to_live < Duration::from_hours(24) {
-			return Err(tg::error!(
-				"the usage hour time to live must be at least 24 hours"
-			));
+			return Err(tg::error!("the usage hour ttl must be at least 24 hours"));
 		}
 
 		// Retain each hour total for as long as a late delta can recompute an hour of its day, because recomputing the day reads every hour total of the day.
 		if self.hour_time_to_live < self.delta_time_to_live + Duration::from_hours(23) {
 			return Err(tg::error!(
-				"the usage hour time to live must be at least 23 hours longer than the usage delta time to live"
+				"the usage hour ttl must be at least 23 hours longer than the usage delta ttl"
 			));
 		}
 		if self.day_time_to_live < Duration::from_hours(31 * 24) {
-			return Err(tg::error!(
-				"the usage day time to live must be at least 31 days"
-			));
+			return Err(tg::error!("the usage day ttl must be at least 31 days"));
 		}
 
 		Ok(())

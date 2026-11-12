@@ -206,9 +206,8 @@ impl Component {
 			} else {
 				session.server.config.process.permission_time_to_live
 			};
-			let time_to_live = i64::try_from(time_to_live.as_secs()).map_err(|error| {
-				tg::error!(!error, "failed to convert the permission time to live")
-			})?;
+			let time_to_live = i64::try_from(time_to_live.as_secs())
+				.map_err(|error| tg::error!(!error, "failed to convert the permission ttl"))?;
 			let expires_at = created_at
 				.checked_add(time_to_live)
 				.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;

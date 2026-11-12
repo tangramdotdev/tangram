@@ -46,7 +46,7 @@ let runner_pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 
-# Advance the remote's clock past the runner time_to_live so that the scheduler expires the dead runner.
+# Advance the remote's clock past the runner ttl so that the scheduler expires the dead runner.
 advance_time $remote 4sec
 
 # The tty size request must return rather than hang waiting for the response from the dead runner.

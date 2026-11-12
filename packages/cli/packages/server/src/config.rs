@@ -3949,21 +3949,21 @@ mod tests {
 					delta_time_to_live: Some(Duration::from_mins(59)),
 					..Usage::default()
 				},
-				"the usage delta time to live must be at least one hour",
+				"the usage delta ttl must be at least one hour",
 			),
 			(
 				Usage {
 					hour_time_to_live: Some(Duration::from_hours(23)),
 					..Usage::default()
 				},
-				"the usage hour time to live must be at least 24 hours",
+				"the usage hour ttl must be at least 24 hours",
 			),
 			(
 				Usage {
 					day_time_to_live: Some(Duration::from_hours(31 * 24 - 1)),
 					..Usage::default()
 				},
-				"the usage day time to live must be at least 31 days",
+				"the usage day ttl must be at least 31 days",
 			),
 		];
 

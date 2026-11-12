@@ -61,12 +61,7 @@ impl Component {
 				.permission_time_to_live
 				.as_secs(),
 		)
-		.map_err(|error| {
-			tg::error!(
-				!error,
-				"failed to convert the object permission time to live"
-			)
-		})?;
+		.map_err(|error| tg::error!(!error, "failed to convert the object permission ttl"))?;
 		let object_expires_at = session
 			.server
 			.clock

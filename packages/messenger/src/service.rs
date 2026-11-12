@@ -147,7 +147,7 @@ impl Options {
 			|| self.retry_interval.is_zero()
 		{
 			return Err(Error::Options(
-				"the attempt time to live, heartbeat interval, and retry interval must be greater than zero",
+				"the attempt ttl, heartbeat interval, and retry interval must be greater than zero",
 			));
 		}
 		Ok(())

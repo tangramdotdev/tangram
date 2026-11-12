@@ -51,7 +51,7 @@ class TimeToLiveTests(unittest.TestCase):
     def test_pool_validation_checks_aliases(self):
         for name in ("time_to_live", "ttl"):
             for value in (-1, float("nan"), float("inf")):
-                with self.assertRaisesRegex(ValueError, "invalid pool time to live"):
+                with self.assertRaisesRegex(ValueError, "invalid pool ttl"):
                     validate_pool_options(
                         {"max": 1, "min": 0, "shared": 1, name: value}
                     )

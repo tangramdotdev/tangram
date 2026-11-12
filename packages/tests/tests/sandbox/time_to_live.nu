@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A sandbox lives until it is destroyed by default, and it is destroyed after its time to live expires, which `--ttl` also sets.
+# A sandbox lives until it is destroyed by default, and it is destroyed after its ttl expires, which `--ttl` also sets.
 
 let local = server spawn --name local --now '2026-01-01T00:00:00Z' --config { advanced: { checkpoints: true }, control: { read_timeout: 0.25 }, indexer: { cleaning: {} }, runner: { sandbox_state_ttl: 0 }, sandbox: { ttl: 0 } }
 
@@ -16,7 +16,7 @@ let removed = checkpoint watch runner.sandbox.state.removed --params { sandbox: 
 let output = tg sandbox get $id | complete
 success $output
 
-# Advance the clock past the time_to_live once the sandbox is ready, wait for the sandbox to be destroyed, and advance past the cleaning interval so that cleaning deletes it from the index and the runner discards its state.
+# Advance the clock past the ttl once the sandbox is ready, wait for the sandbox to be destroyed, and advance past the cleaning interval so that cleaning deletes it from the index and the runner discards its state.
 wait_for_log $local $'the sandbox is ready, sandbox=($id)'
 advance_time $local 1sec
 tg sandbox wait $id | ignore

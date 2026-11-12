@@ -36,7 +36,7 @@ for location in [local remote] {
 	let delete_watch = tg --url $local_owner.url --token $root_token checkpoint watch cleaning.process.delete --params $params | from json | get watch
 	tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch
 
-	# Hold the runner state after completion has been published, then advance the clocks past the time to live and wait for cleaning.
+	# Hold the runner state after completion has been published, then advance the clocks past the ttl and wait for cleaning.
 	success (tg --url $runner.url --token $root_token checkpoint wait --timeout 30s runner.process.control.retention.finished $retention_watch 0 | complete) "the runner must finish retention"
 	advance_time $local_owner 3sec
 	if $location == remote {

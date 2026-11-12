@@ -27,7 +27,7 @@ let start = job spawn {
 checkpoint pass $enqueued
 checkpoint unwatch $enqueued
 
-# Kill the runner and advance the remote's clock past the runner time_to_live so that the scheduler expires it.
+# Kill the runner and advance the remote's clock past the runner ttl so that the scheduler expires it.
 let runner_pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid

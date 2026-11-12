@@ -15,7 +15,7 @@ impl Component {
 				.process_permission_time_to_live
 				.as_secs(),
 		)
-		.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
+		.map_err(|error| tg::error!(!error, "failed to convert the permission ttl"))?;
 		let expires_at = created_at
 			.checked_add(time_to_live)
 			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;

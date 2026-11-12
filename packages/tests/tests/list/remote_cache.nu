@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# The remote cache stores filtered list responses and honors time to live overrides.
+# The remote cache stores filtered list responses and honors ttl overrides.
 
 let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config {

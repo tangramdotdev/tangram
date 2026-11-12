@@ -294,7 +294,7 @@ where
 		*self.shared.stopped.borrow() || matches!(&*self.shared.startup.borrow(), Startup::Closed)
 	}
 
-	/// Stop answering new requests, and finish once the responses over the messenger are acknowledged or the attempt time to live elapses.
+	/// Stop answering new requests, and finish once the responses over the messenger are acknowledged or the attempt ttl elapses.
 	pub fn stop(&self) {
 		self.shared.stopped.send_replace(true);
 		if let Startup::Started(server) = &*self.shared.startup.borrow() {

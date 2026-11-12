@@ -75,7 +75,7 @@ for stream in [stdout stderr] {
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 
-# Wait for the runner to stop, and advance the remote's clock past the runner time_to_live so that the scheduler expires the runner.
+# Wait for the runner to stop, and advance the remote's clock past the runner ttl so that the scheduler expires the runner.
 wait_for_exit $pid
 advance_time $remote 4sec
 

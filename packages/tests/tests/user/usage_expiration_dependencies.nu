@@ -35,7 +35,7 @@ set_time $local '2026-01-01T23:59:59Z'
 tg --token $alice.token clean
 assert equal (usage $alice.token --hour 2026-01-01T00:00:00Z).object_count 2
 
-# After the day is aggregated and the hourly time to live elapses, expiration can remove the first hour.
+# After the day is aggregated and the hourly ttl elapses, expiration can remove the first hour.
 set_time $local '2026-01-02T01:00:00Z'
 tg --token $alice.token clean
 unavailable $alice.token --hour 2026-01-01T00:00:00Z

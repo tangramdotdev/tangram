@@ -40,7 +40,7 @@ let read = tg --url $remote.url --token $root_token build $'($id)#read' | str tr
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 success (tg --url $remote.url --token $root_token run $'--sandbox=($sandbox)' $write | complete) "the write should succeed"
 
-# Hold the runner's heartbeats and advance the remote's clock past the runner time_to_live, so that the remote expires the runner and stops the sandbox while the runner keeps running it.
+# Hold the runner's heartbeats and advance the remote's clock past the runner ttl, so that the remote expires the runner and stops the sandbox while the runner keeps running it.
 let heartbeat = checkpoint watch runner.control.heartbeat.received --params { runner: $created.data.id } --token $root_token --url $remote.url
 let expired = checkpoint watch scheduler.runner.expired --params { runner: $created.data.id } --token $root_token --url $remote.url
 advance_time $remote 4sec

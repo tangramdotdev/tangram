@@ -71,7 +71,7 @@ for id in [$file $blob] {
 	success (tg --url $secondary.url object get --bytes --location='local(secondary)' $id | complete)
 }
 
-# Propagate the parent tag to both regional indexes before allowing time to live cleaning.
+# Propagate the parent tag to both regional indexes before allowing ttl cleaning.
 tg --url $primary.url tag put retained-parent $parent
 tg --url $primary.url index --database
 tg --url $secondary.url index --database
@@ -83,11 +83,11 @@ checkpoint unwatch $delete
 tg --url $secondary.url index
 failure (tg --url $secondary.url process get --location='local(secondary)' $process_sentinel | complete) "process GC should collect the unreferenced process while retaining the cached child"
 
-# Touching the cache hit retains the child beyond its original time to live.
+# Touching the cache hit retains the child beyond its original ttl.
 tg --url $primary.url index
 success (tg --url $primary.url process get --local $parent | complete)
 tg --url $secondary.url index
-success (tg --url $secondary.url process get --location='local(secondary)' $child | complete) "the cache hit should extend the child time to live"
+success (tg --url $secondary.url process get --location='local(secondary)' $child | complete) "the cache hit should extend the child ttl"
 for id in [$file $blob] {
 	success (tg --url $secondary.url object get --bytes --location='local(secondary)' $id | complete) "the touched child should retain its output graph"
 }

@@ -166,7 +166,7 @@ def validate_pool_options(options: PoolOptions) -> None:
     if time_to_live is not None and (
         not math.isfinite(time_to_live) or time_to_live < 0
     ):
-        raise ValueError("invalid pool time to live")
+        raise ValueError("invalid pool ttl")
 
 
 def validate_process_config(config: ProcessConfig) -> None:

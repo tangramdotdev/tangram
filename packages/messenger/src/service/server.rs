@@ -169,7 +169,7 @@ where
 		*self.shared.status.borrow()
 	}
 
-	/// Stop answering new requests, and finish once the responses are acknowledged or the attempt time to live elapses.
+	/// Stop answering new requests, and finish once the responses are acknowledged or the attempt ttl elapses.
 	pub fn stop(&self) {
 		self.shared.stop.send_replace(true);
 	}
@@ -228,7 +228,7 @@ where
 		loop {
 			tokio::select! {
 				() = async { stop.wait_for(|stop| *stop).await.ok(); }, if stopping_at.is_none() => {
-					// Stop delivering new requests, and drain the responses for at most the attempt time to live.
+					// Stop delivering new requests, and drain the responses for at most the attempt ttl.
 					stopping_at = Some(Instant::now() + self.options.attempt_time_to_live);
 					self.incoming = None;
 				},

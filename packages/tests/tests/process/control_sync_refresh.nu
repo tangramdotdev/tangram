@@ -21,7 +21,7 @@ let path = artifact {
 	tangram.ts: 'export default async () => tg.file("refreshed");',
 }
 
-# Hold the process before it finishes and advance the clocks past the sync token's time to live.
+# Hold the process before it finishes and advance the clocks past the sync token's ttl.
 let watch = tg --url $runner.url checkpoint watch runner.process.finish | from json | get watch
 let build = job spawn {
 	let id = job id

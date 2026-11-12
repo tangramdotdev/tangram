@@ -38,7 +38,7 @@ impl Config {
 			&& self.authentication.cache.time_to_live.is_zero()
 		{
 			return Err(tg::error!(
-				"the authentication cache time_to_live must be greater than zero"
+				"the authentication cache ttl must be greater than zero"
 			));
 		}
 		self.process
@@ -47,7 +47,7 @@ impl Config {
 			.map_err(|source| tg::error!(!source, "invalid stdio relay configuration"))?;
 		if (self.sync.permission_time_to_live / 2).is_zero() {
 			return Err(tg::error!(
-				"the sync permission time to live must be greater than zero"
+				"the sync permission ttl must be greater than zero"
 			));
 		}
 		self.process
@@ -724,7 +724,7 @@ impl Config {
 		}
 		if self.indexer.request.response_time_to_live.is_zero() {
 			return Err(tg::error!(
-				"the indexer response time to live must be greater than zero"
+				"the indexer response ttl must be greater than zero"
 			));
 		}
 		if self.indexer.request.timeout.is_zero() {
@@ -754,7 +754,7 @@ impl Config {
 		}
 		if self.scheduler.request.response_time_to_live.is_zero() {
 			return Err(tg::error!(
-				"the scheduler request response time to live must be greater than zero"
+				"the scheduler request response ttl must be greater than zero"
 			));
 		}
 
@@ -902,7 +902,7 @@ impl Config {
 							}
 							if capacity.time_to_live.is_zero() {
 								return Err(tg::error!(
-									"the Scylla cache capacity time to live must be greater than zero"
+									"the Scylla cache capacity ttl must be greater than zero"
 								));
 							}
 						},

@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A watch registered during checkin is automatically removed after the configured watch time to live elapses.
+# A watch registered during checkin is automatically removed after the configured watch ttl elapses.
 
 let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true },
@@ -13,7 +13,7 @@ let path = artifact {
 	tangram.ts: ''
 }
 
-# Check in with a watch, and wait for its time to live timer to start.
+# Check in with a watch, and wait for its ttl timer to start.
 let time_to_live = checkpoint watch clock.sleep --params { duration: '1s' }
 let id = tg checkin --no-tokens $path --watch | referent node
 checkpoint pass $time_to_live | ignore
@@ -31,13 +31,13 @@ snapshot $object '
 let watches = tg watch list | from json
 assert equal ($watches | length) 1
 
-# The watch remains until its time to live elapses.
+# The watch remains until its ttl elapses.
 advance_time $local 999ms
-assert equal (tg watch list | from json | length) 1 "the watch should remain before its time_to_live expires"
+assert equal (tg watch list | from json | length) 1 "the watch should remain before its ttl expires"
 
-# The watch is removed once its time to live elapses.
+# The watch is removed once its ttl elapses.
 let removed = checkpoint watch watch.removed
 advance_time $local 1ms
 checkpoint pass $removed | ignore
 checkpoint unwatch $removed
-assert (tg watch list | from json | is-empty) "the watch should be removed after its time_to_live expires"
+assert (tg watch list | from json | is-empty) "the watch should be removed after its ttl expires"

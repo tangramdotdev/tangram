@@ -921,7 +921,7 @@ impl Component {
 			.unix_timestamp()
 			.checked_add(
 				i64::try_from(time_to_live.as_secs())
-					.map_err(|error| tg::error!(!error, "invalid permission time to live"))?,
+					.map_err(|error| tg::error!(!error, "invalid permission ttl"))?,
 			)
 			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
 		let expires_at = authorization

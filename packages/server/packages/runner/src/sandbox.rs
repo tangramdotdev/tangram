@@ -1539,7 +1539,7 @@ impl Component {
 		// Create the process events.
 		let mut process_events = StreamMap::new();
 
-		// Create the idle timer, which stops or destroys the sandbox once it has no processes for its time to stop or time to live.
+		// Create the idle timer, which stops or destroys the sandbox once it has no processes for its time to stop or ttl.
 		let mut timer_future: Option<BoxFuture<'static, Teardown>> = None;
 		let initial_process = process_task_output.is_some();
 		let boot = state.data.boot;
@@ -1563,7 +1563,7 @@ impl Component {
 		let mut teardown = Teardown::Destroy;
 		let mut stopping = false;
 
-		// Track the sandbox's last use, which is its start and then each time it is left without processes, so that a stop records when its time to live expires.
+		// Track the sandbox's last use, which is its start and then each time it is left without processes, so that a stop records when its ttl expires.
 		let mut last_used_at = session.server.clock.unix_timestamp();
 
 		// Run the sandbox until it should be stopped or destroyed, destroying it with the error if the loop fails.
@@ -1728,7 +1728,7 @@ impl Component {
 						}
 					},
 
-					// If the runner is shutting down gracefully, then stop the sandbox, or destroy it if its time to live is zero, once its processes finish.
+					// If the runner is shutting down gracefully, then stop the sandbox, or destroy it if its ttl is zero, once its processes finish.
 					() = stopper.wait(), if !stopping => {
 						stopping = true;
 						teardown = Teardown::with_time_to_live(time_to_live);
@@ -2568,7 +2568,7 @@ impl Component {
 			.await?;
 		let indexed = session.server.index.try_get_sandboxes(&ids).await?;
 
-		// Stop each sandbox that was running with a nonzero time to live, keep each stopped sandbox, destroy the others once their destruction is reported, and remove now the directories of sandboxes that are destroyed or not recorded.
+		// Stop each sandbox that was running with a nonzero ttl, keep each stopped sandbox, destroy the others once their destruction is reported, and remove now the directories of sandboxes that are destroyed or not recorded.
 		let mut sandboxes = Vec::new();
 		for (id, indexed) in std::iter::zip(ids, indexed) {
 			let teardown = match indexed.map(|indexed| indexed.data) {
@@ -2614,7 +2614,7 @@ impl Component {
 		Ok(sandboxes)
 	}
 
-	/// Report the storage usage of this runner's stopped sandboxes, and destroy those whose time to live has expired, at each interval, until the stopper stops.
+	/// Report the storage usage of this runner's stopped sandboxes, and destroy those whose ttl has expired, at each interval, until the stopper stops.
 	pub(crate) async fn stopped_sandbox_task(&self, session: &Session, stopper: Stopper) {
 		let interval = session.server.config.runner.stopped_sandbox_interval;
 		let mut first_seen = BTreeMap::new();
@@ -2648,7 +2648,7 @@ impl Component {
 		let now = session.server.clock.unix_timestamp();
 		first_seen.retain(|(id, _), _| ids.contains(id));
 
-		// Measure each stopped sandbox, and find those whose time to live has expired.
+		// Measure each stopped sandbox, and find those whose ttl has expired.
 		let mut reports = Vec::new();
 		let mut expired = Vec::new();
 		for (id, indexed) in std::iter::zip(ids, indexed) {
@@ -3261,7 +3261,7 @@ fn stopped_storage_usage(size: u64, seconds: i64) -> tg::sandbox::Usage {
 	}
 }
 
-/// Create the idle timer for a sandbox without processes, which fires with a destroy after its time to live, or with a stop after its time to stop if that is shorter.
+/// Create the idle timer for a sandbox without processes, which fires with a destroy after its ttl, or with a stop after its time to stop if that is shorter.
 fn idle_timer(
 	server: &Server,
 	time_to_live: Option<std::time::Duration>,

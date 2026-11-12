@@ -676,7 +676,7 @@ pub struct Control {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request_timeout: Option<Duration>,
 
-	/// The time to live in seconds of unacknowledged messages in a control stream inbox.
+	/// The ttl in seconds of unacknowledged messages in a control stream inbox.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(
 		alias = "stream_inbox_ttl",
@@ -3106,7 +3106,7 @@ pub struct ClientProgress {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClientSandbox {
-	/// The default time to live for a created sandbox.
+	/// The default ttl for a created sandbox.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_live: Option<Duration>,
@@ -3149,7 +3149,7 @@ pub struct Pool {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub shared: Option<usize>,
 
-	/// The time to live for a connection.
+	/// The ttl for a connection.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_live: Option<Duration>,

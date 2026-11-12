@@ -2351,7 +2351,7 @@ impl Nodes {
 	fn evict_expired(&self, time_to_live: Duration) {
 		let now = Instant::now();
 		let mut state = self.state.lock().unwrap();
-		// Collect the cache-only leaf nodes whose time to live has elapsed; a node with a nonzero lookup count is still referenced and a node with children is not a leaf, so neither is eligible.
+		// Collect the cache-only leaf nodes whose ttl has elapsed; a node with a nonzero lookup count is still referenced and a node with children is not a leaf, so neither is eligible.
 		let expired = state
 			.nodes
 			.iter()
@@ -2363,7 +2363,7 @@ impl Nodes {
 				evict.then_some((id, node.parent, node.name.clone()))
 			})
 			.collect::<Vec<_>>();
-		// Remove only the collected nodes; eviction is not cascaded into a parent, which may have just been handed to the kernel, so an emptied parent is collected by a later sweep once its own time to live has elapsed.
+		// Remove only the collected nodes; eviction is not cascaded into a parent, which may have just been handed to the kernel, so an emptied parent is collected by a later sweep once its own ttl has elapsed.
 		for (id, parent, name) in expired {
 			Self::remove(&mut state, id);
 			if let Some(name) = name

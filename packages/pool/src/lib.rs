@@ -871,7 +871,7 @@ mod tests {
 		}
 	}
 
-	// A pool without a time to live does not spawn the expiration task and can be constructed outside of an async runtime.
+	// A pool without a ttl does not spawn the expiration task and can be constructed outside of an async runtime.
 	#[test]
 	fn pool_without_time_to_live_can_be_created_without_a_runtime() {
 		let _pool = Pool::new(options(1), || async { Ok::<_, Error>(0) });
@@ -1420,7 +1420,7 @@ mod tests {
 		assert_eq!(attempts.load(Ordering::SeqCst), 2);
 	}
 
-	// A value created under a zero time to live is not pruned before the requesting checkout receives it.
+	// A value created under a zero ttl is not pruned before the requesting checkout receives it.
 	#[tokio::test]
 	async fn zero_time_to_live_does_not_expire_a_newly_created_value_before_checkout() {
 		let mut options = options(1);
@@ -1486,7 +1486,7 @@ mod tests {
 		assert_eq!(drops.load(Ordering::SeqCst), 2);
 	}
 
-	// The background expiration task does not hold a strong reference to the pool, so dropping the pool drops its values even with a long time to live.
+	// The background expiration task does not hold a strong reference to the pool, so dropping the pool drops its values even with a long ttl.
 	#[tokio::test]
 	async fn time_to_live_task_does_not_keep_the_pool_alive() {
 		let mut options = options(1);

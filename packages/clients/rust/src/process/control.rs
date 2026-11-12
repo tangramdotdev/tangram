@@ -727,9 +727,7 @@ impl Config {
 			));
 		}
 		if self.inbox_time_to_live.is_zero() {
-			return Err(tg::error!(
-				"expected the inbox time to live to be greater than zero"
-			));
+			return Err(tg::error!("expected the inbox ttl to be greater than zero"));
 		}
 		if self.max_deliveries == 0 {
 			return Err(tg::error!(

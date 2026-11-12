@@ -33,7 +33,7 @@ let runner_pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 
-# Wait for the get to read the index and wait on the runner's control, then advance the remote's clock past the runner time_to_live so that the scheduler expires the runner.
+# Wait for the get to read the index and wait on the runner's control, then advance the remote's clock past the runner ttl so that the scheduler expires the runner.
 let index = checkpoint watch sandbox.get.index --params { sandbox: $sandbox } --token $root_token --url $remote.url
 let get = job spawn {
 	let job_id = job id

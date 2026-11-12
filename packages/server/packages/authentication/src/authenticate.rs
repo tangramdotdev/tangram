@@ -312,7 +312,7 @@ impl Component {
 		let now = server.clock.unix_timestamp();
 		let time_to_live =
 			i64::try_from(server.config.authentication.tokens.time_to_live.as_secs())
-				.map_err(|_| tg::error!("invalid authentication token time_to_live"))?;
+				.map_err(|_| tg::error!("invalid authentication token ttl"))?;
 		let expires_at = now
 			.checked_add(time_to_live)
 			.ok_or_else(|| tg::error!("invalid authentication token expiration"))?;

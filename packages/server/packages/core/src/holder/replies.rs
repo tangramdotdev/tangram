@@ -7,7 +7,7 @@ use std::{
 #[cfg(test)]
 mod tests;
 
-/// The replies that a component recently sent to requests, by request ID, so that a duplicate of a request is answered without acting on it again. The memory keeps each reply for a time to live after it was last used, and at most a capacity of replies. A request that is neither acknowledged nor answered within the pending time to live is acted on again, because the component did not take it up.
+/// The replies that a component recently sent to requests, by request ID, so that a duplicate of a request is answered without acting on it again. The memory keeps each reply for a ttl after it was last used, and at most a capacity of replies. A request that is neither acknowledged nor answered within the pending ttl is acted on again, because the component did not take it up.
 pub struct Replies<R> {
 	capacity: usize,
 	pending_time_to_live: Duration,
@@ -117,13 +117,13 @@ impl<R: Clone> Replies<R> {
 		state.entries.remove(id);
 	}
 
-	/// Set the time to live of the replies.
+	/// Set the ttl of the replies.
 	pub fn set_time_to_live(&self, time_to_live: Duration) {
 		let mut state = self.state.lock().unwrap();
 		state.time_to_live = time_to_live;
 	}
 
-	/// Forget the replies that were not used within the time to live, and the least recently used replies beyond the capacity.
+	/// Forget the replies that were not used within the ttl, and the least recently used replies beyond the capacity.
 	fn prune(&self, state: &mut State<R>, now: tokio::time::Instant) {
 		while let Some((used_at, id)) = state.order.front() {
 			let current = state

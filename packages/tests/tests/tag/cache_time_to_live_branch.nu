@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Resolving a branch tag returns the cached child within its time to live and returns the newest child when fetched with --ttl 0.
+# Resolving a branch tag returns the cached child within its ttl and returns the newest child when fetched with --ttl 0.
 
 let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config {
@@ -27,9 +27,9 @@ tg --url $local_source.url push $id2
 let new = tg --url $remote.url get --no-tokens $id2 | str trim
 tg --url $remote.url tag put -p "a/c/h" $id2
 
-# Within the time to live the cached resolution is returned.
+# Within the ttl the cached resolution is returned.
 let c2 = tg --url $local.url get --no-tokens "a/c?follow=true" | str trim
-assert equal $c2 $c1 "within the time to live the same result should be returned"
+assert equal $c2 $c1 "within the ttl the same result should be returned"
 
 # With --ttl 0 the newest child is returned.
 let c3 = tg --url $local.url get --no-tokens --ttl 0 "a/c?follow=true" | str trim

@@ -39,7 +39,7 @@ impl std::str::FromStr for TimeToLive {
 			"infinite" => Self::Infinite,
 			value => {
 				let duration = humantime::parse_duration(value)
-					.map_err(|error| tg::error!(!error, "invalid cache time_to_live"))?;
+					.map_err(|error| tg::error!(!error, "invalid cache ttl"))?;
 				Self::Duration(duration)
 			},
 		};

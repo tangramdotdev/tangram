@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Capacity cleaning removes an unreferenced object before its time to live expires.
+# Capacity cleaning removes an unreferenced object before its ttl expires.
 
 let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true },

@@ -178,7 +178,7 @@ Use the `wait_until` helper from `util/test.nu`, which polls a condition and err
 with a clear message after a timeout:
 
 ```nushell
-wait_until { tg watch list | from json | is-empty } "the watch should be removed after its time_to_live expires"
+wait_until { tg watch list | from json | is-empty } "the watch should be removed after its ttl expires"
 ```
 
 This runs as soon as the condition holds and tolerates slow machines. If there

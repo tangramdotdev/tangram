@@ -52,7 +52,7 @@ impl Client {
 		}
 		if config.time_to_live.is_zero() {
 			return Err(tg::error!(
-				"the Prometheus capacity time to live must be greater than zero"
+				"the Prometheus capacity ttl must be greater than zero"
 			));
 		}
 		let url = config.url.trim_end_matches('/');

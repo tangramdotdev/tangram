@@ -44,7 +44,7 @@ pub struct Component(Arc<State>);
 pub struct State {
 	pub control: tokio::sync::watch::Sender<Option<RunnerSender>>,
 
-	/// The replies to recent offers of boots, by request ID, so that an offer that the scheduler sends again is answered with its reply, even after the boot that it created ended. The replies outlast the scheduler's time to live of the runner, after which the scheduler no longer sends an offer again.
+	/// The replies to recent offers of boots, by request ID, so that an offer that the scheduler sends again is answered with its reply, even after the boot that it created ended. The replies outlast the scheduler's ttl of the runner, after which the scheduler no longer sends an offer again.
 	pub offers: tangram_server_core::holder::Replies<tg::runner::control::ClientMessage>,
 
 	#[cfg(target_os = "linux")]
@@ -805,7 +805,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// Stop or destroy each running sandbox that the server stopped, destroyed, or started at another boot when the runner's heartbeat expired, applying the same rule as the server: destroy a sandbox whose time to live is zero, and stop the others.
+	/// Stop or destroy each running sandbox that the server stopped, destroyed, or started at another boot when the runner's heartbeat expired, applying the same rule as the server: destroy a sandbox whose ttl is zero, and stop the others.
 	fn yield_runner_sandboxes(&self, sandboxes: &[tg::sandbox::Id]) {
 		let sandboxes = sandboxes
 			.iter()

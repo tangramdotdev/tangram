@@ -68,7 +68,7 @@ success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s 
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.finish.succeeded $finish_watch 0 | complete) 'Finish should be acknowledged while the outcome sync is held'
 tg --url $runner.url checkpoint unwatch runner.process.control.finish.succeeded $finish_watch
 
-# Observe repeated heartbeats over several runner time to lives while the outcome sync is held.
+# Observe repeated heartbeats over several runner ttls while the outcome sync is held.
 let heartbeat_watch = tg --url $remote.url --token $root_token checkpoint watch runner.control.heartbeat.received --params ({ runner: $created.data.id } | to json --raw) | from json | get watch
 for index in 0..8 {
 	success (tg --url $remote.url --token $root_token checkpoint wait --timeout 5s runner.control.heartbeat.received $heartbeat_watch $index | complete) 'heartbeats should continue while the sync window is full'

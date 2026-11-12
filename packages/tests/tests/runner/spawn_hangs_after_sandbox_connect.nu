@@ -38,7 +38,7 @@ wait_for_exit $runner_pid
 tg --url $remote.url --token $root_token checkpoint continue process.spawn.connection.wait $wait_watch 0
 tg --url $remote.url --token $root_token checkpoint unwatch process.spawn.connection.wait $wait_watch
 
-# Advance the remote's clock past the runner time_to_live so that the scheduler expires the dead runner.
+# Advance the remote's clock past the runner ttl so that the scheduler expires the dead runner.
 advance_time $remote 4sec
 
 let output = try { job recv --tag $build --timeout 15sec } catch { null }

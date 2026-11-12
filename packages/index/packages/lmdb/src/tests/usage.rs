@@ -994,7 +994,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 
 const HOUR: i64 = 60 * 60;
 
-/// The time to live configuration used by the usage expiration CLI test.
+/// The ttl configuration used by the usage expiration CLI test.
 fn expire_arg(now: jiff::Timestamp) -> tangram_index::usage::expire::Arg {
 	tangram_index::usage::expire::Arg {
 		batch_size: 1_000,
@@ -1070,7 +1070,7 @@ async fn expiration_before_aggregation_after_a_jump_matches_incremental_aggregat
 	let expected = usage(&reference, &account, day(), now).await.unwrap();
 	assert_eq!(expected.object_count, 48);
 
-	// Jump past the delta and hour time to live, and expire before aggregating.
+	// Jump past the delta and hour ttl, and expire before aggregating.
 	let (_dir, index) = new_index();
 	add_delta(
 		&index,
@@ -1103,7 +1103,7 @@ async fn aggregation_before_expiration_after_a_jump_matches_incremental_aggregat
 	step_hourly(&reference, 1, 25).await;
 	let expected = usage(&reference, &account, day(), now).await.unwrap();
 
-	// Jump past the delta and hour time to live, and aggregate before expiring.
+	// Jump past the delta and hour ttl, and aggregate before expiring.
 	let (_dir, index) = new_index();
 	add_delta(
 		&index,
@@ -1186,7 +1186,7 @@ async fn a_late_delta_after_its_previous_hour_total_expired_is_dropped() {
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
 	let now = at(27 * HOUR);
 
-	// Aggregate and expire hourly past the hour time to live.
+	// Aggregate and expire hourly past the hour ttl.
 	for time in [1, 2 * HOUR + 1] {
 		add_delta(
 			&index,

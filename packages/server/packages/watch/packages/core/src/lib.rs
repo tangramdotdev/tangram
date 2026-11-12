@@ -519,7 +519,7 @@ impl Watch {
 			let clock = clock.clone();
 			let expire = expire.clone();
 			async move |_stop| {
-				// Wait for the time to live to expire.
+				// Wait for the ttl to expire.
 				clock.sleep(time_to_live).await;
 
 				// Expire the watch.

@@ -202,7 +202,7 @@ impl Component {
 		};
 		let handle = self.spawn_process_control_service_task_with_state(session, state);
 
-		// Keep answering for the service's attempt time to live.
+		// Keep answering for the service's attempt ttl.
 		let time_to_live = session
 			.server
 			.config
