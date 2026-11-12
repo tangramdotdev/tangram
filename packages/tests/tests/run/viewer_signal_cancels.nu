@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# SIGINT and SIGTERM gracefully exit a running viewer and cancel the process through its wait lease.
+# SIGINT and SIGTERM gracefully exit a running viewer, which cancels the process and waits for it to finish.
 
 let local = server spawn --config {
 	advanced: {
@@ -44,10 +44,10 @@ for entry in ([
 	let sandbox = tg process get $process | from json | get sandbox
 
 	kill --signal $case.signal $pid
+	tg checkpoint continue process.wait.attach $watch $entry.index
 	let output = job recv --tag $run --timeout 10sec
 	assert equal $output.exit_code $case.exit "the viewer should preserve the signal exit code"
-
-	tg checkpoint continue process.wait.attach $watch $entry.index
+	assert equal (tg process status --timeout 0 $process | from json | last) "finished" "the process should be finished when the viewer exits"
 
 	let outcome = tg wait $process | from json
 	assert equal $outcome.exit 1 "exiting the viewer should cancel the process"

@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A signal while tg run spawns a sandboxed process exits with the code for the signal when the spawn then fails.
+# A signal while tg run spawns a sandboxed process terminates tg run when the spawn then fails.
 
 let server = server spawn --config { advanced: { checkpoints: true } }
 let tangram = which tg | where type == external | get path | first
@@ -23,4 +23,4 @@ wait_until { (tg sandbox destroy $hit.params.sandbox | complete | get exit_code)
 tg checkpoint continue sandbox.control.connect $watch 0
 tg checkpoint unwatch sandbox.control.connect $watch
 let output = job recv --tag $run --timeout 30sec
-assert equal $output.exit_code 143 'tg run should exit with the code for the signal'
+assert equal $output.exit_code (-15) 'tg run should be terminated by the signal'
