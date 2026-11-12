@@ -17,6 +17,9 @@ impl Component {
 		location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let candidate = output.as_ref().map(|output| output.id.clone());
+		let has_capacity = output
+			.as_ref()
+			.is_some_and(|output| output.allocation.is_some());
 		let scheduled_sandbox = output.as_ref().and_then(|output| {
 			(output.sandbox_arg.is_some() && output.allocation.is_none())
 				.then(|| output.data.sandbox.clone())
@@ -28,13 +31,24 @@ impl Component {
 		} else {
 			(None, None)
 		};
-		let cache_future = self.spawn_process_get_cached_process(
-			session,
-			arg,
-			command,
-			location,
-			candidate.as_ref(),
-		);
+		let cache_future = async {
+			let output = self
+				.spawn_process_get_cached_process(
+					session,
+					arg,
+					command,
+					location,
+					candidate.as_ref(),
+				)
+				.await?;
+
+			// Keep the runnable candidate until the cache hit starts, because a queued process may need the capacity that the caller holds.
+			if has_capacity && let Some(output) = &output {
+				output.wait_for_start(session).await?;
+			}
+
+			Ok::<_, tg::Error>(output)
+		};
 		let create_delay = session.server.config.process.spawn.create_delay;
 		let spawn_future =
 			self.spawn_process_in_new_or_existing_sandbox(session, arg, output, scheduler_sender);
