@@ -919,7 +919,7 @@ impl tangram_server_core::scheduler::Component for Component {
 		&'a self,
 		server: &'a tangram_server_core::Server,
 		id: &'a tg::sandbox::Id,
-		error: tg::error::Data,
+		error: Option<tg::error::Data>,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.destroy_runner_sandbox(server, id, error).boxed()
 	}

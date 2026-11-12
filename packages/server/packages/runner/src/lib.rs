@@ -767,8 +767,13 @@ impl Component {
 			// Report the previous sandbox's stop or destruction, and remove the directory of a destroyed sandbox once its destruction is reported.
 			let result = match teardown {
 				crate::sandbox::Teardown::Destroy => {
+					let error = tg::error::Data {
+						code: Some(tg::error::Code::Internal),
+						message: Some("runner restarted".to_owned()),
+						..Default::default()
+					};
 					let arg = tg::runner::control::DestroySandboxClientRequestArg {
-						error: None,
+						error: Some(tg::Either::Left(error)),
 						sandbox: sandbox.clone(),
 					};
 					let result = Self::request_runner_sandbox_destroy(&sender, arg).await?;
