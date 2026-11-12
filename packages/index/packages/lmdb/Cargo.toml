@@ -20,7 +20,7 @@ workspace = true
 doctest = false
 
 [dependencies]
-async-channel = { workspace = true }
+crossbeam-channel = { workspace = true }
 foundationdb-tuple = { workspace = true }
 futures = { workspace = true }
 heed = { workspace = true }

@@ -592,63 +592,21 @@ impl Component {
 			return Ok(true);
 		}
 		let now = session.server.clock.unix_timestamp();
-		let time_to_index = session
+		let time_to_touch = session
 			.server
 			.config
 			.process
-			.time_to_index
+			.time_to_touch
 			.as_secs()
 			.to_i64()
 			.unwrap();
-		let time_to_touch = session.server.config.process.time_to_touch;
-
-		// Keep the local cleaner from deleting the process until its background touch finishes.
-		if !session.server.config.advanced.multi_server
-			&& matches!(
-				session.server.config.index,
-				tangram_server_core::config::Index::Lmdb(_)
-			) {
-			tangram_server_core::checkpoint!(session.server, "process.spawn.cached.touch", process = %id).await;
-			let guard = session
-				.server
-				.index_cleaning_lock
-				.clone()
-				.read_owned()
-				.await;
-			let process = session.server.index.try_get_process(id).await.map_err(
-				|error| tg::error!(!error, %id, "failed to get the cached process after cleaning"),
-			)?;
-			let Some(process) = process else {
-				return Ok(false);
-			};
-			if process.touched_at > now - time_to_index {
-				return Ok(true);
-			}
-			self.cached_touch_tasks
-				.get_or_spawn_detached(id.clone(), |_| {
-					let server = session.server.clone();
-					let id = id.clone();
-					async move {
-						tangram_server_core::checkpoint!(server, "process.spawn.cached.touch.write", process = %id).await;
-						let result = server.index.touch_process(&id, now, time_to_touch).await;
-						drop(guard);
-						if let Err(error) = result {
-							tracing::warn!(error = %error.trace(), %id, "failed to touch the cached process");
-						}
-					}
-				})
-				.detach();
+		if process.touched_at > now - time_to_touch {
 			return Ok(true);
 		}
-		if process.touched_at > now - time_to_index {
-			return Ok(true);
-		}
-
-		// Touch the process and wait, so that a process which a clean may have removed is not used.
 		let process = session
 			.server
 			.index
-			.touch_process(id, now, time_to_touch)
+			.touch_process(id, now, session.server.config.process.time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?;
 		Ok(process.is_some())

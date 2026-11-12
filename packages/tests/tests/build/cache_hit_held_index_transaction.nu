@@ -1,30 +1,18 @@
 use ../../util/test.nu *
 
-# A build of a cached process reuses the cached process while a background index transaction is held open.
+# A cached build skips a touch within its touch interval and waits for a touch when the interval expires.
 
-let local = server spawn --config {
+let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true },
-	index: { write_channel_capacity: 1 },
-	indexer: { cleaning: false },
-	process: { time_to_index: 0 },
+	process: { time_to_index: 0, ttt: 2 },
 }
 
-let path = artifact {
-	tangram.ts: '
-		export function a() { return "a"; }
-		export function b() { return "b"; }
-		export function c() { return "c"; }
-	',
-}
-
-# Build each export so that the next builds are cache hits, and wait for the index to have them.
-let first = [a b c] | each { |export|
-	let reference = $'($path)#($export)'
-	let build = tg build --detach --no-tokens --verbose $reference | from json
-	success (tg wait $build.process | complete)
-	{ reference: $reference, process: $build.process }
-}
+# Build the process and wait for the index to have it.
+let path = artifact { tangram.ts: 'export default () => "hello";' }
+let first = tg build --detach --no-tokens --verbose $path | from json
+success (tg wait $first.process | complete)
 tg index
+advance_time $local 1sec
 
 # Hold the next background index transaction open by checking in an unrelated artifact.
 let watch = checkpoint watch index.lmdb.write --params { priority: medium }
@@ -32,14 +20,25 @@ let other = artifact { file.txt: 'other' }
 tg checkin --no-tokens $other | ignore
 checkpoint wait $watch | ignore
 
-# Repeated cache hits must stay responsive even when their touches fill the writer queue.
-let outputs = $first | each { |build|
-	let output = timeout 10s tg build --detach --no-tokens --verbose $build.reference | complete
-	{ expected: $build.process, output: $output }
-}
+# Within time_to_touch, the cache hit must not wait for the writer.
+let output = timeout 10s tg build --cached=true --detach --no-tokens --verbose $path | complete
 checkpoint unwatch $watch
-for build in $outputs {
-	success $build.output "the cached build should not wait for the held index transaction"
-	let second = $build.output.stdout | from json
-	assert equal $second.process $build.expected "the build should reuse the cached process"
+success $output "the cached build should not wait for an unnecessary touch"
+assert equal ($output.stdout | from json | get process) $first.process
+
+# At time_to_touch, the cache hit must wait for its touch to finish.
+advance_time $local 1sec
+let watch = checkpoint watch index.lmdb.write --params { priority: medium }
+let other = artifact { file.txt: 'another' }
+tg checkin --no-tokens $other | ignore
+checkpoint wait $watch | ignore
+let build = job spawn {
+	let id = job id
+	tg build --cached=true --detach --no-tokens --verbose $path | complete | job send --tag $id 0
 }
+let early = try { job recv --tag $build --timeout 1sec } catch { null }
+checkpoint unwatch $watch
+assert equal $early null "the cached build should wait for a due touch"
+let output = job recv --tag $build --timeout 10sec
+success $output
+assert equal ($output.stdout | from json | get process) $first.process
