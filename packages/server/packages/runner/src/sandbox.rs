@@ -1288,6 +1288,9 @@ impl Component {
 			#[cfg(target_os = "linux")]
 			cgroup_cleanup_timeout: config.cgroup_cleanup_timeout,
 
+			#[cfg(target_os = "linux")]
+			cgroup_parent: self.cgroup_parent.lock().unwrap().clone(),
+
 			connect_timeout: config.connect_timeout,
 
 			cpu: arg.cpu,
@@ -2463,6 +2466,47 @@ impl Component {
 	}
 
 	/// Move pooled sandboxes' temps to their sandboxes' paths, and reserve the filesystem project IDs of the sandboxes' directories.
+	/// Create the runner's cgroup, named from the server's directory so that a restarted runner finds the cgroup of its previous run, which the creation sweeps, because a starting runner has no sandboxes.
+	#[cfg(target_os = "linux")]
+	pub(crate) async fn create_cgroup_parent(&self, server: &Server) -> tg::Result<()> {
+		use std::os::unix::ffi::OsStrExt as _;
+
+		// Name the cgroup from the server's canonical directory.
+		let path = tokio::fs::canonicalize(&server.path)
+			.await
+			.unwrap_or_else(|_| server.path.clone());
+		let hash = blake3::hash(path.as_os_str().as_bytes()).to_hex();
+		let name = format!("tangram-{}", &hash[..16]);
+
+		// Create the cgroup.
+		let interval = server.config.sandbox.cgroup_cleanup_interval;
+		let timeout = server.config.sandbox.cgroup_cleanup_timeout;
+		let parent = tokio::task::spawn_blocking(move || {
+			tangram_sandbox::cgroup::Parent::try_new(&name, interval, timeout)
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "the cgroup creation task panicked"))?
+		.map_err(|error| tg::error!(!error, "failed to create the runner cgroup"))?;
+		*self.cgroup_parent.lock().unwrap() = parent;
+
+		Ok(())
+	}
+
+	/// Remove the runner's cgroup.
+	#[cfg(target_os = "linux")]
+	pub(crate) async fn remove_cgroup_parent(&self) {
+		let Some(parent) = self.cgroup_parent.lock().unwrap().take() else {
+			return;
+		};
+		let result = tokio::task::spawn_blocking(move || parent.remove())
+			.await
+			.map_err(|error| tg::error!(!error, "the cgroup removal task panicked"))
+			.and_then(|result| result);
+		if let Err(error) = result {
+			tracing::error!(error = %error.trace(), "failed to remove the runner cgroup");
+		}
+	}
+
 	pub(crate) async fn reclaim_sandbox_directories(&self, server: &Server) {
 		let path = server.path.join("sandboxes");
 		let mut entries = match tokio::fs::read_dir(&path).await {

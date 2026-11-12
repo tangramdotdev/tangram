@@ -16,8 +16,6 @@ use {
 };
 
 mod backend;
-#[cfg(target_os = "linux")]
-mod cgroup;
 mod client;
 mod command;
 #[cfg(target_os = "linux")]
@@ -25,6 +23,8 @@ mod configuration;
 #[cfg(target_os = "linux")]
 mod filesystem;
 mod libraries;
+#[cfg(target_os = "linux")]
+mod memory;
 #[cfg(target_os = "linux")]
 mod mount;
 mod paths;
@@ -50,6 +50,8 @@ pub mod budget;
 pub mod builtin;
 #[cfg(target_os = "linux")]
 pub mod capacity;
+#[cfg(target_os = "linux")]
+pub mod cgroup;
 #[cfg(target_os = "linux")]
 pub mod cloud_hypervisor;
 #[cfg(target_os = "linux")]
@@ -143,6 +145,10 @@ pub struct Arg {
 
 	#[cfg(target_os = "linux")]
 	pub cgroup_cleanup_timeout: Duration,
+
+	/// The cgroup that contains the sandbox's cgroup, or `None` to create the sandbox's cgroup beside the current process's cgroup.
+	#[cfg(target_os = "linux")]
+	pub cgroup_parent: Option<cgroup::Parent>,
 
 	pub connect_timeout: Duration,
 

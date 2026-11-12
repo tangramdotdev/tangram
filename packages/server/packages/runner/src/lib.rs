@@ -42,6 +42,10 @@ pub type RunnerSender = tangram_server_core::control::Sender<
 pub struct Component(Arc<State>);
 
 pub struct State {
+	/// The runner's cgroup, which contains its sandboxes' cgroups.
+	#[cfg(target_os = "linux")]
+	pub cgroup_parent: Mutex<Option<tangram_sandbox::cgroup::Parent>>,
+
 	pub control: tokio::sync::watch::Sender<Option<RunnerSender>>,
 
 	/// The replies to recent offers of boots, by request ID, so that an offer that the scheduler sends again is answered with its reply, even after the boot that it created ended. The replies outlast the scheduler's time to live of the runner, after which the scheduler no longer sends an offer again.
@@ -102,6 +106,9 @@ impl Component {
 			arg.config.control.request_timeout,
 		);
 		let state = State {
+			#[cfg(target_os = "linux")]
+			cgroup_parent: Mutex::new(None),
+
 			control,
 			offers,
 
@@ -1432,12 +1439,14 @@ impl std::ops::Deref for Component {
 impl tangram_server_core::component::Lifecycle for Component {
 	fn start<'a>(&'a self, server: &'a Server) -> BoxFuture<'a, tg::Result<()>> {
 		async move {
-			// Reclaim the directories of stopped sandboxes before accepting work.
+			// Create the runner's cgroup, which stops the sandboxes of a previous run, and reclaim the directories of stopped sandboxes before accepting work.
 			if server
 				.config
 				.roles
 				.contains(&tangram_server_core::config::Role::Runner)
 			{
+				#[cfg(target_os = "linux")]
+				self.create_cgroup_parent(server).await?;
 				self.reclaim_sandbox_directories(server).await;
 			}
 
@@ -1489,6 +1498,10 @@ impl tangram_server_core::component::Lifecycle for Component {
 				}
 			}
 			tracing::trace!("sandbox tasks");
+
+			// Remove the runner's cgroup after its sandboxes are gone.
+			#[cfg(target_os = "linux")]
+			self.remove_cgroup_parent().await;
 		}
 		.boxed()
 	}

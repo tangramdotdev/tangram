@@ -17,16 +17,35 @@ pub(crate) const SIDECARS: &CStr = c"sidecars";
 
 const INIT: &CStr = c"init";
 
+const CONTROLLERS: [&str; 3] = ["cpu", "memory", "pids"];
+
 const ROOT: &str = "/sys/fs/cgroup";
 
 pub struct Cgroup {
 	cleanup: Arc<Cleanup>,
 	cleanup_interval: Duration,
 	cleanup_timeout: Duration,
+	minimum: Option<crate::memory::Minimum>,
 	path: PathBuf,
 	pin: Option<crate::cpu::Pin>,
 	share: Option<crate::cpu::Share>,
 	stopped: bool,
+}
+
+/// The cgroup of a runner that contains its sandboxes' cgroups, which the runner sweeps when it starts, so that no sandbox of a killed runner outlives the runner's restart.
+#[derive(Clone, Debug)]
+pub struct Parent(Arc<ParentState>);
+
+#[derive(Debug)]
+struct ParentState {
+	cleanup_interval: Duration,
+	cleanup_timeout: Duration,
+	controllers: Vec<&'static str>,
+	directory: OwnedFd,
+	location: OwnedFd,
+	minimums: Option<crate::memory::Minimums>,
+	name: String,
+	path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -51,6 +70,7 @@ pub struct Options {
 	pub cpu_threads: Option<crate::cpu::Threads>,
 	pub memory: Option<tg::sandbox::Resource<u64>>,
 	pub memory_oom_group: bool,
+	pub parent: Option<Parent>,
 	pub pids: Option<u64>,
 }
 
@@ -147,48 +167,43 @@ impl Cgroup {
 
 	/// Create a cgroup, or return `None` if cgroup v2 is not available or no cgroup parent is writable.
 	pub fn try_new(name: &str, options: &Options) -> tg::Result<Option<Self>> {
-		use std::os::unix::fs::OpenOptionsExt as _;
-
-		// Resolve the current cgroup.
-		let root = Path::new(ROOT);
-		if !root.join("cgroup.controllers").exists() {
-			return Ok(None);
-		}
-		let current = current(root)?;
-
-		// Select the parent cgroup.
+		// Select the parent cgroup, which is the given parent if it enables the required controllers, or otherwise the current cgroup or its parent.
 		let controllers = options.controllers();
-		let Some(current) = resolve_parent(root, &current, &controllers)? else {
-			return Ok(None);
-		};
-
-		// Open the parent cgroup.
-		let name = sanitize_name(name);
-
-		// Hold the parent directory open so the cgroup can be removed even after the sandbox replaces the cgroup mount it was resolved through.
-		let parent = std::fs::OpenOptions::new()
-			.read(true)
-			.custom_flags(libc::O_DIRECTORY | libc::O_PATH)
-			.open(&current)
-			.map_err(|error| {
+		let (current, parent) = if let Some(parent) = &options.parent {
+			if !controllers
+				.iter()
+				.all(|controller| parent.0.controllers.contains(controller))
+			{
+				return Ok(None);
+			}
+			let directory = parent.0.directory.try_clone().map_err(|error| {
 				tg::error!(
 					!error,
-					path = %current.display(),
-					"failed to open the cgroup directory",
+					path = %parent.0.path.display(),
+					"failed to clone the cgroup directory descriptor",
 				)
 			})?;
-		let parent = OwnedFd::from(parent);
+			(parent.0.path.clone(), directory)
+		} else {
+			// Resolve the current cgroup.
+			let root = Path::new(ROOT);
+			if !root.join("cgroup.controllers").exists() {
+				return Ok(None);
+			}
+			let current = current(root)?;
+			let Some(current) = resolve_parent(root, &current, &controllers)? else {
+				return Ok(None);
+			};
+
+			// Hold the parent directory open so the cgroup can be removed even after the sandbox replaces the cgroup mount it was resolved through.
+			let directory = open_directory(&current)?;
+			(current, directory)
+		};
+		let name = sanitize_name(name);
 		let path = current.join(&name);
 
-		// Create the sandbox cgroup, replacing a cgroup of the same name that a previous boot of the sandbox left without processes when its runner was killed.
-		let result = match std::fs::create_dir(&path) {
-			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-				remove_stale(&parent, &name, &path)?;
-				std::fs::create_dir(&path)
-			},
-			result => result,
-		};
-		result.map_err(|error| {
+		// Create the sandbox cgroup.
+		std::fs::create_dir(&path).map_err(|error| {
 			tg::error!(
 				!error,
 				path = %path.display(),
@@ -197,19 +212,7 @@ impl Cgroup {
 		})?;
 
 		// Create the cleanup state.
-		let directory = std::fs::OpenOptions::new()
-			.read(true)
-			.custom_flags(libc::O_DIRECTORY | libc::O_PATH)
-			.open(&path)
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					path = %path.display(),
-					"failed to open the cgroup directory",
-				)
-			})?;
-		let directory = OwnedFd::from(directory);
-
+		let directory = open_directory(&path)?;
 		let cleanup = Cleanup {
 			directory,
 			name: name.clone(),
@@ -234,6 +237,7 @@ impl Cgroup {
 			cleanup,
 			cleanup_interval: options.cleanup_interval,
 			cleanup_timeout: options.cleanup_timeout,
+			minimum: None,
 			path: path.clone(),
 			pin,
 			share: None,
@@ -263,6 +267,16 @@ impl Cgroup {
 		{
 			let cpu = options.cpu_request.unwrap_or_default();
 			cgroup.share = Some(shares.insert(cpu, cgroup.handle()?)?);
+		}
+
+		// Add the sandbox's memory minimum to the parent's, because a sandbox's minimum protects it only up to its parent's minimum.
+		if let Some(minimums) = options
+			.parent
+			.as_ref()
+			.and_then(|parent| parent.0.minimums.as_ref())
+		{
+			let minimum = options.memory.map_or(0, |memory| memory.min);
+			cgroup.minimum = Some(minimums.insert(minimum)?);
 		}
 
 		// Configure the memory limits and disable swap.
@@ -375,6 +389,9 @@ impl Cgroup {
 		let memory = memory.unwrap_or_default();
 		let previous = previous.unwrap_or_default();
 		if memory.min != previous.min {
+			if let Some(minimum) = &self.minimum {
+				minimum.set(memory.min)?;
+			}
 			handle.write(c"memory.min", memory.min.to_string().as_bytes())?;
 		}
 		if memory.max != previous.max {
@@ -443,6 +460,7 @@ impl Cgroup {
 	}
 
 	pub fn cleanup(mut self) -> tg::Result<()> {
+		drop(self.minimum.take());
 		drop(self.share.take());
 		self.stop()?;
 		self.stopped = true;
@@ -453,32 +471,147 @@ impl Cgroup {
 	pub(crate) fn stop(&self) -> tg::Result<()> {
 		write_file_at(&self.cleanup.directory, c"cgroup.kill", b"1\n")
 			.map_err(|error| tg::error!(!error, "failed to stop the sandbox cgroup"))?;
-		self.wait_until_empty()?;
+		wait_until_empty(
+			&self.cleanup.directory,
+			&self.path,
+			self.cleanup_interval,
+			self.cleanup_timeout,
+		)?;
 		Ok(())
 	}
+}
 
-	fn wait_until_empty(&self) -> tg::Result<()> {
-		let deadline = Instant::now() + self.cleanup_timeout;
-		loop {
-			let contents =
-				read_file_at(&self.cleanup.directory, c"cgroup.events").map_err(|error| {
+impl Parent {
+	/// Create the cgroup of a runner with the given name, after removing the cgroup of the same name and everything in it that a previous run left, or return `None` if cgroup v2 is not available or no cgroup parent is writable.
+	pub fn try_new(
+		name: &str,
+		cleanup_interval: Duration,
+		cleanup_timeout: Duration,
+	) -> tg::Result<Option<Self>> {
+		// Resolve the current cgroup.
+		let root = Path::new(ROOT);
+		if !root.join("cgroup.controllers").exists() {
+			return Ok(None);
+		}
+		let current = current(root)?;
+
+		// Select the location of the cgroup.
+		let Some(location) = select_location(root, &current)? else {
+			return Ok(None);
+		};
+		let location_directory = open_directory(&location)?;
+		let name = sanitize_name(name);
+		let path = location.join(&name);
+
+		// Create the cgroup, first removing the cgroup that a previous run left, whose processes are orphans because a runner that is starting has no sandboxes.
+		let result = match std::fs::create_dir(&path) {
+			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+				tracing::info!(path = %path.display(), "removing the cgroup of a previous run");
+				remove(
+					&location_directory,
+					&name,
+					&path,
+					cleanup_interval,
+					cleanup_timeout,
+				)?;
+				std::fs::create_dir(&path)
+			},
+			result => result,
+		};
+		result.map_err(|error| {
+			tg::error!(
+				!error,
+				path = %path.display(),
+				"failed to create the cgroup"
+			)
+		})?;
+		let directory = open_directory(&path)?;
+
+		// Enable the sandbox controllers that the cgroup has for its children.
+		let available = read_file_at(&directory, c"cgroup.controllers").map_err(|error| {
+			tg::error!(
+				!error,
+				path = %path.display(),
+				"failed to read the available cgroup controllers"
+			)
+		})?;
+		let controllers = CONTROLLERS
+			.into_iter()
+			.filter(|controller| {
+				available
+					.split_ascii_whitespace()
+					.any(|value| value == *controller)
+			})
+			.collect::<Vec<_>>();
+		if !controllers.is_empty() {
+			let enable = controllers
+				.iter()
+				.map(|controller| format!("+{controller}"))
+				.collect::<Vec<_>>()
+				.join(" ");
+			write_file_at(&directory, c"cgroup.subtree_control", enable.as_bytes()).map_err(
+				|error| {
 					tg::error!(
 						!error,
-						path = %self.path.display(),
-						"failed to read the cgroup events"
+						path = %path.display(),
+						"failed to enable the cgroup controllers"
 					)
-				})?;
-			if !parse_populated(&contents)? {
-				return Ok(());
-			}
-			if Instant::now() >= deadline {
-				return Err(tg::error!(
-					path = %self.path.display(),
-					"timed out waiting for the cgroup to become empty"
-				));
-			}
-			std::thread::sleep(self.cleanup_interval);
+				},
+			)?;
 		}
+
+		// Give the cgroup the maximum CPU weight, so that the sandboxes are not throttled as a group against the runner's own cgroup.
+		if path.join("cpu.weight").exists() {
+			write_file_at(&directory, c"cpu.weight", b"10000\n").map_err(|error| {
+				tg::error!(
+					!error,
+					path = %path.display(),
+					"failed to set cpu.weight"
+				)
+			})?;
+		}
+
+		// Create the memory minimums, which keep the cgroup's memory minimum at the sum of its sandboxes' minimums.
+		let minimums = if path.join("memory.min").exists() {
+			let directory = directory.try_clone().map_err(|error| {
+				tg::error!(
+					!error,
+					path = %path.display(),
+					"failed to clone the cgroup directory descriptor",
+				)
+			})?;
+			let handle = Handle { directory };
+			Some(crate::memory::Minimums::new(handle))
+		} else {
+			None
+		};
+
+		// Create the parent.
+		let state = ParentState {
+			cleanup_interval,
+			cleanup_timeout,
+			controllers,
+			directory,
+			location: location_directory,
+			minimums,
+			name,
+			path,
+		};
+		let parent = Self(Arc::new(state));
+
+		Ok(Some(parent))
+	}
+
+	/// Remove the cgroup, after stopping every process in it and removing its descendants.
+	pub fn remove(&self) -> tg::Result<()> {
+		remove(
+			&self.0.location,
+			&self.0.name,
+			&self.0.path,
+			self.0.cleanup_interval,
+			self.0.cleanup_timeout,
+		)?;
+		Ok(())
 	}
 }
 
@@ -605,6 +738,7 @@ impl Default for Options {
 			cpu_threads: None,
 			memory: None,
 			memory_oom_group: false,
+			parent: None,
 			pids: None,
 		}
 	}
@@ -612,6 +746,7 @@ impl Default for Options {
 
 impl Drop for Cgroup {
 	fn drop(&mut self) {
+		drop(self.minimum.take());
 		drop(self.share.take());
 		if self.stopped {
 			return;
@@ -741,6 +876,7 @@ fn options(arg: &crate::Arg) -> tg::Result<Options> {
 		cpu_threads: arg.cpu_threads.clone(),
 		memory: arg.memory,
 		memory_oom_group: true,
+		parent: arg.cgroup_parent.clone(),
 		pids: arg.resources.max_pids,
 	};
 	Ok(options)
@@ -806,33 +942,59 @@ fn remove_descendants(directory: &OwnedFd) -> tg::Result<()> {
 	Ok(())
 }
 
-/// Remove a cgroup that has no processes, and its descendants, which a sandbox process leaves when it is killed before it removes its cgroup. Refuse to remove a cgroup that has processes, because a live sandbox may use it.
-fn remove_stale(parent: &OwnedFd, name: &str, path: &Path) -> tg::Result<()> {
+/// Remove a cgroup, after stopping every process in it and removing its descendants.
+fn remove(
+	parent: &OwnedFd,
+	name: &str,
+	path: &Path,
+	interval: Duration,
+	timeout: Duration,
+) -> tg::Result<()> {
 	// Open the cgroup.
 	let flags = OFlags::CLOEXEC | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::PATH;
-	let directory = openat(parent, name, flags, Mode::empty()).map_err(
-		|error| tg::error!(!error, path = %path.display(), "failed to open the stale cgroup"),
-	)?;
+	let directory = openat(parent, name, flags, Mode::empty())
+		.map_err(|error| tg::error!(!error, path = %path.display(), "failed to open the cgroup"))?;
 
-	// Refuse to remove a cgroup that has processes.
-	let contents = read_file_at(&directory, c"cgroup.events").map_err(
-		|error| tg::error!(!error, path = %path.display(), "failed to read the stale cgroup events"),
-	)?;
-	if parse_populated(&contents)? {
-		return Err(tg::error!(
-			path = %path.display(),
-			"the cgroup already exists and has processes"
-		));
-	}
+	// Stop every process in the cgroup.
+	write_file_at(&directory, c"cgroup.kill", b"1\n")
+		.map_err(|error| tg::error!(!error, path = %path.display(), "failed to stop the cgroup"))?;
+	wait_until_empty(&directory, path, interval, timeout)?;
 
 	// Remove the cgroup after its descendants.
-	tracing::warn!(path = %path.display(), "removing a stale cgroup");
 	remove_descendants(&directory)?;
 	unlinkat(parent, name, AtFlags::REMOVEDIR).map_err(
-		|error| tg::error!(!error, path = %path.display(), "failed to remove the stale cgroup"),
+		|error| tg::error!(!error, path = %path.display(), "failed to remove the cgroup"),
 	)?;
 
 	Ok(())
+}
+
+fn wait_until_empty(
+	directory: &OwnedFd,
+	path: &Path,
+	interval: Duration,
+	timeout: Duration,
+) -> tg::Result<()> {
+	let deadline = Instant::now() + timeout;
+	loop {
+		let contents = read_file_at(directory, c"cgroup.events").map_err(|error| {
+			tg::error!(
+				!error,
+				path = %path.display(),
+				"failed to read the cgroup events"
+			)
+		})?;
+		if !parse_populated(&contents)? {
+			return Ok(());
+		}
+		if Instant::now() >= deadline {
+			return Err(tg::error!(
+				path = %path.display(),
+				"timed out waiting for the cgroup to become empty"
+			));
+		}
+		std::thread::sleep(interval);
+	}
 }
 
 fn parse_oom_kill(contents: &str) -> tg::Result<u64> {
@@ -896,24 +1058,76 @@ fn resolve_parent(
 		}) {
 			continue;
 		}
-		let directory = std::fs::File::open(path)
-			.map_err(|error| tg::error!(!error, "failed to open the cgroup parent"))?;
-		let access = rustix::fs::Access::WRITE_OK | rustix::fs::Access::EXEC_OK;
-		let flags = AtFlags::EACCESS;
-		if rustix::fs::accessat(&directory, ".", access, flags).is_err()
-			|| rustix::fs::accessat(
-				&directory,
-				"cgroup.procs",
-				rustix::fs::Access::WRITE_OK,
-				flags,
-			)
-			.is_err()
-		{
+		if !writable(path)? {
 			continue;
 		}
 		return Ok(Some(path.to_owned()));
 	}
 	Ok(None)
+}
+
+/// Select the writable cgroup among the current cgroup and its parent that enables the most of the sandbox controllers for its children, preferring the current cgroup.
+fn select_location(root: &Path, current: &Path) -> tg::Result<Option<PathBuf>> {
+	let parent = current.parent().filter(|parent| parent.starts_with(root));
+	let mut selected = None::<(PathBuf, usize)>;
+	for path in std::iter::once(current).chain(parent) {
+		let enabled = std::fs::read_to_string(path.join("cgroup.subtree_control"))
+			.map_err(|error| tg::error!(!error, path = %path.display(), "failed to read the enabled cgroup controllers"))?;
+		let count = CONTROLLERS
+			.iter()
+			.filter(|controller| {
+				enabled
+					.split_ascii_whitespace()
+					.any(|value| value == **controller)
+			})
+			.count();
+		if !writable(path)? {
+			continue;
+		}
+		if selected
+			.as_ref()
+			.is_none_or(|(_, selected)| count > *selected)
+		{
+			selected = Some((path.to_owned(), count));
+		}
+	}
+	let location = selected.map(|(path, _)| path);
+	Ok(location)
+}
+
+/// Determine whether the current process can create cgroups in a cgroup and move processes into it.
+fn writable(path: &Path) -> tg::Result<bool> {
+	let directory = std::fs::File::open(path)
+		.map_err(|error| tg::error!(!error, "failed to open the cgroup parent"))?;
+	let access = rustix::fs::Access::WRITE_OK | rustix::fs::Access::EXEC_OK;
+	let flags = AtFlags::EACCESS;
+	let writable = rustix::fs::accessat(&directory, ".", access, flags).is_ok()
+		&& rustix::fs::accessat(
+			&directory,
+			"cgroup.procs",
+			rustix::fs::Access::WRITE_OK,
+			flags,
+		)
+		.is_ok();
+	Ok(writable)
+}
+
+fn open_directory(path: &Path) -> tg::Result<OwnedFd> {
+	use std::os::unix::fs::OpenOptionsExt as _;
+
+	let directory = std::fs::OpenOptions::new()
+		.read(true)
+		.custom_flags(libc::O_DIRECTORY | libc::O_PATH)
+		.open(path)
+		.map_err(|error| {
+			tg::error!(
+				!error,
+				path = %path.display(),
+				"failed to open the cgroup directory",
+			)
+		})?;
+	let directory = OwnedFd::from(directory);
+	Ok(directory)
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -989,6 +1203,36 @@ mod tests {
 		);
 		std::fs::remove_file(leaf.join("cgroup.subtree_control")).unwrap();
 		assert!(resolve_parent(temp.path(), &leaf, &["memory"]).is_err());
+	}
+
+	#[test]
+	fn select_the_location_with_the_most_controllers() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		let leaf = temp.path().join("runner");
+		std::fs::create_dir_all(&leaf).unwrap();
+		for path in [temp.path(), leaf.as_path()] {
+			std::fs::write(path.join("cgroup.procs"), "").unwrap();
+		}
+		std::fs::write(leaf.join("cgroup.subtree_control"), "").unwrap();
+		std::fs::write(temp.path().join("cgroup.subtree_control"), "cpu memory").unwrap();
+		assert_eq!(
+			select_location(temp.path(), &leaf).unwrap(),
+			Some(temp.path().to_owned())
+		);
+		std::fs::write(leaf.join("cgroup.subtree_control"), "cpu memory").unwrap();
+		assert_eq!(
+			select_location(temp.path(), &leaf).unwrap(),
+			Some(leaf.clone())
+		);
+		std::fs::write(
+			temp.path().join("cgroup.subtree_control"),
+			"cpu memory pids",
+		)
+		.unwrap();
+		assert_eq!(
+			select_location(temp.path(), &leaf).unwrap(),
+			Some(temp.path().to_owned())
+		);
 	}
 
 	#[test]
