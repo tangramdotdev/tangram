@@ -10,7 +10,7 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		server: &'a Server,
 		id: &'a tg::sandbox::Id,
-		error: tg::error::Data,
+		error: Option<tg::error::Data>,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn destroy_stopped_runner_sandbox<'a>(

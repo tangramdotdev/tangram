@@ -379,7 +379,7 @@ impl Component {
 			} else {
 				tg::sandbox::Status::Stopped
 			};
-			self.finish_runner_sandbox(server, &sandbox, error, status, Some(registration))
+			self.finish_runner_sandbox(server, &sandbox, Some(error), status, Some(registration))
 				.boxed()
 				.await?;
 		}
@@ -391,7 +391,7 @@ impl Component {
 		&self,
 		server: &Server,
 		id: &tg::sandbox::Id,
-		error: tg::error::Data,
+		error: Option<tg::error::Data>,
 	) -> tg::Result<()> {
 		self.finish_runner_sandbox(server, id, error, tg::sandbox::Status::Destroyed, None)
 			.boxed()
@@ -404,7 +404,7 @@ impl Component {
 		id: &tg::sandbox::Id,
 		error: tg::error::Data,
 	) -> tg::Result<()> {
-		self.finish_runner_sandbox(server, id, error, tg::sandbox::Status::Stopped, None)
+		self.finish_runner_sandbox(server, id, Some(error), tg::sandbox::Status::Stopped, None)
 			.boxed()
 			.await
 	}
@@ -413,7 +413,7 @@ impl Component {
 		&self,
 		server: &Server,
 		id: &tg::sandbox::Id,
-		error: tg::error::Data,
+		error: Option<tg::error::Data>,
 		status: tg::sandbox::Status,
 		registration: Option<&tangram_index::runner::Registration>,
 	) -> tg::Result<()> {
@@ -435,7 +435,14 @@ impl Component {
 		if stopped_or_destroyed {
 			return Ok(());
 		}
-		tracing::warn!(sandbox = %id, reason = error.message.as_deref(), %status, "finishing the runner sandbox");
+		tracing::warn!(sandbox = %id, reason = error.as_ref().and_then(|error| error.message.as_deref()), %status, "finishing the runner sandbox");
+
+		// Finish the started processes with the error, or with a cancellation if the sandbox ends without one.
+		let process_error = error.clone().unwrap_or_else(|| tg::error::Data {
+			code: Some(tg::error::Code::Cancellation),
+			message: Some("the sandbox was destroyed".to_owned()),
+			..Default::default()
+		});
 		let now = server.clock.unix_timestamp();
 		let length = server
 			.index
@@ -476,7 +483,7 @@ impl Component {
 				}
 				data.children.get_or_insert_default();
 				data.cacheable = false;
-				data.set_error(Some(tg::Either::Left(error.clone())));
+				data.set_error(Some(tg::Either::Left(process_error.clone())));
 				data.exit = Some(1);
 				data.finished_at = Some(server.clock.unix_timestamp());
 				data.status = tg::process::Status::Finished;
@@ -603,7 +610,11 @@ impl Component {
 			.data
 			.as_mut()
 			.ok_or_else(|| tg::error!(%id, "missing the sandbox data"))?;
-		data.data.error = Some(tg::Either::Left(error));
+
+		// Record no error if the sandbox ends without one, except that a destroying sandbox keeps the error that its destroy recorded.
+		if error.is_some() || !data.data.status.is_destroying() {
+			data.data.error = error.map(tg::Either::Left);
+		}
 		data.data.status = status;
 		data.data.usage = None;
 
