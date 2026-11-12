@@ -16,7 +16,6 @@ The Linux binaries are built in the AlmaLinux 9 image defined by `Dockerfile` in
 | `bump.nu <version>` | Set the version everywhere it is declared. |
 | `build.nu [--target <triple>]` | Build `release/tangram_<host>.tar.gz` for one target. |
 | `verify.nu <archive>` | Check an archive and print a report. Exits nonzero if any check fails. |
-| `publish.nu [--dry-run]` | Write `SHASUMS256.txt` and the Homebrew formula, then create a draft GitHub release. |
 
 Each script is also a root export: `tg run .#releaseBuild -- --target x86_64-apple-darwin`. Run the scripts with `nu` directly on a machine that does not have Tangram installed.
 
@@ -102,11 +101,3 @@ Each line must print `tangram <version>+<commit>`.
 ### 5. Report
 
 Send back the complete output of each `verify.nu` run, the output of step 4, and how long the build took. If a step fails, send its output and stop; do not work around it on the machine.
-
-## Releasing
-
-1. Run `nu scripts/release/bump.nu <version>`, and commit and merge the result.
-2. Build and verify every archive, and collect the four archives in `release/` on one machine. Copy `packages/macos/build/Distribution/Tangram.zip` there too to include the macOS app.
-3. Run `nu scripts/release/publish.nu`. It creates a draft release tagged `v<version>`.
-4. Review the draft on GitHub and publish it. Publishing makes it the latest release, which is what the install script downloads.
-5. Copy `release/tangram.rb` to the `tangramdotdev/homebrew-tap` repository.

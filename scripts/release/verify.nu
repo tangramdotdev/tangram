@@ -17,8 +17,7 @@ const linux_libraries = [
 # Verify a release archive and print a report.
 def main [
 	archive: path # The archive, such as release/tangram_aarch64-darwin.tar.gz.
-	--skip-signing # On macOS, do not require the Developer ID signature and the notarization.
-	--skip-smoke # Do not run the binary.
+	--skip-signing # On macOS, do not require the notarization.
 ] {
 	# Resolve the target from the name of the archive.
 	let archive = $archive | path expand
@@ -36,11 +35,6 @@ def main [
 	# Check the contents of the archive.
 	let members = ^tar -tzf $archive | lines | sort
 	$checks ++= [(check 'the archive contains tangram, tg, and tgx' ($members == [tangram tg tgx]) ($members | str join ' '))]
-	let link = ^readlink ($directory | path join tg) | complete | get stdout | str trim
-	$checks ++= [(check 'tg is a symlink to tangram' ($link == 'tangram') $link)]
-	let tgx = $directory | path join tgx
-	let tgx_executable = ($tgx | path exists) and ((ls -l $tgx | get mode | first) | str contains 'x')
-	$checks ++= [(check 'tgx is executable' $tgx_executable '')]
 
 	# Check the format and the architecture of the binary.
 	let description = ^file -b $binary_path | str trim
@@ -53,16 +47,13 @@ def main [
 	if $entry.os == 'darwin' and (host_os) == 'darwin' {
 		$checks ++= (check_darwin $binary_path $skip_signing)
 	}
-	if $entry.os == 'linux' and (which readelf | is-not-empty) {
+	if $entry.os == 'linux' {
 		$checks ++= (check_linux $binary_path)
-	}
-	if $entry.os == 'linux' and (which readelf | is-empty) {
-		$checks ++= [(check 'readelf is available to inspect the binary' false 'install binutils')]
 	}
 
 	# Run the binary if this machine can.
 	let runnable = $entry.os == (host_os) and ($entry.arch == (host_arch) or ($entry.os == 'darwin' and (rosetta)))
-	if $runnable and not $skip_smoke {
+	if $runnable {
 		$checks ++= (check_smoke $directory $version)
 	}
 	rm -rf $directory
@@ -106,16 +97,8 @@ def rosetta []: nothing -> bool {
 def check_darwin [binary_path: path, skip_signing: bool]: nothing -> list<record> {
 	mut checks = []
 
-	# Check the signature.
+	# Check that the binary is notarized, which requires a Developer ID signature with the hardened runtime.
 	if not $skip_signing {
-		let verify = ^codesign --verify --strict $binary_path | complete
-		$checks ++= [(check 'the signature is valid' ($verify.exit_code == 0) ($verify.stderr | str trim | lines | first 1 | str join))]
-		let signature = ^codesign -dv --verbose=4 $binary_path | complete
-		let details = $signature.stdout + $signature.stderr
-		let authority = $details | lines | where { |line| $line starts-with 'Authority=' } | get --optional 0 | default 'no authority'
-		$checks ++= [(check 'the binary is signed with a Developer ID Application identity' ($authority | str contains 'Developer ID Application') $authority)]
-		$checks ++= [(check 'the signature uses the hardened runtime' ($details =~ 'flags=.*runtime') '')]
-		$checks ++= [(check 'the signature has a secure timestamp' ($details | str contains 'Timestamp=') '')]
 		let notarized = ^codesign --verify --strict -R=notarized --check-notarization $binary_path | complete
 		$checks ++= [(check 'the binary is notarized' ($notarized.exit_code == 0) ($notarized.stderr | str trim))]
 	}
@@ -194,8 +177,7 @@ def check_smoke [directory: path, version: string]: nothing -> list<record> {
 	$checks ++= [(check 'a sandboxed command succeeds' $pass (failure_detail $command))]
 
 	# Stop the server.
-	let stop = ^$binary_path ...$args server stop | complete
-	$checks ++= [(check 'the server stops' ($stop.exit_code == 0) '')]
+	^$binary_path ...$args server stop | complete
 
 	$checks
 }

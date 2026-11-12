@@ -196,15 +196,6 @@ export const releaseBump = async (...args: Array<string>) => {
 		.env(env);
 };
 
-export const releasePublish = async (...args: Array<string>) => {
-	const { cwd, env } = await context();
-	await tg.run`nu scripts/release/publish.nu "$@"`
-		.executable("sh")
-		.args(["--", ...args])
-		.cwd(cwd)
-		.env(env);
-};
-
 export const releaseVerify = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
 	await tg.run`nu scripts/release/verify.nu "$@"`

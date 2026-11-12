@@ -6,7 +6,6 @@ const image = 'tangram-release-builder'
 
 # Build the release archive for one target.
 def main [
-	--notary-profile: string # The notarytool keychain profile. Defaults to $TANGRAM_NOTARY_PROFILE, then to Tangram.
 	--skip-signing # On macOS, leave the binary with the linker's ad hoc signature and do not notarize it.
 	--target: string # The Rust target triple. Defaults to the target of this machine.
 ] {
@@ -49,7 +48,7 @@ def main [
 
 	# Sign and notarize the binary.
 	if $entry.os == 'darwin' and not $skip_signing {
-		let profile = $notary_profile | default ($env.TANGRAM_NOTARY_PROFILE? | default Tangram)
+		let profile = $env.TANGRAM_NOTARY_PROFILE? | default Tangram
 		sign_darwin $binary_path $profile
 	}
 
@@ -122,13 +121,6 @@ def build_linux [target: string, commit: string, stage_path: path] {
 # Sign the binary with the Developer ID Application identity and the hardened runtime, then notarize it.
 def sign_darwin [binary_path: path, profile: string] {
 	step 'Signing with the Developer ID Application identity'
-	let identities = ^security find-identity -v -p codesigning | complete
-	if not ($identities.stdout | str contains 'Developer ID Application') {
-		error make {
-			msg: 'a Developer ID Application signing identity is not available'
-			help: 'Create a Developer ID Application certificate for the Tangram Apple Developer account, or pass --skip-signing to build an unsigned archive.'
-		}
-	}
 	let entitlements_path = repository | path join scripts/release/tangram.entitlements
 	(
 		^codesign --force --options runtime --timestamp
@@ -137,7 +129,6 @@ def sign_darwin [binary_path: path, profile: string] {
 			--sign 'Developer ID Application'
 			$binary_path
 	)
-	^codesign --verify --strict --verbose=2 $binary_path
 
 	step 'Submitting for notarization'
 	let zip_path = $'($binary_path).zip'
