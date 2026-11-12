@@ -1,6 +1,6 @@
 use {
 	crate::Component,
-	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	std::pin::pin,
 	tangram_client::prelude::*,
@@ -49,6 +49,33 @@ impl Output {
 
 	pub fn process(&self) -> Option<&tg::process::Id> {
 		self.output.process.as_ref().right()
+	}
+
+	pub async fn wait_for_start(&self, session: &Session) -> tg::Result<()> {
+		if self.output.outcome.is_some() {
+			return Ok(());
+		}
+		let Some(id) = self.process() else {
+			return Ok(());
+		};
+		let arg = tg::process::status::Arg {
+			location: self.output.location.clone().map(Into::into),
+			tokens: self.output.tokens.clone(),
+			..Default::default()
+		};
+		let stream = session
+			.get_process_status(id, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the cached process status"))?;
+		let mut stream = pin!(stream);
+		while let Some(status) = stream.try_next().await? {
+			match status {
+				tg::process::Status::Finished | tg::process::Status::Started => return Ok(()),
+				tg::process::Status::Starting => (),
+			}
+		}
+
+		Err(tg::error!(%id, "the cached process status stream ended before the process started"))
 	}
 }
 
