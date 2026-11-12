@@ -38,9 +38,9 @@ let pid = open --raw $pid_path | str trim | into int
 let process = $hit.params.process
 let sandbox = tg process get $process | from json | get sandbox
 
-kill --signal 15 $pid
+kill --signal 9 $pid
 let output = job recv --tag $run --timeout 10sec
-assert equal $output.exit_code (-15) "the actual tg process should be terminated by SIGTERM"
+assert equal $output.exit_code (-9) "the tg process should be killed"
 
 tg checkpoint continue process.wait.attach $watch 0
 tg checkpoint unwatch process.wait.attach $watch

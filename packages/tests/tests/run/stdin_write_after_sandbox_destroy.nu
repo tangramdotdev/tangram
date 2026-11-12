@@ -76,7 +76,7 @@ tg checkpoint wait --timeout 10s runner.process.control.stdin.write $stdin_watch
 
 # Disconnect the client so that the wait lease is dropped and the sandbox is destroyed while the sandbox process is still running.
 let retention = checkpoint watch clock.sleep --params { duration: '1s' }
-kill --signal 15 $pid
+kill --signal 9 $pid
 let output = tg checkpoint wait --timeout 10s runner.sandbox.destroyed $destroyed_watch 0 | complete
 success $output "the sandbox should be destroyed while the stdin write is held"
 tg checkpoint continue runner.sandbox.destroyed $destroyed_watch 0
@@ -109,4 +109,4 @@ let output = try { job recv --tag $run --timeout 15sec } catch { null }
 if $output == null {
 	error make { msg: 'the run did not complete' }
 }
-assert equal $output.exit_code (-15) "the client should be terminated by SIGTERM"
+assert equal $output.exit_code (-9) "the client should be killed"

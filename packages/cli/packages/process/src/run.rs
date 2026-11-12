@@ -1,6 +1,9 @@
 use {
-	std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*,
+	std::path::PathBuf,
+	tangram_cli_core::Cli,
+	tangram_client::prelude::*,
 	tangram_futures::task::Task,
+	tokio::signal::unix::{Signal, SignalKind, signal},
 };
 
 /// Spawn and await a process.
@@ -76,6 +79,17 @@ pub enum View {
 	None,
 	Inline,
 	Fullscreen,
+}
+
+/// The signals that tg run handles.
+struct Signals {
+	alarm: Signal,
+	hangup: Signal,
+	interrupt: Signal,
+	quit: Signal,
+	terminate: Signal,
+	user_defined1: Signal,
+	user_defined2: Signal,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -177,17 +191,46 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 		tg::process::attach::Mode::Run
 	};
 
-	// Spawn the process.
+	// Install the signal handlers before spawning a sandboxed process that this run awaits without a viewer, because the process does not receive the signals that are sent to tg run.
+	let mut signals = if !options.detach
+		&& options.spawn.sandboxed()
+		&& matches!(options.view, None | Some(View::None))
+	{
+		Some(Signals::new()?)
+	} else {
+		None
+	};
+
+	// Spawn the process. After a signal, finish spawning so that the signal can be forwarded or the lease released, and terminate with the signal if the spawn fails or another signal arrives.
 	let print = (!options.detach).then(|| options.print.clone());
-	let process = Box::pin(crate::spawn::spawn(
-		cli,
-		options.spawn,
-		reference,
-		trailing,
-		print,
-		mode,
-	))
-	.await?;
+	let mut spawn_signal = None;
+	let process = {
+		let mut spawn_future = Box::pin(crate::spawn::spawn(
+			cli,
+			options.spawn,
+			reference,
+			trailing,
+			print,
+			mode,
+		));
+		match &mut signals {
+			Some(signals) => tokio::select! {
+				result = &mut spawn_future => result?,
+				signal = signals.recv() => {
+					let signal = signal?;
+					spawn_signal = Some(signal);
+					tokio::select! {
+						result = spawn_future => result.unwrap_or_else(|error| {
+							tracing::warn!(?error, "failed to spawn the process");
+							terminate_with_signal(signal)
+						}),
+						received = signals.recv() => terminate_with_signal(received?),
+					}
+				},
+			},
+			None => spawn_future.await?,
+		}
+	};
 
 	// If the detach flag is set, then return the process referent.
 	if options.detach {
@@ -292,10 +335,18 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 				match result {
 					Err(_) | Ok(tangram_cli_viewer::Outcome::Finished) => wait_future.await,
 					Ok(outcome) => {
-						drop(wait_future);
 						if let Some(view_task) = view_task {
 							stop_view_task(view_task).await;
 						}
+
+						// Cancel the process and wait for it to stop, and terminate at once on a signal.
+						let mut signals = Signals::new()?;
+						tokio::select! {
+							() = cancel_process(&client, process.node(), &mut wait_future) => (),
+							signal = signals.recv() => terminate_with_signal(signal?),
+						}
+						terminate_on_signal(signals);
+
 						match outcome {
 							tangram_cli_viewer::Outcome::Finished => unreachable!(),
 							tangram_cli_viewer::Outcome::Interrupt => {
@@ -311,6 +362,40 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 				}
 			},
 		}
+	} else if let Some(mut signals) = signals {
+		// Await the process while handling each signal, starting with one that arrived while spawning the process.
+		let mut signal = spawn_signal;
+		let result = loop {
+			if let Some(signal) = signal.take() {
+				let released = tokio::select! {
+					result = &mut wait_future => break result,
+					result = signal_process(&client, process.node(), signal) => result,
+				};
+				let released = released.unwrap_or_else(|error| {
+					tracing::warn!(?error, "failed to handle the signal");
+					false
+				});
+
+				// If the lease is released, then exit with the code for the signal without awaiting the process.
+				if released {
+					terminate_on_signal(signals);
+					if let Some(echo_task) = echo_task {
+						echo_task.abort();
+					}
+					cli.exit.replace((128 + signal as u8).into());
+					return Ok(tg::Value::Null);
+				}
+			}
+			tokio::select! {
+				result = &mut wait_future => break result,
+				received = signals.recv() => {
+					signal.replace(received?);
+				},
+			}
+		};
+		terminate_on_signal(signals);
+
+		result
 	} else {
 		wait_future.await
 	}
@@ -420,6 +505,157 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 	}
 
 	Ok(output)
+}
+
+impl Signals {
+	fn new() -> tg::Result<Self> {
+		let alarm = signal(SignalKind::alarm())
+			.map_err(|error| tg::error!(!error, "failed to install the SIGALRM handler"))?;
+		let hangup = signal(SignalKind::hangup())
+			.map_err(|error| tg::error!(!error, "failed to install the SIGHUP handler"))?;
+		let interrupt = signal(SignalKind::interrupt())
+			.map_err(|error| tg::error!(!error, "failed to install the SIGINT handler"))?;
+		let quit = signal(SignalKind::quit())
+			.map_err(|error| tg::error!(!error, "failed to install the SIGQUIT handler"))?;
+		let terminate = signal(SignalKind::terminate())
+			.map_err(|error| tg::error!(!error, "failed to install the SIGTERM handler"))?;
+		let user_defined1 = signal(SignalKind::user_defined1())
+			.map_err(|error| tg::error!(!error, "failed to install the SIGUSR1 handler"))?;
+		let user_defined2 = signal(SignalKind::user_defined2())
+			.map_err(|error| tg::error!(!error, "failed to install the SIGUSR2 handler"))?;
+		let signals = Self {
+			alarm,
+			hangup,
+			interrupt,
+			quit,
+			terminate,
+			user_defined1,
+			user_defined2,
+		};
+		Ok(signals)
+	}
+
+	async fn recv(&mut self) -> tg::Result<tg::process::Signal> {
+		let signal = tokio::select! {
+			signal = self.alarm.recv() => signal.map(|()| tg::process::Signal::SIGALRM),
+			signal = self.hangup.recv() => signal.map(|()| tg::process::Signal::SIGHUP),
+			signal = self.interrupt.recv() => signal.map(|()| tg::process::Signal::SIGINT),
+			signal = self.quit.recv() => signal.map(|()| tg::process::Signal::SIGQUIT),
+			signal = self.terminate.recv() => signal.map(|()| tg::process::Signal::SIGTERM),
+			signal = self.user_defined1.recv() => signal.map(|()| tg::process::Signal::SIGUSR1),
+			signal = self.user_defined2.recv() => signal.map(|()| tg::process::Signal::SIGUSR2),
+		};
+		signal.ok_or_else(|| tg::error!("the signal stream ended"))
+	}
+}
+
+/// Forward a signal to a process, or release this run's lease on a cacheable process, which cannot be signaled, and return whether the lease is released.
+async fn signal_process<O>(
+	client: &tg::Client,
+	process: &tg::Process<O>,
+	signal: tg::process::Signal,
+) -> tg::Result<bool> {
+	// Get the process.
+	let options = tg::process::get::Options::default();
+	let data = process
+		.get_with_instance(client, options)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to get the process"))?
+		.data;
+
+	// Terminate if the process is finished, because the signal can no longer reach it and tg run may be waiting for a blocked write of its output.
+	if data.status.is_finished() {
+		terminate_with_signal(signal);
+	}
+
+	// Release this run's lease on a cacheable process without waiting for other runs to release theirs, unless the signal is user-defined.
+	if data.cacheable {
+		if matches!(
+			signal,
+			tg::process::Signal::SIGUSR1 | tg::process::Signal::SIGUSR2
+		) {
+			return Ok(false);
+		}
+		if process.lease().is_some() {
+			let options = tg::process::cancel::Options::default();
+			process
+				.cancel_with_instance(client, options)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
+		}
+		return Ok(true);
+	}
+
+	// Forward the signal and keep the lease while the process handles it.
+	let options = tg::process::signal::Options::default();
+	process
+		.signal_with_instance(client, signal, options)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to signal the process"))?;
+
+	Ok(false)
+}
+
+/// Cancel a process that this run holds a lease on, and wait for it to stop unless it is cacheable, because other runs may hold it.
+async fn cancel_process<O, T>(
+	client: &tg::Client,
+	process: &tg::Process<O>,
+	wait_future: impl Future<Output = tg::Result<T>>,
+) {
+	if process.lease().is_none() {
+		return;
+	}
+	let state = match process.load_with_instance(client).await {
+		Ok(state) => state,
+		Err(error) => {
+			tracing::warn!(?error, "failed to load the process");
+			return;
+		},
+	};
+	let options = tg::process::cancel::Options::default();
+	if let Err(error) = process.cancel_with_instance(client, options).await {
+		tracing::warn!(?error, "failed to cancel the process");
+		return;
+	}
+	if !state.cacheable {
+		wait_future.await.ok();
+	}
+}
+
+/// Terminate on the next signal, because the signal handlers remain installed.
+fn terminate_on_signal(mut signals: Signals) {
+	tokio::spawn(async move {
+		if let Ok(signal) = signals.recv().await {
+			terminate_with_signal(signal);
+		}
+	});
+}
+
+/// Terminate with the default action of a signal, which does not shut down the runtime or flush the standard output, either of which can wait indefinitely for a blocked write.
+fn terminate_with_signal(signal: tg::process::Signal) -> ! {
+	// Get the number of the signal on this platform.
+	let signal = match signal {
+		tg::process::Signal::SIGABRT => libc::SIGABRT,
+		tg::process::Signal::SIGALRM => libc::SIGALRM,
+		tg::process::Signal::SIGFPE => libc::SIGFPE,
+		tg::process::Signal::SIGHUP => libc::SIGHUP,
+		tg::process::Signal::SIGILL => libc::SIGILL,
+		tg::process::Signal::SIGINT => libc::SIGINT,
+		tg::process::Signal::SIGKILL => libc::SIGKILL,
+		tg::process::Signal::SIGPIPE => libc::SIGPIPE,
+		tg::process::Signal::SIGQUIT => libc::SIGQUIT,
+		tg::process::Signal::SIGSEGV => libc::SIGSEGV,
+		tg::process::Signal::SIGTERM => libc::SIGTERM,
+		tg::process::Signal::SIGUSR1 => libc::SIGUSR1,
+		tg::process::Signal::SIGUSR2 => libc::SIGUSR2,
+	};
+
+	// SAFETY: signal, raise, and _exit have no memory safety preconditions.
+	unsafe {
+		libc::signal(signal, libc::SIG_DFL);
+		libc::raise(signal);
+		libc::_exit(128 + signal)
+	}
 }
 
 async fn stop_view_task(view_task: Task<tg::Result<()>>) {
