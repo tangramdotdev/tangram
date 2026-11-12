@@ -613,20 +613,17 @@ export class Printer {
 	): options is tg.Referent.Options {
 		return (
 			options !== undefined &&
-			((options.artifact !== undefined && options.artifact !== null) ||
-				(options.id !== undefined && options.id !== null) ||
+			((options.id !== undefined && options.id !== null) ||
 				(options.location !== undefined && options.location !== null) ||
 				(options.name !== undefined && options.name !== null) ||
 				(options.path !== undefined && options.path !== null) ||
+				(options.store !== undefined && options.store !== null) ||
 				(options.tag !== undefined && options.tag !== null))
 		);
 	}
 
 	private referentOptions(options: tg.Referent.Options): string {
 		let entries: { [key: string]: Print } = {};
-		if (options.artifact !== undefined && options.artifact !== null) {
-			entries.artifact = () => this.value(options.artifact!);
-		}
 		if (options.id !== undefined && options.id !== null) {
 			entries.id = () => this.value(options.id!);
 		}
@@ -638,6 +635,9 @@ export class Printer {
 		}
 		if (options.path !== undefined && options.path !== null) {
 			entries.path = () => this.value(options.path!);
+		}
+		if (options.store !== undefined && options.store !== null) {
+			entries.store = () => this.value(options.store!);
 		}
 		if (options.tag !== undefined && options.tag !== null) {
 			entries.tag = () => this.value(options.tag!);

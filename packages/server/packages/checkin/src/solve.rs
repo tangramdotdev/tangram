@@ -803,8 +803,8 @@ impl Component {
 		} else {
 			return None;
 		};
-		let index = if let Some(artifact) = referent.artifact() {
-			checkpoint.graph.artifacts.get(artifact).copied()
+		let index = if let Some(store) = referent.store() {
+			checkpoint.graph.artifacts.get(store).copied()
 		} else {
 			None
 		};

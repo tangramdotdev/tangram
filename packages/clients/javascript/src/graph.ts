@@ -826,12 +826,6 @@ export namespace Graph {
 					? tg.Graph.Edge.toDataString(value.node, (node) => node.id)
 					: "";
 			let params = [];
-			if (
-				value.options?.artifact !== undefined &&
-				value.options.artifact !== null
-			) {
-				params.push(`artifact=${encodeURIComponent(value.options.artifact)}`);
-			}
 			if (value.options?.id !== undefined && value.options.id !== null) {
 				params.push(`id=${encodeURIComponent(value.options.id)}`);
 			}
@@ -847,6 +841,9 @@ export namespace Graph {
 			}
 			if (value.options?.path !== undefined && value.options.path !== null) {
 				params.push(`path=${encodeURIComponent(value.options.path)}`);
+			}
+			if (value.options?.store !== undefined && value.options.store !== null) {
+				params.push(`store=${encodeURIComponent(value.options.store)}`);
 			}
 			if (value.options?.tag !== undefined && value.options.tag !== null) {
 				params.push(`tag=${encodeURIComponent(value.options.tag)}`);
@@ -872,10 +869,6 @@ export namespace Graph {
 						throw new Error("missing value");
 					}
 					switch (key) {
-						case "artifact": {
-							options.artifact = decodeURIComponent(value);
-							break;
-						}
 						case "id": {
 							options.id = decodeURIComponent(value);
 							break;
@@ -892,6 +885,10 @@ export namespace Graph {
 						}
 						case "path": {
 							options.path = decodeURIComponent(value);
+							break;
+						}
+						case "store": {
+							options.store = decodeURIComponent(value);
 							break;
 						}
 						case "tag": {

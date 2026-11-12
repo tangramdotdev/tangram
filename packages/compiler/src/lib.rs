@@ -1187,7 +1187,7 @@ impl Compiler {
 								node.try_unwrap_id()
 									.map_err(|_| tg::error!("expected a tag ID"))
 							})?;
-					node.options.artifact = Some(artifact.clone());
+					node.options.store = Some(artifact.clone());
 					node.options.id.clone_from(&options.id);
 					let arg = tg::checkout::Arg {
 						dependencies: true,

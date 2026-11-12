@@ -842,19 +842,16 @@ where
 
 	fn has_referent_options(options: &tg::referent::Options) -> bool {
 		// Tokens do not contribute to the printed options.
-		options.artifact.is_some()
-			|| options.id.is_some()
+		options.id.is_some()
 			|| options.location.is_some()
 			|| options.name.is_some()
 			|| options.path.is_some()
+			|| options.store.is_some()
 			|| options.tag.is_some()
 	}
 
 	pub fn referent_options(&mut self, options: &tg::referent::Options) -> Result {
 		self.start_map()?;
-		if let Some(artifact) = &options.artifact {
-			self.map_entry("artifact", |s| s.string(&artifact.to_string()))?;
-		}
 		if let Some(id) = &options.id {
 			self.map_entry("id", |s| s.string(&id.to_string()))?;
 		}
@@ -866,6 +863,9 @@ where
 		}
 		if let Some(path) = &options.path {
 			self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
+		}
+		if let Some(store) = &options.store {
+			self.map_entry("store", |s| s.string(&store.to_string()))?;
 		}
 		if let Some(tag) = &options.tag {
 			self.map_entry("tag", |s| s.string(&tag.to_string()))?;

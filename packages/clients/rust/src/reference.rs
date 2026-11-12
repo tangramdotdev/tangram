@@ -63,9 +63,6 @@ pub enum Node {
 	serde::Serialize,
 )]
 pub struct Options {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub artifact: Option<tg::artifact::Id>,
-
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub follow: bool,
@@ -87,6 +84,9 @@ pub struct Options {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub store: Option<tg::artifact::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Specifier>,
@@ -317,11 +317,11 @@ impl std::str::FromStr for Node {
 impl From<Options> for tg::referent::Options {
 	fn from(options: Options) -> Self {
 		Self {
-			artifact: options.artifact,
 			id: options.id,
 			location: None,
 			name: options.name,
 			path: options.path,
+			store: options.store,
 			tag: options.tag,
 			tokens: options.tokens,
 		}
@@ -331,7 +331,6 @@ impl From<Options> for tg::referent::Options {
 impl From<tg::referent::Options> for Options {
 	fn from(options: tg::referent::Options) -> Self {
 		Self {
-			artifact: options.artifact,
 			follow: false,
 			get: None,
 			id: options.id,
@@ -339,6 +338,7 @@ impl From<tg::referent::Options> for Options {
 			name: options.name,
 			path: options.path,
 			source: None,
+			store: options.store,
 			tag: options.tag,
 			tokens: options.tokens,
 		}
