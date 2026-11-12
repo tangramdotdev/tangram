@@ -13,7 +13,7 @@ let mounts = [/usr /lib /lib64 /bin] | where { path exists } | each {|path| [--m
 let checkpoint = checkpoint watch runner.sandbox.pool.take
 let job = job spawn {
 	let job_id = job id
-	tg sandbox create --no-tokens --no-time-to-live --storage-min 16777216 --storage 134217728 ...$mounts | job send --tag $job_id 0
+	tg sandbox create --no-tokens --no-ttl --storage-min 16777216 --storage 134217728 ...$mounts | job send --tag $job_id 0
 }
 checkpoint pass $checkpoint | ignore
 checkpoint unwatch $checkpoint

@@ -9,7 +9,7 @@ let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
-	sync: { service: { attempt_time_to_live: 0.1 } },
+	sync: { service: { attempt_ttl: 0.1 } },
 	verification: { permissions: { initial: false, final: false } },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json

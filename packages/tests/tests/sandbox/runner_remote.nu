@@ -9,7 +9,7 @@ let remote = server spawn --name remote --config {
 	control: { read_timeout: 0.25 },
 	indexer: { cleaning: {} },
 	roles: [api indexer scheduler],
-	sandbox: { time_to_live: 0 },
+	sandbox: { ttl: 0 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
@@ -17,7 +17,7 @@ let runner = server spawn --name runner --config {
 	control: { read_timeout: 0.25 },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
-	runner: { id: $created.data.id, remote: default, sandbox_state_time_to_live: 0, token: $created.token.token },
+	runner: { id: $created.data.id, remote: default, sandbox_state_ttl: 0, token: $created.token.token },
 	sandbox: { status_wakeup_interval: 3600.0 },
 }
 let connect_watch = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.connect | from json | get watch

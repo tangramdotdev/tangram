@@ -15,7 +15,7 @@ for io in $transports {
 				initial: false
 			}
 		}
-		object: { permission_time_to_live: 5 }
+		object: { permission_ttl: 5 }
 		vfs: { io: $io, kind: fuse, passthrough: disabled }
 	}
 

@@ -1,7 +1,7 @@
 use ../../util/test.nu *
 
 # A reader opened after the close notifications still reaches the stored end.
-let local = server spawn --config { advanced: { checkpoints: true }, runner: { process_state_time_to_live: 0.01 } }
+let local = server spawn --config { advanced: { checkpoints: true }, runner: { process_state_ttl: 0.01 } }
 let watch = tg checkpoint watch runner.process.control.finished | from json | get watch
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 # A build's sandbox with a time_to_live accepts runs after the build finishes, and it is destroyed once it is idle for the time_to_live.
 
-let server = server spawn --now '2026-01-01T00:00:00Z' --config { scheduler: { runner_time_to_live: 300 } }
+let server = server spawn --now '2026-01-01T00:00:00Z' --config { scheduler: { runner_ttl: 300 } }
 
 let path = artifact {
 	tangram.ts: '
@@ -26,7 +26,7 @@ let write = tg build $'($path)#write' | str trim
 let read = tg build $'($path)#read' | str trim
 
 # Build with a time_to_live, then run in the build's sandbox.
-let process = tg build --no-tokens --detach --time-to-live 1min $write | referent node
+let process = tg build --no-tokens --detach --ttl 1min $write | referent node
 success (tg process wait $process | complete) "the build should succeed"
 let sandbox = tg get $process | from json | get sandbox
 let output = tg run $'--sandbox=($sandbox)' $read | complete

@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A cached leaf tag resolves to the old node within its time to live and resolves to the updated node when fetched with --time-to-live 0.
+# A cached leaf tag resolves to the old node within its time to live and resolves to the updated node when fetched with --ttl 0.
 
 let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config {
@@ -30,6 +30,6 @@ tg --url $remote.url tag put --force -p "a/b" $id2
 let cached = tg --url $local.url get --no-tokens "a/b?follow=true" | str trim
 assert equal $cached $old "within the time to live the old node should be returned"
 
-# With --time-to-live 0 the updated node is returned.
-let fresh = tg --url $local.url get --no-tokens --time-to-live 0 "a/b?follow=true" | str trim
-assert equal $fresh $new "with --time-to-live 0 the new node should be returned"
+# With --ttl 0 the updated node is returned.
+let fresh = tg --url $local.url get --no-tokens --ttl 0 "a/b?follow=true" | str trim
+assert equal $fresh $new "with --ttl 0 the new node should be returned"

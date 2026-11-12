@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # Arrival order, rather than ID order, defines positions and survives final indexing.
 let local = server spawn --name local --config {
 	advanced: { checkpoints: true },
-	runner: { sandbox_state_time_to_live: 60 },
+	runner: { sandbox_state_ttl: 60 },
 }
 let sandbox = tg sandbox create --no-tokens | referent node
 let socket = $local.url | str replace 'http+unix://' '' | url decode

@@ -10,7 +10,7 @@ let remote = server spawn --name remote --config {
 	http: { http2: { connection_window_size: 536_870_912, max_concurrent_streams: 8, stream_window_size: 33_554_432 } },
 	index: { map_size: 268_435_456 },
 	roles: [api indexer scheduler],
-	scheduler: { runner_time_to_live: 3 },
+	scheduler: { runner_ttl: 3 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {

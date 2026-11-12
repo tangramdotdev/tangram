@@ -56,7 +56,7 @@ for mode in [none stdin executable both] {
 				stdin: { node: $stdin_referent.node, options: $stdin_options }
 			}
 		}
-		sandbox: { time_to_live: 0 }
+		sandbox: { ttl: 0 }
 		stdin: 'pipe'
 		stdout: 'null'
 		stderr: 'null'

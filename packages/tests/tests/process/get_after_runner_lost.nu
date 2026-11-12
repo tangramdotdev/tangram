@@ -10,7 +10,7 @@ let remote = server spawn --name remote --config {
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 	scheduler: {
-		runner_time_to_live: 10.0,
+		runner_ttl: 10.0,
 	},
 }
 let created = tg --url $remote.url --token $root_token runner create | from json

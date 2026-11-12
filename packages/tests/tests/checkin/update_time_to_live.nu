@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# The checkin and update commands honor the remote cache time to live, keeping the cached version by default and picking up a newer remote version only with --tag-time-to-live 0.
+# The checkin and update commands honor the remote cache time to live, keeping the cached version by default and picking up a newer remote version only with --tag-ttl 0.
 
 let remote = server spawn --name remote
 let local = server spawn --name local --config {
@@ -45,8 +45,8 @@ let checkin_stale_lock = open $checkin_lockfile_path | from json
 let checkin_stale_tag = $checkin_stale_lock.nodes.1.dependencies."checkin/a/^1".options.tag
 assert ($checkin_stale_tag == "checkin/a/1.0.0") "without a time_to_live override, checkin should use the remote cache"
 
-# Run checkin --update with --tag-time-to-live 0. The fresh list should now use checkin/a/1.1.0.
-tg --url $local.url checkin --no-tokens $checkin_package_path --update checkin/a --tag-time-to-live 0 | referent node
+# Run checkin --update with --tag-ttl 0. The fresh list should now use checkin/a/1.1.0.
+tg --url $local.url checkin --no-tokens $checkin_package_path --update checkin/a --tag-ttl 0 | referent node
 let checkin_fresh_lock = open $checkin_lockfile_path | from json
 let checkin_fresh_tag = $checkin_fresh_lock.nodes.1.dependencies."checkin/a/^1".options.tag
 assert ($checkin_fresh_tag == "checkin/a/1.1.0") "with time_to_live 0, checkin should bypass the cache"
@@ -89,8 +89,8 @@ let update_stale_lock = open $update_lockfile_path | from json
 let update_stale_tag = $update_stale_lock.nodes.1.dependencies."update/a/^1".options.tag
 assert ($update_stale_tag == "update/a/1.0.0") "without a time_to_live override, update should use the remote cache"
 
-# Run update with --tag-time-to-live 0. The fresh list should now use update/a/1.1.0.
-tg --url $local.url update $update_package_path --tag-time-to-live 0
+# Run update with --tag-ttl 0. The fresh list should now use update/a/1.1.0.
+tg --url $local.url update $update_package_path --tag-ttl 0
 let update_fresh_lock = open $update_lockfile_path | from json
 let update_fresh_tag = $update_fresh_lock.nodes.1.dependencies."update/a/^1".options.tag
 assert ($update_fresh_tag == "update/a/1.1.0") "with time_to_live 0, update should bypass the cache"

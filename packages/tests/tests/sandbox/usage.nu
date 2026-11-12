@@ -9,7 +9,7 @@ let directory = project_quota_directory
 let local = server spawn --directory $directory --config {
  runner: { memory_sampling_interval: 0.05 },
 }
-let sandbox = tg sandbox create --no-tokens --no-time-to-live --cpu 2 --memory 268435456 | referent node
+let sandbox = tg sandbox create --no-tokens --no-ttl --cpu 2 --memory 268435456 | referent node
 sleep 2sec
 tg sandbox destroy --wait $sandbox
 tg sandbox wait $sandbox | ignore

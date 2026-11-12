@@ -11,7 +11,7 @@ let local = server spawn --config {
 let watch = tg checkpoint watch runner.sandbox.pool.take | from json | get watch
 let job = job spawn {
 	let job_id = job id
-	tg sandbox create --no-tokens --no-time-to-live --memory-min 1048576 | job send --tag $job_id 0
+	tg sandbox create --no-tokens --no-ttl --memory-min 1048576 | job send --tag $job_id 0
 }
 success (tg checkpoint wait --timeout 30s runner.sandbox.pool.take $watch 0 | complete) 'the sandbox should come from the warm pool'
 

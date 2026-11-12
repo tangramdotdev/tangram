@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Resolving a branch tag returns the cached child within its time to live and returns the newest child when fetched with --time-to-live 0.
+# Resolving a branch tag returns the cached child within its time to live and returns the newest child when fetched with --ttl 0.
 
 let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config {
@@ -31,6 +31,6 @@ tg --url $remote.url tag put -p "a/c/h" $id2
 let c2 = tg --url $local.url get --no-tokens "a/c?follow=true" | str trim
 assert equal $c2 $c1 "within the time to live the same result should be returned"
 
-# With --time-to-live 0 the newest child is returned.
-let c3 = tg --url $local.url get --no-tokens --time-to-live 0 "a/c?follow=true" | str trim
-assert equal $c3 $new "with --time-to-live 0 the newest child should be returned"
+# With --ttl 0 the newest child is returned.
+let c3 = tg --url $local.url get --no-tokens --ttl 0 "a/c?follow=true" | str trim
+assert equal $c3 $new "with --ttl 0 the newest child should be returned"

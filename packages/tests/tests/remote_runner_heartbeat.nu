@@ -10,7 +10,7 @@ let config = {
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 	scheduler: {
-		runner_time_to_live: 3,
+		runner_ttl: 3,
 	},
 }
 let remote = server spawn --name remote --cloud --now '2026-01-01T00:00:00Z' --config $config

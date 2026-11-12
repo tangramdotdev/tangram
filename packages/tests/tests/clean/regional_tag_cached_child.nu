@@ -10,7 +10,7 @@ let common = {
 	database: { index_queue: { wakeup_interval: 0.01 } },
 	index: { kind: lmdb, map_size: 10_485_760 },
 	roles: [api indexer scheduler runner],
-	scheduler: { runner_time_to_live: 300 },
+	scheduler: { runner_ttl: 300 },
 }
 let instance = instance --cloud --primary-region primary --regions [{ name: primary }, { name: secondary }] --config $common
 let primary = server spawn --instance $instance --region primary --name primary --now '2026-01-01T00:00:00Z' --url (instance region url $instance primary)

@@ -31,7 +31,7 @@ let runner = server spawn --name runner --config {
 		overcommit: { cpu: 1 },
 		id: $created.data.id
 		remote: "default",
-		scheduler_time_to_live: 3,
+		scheduler_ttl: 3,
 		token: $created.token.token
 	},
 }

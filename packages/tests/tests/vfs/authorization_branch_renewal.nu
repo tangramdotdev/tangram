@@ -9,7 +9,7 @@ if $nu.os-info.name != 'linux' {
 let transports = if (fuse_io_uring_available) { [read_write io_uring] } else { [read_write] }
 for io in $transports {
 	let local = server spawn --name local --now '2026-10-02T12:00:00Z' --config {
-		object: { permission_time_to_live: 5 }
+		object: { permission_ttl: 5 }
 		verification: {
 			permissions: {
 				final: false

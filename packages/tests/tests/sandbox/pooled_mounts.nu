@@ -13,7 +13,7 @@ def create [args: list<string>] {
 	let checkpoint = checkpoint watch runner.sandbox.pool.take
 	let job = job spawn {
 		let job_id = job id
-		tg sandbox create --no-tokens --no-time-to-live ...$args | job send --tag $job_id 0
+		tg sandbox create --no-tokens --no-ttl ...$args | job send --tag $job_id 0
 	}
 	checkpoint pass $checkpoint | ignore
 	checkpoint unwatch $checkpoint

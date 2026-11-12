@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # Sandbox read capabilities authorize get and status, including explicit sources.
 let local = server spawn --name local --config {
 	authentication: { users: { providers: { insecure: true } } },
-	runner: { process_state_time_to_live: 60, sandbox_state_time_to_live: 60 },
+	runner: { process_state_ttl: 60, sandbox_state_ttl: 60 },
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

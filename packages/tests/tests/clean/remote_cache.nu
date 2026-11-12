@@ -20,7 +20,7 @@ let output = tg --url $local.url clean | complete
 success $output
 let summary = $output.stdout | from json
 assert ($summary.cached_responses > 0)
-failure (tg --url $local.url get --remote --cached --no-time-to-live 'cached?follow=true' | complete)
+failure (tg --url $local.url get --remote --cached --no-ttl 'cached?follow=true' | complete)
 assert equal (tg --url $local.url read retained) 'local'
 
 # Cleaning again reports no cached responses.

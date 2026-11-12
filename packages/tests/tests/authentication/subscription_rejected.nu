@@ -16,7 +16,7 @@ let nats = spawn_nats --config {
 let root = random chars
 let common = {
 	advanced: { checkpoints: true },
-	authentication: { cache: { time_to_live: 60 }, root: { token: $root }, users: { providers: { insecure: true } } },
+	authentication: { cache: { ttl: 60 }, root: { token: $root }, users: { providers: { insecure: true } } },
 	database: { index_queue: { wakeup_interval: 0.01 } },
 	messenger: { kind: nats, password: test, url: $nats.url, username: test },
 }

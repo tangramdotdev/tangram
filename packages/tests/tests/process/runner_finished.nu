@@ -8,10 +8,10 @@ for location in [local remote] {
 		advanced: { checkpoints: true, multi_server: true },
 		authentication: { root: { token: $root_token } },
 		control: { read_timeout: 0.25 },
-		process: { time_to_live: 2 },
-		sandbox: { time_to_live: 2 },
+		process: { ttl: 2 },
+		sandbox: { ttl: 2 },
 		roles: (if $location == local { [api indexer runner scheduler] } else { [api indexer scheduler] }),
-		runner: { process_state_time_to_live: 0 },
+		runner: { process_state_ttl: 0 },
 	}
 	let runner = if $location == remote {
 		let created = tg --url $local_owner.url --token $root_token runner create | from json
@@ -21,7 +21,7 @@ for location in [local remote] {
 			control: { read_timeout: 0.25 },
 			remotes: { default: { token: $root_token, url: $local_owner.url } },
 			roles: [api indexer runner],
-			runner: { id: $created.data.id, process_state_time_to_live: 0, remote: default, token: $created.token.token },
+			runner: { id: $created.data.id, process_state_ttl: 0, remote: default, token: $created.token.token },
 		}
 	} else {
 		$local_owner

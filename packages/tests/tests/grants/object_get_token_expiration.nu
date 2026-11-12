@@ -15,7 +15,7 @@ let root_token = random chars
 let local = server spawn --now 2026-01-01T00:00:00Z --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
-	object: { permission_time_to_live: 2 }
+	object: { permission_ttl: 2 }
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

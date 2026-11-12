@@ -6,8 +6,8 @@ for cache in [lmdb rocksdb fjall] {
 		advanced: { checkpoints: true },
 		cache: { kind: $cache },
 		indexer: { log_cache: { batch_size: 1 } },
-		process: { log_time_to_live: 0 },
-		scheduler: { runner_time_to_live: 300 },
+		process: { log_ttl: 0 },
+		scheduler: { runner_ttl: 300 },
 	}
 	let watch = tg checkpoint watch indexer.log_cache.delete | from json | get watch
 	let path = artifact { tangram.ts: 'export default function () { console.log("stdout"); console.error("stderr"); }' }

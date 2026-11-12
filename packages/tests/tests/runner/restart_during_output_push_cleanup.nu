@@ -12,7 +12,7 @@ let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
-	scheduler: { runner_time_to_live: 300 },
+	scheduler: { runner_ttl: 300 },
 	verification: { permissions: { initial: $searches, final: $searches } },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json

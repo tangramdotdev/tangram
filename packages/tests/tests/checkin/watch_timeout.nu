@@ -5,7 +5,7 @@ use ../../util/test.nu *
 let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true },
 	watch: {
-		time_to_live: { secs: 1, nanos: 0 }
+		ttl: { secs: 1, nanos: 0 }
 	}
 }
 

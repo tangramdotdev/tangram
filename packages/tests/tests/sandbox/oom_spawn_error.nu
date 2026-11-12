@@ -18,7 +18,7 @@ let module = artifact {
 }
 let allocate = tg build $module --arg-string 'dd if=/dev/zero of=/dev/null bs=201326592 count=1' | str trim
 let succeed = tg build $module --arg-string 'true' | str trim
-let sandbox = tg sandbox create --no-tokens --no-time-to-live --memory 134217728 | referent node
+let sandbox = tg sandbox create --no-tokens --no-ttl --memory 134217728 | referent node
 
 # Hold a process just before the runner spawns it in the sandbox.
 let start = checkpoint watch runner.process.start

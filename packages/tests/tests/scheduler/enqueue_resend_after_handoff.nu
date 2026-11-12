@@ -6,7 +6,7 @@ let root = random chars
 let instance = instance --cloud --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root } },
-	scheduler: { request: { response_time_to_live: 1 } },
+	scheduler: { request: { response_ttl: 1 } },
 }
 let scheduler = server spawn --instance $instance --name scheduler --config { roles: [api indexer scheduler] }
 let api = server spawn --instance $instance --name api --config { roles: [api] }
@@ -18,7 +18,7 @@ let runner = server spawn --name runner --config {
 		remote: "default",
 		sandbox_pool_size: 0,
 		sandboxes: 2,
-		scheduler_time_to_live: 1,
+		scheduler_ttl: 1,
 		token: $created.token.token,
 	},
 }

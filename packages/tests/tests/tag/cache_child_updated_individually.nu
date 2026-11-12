@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A child tag cached as part of a parent branch fetch can later be updated individually with --time-to-live 0.
+# A child tag cached as part of a parent branch fetch can later be updated individually with --ttl 0.
 
 let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config {
@@ -16,7 +16,7 @@ tg --url $local_source.url push $id
 tg --url $remote.url tag put -p "a/b" $id
 
 # Cache the parent's children, including a/b.
-tg --url $local.url get --time-to-live 0 "a?follow=true" | ignore
+tg --url $local.url get --ttl 0 "a?follow=true" | ignore
 
 # Update the child on the remote.
 let path2 = artifact 'Final version'
@@ -26,5 +26,5 @@ let new = tg --url $remote.url get --no-tokens $id2 | str trim
 tg --url $remote.url tag put --force -p "a/b" $id2
 
 # Busting the cache for the child specifically returns the new node.
-let b = tg --url $local.url get --no-tokens --time-to-live 0 "a/b?follow=true" | str trim
+let b = tg --url $local.url get --no-tokens --ttl 0 "a/b?follow=true" | str trim
 assert equal $b $new "the child updated individually should return the new node"

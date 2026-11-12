@@ -16,8 +16,8 @@ for case in [
 				initial: false
 			}
 		}
-		object: { permission_time_to_live: 60 }
-		scheduler: { runner_time_to_live: 300 }
+		object: { permission_ttl: 60 }
+		scheduler: { runner_ttl: 300 }
 		vfs: false
 	}
 	let path = artifact {

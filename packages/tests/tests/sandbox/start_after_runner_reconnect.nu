@@ -7,7 +7,7 @@ let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
-	scheduler: { runner_time_to_live: 3 },
+	scheduler: { runner_ttl: 3 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
