@@ -16,6 +16,11 @@ mod tests;
 
 pub type Expire = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
+#[cfg(target_os = "linux")]
+type Paths = std::collections::BTreeMap<PathBuf, (u64, u64)>;
+#[cfg(target_os = "macos")]
+type Paths = HashSet<PathBuf, fnv::FnvBuildHasher>;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Id(u64);
 
@@ -62,19 +67,32 @@ pub struct LockWriteGuard {
 
 pub struct State {
 	pub affected_paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+
 	pub graph: Graph,
+
 	pub index_task: Shared<tg::Result<()>>,
+
 	pub invalidated_paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+
 	pub lock: Option<Arc<tg::graph::data::Leaf>>,
+
 	pub overflowed: Arc<AtomicBool>,
+
+	#[cfg(any(target_os = "linux", target_os = "macos"))]
+	pub paths: Paths,
+
 	pub pending_lock_write_version: Option<u64>,
-	#[cfg(target_os = "macos")]
-	pub paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+
 	pub revalidation_version: u64,
+
 	pub sender: tokio::sync::mpsc::Sender<Message>,
+
 	pub solutions: Solutions,
+
 	pub timeout_task: Option<Task<()>>,
+
 	pub version: u64,
+
 	pub watcher: Option<notify::RecommendedWatcher>,
 }
 
@@ -142,19 +160,32 @@ impl Watch {
 		let index_task = spawn_index_task();
 		let state = State {
 			affected_paths: HashSet::default(),
+
 			graph,
+
 			index_task,
+
 			invalidated_paths: HashSet::default(),
+
 			lock,
+
 			overflowed: Arc::new(AtomicBool::new(false)),
+
+			#[cfg(any(target_os = "linux", target_os = "macos"))]
+			paths: Paths::default(),
+
 			pending_lock_write_version: None,
-			#[cfg(target_os = "macos")]
-			paths: HashSet::default(),
+
 			revalidation_version: 0,
+
 			sender,
+
 			solutions,
+
 			timeout_task: None,
+
 			version: 0,
+
 			watcher: None,
 		};
 		let state = Arc::new(Mutex::new(state));
@@ -242,10 +273,6 @@ impl Watch {
 								continue;
 							}
 
-							// On linux, unwatch the path.
-							#[cfg(target_os = "linux")]
-							state.remove_path_linux(path);
-
 							// Remove the node.
 							let node = *state.graph.nodes.remove(&index).unwrap();
 							tracing::trace!(path = ?node.path, edge = ?node.edge, "removed");
@@ -325,27 +352,7 @@ impl Watch {
 			return;
 		}
 
-		// Remove the watched paths before discarding the cached graph.
-		#[cfg(target_os = "linux")]
-		{
-			let paths = state
-				.graph
-				.nodes
-				.values()
-				.filter_map(|node| node.path.clone())
-				.collect();
-			state.remove_paths_linux(&paths);
-		}
-
-		// Invalidate the graph and any checkins that are still using its previous version.
-		state.affected_paths.clear();
-		state.graph = Graph::default();
-		state.invalidated_paths.clear();
-		state.solutions = Solutions::default();
-		state.version += 1;
-		state.revalidation_version = state.version;
-		#[cfg(target_os = "macos")]
-		state.update_paths_darwin().ok();
+		state.reset();
 	}
 
 	#[must_use]
@@ -467,8 +474,7 @@ impl Watch {
 			drop(state);
 			return false;
 		}
-		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
-		let removed_paths = graph.clean(&key.path, next);
+		graph.clean(&key.path, next);
 
 		// Update the state.
 		let index_task = spawn_index_task();
@@ -490,8 +496,6 @@ impl Watch {
 		));
 
 		// Update the watched paths.
-		#[cfg(target_os = "linux")]
-		state.remove_paths_linux(&removed_paths);
 		state.watch_paths(next);
 		if let Some(lock_write_guard) = lock_write_guard {
 			lock_write_guard.commit();
@@ -627,7 +631,7 @@ impl State {
 
 		// Watch the paths.
 		#[cfg(target_os = "linux")]
-		self.add_paths_linux(next)?;
+		self.update_paths_linux(next)?;
 		#[cfg(target_os = "macos")]
 		self.update_paths_darwin()?;
 
@@ -683,7 +687,7 @@ impl State {
 		// Drop the watcher, which unwatches every path and releases its resources, and replace its overflow flag, so that events it drops while it stops do not reset the watch again.
 		self.watcher.take();
 		self.overflowed = Arc::new(AtomicBool::new(false));
-		#[cfg(target_os = "macos")]
+		#[cfg(any(target_os = "linux", target_os = "macos"))]
 		self.paths.clear();
 	}
 
@@ -728,16 +732,28 @@ impl State {
 	}
 
 	#[cfg(target_os = "linux")]
-	fn add_paths_linux(&mut self, next: usize) -> tg::Result<()> {
-		// Add the new paths, stopping at the first path that cannot be watched.
+	fn update_paths_linux(&mut self, next: usize) -> tg::Result<()> {
+		// Remove paths that are no longer in the graph, including paths removed by invalidation.
 		let watcher = self.watcher.as_mut().unwrap();
 		let mut watcher_paths = watcher.paths_mut();
+		self.paths.retain(|path, _| {
+			if self.graph.paths.get(path).is_some() {
+				return true;
+			}
+			tracing::trace!(path = %path.display(), "unwatched");
+			watcher_paths.remove(path).ok();
+
+			false
+		});
+
+		// Add the new paths, stopping at the first path that cannot be watched.
 		for (_, node) in self.graph.nodes.range(next..) {
 			let Some(path) = &node.path else {
 				continue;
 			};
 			tracing::trace!(path = %path.display(), "watched");
-			let Err(error) = watcher_paths.add(path, notify::RecursiveMode::NonRecursive) else {
+			let result = Self::add_path_linux(&mut *watcher_paths, &mut self.paths, path);
+			let Err(error) = result else {
 				continue;
 			};
 
@@ -765,25 +781,29 @@ impl State {
 	}
 
 	#[cfg(target_os = "linux")]
-	fn remove_path_linux(&mut self, path: &Path) {
-		let Some(watcher) = &mut self.watcher else {
-			return;
-		};
-		tracing::trace!(path = %path.display(), "unwatched");
-		watcher.unwatch(path).ok();
-	}
+	fn add_path_linux(
+		watcher: &mut dyn notify::PathsMut,
+		paths: &mut Paths,
+		path: &Path,
+	) -> tg::Result<()> {
+		// Follow symlinks to identify the inode that inotify watches.
+		let identity = std::fs::metadata(path).map(|metadata| (metadata.dev(), metadata.ino()));
 
-	#[cfg(target_os = "linux")]
-	fn remove_paths_linux(&mut self, paths: &HashSet<PathBuf, fnv::FnvBuildHasher>) {
-		let Some(watcher) = &mut self.watcher else {
-			return;
-		};
-		let mut watcher_paths = watcher.paths_mut();
-		for path in paths {
-			tracing::trace!(path = %path.display(), "unwatched");
-			watcher_paths.remove(path).ok();
+		// Remove the old inode's watch before registering a replacement at the same path.
+		if let Some(previous) = paths.get(path)
+			&& identity.as_ref().ok() != Some(previous)
+		{
+			watcher.remove(path).ok();
+			paths.remove(path);
 		}
-		watcher_paths.commit().ok();
+		let identity =
+			identity.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
+		watcher
+			.add(path, notify::RecursiveMode::NonRecursive)
+			.map_err(|error| tg::error!(!error, "failed to watch the path"))?;
+		paths.insert(path.to_owned(), identity);
+
+		Ok(())
 	}
 }
 
