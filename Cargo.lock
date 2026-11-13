@@ -12043,6 +12043,7 @@ dependencies = [
  "tangram_server_checkin_core",
  "tangram_server_clock_core",
  "tangram_server_config",
+ "tangram_util",
  "tokio",
  "tracing",
 ]
