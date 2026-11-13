@@ -358,8 +358,9 @@ export const testE2e = async (arg: E2eArg = {}): Promise<E2eOutput> => {
 	const { filters = [], offline = false } = arg;
 	const host = std.triple.host();
 
-	// Remove the e2e tests and their utilities from the source that Tangram is built from, because the runner reads them at run time from the repository that each test mounts over that source, so that changing a test does not rebuild Tangram.
+	// Remove this module, the e2e tests, and their utilities from the source that Tangram is built from, so that changing them does not rebuild Tangram. The runner reads the tests at run time from the repository that each test mounts over that source.
 	const buildSource = await tg.directory(source, {
+		"build.tg.ts": null,
 		"packages/tests/tests": null,
 		"packages/tests/util": null,
 	});
