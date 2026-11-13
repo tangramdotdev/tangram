@@ -600,13 +600,27 @@ export const testE2e = async (arg: E2eArg = {}): Promise<E2eOutput> => {
 
 /** Run the Rust tests in a sandbox, with only the artifacts that this module builds. */
 export const testRust = async () => {
-	// Run nextest as `tg run .#testRust` does, with the standalone toolchain, whose executables are not Tangram wrappers, because the CLI tests' servers run Tangram in their sandboxes, which do not contain the artifacts that a wrapper loads. Nextest's setup script builds the test runner with a nested Cargo invocation, so give that invocation this build's target directory and generated configuration, and provide the /usr/bin/env that the setup script's interpreter line names.
+	// Get std's loader and libraries to install for the executables that the build runs.
+	const { ldso, libDir } = await std.sdk.toolchainComponents({
+		env: await std.env.arg(std.sdk()),
+	});
+	tg.assert(ldso !== undefined, "expected a dynamic loader");
+
+	// Run nextest as `tg run .#testRust` does, with the standalone toolchain and mold. Link the executables without Tangram wrappers, because a wrapper runs its executable through the loader, so that a test server would find the loader as its own executable, and because the servers run Tangram in their sandboxes, which do not contain the artifacts that a wrapper loads. Install std's loader at the path that those executables request, and its libraries in /lib, where the loader searches. Nextest's setup script builds the test runner with a nested Cargo invocation, so give that invocation this build's target directory and generated configuration, and provide the /usr/bin/env that the setup script's interpreter line names.
 	await build({
 		env: std.env.arg(cargoNextest(), nushell(), zlib(), {
 			CARGO_NET_OFFLINE: "true",
+			SSL_CERT_FILE: tg`${std.caCertificates()}/cacert.pem`,
+			TANGRAM_LINKER_PASSTHROUGH: "1",
 		}),
 		foundationdb: true,
-		pre: `
+		pre: tg`
+			mkdir -p /lib /lib64
+			ln -s ${ldso} "/lib/$(basename ${ldso})"
+			ln -s ${ldso} "/lib64/$(basename ${ldso})"
+			for library in ${libDir}/*; do
+				[ -e "/lib/$(basename "$library")" ] || ln -s "$library" /lib/
+			done
 			export CARGO_TARGET_DIR="$SCRATCH_TARGET_DIR"
 			cp "$cargo_config_path" "$CARGO_HOME/config.toml"
 			if [ ! -e /usr/bin/env ]; then
