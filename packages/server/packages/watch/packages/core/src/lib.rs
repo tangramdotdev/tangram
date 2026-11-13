@@ -188,8 +188,9 @@ impl Watch {
 					// Lock the state.
 					let mut state = state.lock().unwrap();
 
-					// Discard the graph if the channel dropped events, so that the next checkin reads every path.
-					if state.overflowed.swap(false, Ordering::SeqCst) {
+					// Discard the graph if the channel or the watcher dropped events, so that the next checkin reads every path.
+					let overflowed = state.overflowed.swap(false, Ordering::SeqCst);
+					if overflowed || message.event.need_rescan() {
 						state.reset();
 					}
 
