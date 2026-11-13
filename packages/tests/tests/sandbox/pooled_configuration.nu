@@ -4,6 +4,9 @@ use ../../util/test.nu *
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux namespaces'
 }
+if not ('/usr/bin/python3' | path exists) {
+	skip_test 'this test requires the host programs in /usr/bin'
+}
 if (^nproc | str trim | into int) < 2 {
 	skip_test 'this test requires at least two CPUs'
 }
