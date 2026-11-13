@@ -574,7 +574,7 @@ tsrs_module = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_project = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_scanner = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_vfs = { git = "https://github.com/tangramdotdev/tsrs" }
-turso = "0.8"
+turso = "0.9.0-pre.5"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 ty_ide = { git = "https://github.com/tangramdotdev/ruff" }
