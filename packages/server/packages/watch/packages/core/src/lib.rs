@@ -11,6 +11,9 @@ use {
 	tangram_server_clock_core::Clock,
 };
 
+#[cfg(test)]
+mod tests;
+
 pub type Expire = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -637,14 +640,14 @@ impl State {
 			let sender = self.sender.clone();
 			move |result| match result {
 				Ok(event) => {
-					// Drop the event if the channel is full instead of waiting, because this watch's task may be waiting for this thread to watch or unwatch a path.
+					// Keep the send nonblocking because this watch's task may be waiting for this thread to watch or unwatch a path.
 					let message = Message {
 						event,
 						sender: None,
 					};
 					let result = sender.try_send(message);
-					if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = result {
-						overflowed.store(true, Ordering::SeqCst);
+					if let Err(tokio::sync::mpsc::error::TrySendError::Full(message)) = result {
+						Self::resend_after_overflow(&overflowed, &sender, message);
 					}
 				},
 				Err(error) => {
@@ -656,6 +659,16 @@ impl State {
 			.map_err(|error| tg::error!(!error, "failed to create the watcher"))?;
 
 		Ok(watcher)
+	}
+
+	fn resend_after_overflow(
+		overflowed: &AtomicBool,
+		sender: &tokio::sync::mpsc::Sender<Message>,
+		message: Message,
+	) {
+		// Retry after setting the flag so that either this message or a queued message makes the task observe the overflow.
+		overflowed.store(true, Ordering::SeqCst);
+		sender.try_send(message).ok();
 	}
 
 	fn reset(&mut self) {
