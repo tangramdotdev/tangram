@@ -666,8 +666,9 @@ impl State {
 		self.version += 1;
 		self.revalidation_version = self.version;
 
-		// Drop the watcher, which unwatches every path and releases its resources.
+		// Drop the watcher, which unwatches every path and releases its resources, and replace its overflow flag, so that events it drops while it stops do not reset the watch again.
 		self.watcher.take();
+		self.overflowed = Arc::new(AtomicBool::new(false));
 		#[cfg(target_os = "macos")]
 		self.paths.clear();
 	}
