@@ -155,11 +155,6 @@ struct RetainSandboxTaskArg {
 	stopper: Stopper,
 }
 
-/// A destroy that arrived while a sandbox was stopping.
-struct DestroyRequest {
-	error: Option<tg::error::Data>,
-}
-
 enum Directory {
 	/// The directory of a stopped sandbox, which starts again on its files.
 	Existing {
@@ -313,10 +308,6 @@ impl Component {
 		}
 		let result = match message.arg {
 			tg::sandbox::control::ServerRequestArg::Destroy(_) => {
-				// Reply that the runner does not hold a boot that it stopped, so that the destroy reaches the index, which holds the stopped sandbox.
-				if Self::sandbox_status(session, id).is_some_and(|status| status.is_stopped()) {
-					return Self::send_sandbox_not_holder_response(message).await;
-				}
 				Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
 					tg::sandbox::control::DestroyClientResponseOutput { destroyed: false },
 				))
@@ -1815,11 +1806,7 @@ impl Component {
 			teardown = Teardown::Destroy;
 		}
 
-		// Record a destroy that arrives during a stop, with its error, which turns the stop into a destroy.
-		let destroy_request = std::sync::Mutex::new(None::<DestroyRequest>);
-
 		let destroy = async {
-			let mut teardown = teardown;
 			match teardown {
 				Teardown::Destroy => tracing::info!(sandbox = %id, "destroying the sandbox"),
 				Teardown::Stop => {
@@ -1901,24 +1888,6 @@ impl Component {
 					},
 					ProcessEvent::Exited => {},
 				}
-			}
-
-			// Destroy the sandbox instead of stopping it if a destroy arrived during the stop.
-			if matches!(teardown, Teardown::Stop) && destroy_request.lock().unwrap().is_some() {
-				tracing::info!(sandbox = %id, "destroying the stopping sandbox");
-				teardown = Teardown::Destroy;
-				let mut state = session
-					.server
-					.components
-					.runner
-					.state()
-					.sandboxes
-					.get_mut_by_id(&id)
-					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-				state.expires_at = None;
-				state.status = tg::sandbox::Status::Destroying;
-				state.stopped_at = None;
-				state.changed.send_replace(());
 			}
 
 			// Stop or destroy the sandbox while retaining its process and control state.
@@ -2014,13 +1983,6 @@ impl Component {
 				}
 			}
 
-			// Destroy the stopped sandbox if a destroy arrived after the sandbox was stopped, before the stop is recorded.
-			if matches!(teardown, Teardown::Stop) && destroy_request.lock().unwrap().is_some() {
-				tracing::info!(sandbox = %id, "destroying the stopped sandbox");
-				teardown = Teardown::Destroy;
-				self.remove_stopped_sandbox_directory(session, &id).await?;
-			}
-
 			let (data, processes) = {
 				let mut state = session
 					.server
@@ -2034,16 +1996,9 @@ impl Component {
 					Teardown::Destroy => tg::sandbox::Status::Destroyed,
 					Teardown::Stop => tg::sandbox::Status::Stopped,
 				};
-				let destroy_error = destroy_request
-					.lock()
-					.unwrap()
-					.as_ref()
-					.and_then(|request| request.error.clone())
-					.map(tg::Either::Left);
 				state.error = failure
 					.as_ref()
-					.map(|error| Self::sandbox_error_data(session, error))
-					.or(destroy_error);
+					.map(|error| Self::sandbox_error_data(session, error));
 				state.changed.send_replace(());
 				state.sandbox.take();
 				(
@@ -2089,46 +2044,24 @@ impl Component {
 			}
 			event_sender.send(Ok(Event::Destroyed)).ok();
 
-			Ok::<_, tg::Error>(teardown)
+			Ok::<_, tg::Error>(())
 		};
 		let mut destroy = destroy
 			.instrument(tracing::debug_span!("sandbox.destroy", sandbox = %id))
 			.boxed();
-		let teardown = loop {
+		loop {
 			tokio::select! {
 				result = &mut destroy => {
-					break result?;
+					result?;
+					break;
 				},
 				message = control.recv() => {
-					let Some(message) = message? else {
-						continue;
-					};
-
-					// Accept a destroy that arrives while the sandbox is stopping, which the teardown carries out before it records the stop.
-					if let tg::sandbox::control::ServerRequestArg::Destroy(request) = &message.arg
-						&& matches!(teardown, Teardown::Stop)
-						&& Self::sandbox_status(session, &id).is_some_and(|status| !status.is_stopped_or_destroyed())
-						&& !Self::sandbox_is_yielded(session, &id, &message)
-					{
-						Self::cancel_sandbox_processes(session, &id, request.error.clone())?;
-						let entry = DestroyRequest {
-							error: request.error.clone(),
-						};
-						destroy_request.lock().unwrap().replace(entry);
-						Self::set_sandbox_status(session, &id, tg::sandbox::Status::Destroying);
-						let output = tg::sandbox::control::ClientResponseOutput::Destroy(
-							tg::sandbox::control::DestroyClientResponseOutput { destroyed: true },
-						);
-						message.sender.send(Ok(output)).await.map_err(|error| {
-							tg::error!(!error, "failed to send the sandbox control response")
-						})?;
-						continue;
+					if let Some(message) = message? {
+						self.handle_destroyed_sandbox_control_request(session, &id, message).boxed().await?;
 					}
-
-					self.handle_destroyed_sandbox_control_request(session, &id, message).boxed().await?;
 				},
 			}
-		};
+		}
 		drop(destroy);
 
 		// Close the control stream of a stopped sandbox, so that the index serves it and its next boot's control stream is the only one.
