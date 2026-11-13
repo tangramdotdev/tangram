@@ -163,8 +163,12 @@ export const build = async (...args: tg.Args<Arg>) => {
 	// Configure bindgen, which generates the foundationdb and rocksdb bindings.
 	let pre: tg.Unresolved<tg.Template.Arg> = null;
 	if (useFoundationdb || features.includes("rocksdb")) {
+		// Build libclang with the default linker, because the linker that the SDK argument names is for Tangram.
+		const { linker: _linker, ...libclangSdk } = std.sdk.argObject(sdk) ?? {};
+		const libclangArg =
+			Object.keys(libclangSdk).length > 0 ? { sdk: libclangSdk } : {};
 		envs.push({
-			LIBCLANG_PATH: tg`${libclang({ build, host, ...std.args.optional("sdk", sdk) })}/lib`,
+			LIBCLANG_PATH: tg`${libclang({ build, host, ...libclangArg })}/lib`,
 		});
 		if (std.triple.os(host) === "linux") {
 			// Give bindgen the C library's headers and libclang's resource directory, which holds the compiler's headers, such as stdbool.h.
@@ -598,7 +602,9 @@ export const testE2e = async (arg: E2eArg = {}): Promise<E2eOutput> => {
 export const testRust = async () => {
 	// Run nextest as `tg run .#testRust` does, with the standalone toolchain, whose executables are not Tangram wrappers, because the CLI tests' servers run Tangram in their sandboxes, which do not contain the artifacts that a wrapper loads. Nextest's setup script builds the test runner with a nested Cargo invocation, so give that invocation this build's target directory and generated configuration, and provide the /usr/bin/env that the setup script's interpreter line names.
 	await build({
-		env: std.env.arg(cargoNextest(), nushell(), { CARGO_NET_OFFLINE: "true" }),
+		env: std.env.arg(cargoNextest(), nushell(), zlib(), {
+			CARGO_NET_OFFLINE: "true",
+		}),
 		foundationdb: true,
 		pre: `
 			export CARGO_TARGET_DIR="$SCRATCH_TARGET_DIR"
@@ -610,6 +616,7 @@ export const testRust = async () => {
 		`,
 		profile: "dev",
 		profileFlag: "--cargo-profile",
+		sdk: { linker: "mold" },
 		standalone: { glibcVersion: "2.39" },
 		subcommand: "nextest run --all-features --no-fail-fast --workspace",
 	});
