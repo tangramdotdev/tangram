@@ -1,20 +1,47 @@
+import bubblewrap from "bubblewrap" with {
+	source: "../packages/packages/bubblewrap.tg.ts",
+};
 import bun from "bun" with { source: "../packages/packages/bun.tg.ts" };
+import curl from "curl" with { source: "../packages/packages/curl.tg.ts" };
 import dash from "dash" with { source: "../packages/packages/dash.tg.ts" };
+import delta from "delta" with { source: "../packages/packages/delta.tg.ts" };
 import foundationdb from "foundationdb" with {
 	source: "../packages/packages/foundationdb.tg.ts",
 };
 import libcapNg from "libcap-ng" with {
 	source: "../packages/packages/libcap-ng.tg.ts",
 };
+import libfuse from "libfuse" with {
+	source: "../packages/packages/libfuse.tg.ts",
+};
 import libseccomp from "libseccomp" with {
 	source: "../packages/packages/libseccomp.tg.ts",
 };
 import { libclang } from "llvm" with { source: "../packages/packages/llvm" };
+import nodejs from "nodejs" with {
+	source: "../packages/packages/nodejs.tg.ts",
+};
+import nushell from "nushell" with {
+	source: "../packages/packages/nushell.tg.ts",
+};
 import openssl from "openssl" with {
 	source: "../packages/packages/openssl.tg.ts",
 };
+import passt from "passt" with {
+	source: "../packages/packages/passt.tg.ts",
+};
+import procps from "procps" with {
+	source: "../packages/packages/procps.tg.ts",
+};
+import python from "python" with { source: "../packages/packages/python" };
 import { cargo, rustTriple } from "rust" with {
 	source: "../packages/packages/rust",
+};
+import sqlite from "sqlite" with {
+	source: "../packages/packages/sqlite.tg.ts",
+};
+import utilLinux from "util-linux" with {
+	source: "../packages/packages/util-linux.tg.ts",
 };
 import xz from "xz" with { source: "../packages/packages/xz.tg.ts" };
 import zlib from "zlib-ng" with {
@@ -156,6 +183,7 @@ export const build = async (...args: tg.Args<Arg>) => {
 	// Build tangram.
 	const env = std.env.arg(...envs, env_ ?? null);
 	const output = cargo.build({
+		...merged,
 		...(await std.triple.rotate({ build, host })),
 		captureStderr,
 		disableDefaultFeatures,
@@ -289,6 +317,266 @@ export const testCloud = async () => {
 
 export const testProxy = async () => {
 	await assertHelp(build({ profile: "dev", proxy: true }));
+};
+
+export type E2eArg = {
+	/** Regular expressions that select tests by their paths relative to packages/tests/tests. */
+	filters?: Array<string>;
+
+	/** Disable network access and skip the tests that require it. */
+	offline?: boolean;
+};
+
+export type E2eOutput = {
+	/** The number of tests that passed. */
+	passed: number;
+
+	/** The skipped tests, by the reason that each test gave. */
+	skipped: Record<string, Array<string>>;
+};
+
+/** Run each e2e test in its own sandbox, with only the artifacts that this module builds. Each test is a cached process, so run with --retry to run failed tests again. */
+export const testE2e = async (arg: E2eArg = {}): Promise<E2eOutput> => {
+	const { filters = [], offline = false } = arg;
+	const host = std.triple.host();
+
+	// Remove the e2e tests and their utilities from the source that Tangram is built from, because the runner reads them at run time from the repository that each test mounts over that source, so that changing a test does not rebuild Tangram.
+	const buildSource = await tg.directory(source, {
+		"packages/tests/tests": null,
+		"packages/tests/util": null,
+	});
+
+	// Build Tangram, the test runner, and the test supervisor without Tangram wrappers, because a test server runs Tangram in its sandboxes, which do not contain the artifacts that a wrapper loads.
+	const tangram = await standalone({
+		features: ["fjall", "quickjs", "rocksdb", "turso"],
+		packages: [
+			"tangram_cli",
+			"tangram_tests_runner",
+			"tangram_tests_supervisor",
+		],
+		source: buildSource,
+	});
+
+	// Get the dynamic loader that the standalone executables request, and std's loader and libraries to install for them.
+	const metadata = await tangram
+		.get("bin/tangram")
+		.then(tg.File.expect)
+		.then(std.file.executableMetadata);
+	tg.assert(
+		metadata.format === "elf" && metadata.interpreter !== undefined,
+		"expected a dynamically linked ELF executable",
+	);
+	const interpreter = metadata.interpreter;
+	const { ldso, libDir } = await std.sdk.toolchainComponents({
+		env: await std.env.arg(std.sdk()),
+	});
+	tg.assert(ldso !== undefined, "expected a dynamic loader");
+
+	// Configure PyO3 for the test interpreter instead of the embedded runtime that the repository configures, as packages/clients/python/build.py does. The Python extension does not link libpython, because the interpreter that imports it provides the symbols.
+	const pythonArtifact = python({ enableOptimizations: false });
+	const pyo3Config = await std.build`
+		python3 -c 'import sys; print("implementation=CPython"); print("version=%d.%d" % sys.version_info[:2]); print("shared=true"); print("suppress_build_script_link_lines=true")' > ${tg.output}
+	`
+		.env(pythonArtifact)
+		.then(tg.File.expect);
+
+	// Build the native extensions of the JavaScript and Python clients.
+	const extensions = await cargo
+		.build({
+			env: {
+				PYO3_BUILD_EXTENSION_MODULE: "1",
+				PYO3_CONFIG_FILE: pyo3Config,
+			},
+			packages: ["tangram_javascript_native", "tangram_python_native"],
+			source: buildSource,
+			useCargoVendor: true,
+		})
+		.then((output) => output.get("bin"))
+		.then(tg.Directory.expect);
+
+	// Compile the JavaScript client, and add its native extension where the client loads it. The type definitions are hoisted to the root node_modules.
+	const modules = await nodeModules();
+	const arch = std.triple.arch(host) === "aarch64" ? "arm64" : "x64";
+	const javascriptClient = await std.build`
+		cd ${modules}/packages/clients/javascript
+		tsc --outDir ${tg.output} --typeRoots ${modules}/node_modules/@types
+		mkdir -p ${tg.output}/host
+		cp ${extensions}/libtangram_javascript_native.so ${tg.output}/host/tangram_javascript_native.linux-${arch}.node
+	`
+		.env({
+			PATH: tg.Mutation.prefix(tg`${modules}/node_modules/.bin`, ":"),
+		})
+		.then(tg.Directory.expect);
+
+	// Add the Node.js packages and the compiled JavaScript client to the repository, where the Node.js tests import the client.
+	const repository = await tg.directory(source, modules, {
+		"packages/clients/javascript/dist": javascriptClient,
+	});
+
+	// Install the Python client and the dependencies that uv.lock pins for it, for the Python tests that import it.
+	const lock = tg.encoding.toml.decode(
+		await source
+			.get("uv.lock")
+			.then(tg.File.expect)
+			.then((file) => file.text),
+	) as UvLock;
+	const packages = new Map(lock.package.map((entry) => [entry.name, entry]));
+	const wheels: Array<Promise<tg.Directory>> = [];
+	const install = (name: string, seen: Set<string>) => {
+		const entry = packages.get(name);
+		tg.assert(entry !== undefined, `uv.lock does not contain ${name}`);
+		for (const dependency of entry.dependencies ?? []) {
+			if (seen.has(dependency.name)) {
+				continue;
+			}
+			seen.add(dependency.name);
+			const wheel = packages
+				.get(dependency.name)
+				?.wheels?.find((wheel) => wheel.url.endsWith("-none-any.whl"));
+			tg.assert(wheel !== undefined, `no wheel for ${dependency.name}`);
+			wheels.push(
+				std
+					.download({ checksum: wheel.hash as tg.Checksum, url: wheel.url })
+					.then(tg.Blob.expect)
+					.then(tg.extract)
+					.then(tg.Directory.expect),
+			);
+			install(dependency.name, seen);
+		}
+	};
+	install("tangram", new Set());
+	const pythonClient = await tg.directory(...(await Promise.all(wheels)), {
+		tangram: tg.directory(
+			source
+				.get("packages/clients/python/src/tangram")
+				.then(tg.Directory.expect),
+			{
+				"_native.so": extensions.get("libtangram_python_native.so"),
+			},
+		),
+	});
+
+	// Find the tests.
+	const tests: Array<string> = [];
+	const find = async (directory: tg.Directory, path: string) => {
+		for await (const [name, artifact] of directory) {
+			const subpath = path === "" ? name : `${path}/${name}`;
+			if (artifact instanceof tg.Directory) {
+				await find(artifact, subpath);
+			} else if (name.endsWith(".nu")) {
+				tests.push(subpath);
+			}
+		}
+	};
+	await find(
+		await source.get("packages/tests/tests").then(tg.Directory.expect),
+		"",
+	);
+	const selected = tests.filter(
+		(test) =>
+			filters.length === 0 ||
+			filters.some((filter) => new RegExp(filter).test(test)),
+	);
+
+	// Create the environment for the tests.
+	const env = await std.env.arg(
+		std.sdk(),
+		pythonArtifact,
+		std.utils.attr.build(),
+		bubblewrap(),
+		bun(),
+		curl(),
+		delta(),
+		libfuse(),
+		nodejs(),
+		nushell(),
+		passt(),
+		procps(),
+		sqlite(),
+		utilLinux(),
+		{
+			PYTHONPATH: pythonClient,
+			SSL_CERT_FILE: tg`${std.caCertificates()}/cacert.pem`,
+		},
+	);
+
+	// Run each test in its own sandbox, with a limited number at once, so that the sandboxes fit in the scheduler's queue, which holds 1024 by default. Each test writes whether it passed or why it was skipped.
+	const limit = 512;
+	const failed: Array<string> = [];
+	let passed = 0;
+	const skipped: Record<string, Array<string>> = {};
+	const remaining = selected.values();
+	const runTests = async () => {
+		for (const test of remaining) {
+			const directory = test.includes("/")
+				? test.slice(0, test.lastIndexOf("/"))
+				: "";
+			const filter = `/packages/tests/tests/${test.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
+			const output = await std.build`
+				# Install std's loader at the path that the standalone executables request, and its libraries in /lib, where the loader searches.
+				mkdir -p /lib "$(dirname ${interpreter})"
+				ln -s ${ldso} ${interpreter}
+				for library in ${libDir}/*; do
+					[ -e "/lib/$(basename "$library")" ] || ln -s "$library" /lib/
+				done
+
+				# Copy the test's directory, where the test writes its snapshots, to a writable directory.
+				cp -R ${source}/packages/tests/tests/${directory}/. copy
+				chmod -R u+w copy
+
+				# Remove the connection to this server and the environment values that refer to its store.
+				unset TANGRAM_OUTPUT TANGRAM_TOKEN TANGRAM_URL
+				for name in $(env | grep -o '^TANGRAM_ENV_[^=]*'); do
+					unset "$name"
+				done
+
+				# Run the test in a user and mount namespace. The runner finds the test in the source that it was built from, so mount the repository with the clients over that source, and mount the writable copy over the test's directory, where the test writes its snapshots. The namespace also lets fusermount3 mount the test server's VFS.
+				export PATH="${tangram}/bin:$PATH"
+				status=0
+				unshare --user --map-current-user --mount --keep-caps \\
+					sh -c 'mount --bind "$1" "$2" && mount --bind "$3" "$4" && shift 4 && exec tangram_tests_runner "$@"' \\
+					sh ${repository} ${buildSource} "$PWD/copy" ${buildSource}/packages/tests/tests/${directory} \\
+					run --jobs 1 --no-progress-details ${offline ? "--offline" : ""} -- '${filter}' 2> log || status=$?
+				cat log >&2
+				if [ "$status" -ne 0 ]; then
+					exit "$status"
+				fi
+
+				# Write the reason that the test was skipped, or that it passed.
+				reason=$(sed -n 's/^.* skipped: //p' log)
+				if [ -n "$reason" ]; then
+					printf 'skipped: %s\\n' "$reason" > ${tg.output}
+				else
+					echo passed > ${tg.output}
+				fi
+			`
+				.named(test)
+				.network(!offline)
+				.checksum(offline ? null : "sha256:any")
+				.env(env)
+				.then(tg.File.expect)
+				.then((file) => file.text)
+				.catch(() => undefined);
+			if (output === undefined) {
+				failed.push(test);
+			} else if (output.startsWith("skipped: ")) {
+				const reason = output.slice("skipped: ".length).trim();
+				(skipped[reason] ??= []).push(test);
+			} else {
+				passed += 1;
+			}
+		}
+	};
+	await Promise.all(Array.from({ length: limit }, runTests));
+
+	// Report the failed tests.
+	const skippedCount = Object.values(skipped).flat().length;
+	const summary = `${passed} passed, ${skippedCount} skipped, ${failed.length} failed`;
+	if (failed.length > 0) {
+		throw new Error(`${summary}:\n${failed.sort().join("\n")}`);
+	}
+
+	return { passed, skipped };
 };
 
 // Internal helpers.
@@ -615,4 +903,12 @@ type PythonDistributions = {
 
 type CargoLock = {
 	package: Array<{ name: string; version: string }>;
+};
+
+type UvLock = {
+	package: Array<{
+		dependencies?: Array<{ name: string }>;
+		name: string;
+		wheels?: Array<{ hash: string; url: string }>;
+	}>;
 };
