@@ -62,19 +62,34 @@ pub struct LockWriteGuard {
 
 pub struct State {
 	pub affected_paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+
 	pub graph: Graph,
+
 	pub index_task: Shared<tg::Result<()>>,
+
 	pub invalidated_paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+
 	pub lock: Option<Arc<tg::graph::data::Leaf>>,
+
+	pub overflow_notify: Arc<tokio::sync::Notify>,
+
 	pub overflowed: Arc<AtomicBool>,
-	pub pending_lock_write_version: Option<u64>,
+
 	#[cfg(target_os = "macos")]
 	pub paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+
+	pub pending_lock_write_version: Option<u64>,
+
 	pub revalidation_version: u64,
+
 	pub sender: tokio::sync::mpsc::Sender<Message>,
+
 	pub solutions: Solutions,
+
 	pub timeout_task: Option<Task<()>>,
+
 	pub version: u64,
+
 	pub watcher: Option<notify::RecommendedWatcher>,
 }
 
@@ -137,24 +152,40 @@ impl Watch {
 
 		// Create the channel.
 		let (sender, mut receiver) = tokio::sync::mpsc::channel::<Message>(config.channel_capacity);
+		let overflow_notify = Arc::new(tokio::sync::Notify::new());
 
 		// Create the state.
 		let index_task = spawn_index_task();
 		let state = State {
 			affected_paths: HashSet::default(),
+
 			graph,
+
 			index_task,
+
 			invalidated_paths: HashSet::default(),
+
 			lock,
+
+			overflow_notify: overflow_notify.clone(),
+
 			overflowed: Arc::new(AtomicBool::new(false)),
-			pending_lock_write_version: None,
+
 			#[cfg(target_os = "macos")]
 			paths: HashSet::default(),
+
+			pending_lock_write_version: None,
+
 			revalidation_version: 0,
+
 			sender,
+
 			solutions,
+
 			timeout_task: None,
+
 			version: 0,
+
 			watcher: None,
 		};
 		let state = Arc::new(Mutex::new(state));
@@ -170,7 +201,8 @@ impl Watch {
 			let state = state.clone();
 			let root = key.path.clone();
 			move |_| async move {
-				while let Some(message) = receiver.recv().await {
+				while let Some(message) = Self::recv(&state, &mut receiver, &overflow_notify).await
+				{
 					// Get the paths.
 					let event_paths = message.event.paths.clone();
 					let mut paths = Self::changes(&message.event);
@@ -316,6 +348,26 @@ impl Watch {
 			state,
 			task,
 			time_to_live,
+		}
+	}
+
+	async fn recv(
+		state: &Mutex<State>,
+		receiver: &mut tokio::sync::mpsc::Receiver<Message>,
+		overflow_notify: &tokio::sync::Notify,
+	) -> Option<Message> {
+		loop {
+			tokio::select! {
+				biased;
+				() = overflow_notify.notified() => {
+					// Discard the graph even if the event channel drained before the overflow was recorded.
+					let mut state = state.lock().unwrap();
+					if state.overflowed.swap(false, Ordering::SeqCst) {
+						state.reset();
+					}
+				},
+				message = receiver.recv() => return message,
+			}
 		}
 	}
 
@@ -636,6 +688,7 @@ impl State {
 
 	fn create_watcher(&self) -> tg::Result<notify::RecommendedWatcher> {
 		let handler = {
+			let overflow_notify = self.overflow_notify.clone();
 			let overflowed = self.overflowed.clone();
 			let sender = self.sender.clone();
 			move |result| match result {
@@ -648,6 +701,7 @@ impl State {
 					let result = sender.try_send(message);
 					if let Err(tokio::sync::mpsc::error::TrySendError::Full(message)) = result {
 						Self::resend_after_overflow(&overflowed, &sender, message);
+						overflow_notify.notify_one();
 					}
 				},
 				Err(error) => {
