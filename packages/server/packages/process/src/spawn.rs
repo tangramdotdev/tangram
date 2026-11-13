@@ -126,7 +126,8 @@ impl Component {
 				authenticated_process
 					.as_ref()
 					.map(|process| &process.sandbox)
-			}) && let Some(tg::Either::Left(sandbox)) = &arg.sandbox
+			})
+			&& let Some(tg::Either::Left(sandbox)) = &arg.sandbox
 		{
 			session
 				.server

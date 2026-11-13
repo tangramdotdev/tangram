@@ -108,7 +108,7 @@ impl Component {
 	) -> tg::Result<ControlFlow<Vec<crate::get::Row>, tangram_server_core::database::Error>> {
 		let p = transaction.p();
 		// The empty string sorts before every remote ID for the first page.
-		let after = after.map(ToString::to_string).unwrap_or_default();
+		let after = after.map_or_default(ToString::to_string);
 		let statement = formatdoc!(
 			"
 			select id, name, principal, cast(null as text) as token, trusted, url from remotes

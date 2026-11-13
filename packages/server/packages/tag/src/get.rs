@@ -90,19 +90,23 @@ impl Component {
 			.visible(std::slice::from_ref(&id), &session.context.principal)
 			.await?
 			.pop()
-			.unwrap() || session
-			.authorize(
-				tg::Referent::with_node_and_tokens(tg::Selector::Id(id.clone()), tokens.clone()),
-				tg::authorization::Permission::Tag(
+			.unwrap()
+			|| session
+				.authorize(
+					tg::Referent::with_node_and_tokens(
+						tg::Selector::Id(id.clone()),
+						tokens.clone(),
+					),
+					tg::authorization::Permission::Tag(
+						tg::authorization::permission::tag::Permission::Read,
+					),
+				)
+				.await?
+				.check_exhaustion()?
+				.permissions
+				.contains(tg::authorization::Permission::Tag(
 					tg::authorization::permission::tag::Permission::Read,
-				),
-			)
-			.await?
-			.check_exhaustion()?
-			.permissions
-			.contains(tg::authorization::Permission::Tag(
-				tg::authorization::permission::tag::Permission::Read,
-			));
+				));
 		if !visible {
 			return Ok(None);
 		}

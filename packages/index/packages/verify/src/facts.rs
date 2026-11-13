@@ -766,7 +766,7 @@ mod tests {
 	async fn cancellation_does_not_retain_the_channel() {
 		let requests = Arc::new(AtomicUsize::new(0));
 		let cache = Cache::new();
-		let (client, receiver) = channel_with_cache::<std::convert::Infallible>(1, cache.clone());
+		let (client, receiver) = channel_with_cache::<!>(1, cache.clone());
 		let provide = serve(receiver, 1, {
 			let requests = requests.clone();
 			move |_| {
@@ -811,7 +811,7 @@ mod tests {
 		let active = Arc::new(AtomicUsize::new(0));
 		let barrier = Arc::new(Barrier::new(CONCURRENCY));
 		let maximum = Arc::new(AtomicUsize::new(0));
-		let (client, receiver) = channel::<std::convert::Infallible>(CONCURRENCY);
+		let (client, receiver) = channel::<!>(CONCURRENCY);
 		let provide = serve(receiver, CONCURRENCY, {
 			let active = active.clone();
 			let barrier = barrier.clone();
@@ -851,7 +851,7 @@ mod tests {
 	#[tokio::test]
 	async fn direct_fact_requests_are_deduplicated() {
 		let requests = Arc::new(AtomicUsize::new(0));
-		let (client, receiver) = channel::<std::convert::Infallible>(2);
+		let (client, receiver) = channel::<!>(2);
 		let provide = serve(receiver, 2, {
 			let requests = requests.clone();
 			move |_| {
@@ -882,7 +882,7 @@ mod tests {
 	#[tokio::test]
 	async fn fact_cache_is_shared_across_channels() {
 		let requests = Arc::new(AtomicUsize::new(0));
-		let cache = Cache::<std::convert::Infallible>::new();
+		let cache = Cache::<!>::new();
 		let (first_client, first_receiver) = channel_with_cache(1, cache.clone());
 		let (second_client, second_receiver) = channel_with_cache(1, cache);
 		let first_provider = serve(first_receiver, 1, {
@@ -927,7 +927,7 @@ mod tests {
 	#[tokio::test]
 	async fn parent_pages_are_cached() {
 		let requests = Arc::new(AtomicUsize::new(0));
-		let (client, receiver) = channel::<std::convert::Infallible>(2);
+		let (client, receiver) = channel::<!>(2);
 		let provide = serve(receiver, 2, {
 			let requests = requests.clone();
 			move |_| {
@@ -972,7 +972,7 @@ mod tests {
 	#[tokio::test]
 	async fn object_child_pages_are_not_cached() {
 		let requests = Arc::new(AtomicUsize::new(0));
-		let (client, receiver) = channel::<std::convert::Infallible>(2);
+		let (client, receiver) = channel::<!>(2);
 		let provide = serve(receiver, 2, {
 			let requests = requests.clone();
 			move |_| {

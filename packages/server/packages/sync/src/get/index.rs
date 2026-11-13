@@ -839,7 +839,7 @@ impl Component {
 				if !process.marked() {
 					continue;
 				}
-				for (object_index, _) in process.objects().map(Vec::as_slice).unwrap_or_default() {
+				for (object_index, _) in process.objects().map_or_default(Vec::as_slice) {
 					let (id, object) = graph.nodes().get_index(*object_index).unwrap();
 					let stored = object
 						.unwrap_object_ref()
@@ -1065,7 +1065,7 @@ impl Component {
 			}
 			let process = tg::process::Id::try_from(id.clone())?;
 			let mut roots = Vec::new();
-			for (index, _) in node.objects().map(Vec::as_slice).unwrap_or_default() {
+			for (index, _) in node.objects().map_or_default(Vec::as_slice) {
 				let (id, _) = graph.nodes().get_index(*index).unwrap();
 				let permissions = graph.object_local_permissions(&id.clone().try_into()?);
 				let subtree = tg::authorization::Permission::Object(

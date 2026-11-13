@@ -56,7 +56,7 @@ pub struct Options {
 
 pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
 	let options = options(arg)?;
-	let cgroup = Cgroup::new(name(arg), &options)?;
+	let cgroup = Cgroup::new(&name(), &options)?;
 	Ok(cgroup)
 }
 
@@ -65,12 +65,12 @@ pub(crate) fn try_create(arg: &crate::Arg) -> tg::Result<Option<Cgroup>> {
 	// Require a cgroup for a sandbox with resource limits or hardening.
 	let options = options(arg)?;
 	if options.limited() || arg.resources.cgroup_readonly {
-		let cgroup = Cgroup::new(name(arg), &options)?;
+		let cgroup = Cgroup::new(&name(), &options)?;
 		return Ok(Some(cgroup));
 	}
 
 	// Create the cgroup if a parent is writable.
-	let cgroup = Cgroup::try_new(name(arg), &options)?;
+	let cgroup = Cgroup::try_new(&name(), &options)?;
 	if cgroup.is_none() {
 		static WARNING: std::sync::Once = std::sync::Once::new();
 		WARNING.call_once(|| {
@@ -737,11 +737,9 @@ fn options(arg: &crate::Arg) -> tg::Result<Options> {
 	Ok(options)
 }
 
-fn name(arg: &crate::Arg) -> &str {
-	arg.path
-		.file_name()
-		.and_then(|name| name.to_str())
-		.unwrap_or("sandbox")
+/// Create a random name for a cgroup, so that a boot's cgroup never has the name of a cgroup that a previous run left.
+fn name() -> String {
+	format!("tangram-sandbox-{:016x}", rand::random::<u64>())
 }
 
 fn current(root: &Path) -> tg::Result<PathBuf> {

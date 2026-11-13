@@ -121,7 +121,7 @@ impl Index {
 	}
 
 	fn execute_read_request(
-		verification_fact_cache: tangram_index_verify::facts::Cache<std::convert::Infallible>,
+		verification_fact_cache: tangram_index_verify::facts::Cache<!>,
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,

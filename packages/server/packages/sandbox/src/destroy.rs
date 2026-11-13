@@ -57,7 +57,9 @@ impl Component {
 					let scheduler = &server.components.scheduler;
 					let result = if time_to_live.is_some_and(|time_to_live| time_to_live.is_zero())
 					{
-						scheduler.destroy_runner_sandbox(server, &id, error).await
+						scheduler
+							.destroy_runner_sandbox(server, &id, Some(error))
+							.await
 					} else {
 						scheduler.stop_runner_sandbox(server, &id, error).await
 					};

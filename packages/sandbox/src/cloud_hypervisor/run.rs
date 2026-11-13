@@ -221,8 +221,7 @@ pub(crate) fn command(
 		ports: arg
 			.network
 			.as_ref()
-			.map(crate::Network::ports)
-			.unwrap_or_default()
+			.map_or_default(crate::Network::ports)
 			.to_owned(),
 		ready_timeout: config.ready_timeout,
 		rootfs_path: arg.rootfs_path.clone(),

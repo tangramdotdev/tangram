@@ -1,6 +1,6 @@
 use {
 	crate::Component,
-	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	std::pin::pin,
 	tangram_client::prelude::*,
@@ -49,6 +49,33 @@ impl Output {
 
 	pub fn process(&self) -> Option<&tg::process::Id> {
 		self.output.process.as_ref().right()
+	}
+
+	pub async fn wait_for_start(&self, session: &Session) -> tg::Result<()> {
+		if self.output.outcome.is_some() {
+			return Ok(());
+		}
+		let Some(id) = self.process() else {
+			return Ok(());
+		};
+		let arg = tg::process::status::Arg {
+			location: self.output.location.clone().map(Into::into),
+			tokens: self.output.tokens.clone(),
+			..Default::default()
+		};
+		let stream = session
+			.get_process_status(id, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the cached process status"))?;
+		let mut stream = pin!(stream);
+		while let Some(status) = stream.try_next().await? {
+			match status {
+				tg::process::Status::Finished | tg::process::Status::Started => return Ok(()),
+				tg::process::Status::Starting => (),
+			}
+		}
+
+		Err(tg::error!(%id, "the cached process status stream ended before the process started"))
 	}
 }
 
@@ -245,7 +272,8 @@ impl Component {
 						|| !matches!(
 							Self::cached_process_error_code(data),
 							Some(tg::error::Code::ChecksumMismatch)
-						) || actual_checksum.algorithm() != expected_checksum.algorithm()
+						)
+						|| actual_checksum.algorithm() != expected_checksum.algorithm()
 					{
 						return None;
 					}
@@ -519,7 +547,8 @@ impl Component {
 						false,
 						true,
 					)
-					.await? && process.data.status.is_finished()
+					.await?
+					&& process.data.status.is_finished()
 				{
 					output.data = process.data;
 					return Ok(output.data.cacheable.then_some(output));
@@ -592,21 +621,14 @@ impl Component {
 			return Ok(true);
 		}
 		let now = session.server.clock.unix_timestamp();
-		let time_to_touch = session
-			.server
-			.config
-			.process
-			.time_to_touch
-			.as_secs()
-			.to_i64()
-			.unwrap();
-		if process.touched_at > now - time_to_touch {
+		let time_to_touch = session.server.config.process.time_to_touch;
+		if process.touched_at > now - time_to_touch.as_secs().to_i64().unwrap() {
 			return Ok(true);
 		}
 		let process = session
 			.server
 			.index
-			.touch_process(id, now, session.server.config.process.time_to_touch)
+			.touch_process(id, now, time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?;
 		Ok(process.is_some())

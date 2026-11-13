@@ -324,7 +324,8 @@ impl Component {
 				.boxed()
 				.await?
 				.check_exhaustion()?
-				.outcome != tangram_server_core::authorization::Outcome::Satisfied
+				.outcome
+				!= tangram_server_core::authorization::Outcome::Satisfied
 			{
 				return Ok(None);
 			}

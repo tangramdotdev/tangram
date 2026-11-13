@@ -100,8 +100,7 @@ impl Pool {
 			.lock()
 			.unwrap()
 			.take()
-			.map(|queue| queue.tasks)
-			.unwrap_or_default();
+			.map_or_default(|queue| queue.tasks);
 		match shutdown {
 			Shutdown::Interrupt => {},
 			Shutdown::Terminate => {

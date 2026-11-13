@@ -107,14 +107,6 @@ export namespace Module {
 		let string = tg.Module.Source.toDataString(value.referent.node);
 		let params = [];
 		if (
-			value.referent.options?.artifact !== undefined &&
-			value.referent.options.artifact !== null
-		) {
-			params.push(
-				`artifact=${encodeURIComponent(value.referent.options.artifact)}`,
-			);
-		}
-		if (
 			value.referent.options?.id !== undefined &&
 			value.referent.options.id !== null
 		) {
@@ -138,6 +130,12 @@ export namespace Module {
 			value.referent.options.path !== null
 		) {
 			params.push(`path=${encodeURIComponent(value.referent.options.path)}`);
+		}
+		if (
+			value.referent.options?.store !== undefined &&
+			value.referent.options.store !== null
+		) {
+			params.push(`store=${encodeURIComponent(value.referent.options.store)}`);
 		}
 		if (
 			value.referent.options?.tag !== undefined &&
@@ -181,10 +179,6 @@ export namespace Module {
 					throw new Error("missing value");
 				}
 				switch (key) {
-					case "artifact": {
-						options.artifact = decodeURIComponent(value);
-						break;
-					}
 					case "id": {
 						options.id = decodeURIComponent(value);
 						break;
@@ -201,6 +195,10 @@ export namespace Module {
 					}
 					case "path": {
 						options.path = decodeURIComponent(value);
+						break;
+					}
+					case "store": {
+						options.store = decodeURIComponent(value);
 						break;
 					}
 					case "tag": {

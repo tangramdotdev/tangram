@@ -2,7 +2,6 @@ use {
 	crate::{Context, Origin, Server},
 	futures::{FutureExt as _, future},
 	std::{
-		convert::Infallible,
 		path::Path,
 		pin::{Pin, pin},
 		task::Poll,
@@ -20,8 +19,7 @@ use {
 	tower::ServiceExt as _,
 };
 
-type Service =
-	tower::util::BoxCloneSyncService<http::Request<BoxBody>, http::Response<BoxBody>, Infallible>;
+type Service = tower::util::BoxCloneSyncService<http::Request<BoxBody>, http::Response<BoxBody>, !>;
 
 pub enum Listener {
 	Tcp(tokio::net::TcpListener),
@@ -241,7 +239,7 @@ impl Server {
 			let guard = {
 				active_connections.add(1, &[]);
 				let active_connections = active_connections.clone();
-				scopeguard::guard((), move |()| {
+				std::mem::DropGuard::new((), move |()| {
 					active_connections.add(-1, &[]);
 				})
 			};
@@ -383,7 +381,7 @@ impl Server {
 						token: None,
 					};
 					let response = server.handle_request(request, context).await;
-					Ok::<_, Infallible>(response)
+					Ok::<_, !>(response)
 				}
 			}
 		}))
@@ -411,11 +409,8 @@ impl Server {
 		stopper: Stopper,
 	) where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-		T: tower::Service<
-				http::Request<BoxBody>,
-				Response = http::Response<BoxBody>,
-				Error = Infallible,
-			> + Clone
+		T: tower::Service<http::Request<BoxBody>, Response = http::Response<BoxBody>, Error = !>
+			+ Clone
 			+ Send
 			+ 'static,
 		T::Future: Send + 'static,
@@ -447,7 +442,7 @@ impl Server {
 								},
 							))
 						});
-						Ok::<_, Infallible>(response)
+						Ok::<_, !>(response)
 					}
 				}
 			});

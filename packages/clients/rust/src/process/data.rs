@@ -138,7 +138,7 @@ impl Data {
 		self.command.node = self
 			.command
 			.node
-			.map_left(|command| Box::new(command.without_location_and_tokens()));
+			.map_left(|command| Box::map(command, Command::without_location_and_tokens));
 		self.children = self.children.map(|children| {
 			children
 				.into_iter()
@@ -149,7 +149,7 @@ impl Data {
 			error.options.clear_location_and_tokens();
 			error.node = error
 				.node
-				.map_left(|data| Box::new((*data).without_location_and_tokens()));
+				.map_left(|data| Box::map(data, tg::error::Data::without_location_and_tokens));
 			error
 		});
 		self.log = self.log.map(|mut log| {

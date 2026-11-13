@@ -4,7 +4,7 @@ use ../../util/test.nu *
 
 let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true },
-	process: { time_to_index: 0, ttt: 2 },
+	process: { ttt: 2 },
 }
 
 # Build the process and wait for the index to have it.

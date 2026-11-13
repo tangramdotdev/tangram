@@ -21,7 +21,7 @@ impl Error {
 	#[doc(hidden)]
 	#[must_use]
 	pub fn with_internal_location(symbol: &str, file: &str, line: u32, column: u32) -> Self {
-		let symbol = symbol.strip_suffix("::Marker").unwrap_or(symbol).to_owned();
+		let symbol = symbol.trim_suffix("::Marker").to_owned();
 		let position = tg::Position {
 			line: line - 1,
 			character: column - 1,

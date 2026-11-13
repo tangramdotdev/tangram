@@ -457,7 +457,8 @@ async fn drain(index: &Index) {
 			.update_batch(tangram_index::update::Kind::Permission, 100)
 			.await
 			.unwrap()
-			.count == 0
+			.count
+			== 0
 		{
 			return;
 		}

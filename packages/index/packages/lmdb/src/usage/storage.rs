@@ -15,7 +15,8 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		resource: &tg::Id,
-	) -> tg::Result<BTreeMap<tangram_index::usage::Account, tg::authorization::permission::Set>> {
+	) -> tg::Result<BTreeMap<tangram_index::usage::Account, tg::authorization::permission::Set>>
+	{
 		let subjects = Self::get_resource_permission_subjects_with_transaction(
 			db,
 			subspace,

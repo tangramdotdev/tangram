@@ -350,7 +350,8 @@ impl Index {
 		object: &tg::object::Id,
 		after: Option<&[u8]>,
 		limit: usize,
-	) -> tg::Result<ControlFlow<crate::page::Page<tangram_index::usage::Account>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<crate::page::Page<tangram_index::usage::Account>, fdb::FdbError>>
+	{
 		let bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -397,7 +398,8 @@ impl Index {
 		process: &tg::process::Id,
 		after: Option<&[u8]>,
 		limit: usize,
-	) -> tg::Result<ControlFlow<crate::page::Page<tangram_index::usage::Account>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<crate::page::Page<tangram_index::usage::Account>, fdb::FdbError>>
+	{
 		let bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,

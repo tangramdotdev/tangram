@@ -73,7 +73,7 @@ async fn reconnect_preserves_the_resolved_reverse_window() {
 								.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
 								.body(body)
 								.unwrap();
-							Ok::<_, std::convert::Infallible>(response)
+							Ok::<_, !>(response)
 						}
 					},
 				);

@@ -267,7 +267,7 @@ impl Index {
 				partition_end,
 				partition_start,
 			}) => {
-				let items = (0..batch_size).map(|_| Operation::Clean).collect();
+				let items = Vec::from_fn(batch_size, |_| Operation::Clean);
 				(
 					items,
 					Kind::Clean {
@@ -351,7 +351,7 @@ impl Index {
 				partition_start,
 				partition_end,
 			}) => {
-				let items = (0..batch_size).map(|_| Operation::Update).collect();
+				let items = Vec::from_fn(batch_size, |_| Operation::Update);
 				(
 					items,
 					Kind::Update {

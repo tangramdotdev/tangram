@@ -405,16 +405,13 @@ impl Component {
 		// Get the token data.
 		let access_token = token.access_token().secret().to_owned();
 		let refresh_token = token.refresh_token().map(|token| token.secret().to_owned());
-		let scope = token
-			.scopes()
-			.map(|scopes| {
-				scopes
-					.iter()
-					.map(|scope| scope.as_str().to_owned())
-					.collect::<Vec<_>>()
-					.join(",")
-			})
-			.unwrap_or_default();
+		let scope = token.scopes().map_or_default(|scopes| {
+			scopes
+				.iter()
+				.map(|scope| scope.as_str().to_owned())
+				.collect::<Vec<_>>()
+				.join(",")
+		});
 		let now = session.server.clock.unix_timestamp();
 		let expires_at = token
 			.expires_in()
@@ -438,14 +435,13 @@ impl Component {
 			.list()
 			.await
 			.inspect_err(|error| tracing::warn!(%error, "failed to get the GitHub emails"))
-			.map(|page| {
+			.map_or_default(|page| {
 				page.items
 					.into_iter()
 					.filter(|email| email.verified)
 					.map(|email| email.email)
 					.collect::<Vec<_>>()
-			})
-			.unwrap_or_default();
+			});
 		if let Some(email) = &github_user.email {
 			emails.push(email.clone());
 		}

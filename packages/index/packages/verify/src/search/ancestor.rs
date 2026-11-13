@@ -1403,9 +1403,10 @@ impl Search {
 			|| !matches!(
 				subject,
 				tg::authorization::Subject::Group(_) | tg::authorization::Subject::Organization(_)
-			) || !self
-			.visited_subjects
-			.insert((subject.clone(), dependent.clone()))
+			)
+			|| !self
+				.visited_subjects
+				.insert((subject.clone(), dependent.clone()))
 		{
 			return;
 		}

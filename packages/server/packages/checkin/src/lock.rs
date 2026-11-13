@@ -372,8 +372,8 @@ impl Component {
 				tg::graph::data::Node::File(file) => {
 					for dependency in file.dependencies.values_mut().flatten() {
 						if let Some(tg::graph::data::Edge::Index(target_index)) =
-							&mut dependency.node && let Some(lock_index) =
-							mapping.get(&*target_index)
+							&mut dependency.node
+							&& let Some(lock_index) = mapping.get(&*target_index)
 						{
 							*target_index = *lock_index;
 						}

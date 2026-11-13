@@ -45,10 +45,6 @@ pub(crate) struct Either;
 )]
 pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
-	pub artifact: Option<tg::artifact::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::object::Id>,
 
@@ -63,6 +59,10 @@ pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
+	pub store: Option<tg::artifact::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
@@ -114,10 +114,6 @@ impl<T> Referent<T> {
 		&self.options
 	}
 
-	pub fn artifact(&self) -> Option<&tg::artifact::Id> {
-		self.options.artifact.as_ref()
-	}
-
 	pub fn id(&self) -> Option<&tg::object::Id> {
 		self.options.id.as_ref()
 	}
@@ -133,6 +129,10 @@ impl<T> Referent<T> {
 
 	pub fn path(&self) -> Option<&Path> {
 		self.options.path.as_deref()
+	}
+
+	pub fn store(&self) -> Option<&tg::artifact::Id> {
+		self.options.store.as_ref()
 	}
 
 	pub fn tag(&self) -> Option<&tg::Specifier> {
@@ -256,11 +256,11 @@ impl Options {
 
 	pub fn with_path(path: impl Into<PathBuf>) -> Self {
 		Self {
-			artifact: None,
 			id: None,
 			location: None,
 			name: None,
 			path: Some(path.into()),
+			store: None,
 			tag: None,
 			tokens: tg::authorization::Tokens::default(),
 		}

@@ -357,12 +357,6 @@ impl Dependency {
 			.map_or_else(String::new, ToString::to_string);
 		let mut builder = Uri::builder().path(&path);
 		let mut query = Vec::new();
-		if let Some(artifact) = &self.0.options.artifact {
-			let artifact = artifact.to_string();
-			let artifact = tangram_uri::encode_query_value(&artifact);
-			let artifact = format!("artifact={artifact}");
-			query.push(artifact);
-		}
 		if let Some(id) = &self.0.options.id {
 			let id = id.to_string();
 			let id = tangram_uri::encode_query_value(&id);
@@ -385,6 +379,12 @@ impl Dependency {
 			let path = tangram_uri::encode_query_value(&path);
 			let path = format!("path={path}");
 			query.push(path);
+		}
+		if let Some(store) = &self.0.options.store {
+			let store = store.to_string();
+			let store = tangram_uri::encode_query_value(&store);
+			let store = format!("store={store}");
+			query.push(store);
 		}
 		if let Some(tag) = &self.0.options.tag {
 			let tag = tag.to_string();
@@ -416,13 +416,6 @@ impl Dependency {
 					let value = tangram_uri::decode_query_value(value)
 						.map_err(|_| tg::error!("failed to decode the value"))?;
 					match key {
-						"artifact" => {
-							options.artifact.replace(
-								value
-									.parse()
-									.map_err(|_| tg::error!("failed to parse the artifact"))?,
-							);
-						},
 						"id" => {
 							options.id.replace(
 								value
@@ -442,6 +435,13 @@ impl Dependency {
 						},
 						"path" => {
 							options.path.replace(value.into_owned().into());
+						},
+						"store" => {
+							options.store.replace(
+								value
+									.parse()
+									.map_err(|_| tg::error!("failed to parse the store"))?,
+							);
 						},
 						"tag" => {
 							options.tag.replace(

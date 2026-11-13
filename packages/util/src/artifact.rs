@@ -294,10 +294,7 @@ impl Symlink {
 			return Ok(false);
 		}
 		let path_ = tokio::fs::read_link(&path).await?;
-		if self.path.as_ref().as_bytes() != path_.as_os_str().as_bytes() {
-			return Ok(false);
-		}
-		Ok(true)
+		Ok(self.path.as_ref().as_bytes() == path_.as_os_str().as_bytes())
 	}
 }
 

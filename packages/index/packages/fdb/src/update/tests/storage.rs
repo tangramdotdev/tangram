@@ -182,9 +182,9 @@ async fn puts(index: &Index, late: bool) {
 
 async fn pages(index: &Index) {
 	let leaf = super::directory(&[]);
-	let children = (0..12)
-		.map(|i| super::directory(&[(&format!("leaf_{i}"), leaf.id.clone())]))
-		.collect::<Vec<_>>();
+	let children = Vec::from_fn(12, |i| {
+		super::directory(&[(&format!("leaf_{i}"), leaf.id.clone())])
+	});
 	let entries = children
 		.iter()
 		.enumerate()
@@ -350,7 +350,8 @@ async fn drain(index: &Index) {
 			.update_batch(tangram_index::update::Kind::Usage, 100, 0, 2)
 			.await
 			.unwrap()
-			.count == 0
+			.count
+			== 0
 		{
 			return;
 		}

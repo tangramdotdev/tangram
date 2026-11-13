@@ -543,16 +543,14 @@ impl Component {
 			tangram_server_core::checkpoint!(session.server, "runner.control.destroy_sandbox", %runner, %sandbox)
 				.await;
 			let error = match arg.error {
-				Some(tg::Either::Left(data)) => data,
-				Some(tg::Either::Right(id)) => tg::Error::with_id(id)
-					.data_with_instance(session)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
-				None => tg::error::Data {
-					code: Some(tg::error::Code::Internal),
-					message: Some("runner restarted".to_owned()),
-					..Default::default()
-				},
+				Some(tg::Either::Left(data)) => Some(data),
+				Some(tg::Either::Right(id)) => Some(
+					tg::Error::with_id(id)
+						.data_with_instance(session)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
+				),
+				None => None,
 			};
 			session
 				.server
@@ -825,7 +823,8 @@ impl Component {
 					let mut message = result?;
 					if let tg::runner::control::ServerMessage::Request(request) = &mut message
 						&& let tg::runner::control::ServerRequestArg::CreateSandbox(arg) =
-							&mut request.arg && let Some(process) = &mut arg.process
+							&mut request.arg
+						&& let Some(process) = &mut arg.process
 					{
 						session
 							.server

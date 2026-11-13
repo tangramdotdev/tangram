@@ -147,9 +147,7 @@ impl Arg {
 	#[must_use]
 	pub fn merge(&self, existing: Option<&super::Sandbox>) -> Merge {
 		// Record the usage of the arg's boot, which only grows within a boot.
-		let mut usages = existing
-			.map(|sandbox| sandbox.usages.clone())
-			.unwrap_or_default();
+		let mut usages = existing.map_or_default(|sandbox| sandbox.usages.clone());
 		if let Some(data) = &self.data
 			&& let Some(usage) = &data.data.usage
 		{
@@ -175,9 +173,7 @@ impl Arg {
 		};
 
 		// Record the storage usage of the arg's stopped boot, which only grows, unless the sandbox is destroyed, because its destruction billed its usage.
-		let mut stopped_usages = existing
-			.map(|sandbox| sandbox.stopped_usages.clone())
-			.unwrap_or_default();
+		let mut stopped_usages = existing.map_or_default(|sandbox| sandbox.stopped_usages.clone());
 		let destroyed = existing
 			.and_then(|sandbox| sandbox.data.as_ref())
 			.is_some_and(|data| data.data.status.is_destroyed());

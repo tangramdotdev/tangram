@@ -349,8 +349,7 @@ impl<'a> Converter<'a> {
 		let bases = class
 			.arguments
 			.as_deref()
-			.map(|arguments| arguments.args.iter().collect::<Vec<_>>())
-			.unwrap_or_default();
+			.map_or_default(|arguments| arguments.args.iter().collect::<Vec<_>>());
 
 		// Document a subclass of an enum as an enum.
 		if bases

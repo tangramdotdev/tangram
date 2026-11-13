@@ -257,7 +257,7 @@ where
 					"failed to set stdin raw mode"
 				));
 			}
-			Some(scopeguard::guard(original, move |original| unsafe {
+			Some(std::mem::DropGuard::new(original, move |original| unsafe {
 				libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(original));
 			}))
 		} else {

@@ -60,7 +60,7 @@ async fn bounded(kind: Kind) {
 		},
 	};
 	let work = Arc::new(AtomicUsize::new(0));
-	let (client, receiver) = facts::channel::<std::convert::Infallible>(2);
+	let (client, receiver) = facts::channel::<!>(2);
 	let search = async move {
 		let ControlFlow::Break(mut outputs) =
 			Batch::verify(&[arg], client.clone(), config, &tg::Principal::Anonymous)
@@ -92,8 +92,8 @@ async fn bounded(kind: Kind) {
 							.copied()
 							.unwrap_or(0)
 							.saturating_add(1);
-						let delegations = (0..limit)
-							.map(|_| tangram_index::delegation::put::Arg {
+						let delegations =
+							Vec::from_fn(limit, |_| tangram_index::delegation::put::Arg {
 								expires_at: 100,
 								resource: resource.clone(),
 								source: source.clone(),
@@ -103,8 +103,7 @@ async fn bounded(kind: Kind) {
 									user.clone()
 								},
 								version: None,
-							})
-							.collect();
+							});
 						(
 							facts::Output::Delegations {
 								delegations,
@@ -124,14 +123,13 @@ async fn bounded(kind: Kind) {
 							.copied()
 							.unwrap_or(0)
 							.saturating_add(1);
-						let permissions = (0..limit)
-							.map(|_| tangram_index::permission::Fact {
+						let permissions =
+							Vec::from_fn(limit, |_| tangram_index::permission::Fact {
 								direct: true,
 								permission: node,
 								resource: resource.clone(),
 								subject: user.clone(),
-							})
-							.collect();
+							});
 						(
 							facts::Output::Permissions {
 								next: Some(vec![next]),

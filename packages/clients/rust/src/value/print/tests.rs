@@ -16,11 +16,11 @@ fn nonempty_referent_options_are_preserved() {
 	let id = tg::file::Id::new(b"source");
 	let token = token();
 	for (field, value) in [
-		("artifact", id.to_string()),
 		("id", id.to_string()),
 		("location", "local".into()),
 		("name", String::new()),
 		("path", String::new()),
+		("store", id.to_string()),
 		("tag", "example".into()),
 	] {
 		let mut options: tg::referent::Options =

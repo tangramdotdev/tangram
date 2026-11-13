@@ -14,14 +14,12 @@ fn capture_entries_stay_bounded_when_roots_share_a_token() {
 	let token = tg::authorization::Token::sign(body, &key).unwrap();
 
 	// Create the roots.
-	let roots = (0..513)
-		.map(|index| {
-			let id = tg::blob::Id::new(format!("blob {index}").as_bytes());
-			let mut root = tg::Referent::with_node(tg::Id::from(id));
-			root.options.tokens = tg::authorization::Tokens::with_authorization([token.clone()]);
-			root
-		})
-		.collect::<Vec<_>>();
+	let roots = Vec::from_fn(513, |index| {
+		let id = tg::blob::Id::new(format!("blob {index}").as_bytes());
+		let mut root = tg::Referent::with_node(tg::Id::from(id));
+		root.options.tokens = tg::authorization::Tokens::with_authorization([token.clone()]);
+		root
+	});
 
 	// Enqueue the capture and check the size of each entry.
 	let principal = tg::Principal::Process(tg::process::Id::new());

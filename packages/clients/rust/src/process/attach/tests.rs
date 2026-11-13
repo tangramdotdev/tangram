@@ -431,7 +431,7 @@ async fn mock_server(
 							.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
 							.body(body)
 							.unwrap();
-						Ok::<_, std::convert::Infallible>(response)
+						Ok::<_, !>(response)
 					}
 				},
 			);

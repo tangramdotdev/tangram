@@ -28,9 +28,9 @@ fn with_bytes_creates_a_leaf_for_bytes_smaller_than_the_minimum_leaf_size() {
 
 #[test]
 fn with_bytes_splits_bytes_into_leaves() {
-	let bytes = (0..4 * tg::blob::MAX_LEAF_SIZE)
-		.map(|index| u8::try_from((index.wrapping_mul(2_654_435_761) >> 24) & 0xff).unwrap())
-		.collect::<Vec<_>>();
+	let bytes = Vec::from_fn(4 * tg::blob::MAX_LEAF_SIZE, |index| {
+		u8::try_from((index.wrapping_mul(2_654_435_761) >> 24) & 0xff).unwrap()
+	});
 	let blob = tg::Blob::with_bytes(bytes.clone());
 	let lengths = shape(&blob);
 	let expected = tg::blob::chunks(&bytes)
@@ -42,12 +42,10 @@ fn with_bytes_splits_bytes_into_leaves() {
 }
 
 fn children(count: usize) -> Vec<tg::blob::Child> {
-	(0..count)
-		.map(|index| {
-			let blob = tg::Blob::leaf(index.to_string().into_bytes());
-			tg::blob::Child { blob, length: 1 }
-		})
-		.collect()
+	Vec::from_fn(count, |index| {
+		let blob = tg::Blob::leaf(index.to_string().into_bytes());
+		tg::blob::Child { blob, length: 1 }
+	})
 }
 
 // Get the lengths of a branch's children.

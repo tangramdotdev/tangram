@@ -161,8 +161,7 @@ fn expression_to_json(expr: &Expression) -> tg::Result<serde_json::Value> {
 			let value = template
 				.quasis
 				.first()
-				.map(|quasi| quasi.value.raw.to_string())
-				.unwrap_or_default();
+				.map_or_default(|quasi| quasi.value.raw.to_string());
 			Ok(serde_json::Value::String(value))
 		},
 

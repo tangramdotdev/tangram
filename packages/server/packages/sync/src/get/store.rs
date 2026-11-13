@@ -83,9 +83,8 @@ impl Component {
 				.node
 				.as_ref()
 				.and_then(|node| node.bytes.as_ref())
-				.map(|bytes| bytes.len().to_u64().unwrap())
-				.unwrap_or_default();
-			let mut batch = state.node.take().map(|node| vec![node]).unwrap_or_default();
+				.map_or_default(|bytes| bytes.len().to_u64().unwrap());
+			let mut batch = state.node.take().map_or_default(|node| vec![node]);
 			loop {
 				let node = if batch.is_empty() {
 					state.object_receiver.recv().await
@@ -98,8 +97,7 @@ impl Component {
 				let size = node
 					.bytes
 					.as_ref()
-					.map(|bytes| bytes.len().to_u64().unwrap())
-					.unwrap_or_default();
+					.map_or_default(|bytes| bytes.len().to_u64().unwrap());
 				if !batch.is_empty()
 					&& (batch.len() + 1 >= max_objects_per_batch
 						|| batch_bytes + size >= max_bytes_per_batch)

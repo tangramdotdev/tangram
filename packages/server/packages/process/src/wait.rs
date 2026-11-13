@@ -23,7 +23,8 @@ impl Component {
 		session: &Session,
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::wait::Arg,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>>
+	{
 		let output = self
 			.try_wait_process_future_inner(session, process, arg)
 			.await?;
@@ -45,7 +46,8 @@ impl Component {
 		session: &Session,
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		mut arg: tg::process::wait::Arg,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>>
+	{
 		let mut process = process.clone();
 		if self
 			.try_resolve_process(
@@ -163,7 +165,8 @@ impl Component {
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 		cancel: Arc<AtomicBool>,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>>
+	{
 		// This session owns cancellation; downstream waits only observe the process.
 		let mut observe_arg = arg.clone();
 		observe_arg.lease = None;
@@ -271,7 +274,8 @@ impl Component {
 		session: &Session,
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::wait::Arg,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>>
+	{
 		let locations = session
 			.locations(arg.location.as_ref())
 			.await
@@ -527,7 +531,8 @@ impl Component {
 		id: &tg::process::Id,
 		tokens: Vec<tg::authorization::Token>,
 		exhaustive: bool,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>>
+	{
 		let mut wakeups = self
 			.create_process_status_wakeup_stream(session, id, session.context.stopper.clone(), None)
 			.await?;
@@ -850,7 +855,7 @@ impl Component {
 			let checkpoint_id = id.clone();
 			let id = id.clone();
 			let server = release_session.server.clone();
-			let guard = scopeguard::guard((), move |()| {
+			let guard = std::mem::DropGuard::new((), move |()| {
 				// Cancel the process if the wait did not complete, after a checkpoint that lets tests observe the decision.
 				let cancel = cancel.load(Ordering::SeqCst);
 				if !cancel && server.checkpoints.is_none() {

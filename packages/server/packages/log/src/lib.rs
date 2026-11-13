@@ -273,16 +273,14 @@ impl Component {
 				} else {
 					state.entries.back()
 				};
-				state.position = boundary
-					.map(|entry| {
-						let position = entry_position(entry, &state.streams);
-						if state.reverse {
-							position
-						} else {
-							position + entry.bytes.len().to_u64().unwrap()
-						}
-					})
-					.unwrap_or_default();
+				state.position = boundary.map_or_default(|entry| {
+					let position = entry_position(entry, &state.streams);
+					if state.reverse {
+						position
+					} else {
+						position + entry.bytes.len().to_u64().unwrap()
+					}
+				});
 			}
 
 			let Some(entry) = (if state.reverse {

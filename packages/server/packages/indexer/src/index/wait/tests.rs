@@ -26,17 +26,15 @@ fn insert(
 #[tokio::test]
 async fn concurrent_waits_share_update_reads() {
 	let mut state = State::new();
-	let receivers = (0..1024)
-		.map(|id| {
-			insert(
-				&mut state,
-				&id.to_string(),
-				RequestState::Updates {
-					transaction_id: None,
-				},
-			)
-		})
-		.collect::<Vec<_>>();
+	let receivers = Vec::from_fn(1024, |id| {
+		insert(
+			&mut state,
+			&id.to_string(),
+			RequestState::Updates {
+				transaction_id: None,
+			},
+		)
+	});
 	let reads = AtomicUsize::new(0);
 	state
 		.set_update_target_transactions(async {
@@ -124,17 +122,15 @@ async fn later_requests_keep_their_own_update_targets() {
 #[tokio::test]
 async fn read_errors_complete_all_waits_and_allow_new_requests() {
 	let mut state = State::new();
-	let receivers = (0..16)
-		.map(|id| {
-			insert(
-				&mut state,
-				&id.to_string(),
-				RequestState::Updates {
-					transaction_id: Some(10),
-				},
-			)
-		})
-		.collect::<Vec<_>>();
+	let receivers = Vec::from_fn(16, |id| {
+		insert(
+			&mut state,
+			&id.to_string(),
+			RequestState::Updates {
+				transaction_id: Some(10),
+			},
+		)
+	});
 	let error = state
 		.poll_updates(|_| async { Err(tg::error!("test read failure")) })
 		.await
@@ -158,9 +154,9 @@ async fn read_errors_complete_all_waits_and_allow_new_requests() {
 #[tokio::test]
 async fn inputs_run_concurrently_and_share_reads() {
 	let mut state = State::new();
-	let _receivers = (0..1024)
-		.map(|id| insert(&mut state, &id.to_string(), RequestState::new(true)))
-		.collect::<Vec<_>>();
+	let _receivers = Vec::from_fn(1024, |id| {
+		insert(&mut state, &id.to_string(), RequestState::new(true))
+	});
 	let barrier = Arc::new(tokio::sync::Barrier::new(2));
 	let calls = Arc::new(AtomicUsize::new(0));
 	let calls_ = calls.clone();

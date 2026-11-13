@@ -206,8 +206,8 @@ fn documentation_text(comment: &str) -> String {
 		.lines()
 		.map(|line| {
 			let line = line.trim();
-			let line = line.strip_prefix('*').unwrap_or(line);
-			line.strip_prefix(' ').unwrap_or(line)
+			let line = line.trim_prefix('*');
+			line.trim_prefix(' ')
 		})
 		.collect::<Vec<_>>()
 		.join("\n")

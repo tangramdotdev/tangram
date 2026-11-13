@@ -46,14 +46,12 @@ fn split_starts_a_new_leaf_when_the_children_do_not_fit() {
 fn split_starts_a_new_leaf_when_the_size_does_not_fit() {
 	// Create symlink nodes with long paths and no children.
 	let path = "x".repeat(100_000);
-	let nodes = (0..25)
-		.map(|_| {
-			Node::Symlink(Symlink {
-				artifact: None,
-				path: Some(path.clone().into()),
-			})
+	let nodes = Vec::from_fn(25, |_| {
+		Node::Symlink(Symlink {
+			artifact: None,
+			path: Some(path.clone().into()),
 		})
-		.collect::<Vec<_>>();
+	});
 	let leaves = Leaf::split(nodes);
 	assert!(leaves.len() > 1);
 	for leaf in leaves {
@@ -65,29 +63,25 @@ fn split_starts_a_new_leaf_when_the_size_does_not_fit() {
 #[test]
 fn split_counts_each_child_once() {
 	let contents = tg::blob::Id::new(b"contents");
-	let nodes = (0..2 * tg::object::MAX_CHILDREN)
-		.map(|_| {
-			Node::File(File {
-				contents: Some(contents.clone()),
-				dependencies: BTreeMap::new(),
-				executable: false,
-				module: None,
-			})
+	let nodes = Vec::from_fn(2 * tg::object::MAX_CHILDREN, |_| {
+		Node::File(File {
+			contents: Some(contents.clone()),
+			dependencies: BTreeMap::new(),
+			executable: false,
+			module: None,
 		})
-		.collect();
+	});
 	let leaves = Leaf::split(nodes);
 	assert_eq!(leaves.len(), 1);
 }
 
 fn files(count: usize) -> Vec<Node> {
-	(0..count)
-		.map(|index| {
-			Node::File(File {
-				contents: Some(tg::blob::Id::new(index.to_string().as_bytes())),
-				dependencies: BTreeMap::new(),
-				executable: false,
-				module: None,
-			})
+	Vec::from_fn(count, |index| {
+		Node::File(File {
+			contents: Some(tg::blob::Id::new(index.to_string().as_bytes())),
+			dependencies: BTreeMap::new(),
+			executable: false,
+			module: None,
 		})
-		.collect()
+	})
 }

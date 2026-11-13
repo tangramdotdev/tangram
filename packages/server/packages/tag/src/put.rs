@@ -330,7 +330,8 @@ impl Component {
 		transaction: &Transaction<'_>,
 		arg: tg::tag::put::Arg,
 		batch: &mut tangram_index::write::Arg,
-	) -> tg::Result<ControlFlow<(tg::tag::Data, String), tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<(tg::tag::Data, String), tangram_server_core::database::Error>>
+	{
 		let existing =
 			match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 				transaction,

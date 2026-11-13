@@ -585,8 +585,8 @@ where
 						.last_heartbeat
 						.is_none_or(|time| heartbeat.sent_at >= time)
 						&& let Some(deadline) = heartbeat.sent_at.checked_add(time_to_live)
-						&& now < deadline && now
-						< heartbeat.sent_at + self.options.attempt_time_to_live
+						&& now < deadline
+						&& now < heartbeat.sent_at + self.options.attempt_time_to_live
 					{
 						let changed = self
 							.state

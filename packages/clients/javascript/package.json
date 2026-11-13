@@ -31,7 +31,7 @@
 	},
 	"dependencies": {
 		"@noble/hashes": "^2.4.0",
-		"immutable": "^5.1.9"
+		"immutable": "^5.2.1"
 	},
 	"devDependencies": {
 		"@types/node": "^26.6.6"

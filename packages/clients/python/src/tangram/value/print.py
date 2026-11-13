@@ -596,14 +596,14 @@ class Printer:
     def has_referent_options(self, options: ReferentOptions | None) -> bool:
         return options is not None and any(
             field(options, key) is not None
-            for key in ("artifact", "id", "location", "name", "path", "tag")
+            for key in ("id", "location", "name", "path", "store", "tag")
         )
 
     def referent_options(self, options: ReferentOptions) -> str:
         return self.map(
             {
                 key: lambda key=key: self.value(field(options, key))
-                for key in ("artifact", "id", "location", "name", "path", "tag")
+                for key in ("id", "location", "name", "path", "store", "tag")
                 if field(options, key) is not None
             }
         )

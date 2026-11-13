@@ -108,7 +108,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 						id.kind(),
 						tg::id::Kind::Group
 							| tg::id::Kind::Organization
-							| tg::id::Kind::Tag | tg::id::Kind::User
+							| tg::id::Kind::Tag
+							| tg::id::Kind::User
 					) =>
 			{
 				Ok(id)

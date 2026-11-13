@@ -87,7 +87,8 @@ impl<O> tg::Process<O> {
 	pub async fn try_get_status(
 		&self,
 		options: tg::process::status::Options,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>>
+	{
 		let instance = tg::instance()?;
 		self.try_get_status_with_instance(instance, options).await
 	}

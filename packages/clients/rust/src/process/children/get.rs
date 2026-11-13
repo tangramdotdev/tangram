@@ -57,7 +57,8 @@ impl<O> tg::Process<O> {
 	pub async fn children(
 		&self,
 		options: tg::process::children::get::Options,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static>
+	{
 		let instance = tg::instance()?;
 		self.children_with_instance(instance, options).await
 	}

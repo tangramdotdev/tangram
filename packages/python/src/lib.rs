@@ -73,7 +73,7 @@ pub fn run(arg: Arg) -> tg::Result<Outcome> {
 	self::import::initialize()?;
 	let (exit, output, error) = Python::attach(|python| -> PyResult<_> {
 		let native = PyModule::new(python, "tangram._native")?;
-		tangram_python_native::_native(&native)?;
+		tangram_python_native::native(&native)?;
 		python
 			.import("sys")?
 			.getattr("modules")?

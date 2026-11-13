@@ -34,7 +34,7 @@ impl Project {
 fn selection(selection: native::SelectionRange) -> selection_range::SelectionRange {
 	let parent = selection
 		.parent
-		.map(|parent| Box::new(self::selection(*parent)));
+		.map(|parent| Box::map(parent, self::selection));
 	let range = range(selection.range);
 
 	selection_range::SelectionRange { parent, range }

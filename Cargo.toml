@@ -203,7 +203,7 @@ edition = "2024"
 homepage = "https://www.tangram.dev"
 license = "MIT"
 repository = "https://github.com/tangramdotdev/tangram"
-rust-version = "1.99"
+rust-version = "1.100"
 version = "0.0.0"
 
 [workspace.lints.clippy]
@@ -332,7 +332,7 @@ quote = "1"
 radix_trie = "0.3.0"
 rand = "0.10"
 ratatui = "0.30"
-reedline = "0.52"
+reedline = "0.53"
 reflink-copy = "0.1"
 rquickjs = { git = "https://github.com/tangramdotdev/rquickjs", features = ["full-async", "loader", "futures"] }
 ruff_db = { git = "https://github.com/tangramdotdev/ruff" }
@@ -343,14 +343,13 @@ ruff_python_parser = { git = "https://github.com/tangramdotdev/ruff" }
 regex = "1"
 reqwest = { version = "0.13", features = ["form", "json", "stream"] }
 rocksdb = { version = "0.25", default-features = false, features = ["bindgen-runtime", "lz4"] }
-rusqlite = { version = "0.41", default-features = false, features = ["bundled", "functions"] }
+rusqlite = { version = "0.42", default-features = false, features = ["bundled", "functions"] }
 rust-embed = { version = "8.12", features = ["compression", "debug-embed", "deterministic-timestamps", "interpolate-folder-path"] }
 rustix = { version = "1", features = ["fs", "net"] }
 rustls = "0.23"
 rustls-platform-verifier = "0.7"
 rustls-pemfile = "2"
 salsa = "0.28.5"
-scopeguard = "1"
 scylla = { version = "1", features = ["metrics"] }
 serde = { version = "1", features = ["rc", "derive"] }
 serde-untagged = "0.1"
@@ -574,7 +573,7 @@ tsrs_module = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_project = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_scanner = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_vfs = { git = "https://github.com/tangramdotdev/tsrs" }
-turso = "0.8"
+turso = "0.9.0-pre.5"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 ty_ide = { git = "https://github.com/tangramdotdev/ruff" }

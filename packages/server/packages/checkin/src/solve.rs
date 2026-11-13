@@ -232,7 +232,7 @@ impl Component {
 		// Create the prefetcher.
 		let concurrency = session.server.config.checkin.solve.prefetch_concurrency;
 		let prefetch = Prefetch::new(arg.clone(), concurrency);
-		let _prefetch_abort_guard = scopeguard::guard(prefetch.clone(), |prefetch| {
+		let _prefetch_abort_guard = std::mem::DropGuard::new(prefetch.clone(), |prefetch| {
 			prefetch.abort();
 		});
 
@@ -803,8 +803,8 @@ impl Component {
 		} else {
 			return None;
 		};
-		let index = if let Some(artifact) = referent.artifact() {
-			checkpoint.graph.artifacts.get(artifact).copied()
+		let index = if let Some(store) = referent.store() {
+			checkpoint.graph.artifacts.get(store).copied()
 		} else {
 			None
 		};
@@ -1159,9 +1159,8 @@ impl Component {
 						.await
 						.ok()
 						.flatten();
-					let (storage, metadata) = object
-						.map(|object| (object.storage, object.metadata))
-						.unwrap_or_default();
+					let (storage, metadata) =
+						object.map_or_default(|object| (object.storage, object.metadata));
 					Some(Contents::Id {
 						id,
 						metadata: Some(metadata),
@@ -1318,9 +1317,8 @@ impl Component {
 						.await
 						.ok()
 						.flatten();
-					let (storage, metadata) = object
-						.map(|object| (object.storage, object.metadata))
-						.unwrap_or_default();
+					let (storage, metadata) =
+						object.map_or_default(|object| (object.storage, object.metadata));
 					Some(Contents::Id {
 						id,
 						metadata: Some(metadata),

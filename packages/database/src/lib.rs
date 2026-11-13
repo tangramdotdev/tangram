@@ -104,8 +104,9 @@ pub trait Query {
 		&self,
 		statement: Cow<'static, str>,
 		params: Vec<Value>,
-	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>>
-	+ Send;
+	) -> impl Future<
+		Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>,
+	> + Send;
 
 	fn query_value(
 		&self,

@@ -1971,7 +1971,8 @@ impl SchedulerState {
 				.is_none_or(|owner| sandbox.owner_ancestors.contains(owner));
 			if !owner_matches
 				|| !runner.ready
-				|| blocked || !matches_host(runner, &sandbox.request)
+				|| blocked
+				|| !matches_host(runner, &sandbox.request)
 				|| !matches_runner(id, &sandbox.request)
 				|| runner.requests >= scheduler.config.max_create_sandbox_requests_per_runner
 			{

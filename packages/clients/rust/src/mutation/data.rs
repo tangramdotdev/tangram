@@ -94,10 +94,10 @@ impl Data {
 		match self {
 			Self::Unset => Self::Unset,
 			Self::Set { value } => Self::Set {
-				value: Box::new((*value).without_location_and_tokens()),
+				value: Box::map(value, tg::value::Data::without_location_and_tokens),
 			},
 			Self::SetIfUnset { value } => Self::SetIfUnset {
-				value: Box::new((*value).without_location_and_tokens()),
+				value: Box::map(value, tg::value::Data::without_location_and_tokens),
 			},
 			Self::Prepend { values } => Self::Prepend {
 				values: values

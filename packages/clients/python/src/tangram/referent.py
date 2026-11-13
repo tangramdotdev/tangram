@@ -11,25 +11,25 @@ from urllib.parse import quote, unquote
 from . import authorization
 from .location import Location, LocationObject
 
-_NAMES = ("artifact", "id", "location", "name", "path", "tag", "tokens")
+_NAMES = ("id", "location", "name", "path", "store", "tag", "tokens")
 
 
 class Options(TypedDict, total=False):
-    artifact: str | None
     id: str | None
     location: LocationObject | None
     name: str | None
     path: str | None
+    store: str | None
     tag: str | None
     tokens: dict[str, list[str]] | None
 
 
 class DataOptions(TypedDict, total=False):
-    artifact: str | None
     id: str | None
     location: str | None
     name: str | None
     path: str | None
+    store: str | None
     tag: str | None
     tokens: dict[str, list[str]] | None
 
@@ -153,7 +153,7 @@ class Referent[T]:
             if not separator:
                 raise ValueError("missing value")
             value = value.split("=", 1)[0]
-            if name in ("artifact", "id", "name", "path", "tag"):
+            if name in ("id", "name", "path", "store", "tag"):
                 options[name] = decode_uri_component(value)
             elif name == "location":
                 options[name] = Location.from_data_string(decode_uri_component(value))

@@ -625,9 +625,10 @@ impl Index {
 
 			if let Some(source) = source {
 				let propagate = source == Source::Put
-					|| changed || propagated_version
-					.as_ref()
-					.is_some_and(|propagated_version| version < *propagated_version);
+					|| changed
+					|| propagated_version
+						.as_ref()
+						.is_some_and(|propagated_version| version < *propagated_version);
 				if propagate {
 					crate::propagate!(
 						Self::enqueue_parents(txn, subspace, &id, &kind, &version, partition_total)

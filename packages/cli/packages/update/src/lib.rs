@@ -173,17 +173,17 @@ pub fn flatten_directory(
 
 pub fn format_referrer<T>(referrer: &tg::Referent<T>) -> String {
 	let tg::referent::Options {
-		artifact,
 		id,
 		location: _,
 		name,
 		path,
+		store,
 		tag,
 		tokens: _,
 	} = referrer.options();
 	let mut name = name
 		.clone()
-		.or_else(|| artifact.as_ref().map(tg::artifact::Id::to_string))
+		.or_else(|| store.as_ref().map(tg::artifact::Id::to_string))
 		.or_else(|| tag.as_ref().map(ToString::to_string))
 		.unwrap_or_default();
 	if let Some(path) = path {
@@ -285,12 +285,10 @@ fn create_updates(
 	new: Option<&tg::graph::data::Leaf>,
 	root: &Path,
 ) -> Vec<Update> {
-	let old_deps = old
-		.map(|lock| graph_dependencies(&create_graph(lock, root.to_owned())))
-		.unwrap_or_default();
-	let new_deps = new
-		.map(|lock| graph_dependencies(&create_graph(lock, root.to_owned())))
-		.unwrap_or_default();
+	let old_deps =
+		old.map_or_default(|lock| graph_dependencies(&create_graph(lock, root.to_owned())));
+	let new_deps =
+		new.map_or_default(|lock| graph_dependencies(&create_graph(lock, root.to_owned())));
 	let all_patterns: BTreeSet<_> = old_deps
 		.keys()
 		.cloned()

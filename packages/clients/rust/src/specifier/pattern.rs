@@ -257,8 +257,7 @@ impl std::str::FromStr for Component {
 					.or_else(|| constraint.strip_prefix('>'))
 					.or_else(|| constraint.strip_prefix('<'))
 					.or_else(|| constraint.strip_prefix('='))
-					.or_else(|| constraint.strip_prefix('^'))
-					.unwrap_or(constraint);
+					.unwrap_or_else(|| constraint.trim_prefix('^'));
 				value.parse::<tg::specifier::Component>().is_ok()
 			}) {
 			return Err(tg::error!("invalid specifier pattern"));

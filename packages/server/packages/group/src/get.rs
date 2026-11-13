@@ -269,7 +269,8 @@ impl Component {
 	pub(crate) async fn try_get_group_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		id: &tg::group::Id,
-	) -> tg::Result<ControlFlow<Option<tg::group::Data>, tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<Option<tg::group::Data>, tangram_server_core::database::Error>>
+	{
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			name: String,

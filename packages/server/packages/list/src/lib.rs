@@ -94,8 +94,7 @@ impl Component {
 		let tokens = arg
 			.node
 			.as_ref()
-			.map(|node| node.options.tokens.clone())
-			.unwrap_or_default();
+			.map_or_default(|node| node.options.tokens.clone());
 		let page_arg = PageArg {
 			after,
 			cached: arg.cached,

@@ -113,7 +113,8 @@ pub async fn get_with_arg(
 						tg::id::Kind::Group
 							| tg::id::Kind::Organization
 							| tg::id::Kind::Sandbox
-							| tg::id::Kind::Tag | tg::id::Kind::User
+							| tg::id::Kind::Tag
+							| tg::id::Kind::User
 					) =>
 			{
 				let referent = tg::Referent::with_node_and_tokens(
@@ -310,8 +311,7 @@ impl TimeToLive {
 			tg::remote::cache::TimeToLive::Infinite
 		} else {
 			self.time_to_live
-				.map(tg::remote::cache::TimeToLive::Duration)
-				.unwrap_or_default()
+				.map_or_default(tg::remote::cache::TimeToLive::Duration)
 		}
 	}
 }

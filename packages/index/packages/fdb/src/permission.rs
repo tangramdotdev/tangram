@@ -320,9 +320,8 @@ impl PermissionSources {
 				if self.direct == Some(None) {
 					return false;
 				}
-				let time_to_touch = time_to_touch
-					.map(|value| i64::try_from(value.as_secs()).unwrap())
-					.unwrap_or_default();
+				let time_to_touch =
+					time_to_touch.map_or_default(|value| i64::try_from(value.as_secs()).unwrap());
 				if let (Some(Some(current)), Some(expires_at)) = (self.direct, expires_at)
 					&& (current >= expires_at || expires_at.saturating_sub(current) < time_to_touch)
 				{

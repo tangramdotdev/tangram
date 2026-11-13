@@ -51,7 +51,8 @@ impl Component {
 		session: &Session,
 		sandbox: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>
+	{
 		let timeout = arg.timeout;
 		let output = self
 			.try_get_sandbox_processes_stream_inner(session, sandbox, arg)
@@ -80,7 +81,8 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>
+	{
 		if let Some(stream) = self
 			.try_get_sandbox_processes_runner(session, id, &arg)
 			.await?
@@ -147,7 +149,8 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		arg: &tg::sandbox::processes::get::Arg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>
+	{
 		let Some(runner) = self
 			.try_get_sandbox_boot_runner(session, id, arg.location.as_ref())
 			.await?
@@ -293,7 +296,8 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 		exhaustive: bool,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>
+	{
 		let resource = tg::Referent::with_node_and_local_tokens(
 			id.clone(),
 			arg.tokens.local_authorization().to_vec(),
@@ -640,7 +644,8 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 		regions: &[String],
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>
+	{
 		let mut futures = regions
 			.iter()
 			.map(|region| self.try_get_sandbox_processes_region(session, id, arg.clone(), region))
@@ -670,7 +675,8 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 		region: &str,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>
+	{
 		let client = session.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
@@ -701,7 +707,8 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 		remotes: &[tangram_server_core::location::Remote],
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>
+	{
 		let mut futures = remotes
 			.iter()
 			.map(|remote| self.try_get_sandbox_processes_remote(session, id, arg.clone(), remote))
@@ -731,7 +738,8 @@ impl Component {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 		remote: &tangram_server_core::location::Remote,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>
+	{
 		let client = session
 			.server
 			.components

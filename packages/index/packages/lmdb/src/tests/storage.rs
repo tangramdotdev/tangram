@@ -873,7 +873,8 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 				.update_batch(tangram_index::update::Kind::Usage, 100)
 				.await
 				.unwrap()
-				.count != 0
+				.count
+				!= 0
 			{}
 			let key = Index::pack(&index.subspace, &crate::Key::Usage(key));
 			let transaction = index.env.read_txn().unwrap();
@@ -1216,7 +1217,8 @@ async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
 				.update_batch(tangram_index::update::Kind::Usage, 100)
 				.await
 				.unwrap()
-				.count != 0
+				.count
+				!= 0
 			{}
 			let first_usage = get_usage(&index, &first_account).await;
 			assert_eq!(
@@ -1232,7 +1234,8 @@ async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
 				.update_batch(tangram_index::update::Kind::Usage, 100)
 				.await
 				.unwrap()
-				.count != 0
+				.count
+				!= 0
 			{}
 			let transaction = index.env.read_txn().unwrap();
 			let key = if is_process {
@@ -1354,7 +1357,8 @@ async fn tag_storage_follows_captured_object_permissions() {
 				.update_batch(tangram_index::update::Kind::Usage, 100)
 				.await
 				.unwrap()
-				.count != 0
+				.count
+				!= 0
 			{}
 			for (object, expected) in [
 				(root.clone(), capture_target),
@@ -1393,7 +1397,8 @@ async fn tag_storage_follows_captured_object_permissions() {
 				.update_batch(tangram_index::update::Kind::Usage, 100)
 				.await
 				.unwrap()
-				.count != 0
+				.count
+				!= 0
 			{}
 			for _ in 0..8 {
 				let arg = tangram_index::clean::Arg {
@@ -1565,7 +1570,8 @@ async fn tag_storage_follows_captured_process_permissions() {
 				.update_batch(tangram_index::update::Kind::Usage, 100)
 				.await
 				.unwrap()
-				.count != 0
+				.count
+				!= 0
 			{}
 
 			// Index the output subtree after capturing the process permissions.
@@ -1584,7 +1590,8 @@ async fn tag_storage_follows_captured_process_permissions() {
 				.update_batch(tangram_index::update::Kind::Usage, 100)
 				.await
 				.unwrap()
-				.count != 0
+				.count
+				!= 0
 			{}
 			let now = jiff::Timestamp::new(created_at, 0).unwrap();
 			let period = tangram_index::usage::Period::containing(
@@ -1697,7 +1704,8 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 		.update_batch(tangram_index::update::Kind::Usage, 100)
 		.await
 		.unwrap()
-		.count != 0
+		.count
+		!= 0
 	{}
 
 	// Retain only the captured node after the independent push expires.
@@ -1741,7 +1749,8 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 		.update_batch(tangram_index::update::Kind::Usage, 100)
 		.await
 		.unwrap()
-		.count != 0
+		.count
+		!= 0
 	{}
 	let usage = index
 		.get_usage(
@@ -1780,7 +1789,8 @@ async fn account_storage_uses_cached_references_until_a_parent_changes() {
 		.update_batch(tangram_index::update::Kind::Usage, 100)
 		.await
 		.unwrap()
-		.count != 0
+		.count
+		!= 0
 	{}
 	let mut transaction = index.env.write_txn().unwrap();
 	let key = super::super::Key::Usage(super::super::usage::Key::AccountObject {
@@ -2003,7 +2013,8 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 		.update_batch(tangram_index::update::Kind::Usage, 100)
 		.await
 		.unwrap()
-		.count != 0
+		.count
+		!= 0
 	{}
 	let now = jiff::Timestamp::new(created_at, 0).unwrap();
 	let period =
@@ -2065,9 +2076,7 @@ async fn tag_storage_expands_permissions_during_propagation() {
 		.chain(&children)
 		.chain(&leaves)
 		.collect::<Vec<_>>();
-	let logs = (0..processes.len())
-		.map(|index| object_id(1700 + index as u64))
-		.collect::<Vec<_>>();
+	let logs = Vec::from_fn(processes.len(), |index| object_id(1700 + index as u64));
 	let command = object_id(1800);
 	let tag = tg::tag::Id::new();
 	let mut items = Vec::new();
@@ -2168,7 +2177,8 @@ async fn tag_storage_expands_permissions_during_propagation() {
 			.update_batch(tangram_index::update::Kind::Usage, 1)
 			.await
 			.unwrap()
-			.count == 0
+			.count
+			== 0
 		{
 			drained = true;
 			break;
@@ -2342,7 +2352,8 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 		.update_batch(tangram_index::update::Kind::Usage, 100)
 		.await
 		.unwrap()
-		.count != 0
+		.count
+		!= 0
 	{}
 
 	// Capture an addition while existing entries are already eligible for cleanup.
@@ -2406,7 +2417,8 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 		.update_batch(tangram_index::update::Kind::Usage, 100)
 		.await
 		.unwrap()
-		.count != 0
+		.count
+		!= 0
 	{}
 
 	// Deleted captures must be removed even when their puts run after the deletion cleanup.

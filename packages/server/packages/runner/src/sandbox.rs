@@ -795,7 +795,7 @@ impl Component {
 		self.state.sandboxes.insert(index, entry);
 		let server = session.server.clone();
 		let id_for_cleanup = id.clone();
-		scopeguard::defer! {
+		let _sandbox_guard = std::mem::DropGuard::new((), |()| {
 			drop(server.components.runner.state().sandboxes.remove(index));
 
 			// Let tests observe that the runner discarded the sandbox state.
@@ -806,7 +806,7 @@ impl Component {
 					tangram_server_core::checkpoint!(server, "runner.sandbox.state.removed", sandbox = %id).await;
 				});
 			}
-		}
+		});
 		tangram_server_core::checkpoint!(session.server, "runner.sandbox.state.inserted", index, sandbox = %id)
 			.await;
 
@@ -1534,7 +1534,7 @@ impl Component {
 		} = arg;
 
 		let sender = control.sender();
-		let process_stopper = scopeguard::guard(process_stopper, |stopper| stopper.stop());
+		let process_stopper = std::mem::DropGuard::new(process_stopper, |stopper| stopper.stop());
 
 		// Create the process events.
 		let mut process_events = StreamMap::new();

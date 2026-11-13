@@ -26,7 +26,8 @@ impl Server {
 		index: u64,
 		arg: crate::client::stdio::Arg,
 		stream: impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static,
-	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::write::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::write::Event>> + Send + 'static>
+	{
 		if arg.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
 			return Err(tg::error!("expected stdin for a stdio write"));
 		}

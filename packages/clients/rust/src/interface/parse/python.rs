@@ -157,7 +157,7 @@ fn dependencies(text: &str) -> Result<(BTreeMap<String, Dependency>, Range<usize
 				range: begin..offset,
 			});
 		};
-		lines.push(content.strip_prefix(' ').unwrap_or(content).to_owned());
+		lines.push(content.trim_prefix(' ').to_owned());
 	}
 	if let Some(start) = start {
 		let message = "the script metadata block is not closed".to_owned();

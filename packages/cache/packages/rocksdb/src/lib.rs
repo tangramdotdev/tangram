@@ -123,23 +123,21 @@ impl Cache {
 		let (reader_sender, reader_receiver) =
 			tokio::sync::mpsc::channel(config.read_channel_capacity);
 		let reader_receiver = std::sync::Arc::new(std::sync::Mutex::new(reader_receiver));
-		let reader_handles = (0..config.read_concurrency)
-			.map(|_| {
-				let db = db.clone();
-				let read_batch_size = config.read_batch_size;
-				let receiver = reader_receiver.clone();
-				std::thread::spawn(move || {
-					let arg = reader::Arg {
-						db,
-						read_batch_size,
-						receiver,
-						#[cfg(test)]
-						test_hook: None,
-					};
-					Self::reader_task(&arg);
-				})
+		let reader_handles = Vec::from_fn(config.read_concurrency, |_| {
+			let db = db.clone();
+			let read_batch_size = config.read_batch_size;
+			let receiver = reader_receiver.clone();
+			std::thread::spawn(move || {
+				let arg = reader::Arg {
+					db,
+					read_batch_size,
+					receiver,
+					#[cfg(test)]
+					test_hook: None,
+				};
+				Self::reader_task(&arg);
 			})
-			.collect();
+		});
 
 		(reader_sender, reader_handles)
 	}

@@ -50,8 +50,7 @@ pub(crate) async fn print_get_output(
 	let locations = args
 		.locations
 		.get_for_options(&referent)
-		.map(tangram_cli_core::location::Args::with_location)
-		.unwrap_or_default();
+		.map_or_default(tangram_cli_core::location::Args::with_location);
 	let print = args.print;
 	cli.print_info_referent(&referent, &print);
 	let kind = match referent.node() {

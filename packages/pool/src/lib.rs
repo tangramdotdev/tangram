@@ -510,7 +510,8 @@ where
 					.find(|(_, entry)| {
 						!entry.expired
 							&& entry.value.is_some()
-							&& entry.shared > 0 && entry.shared < self.options.shared
+							&& entry.shared > 0
+							&& entry.shared < self.options.shared
 					})
 					.map(|(index, _)| index)
 					.or_else(|| {
@@ -546,17 +547,18 @@ where
 		}
 		let now = Instant::now();
 		while self.entries.len() > self.options.min {
-			let Some(index) =
-				self.entries
-					.iter()
-					.enumerate()
-					.filter(|(_, entry)| {
-						!entry.expired
-							&& entry.value.is_some()
-							&& entry.shared == 0 && now >= entry.expires_at
-					})
-					.min_by_key(|(_, entry)| entry.expires_at)
-					.map(|(index, _)| index)
+			let Some(index) = self
+				.entries
+				.iter()
+				.enumerate()
+				.filter(|(_, entry)| {
+					!entry.expired
+						&& entry.value.is_some()
+						&& entry.shared == 0
+						&& now >= entry.expires_at
+				})
+				.min_by_key(|(_, entry)| entry.expires_at)
+				.map(|(index, _)| index)
 			else {
 				break;
 			};

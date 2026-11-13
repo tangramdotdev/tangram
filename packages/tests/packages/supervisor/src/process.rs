@@ -185,13 +185,11 @@ pub fn table() -> Vec<Entry> {
 		else {
 			continue;
 		};
-		let command = std::fs::read(entry.path().join("cmdline"))
-			.map(|bytes| {
-				String::from_utf8_lossy(&bytes)
-					.trim_end_matches('\0')
-					.replace('\0', " ")
-			})
-			.unwrap_or_default();
+		let command = std::fs::read(entry.path().join("cmdline")).map_or_default(|bytes| {
+			String::from_utf8_lossy(&bytes)
+				.trim_end_matches('\0')
+				.replace('\0', " ")
+		});
 		let entry = Entry {
 			command,
 			group,

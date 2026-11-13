@@ -348,7 +348,8 @@ impl Index {
 		account: &tangram_index::usage::Account,
 		partition: u64,
 		period: tangram_index::usage::Period,
-	) -> tg::Result<ControlFlow<Option<tangram_index::usage::PartitionAggregate>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<Option<tangram_index::usage::PartitionAggregate>, fdb::FdbError>>
+	{
 		let key = Key::Usage(crate::usage::Key::Aggregate {
 			account: account.clone(),
 			partition,

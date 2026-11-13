@@ -25,7 +25,7 @@ impl Data {
 		let mut num_columns = 0;
 		for line in contents.split('\n') {
 			num_lines += 1;
-			let line = line.strip_suffix('\r').unwrap_or(line);
+			let line = line.trim_suffix('\r');
 			let mut c = 0;
 			for grapheme in line.graphemes(false) {
 				c += grapheme.width();

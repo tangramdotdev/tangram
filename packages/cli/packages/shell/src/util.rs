@@ -349,8 +349,10 @@ fn ignored(key: &str) -> bool {
 	matches!(
 		key,
 		"_" | "OLDPWD"
-			| "PPID" | "PWD"
-			| "SHLVL" | "TANGRAM_SHELL_STATE"
+			| "PPID"
+			| "PWD"
+			| "SHLVL"
+			| "TANGRAM_SHELL_STATE"
 			| "TANGRAM_CONFIG"
 			| "TANGRAM_DIRECTORY"
 			| "TANGRAM_MODE"

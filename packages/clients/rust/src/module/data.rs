@@ -105,22 +105,22 @@ impl Module {
 	pub fn has_same_identity(&self, other: &Self) -> bool {
 		// Compare every field except the tokens without cloning either module.
 		let tg::referent::Options {
-			artifact,
 			id,
 			location,
 			name,
 			path,
+			store,
 			tag,
 			tokens: _,
 		} = &self.referent.options;
 		let options = &other.referent.options;
 		self.kind == other.kind
 			&& self.referent.node == other.referent.node
-			&& *artifact == options.artifact
 			&& *id == options.id
 			&& *location == options.location
 			&& *name == options.name
 			&& *path == options.path
+			&& *store == options.store
 			&& *tag == options.tag
 	}
 
@@ -210,7 +210,7 @@ impl std::str::FromStr for Source {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		if s.starts_with('.') || s.starts_with('/') {
-			Ok(Self::Path(s.strip_prefix("./").unwrap_or(s).into()))
+			Ok(Self::Path(s.trim_prefix("./").into()))
 		} else {
 			Ok(Self::Edge(s.parse().map_err(|error| {
 				tg::error!(!error, "failed to parse the module edge")

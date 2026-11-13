@@ -152,7 +152,7 @@ impl Component {
 				statement.into(),
 				db::params![
 					id.to_string(),
-					after.map(ToString::to_string).unwrap_or_default(),
+					after.map_or_default(ToString::to_string),
 					i64::try_from(limit + 1).unwrap()
 				],
 			)

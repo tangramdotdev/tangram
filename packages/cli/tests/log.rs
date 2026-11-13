@@ -688,10 +688,7 @@ fn tokens(value: &serde_json::Value) -> Vec<String> {
 			}
 		},
 		serde_json::Value::String(string) => {
-			let query = string
-				.split_once('?')
-				.map(|(_, query)| query)
-				.unwrap_or_default();
+			let query = string.split_once('?').map_or_default(|(_, query)| query);
 			for parameter in query.split('&') {
 				if let Some((name, token)) = parameter.split_once('=')
 					&& name.starts_with("tokens[")

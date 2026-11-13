@@ -138,7 +138,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 					},
 				}
 			},
-			reedline::Signal::CtrlC | reedline::Signal::CtrlD => {
+			reedline::Signal::CtrlC(_) | reedline::Signal::CtrlD => {
 				break;
 			},
 			_ => (),

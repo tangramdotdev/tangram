@@ -174,7 +174,8 @@ where
 		&self,
 		statement: Cow<'static, str>,
 		params: Vec<crate::Value>,
-	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>>, Self::Error>> {
+	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>>, Self::Error>>
+	{
 		match self {
 			Either::Left(s) => s
 				.query(statement, params)

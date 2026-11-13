@@ -109,7 +109,8 @@ impl Index {
 		id: &tg::object::Id,
 		after: Option<&[u8]>,
 		limit: usize,
-	) -> tg::Result<crate::page::Page<(tg::process::Id, tangram_index::process::object::Kind)>> {
+	) -> tg::Result<crate::page::Page<(tg::process::Id, tangram_index::process::object::Kind)>>
+	{
 		let bytes = id.to_bytes();
 		let prefix = Self::pack(
 			subspace,

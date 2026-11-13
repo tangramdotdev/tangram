@@ -274,7 +274,8 @@ impl Component {
 						.components
 						.authorization
 						.try_get_sync_id_from_token(session, token)
-						.as_ref() == Some(&sync.node)
+						.as_ref()
+						== Some(&sync.node)
 				});
 			if !authorized {
 				return Err(tg::error!("invalid sync authorization"));

@@ -717,11 +717,11 @@ class Dependency:
         if len(query) > 1:
             for param in query[1].split("&"):
                 if param.split("=", 1)[0] not in (
-                    "artifact",
                     "id",
                     "location",
                     "name",
                     "path",
+                    "store",
                     "tag",
                 ):
                     raise ValueError("invalid key")

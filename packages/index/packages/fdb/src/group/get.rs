@@ -55,7 +55,8 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		member: &tg::Id,
-	) -> tg::Result<ControlFlow<(Vec<tg::group::Id>, Vec<tg::organization::Id>), fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<(Vec<tg::group::Id>, Vec<tg::organization::Id>), fdb::FdbError>>
+	{
 		let (groups, organizations) = futures::try_join!(
 			Self::get_member_groups_with_transaction(txn, subspace, member),
 			Self::get_member_organizations_with_transaction(txn, subspace, member),

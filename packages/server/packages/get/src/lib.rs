@@ -27,7 +27,8 @@ impl Component {
 		session: &Session,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>>
+	{
 		let stream = match reference.node() {
 			tg::reference::Node::Id(id)
 				if reference.options().follow
@@ -35,7 +36,8 @@ impl Component {
 						id.kind(),
 						tg::id::Kind::Group
 							| tg::id::Kind::Organization
-							| tg::id::Kind::Tag | tg::id::Kind::User
+							| tg::id::Kind::Tag
+							| tg::id::Kind::User
 					) =>
 			{
 				self.try_get_with_follow(session, reference, arg).await?
@@ -71,7 +73,8 @@ impl Component {
 		id: &tg::Id,
 		options: &tg::reference::Options,
 		arg: &tg::get::Arg,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>>
+	{
 		if matches!(
 			id.kind(),
 			tg::id::Kind::Group | tg::id::Kind::Organization | tg::id::Kind::User
@@ -133,7 +136,8 @@ impl Component {
 		path: &Path,
 		options: &tg::reference::Options,
 		arg: tg::get::Arg,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>>
+	{
 		let checkin_arg = tg::checkin::Arg {
 			options: arg.checkin.clone(),
 			path: path.to_owned(),
@@ -186,7 +190,8 @@ impl Component {
 		session: &Session,
 		pointer: &tg::graph::data::Pointer,
 		options: &tg::reference::Options,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>>
+	{
 		let referent_options: tg::referent::Options = options.clone().into();
 		let referent = tg::Referent::new(tg::get::Node::Pointer(pointer.clone()), referent_options);
 		let output = tg::get::Output { referent };
@@ -207,7 +212,8 @@ impl Component {
 		specifier: &tg::specifier::Pattern,
 		options: &tg::reference::Options,
 		arg: &tg::get::Arg,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>>
+	{
 		if specifier.is_empty() || specifier.contains_operators() {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
