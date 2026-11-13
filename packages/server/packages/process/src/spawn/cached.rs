@@ -621,21 +621,14 @@ impl Component {
 			return Ok(true);
 		}
 		let now = session.server.clock.unix_timestamp();
-		let time_to_index = session
-			.server
-			.config
-			.process
-			.time_to_index
-			.as_secs()
-			.to_i64()
-			.unwrap();
-		if process.touched_at > now - time_to_index {
+		let time_to_touch = session.server.config.process.time_to_touch;
+		if process.touched_at > now - time_to_touch.as_secs().to_i64().unwrap() {
 			return Ok(true);
 		}
 		let process = session
 			.server
 			.index
-			.touch_process(id, now, session.server.config.process.time_to_touch)
+			.touch_process(id, now, time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?;
 		Ok(process.is_some())

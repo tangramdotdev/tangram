@@ -1316,10 +1316,6 @@ pub struct Object {
 	pub queue_recovery_batch_size: Option<u64>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
-	pub time_to_index: Option<Duration>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_live: Option<Duration>,
 
@@ -1649,10 +1645,6 @@ pub struct Process {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sync_channel_capacity: Option<usize>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
-	pub time_to_index: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]

@@ -1362,9 +1362,6 @@ fn resolve_object(source: &Object) -> server::Object {
 	if let Some(value) = source.queue_recovery_batch_size {
 		target.queue_recovery_batch_size = value;
 	}
-	if let Some(value) = source.time_to_index {
-		target.time_to_index = value;
-	}
 	if let Some(value) = source.time_to_live {
 		target.time_to_live = value;
 	}
@@ -1743,9 +1740,6 @@ fn resolve_process(source: Process) -> server::Process {
 	}
 	if let Some(value) = source.stdio_wakeup_interval {
 		target.stdio_wakeup_interval = value;
-	}
-	if let Some(value) = source.time_to_index {
-		target.time_to_index = value;
 	}
 	if let Some(value) = source.time_to_live {
 		target.time_to_live = value;

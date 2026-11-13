@@ -802,8 +802,6 @@ pub struct Object {
 
 	pub queue_recovery_batch_size: u64,
 
-	pub time_to_index: Duration,
-
 	pub time_to_live: Duration,
 
 	pub time_to_touch: Duration,
@@ -1020,8 +1018,6 @@ pub struct Process {
 	pub stdio_wakeup_interval: Duration,
 
 	pub sync_channel_capacity: usize,
-
-	pub time_to_index: Duration,
 
 	pub time_to_live: Duration,
 
@@ -2730,7 +2726,6 @@ impl Default for Object {
 			put_timeout: default_object_put_timeout(),
 			queue_checkpoint_interval: Duration::from_secs(1),
 			queue_recovery_batch_size: 1024,
-			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
 		}
@@ -2904,7 +2899,6 @@ impl Default for Process {
 			stdio_retire_timeout: Duration::from_secs(10),
 			stdio_wakeup_interval: Duration::from_mins(1),
 			sync_channel_capacity: 1024,
-			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
 		}
@@ -3527,10 +3521,6 @@ fn queue_retry_default() -> Retry {
 
 fn default_object_put_timeout() -> Duration {
 	Duration::from_secs(30)
-}
-
-fn default_time_to_index() -> Duration {
-	Duration::from_mins(10)
 }
 
 fn default_time_to_live() -> Duration {
