@@ -3,7 +3,7 @@ use {
 	notify::Watcher as _,
 	std::{
 		collections::HashSet, os::unix::fs::MetadataExt as _, path::Path, path::PathBuf, sync::Arc,
-		sync::Mutex, time::Duration,
+		sync::Mutex, sync::atomic::AtomicBool, sync::atomic::Ordering, time::Duration,
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{task::Shared, task::Task},
@@ -63,11 +63,12 @@ pub struct State {
 	pub index_task: Shared<tg::Result<()>>,
 	pub invalidated_paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
 	pub lock: Option<Arc<tg::graph::data::Leaf>>,
+	pub overflowed: Arc<AtomicBool>,
 	pub pending_lock_write_version: Option<u64>,
 	#[cfg(target_os = "macos")]
 	pub paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
 	pub revalidation_version: u64,
-	pub sender: tokio::sync::mpsc::UnboundedSender<Message>,
+	pub sender: tokio::sync::mpsc::Sender<Message>,
 	pub solutions: Solutions,
 	pub timeout_task: Option<Task<()>>,
 	pub version: u64,
@@ -131,8 +132,8 @@ impl Watch {
 		// Clean the graph.
 		graph.clean(&key.path, next);
 
-		// Create an unbounded channel, so that the watcher's thread never blocks sending an event while this watch's task waits for that thread to watch or unwatch a path.
-		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
+		// Create the channel.
+		let (sender, mut receiver) = tokio::sync::mpsc::channel::<Message>(config.channel_capacity);
 
 		// Create the state.
 		let index_task = spawn_index_task();
@@ -142,6 +143,7 @@ impl Watch {
 			index_task,
 			invalidated_paths: HashSet::default(),
 			lock,
+			overflowed: Arc::new(AtomicBool::new(false)),
 			pending_lock_write_version: None,
 			#[cfg(target_os = "macos")]
 			paths: HashSet::default(),
@@ -185,6 +187,11 @@ impl Watch {
 
 					// Lock the state.
 					let mut state = state.lock().unwrap();
+
+					// Discard the graph if the channel dropped events, so that the next checkin reads every path.
+					if state.overflowed.swap(false, Ordering::SeqCst) {
+						state.reset();
+					}
 
 					// Retain the graph's lock so the next checkin detects the change and rebuilds it.
 					let mut lock_modified = false;
@@ -625,15 +632,19 @@ impl State {
 
 	fn create_watcher(&self) -> tg::Result<notify::RecommendedWatcher> {
 		let handler = {
+			let overflowed = self.overflowed.clone();
 			let sender = self.sender.clone();
 			move |result| match result {
 				Ok(event) => {
-					sender
-						.send(Message {
-							event,
-							sender: None,
-						})
-						.ok();
+					// Drop the event if the channel is full instead of waiting, because this watch's task may be waiting for this thread to watch or unwatch a path.
+					let message = Message {
+						event,
+						sender: None,
+					};
+					let result = sender.try_send(message);
+					if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = result {
+						overflowed.store(true, Ordering::SeqCst);
+					}
 				},
 				Err(error) => {
 					tracing::error!(?error);

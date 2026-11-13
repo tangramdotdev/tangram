@@ -1,13 +1,17 @@
 use ../../util/test.nu *
 
-# Replacing a watched directory that has many files does not hang the next watched checkin.
+# Replacing a watched directory does not hang the next watched checkin when the file events overflow the watch's channel.
 
-let local = server spawn
+let local = server spawn --config {
+	watch: {
+		channel_capacity: 16
+	}
+}
 
-# Create a directory with enough files that replacing it queues thousands of file events, and check it in with a watch.
+# Create a directory with more files than the watch's channel holds, and check it in with a watch.
 def create [path: string] {
 	mkdir $path
-	for i in 0..<2000 {
+	for i in 0..<100 {
 		$'($i)' | save ($path | path join $'($i).txt')
 	}
 }

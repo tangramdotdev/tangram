@@ -2900,6 +2900,9 @@ pub enum VfsPassthrough {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Watch {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub channel_capacity: Option<usize>,
+
 	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_live: Option<Duration>,
 }

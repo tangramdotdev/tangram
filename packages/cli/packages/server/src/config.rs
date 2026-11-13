@@ -2813,6 +2813,9 @@ fn resolve_vfs_passthrough(source: VfsPassthrough) -> server::VfsPassthrough {
 
 fn resolve_watch(source: Watch) -> server::Watch {
 	let mut target = server::Watch::default();
+	if let Some(value) = source.channel_capacity {
+		target.channel_capacity = value;
+	}
 	if let Some(value) = source.time_to_live {
 		target.time_to_live = value;
 	}
