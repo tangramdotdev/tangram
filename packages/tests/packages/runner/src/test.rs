@@ -142,13 +142,16 @@ async fn run_inner(
 	let output_path = temp_path.join("output");
 	let leaks_path = temp_path.join("leaks");
 	let mut command = if let Some(tangram) = &options.sandbox {
-		sandbox(
+		// Run the client in its own process group, so that it receives only the signal that terminate sends, and not also an interrupt from the terminal, which would make it exit before the sandboxed test stops.
+		let mut command = sandbox(
 			tangram,
 			options,
 			&temp_path,
 			&working_path,
 			environment(options, &temp_path),
-		)?
+		)?;
+		command.process_group(0);
+		command
 	} else {
 		let mut command = Command::new("tangram_tests_supervisor");
 		command
@@ -473,7 +476,7 @@ fn nuon(path: &Path) -> String {
 	serde_json::to_string(&path.display().to_string()).unwrap()
 }
 
-/// Ask the supervisor to terminate the test, and kill it if it does not exit in time.
+/// Ask the supervisor, or the client that runs it in a sandbox, to terminate the test, and kill it if it does not exit in time.
 async fn terminate(child: &mut tokio::process::Child) {
 	if let Some(pid) = child.id().and_then(|pid| libc::pid_t::try_from(pid).ok()) {
 		// SAFETY: kill has no memory safety preconditions.
