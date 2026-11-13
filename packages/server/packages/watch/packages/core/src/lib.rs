@@ -242,10 +242,6 @@ impl Watch {
 								continue;
 							}
 
-							// On linux, unwatch the path.
-							#[cfg(target_os = "linux")]
-							state.remove_path_linux(path);
-
 							// Remove the node.
 							let node = *state.graph.nodes.remove(&index).unwrap();
 							tracing::trace!(path = ?node.path, edge = ?node.edge, "removed");
@@ -762,15 +758,6 @@ impl State {
 			.map_err(|error| tg::error!(!error, "failed to watch the paths"))?;
 
 		Ok(())
-	}
-
-	#[cfg(target_os = "linux")]
-	fn remove_path_linux(&mut self, path: &Path) {
-		let Some(watcher) = &mut self.watcher else {
-			return;
-		};
-		tracing::trace!(path = %path.display(), "unwatched");
-		watcher.unwatch(path).ok();
 	}
 
 	#[cfg(target_os = "linux")]
