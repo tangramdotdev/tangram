@@ -67,7 +67,7 @@ pub struct State {
 	#[cfg(target_os = "macos")]
 	pub paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
 	pub revalidation_version: u64,
-	pub sender: tokio::sync::mpsc::Sender<Message>,
+	pub sender: tokio::sync::mpsc::UnboundedSender<Message>,
 	pub solutions: Solutions,
 	pub timeout_task: Option<Task<()>>,
 	pub version: u64,
@@ -131,8 +131,8 @@ impl Watch {
 		// Clean the graph.
 		graph.clean(&key.path, next);
 
-		// Create the channel.
-		let (sender, mut receiver) = tokio::sync::mpsc::channel::<Message>(config.channel_capacity);
+		// Create an unbounded channel, so that the watcher's thread never blocks sending an event while this watch's task waits for that thread to watch or unwatch a path.
+		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
 
 		// Create the state.
 		let index_task = spawn_index_task();
@@ -629,7 +629,7 @@ impl State {
 			move |result| match result {
 				Ok(event) => {
 					sender
-						.blocking_send(Message {
+						.send(Message {
 							event,
 							sender: None,
 						})

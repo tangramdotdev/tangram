@@ -52,7 +52,6 @@ impl Component {
 				},
 				sender: Some(notification_sender),
 			})
-			.await
 			.map_err(|_| tg::error!("failed to update the watch"))?;
 
 		notification_receiver

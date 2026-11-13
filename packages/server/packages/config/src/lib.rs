@@ -1752,8 +1752,6 @@ pub enum VfsPassthrough {
 
 #[derive(Clone, Debug)]
 pub struct Watch {
-	pub channel_capacity: usize,
-
 	pub time_to_live: Duration,
 }
 
@@ -3406,7 +3404,6 @@ impl Default for VfsNfs {
 impl Default for Watch {
 	fn default() -> Self {
 		Self {
-			channel_capacity: 1024,
 			time_to_live: Duration::from_hours(1),
 		}
 	}

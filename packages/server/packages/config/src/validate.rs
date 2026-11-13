@@ -218,7 +218,6 @@ impl Config {
 	fn validate_sizes(&self) -> tg::Result<()> {
 		// Validate the channel capacities, batch sizes, concurrencies, and page sizes.
 		let vfs = self.vfs.clone().unwrap_or_default();
-		let watch = self.watch.clone().unwrap_or_default();
 		let sizes = [
 			(
 				"checkin solve prefetch concurrency",
@@ -325,7 +324,6 @@ impl Config {
 				"vfs directory snapshot read entry limit",
 				vfs.directory_snapshot_read_entry_limit,
 			),
-			("watch channel capacity", watch.channel_capacity),
 		];
 		for (name, size) in sizes {
 			if size == 0 {
