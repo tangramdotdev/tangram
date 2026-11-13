@@ -27,6 +27,9 @@ RUN curl -fsSL https://bun.com/install | bash -s "bun-v1.4.4"
 WORKDIR /src
 COPY . .
 
+# Use the V8 bindings that ship in the v8 crate, because the download that the mirror forces races between the host and target build scripts in the shared registry.
+RUN sed -i '/^RUSTY_V8_MIRROR = /d' .cargo/config.toml && ! grep -q RUSTY_V8_MIRROR .cargo/config.toml
+
 # Cross-compile Rust and native dependencies against the target's Debian libraries.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
