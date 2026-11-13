@@ -167,7 +167,11 @@ export const build = async (...args: tg.Args<Arg>) => {
 			LIBCLANG_PATH: tg`${libclang({ build, host, ...std.args.optional("sdk", sdk) })}/lib`,
 		});
 		if (std.triple.os(host) === "linux") {
-			pre = tg`export CPATH=$CPATH:$(gcc -print-sysroot)/include`;
+			// Give bindgen the C library's headers and libclang's resource directory, which holds the compiler's headers, such as stdbool.h.
+			pre = tg`
+				export CPATH=$CPATH:$(gcc -print-sysroot)/include
+				export BINDGEN_EXTRA_CLANG_ARGS="-resource-dir $(echo "$LIBCLANG_PATH"/clang/*)"
+			`;
 		}
 	}
 
@@ -356,8 +360,8 @@ export const testE2e = async (arg: E2eArg = {}): Promise<E2eOutput> => {
 		"packages/tests/util": null,
 	});
 
-	// Build Tangram, the test runner, and the test supervisor without Tangram wrappers, because a test server runs Tangram in its sandboxes, which do not contain the artifacts that a wrapper loads.
-	const tangram = await standalone({
+	// Start building Tangram, the test runner, and the test supervisor without Tangram wrappers, because a test server runs Tangram in its sandboxes, which do not contain the artifacts that a wrapper loads.
+	const tangramPromise = standalone({
 		features: ["fjall", "quickjs", "rocksdb", "turso"],
 		packages: [
 			"tangram_cli",
@@ -366,21 +370,6 @@ export const testE2e = async (arg: E2eArg = {}): Promise<E2eOutput> => {
 		],
 		source: buildSource,
 	});
-
-	// Get the dynamic loader that the standalone executables request, and std's loader and libraries to install for them.
-	const metadata = await tangram
-		.get("bin/tangram")
-		.then(tg.File.expect)
-		.then(std.file.executableMetadata);
-	tg.assert(
-		metadata.format === "elf" && metadata.interpreter !== undefined,
-		"expected a dynamically linked ELF executable",
-	);
-	const interpreter = metadata.interpreter;
-	const { ldso, libDir } = await std.sdk.toolchainComponents({
-		env: await std.env.arg(std.sdk()),
-	});
-	tg.assert(ldso !== undefined, "expected a dynamic loader");
 
 	// Configure PyO3 for the test interpreter instead of the embedded runtime that the repository configures, as packages/clients/python/build.py does. The Python extension does not link libpython, because the interpreter that imports it provides the symbols.
 	const pythonArtifact = python({ enableOptimizations: false });
@@ -403,6 +392,22 @@ export const testE2e = async (arg: E2eArg = {}): Promise<E2eOutput> => {
 		})
 		.then((output) => output.get("bin"))
 		.then(tg.Directory.expect);
+
+	// Get the dynamic loader that the standalone executables request, and std's loader and libraries to install for them.
+	const tangram = await tangramPromise;
+	const metadata = await tangram
+		.get("bin/tangram")
+		.then(tg.File.expect)
+		.then(std.file.executableMetadata);
+	tg.assert(
+		metadata.format === "elf" && metadata.interpreter !== undefined,
+		"expected a dynamically linked ELF executable",
+	);
+	const interpreter = metadata.interpreter;
+	const { ldso, libDir } = await std.sdk.toolchainComponents({
+		env: await std.env.arg(std.sdk()),
+	});
+	tg.assert(ldso !== undefined, "expected a dynamic loader");
 
 	// Compile the JavaScript client, and add its native extension where the client loads it. The type definitions are hoisted to the root node_modules.
 	const modules = await nodeModules();
