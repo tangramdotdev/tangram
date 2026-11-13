@@ -2,6 +2,9 @@ import bubblewrap from "bubblewrap" with {
 	source: "../packages/packages/bubblewrap.tg.ts",
 };
 import bun from "bun" with { source: "../packages/packages/bun.tg.ts" };
+import cargoNextest from "cargo-nextest" with {
+	source: "../packages/packages/cargo-nextest.tg.ts",
+};
 import curl from "curl" with { source: "../packages/packages/curl.tg.ts" };
 import dash from "dash" with { source: "../packages/packages/dash.tg.ts" };
 import delta from "delta" with { source: "../packages/packages/delta.tg.ts" };
@@ -101,10 +104,12 @@ export const build = async (...args: tg.Args<Arg>) => {
 		env: env_,
 		foundationdb: useFoundationdb = false,
 		host: host_,
+		pre: pre_,
 		proxy = false,
 		sdk,
 		source: source_ = source,
 		standalone = false,
+		subcommand,
 	} = merged;
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
@@ -189,13 +194,18 @@ export const build = async (...args: tg.Args<Arg>) => {
 		disableDefaultFeatures,
 		env,
 		features,
-		pre,
+		pre: tg.Template.join("\n", pre, pre_ ?? null),
 		proxy,
 		...std.args.optional("sdk", sdk),
 		source: source_,
 		standalone,
 		useCargoVendor: true,
 	});
+
+	// Return the output of other cargo subcommands, such as test runs, without wrapping.
+	if (subcommand !== undefined) {
+		return output;
+	}
 
 	// Return standalone builds unwrapped.
 	if (standalone) {
@@ -577,6 +587,27 @@ export const testE2e = async (arg: E2eArg = {}): Promise<E2eOutput> => {
 	}
 
 	return { passed, skipped };
+};
+
+/** Run the Rust tests in a sandbox, with only the artifacts that this module builds. */
+export const testRust = async () => {
+	// Run nextest as `tg run .#testRust` does, with the standalone toolchain, whose executables are not Tangram wrappers, because the CLI tests' servers run Tangram in their sandboxes, which do not contain the artifacts that a wrapper loads. Nextest's setup script builds the test runner with a nested Cargo invocation, so give that invocation this build's target directory and generated configuration, and provide the /usr/bin/env that the setup script's interpreter line names.
+	await build({
+		env: std.env.arg(cargoNextest(), nushell(), { CARGO_NET_OFFLINE: "true" }),
+		foundationdb: true,
+		pre: `
+			export CARGO_TARGET_DIR="$SCRATCH_TARGET_DIR"
+			cp "$cargo_config_path" "$CARGO_HOME/config.toml"
+			if [ ! -e /usr/bin/env ]; then
+				mkdir -p /usr/bin
+				ln -s "$(command -v env)" /usr/bin/env
+			fi
+		`,
+		profile: "dev",
+		profileFlag: "--cargo-profile",
+		standalone: { glibcVersion: "2.39" },
+		subcommand: "nextest run --all-features --no-fail-fast --workspace",
+	});
 };
 
 // Internal helpers.
