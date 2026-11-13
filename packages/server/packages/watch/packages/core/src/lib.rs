@@ -3,13 +3,16 @@ use {
 	notify::Watcher as _,
 	std::{
 		collections::HashSet, os::unix::fs::MetadataExt as _, path::Path, path::PathBuf, sync::Arc,
-		sync::Mutex, time::Duration,
+		sync::Mutex, sync::atomic::AtomicBool, sync::atomic::Ordering, time::Duration,
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{task::Shared, task::Task},
 	tangram_server_checkin_core::{Graph, Solutions, try_read_lock},
 	tangram_server_clock_core::Clock,
 };
+
+#[cfg(test)]
+mod tests;
 
 pub type Expire = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
@@ -63,6 +66,7 @@ pub struct State {
 	pub index_task: Shared<tg::Result<()>>,
 	pub invalidated_paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
 	pub lock: Option<Arc<tg::graph::data::Leaf>>,
+	pub overflowed: Arc<AtomicBool>,
 	pub pending_lock_write_version: Option<u64>,
 	#[cfg(target_os = "macos")]
 	pub paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
@@ -142,6 +146,7 @@ impl Watch {
 			index_task,
 			invalidated_paths: HashSet::default(),
 			lock,
+			overflowed: Arc::new(AtomicBool::new(false)),
 			pending_lock_write_version: None,
 			#[cfg(target_os = "macos")]
 			paths: HashSet::default(),
@@ -185,6 +190,12 @@ impl Watch {
 
 					// Lock the state.
 					let mut state = state.lock().unwrap();
+
+					// Discard the graph if the channel or the watcher dropped events, so that the next checkin reads every path.
+					let overflowed = state.overflowed.swap(false, Ordering::SeqCst);
+					if overflowed || message.event.need_rescan() {
+						state.reset();
+					}
 
 					// Retain the graph's lock so the next checkin detects the change and rebuilds it.
 					let mut lock_modified = false;
@@ -625,15 +636,19 @@ impl State {
 
 	fn create_watcher(&self) -> tg::Result<notify::RecommendedWatcher> {
 		let handler = {
+			let overflowed = self.overflowed.clone();
 			let sender = self.sender.clone();
 			move |result| match result {
 				Ok(event) => {
-					sender
-						.blocking_send(Message {
-							event,
-							sender: None,
-						})
-						.ok();
+					// Keep the send nonblocking because this watch's task may be waiting for this thread to watch or unwatch a path.
+					let message = Message {
+						event,
+						sender: None,
+					};
+					let result = sender.try_send(message);
+					if let Err(tokio::sync::mpsc::error::TrySendError::Full(message)) = result {
+						Self::resend_after_overflow(&overflowed, &sender, message);
+					}
 				},
 				Err(error) => {
 					tracing::error!(?error);
@@ -646,6 +661,16 @@ impl State {
 		Ok(watcher)
 	}
 
+	fn resend_after_overflow(
+		overflowed: &AtomicBool,
+		sender: &tokio::sync::mpsc::Sender<Message>,
+		message: Message,
+	) {
+		// Retry after setting the flag so that either this message or a queued message makes the task observe the overflow.
+		overflowed.store(true, Ordering::SeqCst);
+		sender.try_send(message).ok();
+	}
+
 	fn reset(&mut self) {
 		// Discard the graph and invalidate any checkins that are still using its previous version.
 		self.affected_paths.clear();
@@ -655,8 +680,9 @@ impl State {
 		self.version += 1;
 		self.revalidation_version = self.version;
 
-		// Drop the watcher, which unwatches every path and releases its resources.
+		// Drop the watcher, which unwatches every path and releases its resources, and replace its overflow flag, so that events it drops while it stops do not reset the watch again.
 		self.watcher.take();
+		self.overflowed = Arc::new(AtomicBool::new(false));
 		#[cfg(target_os = "macos")]
 		self.paths.clear();
 	}
