@@ -20,7 +20,7 @@ The build is the `release` export of `build.tg.ts`, which builds a standalone `t
 
 When the std package supports standalone cross-compilation and remote runners exist, update `route` in `release.nu` and the same command builds every target from any machine. Until then, build each blocked target on a machine of its platform with `tg run .#release`, or with the container scripts below.
 
-The Linux binaries link against glibc `releaseGlibcVersion` in `build.tg.ts`, 2.34, so they run on RHEL 9, Ubuntu 22.04, Debian 12, and later distributions. The macOS binaries are not yet signed or notarized by this path, so `release.nu` verifies them with `--skip-signing`.
+The Linux binaries link against glibc `releaseGlibcVersion` in `build.tg.ts`, 2.35, so they run on Ubuntu 22.04, Debian 12, RHEL 10, and later distributions, but not on RHEL 9 or Amazon Linux 2023, which have glibc 2.34. The std package cannot yet build an older sysroot, because its GCC runtime requires newer glibc symbols. The macOS binaries are not yet signed or notarized by this path, so `release.nu` verifies them with `--skip-signing`.
 
 ## Building one target in a container
 

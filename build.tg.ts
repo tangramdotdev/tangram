@@ -236,7 +236,7 @@ export const releaseTargets = [
 ];
 
 /** The glibc that the Linux release binaries link against, which is the oldest that they require. */
-export const releaseGlibcVersion = "2.34" as const;
+export const releaseGlibcVersion = "2.35" as const;
 
 export type ReleaseArg = {
 	/** The commit to report in the version. */

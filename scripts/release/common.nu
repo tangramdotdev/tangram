@@ -9,7 +9,7 @@ export const targets = {
 }
 
 # The newest glibc that the Linux binaries may require, which is releaseGlibcVersion in build.tg.ts.
-export const glibc_floor = [2 34]
+export const glibc_floor = [2 35]
 
 # Get the path to the repository.
 export def repository []: nothing -> path {
