@@ -412,14 +412,14 @@ impl State {
 				let node = &self.graph.nodes[index];
 				node.package.node.unload();
 
-				let publishable = index == 0
-					|| self.source_packages.iter().any(|referent| {
-						referent.clone().map(|r| r.id()) == node.package.clone().map(|r| r.id())
-					}) || !node
-					.incoming
-					.iter()
-					.copied()
-					.any(|incoming| self.graph.nodes[incoming].package.node().is_directory());
+				let publishable =
+					index == 0
+						|| self.source_packages.iter().any(|referent| {
+							referent.clone().map(|r| r.id()) == node.package.clone().map(|r| r.id())
+						})
+						|| !node.incoming.iter().copied().any(|incoming| {
+							self.graph.nodes[incoming].package.node().is_directory()
+						});
 				if !publishable {
 					continue;
 				}

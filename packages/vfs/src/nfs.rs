@@ -1505,7 +1505,8 @@ where
 			let name_size = xdr_opaque_size(name.len());
 			let entry_directory_size = 4 + 8 + name_size;
 			let entry_encoded_size = entry_directory_size
-				+ 4 + 4 * attrs.attrmask.0.len()
+				+ 4
+				+ 4 * attrs.attrmask.0.len()
 				+ xdr_opaque_size(attrs.attr_vals.len());
 			if encoded_size.saturating_add(entry_encoded_size) > maxcount {
 				if reply.is_empty() {

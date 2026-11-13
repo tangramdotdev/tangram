@@ -59,7 +59,7 @@ fn format_exception_remote_object(remote: &protocol::RemoteObject) -> String {
 		&& let Some(description) = remote.description.as_deref()
 		&& let Some(first_line) = description.lines().next()
 	{
-		let first_line = first_line.strip_prefix("Uncaught ").unwrap_or(first_line);
+		let first_line = first_line.trim_prefix("Uncaught ");
 		return first_line
 			.split_once(": ")
 			.map_or_else(|| first_line.to_owned(), |(_, message)| message.to_owned());

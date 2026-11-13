@@ -3,14 +3,13 @@ use {
 	futures::{channel::mpsc, stream},
 	http_body::Frame,
 	http_body_util::{BodyExt as _, StreamBody},
-	std::convert::Infallible,
 	tangram_http::body::Coalesce,
 };
 
 #[tokio::test]
 async fn coalesces_ready_data_frames() {
 	let frames = ["a", "b", "c", "d", "e"]
-		.map(|value| Ok::<_, Infallible>(Frame::data(Bytes::from_static(value.as_bytes()))));
+		.map(|value| Ok::<_, !>(Frame::data(Bytes::from_static(value.as_bytes()))));
 	let mut body = Coalesce::with_target_size(StreamBody::new(stream::iter(frames)), 4);
 
 	let frame = body.frame().await.unwrap().unwrap();
@@ -24,7 +23,7 @@ async fn coalesces_ready_data_frames() {
 async fn flushes_data_when_the_stream_is_pending() {
 	let (mut sender, receiver) = mpsc::channel(1);
 	sender
-		.try_send(Ok::<_, Infallible>(Frame::data(Bytes::from_static(b"a"))))
+		.try_send(Ok::<_, !>(Frame::data(Bytes::from_static(b"a"))))
 		.unwrap();
 	let mut body = Coalesce::with_target_size(StreamBody::new(receiver), 4);
 
@@ -40,7 +39,7 @@ async fn preserves_trailers_after_buffered_data() {
 		Frame::data(Bytes::from_static(b"a")),
 		Frame::trailers(trailers),
 	]
-	.map(Ok::<_, Infallible>);
+	.map(Ok::<_, !>);
 	let mut body = Coalesce::with_target_size(StreamBody::new(stream::iter(frames)), 4);
 
 	let frame = body.frame().await.unwrap().unwrap();

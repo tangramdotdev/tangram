@@ -3,7 +3,6 @@ use {
 	dashmap::DashMap,
 	futures::{FutureExt as _, future},
 	std::{
-		convert::Infallible,
 		ops::Deref,
 		path::Path,
 		pin::{Pin, pin},
@@ -241,7 +240,7 @@ impl Server {
 						.extensions_mut()
 						.insert(tangram_http::body::arg::MaxLength::default());
 					let response = server.handle_request(request).await;
-					Ok::<_, Infallible>(response)
+					Ok::<_, !>(response)
 				}
 			}
 		});

@@ -360,7 +360,7 @@ impl Component {
 		};
 
 		// Stop and unregister the service when its task ends, even if the task panics or is aborted.
-		let guard = scopeguard::guard((), {
+		let guard = std::mem::DropGuard::new((), {
 			let component = self.clone();
 			let nonce = *nonce;
 			let service_server = service_server.clone();

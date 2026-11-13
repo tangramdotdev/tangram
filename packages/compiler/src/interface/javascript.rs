@@ -229,8 +229,8 @@ fn documentation(comments: &[Comment], offset: u32, text: &str) -> Option<String
 		.lines()
 		.map(|line| {
 			let line = line.trim();
-			let line = line.strip_prefix('*').unwrap_or(line);
-			line.strip_prefix(' ').unwrap_or(line)
+			let line = line.trim_prefix('*');
+			line.trim_prefix(' ')
 		})
 		.collect::<Vec<_>>();
 	let documentation = lines.join("\n").trim().to_owned();

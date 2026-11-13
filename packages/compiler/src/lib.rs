@@ -1114,7 +1114,7 @@ impl Compiler {
 					},
 				..
 			} => {
-				let relative_path = path.strip_prefix("./").unwrap_or(path);
+				let relative_path = path.trim_prefix("./");
 				let absolute_path = self.library_path.join(relative_path);
 				let exists = tokio::fs::try_exists(&absolute_path)
 					.await

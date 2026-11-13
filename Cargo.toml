@@ -203,7 +203,7 @@ edition = "2024"
 homepage = "https://www.tangram.dev"
 license = "MIT"
 repository = "https://github.com/tangramdotdev/tangram"
-rust-version = "1.99"
+rust-version = "1.100"
 version = "0.0.0"
 
 [workspace.lints.clippy]
@@ -350,7 +350,6 @@ rustls = "0.23"
 rustls-platform-verifier = "0.7"
 rustls-pemfile = "2"
 salsa = "0.28.5"
-scopeguard = "1"
 scylla = { version = "1", features = ["metrics"] }
 serde = { version = "1", features = ["rc", "derive"] }
 serde-untagged = "0.1"

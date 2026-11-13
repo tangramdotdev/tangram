@@ -340,7 +340,8 @@ impl Component {
 			)
 			.await?
 			.check_exhaustion()?
-			.outcome == tangram_server_core::authorization::Outcome::Satisfied
+			.outcome
+			== tangram_server_core::authorization::Outcome::Satisfied
 		{
 			command.load_with_instance(session).await?;
 			return Ok(());

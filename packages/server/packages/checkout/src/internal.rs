@@ -328,7 +328,8 @@ impl Component {
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		id: &tg::Id,
-	) -> tg::Result<ControlFlow<Option<super::NamedNode>, tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<Option<super::NamedNode>, tangram_server_core::database::Error>>
+	{
 		let node = match id.kind() {
 			tg::id::Kind::Group => {
 				let id = tg::group::Id::try_from(id.clone())?;

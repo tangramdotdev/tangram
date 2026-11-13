@@ -125,7 +125,7 @@ impl Component {
 				"the sync was cancelled"
 			)),
 		};
-		let mut completion = scopeguard::guard(completion, {
+		let mut completion = std::mem::DropGuard::new(completion, {
 			let component = self.clone();
 			let session = session.clone();
 			let state = state.clone();
@@ -148,9 +148,10 @@ impl Component {
 				tokio::sync::mpsc::channel::<self::store::ObjectNode>(config.channel_capacity);
 			let (store_process_sender, store_process_receiver) =
 				tokio::sync::mpsc::channel::<self::store::ProcessNode>(config.channel_capacity);
-			let (checkout_sender, checkout_receiver) = tokio::sync::mpsc::channel::<
-				self::checkout::ObjectNode,
-			>(config.checkout.channel_capacity);
+			let (checkout_sender, checkout_receiver) =
+				tokio::sync::mpsc::channel::<self::checkout::ObjectNode>(
+					config.checkout.channel_capacity,
+				);
 			let (index_object_sender, index_object_receiver) =
 				tokio::sync::mpsc::channel::<self::index::ObjectNode>(config.channel_capacity);
 			let (index_process_sender, index_process_receiver) =

@@ -176,7 +176,7 @@ async fn each_request_is_delivered_once_and_answered_under_loss_duplication_and_
 	let messenger = TestMessenger::with_faults(3, 4, 5);
 	let server = server(&messenger, options()).await;
 	let client = client(&messenger, options());
-	let payloads = (0..16).map(|index| index.to_string()).collect::<Vec<_>>();
+	let payloads = Vec::from_fn(16, |index| index.to_string());
 	let requests = payloads
 		.iter()
 		.map(|payload| {

@@ -4,7 +4,7 @@ use {
 	futures::{Stream, TryStreamExt as _, future},
 	http_body_util::StreamBody,
 	num::ToPrimitive as _,
-	std::{convert::Infallible, pin::Pin},
+	std::pin::Pin,
 	tokio::io::{AsyncBufRead, AsyncRead},
 	tokio_util::io::{ReaderStream, StreamReader},
 };
@@ -152,7 +152,7 @@ impl Boxed {
 
 impl hyper::body::Body for Empty {
 	type Data = bytes::Bytes;
-	type Error = Infallible;
+	type Error = !;
 
 	fn poll_frame(
 		self: Pin<&mut Self>,
@@ -172,7 +172,7 @@ impl hyper::body::Body for Empty {
 
 impl hyper::body::Body for Bytes {
 	type Data = bytes::Bytes;
-	type Error = Infallible;
+	type Error = !;
 
 	fn poll_frame(
 		self: Pin<&mut Self>,

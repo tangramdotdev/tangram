@@ -70,7 +70,7 @@ pub fn get_cursor_position(fd: libc::c_int) -> std::io::Result<(u16, u16)> {
 	if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(raw)) } != 0 {
 		return Err(std::io::Error::last_os_error());
 	}
-	let _guard = scopeguard::guard(original, move |original| unsafe {
+	let _guard = std::mem::DropGuard::new(original, move |original| unsafe {
 		libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(original));
 	});
 

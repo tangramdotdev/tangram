@@ -146,7 +146,8 @@ impl tg::Session {
 		&self,
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::wait::Arg,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>>
+	{
 		// Send the request.
 		let Some(stream) = self.try_wait_process_stream(process, &arg).await? else {
 			return Ok(None);

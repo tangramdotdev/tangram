@@ -19,9 +19,7 @@ pub(crate) fn ack_subject(process: &tg::process::Id, id: &str) -> String {
 }
 
 pub(crate) fn abort(error: &tg::Error) -> Bytes {
-	serde_json::to_vec(&error.to_data_or_id())
-		.map(Bytes::from)
-		.unwrap_or_default()
+	serde_json::to_vec(&error.to_data_or_id()).map_or_default(Bytes::from)
 }
 
 /// Determine whether a relay error ends a relay that the relay's peer can reopen, which a closed, failed, reset, or timed out relay does.

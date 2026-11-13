@@ -12,9 +12,9 @@ fn options() -> Options {
 }
 
 fn items(count: usize, size: usize) -> Vec<Bytes> {
-	(0..count)
-		.map(|index| Bytes::from(vec![u8::try_from(index % 251).unwrap(); size]))
-		.collect()
+	Vec::from_fn(count, |index| {
+		Bytes::from(vec![u8::try_from(index % 251).unwrap(); size])
+	})
 }
 
 type Half = (Sender<Bytes>, Receiver<Bytes>);

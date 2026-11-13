@@ -83,7 +83,8 @@ impl tg::Session {
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::wait::Arg,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::sandbox::outcome::Data>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::sandbox::outcome::Data>>>>>
+	{
 		// Send the request.
 		let Some(stream) = self.try_wait_sandbox_stream(id, &arg).await? else {
 			return Ok(None);

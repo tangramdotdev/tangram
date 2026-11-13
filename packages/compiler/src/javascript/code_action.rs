@@ -12,8 +12,7 @@ impl Project {
 				.provide_diagnostics(context, &uri)
 				.map_err(|error| tg::error!(!error, "failed to get the javascript diagnostics"))?
 				.full_document_diagnostic_report
-				.map(|report| report.items)
-				.unwrap_or_default()
+				.map_or_default(|report| report.items)
 				.into_iter()
 				.filter(|diagnostic| {
 					let Some(code) = diagnostic.code.as_ref().and_then(|code| code.integer) else {

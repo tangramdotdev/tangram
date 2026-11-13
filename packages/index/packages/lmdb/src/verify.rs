@@ -34,7 +34,7 @@ impl Index {
 	}
 
 	pub(crate) fn verify_batch_with_transaction(
-		cache: facts::Cache<std::convert::Infallible>,
+		cache: facts::Cache<!>,
 		config: tangram_index::verify::Config,
 		db: &Db,
 		subspace: &fdbt::Subspace,

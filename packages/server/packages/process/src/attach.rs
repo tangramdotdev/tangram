@@ -91,7 +91,8 @@ impl Component {
 							tg::process::attach::ServerNotification::Progress(
 								tg::progress::Event::Output(output),
 							),
-						) = message && let tg::Either::Right(id) = &output.process
+						) = message
+							&& let tg::Either::Right(id) = &output.process
 						{
 							let options = tg::referent::Options {
 								location: output.location.clone(),

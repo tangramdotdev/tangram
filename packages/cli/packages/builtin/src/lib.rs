@@ -74,7 +74,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		&& let (Some(tangram_output_path), Some(output_path)) = (
 			std::env::var_os("TANGRAM_OUTPUT").map(PathBuf::from),
 			output_path.as_deref(),
-		) && tangram_output_path == output_path
+		)
+		&& tangram_output_path == output_path
 	{
 		// Get the error data.
 		let Some(data) = error

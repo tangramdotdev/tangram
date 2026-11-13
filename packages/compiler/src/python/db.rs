@@ -182,7 +182,8 @@ impl Database {
 				&& !matches!(
 					entry.module.referent.node,
 					tg::module::data::Source::Path(_)
-				) && !self.documents.contains_key(&key)
+				)
+				&& !self.documents.contains_key(&key)
 				&& !previous_documents.contains_key(&key)
 			{
 				continue;

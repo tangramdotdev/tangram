@@ -132,25 +132,23 @@ impl Index {
 		let (reader_sender, reader_receiver) =
 			tokio::sync::mpsc::channel(config.read_channel_capacity);
 		let reader_receiver = Arc::new(std::sync::Mutex::new(reader_receiver));
-		let reader_handles = (0..config.read_transaction_concurrency)
-			.map(|_| {
-				let env = env.clone();
-				let reader_receiver = reader_receiver.clone();
-				let subspace = subspace.clone();
-				let read_request_batch_size = config.read_request_batch_size;
-				std::thread::spawn(move || {
-					Self::reader_task(&reader::Arg {
-						db,
-						env,
-						read_request_batch_size,
-						receiver: reader_receiver,
-						subspace,
-						#[cfg(test)]
-						test_hook: None,
-					});
-				})
+		let reader_handles = Vec::from_fn(config.read_transaction_concurrency, |_| {
+			let env = env.clone();
+			let reader_receiver = reader_receiver.clone();
+			let subspace = subspace.clone();
+			let read_request_batch_size = config.read_request_batch_size;
+			std::thread::spawn(move || {
+				Self::reader_task(&reader::Arg {
+					db,
+					env,
+					read_request_batch_size,
+					receiver: reader_receiver,
+					subspace,
+					#[cfg(test)]
+					test_hook: None,
+				});
 			})
-			.collect();
+		});
 
 		// Spawn the writer task.
 		let writer_handle = std::thread::spawn({

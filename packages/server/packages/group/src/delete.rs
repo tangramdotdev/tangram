@@ -163,7 +163,8 @@ impl Component {
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		group: &tg::group::Id,
 		ids_by_specifier: &BTreeMap<tg::Specifier, Option<tg::Id>>,
-	) -> tg::Result<ControlFlow<ControlFlow<Option<()>>, tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<ControlFlow<Option<()>>, tangram_server_core::database::Error>>
+	{
 		let batch_size = session.server.config.sync.get.database.batch_size;
 		match tangram_server_node_common::specifier::verify_ids_for_specifiers_with_transaction(
 			transaction,

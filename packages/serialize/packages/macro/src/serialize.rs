@@ -238,14 +238,9 @@ impl Enum<'_> {
 				.iter()
 				.map(|variant| {
 					if let VariantKind::Tuple(types) = &variant.kind {
-						let field_names = (0..types.len())
-							.map(|i| {
-								syn::Ident::new(
-									&format!("field_{i}"),
-									proc_macro2::Span::call_site(),
-								)
-							})
-							.collect_vec();
+						let field_names = Vec::from_fn(types.len(), |i| {
+							syn::Ident::new(&format!("field_{i}"), proc_macro2::Span::call_site())
+						});
 						quote! { ( #(#field_names),* ) }
 					} else {
 						unreachable!()
@@ -256,14 +251,9 @@ impl Enum<'_> {
 				.iter()
 				.map(|variant| {
 					if let VariantKind::Tuple(types) = &variant.kind {
-						let field_names = (0..types.len())
-							.map(|i| {
-								syn::Ident::new(
-									&format!("field_{i}"),
-									proc_macro2::Span::call_site(),
-								)
-							})
-							.collect_vec();
+						let field_names = Vec::from_fn(types.len(), |i| {
+							syn::Ident::new(&format!("field_{i}"), proc_macro2::Span::call_site())
+						});
 						quote! {
 							#(serializer.serialize(#field_names)?;)*
 						}
@@ -375,14 +365,9 @@ impl Enum<'_> {
 				.iter()
 				.map(|variant| {
 					if let VariantKind::Tuple(types) = &variant.kind {
-						let field_names = (0..types.len())
-							.map(|i| {
-								syn::Ident::new(
-									&format!("field_{i}"),
-									proc_macro2::Span::call_site(),
-								)
-							})
-							.collect_vec();
+						let field_names = Vec::from_fn(types.len(), |i| {
+							syn::Ident::new(&format!("field_{i}"), proc_macro2::Span::call_site())
+						});
 						quote! { ( #(#field_names),* ) }
 					} else {
 						unreachable!()
@@ -393,14 +378,9 @@ impl Enum<'_> {
 				.iter()
 				.map(|variant| {
 					if let VariantKind::Tuple(types) = &variant.kind {
-						let field_names = (0..types.len())
-							.map(|i| {
-								syn::Ident::new(
-									&format!("field_{i}"),
-									proc_macro2::Span::call_site(),
-								)
-							})
-							.collect_vec();
+						let field_names = Vec::from_fn(types.len(), |i| {
+							syn::Ident::new(&format!("field_{i}"), proc_macro2::Span::call_site())
+						});
 						quote! {
 							#(serializer.serialize(#field_names)?;)*
 						}

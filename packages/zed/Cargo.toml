@@ -15,5 +15,8 @@ crate-type = ["cdylib"]
 doctest = false
 test = false
 
+[lints]
+workspace = true
+
 [dependencies]
 zed_extension_api = { workspace = true }

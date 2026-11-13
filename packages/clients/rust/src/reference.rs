@@ -299,7 +299,7 @@ impl std::str::FromStr for Node {
 			return Ok(Self::Id(id));
 		}
 		if s.starts_with('.') || s.starts_with('/') {
-			let path = s.strip_prefix("./").unwrap_or(s).into();
+			let path = s.trim_prefix("./").into();
 			return Ok(Self::Path(path));
 		}
 		if let Ok(pointer) = s.parse::<tg::graph::data::Edge<tg::object::Id>>()

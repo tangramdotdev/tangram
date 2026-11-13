@@ -241,7 +241,8 @@ impl Kind {
 			self,
 			Self::Blob
 				| Self::Directory
-				| Self::File | Self::Symlink
+				| Self::File
+				| Self::Symlink
 				| Self::Graph
 				| Self::Command
 				| Self::Error

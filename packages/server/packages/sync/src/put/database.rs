@@ -351,7 +351,8 @@ impl Component {
 		id: &tg::Id,
 		enabled: bool,
 		authorization: tangram_server_core::authorization::Output,
-	) -> tg::Result<ControlFlow<Vec<tg::Referent<tg::Id>>, tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<Vec<tg::Referent<tg::Id>>, tangram_server_core::database::Error>>
+	{
 		if !enabled {
 			return Ok(ControlFlow::Break(Vec::new()));
 		}

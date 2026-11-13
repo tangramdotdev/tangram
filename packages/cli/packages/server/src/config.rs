@@ -220,10 +220,9 @@ fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
 			pool.time_to_live = Some(value);
 		}
 	}
-	let reconnect = source
-		.reconnect
-		.map(|source| resolve_reconnect_with_default(source, server::Reconnect::default()))
-		.unwrap_or_default();
+	let reconnect = source.reconnect.map_or_default(|source| {
+		resolve_reconnect_with_default(source, server::Reconnect::default())
+	});
 	let region = required(source.region, "archive.region")?;
 	let secret_key = required(source.secret_key, "archive.secret_key")?;
 	let mut target = server::S3Archive {

@@ -159,6 +159,7 @@ pub(crate) fn set_rlimit_nofile(limit: Option<u64>) -> tg::Result<()> {
 	let Some(limit) = limit else {
 		return Ok(());
 	};
+	#[allow(unreachable_code, reason = "rlim_t is u64 on some Linux targets")]
 	let limit = libc::rlim_t::try_from(limit)
 		.map_err(|error| tg::error!(!error, "the open file limit is too large"))?;
 	let rlimit = libc::rlimit {

@@ -221,18 +221,16 @@ fn lifted_authorization_tokens_for_sync_follow_attachment_ancestors() {
 	]
 	.map(|seed| tg::object::Id::from(tg::blob::Id::new(seed)));
 	let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
-	let mut tokens = (0..3)
-		.map(|_| {
-			let body = tg::authorization::Body {
-				expires_at: i64::MAX,
-				permissions: vec![tg::authorization::Permission::Sync(
-					tg::authorization::permission::sync::Permission::Read,
-				)],
-				resource: tg::sync::Id::new().into(),
-			};
-			tg::authorization::Token::sign(body, &key).unwrap()
-		})
-		.collect::<Vec<_>>();
+	let mut tokens = Vec::from_fn(3, |_| {
+		let body = tg::authorization::Body {
+			expires_at: i64::MAX,
+			permissions: vec![tg::authorization::Permission::Sync(
+				tg::authorization::permission::sync::Permission::Read,
+			)],
+			resource: tg::sync::Id::new().into(),
+		};
+		tg::authorization::Token::sign(body, &key).unwrap()
+	});
 	tokens.sort_by_cached_key(ToString::to_string);
 	let arg = tg::sync::Arg::default();
 	let mut graph = Graph::new(&arg, false);
@@ -1182,8 +1180,7 @@ fn assert_object_reference(graph: &Graph, root: &tg::object::Id, granted: bool) 
 		let (metadata, stored) = reference_object(graph, index);
 		assert_eq!(
 			node.metadata()
-				.map(|metadata| metadata.subtree.clone())
-				.unwrap_or_default(),
+				.map_or_default(|metadata| metadata.subtree.clone()),
 			metadata
 		);
 		assert_eq!(
@@ -1531,16 +1528,14 @@ fn graph_branch_and_leaf() -> (
 	tg::object::Id,
 	tg::object::Data,
 ) {
-	let files = (0..2)
-		.map(|index| {
-			tg::graph::data::Node::File(tg::graph::data::File {
-				contents: Some(tg::blob::Id::new(format!("{index}").as_bytes())),
-				dependencies: std::collections::BTreeMap::new(),
-				executable: false,
-				module: None,
-			})
+	let files = Vec::from_fn(2, |index| {
+		tg::graph::data::Node::File(tg::graph::data::File {
+			contents: Some(tg::blob::Id::new(format!("{index}").as_bytes())),
+			dependencies: std::collections::BTreeMap::new(),
+			executable: false,
+			module: None,
 		})
-		.collect();
+	});
 	let leaf = tg::object::Data::Graph(tg::graph::Data::Leaf(tg::graph::data::Leaf {
 		nodes: files,
 	}));

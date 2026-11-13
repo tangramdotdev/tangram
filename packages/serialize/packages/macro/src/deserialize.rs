@@ -323,9 +323,8 @@ impl Enum<'_> {
 							}
 						},
 						VariantKind::Tuple(types) => {
-							let field_names = (0..types.len())
-								.map(|i| quote::format_ident!("field_{}", i))
-								.collect_vec();
+							let field_names =
+								Vec::from_fn(types.len(), |i| quote::format_ident!("field_{}", i));
 							let field_deserializations = field_names
 								.iter()
 								.map(|field_name| {

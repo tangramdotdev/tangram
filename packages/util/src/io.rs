@@ -24,7 +24,8 @@ pub fn stdin() -> std::io::Result<impl Stream<Item = std::io::Result<Bytes>> + S
 		let _ = write_stop(stop_write.as_raw_fd());
 	});
 	std::thread::spawn(move || stdin_thread(&send, &stop_read));
-	Ok(ReceiverStream::new(recv).attach(scopeguard::guard(stopper, |stopper| stopper.stop())))
+	Ok(ReceiverStream::new(recv)
+		.attach(std::mem::DropGuard::new(stopper, |stopper| stopper.stop())))
 }
 
 fn pipe() -> std::io::Result<(OwnedFd, OwnedFd)> {

@@ -73,8 +73,7 @@ impl From<Diagnostic> for lsp::Diagnostic {
 	fn from(value: Diagnostic) -> Self {
 		let range = value
 			.location
-			.map(|location| location.range.into())
-			.unwrap_or_default();
+			.map_or_default(|location| location.range.into());
 		let severity = Some(value.severity.into());
 		let source = Some("tangram".to_owned());
 		let message = value.message;

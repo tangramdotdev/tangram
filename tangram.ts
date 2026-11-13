@@ -29,11 +29,7 @@ export const checkPackages = async () => {
 
 export const checkRust = async () => {
 	const { cwd } = await context();
-	await task(
-		"rust",
-		"check",
-		tg.run`cargo clippy --all-features --all-targets --workspace`.cwd(cwd),
-	);
+	await tg.run`cargo clippy --all-features --all-targets --workspace`.cwd(cwd);
 };
 
 export const checkScripts = async () => {

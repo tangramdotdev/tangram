@@ -556,16 +556,14 @@ pub(crate) async fn spawn_inner(
 	{
 		matches
 			.indices_of("spawn.arg_strings")
-			.map(std::iter::Iterator::collect)
-			.unwrap_or_default()
+			.map_or_default(std::iter::Iterator::collect)
 	} else {
 		Vec::new()
 	};
 	let arg_value_indices = if matches.try_contains_id("spawn.arg_values").unwrap_or(false) {
 		matches
 			.indices_of("spawn.arg_values")
-			.map(std::iter::Iterator::collect)
-			.unwrap_or_default()
+			.map_or_default(std::iter::Iterator::collect)
 	} else {
 		Vec::new()
 	};

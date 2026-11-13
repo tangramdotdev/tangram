@@ -285,12 +285,10 @@ fn create_updates(
 	new: Option<&tg::graph::data::Leaf>,
 	root: &Path,
 ) -> Vec<Update> {
-	let old_deps = old
-		.map(|lock| graph_dependencies(&create_graph(lock, root.to_owned())))
-		.unwrap_or_default();
-	let new_deps = new
-		.map(|lock| graph_dependencies(&create_graph(lock, root.to_owned())))
-		.unwrap_or_default();
+	let old_deps =
+		old.map_or_default(|lock| graph_dependencies(&create_graph(lock, root.to_owned())));
+	let new_deps =
+		new.map_or_default(|lock| graph_dependencies(&create_graph(lock, root.to_owned())));
 	let all_patterns: BTreeSet<_> = old_deps
 		.keys()
 		.cloned()

@@ -388,7 +388,8 @@ impl Component {
 	pub(crate) async fn try_get_runner_data_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		runner: &tg::runner::Id,
-	) -> tg::Result<ControlFlow<Option<tg::runner::Data>, tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<Option<tg::runner::Data>, tangram_server_core::database::Error>>
+	{
 		#[derive(tangram_database::row::Deserialize)]
 		struct Row {
 			created_at: i64,
@@ -1139,7 +1140,7 @@ impl Component {
 
 		// Publish the sender while the stream handles requests, so that sandbox tasks can report destruction through it.
 		self.control.send_replace(Some(sender.clone()));
-		let _control = scopeguard::guard(&self.control, |control| {
+		let _control = std::mem::DropGuard::new(&self.control, |control| {
 			control.send_replace(None);
 		});
 

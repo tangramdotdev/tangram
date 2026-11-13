@@ -80,7 +80,7 @@ pub fn interface_file_stem(path: impl AsRef<Path>) -> Option<String> {
 	Format::for_path(path.as_ref())?;
 	let name = path.as_ref().file_name()?.to_str()?;
 	let stem = name.rsplit_once('.')?.0;
-	let stem = stem.strip_suffix(".tg").unwrap_or(stem);
+	let stem = stem.trim_suffix(".tg");
 	Some(format!("{stem}.tgi"))
 }
 

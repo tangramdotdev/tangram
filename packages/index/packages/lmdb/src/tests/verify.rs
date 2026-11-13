@@ -1580,7 +1580,7 @@ async fn verify_deep_chain_scales_linearly() {
 	// the root subtree. Nothing materializes it onto the descendants, so
 	// authorizing one must walk up to the root.
 	let user = tg::user::Id::new();
-	let nodes: Vec<tg::object::Id> = (0..=DEPTH).map(object_id).collect();
+	let nodes: Vec<tg::object::Id> = Vec::from_fn(DEPTH + 1, object_id);
 	let mut txn = index.env.write_txn().unwrap();
 	for i in 0..=DEPTH {
 		put_object(&index, &mut txn, &nodes[i]);
@@ -1633,7 +1633,7 @@ async fn verify_combines_ancestor_and_descendant_searches() {
 		},
 	};
 	let (_directory, index) = new_index();
-	let nodes = (0..=DEPTH).map(object_id).collect::<Vec<_>>();
+	let nodes = Vec::from_fn(DEPTH + 1, object_id);
 	let user = tg::user::Id::new();
 	let mut transaction = index.env.write_txn().unwrap();
 	for (position, object) in nodes.iter().enumerate() {
@@ -1689,7 +1689,7 @@ async fn verify_deep_chain_batch_scales_linearly() {
 		},
 	};
 	let (_directory, index) = new_index();
-	let nodes = (0..=DEEP).map(object_id).collect::<Vec<_>>();
+	let nodes = Vec::from_fn(DEEP + 1, object_id);
 	let user = tg::user::Id::new();
 	let mut transaction = index.env.write_txn().unwrap();
 	for (position, node) in nodes.iter().enumerate() {
@@ -2687,9 +2687,9 @@ async fn verify_visits_shared_descendants_once() {
 	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();
 	let root = object_id(0);
-	let layers = (0..LAYERS)
-		.map(|layer| [object_id(layer * 2 + 1), object_id(layer * 2 + 2)])
-		.collect::<Vec<_>>();
+	let layers = Vec::from_fn(LAYERS, |layer| {
+		[object_id(layer * 2 + 1), object_id(layer * 2 + 2)]
+	});
 	let mut txn = index.env.write_txn().unwrap();
 	put_object(&index, &mut txn, &root);
 	put_permission(
@@ -2745,7 +2745,7 @@ async fn verify_subtree_ignores_a_visited_child_at_the_depth_limit() {
 
 	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();
-	let objects = (0..=DEPTH).map(object_id).collect::<Vec<_>>();
+	let objects = Vec::from_fn(DEPTH + 1, object_id);
 	let mut txn = index.env.write_txn().unwrap();
 	for object in &objects {
 		put_object(&index, &mut txn, object);
@@ -3308,7 +3308,7 @@ async fn verify_checks_the_requested_object_before_enumerating() {
 	const WIDTH: usize = 16;
 	let (_directory, index) = new_index();
 	let placeholder = object_id(2 * WIDTH);
-	let mut children = (0..WIDTH).map(object_id).collect::<Vec<_>>();
+	let mut children = Vec::from_fn(WIDTH, object_id);
 	children.sort_by_cached_key(|child| {
 		Index::pack(
 			&index.subspace,

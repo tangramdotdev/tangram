@@ -177,8 +177,7 @@ impl Index {
 			|| {
 				existing
 					.as_ref()
-					.map(|existing| existing.creator.clone())
-					.unwrap_or_default()
+					.map_or_default(|existing| existing.creator.clone())
 			},
 			|data| data.creator.clone(),
 		);
@@ -186,8 +185,7 @@ impl Index {
 			|| {
 				existing
 					.as_ref()
-					.map(|existing| existing.owner.clone())
-					.unwrap_or_default()
+					.map_or_default(|existing| existing.owner.clone())
 			},
 			|data| data.owner.clone(),
 		);

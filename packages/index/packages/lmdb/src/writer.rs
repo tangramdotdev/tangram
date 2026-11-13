@@ -511,7 +511,7 @@ impl Index {
 				max_sandbox_touched_at,
 				now,
 			}) => {
-				let items = (0..batch_size).map(|_| Operation::Clean).collect();
+				let items = Vec::from_fn(batch_size, |_| Operation::Clean);
 				(
 					items,
 					Kind::Clean {
@@ -588,7 +588,7 @@ impl Index {
 				)
 			},
 			Request::Update(crate::Update { batch_size, kind }) => {
-				let items = (0..batch_size).map(|_| Operation::Update).collect();
+				let items = Vec::from_fn(batch_size, |_| Operation::Update);
 				(items, Kind::Update { kind })
 			},
 		}

@@ -417,9 +417,9 @@ async fn load_or_create_token_secret(
 		.map_err(|error| {
 			tg::error!(!error, "failed to create the temporary signing secret file")
 		})?;
-	scopeguard::defer! {
+	let _temp_guard = std::mem::DropGuard::new((), |()| {
 		std::fs::remove_file(&temp_path).ok();
-	}
+	});
 	file.write_all(&secret.bytes)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to write the signing secret"))?;

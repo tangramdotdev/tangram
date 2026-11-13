@@ -635,7 +635,8 @@ fn validate_write(data: &Data, streams: &[tg::process::stdio::Stream]) -> tg::Re
 				|| end
 					.stream_positions
 					.get(&tg::process::stdio::Stream::Stdin)
-					.copied() != Some(end.combined_position)
+					.copied()
+					!= Some(end.combined_position)
 			{
 				return Err(tg::error!("invalid process stdio end positions"));
 			}

@@ -299,7 +299,8 @@ impl State {
 						..
 					} | RequestState::Updates { .. }
 				)
-			}) && indexers.is_empty()
+			})
+			&& indexers.is_empty()
 			&& Component::get_indexers(server).await?.is_empty()
 		{
 			return Err(tg::error!("no indexers are available"));

@@ -534,9 +534,14 @@ impl Component {
 		let processes_for_cleanup = processes.clone();
 		let id_for_cleanup = id.clone();
 		let server = session.server.clone();
-		scopeguard::defer! {
+		let _process_guard = std::mem::DropGuard::new((), |()| {
 			processes_for_cleanup.remove(&id_for_cleanup);
-			server.components.runner.state().processes.remove(&id_for_cleanup);
+			server
+				.components
+				.runner
+				.state()
+				.processes
+				.remove(&id_for_cleanup);
 
 			// Let tests observe that the runner discarded the process state.
 			if server.checkpoints.is_some() {
@@ -546,7 +551,7 @@ impl Component {
 					tangram_server_core::checkpoint!(server, "runner.process.state.removed", process = %id).await;
 				});
 			}
-		}
+		});
 		tangram_server_core::checkpoint!(
 			session.server,
 			"runner.process.state.inserted",
@@ -578,14 +583,14 @@ impl Component {
 		};
 		let server_for_token_cleanup = session.server.clone();
 		let token_for_cleanup = token.clone();
-		scopeguard::defer! {
+		let _token_guard = std::mem::DropGuard::new((), |()| {
 			server_for_token_cleanup
 				.components
 				.runner
 				.state()
 				.process_for_token
 				.remove(&token_for_cleanup);
-		}
+		});
 
 		// Load the command concurrently with the control stream.
 		let command: CommandFuture = {

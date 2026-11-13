@@ -42,13 +42,11 @@ struct Part {
 
 impl Lanes {
 	pub(super) fn new(count: usize, batch_items: usize, write_items: usize) -> Self {
-		let entries = (0..count.max(1))
-			.map(|_| Lane {
-				busy: false,
-				pending: 0,
-				queues: [VecDeque::new(), VecDeque::new(), VecDeque::new()],
-			})
-			.collect();
+		let entries = Vec::from_fn(count.max(1), |_| Lane {
+			busy: false,
+			pending: 0,
+			queues: [VecDeque::new(), VecDeque::new(), VecDeque::new()],
+		});
 		Self {
 			batch_items: batch_items.max(1),
 			entries,

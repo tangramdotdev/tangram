@@ -60,7 +60,7 @@ pub(crate) fn covered_rootfs_directories(
 
 /// Get the host path of a guest path in the root filesystem.
 pub(crate) fn rootfs_path(root: &Path, path: &Path) -> PathBuf {
-	root.join(path.strip_prefix("/").unwrap_or(path))
+	root.join(path.trim_prefix("/"))
 }
 
 #[cfg(test)]

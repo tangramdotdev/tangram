@@ -56,7 +56,7 @@ pub fn decode(
 				continue;
 			}
 			let (field, value) = if let Some((field, value)) = line.split_once(':') {
-				let value = value.strip_prefix(' ').unwrap_or(value);
+				let value = value.trim_prefix(' ');
 				(field, value)
 			} else {
 				(line.as_str(), "")

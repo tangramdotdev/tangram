@@ -1444,17 +1444,15 @@ impl Component {
 	}
 
 	fn sync_get_database_placeholders(p: &str, rows: usize, columns: usize) -> String {
-		(0..rows)
-			.map(|row| {
-				let offset = row * columns;
-				let values = (1..=columns)
-					.map(|column| format!("{p}{}", offset + column))
-					.collect::<Vec<_>>()
-					.join(", ");
-				format!("({values})")
-			})
-			.collect::<Vec<_>>()
-			.join(", ")
+		Vec::from_fn(rows, |row| {
+			let offset = row * columns;
+			let values = (1..=columns)
+				.map(|column| format!("{p}{}", offset + column))
+				.collect::<Vec<_>>()
+				.join(", ");
+			format!("({values})")
+		})
+		.join(", ")
 	}
 
 	fn sync_get_database_node_depth(node: &tg::sync::PutNodeMessage) -> usize {

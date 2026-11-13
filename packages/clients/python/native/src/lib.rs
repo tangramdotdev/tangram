@@ -109,8 +109,8 @@ fn yaml_encode(input: &str) -> PyResult<String> {
 	Ok(output)
 }
 
-#[pymodule]
-pub fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+#[pymodule(name = "_native")]
+pub fn native(module: &Bound<'_, PyModule>) -> PyResult<()> {
 	module.add_class::<Interrupt>()?;
 	module.add_function(wrap_pyfunction!(blob_chunk_lengths, module)?)?;
 	module.add_function(wrap_pyfunction!(checksum, module)?)?;

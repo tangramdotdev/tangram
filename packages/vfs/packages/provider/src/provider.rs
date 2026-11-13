@@ -2709,9 +2709,7 @@ fn proxy_responses(
 		Err(error) => {
 			tracing::error!(%error, "failed to proxy the VFS requests");
 			let errno = error.raw_os_error().unwrap_or(libc::EIO);
-			(0..length)
-				.map(|_| Err(std::io::Error::from_raw_os_error(errno)))
-				.collect()
+			Vec::from_fn(length, |_| Err(std::io::Error::from_raw_os_error(errno)))
 		},
 	}
 }

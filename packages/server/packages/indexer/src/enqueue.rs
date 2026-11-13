@@ -201,7 +201,7 @@ mod tests {
 
 	#[test]
 	fn packs_whole_items_into_requests_up_to_the_request_size() {
-		let items = (0..5).map(|_| index_item()).collect::<Vec<_>>();
+		let items = Vec::from_fn(5, |_| index_item());
 		assert!(items.iter().all(|item| size(item) == size(&items[0])));
 		let request_size = 2 * size(&items[0]);
 		let index = tangram_index::write::Arg { items };
@@ -228,7 +228,7 @@ mod tests {
 
 	#[test]
 	fn puts_an_oversized_item_in_a_request_by_itself() {
-		let items = (0..3).map(|_| index_item()).collect::<Vec<_>>();
+		let items = Vec::from_fn(3, |_| index_item());
 		let request_size = size(&items[0]) - 1;
 		let index = tangram_index::write::Arg { items };
 		let arg = EnqueueArg {

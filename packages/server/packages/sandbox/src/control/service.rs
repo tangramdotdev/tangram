@@ -99,7 +99,7 @@ impl Component {
 		self.control.servers.insert(id.clone(), server.clone());
 
 		// Stop and unregister the service when its task ends, even if the task panics or is aborted, unless a reconnect replaced it.
-		let guard = scopeguard::guard((), {
+		let guard = std::mem::DropGuard::new((), {
 			let component = self.clone();
 			let id = id.clone();
 			let server = server.clone();

@@ -2069,7 +2069,7 @@ mod tests {
 		let active = Arc::new(AtomicUsize::new(0));
 		let barrier = Arc::new(Barrier::new(2));
 		let maximum = Arc::new(AtomicUsize::new(0));
-		let (client, receiver) = facts::channel::<std::convert::Infallible>(2);
+		let (client, receiver) = facts::channel::<!>(2);
 		let verify = Batch::verify(
 			&args,
 			client,

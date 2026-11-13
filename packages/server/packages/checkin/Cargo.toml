@@ -28,7 +28,6 @@ libc = { workspace = true }
 mime = { workspace = true }
 num = { workspace = true }
 petgraph = { workspace = true }
-scopeguard = { workspace = true }
 serde_json = { workspace = true }
 tangram_cache = { workspace = true }
 tangram_client = { workspace = true }

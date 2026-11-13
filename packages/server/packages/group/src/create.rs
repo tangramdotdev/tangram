@@ -284,7 +284,8 @@ impl Component {
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		arg: tg::group::create::Arg,
 		batch: &mut tangram_index::write::Arg,
-	) -> tg::Result<ControlFlow<tg::group::create::Output, tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<tg::group::create::Output, tangram_server_core::database::Error>>
+	{
 		let id =
 			match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 				transaction,

@@ -256,8 +256,7 @@ fn append_directories_to_path(command: &mut Command, directories: &[&Path]) -> t
 	let mut paths = command
 		.env
 		.get("PATH")
-		.map(|path| std::env::split_paths(path).collect::<Vec<_>>())
-		.unwrap_or_default();
+		.map_or_default(|path| std::env::split_paths(path).collect::<Vec<_>>());
 	paths.extend(directories.iter().map(|path| path.to_path_buf()));
 	let path = std::env::join_paths(paths)
 		.map_err(|error| tg::error!(!error, "failed to build `PATH`"))?;

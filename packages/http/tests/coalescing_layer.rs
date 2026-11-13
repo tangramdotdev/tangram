@@ -2,7 +2,6 @@ use {
 	bytes::Bytes,
 	futures::stream,
 	http_body_util::BodyExt as _,
-	std::convert::Infallible,
 	tangram_http::{
 		body::Boxed,
 		layer::coalescing::{RequestCoalescingLayer, ResponseCoalescingLayer},
@@ -15,7 +14,7 @@ async fn coalesces_request_bodies() {
 	let service = tower::service_fn(|request: http::Request<Boxed>| async move {
 		let mut body = request.into_body();
 		assert_frame_lengths(&mut body).await;
-		Ok::<_, Infallible>(http::Response::new(Boxed::empty()))
+		Ok::<_, !>(http::Response::new(Boxed::empty()))
 	});
 	let service = RequestCoalescingLayer::new(16 * 1024).layer(service);
 	let request = http::Request::new(body());
@@ -26,7 +25,7 @@ async fn coalesces_request_bodies() {
 #[tokio::test]
 async fn coalesces_response_bodies() {
 	let service = tower::service_fn(|_: http::Request<Boxed>| async move {
-		Ok::<_, Infallible>(http::Response::new(body()))
+		Ok::<_, !>(http::Response::new(body()))
 	});
 	let service = ResponseCoalescingLayer::new(16 * 1024).layer(service);
 	let request = http::Request::new(Boxed::empty());
@@ -37,7 +36,7 @@ async fn coalesces_response_bodies() {
 }
 
 fn body() -> Boxed {
-	let chunks = (0..16_385).map(|_| Ok::<_, Infallible>(Bytes::from_static(b"a")));
+	let chunks = (0..16_385).map(|_| Ok::<_, !>(Bytes::from_static(b"a")));
 	Boxed::with_data_stream(stream::iter(chunks))
 }
 

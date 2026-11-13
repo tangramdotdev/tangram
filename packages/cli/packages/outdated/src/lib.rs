@@ -149,13 +149,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			entry
 				.compatible
 				.as_ref()
-				.map(ToString::to_string)
-				.unwrap_or_default(),
-			entry
-				.latest
-				.as_ref()
-				.map(ToString::to_string)
-				.unwrap_or_default(),
+				.map_or_default(ToString::to_string),
+			entry.latest.as_ref().map_or_default(ToString::to_string),
 		)
 	});
 

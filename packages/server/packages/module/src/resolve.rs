@@ -487,12 +487,13 @@ impl Component {
 							| tg::module::Kind::Python
 							| tg::module::Kind::TypeScript
 					)
-				) && let Some(root_module_name) =
-				tg::module::try_get_root_module_file_name_with_instance(
-					session,
-					tg::Either::Right(&path),
 				)
-				.await?
+				&& let Some(root_module_name) =
+					tg::module::try_get_root_module_file_name_with_instance(
+						session,
+						tg::Either::Right(&path),
+					)
+					.await?
 			{
 				let path = path.join(root_module_name);
 				let source = tg::module::data::Source::Path(path);

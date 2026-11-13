@@ -65,6 +65,6 @@ fn convert_selection_range(range: SelectionRange) -> lsp::SelectionRange {
 		range: range.range.into(),
 		parent: range
 			.parent
-			.map(|range| Box::new(convert_selection_range(*range))),
+			.map(|range| Box::map(range, convert_selection_range)),
 	}
 }

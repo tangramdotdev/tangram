@@ -51,7 +51,7 @@ impl Component {
 		let p = transaction.p();
 
 		// The empty string sorts before every grant ID for the first page.
-		let after = after.map(ToString::to_string).unwrap_or_default();
+		let after = after.map_or_default(ToString::to_string);
 		let limit = limit.map_or(i64::MAX, |limit| i64::try_from(limit).unwrap());
 		let statement = formatdoc!(
 			"
@@ -440,7 +440,8 @@ impl Component {
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		arg: tg::grant::grant::Arg,
 		batch: &mut tangram_index::write::Arg,
-	) -> tg::Result<ControlFlow<(tg::grant::Data, bool), tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<(tg::grant::Data, bool), tangram_server_core::database::Error>>
+	{
 		let resource =
 			match Self::resolve_resource_with_transaction(transaction, &arg.resource.node).await? {
 				ControlFlow::Break(resource) => resource,
@@ -861,7 +862,8 @@ impl Component {
 	async fn try_get_grant_data_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		grant: &tg::grant::Id,
-	) -> tg::Result<ControlFlow<Option<tg::grant::Data>, tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<Option<tg::grant::Data>, tangram_server_core::database::Error>>
+	{
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			created_at: i64,
@@ -1651,7 +1653,7 @@ impl Component {
 		let p = transaction.p();
 
 		// The empty string sorts before every grant ID for the first page.
-		let after = after.map(ToString::to_string).unwrap_or_default();
+		let after = after.map_or_default(ToString::to_string);
 		let limit = limit.map_or(i64::MAX, |limit| i64::try_from(limit).unwrap());
 		let statement = formatdoc!(
 			"
@@ -1979,7 +1981,8 @@ impl tangram_server_core::grant::Component for Component {
 		transaction: &'a tangram_server_core::database::Transaction<'_>,
 		arg: tg::grant::revoke::Arg,
 		batch: &'a mut tangram_index::write::Arg,
-	) -> BoxFuture<'a, tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>>> {
+	) -> BoxFuture<'a, tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>>>
+	{
 		self.revoke_with_transaction(session, transaction, arg, batch)
 			.boxed()
 	}

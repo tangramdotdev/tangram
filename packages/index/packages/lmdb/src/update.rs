@@ -312,8 +312,9 @@ impl Index {
 					})?;
 				// Propagate an older version even when the item's metadata or permissions are unchanged.
 				if source == Source::Put
-					|| changed || propagated_version
-					.is_some_and(|propagated_version| version < propagated_version)
+					|| changed
+					|| propagated_version
+						.is_some_and(|propagated_version| version < propagated_version)
 				{
 					Self::enqueue_parents(db, subspace, transaction, &id, &kind, version)?;
 					let item = match &id {

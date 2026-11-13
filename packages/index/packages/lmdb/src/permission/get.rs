@@ -74,8 +74,7 @@ impl Index {
 		let entries = value
 			.map(crate::permission::PermissionValue::deserialize)
 			.transpose()?
-			.map(|value| value.entries(subject))
-			.unwrap_or_default();
+			.map_or_default(|value| value.entries(subject));
 
 		Ok(entries)
 	}

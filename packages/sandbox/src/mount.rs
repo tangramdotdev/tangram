@@ -624,8 +624,10 @@ fn open_or_create_file(parent: RawFd, name: &OsStr) -> std::io::Result<OwnedFd> 
 					parent,
 					name_cstring.as_ptr(),
 					libc::O_WRONLY
-						| libc::O_CREAT | libc::O_EXCL
-						| libc::O_CLOEXEC | libc::O_NOFOLLOW,
+						| libc::O_CREAT
+						| libc::O_EXCL
+						| libc::O_CLOEXEC
+						| libc::O_NOFOLLOW,
 					0o644,
 				)
 			};

@@ -66,8 +66,7 @@ impl Component {
 					let local_id = output.as_ref().map(|output| output.id.clone());
 					let local_tokens = output
 						.as_ref()
-						.map(|output| output.tokens.clone())
-						.unwrap_or_default();
+						.map_or_default(|output| output.tokens.clone());
 					let wait_future =
 						self.spawn_process_wait_local(session, local_id, local_tokens, None, false);
 					match future::select(pin!(wait_future), cache_future).await {
@@ -154,8 +153,7 @@ impl Component {
 		let local_id = output.as_ref().map(|output| output.id.clone());
 		let local_tokens = output
 			.as_ref()
-			.map(|output| output.tokens.clone())
-			.unwrap_or_default();
+			.map_or_default(|output| output.tokens.clone());
 		let local_outcome = output
 			.as_ref()
 			.map(Output::try_outcome)
@@ -188,7 +186,8 @@ impl Component {
 				if let Ok(Some(cached_output)) = result {
 					// Cancel the candidate, logging a failure, because the spawn already has the cached process.
 					if let Some(output) = &output
-						&& !output.cached && output.lease.is_some()
+						&& !output.cached
+						&& output.lease.is_some()
 					{
 						let result = self
 							.spawn_process_cancel_candidate(

@@ -27,7 +27,8 @@ impl Server {
 		&self,
 		index: u64,
 		arg: crate::client::stdio::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static>
+	{
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}

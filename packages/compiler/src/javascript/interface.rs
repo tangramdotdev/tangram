@@ -583,7 +583,8 @@ impl Converter<'_> {
 				&& (member.flags.get().intersects(
 					TypeFlags::BigIntLike
 						| TypeFlags::ESSymbolLike
-						| TypeFlags::Never | TypeFlags::Undefined
+						| TypeFlags::Never
+						| TypeFlags::Undefined
 						| TypeFlags::Void,
 				) || self.checker.get_promised_type_of_promise(member).is_some()
 					|| !self.checker.get_call_signatures(member).is_empty())
@@ -629,8 +630,7 @@ impl Converter<'_> {
 		let flags = type_
 			.target()
 			.filter(|target| target.object_flags().intersects(ObjectFlags::Tuple))
-			.map(|target| target.as_tuple_type().element_flags())
-			.unwrap_or_default();
+			.map_or_default(|target| target.as_tuple_type().element_flags());
 		let arguments = self.checker.get_type_arguments_exported(type_).to_vec();
 		let mut elements = Vec::new();
 		let mut rest = None;

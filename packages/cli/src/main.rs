@@ -8,6 +8,10 @@ use {
 	tangram_client::prelude::*,
 };
 
+// Include the FoundationDB native library search path.
+#[cfg(feature = "foundationdb")]
+use tangram_fdb as _;
+
 #[cfg(test)]
 mod tests;
 

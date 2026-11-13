@@ -232,8 +232,7 @@ impl TimeToLive {
 			tg::remote::cache::TimeToLive::Infinite
 		} else {
 			self.time_to_live
-				.map(tg::remote::cache::TimeToLive::Duration)
-				.unwrap_or_default()
+				.map_or_default(tg::remote::cache::TimeToLive::Duration)
 		}
 	}
 }

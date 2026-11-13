@@ -1525,8 +1525,7 @@ impl Graph {
 	) -> tg::process::Availability {
 		self.nodes
 			.get_index_of(&tg::Id::from(id.clone()))
-			.map(|index| self.process_local_availability(index))
-			.unwrap_or_default()
+			.map_or_default(|index| self.process_local_availability(index))
 	}
 
 	#[must_use]

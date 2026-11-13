@@ -159,8 +159,9 @@ pub trait Index {
 	fn try_get_process_with_data(
 		&self,
 		id: &tg::process::Id,
-	) -> impl Future<Output = tg::Result<Option<(crate::process::Process, Option<tg::process::Data>)>>>
-	+ Send {
+	) -> impl Future<
+		Output = tg::Result<Option<(crate::process::Process, Option<tg::process::Data>)>>,
+	> + Send {
 		self.try_get_processes_with_data(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}

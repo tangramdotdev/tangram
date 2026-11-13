@@ -15,7 +15,8 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::checkout::Checkout>>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::checkout::Checkout>>, fdb::FdbError>>
+	{
 		let entries = {
 			let result = future::try_join_all(ids.iter().map(|id| {
 				let subspace = subspace.clone();

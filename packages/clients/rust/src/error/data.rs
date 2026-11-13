@@ -161,7 +161,7 @@ impl Error {
 			source.options.clear_location_and_tokens();
 			source.node = match source.node {
 				tg::Either::Left(error) => {
-					tg::Either::Left(Box::new((*error).without_location_and_tokens()))
+					tg::Either::Left(Box::map(error, Self::without_location_and_tokens))
 				},
 				tg::Either::Right(id) => tg::Either::Right(id),
 			};

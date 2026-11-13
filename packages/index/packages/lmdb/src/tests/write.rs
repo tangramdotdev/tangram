@@ -191,7 +191,7 @@ async fn partial_account_updates_preserve_billing() {
 #[tokio::test]
 async fn process_children_are_stored_separately_from_data() {
 	let (_dir, index) = new_index();
-	let mut ids = (0..3).map(|_| tg::process::Id::new()).collect::<Vec<_>>();
+	let mut ids = Vec::from_fn(3, |_| tg::process::Id::new());
 	ids.sort();
 	ids.reverse();
 	let expected = ids

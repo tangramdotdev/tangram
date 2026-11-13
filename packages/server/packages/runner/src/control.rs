@@ -823,7 +823,8 @@ impl Component {
 					let mut message = result?;
 					if let tg::runner::control::ServerMessage::Request(request) = &mut message
 						&& let tg::runner::control::ServerRequestArg::CreateSandbox(arg) =
-							&mut request.arg && let Some(process) = &mut arg.process
+							&mut request.arg
+						&& let Some(process) = &mut arg.process
 					{
 						session
 							.server

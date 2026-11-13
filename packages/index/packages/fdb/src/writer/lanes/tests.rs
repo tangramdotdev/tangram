@@ -127,7 +127,7 @@ fn items_without_an_affinity_use_several_lanes() {
 
 	// A large write without an affinity is spread across the lanes in chunks of a batch.
 	let mut lanes = Lanes::new(4, 8, 8);
-	let _receiver = dispatch(&mut lanes, (0..32).map(|_| tag_delete()).collect());
+	let _receiver = dispatch(&mut lanes, Vec::from_fn(32, |_| tag_delete()));
 	let batches = lanes.next();
 	assert_eq!(batches.len(), 4);
 	assert!(
@@ -181,7 +181,7 @@ async fn a_request_split_across_lanes_answers_once_with_the_first_error() {
 #[tokio::test]
 async fn a_write_larger_than_a_batch_is_split_and_answers_once() {
 	let mut lanes = Lanes::new(1, 8_000, 1_000);
-	let receiver = dispatch(&mut lanes, (0..2_500).map(|_| tag_delete()).collect());
+	let receiver = dispatch(&mut lanes, Vec::from_fn(2_500, |_| tag_delete()));
 	let mut sizes = Vec::new();
 	loop {
 		let batches = lanes.next();

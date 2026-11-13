@@ -165,7 +165,7 @@ impl Component {
 		limit: u64,
 	) -> tg::Result<ControlFlow<Vec<Row>, tangram_server_core::database::Error>> {
 		// The empty string sorts before every token ID for the first page.
-		let after = after.map(ToString::to_string).unwrap_or_default();
+		let after = after.map_or_default(ToString::to_string);
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r#"

@@ -272,7 +272,8 @@ impl Component {
 						|| !matches!(
 							Self::cached_process_error_code(data),
 							Some(tg::error::Code::ChecksumMismatch)
-						) || actual_checksum.algorithm() != expected_checksum.algorithm()
+						)
+						|| actual_checksum.algorithm() != expected_checksum.algorithm()
 					{
 						return None;
 					}
@@ -546,7 +547,8 @@ impl Component {
 						false,
 						true,
 					)
-					.await? && process.data.status.is_finished()
+					.await?
+					&& process.data.status.is_finished()
 				{
 					output.data = process.data;
 					return Ok(output.data.cacheable.then_some(output));

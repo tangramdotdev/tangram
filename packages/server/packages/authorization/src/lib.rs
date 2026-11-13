@@ -101,10 +101,7 @@ impl Component {
 		else {
 			return false;
 		};
-		if token.verify_at(secret, now).is_err() {
-			return false;
-		}
-		true
+		token.verify_at(secret, now).is_ok()
 	}
 
 	#[must_use]

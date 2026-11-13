@@ -33,7 +33,8 @@ impl Component {
 		session: &Session,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>>
+	{
 		session.verify_request_with_network_access()?;
 		let output = match reference.node() {
 			tg::reference::Node::Id(id) => {
@@ -983,7 +984,8 @@ impl Component {
 	async fn try_get_tag_target_state_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		id: &tg::tag::Id,
-	) -> tg::Result<ControlFlow<Option<(tg::Id, String)>, tangram_server_core::database::Error>> {
+	) -> tg::Result<ControlFlow<Option<(tg::Id, String)>, tangram_server_core::database::Error>>
+	{
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]

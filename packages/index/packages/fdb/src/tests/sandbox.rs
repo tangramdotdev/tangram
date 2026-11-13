@@ -299,7 +299,7 @@ async fn concurrent_writes_of_one_sandbox_and_a_write_across_sandboxes_are_appli
 	super::run(&options, async |index| {
 		// Write boots of one sandbox concurrently with writes of other sandboxes, so that the writes share lanes and transactions.
 		let id = tg::sandbox::Id::new();
-		let others = (0..8).map(|_| tg::sandbox::Id::new()).collect::<Vec<_>>();
+		let others = Vec::from_fn(8, |_| tg::sandbox::Id::new());
 		let boots = (0..16).map(|boot| {
 			put(
 				index,

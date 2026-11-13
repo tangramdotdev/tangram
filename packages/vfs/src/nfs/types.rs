@@ -810,34 +810,34 @@ pub struct open_claim_delegate_cur4 {
 #[derive(Clone, Debug)]
 pub enum open_claim4 {
 	/*
-		* No special rights to file.
-		* Ordinary OPEN of the specified file.
-		*/
+	 * No special rights to file.
+	 * Ordinary OPEN of the specified file.
+	 */
 	/* CURRENT_FH: directory */
 	CLAIM_NULL(component4),
 
 	/*
-		* Right to the file established by an
-		* open previous to server reboot.  File
-		* identified by filehandle obtained at
-		* that time rather than by name.
-		*/
+	 * Right to the file established by an
+	 * open previous to server reboot.  File
+	 * identified by filehandle obtained at
+	 * that time rather than by name.
+	 */
 	/* CURRENT_FH: file being reclaimed */
 	CLAIM_PREVIOUS(open_delegation_type4),
 
 	/*
-		* Right to file based on a delegation
-		* granted by the server.  File is
-		* specified by name.
-		*/
+	 * Right to file based on a delegation
+	 * granted by the server.  File is
+	 * specified by name.
+	 */
 	/* CURRENT_FH: directory */
 	CLAIM_DELEGATE_CUR(open_claim_delegate_cur4),
 
 	/*
-		* Right to file based on a delegation
-		* granted to a previous boot instance
-		* of the client.  File is specified by name.
-		*/
+	 * Right to file based on a delegation
+	 * granted to a previous boot instance
+	 * of the client.  File is specified by name.
+	 */
 	/* CURRENT_FH: directory */
 	CLAIM_DELEGATE_PREV(component4),
 }

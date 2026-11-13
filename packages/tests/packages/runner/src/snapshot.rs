@@ -147,9 +147,7 @@ fn diff(old: &Path, new: &Path) -> String {
 		.arg(old)
 		.arg(new)
 		.output();
-	output
-		.map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
-		.unwrap_or_default()
+	output.map_or_default(|output| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// Get the paths of a test's file snapshot state with an extension: `<stem>.<extension>` beside the test and `<stem>/*.<extension>`.

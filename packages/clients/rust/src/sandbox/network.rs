@@ -88,18 +88,16 @@ impl Network {
 impl Port {
 	#[must_use]
 	pub fn expand(self) -> Vec<Self> {
-		(0..self.guest.len())
-			.map(|index| {
-				let host = self.host.map(|range| Range::single(range.port_at(index)));
-				let guest = Range::single(self.guest.port_at(index));
-				Self {
-					host_ip: self.host_ip,
-					host,
-					guest,
-					protocol: self.protocol,
-				}
-			})
-			.collect()
+		Vec::from_fn(self.guest.len(), |index| {
+			let host = self.host.map(|range| Range::single(range.port_at(index)));
+			let guest = Range::single(self.guest.port_at(index));
+			Self {
+				host_ip: self.host_ip,
+				host,
+				guest,
+				protocol: self.protocol,
+			}
+		})
 	}
 
 	#[must_use]

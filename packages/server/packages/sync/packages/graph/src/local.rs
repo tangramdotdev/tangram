@@ -412,8 +412,7 @@ impl Graph {
 					metadata: node
 						.metadata
 						.as_ref()
-						.map(|metadata| metadata.subtree.clone())
-						.unwrap_or_default(),
+						.map_or_default(|metadata| metadata.subtree.clone()),
 					permissions: node.local_permissions.is_some_and(|permissions| {
 						permissions.contains(tg::authorization::permission::Set::Object(
 							tg::authorization::permission::object::Set::SUBTREE,

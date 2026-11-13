@@ -101,7 +101,8 @@ impl Instance {
 		&self,
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::wait::Arg,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>>
+	{
 		if let Some(connection) = process
 			.as_ref()
 			.right()

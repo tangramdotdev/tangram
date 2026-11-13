@@ -46,7 +46,8 @@ impl tg::Value {
 					None => None,
 				};
 				if let Self::Object(object) = &value
-					&& !blobs && object.is_blob()
+					&& !blobs
+					&& object.is_blob()
 				{
 					continue;
 				}

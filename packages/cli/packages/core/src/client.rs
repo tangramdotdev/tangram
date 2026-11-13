@@ -204,8 +204,7 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.client.as_ref())
 			.and_then(|client| client.process)
-			.map(crate::config::resolve_client_process)
-			.unwrap_or_default();
+			.map_or_default(crate::config::resolve_client_process);
 
 		// Get the progress options.
 		let progress = self.progress_config();
@@ -216,8 +215,7 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.client.as_ref())
 			.and_then(|client| client.sandbox)
-			.map(crate::config::resolve_client_sandbox)
-			.unwrap_or_default();
+			.map_or_default(crate::config::resolve_client_sandbox);
 
 		// Get the stream retry options.
 		let stream_retry = self
@@ -236,8 +234,7 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.client.as_ref())
 			.and_then(|client| client.sync)
-			.map(crate::config::resolve_client_sync)
-			.unwrap_or_default();
+			.map_or_default(crate::config::resolve_client_sync);
 
 		// Get the value options.
 		let value = self
@@ -245,8 +242,7 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.client.as_ref())
 			.and_then(|client| client.value)
-			.map(crate::config::resolve_client_value)
-			.unwrap_or_default();
+			.map_or_default(crate::config::resolve_client_value);
 
 		let arg = tg::Arg {
 			url: Some(url),

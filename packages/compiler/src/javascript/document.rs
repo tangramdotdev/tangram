@@ -795,7 +795,7 @@ impl Converter<'_> {
 	}
 
 	fn parameter_declaration(&mut self, node: P<Node>) -> Parameter {
-		let name = node.name().map(node_text).unwrap_or_default();
+		let name = node.name().map_or_default(node_text);
 		let (optional, rest) = if node.kind() == Kind::Parameter {
 			let declaration = node.as_parameter_declaration();
 			let optional = node.question_token().is_some() || node.initializer().is_some();
@@ -859,8 +859,7 @@ impl Converter<'_> {
 		// Otherwise, use the checker.
 		let name = type_
 			.symbol()
-			.map(|symbol| symbol.name().to_owned())
-			.unwrap_or_default();
+			.map_or_default(|symbol| symbol.name().to_owned());
 		let constraint = self
 			.checker
 			.get_constraint_of_type_parameter_exported(type_)
@@ -1221,7 +1220,8 @@ impl Converter<'_> {
 					+ self
 						.checker
 						.get_signatures_of_type_exported(type_, SignatureKind::Construct)
-						.len() + self.checker.get_index_infos_of_type_exported(type_).len();
+						.len()
+					+ self.checker.get_index_infos_of_type_exported(type_).len();
 				if count > MEMBERS {
 					return self.other(type_);
 				}
@@ -1245,12 +1245,8 @@ impl Converter<'_> {
 			.target()
 			.filter(|target| target.object_flags().intersects(ObjectFlags::Tuple))
 			.map(|target| target.as_tuple_type());
-		let element_flags = tuple
-			.map(tsrs_checker::TupleType::element_flags)
-			.unwrap_or_default();
-		let infos = tuple
-			.map(tsrs_checker::TupleType::element_infos)
-			.unwrap_or_default();
+		let element_flags = tuple.map_or_default(tsrs_checker::TupleType::element_flags);
+		let infos = tuple.map_or_default(tsrs_checker::TupleType::element_infos);
 
 		// Convert the elements.
 		let types = self
@@ -1292,7 +1288,7 @@ impl Converter<'_> {
 			let declaration = symbol
 				.value_declaration()
 				.or_else(|| symbol.declarations().first().copied());
-			let documentation = declaration.map(documentation).unwrap_or_default();
+			let documentation = declaration.map_or_default(documentation);
 			if documentation.hidden {
 				continue;
 			}
@@ -1521,11 +1517,7 @@ fn documentation(node: P<Node>) -> Documentation {
 		text: tsrs_scanner::get_text_of_jsdoc_comment(jsdoc.comment_list()),
 		..Default::default()
 	};
-	let tags = jsdoc
-		.as_jsdoc()
-		.tags
-		.map(|tags| tags.nodes())
-		.unwrap_or_default();
+	let tags = jsdoc.as_jsdoc().tags.map_or_default(|tags| tags.nodes());
 	for tag in tags {
 		let name = tag.tag_name().text();
 		let text = tsrs_scanner::get_text_of_jsdoc_comment(tag.comment_list());
@@ -1544,7 +1536,7 @@ fn documentation(node: P<Node>) -> Documentation {
 			},
 			_ if tag.kind() == Kind::JSDocParameterTag => {
 				if let Some(parameter) = tag.name() {
-					let text = text.strip_prefix("- ").map_or(text.clone(), str::to_owned);
+					let text = text.trim_prefix("- ").to_owned();
 					documentation.parameters.insert(node_text(parameter), text);
 				}
 			},

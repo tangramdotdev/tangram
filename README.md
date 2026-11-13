@@ -118,11 +118,12 @@ and formatting run Rust first, then the package tasks in parallel. The full
 `test` export runs JavaScript, Rust, and e2e tests in order; its arguments are
 forwarded to the e2e runner. Use the individual exports for runner-specific flags.
 
-Checks and formatters label each output line with its package path relative to
-`packages/`, such as `[clients/javascript]` or `[python]`. Workspace Rust and
-script checks use `[rust]` and `[scripts]`. Each task prints its action and a
-success or failure status with elapsed time; child output is piped to keep
-parallel progress animations from colliding.
+Rust checks inherit Cargo's terminal streams directly. Other checks and formatters
+label each output line with its package path relative to `packages/`, such as
+`[clients/javascript]` or `[python]`. Workspace Rust formatting uses `[rust]`, and
+script tasks use `[scripts]`. Each labeled task prints its action and a success or
+failure status with elapsed time; child output is piped to keep parallel progress
+animations from colliding.
 Task labels and status symbols use color when their output stream is a TTY,
 unless `NO_COLOR` is set or `TERM` is `dumb`; redirected output remains plain.
 

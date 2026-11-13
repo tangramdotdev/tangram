@@ -375,7 +375,9 @@ impl Provider {
 			}
 
 			#[cfg(feature = "lmdb")]
-			let transaction = if let tangram_server_core::cache::Cache::Lmdb(cache) = &self.server.cache {
+			let transaction = if let tangram_server_core::cache::Cache::Lmdb(cache) =
+				&self.server.cache
+			{
 				if transaction.is_none() {
 					transaction = match cache.env().read_txn() {
 						Ok(transaction) => Some(transaction),
@@ -4745,8 +4747,7 @@ impl Drop for PendingNodes<'_> {
 impl tangram_server_vfs_core::Provider for Weak {
 	fn root_tokens(&self, id: &tg::artifact::Id) -> tg::authorization::Tokens {
 		self.upgrade()
-			.map(|provider| provider.root_tokens(id))
-			.unwrap_or_default()
+			.map_or_default(|provider| provider.root_tokens(id))
 	}
 
 	fn seed_tokens(&self, id: &tg::Id, tokens: &tg::authorization::Tokens) {

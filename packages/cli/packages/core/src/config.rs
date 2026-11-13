@@ -3543,8 +3543,7 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.client.as_ref())
 			.and_then(|client| client.progress)
-			.map(resolve_client_progress)
-			.unwrap_or_default()
+			.map_or_default(resolve_client_progress)
 	}
 
 	#[must_use]

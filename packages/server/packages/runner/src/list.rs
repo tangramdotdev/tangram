@@ -195,7 +195,7 @@ impl Component {
 		limit: u64,
 	) -> tg::Result<ControlFlow<Vec<Row>, tangram_server_core::database::Error>> {
 		let p = transaction.p();
-		let after = after.map(ToString::to_string).unwrap_or_default();
+		let after = after.map_or_default(ToString::to_string);
 		let mut params = db::params![after, i64::try_from(limit).unwrap()];
 		let condition = match owner {
 			None => "true".to_owned(),

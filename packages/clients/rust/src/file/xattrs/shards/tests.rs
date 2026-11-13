@@ -7,9 +7,7 @@ fn round_trip_and_replace() {
 	xattr::set(&path, "user.example", b"preserved").unwrap();
 	assert_eq!(read_sharded(&path, "user.tangram.output").unwrap(), None);
 	for size in [0, 4, 20_000, 131_072, 4, 0] {
-		let value = (0..size)
-			.map(|index| u8::try_from(index % 256).unwrap())
-			.collect::<Vec<_>>();
+		let value = Vec::from_fn(size, |index| u8::try_from(index % 256).unwrap());
 		write_sharded(&path, "user.tangram.output", &value).unwrap();
 		assert_eq!(
 			read_sharded(&path, "user.tangram.output").unwrap(),

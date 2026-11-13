@@ -864,7 +864,8 @@ async fn resolve_module_with_graphs(
 				| tg::module::Kind::Yaml
 				| tg::module::Kind::JavaScript
 				| tg::module::Kind::TypeScript
-		) && let Some(entry) = compiler.try_get_interface(referrer)
+		)
+		&& let Some(entry) = compiler.try_get_interface(referrer)
 		&& let Some(module) =
 			crate::load::try_get_import(&entry.interface, &arg.import.reference.to_string())
 	{

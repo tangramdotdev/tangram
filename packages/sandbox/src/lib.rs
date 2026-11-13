@@ -457,7 +457,7 @@ impl Sandbox {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
 			},
 			Backend::CloudHypervisor(_) => {
-				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
+				let ports = arg.network.as_ref().map_or_default(Network::ports);
 				let network = crate::cloud_hypervisor::network::create(
 					arg.index,
 					&arg.identity,
@@ -1158,7 +1158,8 @@ impl Sandbox {
 		&self,
 		process: &Process,
 		streams: Vec<tg::process::stdio::Stream>,
-	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static>
+	{
 		let arg = crate::client::stdio::Arg { streams };
 		self.0.client.read_stdio(process.index, arg).await
 	}
@@ -1168,7 +1169,8 @@ impl Sandbox {
 		process: &Process,
 		streams: Vec<tg::process::stdio::Stream>,
 		input: impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static,
-	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::write::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::write::Event>> + Send + 'static>
+	{
 		let arg = crate::client::stdio::Arg { streams };
 		self.0.client.write_stdio(process.index, arg, input).await
 	}

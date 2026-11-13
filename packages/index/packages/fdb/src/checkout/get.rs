@@ -11,7 +11,8 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::Id],
-	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::checkout::Checkout>>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::checkout::Checkout>>, fdb::FdbError>>
+	{
 		let entries = {
 			let result = futures::future::try_join_all(
 				ids.iter()
