@@ -178,6 +178,15 @@ export const installDev = async (...args: Array<string>) => {
 		.env(env);
 };
 
+export const release = async (...args: Array<string>) => {
+	const { cwd, env } = await context();
+	await tg.run`nu scripts/release/release.nu "$@"`
+		.executable("sh")
+		.args(["--", ...args])
+		.cwd(cwd)
+		.env(env);
+};
+
 export const releaseBuild = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
 	await tg.run`nu scripts/release/build.nu "$@"`

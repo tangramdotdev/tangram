@@ -1,6 +1,30 @@
 # Releases
 
-A release is four archives, one per host, each containing `tangram`, a `tg` symlink, and the `tgx` script:
+A release is four archives, one per host, each containing `tangram`, a `tg` symlink, and the `tgx` script, and a `SHASUMS256.txt` file for the archives.
+
+## Building a release with one command
+
+```sh
+tg run .#release
+```
+
+This builds every target that this machine can build, checks the archives and the checksums out to `release/`, verifies the checksums, and runs `verify.nu` on each archive. It prints each target that it skipped and why. Pass `-- --plan` to print the plan without building, or name targets after `--` to build exactly those, such as `tg run .#release -- x86_64-unknown-linux-gnu aarch64-apple-darwin`.
+
+The build is the `release` export of `build.tg.ts`, which builds a standalone `tangram` for each target with Tangram, so the release needs no Docker, no Rust toolchain, and no compilers on the machine. Each target is built on a build machine chosen by these rules, which `release.nu` mirrors when it decides what this machine can build:
+
+| Target | Build machine | Status |
+| --- | --- | --- |
+| this machine's platform | this machine | works |
+| another Linux target, from Linux | this machine, cross-compiling | blocked: `std.sdk.standalone` in the std package does not support cross-compilation yet |
+| any other target | a remote runner of the target's platform, reached through Tangram's scheduler | blocked: no remote runners are registered yet |
+
+When the std package supports standalone cross-compilation and remote runners exist, update `route` in `release.nu` and the same command builds every target from any machine. Until then, build each blocked target on a machine of its platform with `tg run .#release`, or with the container scripts below.
+
+The Linux binaries link against glibc `releaseGlibcVersion` in `build.tg.ts`, 2.34, so they run on RHEL 9, Ubuntu 22.04, Debian 12, and later distributions. The macOS binaries are not yet signed or notarized by this path, so `release.nu` verifies them with `--skip-signing`.
+
+## Building one target in a container
+
+The scripts below build one target per machine with Docker on Linux and with the host toolchain on macOS. They link the Linux binaries against glibc 2.34 in an AlmaLinux 9 image, and they sign and notarize the macOS binaries.
 
 | Archive | Target | Built on |
 | --- | --- | --- |
@@ -9,15 +33,16 @@ A release is four archives, one per host, each containing `tangram`, a `tg` syml
 | `tangram_aarch64-linux.tar.gz` | `aarch64-unknown-linux-gnu` | an aarch64 Linux machine, in a container |
 | `tangram_x86_64-linux.tar.gz` | `x86_64-unknown-linux-gnu` | an x86_64 Linux machine, in a container |
 
-The Linux binaries are built in the AlmaLinux 9 image defined by `Dockerfile` in this directory, so they require glibc 2.34 or later wherever they run, regardless of the distribution of the build machine. They require no other shared libraries: the image links libseccomp and libcap-ng statically, and the linker drops OpenSSL because the default features never call it. `verify.nu` fails if that changes. The macOS binaries are signed with the Developer ID Application identity and notarized.
+The image links libseccomp and libcap-ng statically, and the linker drops OpenSSL because the default features never call it, so the Linux binaries require no shared libraries other than glibc's. `verify.nu` fails if that changes.
 
 | Script | Purpose |
 | --- | --- |
+| `release.nu [--plan] [<triple>...]` | Build, check out, and verify the archives for every target this machine can build. |
 | `bump.nu <version>` | Set the version everywhere it is declared. |
-| `build.nu [--target <triple>]` | Build `release/tangram_<host>.tar.gz` for one target. |
+| `build.nu [--target <triple>]` | Build `release/tangram_<host>.tar.gz` for one target in a container. |
 | `verify.nu <archive>` | Check an archive and print a report. Exits nonzero if any check fails. |
 
-Each script is also a root export: `tg run .#releaseBuild -- --target x86_64-apple-darwin`. Run the scripts with `nu` directly on a machine that does not have Tangram installed.
+Each script is also a root export: `tg run .#release`, `tg run .#releaseBuild -- --target x86_64-apple-darwin`, and so on. `release.nu` requires Tangram, and the other scripts can run with `nu` directly on a machine that does not have Tangram installed.
 
 ## Validating a build machine
 

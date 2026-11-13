@@ -225,47 +225,117 @@ export const image = async (...args: tg.Args<Arg>) => {
 	});
 };
 
-export const release = async () => {
-	const targets = [
-		"aarch64-apple-darwin",
-		"aarch64-unknown-linux-gnu",
-		"x86_64-apple-darwin",
-		"x86_64-unknown-linux-gnu",
-	];
-	const archives: Record<string, tg.File> = {};
-	for (const target of targets) {
-		// Build tangram for this target.
-		const output = await build({ host: target });
+// Release targets.
 
-		// Determine the archive name.
-		const arch = std.triple.arch(target);
-		let os: string;
-		if (std.triple.os(target) === "darwin") {
-			os = "darwin";
-		} else {
-			os = "linux";
-		}
-		const archiveName = `tangram_${arch}-${os}.tar.gz`;
+/** The targets of a release. */
+export const releaseTargets = [
+	"aarch64-apple-darwin",
+	"aarch64-unknown-linux-gnu",
+	"x86_64-apple-darwin",
+	"x86_64-unknown-linux-gnu",
+];
 
-		// Add a tgx wrapper script alongside the tangram binary.
-		const tgx = tg.file("#!/bin/sh\ntg run -b $@", { executable: true });
-		const releaseDir = await tg.directory(output, {
-			["bin/tgx"]: tgx,
-		});
+/** The glibc that the Linux release binaries link against, which is the oldest that they require. */
+export const releaseGlibcVersion = "2.34" as const;
 
-		// Create a tar.gz archive.
-		const archive = await $`
-			mkdir -p $OUTPUT
-			tar -czf $OUTPUT/${archiveName} -C ${releaseDir}/bin tangram tg tgx
-		`
-			.env(dash({ build: std.triple.host() }))
-			.then(tg.Directory.expect)
-			.then((d) => d.get(archiveName))
+export type ReleaseArg = {
+	/** The commit to report in the version. */
+	commit?: string;
+
+	/** The targets to build, which default to every release target. */
+	targets?: Array<string>;
+};
+
+export type ReleaseArchiveArg = {
+	/** The machine that builds the archive, which defaults to this machine. */
+	build?: string;
+
+	/** The commit to report in the version. */
+	commit?: string;
+
+	/** The target of the archive, which defaults to this machine. */
+	host?: string;
+};
+
+/** Build a release archive for each target and a checksum file for the archives. */
+export const release = async (...args: tg.Args<ReleaseArg>) => {
+	const arg = await std.args.apply<ReleaseArg, ReleaseArg>({
+		args,
+		map: async (arg) => arg,
+		reduce: {},
+	});
+	const machine = std.triple.host();
+	const targets = arg?.targets ?? releaseTargets;
+
+	// Build each archive on a runner of its build machine's platform, which is this machine when the platforms match and a remote runner otherwise.
+	const entries = await Promise.all(
+		targets.map(async (target) => {
+			const buildMachine = releaseBuildMachine(machine, target);
+			const archiveArg = {
+				build: buildMachine,
+				host: target,
+				...std.args.optional("commit", arg?.commit),
+			};
+			const archive = await tg
+				.build(releaseArchive, archiveArg)
+				.host(std.triple.archAndOs(buildMachine))
+				.named(`release ${target}`)
+				.then(tg.File.expect);
+			return [releaseArchiveName(target), archive] as const;
+		}),
+	);
+	const archives = await tg.directory(Object.fromEntries(entries));
+
+	// Write the checksums of the archives.
+	const checksums =
+		await $`cd ${archives} && sha256sum tangram_*.tar.gz > $OUTPUT`
+			.env(dash({ build: machine }))
 			.then(tg.File.expect);
+	const output = await tg.directory(archives, {
+		"SHASUMS256.txt": checksums,
+	});
 
-		archives[archiveName] = archive;
-	}
-	return tg.directory(archives);
+	return output;
+};
+
+/** Build the release archive for one target, which contains a standalone tangram, the tg symlink, and the tgx script. */
+export const releaseArchive = async (...args: tg.Args<ReleaseArchiveArg>) => {
+	const arg = await std.args.apply<ReleaseArchiveArg, ReleaseArchiveArg>({
+		args,
+		map: async (arg) => arg,
+		reduce: {},
+	});
+	const host = arg?.host ?? std.triple.host();
+	const build_ = arg?.build ?? std.triple.host();
+
+	// Build a standalone tangram, linked against the release glibc on Linux.
+	const standalone_ =
+		std.triple.os(host) === "linux"
+			? { glibcVersion: releaseGlibcVersion }
+			: true;
+	const env =
+		arg?.commit === undefined
+			? undefined
+			: { TANGRAM_CLI_COMMIT_HASH: arg.commit };
+	const output = await build({
+		build: build_,
+		host,
+		standalone: standalone_,
+		...std.args.optional("env", env),
+	});
+
+	// Add the tgx script beside the binary.
+	const tgx = tg.file('#!/bin/sh\nexec tg run -b "$@"\n', {
+		executable: true,
+	});
+	const directory = await tg.directory(output, { "bin/tgx": tgx });
+
+	// Create the archive.
+	const archive = await $`tar -czf $OUTPUT -C ${directory}/bin tangram tg tgx`
+		.env(dash({ build: build_ }))
+		.then(tg.File.expect);
+
+	return archive;
 };
 
 // Test targets.
@@ -607,3 +677,13 @@ type PythonDistributions = {
 type CargoLock = {
 	package: Array<{ name: string; version: string }>;
 };
+
+/** Get the name of a target's release archive. */
+const releaseArchiveName = (target: string) =>
+	`tangram_${std.triple.arch(target)}-${std.triple.os(target)}.tar.gz`;
+
+/** Choose the machine that builds a release target. A Linux machine cross-compiles every Linux target, and any other target builds on a machine of its own platform. */
+const releaseBuildMachine = (machine: string, target: string) =>
+	std.triple.os(machine) === "linux" && std.triple.os(target) === "linux"
+		? machine
+		: target;

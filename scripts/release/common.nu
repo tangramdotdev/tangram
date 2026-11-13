@@ -8,7 +8,7 @@ export const targets = {
 	'x86_64-unknown-linux-gnu': { arch: 'x86_64', host: 'x86_64-linux', os: 'linux' },
 }
 
-# The oldest glibc that the Linux binaries may require.
+# The newest glibc that the Linux binaries may require, which is releaseGlibcVersion in build.tg.ts.
 export const glibc_floor = [2 34]
 
 # Get the path to the repository.
