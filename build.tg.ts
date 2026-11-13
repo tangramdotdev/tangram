@@ -631,8 +631,8 @@ export const testRust = async () => {
 		`,
 		profile: "dev",
 		profileFlag: "--cargo-profile",
-		proxy: true,
 		sdk: { linker: "mold" },
+		standalone: { glibcVersion: "2.39" },
 		subcommand: "nextest run --all-features --no-fail-fast --workspace",
 	});
 };
