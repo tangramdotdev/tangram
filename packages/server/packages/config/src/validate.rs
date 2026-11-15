@@ -765,7 +765,7 @@ impl Config {
 					"the scheduler ID is required in multi-server mode"
 				));
 			}
-			if scheduler.create_sandbox_queue_capacity == 0 {
+			if scheduler.queue_capacity == 0 {
 				return Err(tg::error!(
 					"the scheduler create sandbox queue capacity must be greater than zero"
 				));
@@ -793,12 +793,12 @@ impl Config {
 					tg::error!(!error, "invalid default sandbox resource bounds")
 				})?;
 			}
-			if scheduler.max_create_sandbox_requests == 0 {
+			if scheduler.max_offers == 0 {
 				return Err(tg::error!(
 					"the maximum number of scheduler create sandbox requests must be greater than zero"
 				));
 			}
-			if scheduler.max_create_sandbox_requests_per_runner == 0 {
+			if scheduler.max_offers_per_runner == 0 {
 				return Err(tg::error!(
 					"the maximum number of scheduler create sandbox requests per runner must be greater than zero"
 				));

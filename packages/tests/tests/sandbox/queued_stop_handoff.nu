@@ -14,7 +14,7 @@ def offered [] {
 	let running = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 	let queued = tg sandbox create --no-tokens --cpu 1 | referent node
 	success (tg sandbox stop $queued | complete) "the stop should return on acceptance"
-	let create = checkpoint watch runner.control.create_sandbox --params { sandbox: $queued }
+	let create = checkpoint watch runner.control.offer_sandbox --params { sandbox: $queued }
 	tg sandbox destroy --wait $running
 	checkpoint wait $create | ignore
 	{ create: $create, sandbox: $queued }

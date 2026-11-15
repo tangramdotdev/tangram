@@ -149,11 +149,11 @@ pub struct ClientResponse {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientResponseOutput {
-	#[tangram_serialize(id = 0)]
-	CreateSandbox(CreateSandboxClientResponseOutput),
-
 	#[tangram_serialize(id = 1)]
 	DestroySandbox(DestroySandboxClientResponseOutput),
+
+	#[tangram_serialize(id = 0)]
+	OfferSandbox(OfferSandboxClientResponseOutput),
 }
 
 #[derive(
@@ -196,11 +196,11 @@ pub struct ServerRequest {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerRequestArg {
-	#[tangram_serialize(id = 0)]
-	CreateSandbox(CreateSandboxServerRequestArg),
-
 	#[tangram_serialize(id = 1)]
 	DestroySandbox(DestroySandboxServerRequestArg),
+
+	#[tangram_serialize(id = 0)]
+	OfferSandbox(OfferSandboxServerRequestArg),
 }
 
 #[derive(
@@ -355,7 +355,7 @@ pub struct Process {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct CreateSandboxServerRequestArg {
+pub struct OfferSandboxServerRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub arg: tg::sandbox::create::Arg,
 
@@ -411,9 +411,9 @@ pub struct CreateSandboxServerRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct CreateSandboxClientResponseOutput {
+pub struct OfferSandboxClientResponseOutput {
 	#[tangram_serialize(id = 0)]
-	pub created: bool,
+	pub accepted: bool,
 }
 
 #[derive(

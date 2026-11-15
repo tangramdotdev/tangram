@@ -7,7 +7,7 @@ let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
-	scheduler: { create_sandbox_timeout: 1 },
+	scheduler: { offer_timeout: 1 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
@@ -17,7 +17,7 @@ let runner = server spawn --name runner --config {
 }
 
 # Hold the runner before it answers the offer, so that the scheduler's wait for the answer times out.
-let create = checkpoint watch runner.control.create_sandbox --url $runner.url
+let create = checkpoint watch runner.control.offer_sandbox --url $runner.url
 let unanswered = checkpoint watch scheduler.sandbox.offer.unanswered --token $root_token --url $remote.url
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 checkpoint wait $create | ignore

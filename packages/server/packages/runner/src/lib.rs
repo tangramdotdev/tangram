@@ -740,10 +740,10 @@ impl Component {
 				tg::runner::control::ServerMessage::Response(_) => continue,
 			};
 			let result = match request.arg {
-				tg::runner::control::ServerRequestArg::CreateSandbox(_) => {
+				tg::runner::control::ServerRequestArg::OfferSandbox(_) => {
 					let output =
-						tg::runner::control::CreateSandboxClientResponseOutput { created: false };
-					Ok(tg::runner::control::ClientResponseOutput::CreateSandbox(
+						tg::runner::control::OfferSandboxClientResponseOutput { accepted: false };
+					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
 						output,
 					))
 				},
@@ -1182,17 +1182,17 @@ impl Component {
 			};
 			let id = message.id;
 			let request = match message.arg {
-				tg::runner::control::ServerRequestArg::CreateSandbox(request) => request,
+				tg::runner::control::ServerRequestArg::OfferSandbox(request) => request,
 				tg::runner::control::ServerRequestArg::DestroySandbox(arg) => {
 					self.spawn_destroy_stopped_sandbox_task(session, id.clone(), arg, &sender);
 					continue;
 				},
 			};
-			tangram_server_core::checkpoint!(session.server, "runner.control.create_sandbox", sandbox = %request.sandbox).await;
+			tangram_server_core::checkpoint!(session.server, "runner.control.offer_sandbox", sandbox = %request.sandbox).await;
 
 			// Answer an offer that the scheduler sent again with the reply to the offer, without acting on it again, so that a boot that ended is not created again.
 			if let tangram_server_core::holder::Begin::Replied(message) = self.offers.begin(&id) {
-				tangram_server_core::checkpoint!(session.server, "runner.control.create_sandbox.replied", sandbox = %request.sandbox).await;
+				tangram_server_core::checkpoint!(session.server, "runner.control.offer_sandbox.replied", sandbox = %request.sandbox).await;
 				sender.send(message).await?;
 				continue;
 			}
@@ -1215,10 +1215,10 @@ impl Component {
 					.is_some_and(|sandbox| sandbox.boot >= request.boot);
 			if joined {
 				let output =
-					tg::runner::control::CreateSandboxClientResponseOutput { created: true };
+					tg::runner::control::OfferSandboxClientResponseOutput { accepted: true };
 				let message = Self::create_runner_control_response(
 					id.clone(),
-					Ok(tg::runner::control::ClientResponseOutput::CreateSandbox(
+					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
 						output,
 					)),
 				);
@@ -1270,10 +1270,10 @@ impl Component {
 			}
 			let Some(allocation) = allocation else {
 				let output =
-					tg::runner::control::CreateSandboxClientResponseOutput { created: false };
+					tg::runner::control::OfferSandboxClientResponseOutput { accepted: false };
 				let message = Self::create_runner_control_response(
 					id.clone(),
-					Ok(tg::runner::control::ClientResponseOutput::CreateSandbox(
+					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
 						output,
 					)),
 				);
@@ -1305,10 +1305,10 @@ impl Component {
 			);
 
 			// Send the response.
-			let output = tg::runner::control::CreateSandboxClientResponseOutput { created: true };
+			let output = tg::runner::control::OfferSandboxClientResponseOutput { accepted: true };
 			let message = Self::create_runner_control_response(
 				id.clone(),
-				Ok(tg::runner::control::ClientResponseOutput::CreateSandbox(
+				Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
 					output,
 				)),
 			);

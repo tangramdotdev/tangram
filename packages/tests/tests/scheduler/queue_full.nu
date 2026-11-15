@@ -4,7 +4,7 @@ use ../../util/test.nu *
 
 let local = server spawn --config {
 	runner: { cpus: 1, overcommit: { cpu: 1 } },
-	scheduler: { create_sandbox_queue_capacity: 1, default_cpu: 1, default_memory: 1_073_741_824 },
+	scheduler: { queue_capacity: 1, default_cpu: 1, default_memory: 1_073_741_824 },
 }
 let running = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let queued = tg sandbox create --no-tokens --cpu 1 | referent node

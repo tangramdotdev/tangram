@@ -15,7 +15,7 @@ use {
 	tangram_futures::task::{Stopper, Task},
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger,
-	tangram_server_core::{Server, Session, control::accept::Path},
+	tangram_server_core::{Server, Session},
 	tangram_server_scheduler_core::{
 		AddRunnerRequestArg, AddRunnerResponseOutput, BorrowableCapacityNotification,
 		DequeueSandboxRequestArg, DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
@@ -105,7 +105,6 @@ enum Operation {
 		result: tg::Result<(AddRunnerResponseOutput, Option<tg::Id>)>,
 		runner: tg::runner::Id,
 	},
-	CreateSandbox(sandbox::Completion),
 	DestroyRunnerSandbox {
 		id: String,
 		result: tg::Result<bool>,
@@ -113,6 +112,11 @@ enum Operation {
 	DestroySandbox {
 		destroy: sandbox::DestroySandbox,
 		result: tg::Result<bool>,
+	},
+	OfferSandbox {
+		outcome: sandbox::Outcome,
+		placement: sandbox::Placement,
+		sandbox: tg::sandbox::Id,
 	},
 	LostSandboxes {
 		keys: Vec<tg::sandbox::Id>,
@@ -164,13 +168,13 @@ enum Event {
 #[allow(dead_code)]
 #[derive(Clone)]
 struct Config {
-	create_sandbox_queue_capacity: usize,
-	create_sandbox_retry: tangram_futures::retry::Options,
-	create_sandbox_timeout: Duration,
+	queue_capacity: usize,
+	offer_retry: tangram_futures::retry::Options,
+	offer_timeout: Duration,
 	default_capacity: tg::runner::Capacity,
-	max_create_sandbox_attempts: usize,
-	max_create_sandbox_requests: usize,
-	max_create_sandbox_requests_per_runner: usize,
+	max_offer_failures: usize,
+	max_offers: usize,
+	max_offers_per_runner: usize,
 	runner_time_to_live: Duration,
 	unplaceable_timeout: Option<Duration>,
 }
@@ -471,13 +475,13 @@ impl Scheduler {
 		// Create the config.
 		let request_config = config.request.clone();
 		let config = Config {
-			create_sandbox_queue_capacity: config.create_sandbox_queue_capacity,
-			create_sandbox_retry: config.create_sandbox_retry.clone().into(),
-			create_sandbox_timeout: config.create_sandbox_timeout,
+			queue_capacity: config.queue_capacity,
+			offer_retry: config.offer_retry.clone().into(),
+			offer_timeout: config.offer_timeout,
 			default_capacity: config.default_capacity(),
-			max_create_sandbox_attempts: config.max_create_sandbox_attempts,
-			max_create_sandbox_requests: config.max_create_sandbox_requests,
-			max_create_sandbox_requests_per_runner: config.max_create_sandbox_requests_per_runner,
+			max_offer_failures: config.max_offer_failures,
+			max_offers: config.max_offers,
+			max_offers_per_runner: config.max_offers_per_runner,
 			runner_time_to_live: config.runner_time_to_live,
 			unplaceable_timeout: config.unplaceable_timeout,
 		};
@@ -686,8 +690,7 @@ impl Scheduler {
 					},
 					Err(error) => {
 						if current {
-							let completions = state.remove_runner(self, &runner, &[]);
-							self.send_dequeue_sandbox_completions(state, completions);
+							state.remove_runner(self, &runner, &[]);
 						}
 						Err(error)
 					},
@@ -695,16 +698,6 @@ impl Scheduler {
 				let result = result.map(ResponseOutput::AddRunner);
 				let response = request::Response::new(id, result);
 				self.send_response(state, response);
-			},
-			Operation::CreateSandbox(completion) => {
-				let output = state.handle_create_sandbox_completion(self, completion);
-				self.send_dequeue_sandbox_completions(state, output.dequeue_completions);
-				if let Some(discarded) = output.discarded {
-					self.publish_sandbox_discarded(state, discarded);
-				}
-				if let Some(sandbox) = output.accepted {
-					state.finish_accept(self, &sandbox, Path::Handled, Ok(()));
-				}
 			},
 			Operation::DestroyRunnerSandbox { id, result } => {
 				let result = result.map(|destroyed| {
@@ -717,6 +710,13 @@ impl Scheduler {
 			},
 			Operation::DestroySandbox { destroy, result } => {
 				state.handle_destroy_sandbox(self, destroy, result);
+			},
+			Operation::OfferSandbox {
+				outcome,
+				placement,
+				sandbox,
+			} => {
+				state.handle_offer_outcome(self, &sandbox, &placement, outcome);
 			},
 			Operation::LostSandboxes { keys, lost } => {
 				state.handle_lost_sandboxes(self, keys, lost);
@@ -817,24 +817,6 @@ impl Scheduler {
 			}
 			.boxed(),
 		);
-	}
-
-	fn send_dequeue_sandbox_completion(
-		&self,
-		state: &mut SchedulerState,
-		completion: sandbox::DequeueCompletion,
-	) {
-		self.send_dequeue_sandbox_response(state, completion.request, completion.output);
-	}
-
-	fn send_dequeue_sandbox_completions(
-		&self,
-		state: &mut SchedulerState,
-		completions: Vec<sandbox::DequeueCompletion>,
-	) {
-		for completion in completions {
-			self.send_dequeue_sandbox_completion(state, completion);
-		}
 	}
 
 	fn send_dequeue_sandbox_response(

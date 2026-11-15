@@ -117,8 +117,7 @@ impl SchedulerState {
 			registration_index,
 			&request.sandboxes,
 		);
-		let completions = self.remove_runner(scheduler, &request.runner, &request.sandboxes);
-		scheduler.send_dequeue_sandbox_completions(self, completions);
+		self.remove_runner(scheduler, &request.runner, &request.sandboxes);
 		let runner = Runner {
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
@@ -244,8 +243,7 @@ impl SchedulerState {
 			return;
 		}
 		tracing::info!(runner = %request.runner, registration_index = request.registration_index, "removing the runner");
-		let completions = self.remove_runner(scheduler, &request.runner, &[]);
-		scheduler.send_dequeue_sandbox_completions(self, completions);
+		self.remove_runner(scheduler, &request.runner, &[]);
 
 		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later. This scheduler holds those boots, so their discard alone records their end, and the runner's cleanup leaves them alone.
 		let mut queued = Vec::new();

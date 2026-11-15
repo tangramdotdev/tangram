@@ -2147,15 +2147,14 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	if let Some(value) = source.restart_delay {
 		target.restart_delay = value;
 	}
-	if let Some(value) = source.create_sandbox_queue_capacity {
-		target.create_sandbox_queue_capacity = value;
+	if let Some(value) = source.queue_capacity {
+		target.queue_capacity = value;
 	}
-	if let Some(source) = source.create_sandbox_retry {
-		target.create_sandbox_retry =
-			resolve_retry_with_default(source, target.create_sandbox_retry);
+	if let Some(source) = source.offer_retry {
+		target.offer_retry = resolve_retry_with_default(source, target.offer_retry);
 	}
-	if let Some(value) = source.create_sandbox_timeout {
-		target.create_sandbox_timeout = value;
+	if let Some(value) = source.offer_timeout {
+		target.offer_timeout = value;
 	}
 	if let Some(value) = source.default_cpu {
 		target.default_cpu = value;
@@ -2169,14 +2168,14 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	if let Some(value) = source.unplaceable_timeout {
 		target.unplaceable_timeout = value.map(|value| value.0);
 	}
-	if let Some(value) = source.max_create_sandbox_attempts {
-		target.max_create_sandbox_attempts = value;
+	if let Some(value) = source.max_offer_failures {
+		target.max_offer_failures = value;
 	}
-	if let Some(value) = source.max_create_sandbox_requests {
-		target.max_create_sandbox_requests = value;
+	if let Some(value) = source.max_offers {
+		target.max_offers = value;
 	}
-	if let Some(value) = source.max_create_sandbox_requests_per_runner {
-		target.max_create_sandbox_requests_per_runner = value;
+	if let Some(value) = source.max_offers_per_runner {
+		target.max_offers_per_runner = value;
 	}
 	if let Some(value) = source.owner_ancestors_time_to_live {
 		target.owner_ancestors_time_to_live = value;

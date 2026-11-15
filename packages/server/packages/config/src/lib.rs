@@ -1289,13 +1289,13 @@ pub enum JavaScriptEngine {
 pub struct Scheduler {
 	pub cache: SchedulerCache,
 
-	pub create_sandbox_queue_capacity: usize,
+	pub queue_capacity: usize,
 
 	/// The retry for sending the offer of a boot to a runner again until the runner answers.
-	pub create_sandbox_retry: Retry,
+	pub offer_retry: Retry,
 
 	/// How long the scheduler waits for a runner to answer the offer of a boot before it sends the offer again.
-	pub create_sandbox_timeout: Duration,
+	pub offer_timeout: Duration,
 
 	/// The CPU bounds for a sandbox that omits them, where an omitted maximum means no limit.
 	pub default_cpu: tg::sandbox::Cpu,
@@ -1309,11 +1309,11 @@ pub struct Scheduler {
 	/// The scheduler's ID, which stays the same when the scheduler restarts.
 	pub id: Option<tg::scheduler::Id>,
 
-	pub max_create_sandbox_attempts: usize,
+	pub max_offer_failures: usize,
 
-	pub max_create_sandbox_requests: usize,
+	pub max_offers: usize,
 
-	pub max_create_sandbox_requests_per_runner: usize,
+	pub max_offers_per_runner: usize,
 
 	/// How long a server that enqueues sandboxes remembers a sandbox owner's ancestors, where zero reads them for every sandbox.
 	pub owner_ancestors_time_to_live: Duration,
@@ -3042,17 +3042,16 @@ impl Default for Scheduler {
 	fn default() -> Self {
 		Self {
 			cache: SchedulerCache::default(),
-			create_sandbox_queue_capacity: default_scheduler_create_sandbox_queue_capacity(),
-			create_sandbox_retry: message_retry_default(),
-			create_sandbox_timeout: Duration::from_secs(10),
+			queue_capacity: default_scheduler_queue_capacity(),
+			offer_retry: message_retry_default(),
+			offer_timeout: Duration::from_secs(10),
 			default_cpu: tg::sandbox::Cpu::default(),
 			default_memory: tg::sandbox::Resource::default(),
 			default_storage: tg::sandbox::Resource::default(),
 			id: None,
-			max_create_sandbox_attempts: default_scheduler_max_create_sandbox_attempts(),
-			max_create_sandbox_requests: default_scheduler_max_create_sandbox_requests(),
-			max_create_sandbox_requests_per_runner:
-				default_scheduler_max_create_sandbox_requests_per_runner(),
+			max_offer_failures: default_scheduler_max_offer_failures(),
+			max_offers: default_scheduler_max_offers(),
+			max_offers_per_runner: default_scheduler_max_offers_per_runner(),
 			owner_ancestors_time_to_live: Duration::from_mins(1),
 			request: SchedulerRequest::default(),
 			restart_delay: Duration::from_secs(1),
@@ -3571,19 +3570,19 @@ fn default_roles() -> BTreeSet<Role> {
 		.collect()
 }
 
-fn default_scheduler_create_sandbox_queue_capacity() -> usize {
+fn default_scheduler_queue_capacity() -> usize {
 	1024
 }
 
-fn default_scheduler_max_create_sandbox_attempts() -> usize {
+fn default_scheduler_max_offer_failures() -> usize {
 	8
 }
 
-fn default_scheduler_max_create_sandbox_requests() -> usize {
+fn default_scheduler_max_offers() -> usize {
 	256
 }
 
-fn default_scheduler_max_create_sandbox_requests_per_runner() -> usize {
+fn default_scheduler_max_offers_per_runner() -> usize {
 	16
 }
 
