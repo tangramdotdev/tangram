@@ -406,12 +406,19 @@ impl Component {
 			open.offer();
 		}
 
+		let owner_ancestors = session
+			.server
+			.components
+			.scheduler
+			.get_owner_ancestors(session, &owner)
+			.await?;
 		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
 			boot: 0,
 			created_at: session.server.clock.unix_timestamp(),
 			creator: session.context.principal.clone(),
 			owner,
+			owner_ancestors,
 			parent: output.parent_sandbox.clone(),
 			process: Some(process),
 			runner: None,

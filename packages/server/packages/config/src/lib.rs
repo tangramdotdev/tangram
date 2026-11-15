@@ -1315,6 +1315,9 @@ pub struct Scheduler {
 
 	pub max_create_sandbox_requests_per_runner: usize,
 
+	/// How long a server that enqueues sandboxes remembers a sandbox owner's ancestors, where zero reads them for every sandbox.
+	pub owner_ancestors_time_to_live: Duration,
+
 	pub request: SchedulerRequest,
 
 	pub restart_delay: Duration,
@@ -3050,6 +3053,7 @@ impl Default for Scheduler {
 			max_create_sandbox_requests: default_scheduler_max_create_sandbox_requests(),
 			max_create_sandbox_requests_per_runner:
 				default_scheduler_max_create_sandbox_requests_per_runner(),
+			owner_ancestors_time_to_live: Duration::from_mins(1),
 			request: SchedulerRequest::default(),
 			restart_delay: Duration::from_secs(1),
 			runner_time_to_live: Duration::from_secs(20),

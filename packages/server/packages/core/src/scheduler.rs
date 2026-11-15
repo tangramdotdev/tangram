@@ -34,6 +34,13 @@ pub trait Component: crate::component::Lifecycle {
 		request: tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 	) -> BoxFuture<'a, tg::Result<tg::scheduler::Id>>;
 
+	/// Get a sandbox owner and its ancestors, which an enqueue request carries.
+	fn get_owner_ancestors<'a>(
+		&'a self,
+		session: &'a Session,
+		owner: &'a tg::Principal,
+	) -> BoxFuture<'a, tg::Result<Vec<tg::Id>>>;
+
 	/// Select an available scheduler, such as the one that a start of a sandbox without a runner reserves its boot for.
 	fn select_scheduler<'a>(
 		&'a self,

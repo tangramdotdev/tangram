@@ -2,18 +2,14 @@ use {
 	super::{
 		BorrowableCapacityNotification, DequeueSandboxRequestArg, DequeueSandboxResponseOutput,
 		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatNotification,
-		HolderMessage, Operation, OwnerAncestors, PendingEnqueue, ResponseOutput,
-		SandboxEndedNotification, Scheduler, SchedulerState,
+		HolderMessage, Operation, ResponseOutput, SandboxEndedNotification, Scheduler,
+		SchedulerState,
 		runner::{Reservation, Runner},
 	},
 	futures::{FutureExt as _, StreamExt as _, future},
-	std::{
-		collections::{BTreeMap, HashMap, HashSet},
-		sync::Arc,
-	},
+	std::collections::{BTreeMap, HashMap, HashSet},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
-	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
 	tangram_server_core::{
 		Session,
@@ -47,8 +43,6 @@ pub(super) struct Sandboxes {
 		Vec<tangram_futures::task::Task<tg::Result<()>>>,
 		tg::id::BuildHasher,
 	>,
-
-	loading: usize,
 
 	/// The sandboxes that a runner holds whose control connections may not be established yet.
 	placed: HashMap<tg::sandbox::Id, Placed, tg::id::BuildHasher>,
@@ -120,7 +114,6 @@ struct Sandbox {
 	blocked: HashMap<tg::runner::Id, Block, tg::id::BuildHasher>,
 	capacity: tg::runner::Capacity,
 	dequeue_requests: Vec<String>,
-	owner_ancestors: OwnerAncestors,
 	persisted: bool,
 	request: EnqueueSandboxRequestArg,
 	retrying: bool,
@@ -301,7 +294,6 @@ impl Sandboxes {
 			entries: HashMap::default(),
 			generation: 0,
 			holders: HashMap::default(),
-			loading: 0,
 			placed: HashMap::default(),
 			scheduled: HashMap::default(),
 		}
@@ -353,10 +345,7 @@ impl SchedulerState {
 		Self {
 			accepting: HashMap::default(),
 			operations: futures::stream::FuturesUnordered::new(),
-			owner_ancestor_requests: HashMap::default(),
-			owner_ancestors: HashMap::default(),
 			parents: Parents::new(),
-			pending_enqueues: HashMap::default(),
 			queue: Queue::new(),
 			recovery: None,
 			runners: super::runner::Runners::new(),
@@ -392,99 +381,15 @@ impl SchedulerState {
 			self.finish_enqueue(scheduler, ids, &sandbox, Ok(()));
 			return;
 		}
-		if let Some(pending) = self.pending_enqueues.get_mut(&request.sandbox) {
-			pending.ids.extend(ids);
-			return;
-		}
-		if !recovered
-			&& self.queue.len() + self.sandboxes.loading
-				>= scheduler.config.create_sandbox_queue_capacity
-		{
+		if !recovered && self.queue.len() >= scheduler.config.create_sandbox_queue_capacity {
 			let error = tg::error!(sandbox = %request.sandbox, "the scheduler queue is full");
 			let sandbox = request.sandbox;
 			self.finish_enqueue(scheduler, ids, &sandbox, Err(error));
 			return;
 		}
-		let owner = request.owner.to_id();
-		let Some(owner) = owner else {
-			let ancestors = Arc::new(HashSet::default());
-			let sandbox = request.sandbox.clone();
-			let result = self.enqueue_sandbox(scheduler, request, ancestors, recovered);
-			self.finish_enqueue(scheduler, ids, &sandbox, result);
-			return;
-		};
-		if let Some(ancestors) = self.owner_ancestors.get(&owner).cloned() {
-			let sandbox = request.sandbox.clone();
-			let result = self.enqueue_sandbox(scheduler, request, ancestors, recovered);
-			self.finish_enqueue(scheduler, ids, &sandbox, result);
-			return;
-		}
-		self.sandboxes.loading += 1;
 		let sandbox = request.sandbox.clone();
-		let pending = PendingEnqueue {
-			ids,
-			recovered,
-			request,
-		};
-		self.pending_enqueues.insert(sandbox.clone(), pending);
-		let requests = self
-			.owner_ancestor_requests
-			.entry(owner.clone())
-			.or_default();
-		requests.push(sandbox);
-		if requests.len() > 1 {
-			return;
-		}
-		let server = scheduler.server.clone();
-		let owner_for_operation = owner.clone();
-		self.operations.push(
-			async move {
-				let result = server
-					.index
-					.try_get_ancestors(&owner_for_operation)
-					.await
-					.and_then(|ancestors| {
-						ancestors.ok_or_else(
-							|| tg::error!(owner = %owner_for_operation, "failed to find the owner"),
-						)
-					});
-				Operation::LoadOwnerAncestors { owner, result }
-			}
-			.boxed(),
-		);
-	}
-
-	pub(super) fn handle_load_owner_ancestors_completion(
-		&mut self,
-		scheduler: &Scheduler,
-		owner: tg::Id,
-		result: tg::Result<Vec<tg::Id>>,
-	) {
-		let sandboxes = self
-			.owner_ancestor_requests
-			.remove(&owner)
-			.unwrap_or_default();
-		let result: tg::Result<OwnerAncestors> =
-			result.map(|ancestors| Arc::new(ancestors.into_iter().collect()));
-		if let Ok(ancestors) = &result {
-			self.owner_ancestors.insert(owner, ancestors.clone());
-		}
-		for sandbox in sandboxes {
-			let Some(pending) = self.pending_enqueues.remove(&sandbox) else {
-				continue;
-			};
-			self.sandboxes.loading = self.sandboxes.loading.saturating_sub(1);
-			let enqueued = match &result {
-				Ok(ancestors) => self.enqueue_sandbox(
-					scheduler,
-					pending.request,
-					ancestors.clone(),
-					pending.recovered,
-				),
-				Err(error) => Err(error.clone()),
-			};
-			self.finish_enqueue(scheduler, pending.ids, &sandbox, enqueued);
-		}
+		let result = self.enqueue_sandbox(scheduler, request, recovered);
+		self.finish_enqueue(scheduler, ids, &sandbox, result);
 	}
 
 	/// Respond to enqueue requests. A request that the scheduling task accepted responds once either its index write is enqueued or a runner accepts the sandbox, whichever is first.
@@ -602,7 +507,6 @@ impl SchedulerState {
 		&mut self,
 		scheduler: &Scheduler,
 		mut request: EnqueueSandboxRequestArg,
-		owner_ancestors: OwnerAncestors,
 		recovered: bool,
 	) -> tg::Result<()> {
 		if self.sandboxes.entries.contains_key(&request.sandbox) {
@@ -634,7 +538,6 @@ impl SchedulerState {
 			blocked: HashMap::default(),
 			capacity,
 			dequeue_requests: Vec::new(),
-			owner_ancestors,
 			persisted: recovered,
 			request,
 			retrying: false,
@@ -1968,7 +1871,7 @@ impl SchedulerState {
 			let owner_matches = runner
 				.owner
 				.as_ref()
-				.is_none_or(|owner| sandbox.owner_ancestors.contains(owner));
+				.is_none_or(|owner| sandbox.request.owner_ancestors.contains(owner));
 			if !owner_matches
 				|| !runner.ready
 				|| blocked
@@ -2820,7 +2723,7 @@ fn placeable(id: &tg::runner::Id, runner: &Runner, sandbox: &Sandbox) -> bool {
 	let owner_matches = runner
 		.owner
 		.as_ref()
-		.is_none_or(|owner| sandbox.owner_ancestors.contains(owner));
+		.is_none_or(|owner| sandbox.request.owner_ancestors.contains(owner));
 	owner_matches
 		&& matches_host(runner, &sandbox.request)
 		&& matches_runner(id, &sandbox.request)
