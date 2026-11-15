@@ -3,8 +3,7 @@ use {
 		BorrowableCapacityNotification, DequeueSandboxRequestArg, DequeueSandboxResponseOutput,
 		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatNotification,
 		HolderMessage, Operation, ResponseOutput, SandboxEndedNotification, Scheduler,
-		SchedulerState,
-		runner::{Reservation, Runner},
+		SchedulerState, runner::Runner,
 	},
 	futures::{FutureExt as _, StreamExt as _, future},
 	std::collections::{BTreeMap, HashMap, HashSet},
@@ -1815,7 +1814,6 @@ impl SchedulerState {
 		runner.committed = tg::runner::Capacity::default();
 		runner.heartbeat_at = now;
 		runner.heartbeat_index = notification.heartbeat_index;
-		runner.ready = runner.capacity.total.sandboxes != 0;
 		self.queue.wake();
 
 		true
@@ -2107,30 +2105,15 @@ impl SchedulerState {
 				block.registration_index == runner.registration_index
 					&& block.heartbeat_index == runner.heartbeat_index
 			});
-			let owner_matches = runner
-				.owner
-				.as_ref()
-				.is_none_or(|owner| sandbox.request().owner_ancestors.contains(owner));
-			if !owner_matches
-				|| !runner.ready
+			if !eligible(id, runner, sandbox)
 				|| blocked
-				|| !matches_host(runner, sandbox.request())
-				|| !matches_runner(id, sandbox.request())
-				|| runner.requests >= scheduler.config.max_create_sandbox_requests_per_runner
+				|| runner.reservations.len()
+					>= scheduler.config.max_create_sandbox_requests_per_runner
+				|| !runner.fits(sandbox.capacity)
 			{
 				continue;
 			}
-			let available = available(runner);
-			if !available.contains(sandbox.capacity, runner.capacity.overcommit)
-				|| sandbox
-					.capacity
-					.cpu
-					.max
-					.is_some_and(|max| max.threads() > cpu_limit(runner))
-			{
-				continue;
-			}
-			let score = score(runner, available, sandbox.capacity);
+			let score = score(runner, runner.available(), sandbox.capacity);
 			let siblings = parent.map_or(0, |parent| {
 				parent
 					.children
@@ -2174,10 +2157,7 @@ impl SchedulerState {
 
 	fn borrowed_placement(&self, sandbox: &Sandbox, request_limit: usize) -> Option<Placement> {
 		let (borrowable, runner) = self.borrowable(sandbox)?;
-		if !matches_runner(&borrowable.runner, sandbox.request()) {
-			return None;
-		}
-		if !borrowable.available || runner.requests >= request_limit {
+		if !borrowable.available || runner.reservations.len() >= request_limit {
 			return None;
 		}
 		let runner = RunnerRef {
@@ -2190,31 +2170,29 @@ impl SchedulerState {
 		})
 	}
 
-	/// Find the capacity that a sandbox's parent lends on a runner, where the runner also has the capacity that the sandbox must acquire in addition to what it borrows.
+	/// Find the capacity that a sandbox's parent lends on a runner that can take the sandbox, where the runner also has the capacity that the sandbox must acquire in addition to what it borrows.
 	fn borrowable(&self, sandbox: &Sandbox) -> Option<(&Borrowable, &Runner)> {
 		let parent = sandbox.parent.as_ref()?;
 		let borrowable = self.parents.0.get(parent)?.borrowable.as_ref()?;
 		let runner = self.runners.entries.get(&borrowable.runner)?;
 		let (_, acquired) = borrowable.capacity.try_borrow(sandbox.capacity)?;
-		if !available(runner).contains(acquired, runner.capacity.overcommit)
-			|| borrowable
-				.registration_index
-				.is_some_and(|index| index != runner.registration_index)
-			|| !runner.ready
-			|| !matches_host(runner, sandbox.request())
+		if borrowable
+			.registration_index
+			.is_some_and(|index| index != runner.registration_index)
+			|| !eligible(&borrowable.runner, runner, sandbox)
+			|| !runner.fits(acquired)
 		{
 			return None;
 		}
 		Some((borrowable, runner))
 	}
 
+	/// Whether a runner could take a sandbox once it has the capacity.
 	fn placeable(&self, sandbox: &Sandbox) -> bool {
-		self.borrowable(sandbox).is_some()
-			|| self
-				.runners
-				.entries
-				.iter()
-				.any(|(id, runner)| runner.ready && placeable(id, runner, sandbox))
+		self.runners
+			.entries
+			.iter()
+			.any(|(id, runner)| eligible(id, runner, sandbox))
 	}
 
 	/// Return a sandbox whose offer was not accepted to the queued state. The sandbox kept its place in the queue while it was offered.
@@ -2263,13 +2241,12 @@ impl SchedulerState {
 		if runner.registration_index != runner_ref.registration_index {
 			return;
 		}
-		runner.requests = runner.requests.saturating_sub(1);
-		let Some(reservation) = runner.reservations.remove(id) else {
+		let Some(reserved) = runner.reservations.remove(id) else {
 			return;
 		};
-		subtract(&mut runner.reserved, reservation.capacity);
+		subtract(&mut runner.reserved, reserved);
 		if commit {
-			add(&mut runner.committed, reservation.capacity);
+			add(&mut runner.committed, reserved);
 		}
 	}
 
@@ -2347,10 +2324,8 @@ impl SchedulerState {
 			Placement::Regular { .. } => capacity,
 		};
 		let runner = self.runners.entries.get_mut(&runner_ref.id).unwrap();
-		runner.requests += 1;
 		add(&mut runner.reserved, reserved);
-		let entry = Reservation { capacity: reserved };
-		runner.reservations.insert(id.clone(), entry);
+		runner.reservations.insert(id.clone(), reserved);
 		if let Some(parent) = self.sandboxes.entries[id].parent.clone() {
 			self.insert_child(&parent, id, &runner_ref.id);
 		}
@@ -2932,19 +2907,6 @@ fn add(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
 	capacity.sandboxes = capacity.sandboxes.saturating_add(value.sandboxes);
 }
 
-fn available(runner: &Runner) -> tg::runner::Capacity {
-	let factor = runner.capacity.overcommit;
-	runner
-		.capacity
-		.available
-		.subtract(runner.reserved, factor)
-		.subtract(runner.committed, factor)
-}
-
-fn cpu_limit(runner: &Runner) -> u64 {
-	runner.capacity.cpu_limit
-}
-
 /// Get the status that records a failure of a sandbox after its acceptance, which destroys a new sandbox and stops a sandbox that was starting again.
 fn failed_sandbox_status(request: &EnqueueSandboxRequestArg) -> tg::sandbox::Status {
 	if request.boot == 0 {
@@ -2954,26 +2916,20 @@ fn failed_sandbox_status(request: &EnqueueSandboxRequestArg) -> tg::sandbox::Sta
 	}
 }
 
-fn matches_host(runner: &Runner, request: &EnqueueSandboxRequestArg) -> bool {
-	request
-		.arg
-		.host
-		.as_ref()
-		.is_none_or(|host| host == &runner.host)
-}
-
-fn matches_runner(id: &tg::runner::Id, request: &EnqueueSandboxRequestArg) -> bool {
-	request.runner.as_ref().is_none_or(|runner| runner == id)
-}
-
-fn placeable(id: &tg::runner::Id, runner: &Runner, sandbox: &Sandbox) -> bool {
-	let owner_matches = runner
-		.owner
-		.as_ref()
-		.is_none_or(|owner| sandbox.request().owner_ancestors.contains(owner));
-	owner_matches
-		&& matches_host(runner, sandbox.request())
-		&& matches_runner(id, sandbox.request())
+/// Whether a runner could take a sandbox once it has the capacity: the runner is ready, its owner is the sandbox's owner or one of its ancestors, it has the sandbox's host, it is the runner that the sandbox must start on, and the sandbox is within its total capacity and its CPU limit.
+fn eligible(id: &tg::runner::Id, runner: &Runner, sandbox: &Sandbox) -> bool {
+	let request = sandbox.request();
+	runner.ready()
+		&& runner
+			.owner
+			.as_ref()
+			.is_none_or(|owner| request.owner_ancestors.contains(owner))
+		&& request
+			.arg
+			.host
+			.as_ref()
+			.is_none_or(|host| host == &runner.host)
+		&& request.runner.as_ref().is_none_or(|runner| runner == id)
 		&& runner
 			.capacity
 			.total
