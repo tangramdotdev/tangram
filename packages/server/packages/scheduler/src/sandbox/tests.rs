@@ -1,6 +1,5 @@
 use {
-	super::{Candidate, Entries, Links, Queue, Sandbox, SandboxState, choose_runner},
-	std::collections::HashMap,
+	super::{Candidate, Entries, Queue, Sandbox, State, choose_runner},
 	tangram_client::prelude::*,
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 };
@@ -31,19 +30,7 @@ fn sandbox(id: &tg::sandbox::Id) -> Sandbox {
 		stop: false,
 		token: None,
 	};
-	Sandbox {
-		attempts: 0,
-		blocked: HashMap::default(),
-		capacity: tg::runner::Capacity::default(),
-		dequeue_requests: Vec::new(),
-		links: Links::default(),
-		parent_links: Links::default(),
-		persisted: false,
-		request,
-		retrying: false,
-		state: SandboxState::Pending,
-		unplaceable_since: None,
-	}
+	Sandbox::new(0, None, Some(request), State::Queued)
 }
 
 /// Create a queue of sandboxes, and take the sandbox that each one's arrival started a pass at.
