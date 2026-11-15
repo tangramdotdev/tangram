@@ -767,7 +767,7 @@ impl Config {
 			}
 			if scheduler.queue_capacity == 0 {
 				return Err(tg::error!(
-					"the scheduler create sandbox queue capacity must be greater than zero"
+					"the scheduler queue capacity must be greater than zero"
 				));
 			}
 			if scheduler
@@ -795,12 +795,12 @@ impl Config {
 			}
 			if scheduler.max_offers == 0 {
 				return Err(tg::error!(
-					"the maximum number of scheduler create sandbox requests must be greater than zero"
+					"the maximum number of scheduler offers must be greater than zero"
 				));
 			}
 			if scheduler.max_offers_per_runner == 0 {
 				return Err(tg::error!(
-					"the maximum number of scheduler create sandbox requests per runner must be greater than zero"
+					"the maximum number of scheduler offers per runner must be greater than zero"
 				));
 			}
 		}

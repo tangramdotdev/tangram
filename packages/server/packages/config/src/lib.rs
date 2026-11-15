@@ -1289,14 +1289,6 @@ pub enum JavaScriptEngine {
 pub struct Scheduler {
 	pub cache: SchedulerCache,
 
-	pub queue_capacity: usize,
-
-	/// The retry for sending the offer of a boot to a runner again until the runner answers.
-	pub offer_retry: Retry,
-
-	/// How long the scheduler waits for a runner to answer the offer of a boot before it sends the offer again.
-	pub offer_timeout: Duration,
-
 	/// The CPU bounds for a sandbox that omits them, where an omitted maximum means no limit.
 	pub default_cpu: tg::sandbox::Cpu,
 
@@ -1315,8 +1307,16 @@ pub struct Scheduler {
 
 	pub max_offers_per_runner: usize,
 
+	/// The retry for sending the offer of a boot to a runner again until the runner answers.
+	pub offer_retry: Retry,
+
+	/// How long the scheduler waits for a runner to answer the offer of a boot before it sends the offer again.
+	pub offer_timeout: Duration,
+
 	/// How long a server that enqueues sandboxes remembers a sandbox owner's ancestors, where zero reads them for every sandbox.
 	pub owner_ancestors_time_to_live: Duration,
+
+	pub queue_capacity: usize,
 
 	pub request: SchedulerRequest,
 
@@ -3042,9 +3042,6 @@ impl Default for Scheduler {
 	fn default() -> Self {
 		Self {
 			cache: SchedulerCache::default(),
-			queue_capacity: default_scheduler_queue_capacity(),
-			offer_retry: message_retry_default(),
-			offer_timeout: Duration::from_secs(10),
 			default_cpu: tg::sandbox::Cpu::default(),
 			default_memory: tg::sandbox::Resource::default(),
 			default_storage: tg::sandbox::Resource::default(),
@@ -3052,7 +3049,10 @@ impl Default for Scheduler {
 			max_offer_failures: default_scheduler_max_offer_failures(),
 			max_offers: default_scheduler_max_offers(),
 			max_offers_per_runner: default_scheduler_max_offers_per_runner(),
+			offer_retry: message_retry_default(),
+			offer_timeout: Duration::from_secs(10),
 			owner_ancestors_time_to_live: Duration::from_mins(1),
+			queue_capacity: default_scheduler_queue_capacity(),
 			request: SchedulerRequest::default(),
 			restart_delay: Duration::from_secs(1),
 			runner_time_to_live: Duration::from_secs(20),

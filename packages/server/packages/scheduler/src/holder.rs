@@ -87,14 +87,18 @@ impl SchedulerState {
 	) {
 		let (request, sandbox) = match message {
 			HolderMessage::Connected { sandbox } => {
-				// Drop the request of a sandbox whose runner serves it, and stop serving the sandbox's holder, unless this scheduler holds a later boot of it.
+				// Drop the request of a sandbox whose runner serves it, and stop serving the sandbox's holder, unless this scheduler awaits the runner's answer to the sandbox's offer or holds a later boot of the sandbox.
 				let entry = self.sandboxes.entries.get_mut(&sandbox);
-				let held = match entry {
-					Some(entry) if matches!(entry.state, State::Accepted { .. }) => {
-						entry.request = None;
+				let held = match entry.map(|entry| (&mut entry.state, &mut entry.request)) {
+					Some((State::Accepted { .. }, request)) => {
+						*request = None;
 						false
 					},
-					Some(_) => true,
+					Some((State::Offered { connected, .. }, _)) => {
+						*connected = true;
+						true
+					},
+					Some((State::Queued | State::Terminal { .. }, _)) => true,
 					None => false,
 				};
 				if !held {

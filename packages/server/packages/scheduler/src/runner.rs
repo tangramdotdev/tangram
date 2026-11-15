@@ -118,7 +118,8 @@ impl SchedulerState {
 			registration_index,
 			&request.sandboxes,
 		);
-		self.remove_runner(scheduler, &request.runner, &request.sandboxes);
+		self.forget_accepted_sandboxes(scheduler, &request.runner, &request.sandboxes);
+		self.remove_runner(scheduler, &request.runner);
 		let runner = Runner {
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
@@ -244,7 +245,8 @@ impl SchedulerState {
 			return;
 		}
 		tracing::info!(runner = %request.runner, registration_index = request.registration_index, "removing the runner");
-		self.remove_runner(scheduler, &request.runner, &[]);
+		self.forget_accepted_sandboxes(scheduler, &request.runner, &[]);
+		self.remove_runner(scheduler, &request.runner);
 
 		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later. This scheduler holds those boots, so their discard alone records their end, and the runner's cleanup leaves them alone.
 		let mut queued = Vec::new();
@@ -310,18 +312,13 @@ impl SchedulerState {
 		true
 	}
 
-	/// Remove a runner. Return the sandboxes that are offered to it to the queue, and forget the sandboxes that it accepted, except the ones that it reports when it registers again.
-	pub(super) fn remove_runner(
+	/// Forget the sandboxes that a runner accepted, except the ones that it reports when it registers again, and queue the ones again whose control connections were not established, if their keys remain.
+	pub(super) fn forget_accepted_sandboxes(
 		&mut self,
 		scheduler: &Scheduler,
 		id: &tg::runner::Id,
 		reported: &[tg::runner::control::ArgSandbox],
 	) {
-		let Some(runner) = self.runners.entries.remove(id) else {
-			return;
-		};
-
-		// Forget the sandboxes that the runner accepted, and queue the ones again whose control connections were not established, if their keys remain.
 		let accepted = self
 			.sandboxes
 			.entries
@@ -348,6 +345,13 @@ impl SchedulerState {
 		if !lost.is_empty() {
 			self.read_lost_sandboxes(scheduler, lost);
 		}
+	}
+
+	/// Remove a runner, and return the sandboxes that are offered to it to the queue. The sandboxes that it accepted stay until the runner registers again or expires.
+	pub(super) fn remove_runner(&mut self, scheduler: &Scheduler, id: &tg::runner::Id) {
+		let Some(runner) = self.runners.entries.remove(id) else {
+			return;
+		};
 
 		// Forget the capacity that the runner's sandboxes lend.
 		for parent_id in runner.borrowable {

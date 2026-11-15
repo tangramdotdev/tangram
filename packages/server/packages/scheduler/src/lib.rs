@@ -118,14 +118,17 @@ enum Operation {
 		destroy: sandbox::DestroySandbox,
 		result: tg::Result<bool>,
 	},
-	OfferSandbox {
-		outcome: offer::Outcome,
-		placement: placement::Placement,
-		sandbox: tg::sandbox::Id,
+	IndexTerminalSandboxes {
+		sandboxes: Vec<(tg::sandbox::Id, u64)>,
 	},
 	LostSandboxes {
 		keys: Vec<tg::sandbox::Id>,
 		lost: Vec<EnqueueSandboxRequestArg>,
+	},
+	OfferSandbox {
+		outcome: offer::Outcome,
+		placement: placement::Placement,
+		sandbox: tg::sandbox::Id,
 	},
 	PersistSandbox {
 		boot: u64,
@@ -144,10 +147,6 @@ enum Operation {
 		id: Option<String>,
 		result: tg::Result<RemoveRunnerResponseOutput>,
 	},
-	RemoveTerminalSandbox {
-		boot: u64,
-		sandbox: tg::sandbox::Id,
-	},
 	RetrySandbox {
 		sandbox: tg::sandbox::Id,
 	},
@@ -158,6 +157,11 @@ enum Operation {
 	ServeSandboxHolder {
 		result: tg::Result<Vec<Task<tg::Result<()>>>>,
 		sandbox: tg::sandbox::Id,
+	},
+	WriteTerminalSandbox {
+		boot: u64,
+		sandbox: tg::sandbox::Id,
+		written: bool,
 	},
 }
 
@@ -173,13 +177,13 @@ enum Event {
 #[allow(dead_code)]
 #[derive(Clone)]
 struct Config {
-	queue_capacity: usize,
-	offer_retry: tangram_futures::retry::Options,
-	offer_timeout: Duration,
 	default_capacity: tg::runner::Capacity,
 	max_offer_failures: usize,
 	max_offers: usize,
 	max_offers_per_runner: usize,
+	offer_retry: tangram_futures::retry::Options,
+	offer_timeout: Duration,
+	queue_capacity: usize,
 	runner_time_to_live: Duration,
 	unplaceable_timeout: Option<Duration>,
 }
@@ -480,13 +484,13 @@ impl Scheduler {
 		// Create the config.
 		let request_config = config.request.clone();
 		let config = Config {
-			queue_capacity: config.queue_capacity,
-			offer_retry: config.offer_retry.clone().into(),
-			offer_timeout: config.offer_timeout,
 			default_capacity: config.default_capacity(),
 			max_offer_failures: config.max_offer_failures,
 			max_offers: config.max_offers,
 			max_offers_per_runner: config.max_offers_per_runner,
+			offer_retry: config.offer_retry.clone().into(),
+			offer_timeout: config.offer_timeout,
+			queue_capacity: config.queue_capacity,
 			runner_time_to_live: config.runner_time_to_live,
 			unplaceable_timeout: config.unplaceable_timeout,
 		};
@@ -695,7 +699,7 @@ impl Scheduler {
 					},
 					Err(error) => {
 						if current {
-							state.remove_runner(self, &runner, &[]);
+							state.remove_runner(self, &runner);
 						}
 						Err(error)
 					},
@@ -716,15 +720,18 @@ impl Scheduler {
 			Operation::DestroySandbox { destroy, result } => {
 				state.handle_destroy_sandbox(self, destroy, result);
 			},
+			Operation::IndexTerminalSandboxes { sandboxes } => {
+				state.handle_index_terminal_sandboxes(self, sandboxes);
+			},
+			Operation::LostSandboxes { keys, lost } => {
+				state.handle_lost_sandboxes(self, keys, lost);
+			},
 			Operation::OfferSandbox {
 				outcome,
 				placement,
 				sandbox,
 			} => {
 				state.handle_offer_outcome(self, &sandbox, &placement, outcome);
-			},
-			Operation::LostSandboxes { keys, lost } => {
-				state.handle_lost_sandboxes(self, keys, lost);
 			},
 			Operation::PersistSandbox {
 				boot,
@@ -737,9 +744,6 @@ impl Scheduler {
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "{context}");
 				}
-			},
-			Operation::ServeSandboxHolder { result, sandbox } => {
-				state.handle_serve_sandbox_holder_completion(&sandbox, result);
 			},
 			Operation::Recovered { statuses } => {
 				state.handle_recovered(self, statuses);
@@ -756,14 +760,21 @@ impl Scheduler {
 					tracing::error!(error = %error.trace(), "failed to remove the expired runner");
 				}
 			},
-			Operation::RemoveTerminalSandbox { boot, sandbox } => {
-				state.handle_remove_terminal_sandbox(self, &sandbox, boot);
-			},
 			Operation::RetrySandbox { sandbox } => {
 				state.handle_retry_sandbox(self, &sandbox);
 			},
 			Operation::RetrySandboxOffer { offer, sandbox } => {
 				state.handle_retry_sandbox_offer(self, &sandbox, &offer);
+			},
+			Operation::ServeSandboxHolder { result, sandbox } => {
+				state.handle_serve_sandbox_holder_completion(&sandbox, result);
+			},
+			Operation::WriteTerminalSandbox {
+				boot,
+				sandbox,
+				written,
+			} => {
+				state.handle_write_terminal_sandbox(self, sandbox, boot, written);
 			},
 		}
 	}

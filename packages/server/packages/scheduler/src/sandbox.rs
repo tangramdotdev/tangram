@@ -29,8 +29,14 @@ pub(super) struct Sandboxes {
 		tg::id::BuildHasher,
 	>,
 
+	/// Whether the scheduler awaits indexing for sandboxes that it ended.
+	pub(super) indexing: bool,
+
 	/// The number of offers that the scheduler is sending.
 	pub(super) offers: usize,
+
+	/// The sandboxes that the scheduler ended, with their boots, whose terminal states are written and which the next await of indexing covers.
+	pub(super) written: Vec<(tg::sandbox::Id, u64)>,
 }
 
 /// A destroy of a sandbox on a runner. The request is present if the sandbox has a record to finish.
@@ -94,8 +100,13 @@ pub(super) enum State {
 
 	/// The scheduler offered the sandbox to a runner, and sends the same offer again until the runner answers. The sandbox keeps its place in the queue.
 	Offered {
+		/// Whether the sandbox's control connection is established, which can precede the runner's answer.
+		connected: bool,
+
 		offer: String,
+
 		placement: Placement,
+
 		retries: u64,
 	},
 
@@ -129,7 +140,9 @@ impl Sandboxes {
 		Self {
 			entries: HashMap::default(),
 			holders: HashMap::default(),
+			indexing: false,
 			offers: 0,
+			written: Vec::new(),
 		}
 	}
 }
@@ -350,19 +363,17 @@ impl SchedulerState {
 			.shared()
 		};
 
-		// Remove the sandbox's entry once the index has recorded the terminal state.
-		let scheduler = scheduler.clone();
+		// Report the write, so that the sandbox's entry is removed once the index has recorded the terminal state.
 		let sandbox = id.clone();
 		let written = write.clone();
 		self.operations.push(
 			async move {
-				if written.await.is_ok() {
-					let result = scheduler.index().await;
-					if let Err(error) = result {
-						tracing::error!(error = %error.trace(), %sandbox, "failed to await the indexing of the ended sandbox");
-					}
+				let written = written.await.is_ok();
+				Operation::WriteTerminalSandbox {
+					boot,
+					sandbox,
+					written,
 				}
-				Operation::RemoveTerminalSandbox { boot, sandbox }
 			}
 			.boxed(),
 		);
@@ -410,8 +421,57 @@ impl SchedulerState {
 		}
 	}
 
+	/// Await indexing for a sandbox that this scheduler ended and whose terminal state is written, and remove the entry of a sandbox whose write failed.
+	pub(super) fn handle_write_terminal_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: tg::sandbox::Id,
+		boot: u64,
+		written: bool,
+	) {
+		if !written {
+			self.remove_terminal_sandbox(scheduler, &sandbox, boot);
+			return;
+		}
+		self.sandboxes.written.push((sandbox, boot));
+		self.index_terminal_sandboxes(scheduler);
+	}
+
+	/// Remove the entries of the ended sandboxes that an await of indexing covered, and await indexing for the sandboxes that were ended since.
+	pub(super) fn handle_index_terminal_sandboxes(
+		&mut self,
+		scheduler: &Scheduler,
+		sandboxes: Vec<(tg::sandbox::Id, u64)>,
+	) {
+		self.sandboxes.indexing = false;
+		for (sandbox, boot) in sandboxes {
+			self.remove_terminal_sandbox(scheduler, &sandbox, boot);
+		}
+		self.index_terminal_sandboxes(scheduler);
+	}
+
+	/// Await indexing once for all of the ended sandboxes whose terminal states are written, unless an await is running, which the next one follows.
+	fn index_terminal_sandboxes(&mut self, scheduler: &Scheduler) {
+		if self.sandboxes.indexing || self.sandboxes.written.is_empty() {
+			return;
+		}
+		self.sandboxes.indexing = true;
+		let sandboxes = std::mem::take(&mut self.sandboxes.written);
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let result = scheduler.index().await;
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), "failed to await the indexing of the ended sandboxes");
+				}
+				Operation::IndexTerminalSandboxes { sandboxes }
+			}
+			.boxed(),
+		);
+	}
+
 	/// Remove the entry of a sandbox that this scheduler ended once the index has recorded its terminal state, unless a later boot replaced it.
-	pub(super) fn handle_remove_terminal_sandbox(
+	fn remove_terminal_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
 		sandbox: &tg::sandbox::Id,
@@ -486,9 +546,6 @@ impl SchedulerState {
 		mut request: EnqueueSandboxRequestArg,
 		recovered: bool,
 	) -> tg::Result<()> {
-		if self.sandboxes.entries.contains_key(&request.sandbox) {
-			return Ok(());
-		}
 		// Resolve the sandbox's resources, so that the runner creates the sandbox with the bounds that the scheduler admits.
 		tangram_server_sandbox_common::resolve_sandbox_resources(
 			&scheduler.config.default_capacity,

@@ -70,11 +70,24 @@ impl SchedulerState {
 		let failure = match outcome {
 			// Record that the runner holds the sandbox, and reply to the waiting dequeues that the sandbox was not dequeued.
 			Outcome::Accepted => {
+				let connected = matches!(
+					sandbox.state,
+					State::Offered {
+						connected: true,
+						..
+					}
+				);
 				let dequeue_requests = std::mem::take(&mut sandbox.dequeue_requests);
 				self.remove_reservation(id, placement, true);
 				self.accept_sandbox(id, runner);
 				self.send_dequeue_responses(scheduler, dequeue_requests, false);
 				self.finish_accept(scheduler, id, Path::Handled, Ok(()));
+
+				// Drop the request of a sandbox whose control connection is established, and stop serving the sandbox's holder.
+				if connected {
+					self.sandboxes.entries.get_mut(id).unwrap().request = None;
+					self.stop_serving_sandbox_holder(id);
+				}
 				return;
 			},
 
@@ -254,6 +267,7 @@ impl SchedulerState {
 			self.insert_child(&parent, id, &runner_ref.id);
 		}
 		self.sandboxes.entries.get_mut(id).unwrap().state = State::Offered {
+			connected: false,
 			offer: tangram_server_core::control::id(),
 			placement,
 			retries: 0,
