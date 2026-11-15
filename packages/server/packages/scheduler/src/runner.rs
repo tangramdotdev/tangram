@@ -1,7 +1,8 @@
 use {
 	super::{
-		AddRunnerRequestArg, AddRunnerResponseOutput, Operation, RemoveRunnerRequestArg,
-		RemoveRunnerResponseOutput, Scheduler, SchedulerState,
+		AddRunnerRequestArg, AddRunnerResponseOutput, HeartbeatNotification, Operation,
+		RemoveRunnerRequestArg, RemoveRunnerResponseOutput, Scheduler, SchedulerState,
+		sandbox::State,
 	},
 	crate::Component,
 	futures::FutureExt as _,
@@ -134,7 +135,7 @@ impl SchedulerState {
 
 		// Track the sandboxes that the runner reports, which a restarted scheduler rebuilds its tracking from.
 		for sandbox in &request.sandboxes {
-			let runner = super::sandbox::RunnerRef {
+			let runner = super::placement::RunnerRef {
 				registration_index,
 				id: request.runner.clone(),
 			};
@@ -259,6 +260,125 @@ impl SchedulerState {
 			}
 			.boxed(),
 		);
+	}
+
+	pub(super) fn handle_heartbeat(
+		&mut self,
+		notification: &HeartbeatNotification,
+		now: tangram_server_core::clock::Instant,
+	) -> bool {
+		let Some(runner) = self.runners.entries.get_mut(&notification.runner) else {
+			return false;
+		};
+		if runner.registration_index != notification.registration_index
+			|| runner.heartbeat_index >= notification.heartbeat_index
+		{
+			return false;
+		}
+		// Forget potential capacity after a parent is no longer available for borrowing.
+		let expired: Vec<_> = runner
+			.borrowable
+			.iter()
+			.filter(|parent| {
+				!notification.sandboxes.contains(*parent)
+					&& self
+						.parents
+						.0
+						.get(*parent)
+						.and_then(|parent| parent.borrowable.as_ref())
+						.is_some_and(|borrowable| {
+							notification.heartbeat_index > borrowable.heartbeat_index
+						})
+			})
+			.cloned()
+			.collect();
+		for parent_id in expired {
+			runner.borrowable.remove(&parent_id);
+			if let Some(parent) = self.parents.0.get_mut(&parent_id) {
+				parent.borrowable = None;
+				if parent.is_empty() {
+					self.parents.0.remove(&parent_id);
+				}
+			}
+		}
+		runner.capacity = notification.capacity;
+		runner.committed = tg::runner::Capacity::default();
+		runner.heartbeat_at = now;
+		runner.heartbeat_index = notification.heartbeat_index;
+		self.queue.wake();
+
+		true
+	}
+
+	/// Remove a runner. Return the sandboxes that are offered to it to the queue, and forget the sandboxes that it accepted, except the ones that it reports when it registers again.
+	pub(super) fn remove_runner(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::runner::Id,
+		reported: &[tg::runner::control::ArgSandbox],
+	) {
+		let Some(runner) = self.runners.entries.remove(id) else {
+			return;
+		};
+
+		// Forget the sandboxes that the runner accepted, and queue the ones again whose control connections were not established, if their keys remain.
+		let accepted = self
+			.sandboxes
+			.entries
+			.iter()
+			.filter(
+				|(_, sandbox)| matches!(&sandbox.state, State::Accepted { runner } if runner.id == *id),
+			)
+			.map(|(sandbox, entry)| (sandbox.clone(), entry.boot))
+			.filter(|(sandbox, boot)| {
+				!reported
+					.iter()
+					.any(|reported| reported.id == *sandbox && reported.boot == *boot)
+			})
+			.collect::<Vec<_>>();
+		let mut lost = Vec::new();
+		for (sandbox, _) in accepted {
+			let entry = self.remove_sandbox(scheduler, &sandbox).unwrap();
+			if let Some(request) = entry.request {
+				lost.push(request);
+			} else {
+				self.stop_serving_sandbox_holder(&sandbox);
+			}
+		}
+		if !lost.is_empty() {
+			self.read_lost_sandboxes(scheduler, lost);
+		}
+
+		// Forget the capacity that the runner's sandboxes lend.
+		for parent_id in runner.borrowable {
+			let Some(parent) = self.parents.0.get_mut(&parent_id) else {
+				continue;
+			};
+			let remove = parent.borrowable.as_ref().is_some_and(|borrowable| {
+				borrowable.runner == *id
+					&& borrowable.registration_index == Some(runner.registration_index)
+			});
+			if remove {
+				parent.borrowable = None;
+				if parent.is_empty() {
+					self.parents.0.remove(&parent_id);
+				}
+			}
+		}
+
+		// Return the sandboxes that are offered to the runner to the queue, and end the ones that a dequeue waits for.
+		let sandboxes = runner.reservations.into_keys().collect::<Vec<_>>();
+		for sandbox in sandboxes {
+			self.requeue_sandbox(&sandbox);
+			let entry = self.sandboxes.entries.get_mut(&sandbox).unwrap();
+			let dequeue_requests = std::mem::take(&mut entry.dequeue_requests);
+			if dequeue_requests.is_empty() {
+				continue;
+			}
+			self.end_sandbox_and_log(scheduler, &sandbox, tg::sandbox::Status::Destroyed, None);
+			self.send_dequeue_responses(scheduler, dequeue_requests, true);
+		}
+		self.queue.wake();
 	}
 }
 

@@ -263,7 +263,7 @@ impl SchedulerState {
 				self.send_destroy_sandbox(scheduler, destroy);
 			} else {
 				let boot = claim.request.boot;
-				let runner = super::sandbox::RunnerRef {
+				let runner = super::placement::RunnerRef {
 					registration_index: claim.registration_index,
 					id: claim.runner,
 				};

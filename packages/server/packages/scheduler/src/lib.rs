@@ -26,6 +26,11 @@ use {
 	},
 };
 
+mod holder;
+mod offer;
+mod placement;
+mod queue;
+mod record;
 mod recovery;
 mod request;
 mod runner;
@@ -91,8 +96,8 @@ enum HolderMessage {
 
 struct SchedulerState {
 	operations: Operations,
-	parents: sandbox::Parents,
-	queue: sandbox::Queue,
+	parents: placement::Parents,
+	queue: queue::Queue,
 	recovery: Option<recovery::Recovery>,
 	runners: runner::Runners,
 	sandboxes: sandbox::Sandboxes,
@@ -114,8 +119,8 @@ enum Operation {
 		result: tg::Result<bool>,
 	},
 	OfferSandbox {
-		outcome: sandbox::Outcome,
-		placement: sandbox::Placement,
+		outcome: offer::Outcome,
+		placement: placement::Placement,
 		sandbox: tg::sandbox::Id,
 	},
 	LostSandboxes {
