@@ -276,8 +276,9 @@ impl Component {
 		);
 		let control_sender = control.sender();
 
-		// Watch for the index to record that the connection's boot ended, because the boot's runner may not have learned that its boot was taken over.
+		// Watch for the index to record that the connection's sandbox ended, and then ask the runner to end the sandbox, because the runner may not have learned that the sandbox ended, such as when a stop or destroy ended a queued sandbox whose enqueue was sent again and started it.
 		let ended = Arc::new(AtomicBool::new(false));
+		let ended_request_id = tangram_server_core::control::id();
 		let indexed = session
 			.server
 			.index
@@ -290,31 +291,62 @@ impl Component {
 		let ended_task = Task::spawn({
 			let component = self.clone();
 			let ended = ended.clone();
+			let ended_request_id = ended_request_id.clone();
 			let id = id.clone();
+			let sender = control_sender.clone();
 			let session = session.clone();
 			move |_| async move {
-				if ended.load(Ordering::SeqCst) {
-					return;
-				}
-				let Ok(mut wakeups) = component
-					.create_sandbox_status_wakeup_stream(&session, &id, None, None)
-					.await
-				else {
-					return;
-				};
-				while wakeups.next().await.is_some() {
-					let indexed = session
-						.server
-						.index
-						.try_get_sandbox(&id)
+				// Wait for the index to record that the sandbox ended.
+				let mut indexed = indexed;
+				if !ended.load(Ordering::SeqCst) {
+					let Ok(mut wakeups) = component
+						.create_sandbox_status_wakeup_stream(&session, &id, None, None)
 						.await
-						.ok()
-						.flatten();
-					if Self::sandbox_boot_ended(indexed.as_ref(), boot) {
-						ended.store(true, Ordering::SeqCst);
+					else {
 						return;
+					};
+					loop {
+						if wakeups.next().await.is_none() {
+							return;
+						}
+						indexed = session
+							.server
+							.index
+							.try_get_sandbox(&id)
+							.await
+							.ok()
+							.flatten();
+						if Self::sandbox_boot_ended(indexed.as_ref(), boot) {
+							ended.store(true, Ordering::SeqCst);
+							break;
+						}
 					}
 				}
+
+				// Ask the runner to destroy a sandbox that the index records as destroying or destroyed, and to stop any other, which keeps its directory for its next start. A runner that already ended the sandbox has nothing left to do.
+				let destroyed = indexed
+					.as_ref()
+					.and_then(|sandbox| sandbox.data.as_ref())
+					.is_some_and(|data| {
+						data.data.status.is_destroying() || data.data.status.is_destroyed()
+					});
+				let arg = if destroyed {
+					tg::sandbox::control::ServerRequestArg::Destroy(
+						tg::sandbox::control::DestroyServerRequestArg { error: None },
+					)
+				} else {
+					tg::sandbox::control::ServerRequestArg::Stop(
+						tg::sandbox::control::StopServerRequestArg {},
+					)
+				};
+				let request = tg::sandbox::control::ServerRequest {
+					arg,
+					id: ended_request_id,
+				};
+				sender
+					.send(tg::sandbox::control::ServerMessage::Request(request))
+					.await
+					.ok();
 			}
 		});
 
@@ -424,6 +456,19 @@ impl Component {
 							})?;
 						},
 						tg::sandbox::control::ClientMessage::Response(response) => {
+							// Acknowledge the response to the connection's request to end the sandbox, which no other server waits for, so that the runner stops sending it.
+							if response.id == ended_request_id {
+								let ack = tg::sandbox::control::ServerMessage::Ack(
+									tg::sandbox::control::ServerAck { id: response.id },
+								);
+								control_sender.send(ack).await.map_err(|error| {
+									tg::error!(
+										!error,
+										"failed to send the sandbox control acknowledgement"
+									)
+								})?;
+								continue;
+							}
 							component
 								.publish_sandbox_holder_response(&session.server, &id, response)
 								.await?;

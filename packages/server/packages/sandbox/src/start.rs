@@ -531,6 +531,8 @@ impl Component {
 			.create_sandbox_authentication_token(&session.server, id.clone())?;
 		request.scheduler = Some(scheduler);
 		request.token = Some(token);
+		tangram_server_core::checkpoint!(session.server, "sandbox.start.resume", sandbox = %id)
+			.await;
 		session
 			.server
 			.components
