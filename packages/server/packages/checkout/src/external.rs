@@ -292,6 +292,9 @@ impl Component {
 				Self::checkout_write_lock(&state)
 					.map_err(|error| tg::error!(!error, "failed to write the lock"))?;
 
+				// Wait for the spawns in progress, so that no child process holds a written file open for writing when the checkout returns.
+				tangram_util::spawn::wait();
+
 				Ok::<_, tg::Error>(())
 			}
 		})
