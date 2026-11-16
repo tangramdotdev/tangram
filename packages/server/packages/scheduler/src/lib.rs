@@ -5,7 +5,7 @@ use {
 		stream::{BoxStream, FuturesUnordered},
 	},
 	std::{
-		collections::{HashMap, HashSet},
+		collections::HashMap,
 		sync::{
 			Arc, Mutex,
 			atomic::{AtomicBool, Ordering},
@@ -14,6 +14,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
+	tangram_index::prelude::*,
 	tangram_messenger::Messenger,
 	tangram_server_core::{Server, Session, control::accept::Path},
 	tangram_server_scheduler_core::{
@@ -39,13 +40,16 @@ type Operations = FuturesUnordered<BoxFuture<'static, Operation>>;
 type NotificationStream =
 	BoxStream<'static, Result<tangram_messenger::Message<Notification>, tangram_messenger::Error>>;
 
-type OwnerAncestors = Arc<HashSet<tg::Id, tg::id::BuildHasher>>;
+/// The maximum number of sandbox owners whose ancestors a server remembers.
+const OWNER_ANCESTORS_CAPACITY: u64 = 65_536;
 
 /// The component.
 #[derive(Clone)]
 pub struct Component(Arc<State>);
 
 pub struct State {
+	/// The ancestors of the owners of the sandboxes that this server enqueued, which is absent if the configuration does not remember them.
+	pub(crate) owner_ancestors: Option<moka::future::Cache<tg::Id, Vec<tg::Id>>>,
 	pub(crate) scheduler_cache_task: Mutex<Option<Task<()>>>,
 	pub(crate) schedulers: tangram_server_core::service::Cache<request::Kind>,
 	pub(crate) started: tokio::sync::watch::Sender<bool>,
@@ -89,20 +93,11 @@ enum HolderMessage {
 struct SchedulerState {
 	accepting: HashMap<tg::sandbox::Id, sandbox::Accepting, tg::id::BuildHasher>,
 	operations: Operations,
-	owner_ancestor_requests: HashMap<tg::Id, Vec<tg::sandbox::Id>, tg::id::BuildHasher>,
-	owner_ancestors: HashMap<tg::Id, OwnerAncestors, tg::id::BuildHasher>,
 	parents: sandbox::Parents,
-	pending_enqueues: HashMap<tg::sandbox::Id, PendingEnqueue, tg::id::BuildHasher>,
 	queue: sandbox::Queue,
 	recovery: Option<recovery::Recovery>,
 	runners: runner::Runners,
 	sandboxes: sandbox::Sandboxes,
-}
-
-struct PendingEnqueue {
-	ids: Vec<String>,
-	recovered: bool,
-	request: EnqueueSandboxRequestArg,
 }
 
 enum Operation {
@@ -120,10 +115,6 @@ enum Operation {
 	DestroySandbox {
 		destroy: sandbox::DestroySandbox,
 		result: tg::Result<bool>,
-	},
-	LoadOwnerAncestors {
-		owner: tg::Id,
-		result: tg::Result<Vec<tg::Id>>,
 	},
 	PersistSandbox {
 		result: tg::Result<()>,
@@ -192,6 +183,15 @@ impl Component {
 			.contains(&tangram_server_core::config::Role::Scheduler);
 		let (started, _) = tokio::sync::watch::channel(started);
 
+		// Create the cache of the ancestors of sandbox owners.
+		let time_to_live = arg.config.scheduler.owner_ancestors_time_to_live;
+		let owner_ancestors = (!time_to_live.is_zero()).then(|| {
+			moka::future::Cache::builder()
+				.max_capacity(OWNER_ANCESTORS_CAPACITY)
+				.time_to_live(time_to_live)
+				.build()
+		});
+
 		// Create the task handles and the scheduler cache.
 		let scheduler_cache_task = Mutex::new(None);
 		let schedulers = tangram_server_core::service::Cache::default();
@@ -199,6 +199,7 @@ impl Component {
 
 		// Create the state.
 		let state = State {
+			owner_ancestors,
 			scheduler_cache_task,
 			schedulers,
 			started,
@@ -322,6 +323,40 @@ impl Component {
 			.map_err(|_| tg::error!("expected a dequeue sandbox response"))?;
 
 		Ok(output.dequeued)
+	}
+
+	/// Get a sandbox owner and its ancestors, which this server remembers for a configured time, so that enqueueing a sandbox does not read the index.
+	pub(crate) async fn get_owner_ancestors(
+		&self,
+		session: &Session,
+		owner: &tg::Principal,
+	) -> tg::Result<Vec<tg::Id>> {
+		let Some(owner) = owner.to_id() else {
+			return Ok(Vec::new());
+		};
+		let Some(cache) = &self.owner_ancestors else {
+			return Self::get_owner_ancestors_inner(&session.server, &owner).await;
+		};
+		let ancestors = cache
+			.try_get_with_by_ref(
+				&owner,
+				Self::get_owner_ancestors_inner(&session.server, &owner),
+			)
+			.await
+			.map_err(|error| (*error).clone())?;
+
+		Ok(ancestors)
+	}
+
+	async fn get_owner_ancestors_inner(server: &Server, owner: &tg::Id) -> tg::Result<Vec<tg::Id>> {
+		let ancestors = server
+			.index
+			.try_get_ancestors(owner)
+			.await
+			.map_err(|error| tg::error!(!error, %owner, "failed to get the owner's ancestors"))?
+			.ok_or_else(|| tg::error!(%owner, "failed to find the owner"))?;
+
+		Ok(ancestors)
 	}
 
 	#[tracing::instrument(name = "sandbox.enqueue", level = "debug", skip_all, fields(sandbox = %request.sandbox), err(level = "debug"))]
@@ -681,9 +716,6 @@ impl Scheduler {
 			Operation::DestroySandbox { destroy, result } => {
 				state.handle_destroy_sandbox(self, destroy, result);
 			},
-			Operation::LoadOwnerAncestors { owner, result } => {
-				state.handle_load_owner_ancestors_completion(self, owner, result);
-			},
 			Operation::PersistSandbox { result, sandbox } => {
 				state.handle_persist_sandbox_completion(self, &sandbox, result);
 			},
@@ -950,6 +982,14 @@ impl tangram_server_core::scheduler::Component for Component {
 		request: EnqueueSandboxRequestArg,
 	) -> BoxFuture<'a, tg::Result<tg::scheduler::Id>> {
 		self.enqueue_sandbox(session, request).boxed()
+	}
+
+	fn get_owner_ancestors<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		owner: &'a tg::Principal,
+	) -> BoxFuture<'a, tg::Result<Vec<tg::Id>>> {
+		self.get_owner_ancestors(session, owner).boxed()
 	}
 
 	fn select_scheduler<'a>(

@@ -11841,6 +11841,7 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "futures",
+ "moka",
  "serde_json",
  "tangram_cache",
  "tangram_client",

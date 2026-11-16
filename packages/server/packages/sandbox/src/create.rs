@@ -118,12 +118,19 @@ impl Component {
 		};
 
 		// Enqueue the sandbox, which the scheduler accepts once its record is durable.
+		let owner_ancestors = session
+			.server
+			.components
+			.scheduler
+			.get_owner_ancestors(session, &owner)
+			.await?;
 		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
 			boot: 0,
 			created_at: session.server.clock.unix_timestamp(),
 			creator,
 			owner,
+			owner_ancestors,
 			parent: None,
 			process: None,
 			runner: None,

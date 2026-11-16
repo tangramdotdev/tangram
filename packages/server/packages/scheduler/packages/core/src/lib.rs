@@ -322,6 +322,11 @@ pub struct EnqueueSandboxRequestArg {
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "tg::Principal::is_root")]
 	pub owner: tg::Principal,
 
+	/// The owner and its ancestors, which the enqueuing server reads, so that the scheduler can match the sandbox to the runners of its owner's ancestors.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 12, skip_serializing_if = "Vec::is_empty")]
+	pub owner_ancestors: Vec<tg::Id>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::sandbox::Id>,

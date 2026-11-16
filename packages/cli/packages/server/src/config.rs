@@ -2178,6 +2178,9 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	if let Some(value) = source.max_create_sandbox_requests_per_runner {
 		target.max_create_sandbox_requests_per_runner = value;
 	}
+	if let Some(value) = source.owner_ancestors_time_to_live {
+		target.owner_ancestors_time_to_live = value;
+	}
 	if let Some(value) = source.runner_time_to_live {
 		target.runner_time_to_live = value;
 	}
