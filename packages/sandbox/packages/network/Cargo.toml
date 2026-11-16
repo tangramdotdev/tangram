@@ -25,5 +25,6 @@ libc = { workspace = true }
 neli = { workspace = true }
 rand = { workspace = true }
 tangram_client = { workspace = true }
+tangram_util = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

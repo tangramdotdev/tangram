@@ -415,7 +415,7 @@ impl Host {
 		command.stderr(arg.stderr.to_std());
 		let interrupt = tangram_util::interrupt::Guard::new()
 			.map_err(|error| tg::error!(!error, "failed to defer the terminal interrupt"))?;
-		let mut child = command.spawn().map_err(|error| {
+		let mut child = tangram_util::spawn::spawn(|| command.spawn()).map_err(|error| {
 			tg::error!(
 				!error,
 				executable = %arg.executable,

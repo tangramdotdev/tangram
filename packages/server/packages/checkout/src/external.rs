@@ -293,6 +293,11 @@ impl Component {
 					.map_err(|error| tg::error!(!error, "failed to write the lock"))?;
 
 				// Wait for the spawns in progress, so that no child process holds a written file open for writing when the checkout returns.
+				futures::executor::block_on(tangram_server_core::checkpoint!(
+					session.server,
+					"checkout.publish",
+					id = %state.artifact,
+				));
 				tangram_util::spawn::wait();
 
 				Ok::<_, tg::Error>(())
@@ -634,6 +639,11 @@ impl Component {
 			});
 			let mut file = std::fs::File::create(path)
 				.map_err(|error| tg::error!(!error, ?path, "failed to create the file"))?;
+			futures::executor::block_on(tangram_server_core::checkpoint!(
+				session.server,
+				"checkout.file.write",
+				id = %id,
+			));
 			std::io::copy(&mut reader, &mut file)
 				.map_err(|error| tg::error!(!error, ?path, "failed to write to the file"))?;
 

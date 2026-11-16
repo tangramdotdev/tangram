@@ -710,24 +710,25 @@ async fn run_id_map_helper(
 	setup: u32,
 	kind: &str,
 ) -> tg::Result<()> {
-	let output = tokio::process::Command::new(&map.helper)
-		.kill_on_drop(true)
-		.arg(pid.to_string())
-		.arg("0")
-		.arg(map.host.to_string())
-		.arg(map.count.to_string())
-		.arg(map.count.to_string())
-		.arg(setup.to_string())
-		.arg("1")
-		.output()
-		.await
-		.map_err(|error| {
-			tg::error!(
-				!error,
-				path = %map.helper.display(),
-				"failed to run the {kind} map helper"
-			)
-		})?;
+	let output = tangram_util::spawn::output_async(
+		tokio::process::Command::new(&map.helper)
+			.kill_on_drop(true)
+			.arg(pid.to_string())
+			.arg("0")
+			.arg(map.host.to_string())
+			.arg(map.count.to_string())
+			.arg(map.count.to_string())
+			.arg(setup.to_string())
+			.arg("1"),
+	)
+	.await
+	.map_err(|error| {
+		tg::error!(
+			!error,
+			path = %map.helper.display(),
+			"failed to run the {kind} map helper"
+		)
+	})?;
 	if !output.status.success() {
 		let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
 		return Err(tg::error!(
@@ -979,15 +980,22 @@ mod tests {
 		let path = directory.join("script");
 		let mut file = std::fs::File::create(&path).unwrap();
 
-		// Spawn a launcher that signals once it has forked and then delays its exec, so that it holds its copies of the parent's descriptors as the fork of a large server does.
+		// Hold the launcher before exec until the parent lets it continue.
 		let (mut forked_receiver, forked_sender) = std::io::pipe().unwrap();
 		let forked_sender_fd = forked_sender.as_raw_fd();
+		let (release_receiver, mut release_sender) = std::io::pipe().unwrap();
+		let release_receiver_fd = release_receiver.as_raw_fd();
 		let mut command = tokio::process::Command::new("true");
-		// SAFETY: The closure only calls `write` and `nanosleep`, which are async-signal-safe.
+		// SAFETY: The closure only reads and writes live pipe descriptors using async-signal-safe operations.
 		unsafe {
 			command.as_std_mut().pre_exec(move || {
-				libc::write(forked_sender_fd, [0u8].as_ptr().cast(), 1);
-				std::thread::sleep(std::time::Duration::from_millis(500));
+				let mut byte = 0u8;
+				if libc::write(forked_sender_fd, (&raw const byte).cast(), 1) != 1 {
+					return Err(std::io::Error::last_os_error());
+				}
+				if libc::read(release_receiver_fd, (&raw mut byte).cast(), 1) != 1 {
+					return Err(std::io::Error::from_raw_os_error(libc::EPIPE));
+				}
 				Ok(())
 			});
 		}
@@ -1003,7 +1011,14 @@ mod tests {
 		file.write_all(b"#!/bin/sh\nexit 0\n").unwrap();
 		drop(file);
 		std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-		tangram_util::spawn::wait();
+		let (sender, receiver) = std::sync::mpsc::channel();
+		let waiter = std::thread::spawn(move || {
+			tangram_util::spawn::wait();
+			sender.send(()).unwrap();
+		});
+		let early = receiver.recv_timeout(std::time::Duration::from_millis(100));
+		release_sender.write_all(&[0]).unwrap();
+		waiter.join().unwrap();
 
 		// Execute the script.
 		let result = std::process::Command::new(&path).status();
@@ -1014,6 +1029,7 @@ mod tests {
 		drop(forked_sender);
 		std::fs::remove_dir_all(&directory).ok();
 
+		assert_eq!(early, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
 		let status = result.expect("failed to execute the script");
 		assert!(status.success());
 	}

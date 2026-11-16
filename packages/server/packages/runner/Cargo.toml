@@ -61,3 +61,6 @@ tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 unicode-width = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tangram_util = { workspace = true }

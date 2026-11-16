@@ -257,14 +257,15 @@ where
 	}
 
 	pub async fn unmount(path: &Path) -> Result<()> {
-		let output = tokio::process::Command::new("fusermount3")
+		let mut command = tokio::process::Command::new("fusermount3");
+		command
 			.args(["-u", "-z"])
 			.arg(path)
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::piped())
-			.output()
-			.await?;
+			.stderr(std::process::Stdio::piped());
+		let child = tangram_util::spawn::spawn(|| command.spawn())?;
+		let output = child.wait_with_output().await?;
 		if !output.status.success() {
 			let stderr = String::from_utf8_lossy(&output.stderr);
 			return Err(Error::other(format!("failed to unmount: {stderr}")));

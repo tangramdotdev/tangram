@@ -1284,6 +1284,11 @@ impl Component {
 			});
 			let mut file = std::fs::File::create(path)
 				.map_err(|error| tg::error!(!error, ?path, "failed to create the file"))?;
+			futures::executor::block_on(tangram_server_core::checkpoint!(
+				session.server,
+				"checkout.file.write",
+				id = %id,
+			));
 			std::io::copy(&mut reader, &mut file)
 				.map_err(|error| tg::error!(!error, ?path, "failed to write to the file"))?;
 
@@ -1397,6 +1402,14 @@ impl Component {
 		temp: &Temp,
 		dependencies: &[tg::artifact::Id],
 	) -> tg::Result<tangram_index::checkout::put::Arg> {
+		// Release inherited writable descriptors before publishing the artifact to other checkouts and processes.
+		futures::executor::block_on(tangram_server_core::checkpoint!(
+			session.server,
+			"checkout.publish",
+			id = %item.id,
+		));
+		tangram_util::spawn::wait();
+
 		// Create the path.
 		let path = session.server.checkout_path().join(item.id.to_string());
 

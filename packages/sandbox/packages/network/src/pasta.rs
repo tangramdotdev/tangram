@@ -187,8 +187,7 @@ impl Network {
 		}
 		command.args(target);
 		pre_exec(&mut command);
-		let child = command
-			.spawn()
+		let child = tangram_util::spawn::spawn(|| command.spawn())
 			.map_err(|error| tg::error!(!error, "failed to spawn pasta"))?;
 		self.child = Some(child);
 

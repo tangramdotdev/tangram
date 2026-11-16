@@ -10697,6 +10697,7 @@ dependencies = [
  "rand 0.10.3",
  "serde",
  "tangram_client",
+ "tangram_util",
  "tokio",
  "tracing",
 ]
@@ -10735,6 +10736,7 @@ name = "tangram_server"
 version = "0.0.0"
 dependencies = [
  "futures",
+ "libc",
  "serde_json",
  "tangram_client",
  "tangram_server_authentication",
@@ -10780,6 +10782,7 @@ dependencies = [
  "tangram_server_watch",
  "tangram_server_write",
  "tangram_tests_util",
+ "tangram_util",
  "tokio",
 ]
 
@@ -11762,6 +11765,7 @@ dependencies = [
  "tangram_server_scheduler_core",
  "tangram_server_vfs_core",
  "tangram_uri",
+ "tangram_util",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -12230,6 +12234,7 @@ dependencies = [
  "serde_json",
  "tangram_either",
  "tangram_futures",
+ "tangram_util",
  "tokio",
  "tokio-util",
  "tracing",

@@ -252,17 +252,18 @@ impl Mount {
 		} else {
 			&server.path
 		};
-		let output = tokio::process::Command::new("/sbin/mount")
-			.arg("-F")
-			.arg("-t")
-			.arg("tangram")
-			.arg("-o")
-			.arg(options)
-			.arg(resource)
-			.arg(path)
-			.output()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to run the mount command"))?;
+		let output = tangram_util::spawn::output_async(
+			tokio::process::Command::new("/sbin/mount")
+				.arg("-F")
+				.arg("-t")
+				.arg("tangram")
+				.arg("-o")
+				.arg(options)
+				.arg(resource)
+				.arg(path),
+		)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to run the mount command"))?;
 		if !output.status.success() {
 			let stderr = String::from_utf8_lossy(&output.stderr);
 			let stderr = stderr.trim();
@@ -333,11 +334,11 @@ impl Mount {
 	}
 
 	async fn unmount(path: &Path) -> tg::Result<()> {
-		let output = tokio::process::Command::new("/sbin/umount")
-			.arg(path)
-			.output()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to run the umount command"))?;
+		let output = tangram_util::spawn::output_async(
+			tokio::process::Command::new("/sbin/umount").arg(path),
+		)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to run the umount command"))?;
 		if !output.status.success() {
 			let stderr = String::from_utf8_lossy(&output.stderr);
 			let stderr = stderr.trim();

@@ -382,10 +382,7 @@ fn cleanup_persistent_rule_commands(bridge: Option<&str>) -> Vec<IptablesRule> {
 fn ensure_iptables_chain(table: &[&str], chain: &str) -> tg::Result<()> {
 	let mut check = iptables_args(table, "-S");
 	check.push(chain);
-	let output = std::process::Command::new("iptables")
-		.args(&check)
-		.stderr(std::process::Stdio::piped())
-		.output()
+	let output = tangram_util::spawn::output(std::process::Command::new("iptables").args(&check))
 		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
 	if output.status.success() {
 		return Ok(());
@@ -393,10 +390,7 @@ fn ensure_iptables_chain(table: &[&str], chain: &str) -> tg::Result<()> {
 
 	let mut create = iptables_args(table, "-N");
 	create.push(chain);
-	let output = std::process::Command::new("iptables")
-		.args(&create)
-		.stderr(std::process::Stdio::piped())
-		.output()
+	let output = tangram_util::spawn::output(std::process::Command::new("iptables").args(&create))
 		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
 	if output.status.success() {
 		return Ok(());
@@ -411,10 +405,7 @@ fn ensure_iptables_chain(table: &[&str], chain: &str) -> tg::Result<()> {
 fn flush_iptables_chain(table: &[&str], chain: &str) -> tg::Result<()> {
 	let mut args = iptables_args(table, "-F");
 	args.push(chain);
-	let output = std::process::Command::new("iptables")
-		.args(&args)
-		.stderr(std::process::Stdio::piped())
-		.output()
+	let output = tangram_util::spawn::output(std::process::Command::new("iptables").args(&args))
 		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
 	if output.status.success() {
 		return Ok(());
@@ -426,20 +417,14 @@ fn flush_iptables_chain(table: &[&str], chain: &str) -> tg::Result<()> {
 pub fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 	let mut check = iptables_args(table, "-C");
 	check.extend_from_slice(rule);
-	let output = std::process::Command::new("iptables")
-		.args(&check)
-		.stderr(std::process::Stdio::piped())
-		.output()
+	let output = tangram_util::spawn::output(std::process::Command::new("iptables").args(&check))
 		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
 	if output.status.success() {
 		return Ok(());
 	}
 	let mut insert = iptables_args(table, "-I");
 	insert.extend_from_slice(rule);
-	let output = std::process::Command::new("iptables")
-		.args(&insert)
-		.stderr(std::process::Stdio::piped())
-		.output()
+	let output = tangram_util::spawn::output(std::process::Command::new("iptables").args(&insert))
 		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
 	if !output.status.success() {
 		let stderr = String::from_utf8_lossy(&output.stderr);
@@ -452,10 +437,7 @@ pub fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()>
 fn append_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 	let mut append = iptables_args(table, "-A");
 	append.extend_from_slice(rule);
-	let output = std::process::Command::new("iptables")
-		.args(&append)
-		.stderr(std::process::Stdio::piped())
-		.output()
+	let output = tangram_util::spawn::output(std::process::Command::new("iptables").args(&append))
 		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
 	if !output.status.success() {
 		let stderr = String::from_utf8_lossy(&output.stderr);
@@ -640,10 +622,7 @@ fn iptables_args<'a>(table: &'a [&'a str], operation: &'a str) -> Vec<&'a str> {
 fn insert_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 	let mut insert = iptables_args(table, "-I");
 	insert.extend_from_slice(rule);
-	let output = std::process::Command::new("iptables")
-		.args(&insert)
-		.stderr(std::process::Stdio::piped())
-		.output()
+	let output = tangram_util::spawn::output(std::process::Command::new("iptables").args(&insert))
 		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
 	if !output.status.success() {
 		let stderr = String::from_utf8_lossy(&output.stderr);
@@ -657,20 +636,17 @@ fn delete_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 	loop {
 		let mut args = iptables_args(table, "-D");
 		args.extend_from_slice(rule);
-		let output = match std::process::Command::new("iptables")
-			.args(&args)
-			.stderr(std::process::Stdio::piped())
-			.output()
-		{
-			Ok(output) => output,
-			Err(error) => {
-				if error.kind() == std::io::ErrorKind::NotFound {
-					tracing::warn!("iptables not found; skipping rule cleanup");
-					return Ok(());
-				}
-				return Err(tg::error!(!error, "failed to spawn iptables"));
-			},
-		};
+		let output =
+			match tangram_util::spawn::output(std::process::Command::new("iptables").args(&args)) {
+				Ok(output) => output,
+				Err(error) => {
+					if error.kind() == std::io::ErrorKind::NotFound {
+						tracing::warn!("iptables not found; skipping rule cleanup");
+						return Ok(());
+					}
+					return Err(tg::error!(!error, "failed to spawn iptables"));
+				},
+			};
 		if output.status.success() {
 			continue;
 		}
@@ -686,20 +662,17 @@ fn delete_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 fn delete_iptables_rule_once(table: &[&str], rule: &[&str]) -> tg::Result<bool> {
 	let mut args = iptables_args(table, "-D");
 	args.extend_from_slice(rule);
-	let output = match std::process::Command::new("iptables")
-		.args(&args)
-		.stderr(std::process::Stdio::piped())
-		.output()
-	{
-		Ok(output) => output,
-		Err(error) => {
-			if error.kind() == std::io::ErrorKind::NotFound {
-				tracing::warn!("iptables not found; skipping rule cleanup");
-				return Ok(false);
-			}
-			return Err(tg::error!(!error, "failed to spawn iptables"));
-		},
-	};
+	let output =
+		match tangram_util::spawn::output(std::process::Command::new("iptables").args(&args)) {
+			Ok(output) => output,
+			Err(error) => {
+				if error.kind() == std::io::ErrorKind::NotFound {
+					tracing::warn!("iptables not found; skipping rule cleanup");
+					return Ok(false);
+				}
+				return Err(tg::error!(!error, "failed to spawn iptables"));
+			},
+		};
 	if output.status.success() {
 		return Ok(true);
 	}
@@ -714,20 +687,17 @@ fn delete_iptables_rules_by_comment(table: &[&str], chain: &str, comment: &str) 
 	let mut list = iptables_args(table, "-L");
 	list.push(chain);
 	list.extend(["--line-numbers", "-n", "-v"]);
-	let output = match std::process::Command::new("iptables")
-		.args(&list)
-		.stderr(std::process::Stdio::piped())
-		.output()
-	{
-		Ok(output) => output,
-		Err(error) => {
-			if error.kind() == std::io::ErrorKind::NotFound {
-				tracing::warn!("iptables not found; skipping rule cleanup");
-				return Ok(());
-			}
-			return Err(tg::error!(!error, "failed to spawn iptables"));
-		},
-	};
+	let output =
+		match tangram_util::spawn::output(std::process::Command::new("iptables").args(&list)) {
+			Ok(output) => output,
+			Err(error) => {
+				if error.kind() == std::io::ErrorKind::NotFound {
+					tracing::warn!("iptables not found; skipping rule cleanup");
+					return Ok(());
+				}
+				return Err(tg::error!(!error, "failed to spawn iptables"));
+			},
+		};
 	if !output.status.success() {
 		let stderr = String::from_utf8_lossy(&output.stderr);
 		if is_iptables_permission_error(&stderr) {
@@ -755,14 +725,12 @@ fn delete_iptables_rules_by_comment(table: &[&str], chain: &str, comment: &str) 
 		let mut delete = iptables_args(table, "-D");
 		delete.push(chain);
 		delete.push(&number);
-		let output = match std::process::Command::new("iptables")
-			.args(&delete)
-			.stderr(std::process::Stdio::piped())
-			.output()
-		{
-			Ok(output) => output,
-			Err(error) => return Err(tg::error!(!error, "failed to spawn iptables")),
-		};
+		let output =
+			match tangram_util::spawn::output(std::process::Command::new("iptables").args(&delete))
+			{
+				Ok(output) => output,
+				Err(error) => return Err(tg::error!(!error, "failed to spawn iptables")),
+			};
 		if output.status.success() {
 			continue;
 		}
@@ -776,11 +744,13 @@ fn delete_iptables_rules_by_comment(table: &[&str], chain: &str, comment: &str) 
 }
 
 fn delete_bridge_masquerade_rules(bridge: &str) -> tg::Result<()> {
-	let output = match std::process::Command::new("iptables")
-		.args([IPTABLES_WAIT, "-t", "nat", "-S", "POSTROUTING"])
-		.stderr(std::process::Stdio::piped())
-		.output()
-	{
+	let output = match tangram_util::spawn::output(std::process::Command::new("iptables").args([
+		IPTABLES_WAIT,
+		"-t",
+		"nat",
+		"-S",
+		"POSTROUTING",
+	])) {
 		Ok(output) => output,
 		Err(error) => {
 			if error.kind() == std::io::ErrorKind::NotFound {
@@ -808,14 +778,11 @@ fn delete_bridge_masquerade_rules(bridge: &str) -> tg::Result<()> {
 		}
 		let mut args = vec![IPTABLES_WAIT, "-t", "nat", "-D", "POSTROUTING"];
 		args.extend(rest.split_whitespace());
-		let output = match std::process::Command::new("iptables")
-			.args(&args)
-			.stderr(std::process::Stdio::piped())
-			.output()
-		{
-			Ok(output) => output,
-			Err(error) => return Err(tg::error!(!error, "failed to spawn iptables")),
-		};
+		let output =
+			match tangram_util::spawn::output(std::process::Command::new("iptables").args(&args)) {
+				Ok(output) => output,
+				Err(error) => return Err(tg::error!(!error, "failed to spawn iptables")),
+			};
 		if output.status.success() {
 			continue;
 		}

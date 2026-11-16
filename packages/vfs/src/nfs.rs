@@ -275,7 +275,7 @@ where
 			.stdout(std::process::Stdio::null())
 			.stderr(std::process::Stdio::null())
 			.kill_on_drop(true);
-		let child = command.spawn()?;
+		let child = tangram_util::spawn::spawn(|| command.spawn())?;
 		Ok(Some(child))
 	}
 
@@ -471,15 +471,16 @@ where
 			"async,actimeo=0,mutejukebox,noacl,noquota,nobrowse,nonegnamecache,rdonly,rsize=2097152,nocallback,tcp,vers=4,namedattr,port={port}"
 		);
 		let url = format!("{host}:/");
-		let status = tokio::process::Command::new("mount_nfs")
+		let mut command = tokio::process::Command::new("mount_nfs");
+		command
 			.arg("-o")
 			.arg(options)
 			.arg(url)
 			.arg(path)
 			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::null())
-			.status()
-			.await?;
+			.stderr(std::process::Stdio::null());
+		let mut child = tangram_util::spawn::spawn(|| command.spawn())?;
+		let status = child.wait().await?;
 		if !status.success() {
 			return Err(Error::other("failed to mount"));
 		}
@@ -2106,13 +2107,14 @@ impl FileAttrData {
 }
 
 pub async fn unmount(path: &Path) -> Result<(), std::io::Error> {
-	let status = tokio::process::Command::new("umount")
+	let mut command = tokio::process::Command::new("umount");
+	command
 		.args(["-f"])
 		.arg(path)
 		.stdout(std::process::Stdio::null())
-		.stderr(std::process::Stdio::null())
-		.status()
-		.await?;
+		.stderr(std::process::Stdio::null());
+	let mut child = tangram_util::spawn::spawn(|| command.spawn())?;
+	let status = child.wait().await?;
 	if !status.success() {
 		return Err(Error::other("failed to unmount"));
 	}

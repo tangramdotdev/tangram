@@ -647,18 +647,12 @@ fn quote(value: &str) -> String {
 }
 
 fn run_nft(args: &[&str]) -> tg::Result<std::process::Output> {
-	std::process::Command::new("nft")
-		.args(args)
-		.stderr(std::process::Stdio::piped())
-		.output()
+	tangram_util::spawn::output(std::process::Command::new("nft").args(args))
 		.map_err(|error| tg::error!(!error, "failed to spawn nft"))
 }
 
 fn run_nft_checked(args: &[String]) -> tg::Result<()> {
-	let output = std::process::Command::new("nft")
-		.args(args)
-		.stderr(std::process::Stdio::piped())
-		.output()
+	let output = tangram_util::spawn::output(std::process::Command::new("nft").args(args))
 		.map_err(|error| tg::error!(!error, "failed to spawn nft"))?;
 	if output.status.success() {
 		return Ok(());

@@ -510,7 +510,7 @@ pub fn fusermount3(path: &Path) -> std::io::Result<OwnedFd> {
 	let gid = rustix::process::getgid().as_raw();
 	let options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions,ro");
 	// SAFETY: The pre_exec closure only calls async-signal-safe operations.
-	let child = unsafe {
+	let child = tangram_util::spawn::spawn(|| unsafe {
 		std::process::Command::new("fusermount3")
 			.args(["-o", &options, "--"])
 			.arg(path)
@@ -523,8 +523,8 @@ pub fn fusermount3(path: &Path) -> std::io::Result<OwnedFd> {
 				rustix::io::fcntl_setfd(&fuse_commfd, FdFlags::empty()).map_err(Error::from)?;
 				Ok(())
 			})
-			.spawn()?
-	};
+			.spawn()
+	})?;
 
 	// Reap the mount helper and log its error output if it fails.
 	std::thread::spawn(move || {
