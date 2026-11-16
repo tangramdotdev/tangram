@@ -860,7 +860,7 @@ mod tests {
 
 		// Spawn the command and finish writing the configuration.
 		let config = configure_command(&mut command, &arg).unwrap();
-		let child = command.spawn().unwrap();
+		let child = tangram_util::spawn::spawn_async(&mut command).unwrap();
 		config.finish().await.unwrap();
 
 		// Verify that the command received the complete configuration.

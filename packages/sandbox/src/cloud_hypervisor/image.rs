@@ -91,7 +91,8 @@ fn build_image(rootfs_path: &Path, temp_image_path: &Path) -> tg::Result<()> {
 	std::fs::remove_file(temp_image_path).ok();
 
 	// Build the squashfs image.
-	let status = std::process::Command::new("mksquashfs")
+	let mut command = std::process::Command::new("mksquashfs");
+	command
 		.arg(rootfs_path)
 		.arg(temp_image_path)
 		.arg("-comp")
@@ -99,8 +100,8 @@ fn build_image(rootfs_path: &Path, temp_image_path: &Path) -> tg::Result<()> {
 		.arg("-all-root")
 		.arg("-noappend")
 		.arg("-no-progress")
-		.arg("-quiet")
-		.status()
+		.arg("-quiet");
+	let status = tangram_util::spawn::status(&mut command)
 		.map_err(|error| tg::error!(!error, "failed to invoke mksquashfs"))?;
 	if !status.success() {
 		return Err(tg::error!(%status, "mksquashfs failed"));

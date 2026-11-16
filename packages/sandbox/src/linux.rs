@@ -490,10 +490,9 @@ mod tests {
 	#[test]
 	fn wait_for_descendants() {
 		// Start a process with a child.
-		let mut parent = std::process::Command::new("sh")
-			.args(["-c", "sleep 30 & wait"])
-			.spawn()
-			.unwrap();
+		let mut command = std::process::Command::new("sh");
+		command.args(["-c", "sleep 30 & wait"]);
+		let mut parent = tangram_util::spawn::spawn(&mut command).unwrap();
 		let mut pidfds = descendants(parent.id());
 		while pidfds.is_empty() {
 			std::thread::sleep(std::time::Duration::from_millis(10));

@@ -70,8 +70,7 @@ async fn checkout(external: bool) -> tg::Result<()> {
 				path,
 			};
 			let path = tg::checkout::checkout_one_with_instance(&session, arg).await?;
-			let output = tokio::process::Command::new(path)
-				.output()
+			let output = tangram_util::spawn::output_async(&mut tokio::process::Command::new(path))
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the checked out file"))?;
 			Ok::<_, tg::Error>(output)
@@ -102,7 +101,7 @@ async fn checkout(external: bool) -> tg::Result<()> {
 			Ok(())
 		});
 	}
-	let spawner = std::thread::spawn(move || tangram_util::spawn::spawn(|| command.spawn()));
+	let spawner = std::thread::spawn(move || tangram_util::spawn::spawn(&mut command));
 	host.read_u8().await.unwrap();
 	session
 		.try_unwatch_checkpoint(writing, writing_watch)

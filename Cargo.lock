@@ -9499,6 +9499,7 @@ dependencies = [
  "tangram_cli_core",
  "tangram_client",
  "tangram_futures",
+ "tangram_util",
  "tokio",
 ]
 
@@ -9983,6 +9984,7 @@ dependencies = [
  "tangram_cli_core",
  "tangram_cli_process",
  "tangram_client",
+ "tangram_util",
  "tokio",
 ]
 
@@ -10003,6 +10005,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_client",
+ "tangram_util",
  "tokio",
 ]
 

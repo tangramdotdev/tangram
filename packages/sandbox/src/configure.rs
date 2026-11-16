@@ -158,7 +158,7 @@ pub(crate) async fn command(path: &Path, arg: &Arg, deadline: Instant) -> tg::Re
 	for fd in arg.fds {
 		crate::run::inherit_fd(&mut command, fd);
 	}
-	let mut child = tangram_util::spawn::spawn(|| command.spawn())
+	let mut child = tangram_util::spawn::spawn_async(&mut command)
 		.map_err(|error| tg::error!(!error, "failed to start the sandbox configuration helper"))?;
 	let mut stdin = child.stdin.take().unwrap();
 	let output = tokio::time::timeout_at(deadline, async move {
@@ -208,7 +208,7 @@ pub(crate) async fn hold_command(
 		.stderr(Stdio::piped());
 	crate::run::inherit_fd(&mut command, network.as_raw_fd());
 	crate::run::inherit_fd(&mut command, user.as_raw_fd());
-	let mut child = tangram_util::spawn::spawn(|| command.spawn())
+	let mut child = tangram_util::spawn::spawn_async(&mut command)
 		.map_err(|error| tg::error!(!error, "failed to start the namespace holder"))?;
 	let mut stdout = child.stdout.take().unwrap();
 	let mut byte = [0];

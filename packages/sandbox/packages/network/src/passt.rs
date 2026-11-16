@@ -90,7 +90,7 @@ impl Device {
 		for dns_host in dns {
 			command.arg("--dns-host").arg(dns_host.to_string());
 		}
-		let mut child = tangram_util::spawn::spawn(|| command.spawn())
+		let mut child = tangram_util::spawn::spawn(&mut command)
 			.map_err(|error| tg::error!(!error, "failed to spawn {}", executable.display()))?;
 		if let Err(error) = wait_for_pid_file(&pid_file, executable, startup_timeout) {
 			let pid = child.id().try_into().unwrap();

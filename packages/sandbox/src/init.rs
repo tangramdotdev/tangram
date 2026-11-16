@@ -76,8 +76,7 @@ pub(crate) fn serve(arg: &crate::serve::Arg) -> tg::Result<ExitCode> {
 	// Prevent same-UID workloads from inspecting PID 1 through /proc.
 	crate::util::set_dumpable(false)?;
 	let mut command = command(arg);
-	let child = command
-		.spawn()
+	let child = tangram_util::spawn::spawn(&mut command)
 		.map_err(|error| tg::error!(!error, "failed to spawn the sandbox server"))?;
 	let pid: libc::pid_t = child
 		.id()

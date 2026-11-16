@@ -818,8 +818,7 @@ mod tests {
 			assert!(unsafe { libc::syscall(libc::SYS_personality, u32::MAX) } >= 0);
 			assert_eq!(std::thread::spawn(|| 42).join().unwrap(), 42);
 			assert!(
-				std::process::Command::new("true")
-					.status()
+				tangram_util::spawn::status(&mut std::process::Command::new("true"))
 					.unwrap()
 					.success()
 			);
@@ -828,13 +827,13 @@ mod tests {
 
 		// Spawn the filtered test child.
 		let executable = std::env::current_exe().unwrap();
-		let status = std::process::Command::new(executable)
+		let mut command = std::process::Command::new(executable);
+		command
 			.arg("--exact")
 			.arg("seccomp::tests::install_default_policy")
 			.arg("--nocapture")
-			.env("TANGRAM_SECCOMP_TEST_CHILD", "1")
-			.status()
-			.unwrap();
+			.env("TANGRAM_SECCOMP_TEST_CHILD", "1");
+		let status = tangram_util::spawn::status(&mut command).unwrap();
 
 		// Verify the filtered child succeeded.
 		assert!(status.success());

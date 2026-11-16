@@ -1302,13 +1302,14 @@ fn build_cloud_hypervisor_mount_arg(
 fn ch_remote_run(bin: &Path, api_socket: &Path, log_path: &Path, args: &[&str]) -> tg::Result<()> {
 	let socket_arg = format!("--api-socket={}", api_socket.display());
 	let (stdout, stderr) = log_stdio(log_path)?;
-	let status = std::process::Command::new(bin)
+	let mut command = std::process::Command::new(bin);
+	command
 		.arg(&socket_arg)
 		.args(args)
 		.stdin(std::process::Stdio::null())
 		.stdout(stdout)
-		.stderr(stderr)
-		.status()
+		.stderr(stderr);
+	let status = tangram_util::spawn::status(&mut command)
 		.map_err(|error| tg::error!(!error, "failed to invoke ch-remote"))?;
 	if !status.success() {
 		return Err(tg::error!(

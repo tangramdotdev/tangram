@@ -302,6 +302,11 @@ impl Component {
 					|error| tg::error!(!error, path = %temp_path.display(), "failed to set permissions"),
 				)?;
 			}
+
+			// Wait for the spawns in progress, so that no child process holds a copied file open for writing when the root is renamed.
+			tangram_util::spawn::wait();
+
+			// Rename the temp to the checkouts directory.
 			let done = match tangram_util::fs::rename_noreplace_sync(&temp_path, &dst) {
 				Ok(()) => false,
 				Err(error)
@@ -380,6 +385,9 @@ impl Component {
 			.components
 			.checkout
 			.internal_xattr_capabilities(&session.server)?;
+
+		// Copy each file to a temp.
+		let mut temps = Vec::with_capacity(batch.len());
 		for (path, metadata, id, references, size) in batch {
 			// If the file is already checked out, then continue.
 			let checkout_path = session.server.checkout_path().join(id.to_string());
@@ -428,7 +436,14 @@ impl Component {
 				)?;
 			}
 
-			// Rename the temp to the checkouts directory.
+			temps.push((temp, checkout_path, size));
+		}
+
+		// Wait for the spawns in progress, so that no child process holds a copied file open for writing when it is renamed.
+		tangram_util::spawn::wait();
+
+		// Rename each temp to the checkouts directory.
+		for (temp, checkout_path, size) in temps {
 			let src = temp.path();
 			let dst = &checkout_path;
 			let done = match tangram_util::fs::rename_noreplace_sync(src, dst) {

@@ -275,7 +275,7 @@ where
 			.stdout(std::process::Stdio::null())
 			.stderr(std::process::Stdio::null())
 			.kill_on_drop(true);
-		let child = tangram_util::spawn::spawn(|| command.spawn())?;
+		let child = tangram_util::spawn::spawn_async(&mut command)?;
 		Ok(Some(child))
 	}
 
@@ -479,8 +479,7 @@ where
 			.arg(path)
 			.stdout(std::process::Stdio::null())
 			.stderr(std::process::Stdio::null());
-		let mut child = tangram_util::spawn::spawn(|| command.spawn())?;
-		let status = child.wait().await?;
+		let status = tangram_util::spawn::status_async(&mut command).await?;
 		if !status.success() {
 			return Err(Error::other("failed to mount"));
 		}
@@ -2113,8 +2112,7 @@ pub async fn unmount(path: &Path) -> Result<(), std::io::Error> {
 		.arg(path)
 		.stdout(std::process::Stdio::null())
 		.stderr(std::process::Stdio::null());
-	let mut child = tangram_util::spawn::spawn(|| command.spawn())?;
-	let status = child.wait().await?;
+	let status = tangram_util::spawn::status_async(&mut command).await?;
 	if !status.success() {
 		return Err(Error::other("failed to unmount"));
 	}

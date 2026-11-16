@@ -1,3 +1,8 @@
+#![allow(
+	clippy::disallowed_methods,
+	reason = "the tests spawn processes that do not execute files that this process writes"
+)]
+
 use {
 	clap::Parser as _,
 	std::{path::PathBuf, process::ExitCode},

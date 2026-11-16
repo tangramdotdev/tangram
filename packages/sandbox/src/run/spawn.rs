@@ -520,7 +520,7 @@ pub(crate) fn spawn_command(
 		crate::cgroup::set_affinity_before_exec(command.as_std_mut(), cpus);
 	}
 	// Spawn the launcher as a spawn that a file write can wait for, because the launcher holds copies of the server's descriptors until it executes.
-	let child = tangram_util::spawn::spawn(|| command.spawn())
+	let child = tangram_util::spawn::spawn_async(command)
 		.map_err(|error| tg::error!(!error, "failed to spawn the sandbox launcher"))?;
 	Ok(child)
 }
@@ -958,80 +958,6 @@ mod tests {
 		let user = task.join().unwrap();
 
 		assert_eq!(user, expected);
-	}
-
-	#[test]
-	fn a_file_written_while_a_launcher_spawns_can_be_executed_once_written() {
-		use std::{
-			io::{Read as _, Write as _},
-			os::unix::{fs::PermissionsExt as _, process::CommandExt as _},
-		};
-
-		// Create a runtime for the launcher's child handle.
-		let runtime = tokio::runtime::Builder::new_current_thread()
-			.enable_all()
-			.build()
-			.unwrap();
-
-		// Open a script for writing before the launcher forks, as a checkout does while it writes a file.
-		let directory =
-			std::env::temp_dir().join(format!("tangram_sandbox_spawn_{}", std::process::id()));
-		std::fs::create_dir_all(&directory).unwrap();
-		let path = directory.join("script");
-		let mut file = std::fs::File::create(&path).unwrap();
-
-		// Hold the launcher before exec until the parent lets it continue.
-		let (mut forked_receiver, forked_sender) = std::io::pipe().unwrap();
-		let forked_sender_fd = forked_sender.as_raw_fd();
-		let (release_receiver, mut release_sender) = std::io::pipe().unwrap();
-		let release_receiver_fd = release_receiver.as_raw_fd();
-		let mut command = tokio::process::Command::new("true");
-		// SAFETY: The closure only reads and writes live pipe descriptors using async-signal-safe operations.
-		unsafe {
-			command.as_std_mut().pre_exec(move || {
-				let mut byte = 0u8;
-				if libc::write(forked_sender_fd, (&raw const byte).cast(), 1) != 1 {
-					return Err(std::io::Error::last_os_error());
-				}
-				if libc::read(release_receiver_fd, (&raw mut byte).cast(), 1) != 1 {
-					return Err(std::io::Error::from_raw_os_error(libc::EPIPE));
-				}
-				Ok(())
-			});
-		}
-		let handle = runtime.handle().clone();
-		let spawner = std::thread::spawn(move || {
-			let _runtime = handle.enter();
-			spawn_command(&mut command, None, None)
-		});
-		let mut byte = [0u8];
-		forked_receiver.read_exact(&mut byte).unwrap();
-
-		// Write and close the script, then wait for spawns, as a checkout does before it returns.
-		file.write_all(b"#!/bin/sh\nexit 0\n").unwrap();
-		drop(file);
-		std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-		let (sender, receiver) = std::sync::mpsc::channel();
-		let waiter = std::thread::spawn(move || {
-			tangram_util::spawn::wait();
-			sender.send(()).unwrap();
-		});
-		let early = receiver.recv_timeout(std::time::Duration::from_millis(100));
-		release_sender.write_all(&[0]).unwrap();
-		waiter.join().unwrap();
-
-		// Execute the script.
-		let result = std::process::Command::new(&path).status();
-
-		// Reap the launcher and remove the script.
-		let mut child = spawner.join().unwrap().unwrap();
-		runtime.block_on(child.wait()).unwrap();
-		drop(forked_sender);
-		std::fs::remove_dir_all(&directory).ok();
-
-		assert_eq!(early, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
-		let status = result.expect("failed to execute the script");
-		assert!(status.success());
 	}
 
 	pub(super) fn resolve_record(

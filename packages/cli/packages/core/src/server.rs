@@ -146,8 +146,7 @@ impl Cli {
 			});
 		}
 
-		let mut server = command
-			.spawn()
+		let mut server = tangram_util::spawn::spawn_async(&mut command)
 			.map_err(|error| tg::error!(!error, "failed to spawn the server"))?;
 		drop(ready_writer);
 

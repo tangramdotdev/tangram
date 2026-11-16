@@ -300,20 +300,23 @@ pub(super) async fn build_shell_executable(
 }
 
 pub(super) async fn run_shell_executable(path: &Path) -> tg::Result<BTreeMap<String, String>> {
-	let output = tokio::process::Command::new(path)
+	let mut command = tokio::process::Command::new(path);
+	command
 		.arg("-0")
 		.stdin(Stdio::null())
 		.stdout(Stdio::piped())
-		.stderr(Stdio::inherit())
-		.output()
-		.await
-		.map_err(|error| {
-			tg::error!(
-				!error,
-				path = %path.display(),
-				"failed to spawn the process"
-			)
-		})?;
+		.stderr(Stdio::inherit());
+	let output = match tangram_util::spawn::spawn_async(&mut command) {
+		Ok(child) => child.wait_with_output().await,
+		Err(error) => Err(error),
+	}
+	.map_err(|error| {
+		tg::error!(
+		!error,
+		path = %path.display(),
+		"failed to spawn the process"
+		)
+	})?;
 	if !output.status.success() {
 		let status = output.status;
 		let code = status

@@ -1,3 +1,8 @@
+#![allow(
+	clippy::disallowed_methods,
+	reason = "a build script does not write files while another thread spawns a process that executes them"
+)]
+
 use {
 	serde_json::Value,
 	sha2::{Digest as _, Sha256},

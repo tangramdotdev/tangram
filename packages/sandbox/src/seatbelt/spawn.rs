@@ -114,7 +114,7 @@ pub(crate) async fn spawn(
 		.stderr(std::process::Stdio::piped());
 
 	// Spawn the launcher and finish writing its configuration.
-	let process = tangram_util::spawn::spawn(|| command.spawn())
+	let process = tangram_util::spawn::spawn_async(&mut command)
 		.map_err(|error| tg::error!(!error, "failed to spawn sandbox seatbelt"));
 	let process = process?;
 	drop(guest);

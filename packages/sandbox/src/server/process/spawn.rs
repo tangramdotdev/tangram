@@ -127,7 +127,7 @@ impl Server {
 		}
 
 		// Spawn.
-		let mut child = command.spawn().map_err(|error| {
+		let mut child = tangram_util::spawn::spawn_async(&mut command).map_err(|error| {
 			tg::error!(
 				!error,
 				executable = %executable.display(),

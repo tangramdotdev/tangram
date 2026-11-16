@@ -509,22 +509,23 @@ pub fn fusermount3(path: &Path) -> std::io::Result<OwnedFd> {
 	let uid = rustix::process::getuid().as_raw();
 	let gid = rustix::process::getgid().as_raw();
 	let options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions,ro");
+	let mut command = std::process::Command::new("fusermount3");
+	command
+		.args(["-o", &options, "--"])
+		.arg(path)
+		.env("_FUSE_COMMFD", commfd_raw.to_string())
+		.stdin(std::process::Stdio::null())
+		.stdout(std::process::Stdio::null())
+		.stderr(std::process::Stdio::piped());
 	// SAFETY: The pre_exec closure only calls async-signal-safe operations.
-	let child = tangram_util::spawn::spawn(|| unsafe {
-		std::process::Command::new("fusermount3")
-			.args(["-o", &options, "--"])
-			.arg(path)
-			.env("_FUSE_COMMFD", commfd_raw.to_string())
-			.stdin(std::process::Stdio::null())
-			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::piped())
-			.pre_exec(move || {
-				// Clear CLOEXEC on the communication FD so fusermount3 inherits it.
-				rustix::io::fcntl_setfd(&fuse_commfd, FdFlags::empty()).map_err(Error::from)?;
-				Ok(())
-			})
-			.spawn()
-	})?;
+	unsafe {
+		command.pre_exec(move || {
+			// Clear CLOEXEC on the communication FD so fusermount3 inherits it.
+			rustix::io::fcntl_setfd(&fuse_commfd, FdFlags::empty()).map_err(Error::from)?;
+			Ok(())
+		});
+	}
+	let child = tangram_util::spawn::spawn(&mut command)?;
 
 	// Reap the mount helper and log its error output if it fails.
 	std::thread::spawn(move || {

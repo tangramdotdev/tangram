@@ -180,7 +180,7 @@ impl Assets {
 		let mut command = tokio::process::Command::new(&server.tangram_path);
 		command.kill_on_drop(true);
 		let config = tangram_sandbox::run::configure_command(&mut command, &launch)?;
-		let child = tangram_util::spawn::spawn(|| command.spawn())
+		let child = tangram_util::spawn::spawn_async(&mut command)
 			.map_err(|error| tg::error!(!error, "failed to spawn the snapshot process"));
 		let mut child = child?;
 		config.finish().await?;

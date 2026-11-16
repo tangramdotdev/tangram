@@ -902,8 +902,7 @@ fn spawn_command(arg: &crate::run::Command) -> tg::Result<std::process::Child> {
 		.stderr(std::process::Stdio::inherit());
 
 	// Spawn the command after the guest is initialized.
-	let child = command
-		.spawn()
+	let child = tangram_util::spawn::spawn(&mut command)
 		.map_err(|error| tg::error!(!error, "failed to spawn the guest command"))?;
 
 	Ok(child)

@@ -273,9 +273,7 @@ impl Component {
 			return Ok(());
 		}
 		let temp = Temp::new(&session.server);
-		if state.write_handles.len() >= state.config.max_write_handles {
-			state.write_handles.shift_remove_index(0);
-		}
+		Self::sync_get_checkout_evict_write_handle(state).await?;
 		let handle = tokio::fs::File::create_new(temp.path())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the checkout temp file"))?;
@@ -295,7 +293,7 @@ impl Component {
 			file: handle,
 			position: 0,
 		};
-		Self::sync_get_checkout_put_write_handle(state, id.clone(), handle);
+		Self::sync_get_checkout_put_write_handle(state, id.clone(), handle).await?;
 		Self::sync_get_checkout_add_pointer(
 			state,
 			root,
@@ -653,7 +651,7 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to write the checkout temp file"))?;
 		handle.position += u64::try_from(bytes.len()).unwrap();
-		Self::sync_get_checkout_put_write_handle(state, pointer.file.clone(), handle);
+		Self::sync_get_checkout_put_write_handle(state, pointer.file.clone(), handle).await?;
 
 		Ok(())
 	}
@@ -691,7 +689,7 @@ impl Component {
 		source.position += copied;
 		destination.position += copied;
 		Self::sync_get_checkout_put_read_handle(state, path, source);
-		Self::sync_get_checkout_put_write_handle(state, pointer.file.clone(), destination);
+		Self::sync_get_checkout_put_write_handle(state, pointer.file.clone(), destination).await?;
 		if copied != length {
 			return Err(tg::error!(
 				actual = %copied,
@@ -728,9 +726,7 @@ impl Component {
 		if let Some(handle) = state.write_handles.shift_remove(id) {
 			return Ok(handle);
 		}
-		if state.write_handles.len() >= state.config.max_write_handles {
-			state.write_handles.shift_remove_index(0);
-		}
+		Self::sync_get_checkout_evict_write_handle(state).await?;
 		let path = state.files.get(id).unwrap().temp.path();
 		let file = tokio::fs::OpenOptions::new()
 			.write(true)
@@ -749,11 +745,28 @@ impl Component {
 		state.read_handles.insert(path, handle);
 	}
 
-	fn sync_get_checkout_put_write_handle(state: &mut State, id: tg::file::Id, handle: Handle) {
-		if state.write_handles.len() >= state.config.max_write_handles {
-			state.write_handles.shift_remove_index(0);
-		}
+	async fn sync_get_checkout_put_write_handle(
+		state: &mut State,
+		id: tg::file::Id,
+		handle: Handle,
+	) -> tg::Result<()> {
+		Self::sync_get_checkout_evict_write_handle(state).await?;
 		state.write_handles.insert(id, handle);
+		Ok(())
+	}
+
+	async fn sync_get_checkout_evict_write_handle(state: &mut State) -> tg::Result<()> {
+		// Flush the oldest write handle before dropping it, so that its descriptor closes at once and not when a write in progress completes.
+		if state.write_handles.len() >= state.config.max_write_handles
+			&& let Some((_, mut handle)) = state.write_handles.shift_remove_index(0)
+		{
+			handle
+				.file
+				.flush()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to flush the checkout temp file"))?;
+		}
+		Ok(())
 	}
 
 	async fn sync_get_checkout_complete_file(
@@ -806,6 +819,10 @@ impl Component {
 					token: token.as_ref(),
 				};
 				tg::file::xattrs::write(&temp_path, xattrs, capabilities)?;
+
+				// Wait for the spawns in progress, so that no child process holds the written file open for writing when it is renamed.
+				tangram_util::spawn::wait();
+
 				Ok::<_, tg::Error>(())
 			}
 		})

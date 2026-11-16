@@ -1,0 +1,8 @@
+disallowed-methods = [
+	{ path = "std::process::Command::output", reason = "use `tangram_util::spawn::output`, so that a file write can wait for the spawn" },
+	{ path = "std::process::Command::spawn", reason = "use `tangram_util::spawn::spawn`, so that a file write can wait for the spawn" },
+	{ path = "std::process::Command::status", reason = "use `tangram_util::spawn::spawn`, so that a file write can wait for the spawn" },
+	{ path = "tokio::process::Command::output", reason = "use `tangram_util::spawn::output_async`, so that a file write can wait for the spawn" },
+	{ path = "tokio::process::Command::spawn", reason = "use `tangram_util::spawn::spawn`, so that a file write can wait for the spawn" },
+	{ path = "tokio::process::Command::status", reason = "use `tangram_util::spawn::spawn`, so that a file write can wait for the spawn" },
+]

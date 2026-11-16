@@ -264,7 +264,7 @@ where
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::null())
 			.stderr(std::process::Stdio::piped());
-		let child = tangram_util::spawn::spawn(|| command.spawn())?;
+		let child = tangram_util::spawn::spawn_async(&mut command)?;
 		let output = child.wait_with_output().await?;
 		if !output.status.success() {
 			let stderr = String::from_utf8_lossy(&output.stderr);

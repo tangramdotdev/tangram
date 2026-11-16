@@ -795,7 +795,7 @@ impl<O: 'static> tg::Process<O> {
 		let interrupt = tangram_util::interrupt::Guard::new()
 			.map_err(|error| tg::error!(!error, "failed to defer the terminal interrupt"))?;
 
-		let mut child = tangram_util::spawn::spawn(|| command_.spawn()).map_err(|error| {
+		let mut child = tangram_util::spawn::spawn_async(&mut command_).map_err(|error| {
 			tg::error!(
 				!error,
 				executable = %prepared.executable.display(),

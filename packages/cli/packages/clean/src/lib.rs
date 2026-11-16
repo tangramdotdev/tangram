@@ -167,26 +167,24 @@ pub async fn run_force(cli: &mut Cli) -> tg::Result<()> {
 async fn force_unmount_vfs(path: &std::path::Path) {
 	#[cfg(target_os = "linux")]
 	{
-		tokio::process::Command::new("fusermount3")
+		let mut command = tokio::process::Command::new("fusermount3");
+		command
 			.args(["-u", "-z"])
 			.arg(path)
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::null())
-			.status()
-			.await
-			.ok();
+			.stderr(std::process::Stdio::null());
+		tangram_util::spawn::status_async(&mut command).await.ok();
 	}
 	#[cfg(target_os = "macos")]
 	{
-		tokio::process::Command::new("umount")
+		let mut command = tokio::process::Command::new("umount");
+		command
 			.arg("-f")
 			.arg(path)
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::null())
-			.status()
-			.await
-			.ok();
+			.stderr(std::process::Stdio::null());
+		tangram_util::spawn::status_async(&mut command).await.ok();
 	}
 }
