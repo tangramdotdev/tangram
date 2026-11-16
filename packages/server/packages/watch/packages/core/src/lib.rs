@@ -205,6 +205,7 @@ impl Watch {
 					// Get the paths.
 					let event_paths = message.event.paths.clone();
 					let mut paths = Self::changes(&message.event);
+					let replaced_paths = Self::replacements(&message.event);
 					let lockfile_changed = paths.remove(lockfile_path.as_path());
 					let only_lockfile_changed = message
 						.event
@@ -251,18 +252,30 @@ impl Watch {
 					}
 
 					// Update the nodes for the affected paths along with their ancestors.
+					let mut root_ignored = false;
 					for path in paths {
 						// Ignore delayed root notifications that match the metadata after the lock write.
 						if message.sender.is_none()
 							&& path == root.as_path()
 							&& State::graph_matches_path(&state.graph, path)
 						{
+							root_ignored = true;
 							continue;
 						}
 						if state.affected_paths.contains(path) {
 							modified = true;
 						}
 						if state.remove_path(path) {
+							modified = true;
+						}
+					}
+
+					// Remove the nodes beneath each created, renamed, or removed path, because no event reports a change made beneath a path while it is elsewhere, and the watcher stops watching the paths beneath it.
+					for path in replaced_paths {
+						if root_ignored && path == root.as_path() {
+							continue;
+						}
+						if state.remove_descendants(path) {
 							modified = true;
 						}
 					}
@@ -487,6 +500,18 @@ impl Watch {
 		changes
 	}
 
+	fn replacements(event: &notify::Event) -> &[PathBuf] {
+		match &event.kind {
+			notify::EventKind::Create(_)
+			| notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
+			| notify::EventKind::Remove(_) => &event.paths,
+			notify::EventKind::Access(_)
+			| notify::EventKind::Any
+			| notify::EventKind::Modify(_)
+			| notify::EventKind::Other => &[],
+		}
+	}
+
 	fn spawn_timeout_task(clock: &Clock, time_to_live: Duration, expire: &Expire) -> Task<()> {
 		Task::spawn({
 			let clock = clock.clone();
@@ -616,6 +641,14 @@ impl State {
 		}
 		self.version += 1;
 		self.invalidated_paths.extend(paths);
+	}
+
+	fn remove_descendants(&mut self, path: &Path) -> bool {
+		let mut removed = false;
+		for path in self.graph.paths.descendants(path) {
+			removed |= self.remove_path(&path);
+		}
+		removed
 	}
 
 	fn remove_path(&mut self, path: &Path) -> bool {
