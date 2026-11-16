@@ -1077,7 +1077,7 @@ impl Component {
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
 
-		// Report every sandbox that is running or booting, so that a restarted scheduler can tell which requests it already placed.
+		// Report every sandbox that is running or starting, so that a restarted scheduler can tell which requests it already placed.
 		let mut sandboxes = self
 			.state
 			.sandboxes
@@ -1085,7 +1085,7 @@ impl Component {
 			.filter(|sandbox| !sandbox.status.is_stopped_or_destroyed())
 			.map(|sandbox| (sandbox.id.clone(), sandbox.boot))
 			.collect::<BTreeMap<_, _>>();
-		for entry in &self.state.booting {
+		for entry in &self.state.starting {
 			sandboxes
 				.entry(entry.key().clone())
 				.or_insert(*entry.value());
@@ -1205,7 +1205,7 @@ impl Component {
 			// Join a boot that this runner already holds, and ignore an older boot, because a scheduler can send a boot again after it restarts or resends a request.
 			let state = session.server.components.runner.state();
 			let joined = state
-				.booting
+				.starting
 				.get(&request.sandbox)
 				.is_some_and(|boot| *boot >= request.boot)
 				|| state
@@ -1282,7 +1282,7 @@ impl Component {
 			};
 
 			// Spawn the sandbox task, and record a stop that arrived while the boot was queued.
-			state.booting.insert(sandbox.clone(), request.boot);
+			state.starting.insert(sandbox.clone(), request.boot);
 			if request.stop {
 				state.pending_stops.insert(sandbox.clone(), request.boot);
 			} else {

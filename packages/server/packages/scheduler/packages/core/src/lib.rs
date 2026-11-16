@@ -184,7 +184,7 @@ pub struct AddRunnerRequestArg {
 	#[tangram_serialize(id = 3)]
 	pub runner: tg::runner::Id,
 
-	/// The sandboxes that the runner is running or booting, which a restarted scheduler treats as placed.
+	/// The sandboxes that the runner is running or starting, which a restarted scheduler treats as placed.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
 	pub sandboxes: Vec<tg::runner::control::ArgSandbox>,

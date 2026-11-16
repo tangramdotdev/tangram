@@ -425,8 +425,8 @@ impl Component {
 				.unwrap_or_else(|_| Err(tg::error!("the sandbox task panicked")))
 		};
 		self.state
-			.booting
-			.remove_if(&id, |_, booting| *booting == boot);
+			.starting
+			.remove_if(&id, |_, starting| *starting == boot);
 		self.state.sandboxes.notify_updated();
 
 		// Report the end of the boot to the scheduler, which forgets the boots of a runner that registers again if the report is not delivered.
@@ -1971,9 +1971,9 @@ impl Component {
 						// Keep the storage reserved for the kept directory, unless a newer boot of the sandbox already acquired it.
 						let newer = self
 							.state
-							.booting
+							.starting
 							.get(&id)
-							.is_some_and(|booting| *booting > boot);
+							.is_some_and(|starting| *starting > boot);
 						if let Some(storage) = stopped_storage
 							&& !newer
 						{
@@ -2356,7 +2356,7 @@ impl Component {
 			let updated = self.state.sandboxes.updated();
 			let sandbox = self.state.sandboxes.get_by_id(&id);
 			let starting =
-				self.state.booting.get(&id).is_some_and(|boot| {
+				self.state.starting.get(&id).is_some_and(|boot| {
 					sandbox.as_ref().is_none_or(|sandbox| sandbox.boot != *boot)
 				});
 			let control_sender = sandbox
@@ -2656,7 +2656,9 @@ impl Component {
 			let Some(data) = indexed.and_then(|indexed| indexed.data) else {
 				continue;
 			};
-			if data.data.status != tg::sandbox::Status::Stopped || self.sandbox_is_booted(&id) {
+			if data.data.status != tg::sandbox::Status::Stopped
+				|| self.sandbox_is_starting_or_running(&id)
+			{
 				continue;
 			}
 
@@ -2715,7 +2717,7 @@ impl Component {
 				else {
 					continue;
 				};
-				if self.sandbox_is_booted(&reply.sandbox) {
+				if self.sandbox_is_starting_or_running(&reply.sandbox) {
 					continue;
 				}
 
@@ -2741,7 +2743,7 @@ impl Component {
 
 		// Destroy each expired sandbox, checking again that no boot started while the usage was reported.
 		for id in expired {
-			if removed.contains(&id) || self.sandbox_is_booted(&id) {
+			if removed.contains(&id) || self.sandbox_is_starting_or_running(&id) {
 				continue;
 			}
 			if let Err(error) = self
@@ -2756,11 +2758,11 @@ impl Component {
 	}
 
 	/// Get whether a boot of the sandbox is starting or running on this runner.
-	fn sandbox_is_booted(&self, id: &tg::sandbox::Id) -> bool {
+	fn sandbox_is_starting_or_running(&self, id: &tg::sandbox::Id) -> bool {
 		let sandbox = self.state.sandboxes.get_by_id(id);
 		let starting = self
 			.state
-			.booting
+			.starting
 			.get(id)
 			.is_some_and(|boot| sandbox.as_ref().is_none_or(|sandbox| sandbox.boot != *boot));
 		let running = sandbox.is_some_and(|sandbox| !sandbox.status.is_stopped_or_destroyed());
