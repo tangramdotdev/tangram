@@ -17,7 +17,7 @@ mod tests;
 pub type Expire = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
 #[cfg(target_os = "linux")]
-type Paths = std::collections::BTreeMap<PathBuf, (u64, u64)>;
+type Paths = std::collections::BTreeMap<PathBuf, Inode>;
 #[cfg(target_os = "macos")]
 type Paths = HashSet<PathBuf, fnv::FnvBuildHasher>;
 
@@ -94,6 +94,13 @@ pub struct State {
 	pub version: u64,
 
 	pub watcher: Option<notify::RecommendedWatcher>,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Inode {
+	pub device: u64,
+	pub number: u64,
 }
 
 pub struct Snapshot {
@@ -860,21 +867,23 @@ impl State {
 		path: &Path,
 	) -> tg::Result<()> {
 		// Follow symlinks to identify the inode that inotify watches.
-		let identity = std::fs::metadata(path).map(|metadata| (metadata.dev(), metadata.ino()));
+		let inode = std::fs::metadata(path).map(|metadata| Inode {
+			device: metadata.dev(),
+			number: metadata.ino(),
+		});
 
 		// Remove the old inode's watch before registering a replacement at the same path.
 		if let Some(previous) = paths.get(path)
-			&& identity.as_ref().ok() != Some(previous)
+			&& inode.as_ref().ok() != Some(previous)
 		{
 			watcher.remove(path).ok();
 			paths.remove(path);
 		}
-		let identity =
-			identity.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
+		let inode = inode.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
 		watcher
 			.add(path, notify::RecursiveMode::NonRecursive)
 			.map_err(|error| tg::error!(!error, "failed to watch the path"))?;
-		paths.insert(path.to_owned(), identity);
+		paths.insert(path.to_owned(), inode);
 
 		Ok(())
 	}

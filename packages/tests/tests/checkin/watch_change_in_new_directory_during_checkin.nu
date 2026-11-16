@@ -34,8 +34,7 @@ tg checkpoint continue checkin.watch.publish $publish_watch 0
 tg checkpoint unwatch checkin.watch.publish $publish_watch
 job recv --tag $checkin --timeout 10sec | ignore
 
-# The watched checkin must settle on the id of a cold checkin.
+# The next watched checkin must return the id of a cold checkin.
 let cold = tg checkin --no-watch --no-tokens $path | referent node
-wait_until --timeout 10sec {
-	(tg checkin --no-tokens $path --watch | referent node) == $cold
-} "the watched checkin should equal a cold checkin"
+let watched = tg checkin --no-tokens $path --watch | referent node
+assert ($watched == $cold) "the watched checkin should equal a cold checkin"
