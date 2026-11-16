@@ -4,6 +4,9 @@ use {
 	tokio::sync::mpsc::{self, error::TrySendError},
 };
 
+#[cfg(target_os = "linux")]
+mod linux;
+
 #[test]
 fn overflow_after_queue_drains_notifies_receiver() {
 	// Fill the channel and fail to send another event.

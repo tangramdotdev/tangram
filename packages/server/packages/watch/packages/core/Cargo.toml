@@ -27,3 +27,6 @@ tangram_server_clock_core = { workspace = true }
 tangram_server_config = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+tangram_util = { workspace = true }

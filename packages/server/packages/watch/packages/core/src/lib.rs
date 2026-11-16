@@ -16,6 +16,11 @@ mod tests;
 
 pub type Expire = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
+#[cfg(target_os = "linux")]
+type Paths = std::collections::BTreeMap<PathBuf, (u64, u64)>;
+#[cfg(target_os = "macos")]
+type Paths = HashSet<PathBuf, fnv::FnvBuildHasher>;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Id(u64);
 
@@ -62,19 +67,32 @@ pub struct LockWriteGuard {
 
 pub struct State {
 	pub affected_paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+
 	pub graph: Graph,
+
 	pub index_task: Shared<tg::Result<()>>,
+
 	pub invalidated_paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+
 	pub lock: Option<Arc<tg::graph::data::Leaf>>,
+
 	pub overflowed: Arc<AtomicBool>,
+
+	#[cfg(any(target_os = "linux", target_os = "macos"))]
+	pub paths: Paths,
+
 	pub pending_lock_write_version: Option<u64>,
-	#[cfg(target_os = "macos")]
-	pub paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+
 	pub revalidation_version: u64,
+
 	pub sender: tokio::sync::mpsc::Sender<Message>,
+
 	pub solutions: Solutions,
+
 	pub timeout_task: Option<Task<()>>,
+
 	pub version: u64,
+
 	pub watcher: Option<notify::RecommendedWatcher>,
 }
 
@@ -142,19 +160,32 @@ impl Watch {
 		let index_task = spawn_index_task();
 		let state = State {
 			affected_paths: HashSet::default(),
+
 			graph,
+
 			index_task,
+
 			invalidated_paths: HashSet::default(),
+
 			lock,
+
 			overflowed: Arc::new(AtomicBool::new(false)),
+
+			#[cfg(any(target_os = "linux", target_os = "macos"))]
+			paths: Paths::default(),
+
 			pending_lock_write_version: None,
-			#[cfg(target_os = "macos")]
-			paths: HashSet::default(),
+
 			revalidation_version: 0,
+
 			sender,
+
 			solutions,
+
 			timeout_task: None,
+
 			version: 0,
+
 			watcher: None,
 		};
 		let state = Arc::new(Mutex::new(state));
@@ -231,56 +262,8 @@ impl Watch {
 						if state.affected_paths.contains(path) {
 							modified = true;
 						}
-						let Some(index) = state.graph.paths.get(path).copied() else {
-							continue;
-						};
-						modified = true;
-						let mut queue = vec![index];
-						let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
-						while let Some(index) = queue.pop() {
-							if !visited.insert(index) {
-								continue;
-							}
-
-							// On linux, unwatch the path.
-							#[cfg(target_os = "linux")]
-							state.remove_path_linux(path);
-
-							// Remove the node.
-							let node = *state.graph.nodes.remove(&index).unwrap();
-							tracing::trace!(path = ?node.path, edge = ?node.edge, "removed");
-							if let Some(artifact) = &node.artifact {
-								state.graph.artifacts.remove(artifact).unwrap();
-							}
-							if let Some(id) = &node.id {
-								state.graph.remove_id(index, id, node.permissions);
-							}
-							if let Some(path) = &node.path {
-								state.graph.paths.remove(path).unwrap();
-								state.affected_paths.insert(path.clone());
-							}
-
-							// Remove solutions that reference this node.
-							state.solutions.remove_by_node(index);
-
-							// Remove the node from its children's referrers and enqueue its children with no more referrers and no path.
-							for child_index in node
-								.children()
-								.into_iter()
-								.chain(node.object_children.iter().copied())
-							{
-								if let Some(child) = state.graph.nodes.get_mut(&child_index) {
-									child.referrers.remove(&index);
-									if child.referrers.is_empty() && child.path.is_none() {
-										queue.push(child_index);
-									}
-								}
-							}
-
-							// Enqueue the node's referrers.
-							for referrer in node.referrers {
-								queue.push(referrer);
-							}
+						if state.remove_path(path) {
+							modified = true;
 						}
 					}
 
@@ -325,27 +308,7 @@ impl Watch {
 			return;
 		}
 
-		// Remove the watched paths before discarding the cached graph.
-		#[cfg(target_os = "linux")]
-		{
-			let paths = state
-				.graph
-				.nodes
-				.values()
-				.filter_map(|node| node.path.clone())
-				.collect();
-			state.remove_paths_linux(&paths);
-		}
-
-		// Invalidate the graph and any checkins that are still using its previous version.
-		state.affected_paths.clear();
-		state.graph = Graph::default();
-		state.invalidated_paths.clear();
-		state.solutions = Solutions::default();
-		state.version += 1;
-		state.revalidation_version = state.version;
-		#[cfg(target_os = "macos")]
-		state.update_paths_darwin().ok();
+		state.reset();
 	}
 
 	#[must_use]
@@ -467,12 +430,11 @@ impl Watch {
 			drop(state);
 			return false;
 		}
-		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
-		let removed_paths = graph.clean(&key.path, next);
+		let mut removed_paths = graph.clean(&key.path, next);
 
-		// Update the state.
+		// Update the state, and collect the paths that invalidation removed from the graph.
 		let index_task = spawn_index_task();
-		state.affected_paths.clear();
+		removed_paths.extend(state.affected_paths.drain());
 		state.graph = graph;
 		state.index_task = index_task;
 		state.invalidated_paths.clear();
@@ -491,7 +453,7 @@ impl Watch {
 
 		// Update the watched paths.
 		#[cfg(target_os = "linux")]
-		state.remove_paths_linux(&removed_paths);
+		state.unwatch_paths_linux(&removed_paths);
 		state.watch_paths(next);
 		if let Some(lock_write_guard) = lock_write_guard {
 			lock_write_guard.commit();
@@ -603,21 +565,21 @@ impl State {
 
 	fn watch_paths(&mut self, next: usize) {
 		// Discard the graph if any of its paths is not watched, so that the next checkin reads every path.
-		if let Err(error) = self.try_watch_paths(next) {
-			tracing::warn!(%error, "failed to watch the paths");
-			self.reset();
-		}
+		let next = match self.try_watch_paths(next) {
+			Ok(next) => next,
+			Err(error) => {
+				tracing::warn!(%error, "failed to watch the paths");
+				self.reset();
+				return;
+			},
+		};
+
+		// Remove the nodes for paths that changed after the checkin read them and before they were watched.
+		self.remove_changed_paths(next);
 	}
 
-	fn try_watch_paths(&mut self, next: usize) -> tg::Result<()> {
+	fn try_watch_paths(&mut self, next: usize) -> tg::Result<usize> {
 		// Create the watcher if there is none, and watch every path with a new watcher.
-		#[cfg_attr(
-			not(target_os = "linux"),
-			expect(
-				unused_variables,
-				reason = "only linux watches the new nodes individually"
-			)
-		)]
 		let next = if self.watcher.is_some() {
 			next
 		} else {
@@ -627,11 +589,87 @@ impl State {
 
 		// Watch the paths.
 		#[cfg(target_os = "linux")]
-		self.add_paths_linux(next)?;
+		self.update_paths_linux(next)?;
 		#[cfg(target_os = "macos")]
 		self.update_paths_darwin()?;
 
-		Ok(())
+		Ok(next)
+	}
+
+	fn remove_changed_paths(&mut self, next: usize) {
+		// Find the paths read by the checkin whose metadata no longer matches the graph, because no event reports a change made before a path was watched.
+		let paths = self
+			.graph
+			.nodes
+			.range(next..)
+			.filter_map(|(_, node)| node.path.clone())
+			.filter(|path| !Self::graph_matches_path(&self.graph, path))
+			.collect::<Vec<_>>();
+		if paths.is_empty() {
+			return;
+		}
+
+		// Remove the nodes and invalidate any checkins that read the paths before the change.
+		for path in &paths {
+			tracing::trace!(path = %path.display(), "changed before it was watched");
+			self.remove_path(path);
+		}
+		self.version += 1;
+		self.invalidated_paths.extend(paths);
+	}
+
+	fn remove_path(&mut self, path: &Path) -> bool {
+		// Get the path's node.
+		let Some(index) = self.graph.paths.get(path).copied() else {
+			return false;
+		};
+
+		// Remove the node along with its referrers and its children with no more referrers and no path.
+		let mut queue = vec![index];
+		let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
+		while let Some(index) = queue.pop() {
+			if !visited.insert(index) {
+				continue;
+			}
+
+			// Remove the node.
+			let node = *self.graph.nodes.remove(&index).unwrap();
+			tracing::trace!(path = ?node.path, edge = ?node.edge, "removed");
+			if let Some(artifact) = &node.artifact {
+				self.graph.artifacts.remove(artifact).unwrap();
+			}
+			if let Some(id) = &node.id {
+				self.graph.remove_id(index, id, node.permissions);
+			}
+			if let Some(path) = &node.path {
+				self.graph.paths.remove(path).unwrap();
+				self.affected_paths.insert(path.clone());
+			}
+
+			// Remove solutions that reference this node.
+			self.solutions.remove_by_node(index);
+
+			// Remove the node from its children's referrers and enqueue its children with no more referrers and no path.
+			for child_index in node
+				.children()
+				.into_iter()
+				.chain(node.object_children.iter().copied())
+			{
+				if let Some(child) = self.graph.nodes.get_mut(&child_index) {
+					child.referrers.remove(&index);
+					if child.referrers.is_empty() && child.path.is_none() {
+						queue.push(child_index);
+					}
+				}
+			}
+
+			// Enqueue the node's referrers.
+			for referrer in node.referrers {
+				queue.push(referrer);
+			}
+		}
+
+		true
 	}
 
 	fn create_watcher(&self) -> tg::Result<notify::RecommendedWatcher> {
@@ -683,7 +721,7 @@ impl State {
 		// Drop the watcher, which unwatches every path and releases its resources, and replace its overflow flag, so that events it drops while it stops do not reset the watch again.
 		self.watcher.take();
 		self.overflowed = Arc::new(AtomicBool::new(false));
-		#[cfg(target_os = "macos")]
+		#[cfg(any(target_os = "linux", target_os = "macos"))]
 		self.paths.clear();
 	}
 
@@ -728,7 +766,24 @@ impl State {
 	}
 
 	#[cfg(target_os = "linux")]
-	fn add_paths_linux(&mut self, next: usize) -> tg::Result<()> {
+	fn unwatch_paths_linux(&mut self, removed_paths: &HashSet<PathBuf, fnv::FnvBuildHasher>) {
+		// Unwatch the removed paths that are no longer in the graph, including paths removed by invalidation.
+		let Some(watcher) = &mut self.watcher else {
+			return;
+		};
+		let mut watcher_paths = watcher.paths_mut();
+		for path in removed_paths {
+			if self.graph.paths.get(path).is_some() || self.paths.remove(path).is_none() {
+				continue;
+			}
+			tracing::trace!(path = %path.display(), "unwatched");
+			watcher_paths.remove(path).ok();
+		}
+		watcher_paths.commit().ok();
+	}
+
+	#[cfg(target_os = "linux")]
+	fn update_paths_linux(&mut self, next: usize) -> tg::Result<()> {
 		// Add the new paths, stopping at the first path that cannot be watched.
 		let watcher = self.watcher.as_mut().unwrap();
 		let mut watcher_paths = watcher.paths_mut();
@@ -737,7 +792,8 @@ impl State {
 				continue;
 			};
 			tracing::trace!(path = %path.display(), "watched");
-			let Err(error) = watcher_paths.add(path, notify::RecursiveMode::NonRecursive) else {
+			let result = Self::add_path_linux(&mut *watcher_paths, &mut self.paths, path);
+			let Err(error) = result else {
 				continue;
 			};
 
@@ -765,25 +821,29 @@ impl State {
 	}
 
 	#[cfg(target_os = "linux")]
-	fn remove_path_linux(&mut self, path: &Path) {
-		let Some(watcher) = &mut self.watcher else {
-			return;
-		};
-		tracing::trace!(path = %path.display(), "unwatched");
-		watcher.unwatch(path).ok();
-	}
+	fn add_path_linux(
+		watcher: &mut dyn notify::PathsMut,
+		paths: &mut Paths,
+		path: &Path,
+	) -> tg::Result<()> {
+		// Follow symlinks to identify the inode that inotify watches.
+		let identity = std::fs::metadata(path).map(|metadata| (metadata.dev(), metadata.ino()));
 
-	#[cfg(target_os = "linux")]
-	fn remove_paths_linux(&mut self, paths: &HashSet<PathBuf, fnv::FnvBuildHasher>) {
-		let Some(watcher) = &mut self.watcher else {
-			return;
-		};
-		let mut watcher_paths = watcher.paths_mut();
-		for path in paths {
-			tracing::trace!(path = %path.display(), "unwatched");
-			watcher_paths.remove(path).ok();
+		// Remove the old inode's watch before registering a replacement at the same path.
+		if let Some(previous) = paths.get(path)
+			&& identity.as_ref().ok() != Some(previous)
+		{
+			watcher.remove(path).ok();
+			paths.remove(path);
 		}
-		watcher_paths.commit().ok();
+		let identity =
+			identity.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
+		watcher
+			.add(path, notify::RecursiveMode::NonRecursive)
+			.map_err(|error| tg::error!(!error, "failed to watch the path"))?;
+		paths.insert(path.to_owned(), identity);
+
+		Ok(())
 	}
 }
 

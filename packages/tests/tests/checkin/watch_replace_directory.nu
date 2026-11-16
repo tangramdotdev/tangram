@@ -19,16 +19,19 @@ let path = mktemp --directory | path expand | path join directory
 create $path
 let first = tg checkin --no-tokens $path --watch | referent node
 
-# Replace the directory with an identical one, as a branch switch or an unpacked archive does.
+# Replace the directory and change its contents, as a branch switch or an unpacked archive does.
 rm --recursive $path
 create $path
+'replacement' | save --force ($path | path join '0.txt')
 
 # The watched checkin must return.
 let output = timeout 30s tg checkin --no-tokens $path --watch | complete
 assert ($output.exit_code != 124) "the watched checkin should not hang after the directory is replaced"
 
-# The watched checkin must settle on the directory's id once the file events are processed.
+# The watched checkin must settle on the id of a fresh checkin once the file events are processed.
+let plain = tg checkin --no-tokens $path --no-watch | referent node
+assert ($plain != $first) "the replacement should change the checked in directory"
 wait_until --timeout 30sec {
 	let output = timeout 30s tg checkin --no-tokens $path --watch | complete
-	$output.exit_code == 0 and ($output.stdout | referent node) == $first
-} "the watched checkin should return the directory's id"
+	$output.exit_code == 0 and ($output.stdout | referent node) == $plain
+} "the watched checkin should equal a fresh checkin"
