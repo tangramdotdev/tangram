@@ -154,6 +154,9 @@ pub enum ClientResponseOutput {
 
 	#[tangram_serialize(id = 0)]
 	OfferSandbox(OfferSandboxClientResponseOutput),
+
+	#[tangram_serialize(id = 2)]
+	StopSandbox(StopSandboxClientResponseOutput),
 }
 
 #[derive(
@@ -201,6 +204,9 @@ pub enum ServerRequestArg {
 
 	#[tangram_serialize(id = 0)]
 	OfferSandbox(OfferSandboxServerRequestArg),
+
+	#[tangram_serialize(id = 2)]
+	StopSandbox(StopSandboxServerRequestArg),
 }
 
 #[derive(
@@ -618,6 +624,36 @@ pub struct StopSandboxClientRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct StopSandboxServerResponseOutput {
+	#[tangram_serialize(id = 0)]
+	pub stopped: bool,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StopSandboxServerRequestArg {
+	/// The boot to stop, so that a later boot of the sandbox keeps running.
+	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub sandbox: tg::sandbox::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StopSandboxClientResponseOutput {
 	#[tangram_serialize(id = 0)]
 	pub stopped: bool,
 }

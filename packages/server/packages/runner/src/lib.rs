@@ -751,6 +751,10 @@ impl Component {
 					self.spawn_destroy_stopped_sandbox_task(session, request.id, arg, &sender);
 					continue;
 				},
+				tg::runner::control::ServerRequestArg::StopSandbox(arg) => {
+					self.spawn_stop_running_sandbox_task(request.id, arg, &sender);
+					continue;
+				},
 			};
 			let message = Self::create_runner_control_response(request.id, result);
 			sender.send(message).await?;
@@ -875,7 +879,27 @@ impl Component {
 		});
 	}
 
-	/// Ask the scheduler to destroy a sandbox, waiting for a runner control stream and retrying after the stream is lost.
+	/// Stop a running boot of a sandbox in a task, so that the control stream keeps receiving the response to the boot's stop report.
+	fn spawn_stop_running_sandbox_task(
+		&self,
+		id: String,
+		arg: tg::runner::control::StopSandboxServerRequestArg,
+		sender: &RunnerSender,
+	) {
+		let component = self.clone();
+		let sender = sender.clone();
+		tokio::spawn(async move {
+			let result = component
+				.stop_running_sandbox(arg)
+				.await
+				.map(tg::runner::control::ClientResponseOutput::StopSandbox);
+			let message = Self::create_runner_control_response(id, result);
+			if let Err(error) = sender.send(message).await {
+				tracing::error!(error = %error.trace(), "failed to send the stop sandbox response");
+			}
+		});
+	}
+
 	/// Report a sandbox's stop or destruction through the runner control stream, waiting for a runner control stream and retrying after the stream is lost.
 	pub(crate) async fn report_sandbox_with_runner_control(
 		&self,
@@ -1185,6 +1209,10 @@ impl Component {
 				tg::runner::control::ServerRequestArg::OfferSandbox(request) => request,
 				tg::runner::control::ServerRequestArg::DestroySandbox(arg) => {
 					self.spawn_destroy_stopped_sandbox_task(session, id.clone(), arg, &sender);
+					continue;
+				},
+				tg::runner::control::ServerRequestArg::StopSandbox(arg) => {
+					self.spawn_stop_running_sandbox_task(id.clone(), arg, &sender);
 					continue;
 				},
 			};

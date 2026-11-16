@@ -2412,6 +2412,50 @@ impl Component {
 		Ok(output)
 	}
 
+	/// Stop a boot of a sandbox that is running on this runner through its control, which reports its stop. A boot that is not running, or a later boot, is left alone.
+	pub(crate) async fn stop_running_sandbox(
+		&self,
+		arg: tg::runner::control::StopSandboxServerRequestArg,
+	) -> tg::Result<tg::runner::control::StopSandboxClientResponseOutput> {
+		let tg::runner::control::StopSandboxServerRequestArg { boot, sandbox: id } = arg;
+
+		// Wait for the boot to be stored if it is starting.
+		let control_sender = loop {
+			let updated = self.state.sandboxes.updated();
+			let sandbox = self.state.sandboxes.get_by_id(&id);
+			let starting = self.state.booting.get(&id).is_some_and(|booting| {
+				*booting == boot && sandbox.as_ref().is_none_or(|sandbox| sandbox.boot != boot)
+			});
+			let control_sender = sandbox
+				.filter(|sandbox| sandbox.boot == boot && !sandbox.status.is_stopped_or_destroyed())
+				.map(|sandbox| sandbox.control_sender.clone());
+			if !starting {
+				break control_sender;
+			}
+			updated.await;
+		};
+		let Some(control_sender) = control_sender else {
+			let output = tg::runner::control::StopSandboxClientResponseOutput { stopped: false };
+			return Ok(output);
+		};
+
+		// Stop the boot through its control.
+		let request = tg::sandbox::control::ServerRequestArg::Stop(
+			tg::sandbox::control::StopServerRequestArg {},
+		);
+		let response = control_sender.send_request(request).await?;
+		let std::ops::ControlFlow::Break(response) = response.await?? else {
+			return Err(tg::error!(%id, "the runner does not hold the sandbox"));
+		};
+		let stopped = response
+			.try_unwrap_stop()
+			.map_err(|_| tg::error!("expected a stop sandbox response"))?
+			.stopped;
+		let output = tg::runner::control::StopSandboxClientResponseOutput { stopped };
+
+		Ok(output)
+	}
+
 	/// Remove a stopped sandbox's directory, release its filesystem project ID, and report its destruction, which marks the sandbox destroyed.
 	async fn remove_stopped_sandbox(
 		&self,
