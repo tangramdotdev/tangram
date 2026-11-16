@@ -750,7 +750,7 @@ impl Scheduler {
 				}
 			},
 			Operation::RetrySandbox { sandbox } => {
-				state.handle_retry_sandbox(&sandbox);
+				state.handle_retry_sandbox(self, &sandbox);
 			},
 			Operation::RetrySandboxOffer { offer, sandbox } => {
 				state.handle_retry_sandbox_offer(self, &sandbox, &offer);

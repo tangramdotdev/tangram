@@ -22,17 +22,30 @@ mod tests;
 
 pub(super) struct Parents(HashMap<tg::sandbox::Id, Parent, tg::id::BuildHasher>);
 
+/// The sandboxes that the scheduler holds, in the order that they were enqueued. The scheduler passes over the queue one sandbox at a time, and at most one pass is in progress.
 pub(super) struct Queue {
-	entries: HashMap<tg::sandbox::Id, Links, tg::id::BuildHasher>,
+	/// Whether the capacity changed during the pass that is in progress, so that another pass follows it.
+	again: bool,
+
+	/// The next sandbox of the pass that is in progress.
+	cursor: Option<tg::sandbox::Id>,
+
+	list: List,
+}
+
+/// A list of sandboxes whose links are in the sandboxes' entries, so that adding and removing a sandbox take constant time.
+#[derive(Default)]
+struct List {
 	head: Option<tg::sandbox::Id>,
-	remaining: usize,
-	scan: Option<tg::sandbox::Id>,
+	len: usize,
 	tail: Option<tg::sandbox::Id>,
 }
 
+type Entries = HashMap<tg::sandbox::Id, Sandbox, tg::id::BuildHasher>;
+
 pub(super) struct Sandboxes {
 	attempts: usize,
-	entries: HashMap<tg::sandbox::Id, Sandbox, tg::id::BuildHasher>,
+	entries: Entries,
 
 	/// The generation of the most recently placed sandbox.
 	generation: u64,
@@ -85,7 +98,8 @@ struct Parent {
 	/// The runner of each child that the scheduler offered to a runner or that a runner accepted, so that the scheduler prefers the runner with the most of a parent's children for its next child.
 	children: BTreeMap<tg::sandbox::Id, tg::runner::Id>,
 
-	queue: Queue,
+	/// The parent's children that the scheduler holds, in the order that they were enqueued.
+	queue: List,
 }
 
 struct Borrowable {
@@ -104,6 +118,7 @@ pub(super) struct Accepting {
 	persisted: bool,
 }
 
+#[derive(Default)]
 struct Links {
 	next: Option<tg::sandbox::Id>,
 	previous: Option<tg::sandbox::Id>,
@@ -114,6 +129,13 @@ struct Sandbox {
 	blocked: HashMap<tg::runner::Id, Block, tg::id::BuildHasher>,
 	capacity: tg::runner::Capacity,
 	dequeue_requests: Vec<String>,
+
+	/// The sandbox's links in the queue.
+	links: Links,
+
+	/// The sandbox's links in its parent's queue.
+	parent_links: Links,
+
 	persisted: bool,
 	request: EnqueueSandboxRequestArg,
 	retrying: bool,
@@ -204,86 +226,107 @@ impl Parents {
 impl Queue {
 	pub fn new() -> Self {
 		Self {
-			entries: HashMap::default(),
-			head: None,
-			remaining: 0,
-			scan: None,
-			tail: None,
+			again: false,
+			cursor: None,
+			list: List::default(),
 		}
-	}
-
-	pub fn head(&self) -> Option<&tg::sandbox::Id> {
-		self.head.as_ref()
-	}
-
-	pub fn insert(&mut self, id: tg::sandbox::Id) {
-		if self.entries.contains_key(&id) {
-			return;
-		}
-		let links = Links {
-			next: None,
-			previous: self.tail.clone(),
-		};
-		if let Some(tail) = &self.tail {
-			self.entries.get_mut(tail).unwrap().next = Some(id.clone());
-		} else {
-			self.head = Some(id.clone());
-		}
-		self.tail = Some(id.clone());
-		self.entries.insert(id.clone(), links);
-		if self.scan.is_none() {
-			self.scan = Some(id);
-		}
-		self.remaining += 1;
 	}
 
 	pub fn len(&self) -> usize {
-		self.entries.len()
+		self.list.len
 	}
 
-	pub fn next(&mut self) -> Option<tg::sandbox::Id> {
-		if self.remaining == 0 {
-			return None;
+	/// Whether a pass is in progress.
+	fn passing(&self) -> bool {
+		self.cursor.is_some()
+	}
+
+	/// Add a sandbox to the end of the queue, which the pass that is in progress reaches, and which a new pass starts at otherwise.
+	fn push(&mut self, entries: &mut Entries, id: &tg::sandbox::Id) {
+		self.list.push(entries, Sandbox::links_mut, id);
+		if self.cursor.is_none() {
+			self.cursor = Some(id.clone());
 		}
-		let Some(id) = self.scan.clone() else {
-			self.remaining = 0;
-			return None;
-		};
-		self.scan = self.entries.get(&id).and_then(|links| links.next.clone());
-		self.remaining -= 1;
+	}
+
+	/// Take the next sandbox of the pass that is in progress.
+	fn next(&mut self, entries: &Entries) -> Option<tg::sandbox::Id> {
+		let id = self.cursor.take()?;
+		self.cursor.clone_from(&entries[&id].links.next);
+		self.finish_pass();
 
 		Some(id)
 	}
 
-	pub fn remove(&mut self, id: &tg::sandbox::Id) -> bool {
-		self.remove_inner(id)
+	fn remove(&mut self, entries: &mut Entries, id: &tg::sandbox::Id) {
+		let next = self.list.remove(entries, Sandbox::links_mut, id);
+		if self.cursor.as_ref() == Some(id) {
+			self.cursor = next;
+			self.finish_pass();
+		}
 	}
 
+	/// Pass over the queue because the capacity changed. A change during a pass does not start the pass over, and is picked up by one pass that follows it.
 	pub fn wake(&mut self) {
-		self.remaining = self.entries.len();
-		self.scan.clone_from(&self.head);
+		if self.cursor.is_some() {
+			self.again = true;
+		} else {
+			self.cursor.clone_from(&self.list.head);
+		}
 	}
 
-	fn remove_inner(&mut self, id: &tg::sandbox::Id) -> bool {
-		let Some(links) = self.entries.remove(id) else {
-			return false;
-		};
-		if let Some(previous) = &links.previous {
-			self.entries.get_mut(previous).unwrap().next = links.next.clone();
-		} else {
-			self.head.clone_from(&links.next);
+	/// Start another pass if the pass that is in progress reached the end of the queue and the capacity changed during it.
+	fn finish_pass(&mut self) {
+		if self.cursor.is_none() && self.again {
+			self.again = false;
+			self.cursor.clone_from(&self.list.head);
 		}
-		if let Some(next) = &links.next {
-			self.entries.get_mut(next).unwrap().previous = links.previous.clone();
-		} else {
-			self.tail.clone_from(&links.previous);
-		}
-		if self.scan.as_ref() == Some(id) {
-			self.scan = links.next;
-			self.remaining = self.remaining.saturating_sub(1);
-		}
+	}
+}
 
-		true
+impl List {
+	fn push(
+		&mut self,
+		entries: &mut Entries,
+		links: fn(&mut Sandbox) -> &mut Links,
+		id: &tg::sandbox::Id,
+	) {
+		let previous = self.tail.replace(id.clone());
+		if let Some(previous) = &previous {
+			links(entries.get_mut(previous).unwrap()).next = Some(id.clone());
+		} else {
+			self.head = Some(id.clone());
+		}
+		*links(entries.get_mut(id).unwrap()) = Links {
+			next: None,
+			previous,
+		};
+		self.len += 1;
+	}
+
+	/// Remove a sandbox, and return the sandbox that followed it.
+	fn remove(
+		&mut self,
+		entries: &mut Entries,
+		links: fn(&mut Sandbox) -> &mut Links,
+		id: &tg::sandbox::Id,
+	) -> Option<tg::sandbox::Id> {
+		let Links { next, previous } = std::mem::take(links(entries.get_mut(id).unwrap()));
+		if let Some(previous) = &previous {
+			links(entries.get_mut(previous).unwrap())
+				.next
+				.clone_from(&next);
+		} else {
+			self.head.clone_from(&next);
+		}
+		if let Some(next) = &next {
+			links(entries.get_mut(next).unwrap()).previous = previous;
+		} else {
+			self.tail = previous;
+		}
+		self.len -= 1;
+
+		next
 	}
 }
 
@@ -303,7 +346,17 @@ impl Sandboxes {
 impl Parent {
 	/// Whether the entry has no queued children, no capacity to lend, and no children on runners, so that it can be dropped.
 	fn is_empty(&self) -> bool {
-		self.queue.len() == 0 && self.borrowable.is_none() && self.children.is_empty()
+		self.queue.len == 0 && self.borrowable.is_none() && self.children.is_empty()
+	}
+}
+
+impl Sandbox {
+	fn links_mut(&mut self) -> &mut Links {
+		&mut self.links
+	}
+
+	fn parent_links_mut(&mut self) -> &mut Links {
+		&mut self.parent_links
 	}
 }
 
@@ -355,7 +408,7 @@ impl SchedulerState {
 
 	pub(super) fn can_schedule(&self, scheduler: &Scheduler) -> bool {
 		self.sandboxes.attempts < scheduler.config.max_create_sandbox_requests
-			&& self.queue.remaining > 0
+			&& self.queue.passing()
 	}
 
 	pub(super) fn handle_enqueue_sandbox_request(
@@ -460,6 +513,10 @@ impl SchedulerState {
 		scheduler: &Scheduler,
 		id: &tg::sandbox::Id,
 	) -> Option<Sandbox> {
+		if !self.sandboxes.entries.contains_key(id) {
+			return None;
+		}
+		self.remove_queued_sandbox(id);
 		let sandbox = self.sandboxes.entries.remove(id)?;
 		if let Some(parent) = &sandbox.request.parent {
 			self.remove_child(parent, id);
@@ -538,6 +595,8 @@ impl SchedulerState {
 			blocked: HashMap::default(),
 			capacity,
 			dequeue_requests: Vec::new(),
+			links: Links::default(),
+			parent_links: Links::default(),
 			persisted: recovered,
 			request,
 			retrying: false,
@@ -559,7 +618,9 @@ impl SchedulerState {
 			.and_then(|process| process.id.clone());
 		self.sandboxes.entries.insert(id.clone(), sandbox);
 		self.serve_sandbox_holder(scheduler, &id, process);
-		self.queue.insert(id.clone());
+
+		// Add the sandbox to the end of the queue, and of its parent's queue.
+		self.queue.push(&mut self.sandboxes.entries, &id);
 		if let Some(parent) = parent {
 			self.parents
 				.0
@@ -567,10 +628,10 @@ impl SchedulerState {
 				.or_insert_with(|| Parent {
 					borrowable: None,
 					children: BTreeMap::new(),
-					queue: Queue::new(),
+					queue: List::default(),
 				})
 				.queue
-				.insert(id);
+				.push(&mut self.sandboxes.entries, Sandbox::parent_links_mut, &id);
 		}
 
 		Ok(())
@@ -798,7 +859,6 @@ impl SchedulerState {
 		match arg {
 			// Destroy a queued sandbox by removing it.
 			tg::sandbox::control::ServerRequestArg::Destroy(arg) => {
-				self.remove_queued_sandbox(&sandbox);
 				let request = self
 					.remove_sandbox_entry(scheduler, &sandbox)
 					.unwrap()
@@ -878,7 +938,6 @@ impl SchedulerState {
 				);
 				let scheduler_ = scheduler.clone();
 				let write = if entry.request.boot > 0 {
-					self.remove_queued_sandbox(&sandbox);
 					let request = self
 						.remove_sandbox_entry(scheduler, &sandbox)
 						.unwrap()
@@ -999,7 +1058,6 @@ impl SchedulerState {
 				}
 				let scheduler_ = scheduler.clone();
 				let write = if last {
-					self.remove_queued_sandbox(sandbox);
 					let request = self
 						.remove_sandbox_entry(scheduler, sandbox)
 						.unwrap()
@@ -1290,7 +1348,7 @@ impl SchedulerState {
 			.or_insert_with(|| Parent {
 				borrowable: None,
 				children: BTreeMap::new(),
-				queue: Queue::new(),
+				queue: List::default(),
 			})
 			.children
 			.insert(child.clone(), runner.clone());
@@ -1480,7 +1538,7 @@ impl SchedulerState {
 			.or_insert_with(|| Parent {
 				borrowable: None,
 				children: BTreeMap::new(),
-				queue: Queue::new(),
+				queue: List::default(),
 			});
 		let borrowable =
 			Borrowable::new(notification, registration_index, parent.borrowable.as_ref());
@@ -1498,10 +1556,10 @@ impl SchedulerState {
 		{
 			runner.borrowable.insert(parent_id.clone());
 		}
-		let sandbox = parent.queue.head().cloned();
 		if parent.is_empty() {
 			self.parents.0.remove(&parent_id);
 		}
+		let sandbox = self.first_queued_child(&parent_id);
 		if let Some(sandbox) = sandbox
 			&& self.sandboxes.attempts < scheduler.config.max_create_sandbox_requests
 		{
@@ -1575,7 +1633,6 @@ impl SchedulerState {
 				None
 			},
 			SandboxState::Pending => {
-				self.remove_queued_sandbox(&id);
 				let request = self.remove_sandbox_entry(scheduler, &id).unwrap().request;
 				self.finish_destroy_sandbox(scheduler, request, None);
 				Some(DequeueSandboxResponseOutput { dequeued: true })
@@ -1657,6 +1714,7 @@ impl SchedulerState {
 		let output = match result {
 			Ok(Ok(true)) if runner_current => {
 				self.remove_reservation(&id, &placement, true);
+				self.remove_queued_sandbox(&id);
 				self.sandboxes.entries.remove(&id);
 				self.track_scheduled_sandbox(
 					id.clone(),
@@ -1716,12 +1774,14 @@ impl SchedulerState {
 							.insert(runner_ref.id.clone(), entry);
 					}
 					self.requeue_sandbox(&id);
+					self.try_schedule(scheduler, &id);
 				}
 				DequeueSandboxResponseOutput { dequeued: true }
 			},
 			Ok(Ok(true)) | Err(_) => {
 				if dequeue_requests.is_empty() {
 					self.requeue_sandbox(&id);
+					self.try_schedule(scheduler, &id);
 				} else {
 					self.remove_sandbox_entry(scheduler, &id);
 				}
@@ -1817,7 +1877,6 @@ impl SchedulerState {
 			.collect::<Vec<_>>();
 		let mut discarded = Vec::new();
 		for id in ids {
-			self.remove_queued_sandbox(&id);
 			let request = self.remove_sandbox_entry(scheduler, &id).unwrap().request;
 			let error = tg::error!(sandbox = %id, %runner, "the sandbox's runner is unavailable");
 			let sandbox = DiscardedSandbox {
@@ -1831,13 +1890,14 @@ impl SchedulerState {
 	}
 
 	pub(super) fn schedule_one(&mut self, scheduler: &Scheduler) {
-		let Some(sandbox) = self.queue.next() else {
+		let Some(sandbox) = self.queue.next(&self.sandboxes.entries) else {
 			return;
 		};
 		self.try_schedule(scheduler, &sandbox);
 	}
 
-	pub(super) fn handle_retry_sandbox(&mut self, id: &tg::sandbox::Id) {
+	/// Try to place a sandbox that no runner could fit again once its timeout expires, which discards it if no runner can fit it still.
+	pub(super) fn handle_retry_sandbox(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) {
 		let Some(sandbox) = self.sandboxes.entries.get_mut(id) else {
 			return;
 		};
@@ -1845,7 +1905,7 @@ impl SchedulerState {
 			return;
 		}
 		sandbox.retrying = false;
-		self.queue.wake();
+		self.try_schedule(scheduler, id);
 	}
 
 	fn find_placement(&self, scheduler: &Scheduler, sandbox: &Sandbox) -> Option<Placement> {
@@ -1975,42 +2035,42 @@ impl SchedulerState {
 				.any(|(id, runner)| runner.ready && placeable(id, runner, sandbox))
 	}
 
+	/// Return a sandbox whose offer was not accepted to the queued state. The sandbox kept its place in the queue while it was offered.
 	fn requeue_sandbox(&mut self, id: &tg::sandbox::Id) {
 		if let Some(parent) = self.sandboxes.entries[id].request.parent.clone() {
 			self.remove_child(&parent, id);
 		}
 		self.sandboxes.entries.get_mut(id).unwrap().state = SandboxState::Pending;
-		self.queue_sandbox(id);
 	}
 
-	fn queue_sandbox(&mut self, id: &tg::sandbox::Id) {
-		let parent = self.sandboxes.entries[id].request.parent.clone();
-		self.queue.insert(id.clone());
-		if let Some(parent) = parent {
-			self.parents
-				.0
-				.entry(parent)
-				.or_insert_with(|| Parent {
-					borrowable: None,
-					children: BTreeMap::new(),
-					queue: Queue::new(),
-				})
-				.queue
-				.insert(id.clone());
-		}
-	}
-
+	/// Remove a sandbox from the queue, and from its parent's queue.
 	fn remove_queued_sandbox(&mut self, id: &tg::sandbox::Id) {
 		let parent_id = self.sandboxes.entries[id].request.parent.clone();
-		self.queue.remove(id);
+		self.queue.remove(&mut self.sandboxes.entries, id);
 		if let Some(parent_id) = parent_id
 			&& let Some(parent) = self.parents.0.get_mut(&parent_id)
 		{
-			parent.queue.remove(id);
+			parent
+				.queue
+				.remove(&mut self.sandboxes.entries, Sandbox::parent_links_mut, id);
 			if parent.is_empty() {
 				self.parents.0.remove(&parent_id);
 			}
 		}
+	}
+
+	/// Find the first of a parent's children that the scheduler has not offered to a runner.
+	fn first_queued_child(&self, parent: &tg::sandbox::Id) -> Option<tg::sandbox::Id> {
+		let mut child = self.parents.0.get(parent)?.queue.head.as_ref();
+		while let Some(id) = child {
+			let sandbox = &self.sandboxes.entries[id];
+			if matches!(sandbox.state, SandboxState::Pending) {
+				return Some(id.clone());
+			}
+			child = sandbox.parent_links.next.as_ref();
+		}
+
+		None
 	}
 
 	fn remove_reservation(&mut self, id: &tg::sandbox::Id, placement: &Placement, commit: bool) {
@@ -2062,7 +2122,6 @@ impl SchedulerState {
 			if elapsed >= timeout {
 				let error = tg::error!(sandbox = %id, "no runners available");
 				tracing::error!(error = %error.trace(), "giving up on the sandbox");
-				self.remove_queued_sandbox(id);
 				let request = self.remove_sandbox_entry(scheduler, id).unwrap().request;
 				let discarded = DiscardedSandbox {
 					error: error.to_data_or_id(),
@@ -2094,7 +2153,6 @@ impl SchedulerState {
 		};
 		let capacity = sandbox.capacity;
 		let runner_ref = placement.runner().clone();
-		self.remove_queued_sandbox(id);
 
 		// Reserve the sandbox's capacity on the runner, which for a borrowed sandbox is only the capacity that it acquires in addition to what it borrows.
 		let reserved = match &placement {
