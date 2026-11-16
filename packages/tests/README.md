@@ -1,6 +1,6 @@
-# E2e tests
+# Integration tests
 
-These are the end-to-end tests for tangram. Each `.nu`
+These are the integration tests for tangram. Each `.nu`
 file in `tests/` is one self-contained test, and `util/` holds the shared helpers. The `packages/tests/test.nu` script builds
 Tangram and the test runner in `packages/tests/packages/runner`, then runs the tests with it.
 From the repository root, run them with `tg run ./packages/tests#test -- [pattern]`, which runs
@@ -319,7 +319,7 @@ two seconds after it exits, and reports them as leaks.
 
 ## Non-scriptable surface
 
-Most `tg` subcommands are scriptable and have end-to-end tests here. A handful
+Most `tg` subcommands are scriptable and have integration tests here. A handful
 are intentionally excluded because they cannot be driven by the harness, mutate
 the host, or are exercised indirectly. They are documented here rather than
 tested:

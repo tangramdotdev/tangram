@@ -115,8 +115,8 @@ tg run ./packages/tests#test -- --offline build
 
 Arguments after `--` are forwarded unchanged to the underlying command. Checks
 and formatting run Rust first, then the package tasks in parallel. The full
-`test` export runs JavaScript, Rust, and e2e tests in order; its arguments are
-forwarded to the e2e runner. Use the individual exports for runner-specific flags.
+`test` export runs JavaScript, Rust, and integration tests in order; its arguments are
+forwarded to the integration runner. Use the individual exports for runner-specific flags.
 
 Rust checks inherit Cargo's terminal streams directly. Other checks and formatters
 label each output line with its package path relative to `packages/`, such as
@@ -151,7 +151,7 @@ have their hooks invoked automatically.
 Packages own their commands in local `tangram.ts` files. For example, run
 `tg run ./packages/clients/javascript#build -- --profile debug` from the root,
 or change into that package and run `tg run .#build -- --profile debug`.
-The e2e package exports `test`, `databases`, and `clean`; the macOS package
+The integration package exports `test`, `databases`, and `clean`; the macOS package
 exports `build`, `check`, `doctor`, `install`, `release`, and `run`; the
 JavaScript client exports `test`; and `scripts/cloud/tangram.ts` exports
 `databases`, `init`, `deinit`, `server`, and `runner` for the local cloud

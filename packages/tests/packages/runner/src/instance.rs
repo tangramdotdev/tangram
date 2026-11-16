@@ -4,7 +4,7 @@ use {
 	tangram_tests_util::{Instance, instance},
 };
 
-/// Create instances and server configurations for the e2e tests.
+/// Create instances and server configurations for the integration tests.
 #[derive(clap::Subcommand)]
 pub enum Subcommand {
 	/// Print the configuration of a server in an instance, with the server's own configuration merged.

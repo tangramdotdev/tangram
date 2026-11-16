@@ -31,7 +31,7 @@ pub struct Arg {
 	pub semaphore_namespace: Option<String>,
 }
 
-/// An instance's description, which the e2e tests hold as a record.
+/// An instance's description, which the integration tests hold as a record.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
 	pub cloud: Option<Cloud>,
