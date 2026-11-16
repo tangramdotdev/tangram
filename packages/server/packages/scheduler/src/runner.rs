@@ -16,6 +16,9 @@ use {
 	tangram_server_core::Server,
 };
 
+#[cfg(test)]
+mod tests;
+
 pub(super) struct Runners {
 	pub entries: HashMap<tg::runner::Id, Runner, tg::id::BuildHasher>,
 }
@@ -38,6 +41,9 @@ pub(super) struct Runner {
 
 	pub owner: Option<tg::Id>,
 
+	/// Whether the scheduler failed to record the runner's registration, in which case the runner takes no sandboxes, and expires with its sandboxes unless it registers again.
+	pub registration_failed: bool,
+
 	pub registration_index: u64,
 
 	/// The capacity that each sandbox that is offered to the runner reserves, which for a borrowed sandbox is only the capacity that it acquires in addition to what it borrows.
@@ -48,9 +54,9 @@ pub(super) struct Runner {
 }
 
 impl Runner {
-	/// Whether the runner has sent a heartbeat and takes sandboxes.
+	/// Whether the runner's registration succeeded, and the runner has sent a heartbeat and takes sandboxes.
 	pub fn ready(&self) -> bool {
-		self.heartbeat_index > 0 && self.capacity.total.sandboxes != 0
+		!self.registration_failed && self.heartbeat_index > 0 && self.capacity.total.sandboxes != 0
 	}
 
 	/// The capacity that the runner has now, which is what its last heartbeat reported without what the scheduler has reserved and committed since.
@@ -128,6 +134,7 @@ impl SchedulerState {
 			heartbeat_index: 0,
 			host: request.host.clone(),
 			owner: None,
+			registration_failed: false,
 			registration_index: request.registration_index,
 			reservations: HashMap::default(),
 			reserved: tg::runner::Capacity::default(),
@@ -171,6 +178,7 @@ impl SchedulerState {
 			.runners
 			.entries
 			.get(&request.runner)
+			.filter(|runner| !runner.registration_failed)
 			.map(|runner| runner.registration_index)
 		else {
 			let error = tg::error!(sandbox = %request.sandbox, runner = %request.runner, "the sandbox's runner is unavailable");
@@ -272,7 +280,8 @@ impl SchedulerState {
 		let Some(runner) = self.runners.entries.get_mut(&notification.runner) else {
 			return false;
 		};
-		if runner.registration_index != notification.registration_index
+		if runner.registration_failed
+			|| runner.registration_index != notification.registration_index
 			|| runner.heartbeat_index >= notification.heartbeat_index
 		{
 			return false;
@@ -344,6 +353,19 @@ impl SchedulerState {
 		}
 		if !lost.is_empty() {
 			self.read_lost_sandboxes(scheduler, lost);
+		}
+	}
+
+	/// Record that the scheduler failed to record a runner's registration, and keep the runner, so that it takes no sandboxes and its expiry ends the sandboxes that it accepted unless it registers again.
+	pub(super) fn fail_runner_registration(
+		&mut self,
+		id: &tg::runner::Id,
+		registration_index: u64,
+	) {
+		if let Some(runner) = self.runners.entries.get_mut(id)
+			&& runner.registration_index == registration_index
+		{
+			runner.registration_failed = true;
 		}
 	}
 

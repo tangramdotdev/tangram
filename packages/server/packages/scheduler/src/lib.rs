@@ -698,9 +698,7 @@ impl Scheduler {
 						Ok(output)
 					},
 					Err(error) => {
-						if current {
-							state.remove_runner(self, &runner);
-						}
+						state.fail_runner_registration(&runner, registration_index);
 						Err(error)
 					},
 				};
