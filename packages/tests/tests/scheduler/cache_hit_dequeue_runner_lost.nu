@@ -31,7 +31,7 @@ checkin push $remote $path --token $root_token | ignore
 tg --url $cache.url build $id | ignore
 
 # Hold the runner before it accepts an offer, and build the cached process, so that its candidate sandbox is offered and not answered.
-let create = checkpoint watch runner.control.create_sandbox --url $runner.url
+let create = checkpoint watch runner.control.offer_sandbox --url $runner.url
 let build = job spawn {
 	let job = job id
 	timeout 30s tg --url $url --token $root_token build $id | complete | job send --tag $job 0

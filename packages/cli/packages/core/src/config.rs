@@ -2153,16 +2153,6 @@ pub struct Scheduler {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache: Option<SchedulerCache>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub create_sandbox_queue_capacity: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub create_sandbox_retry: Option<Retry>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub create_sandbox_timeout: Option<Duration>,
-
 	/// The CPU bounds for a sandbox that omits them, where an omitted maximum means no limit.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_cpu: Option<tg::sandbox::Cpu>,
@@ -2179,13 +2169,20 @@ pub struct Scheduler {
 	pub id: Option<tg::scheduler::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_create_sandbox_attempts: Option<usize>,
+	pub max_offer_failures: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_create_sandbox_requests: Option<usize>,
+	pub max_offers: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_create_sandbox_requests_per_runner: Option<usize>,
+	pub max_offers_per_runner: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub offer_retry: Option<Retry>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub offer_timeout: Option<Duration>,
 
 	/// How long a server that enqueues sandboxes remembers a sandbox owner's ancestors, where zero reads them for every sandbox.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -2195,6 +2192,9 @@ pub struct Scheduler {
 		skip_serializing_if = "Option::is_none"
 	)]
 	pub owner_ancestors_time_to_live: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub queue_capacity: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request: Option<SchedulerRequest>,

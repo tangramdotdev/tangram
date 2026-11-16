@@ -822,7 +822,7 @@ impl Component {
 				move |result| {
 					let mut message = result?;
 					if let tg::runner::control::ServerMessage::Request(request) = &mut message
-						&& let tg::runner::control::ServerRequestArg::CreateSandbox(arg) =
+						&& let tg::runner::control::ServerRequestArg::OfferSandbox(arg) =
 							&mut request.arg
 						&& let Some(process) = &mut arg.process
 					{

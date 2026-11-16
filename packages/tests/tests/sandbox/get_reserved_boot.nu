@@ -25,7 +25,7 @@ success (tg run --no-tokens $'--sandbox=($sandbox)' $command | complete) "the pr
 tg sandbox stop --wait $sandbox
 
 # Start the sandbox without waiting, and hold the offer of its next boot at the runner.
-let create = checkpoint watch runner.control.create_sandbox --params { sandbox: $sandbox }
+let create = checkpoint watch runner.control.offer_sandbox --params { sandbox: $sandbox }
 tg sandbox start $sandbox
 checkpoint wait $create | ignore
 

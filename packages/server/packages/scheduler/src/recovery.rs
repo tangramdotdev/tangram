@@ -243,6 +243,7 @@ impl SchedulerState {
 		let Some(recovery) = self.recovery.take() else {
 			return;
 		};
+		let mut lost = Vec::new();
 		for (id, claim) in recovery.claimed {
 			let data = statuses.remove(&id);
 			if data
@@ -261,14 +262,25 @@ impl SchedulerState {
 					sandbox: id,
 				};
 				self.send_destroy_sandbox(scheduler, destroy);
-			} else {
+			} else if self
+				.runners
+				.entries
+				.get(&claim.runner)
+				.is_some_and(|runner| runner.registration_index == claim.registration_index)
+			{
 				let boot = claim.request.boot;
-				let runner = super::sandbox::RunnerRef {
+				let runner = super::placement::RunnerRef {
 					registration_index: claim.registration_index,
 					id: claim.runner,
 				};
 				self.track_accepted_sandbox(scheduler, &id, boot, Some(claim.request), runner);
+			} else {
+				// Queue a sandbox again whose runner was removed since it claimed the sandbox, if the sandbox's key remains.
+				lost.push(claim.request);
 			}
+		}
+		if !lost.is_empty() {
+			self.read_lost_sandboxes(scheduler, lost);
 		}
 		for (id, request) in recovery.requests {
 			let data = statuses.remove(&id);

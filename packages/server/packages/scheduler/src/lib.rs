@@ -15,7 +15,7 @@ use {
 	tangram_futures::task::{Stopper, Task},
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger,
-	tangram_server_core::{Server, Session, control::accept::Path},
+	tangram_server_core::{Server, Session},
 	tangram_server_scheduler_core::{
 		AddRunnerRequestArg, AddRunnerResponseOutput, BorrowableCapacityNotification,
 		DequeueSandboxRequestArg, DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
@@ -26,6 +26,11 @@ use {
 	},
 };
 
+mod holder;
+mod offer;
+mod placement;
+mod queue;
+mod record;
 mod recovery;
 mod request;
 mod runner;
@@ -91,8 +96,8 @@ enum HolderMessage {
 
 struct SchedulerState {
 	operations: Operations,
-	parents: sandbox::Parents,
-	queue: sandbox::Queue,
+	parents: placement::Parents,
+	queue: queue::Queue,
 	recovery: Option<recovery::Recovery>,
 	runners: runner::Runners,
 	sandboxes: sandbox::Sandboxes,
@@ -105,7 +110,6 @@ enum Operation {
 		result: tg::Result<(AddRunnerResponseOutput, Option<tg::Id>)>,
 		runner: tg::runner::Id,
 	},
-	CreateSandbox(sandbox::Completion),
 	DestroyRunnerSandbox {
 		id: String,
 		result: tg::Result<bool>,
@@ -114,9 +118,17 @@ enum Operation {
 		destroy: sandbox::DestroySandbox,
 		result: tg::Result<bool>,
 	},
+	IndexTerminalSandboxes {
+		sandboxes: Vec<(tg::sandbox::Id, u64)>,
+	},
 	LostSandboxes {
 		keys: Vec<tg::sandbox::Id>,
 		lost: Vec<EnqueueSandboxRequestArg>,
+	},
+	OfferSandbox {
+		outcome: offer::Outcome,
+		placement: placement::Placement,
+		sandbox: tg::sandbox::Id,
 	},
 	PersistSandbox {
 		boot: u64,
@@ -135,10 +147,6 @@ enum Operation {
 		id: Option<String>,
 		result: tg::Result<RemoveRunnerResponseOutput>,
 	},
-	RemoveTerminalSandbox {
-		boot: u64,
-		sandbox: tg::sandbox::Id,
-	},
 	RetrySandbox {
 		sandbox: tg::sandbox::Id,
 	},
@@ -149,6 +157,15 @@ enum Operation {
 	ServeSandboxHolder {
 		result: tg::Result<Vec<Task<tg::Result<()>>>>,
 		sandbox: tg::sandbox::Id,
+	},
+	StopSandbox {
+		result: tg::Result<bool>,
+		stop: sandbox::StopSandbox,
+	},
+	WriteTerminalSandbox {
+		boot: u64,
+		sandbox: tg::sandbox::Id,
+		written: bool,
 	},
 }
 
@@ -164,13 +181,13 @@ enum Event {
 #[allow(dead_code)]
 #[derive(Clone)]
 struct Config {
-	create_sandbox_queue_capacity: usize,
-	create_sandbox_retry: tangram_futures::retry::Options,
-	create_sandbox_timeout: Duration,
 	default_capacity: tg::runner::Capacity,
-	max_create_sandbox_attempts: usize,
-	max_create_sandbox_requests: usize,
-	max_create_sandbox_requests_per_runner: usize,
+	max_offer_failures: usize,
+	max_offers: usize,
+	max_offers_per_runner: usize,
+	offer_retry: tangram_futures::retry::Options,
+	offer_timeout: Duration,
+	queue_capacity: usize,
 	runner_time_to_live: Duration,
 	unplaceable_timeout: Option<Duration>,
 }
@@ -471,13 +488,13 @@ impl Scheduler {
 		// Create the config.
 		let request_config = config.request.clone();
 		let config = Config {
-			create_sandbox_queue_capacity: config.create_sandbox_queue_capacity,
-			create_sandbox_retry: config.create_sandbox_retry.clone().into(),
-			create_sandbox_timeout: config.create_sandbox_timeout,
 			default_capacity: config.default_capacity(),
-			max_create_sandbox_attempts: config.max_create_sandbox_attempts,
-			max_create_sandbox_requests: config.max_create_sandbox_requests,
-			max_create_sandbox_requests_per_runner: config.max_create_sandbox_requests_per_runner,
+			max_offer_failures: config.max_offer_failures,
+			max_offers: config.max_offers,
+			max_offers_per_runner: config.max_offers_per_runner,
+			offer_retry: config.offer_retry.clone().into(),
+			offer_timeout: config.offer_timeout,
+			queue_capacity: config.queue_capacity,
 			runner_time_to_live: config.runner_time_to_live,
 			unplaceable_timeout: config.unplaceable_timeout,
 		};
@@ -686,8 +703,7 @@ impl Scheduler {
 					},
 					Err(error) => {
 						if current {
-							let completions = state.remove_runner(self, &runner, &[]);
-							self.send_dequeue_sandbox_completions(state, completions);
+							state.remove_runner(self, &runner);
 						}
 						Err(error)
 					},
@@ -695,16 +711,6 @@ impl Scheduler {
 				let result = result.map(ResponseOutput::AddRunner);
 				let response = request::Response::new(id, result);
 				self.send_response(state, response);
-			},
-			Operation::CreateSandbox(completion) => {
-				let output = state.handle_create_sandbox_completion(self, completion);
-				self.send_dequeue_sandbox_completions(state, output.dequeue_completions);
-				if let Some(discarded) = output.discarded {
-					self.publish_sandbox_discarded(state, discarded);
-				}
-				if let Some(sandbox) = output.accepted {
-					state.finish_accept(self, &sandbox, Path::Handled, Ok(()));
-				}
 			},
 			Operation::DestroyRunnerSandbox { id, result } => {
 				let result = result.map(|destroyed| {
@@ -718,8 +724,18 @@ impl Scheduler {
 			Operation::DestroySandbox { destroy, result } => {
 				state.handle_destroy_sandbox(self, destroy, result);
 			},
+			Operation::IndexTerminalSandboxes { sandboxes } => {
+				state.handle_index_terminal_sandboxes(self, sandboxes);
+			},
 			Operation::LostSandboxes { keys, lost } => {
 				state.handle_lost_sandboxes(self, keys, lost);
+			},
+			Operation::OfferSandbox {
+				outcome,
+				placement,
+				sandbox,
+			} => {
+				state.handle_offer_outcome(self, &sandbox, &placement, outcome);
 			},
 			Operation::PersistSandbox {
 				boot,
@@ -732,9 +748,6 @@ impl Scheduler {
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "{context}");
 				}
-			},
-			Operation::ServeSandboxHolder { result, sandbox } => {
-				state.handle_serve_sandbox_holder_completion(&sandbox, result);
 			},
 			Operation::Recovered { statuses } => {
 				state.handle_recovered(self, statuses);
@@ -751,14 +764,24 @@ impl Scheduler {
 					tracing::error!(error = %error.trace(), "failed to remove the expired runner");
 				}
 			},
-			Operation::RemoveTerminalSandbox { boot, sandbox } => {
-				state.handle_remove_terminal_sandbox(self, &sandbox, boot);
-			},
 			Operation::RetrySandbox { sandbox } => {
 				state.handle_retry_sandbox(self, &sandbox);
 			},
 			Operation::RetrySandboxOffer { offer, sandbox } => {
 				state.handle_retry_sandbox_offer(self, &sandbox, &offer);
+			},
+			Operation::ServeSandboxHolder { result, sandbox } => {
+				state.handle_serve_sandbox_holder_completion(&sandbox, result);
+			},
+			Operation::StopSandbox { result, stop } => {
+				state.handle_stop_sandbox(self, stop, &result);
+			},
+			Operation::WriteTerminalSandbox {
+				boot,
+				sandbox,
+				written,
+			} => {
+				state.handle_write_terminal_sandbox(self, sandbox, boot, written);
 			},
 		}
 	}
@@ -817,24 +840,6 @@ impl Scheduler {
 			}
 			.boxed(),
 		);
-	}
-
-	fn send_dequeue_sandbox_completion(
-		&self,
-		state: &mut SchedulerState,
-		completion: sandbox::DequeueCompletion,
-	) {
-		self.send_dequeue_sandbox_response(state, completion.request, completion.output);
-	}
-
-	fn send_dequeue_sandbox_completions(
-		&self,
-		state: &mut SchedulerState,
-		completions: Vec<sandbox::DequeueCompletion>,
-	) {
-		for completion in completions {
-			self.send_dequeue_sandbox_completion(state, completion);
-		}
 	}
 
 	fn send_dequeue_sandbox_response(
