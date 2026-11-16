@@ -20,23 +20,52 @@ pub(super) struct Runners {
 }
 
 pub(super) struct Runner {
+	/// The runner's sandboxes that lend capacity to their children.
 	pub borrowable: HashSet<tg::sandbox::Id, tg::id::BuildHasher>,
+
+	/// The capacity that the runner's last heartbeat reported.
 	pub capacity: tg::runner::control::Capacity,
+
+	/// The capacity of the sandboxes that the runner accepted since its last heartbeat.
 	pub committed: tg::runner::Capacity,
+
 	pub heartbeat_at: tangram_server_core::clock::Instant,
+
 	pub heartbeat_index: u64,
+
 	pub host: String,
+
 	pub owner: Option<tg::Id>,
-	pub ready: bool,
+
 	pub registration_index: u64,
-	pub requests: usize,
-	pub reservations: HashMap<tg::sandbox::Id, Reservation, tg::id::BuildHasher>,
+
+	/// The capacity that each sandbox that is offered to the runner reserves, which for a borrowed sandbox is only the capacity that it acquires in addition to what it borrows.
+	pub reservations: HashMap<tg::sandbox::Id, tg::runner::Capacity, tg::id::BuildHasher>,
+
+	/// The sum of the reservations.
 	pub reserved: tg::runner::Capacity,
 }
 
-pub(super) struct Reservation {
-	/// The capacity that the reservation holds on the runner, which for a borrowed sandbox is only the capacity that it acquires in addition to what it borrows.
-	pub capacity: tg::runner::Capacity,
+impl Runner {
+	/// Whether the runner has sent a heartbeat and takes sandboxes.
+	pub fn ready(&self) -> bool {
+		self.heartbeat_index > 0 && self.capacity.total.sandboxes != 0
+	}
+
+	/// The capacity that the runner has now, which is what its last heartbeat reported without what the scheduler has reserved and committed since.
+	pub fn available(&self) -> tg::runner::Capacity {
+		let factor = self.capacity.overcommit;
+		self.capacity
+			.available
+			.subtract(self.reserved, factor)
+			.subtract(self.committed, factor)
+	}
+
+	/// Whether the runner has the capacity for a request now.
+	pub fn fits(&self, capacity: tg::runner::Capacity) -> bool {
+		self.available()
+			.contains(capacity, self.capacity.overcommit)
+	}
 }
 
 impl Runners {
@@ -98,9 +127,7 @@ impl SchedulerState {
 			heartbeat_index: 0,
 			host: request.host.clone(),
 			owner: None,
-			ready: false,
 			registration_index: request.registration_index,
-			requests: 0,
 			reservations: HashMap::default(),
 			reserved: tg::runner::Capacity::default(),
 		};
