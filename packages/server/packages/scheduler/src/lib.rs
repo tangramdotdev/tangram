@@ -158,10 +158,6 @@ enum Operation {
 		result: tg::Result<Vec<Task<tg::Result<()>>>>,
 		sandbox: tg::sandbox::Id,
 	},
-	StopSandbox {
-		result: tg::Result<bool>,
-		stop: sandbox::StopSandbox,
-	},
 	WriteTerminalSandbox {
 		boot: u64,
 		sandbox: tg::sandbox::Id,
@@ -772,9 +768,6 @@ impl Scheduler {
 			},
 			Operation::ServeSandboxHolder { result, sandbox } => {
 				state.handle_serve_sandbox_holder_completion(&sandbox, result);
-			},
-			Operation::StopSandbox { result, stop } => {
-				state.handle_stop_sandbox(self, stop, &result);
 			},
 			Operation::WriteTerminalSandbox {
 				boot,

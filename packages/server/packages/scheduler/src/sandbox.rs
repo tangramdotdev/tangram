@@ -94,14 +94,6 @@ pub(super) struct Sandbox {
 	pub(super) unplaceable_since: Option<tangram_server_core::clock::Instant>,
 }
 
-/// A stop of a boot of a sandbox on a runner.
-pub(super) struct StopSandbox {
-	pub(super) boot: u64,
-	pub(super) registration_index: u64,
-	pub(super) runner: tg::runner::Id,
-	pub(super) sandbox: tg::sandbox::Id,
-}
-
 pub(super) enum State {
 	/// A runner accepted the sandbox, and the scheduler tracks it until its runner reports that it ended or is removed, so that an enqueue of it or of an older boot is a no-op.
 	Accepted { runner: RunnerRef },
@@ -665,77 +657,6 @@ impl SchedulerState {
 		);
 	}
 
-	/// Ask a runner to stop a boot of a sandbox that it holds.
-	pub(super) fn send_stop_sandbox(&mut self, scheduler: &Scheduler, stop: StopSandbox) {
-		let session = scheduler.server.session(&scheduler.server.context);
-		let scheduler_id = scheduler.id.clone();
-
-		// Make one attempt, because the scheduler decides whether to try again from the runner's state.
-		let retry = tangram_futures::retry::Options {
-			max_retries: 0,
-			..tangram_futures::retry::Options::default()
-		};
-		let timeout = scheduler.server.config.control.request_timeout;
-		let options = tangram_server_core::control::Options { retry, timeout };
-		self.operations.push(
-			async move {
-				let arg = tg::runner::control::ServerRequestArg::StopSandbox(
-					tg::runner::control::StopSandboxServerRequestArg {
-						boot: stop.boot,
-						sandbox: stop.sandbox.clone(),
-					},
-				);
-				let result = session
-					.server
-					.components
-					.runner
-					.send_runner_control_request(
-						&session,
-						&stop.runner,
-						&scheduler_id,
-						stop.registration_index,
-						tangram_server_core::control::id(),
-						arg,
-						options,
-					)
-					.await
-					.and_then(std::convert::identity)
-					.and_then(|output| {
-						output
-							.try_unwrap_stop_sandbox()
-							.map_err(|_| tg::error!("expected a stop sandbox response"))
-					})
-					.map(|output| output.stopped);
-
-				// Wait before the scheduler tries again, which it does until the runner answers or is gone.
-				if let Err(error) = &result {
-					tracing::warn!(error = %error.trace(), sandbox = %stop.sandbox, "failed to stop the sandbox on its runner");
-					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
-				}
-				Operation::StopSandbox { result, stop }
-			}
-			.boxed(),
-		);
-	}
-
-	/// Ask a runner again to stop a boot if the runner did not answer and is still registered. A runner that is gone no longer runs the boot.
-	pub(super) fn handle_stop_sandbox(
-		&mut self,
-		scheduler: &Scheduler,
-		mut stop: StopSandbox,
-		result: &tg::Result<bool>,
-	) {
-		let current = self
-			.runners
-			.entries
-			.get(&stop.runner)
-			.map(|runner| runner.registration_index);
-		if let (Err(_), Some(registration_index)) = (result, current) {
-			stop.registration_index = registration_index;
-			self.send_stop_sandbox(scheduler, stop);
-		}
-	}
-
 	/// Finish a destroy that the runner did not carry out. A runner that does not have the sandbox, or that is gone, will never report it, so the scheduler records it as destroyed.
 	pub(super) fn handle_destroy_sandbox(
 		&mut self,
@@ -811,15 +732,8 @@ impl SchedulerState {
 				// Leave a sandbox that the scheduler offered to a runner to the offer's answer, and a queued later boot alone.
 				State::Offered { .. } | State::Queued => return,
 
-				// Stop a boot on its runner that the scheduler ended as stopped, which keeps the sandbox's directory for its next start.
+				// Leave a boot that the scheduler ended as stopped to its runner, which stops the boots that the index records as stopped when it registers, so that the sandbox's directory stays for its next start.
 				State::Terminal { status, .. } if entry.boot == boot && status.is_stopped() => {
-					let stop = StopSandbox {
-						boot,
-						registration_index: runner.registration_index,
-						runner: runner.id,
-						sandbox: id.clone(),
-					};
-					self.send_stop_sandbox(scheduler, stop);
 					return;
 				},
 
