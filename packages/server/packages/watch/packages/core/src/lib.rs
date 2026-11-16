@@ -262,52 +262,8 @@ impl Watch {
 						if state.affected_paths.contains(path) {
 							modified = true;
 						}
-						let Some(index) = state.graph.paths.get(path).copied() else {
-							continue;
-						};
-						modified = true;
-						let mut queue = vec![index];
-						let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
-						while let Some(index) = queue.pop() {
-							if !visited.insert(index) {
-								continue;
-							}
-
-							// Remove the node.
-							let node = *state.graph.nodes.remove(&index).unwrap();
-							tracing::trace!(path = ?node.path, edge = ?node.edge, "removed");
-							if let Some(artifact) = &node.artifact {
-								state.graph.artifacts.remove(artifact).unwrap();
-							}
-							if let Some(id) = &node.id {
-								state.graph.remove_id(index, id, node.permissions);
-							}
-							if let Some(path) = &node.path {
-								state.graph.paths.remove(path).unwrap();
-								state.affected_paths.insert(path.clone());
-							}
-
-							// Remove solutions that reference this node.
-							state.solutions.remove_by_node(index);
-
-							// Remove the node from its children's referrers and enqueue its children with no more referrers and no path.
-							for child_index in node
-								.children()
-								.into_iter()
-								.chain(node.object_children.iter().copied())
-							{
-								if let Some(child) = state.graph.nodes.get_mut(&child_index) {
-									child.referrers.remove(&index);
-									if child.referrers.is_empty() && child.path.is_none() {
-										queue.push(child_index);
-									}
-								}
-							}
-
-							// Enqueue the node's referrers.
-							for referrer in node.referrers {
-								queue.push(referrer);
-							}
+						if state.remove_path(path) {
+							modified = true;
 						}
 					}
 
@@ -607,21 +563,21 @@ impl State {
 
 	fn watch_paths(&mut self, next: usize) {
 		// Discard the graph if any of its paths is not watched, so that the next checkin reads every path.
-		if let Err(error) = self.try_watch_paths(next) {
-			tracing::warn!(%error, "failed to watch the paths");
-			self.reset();
-		}
+		let next = match self.try_watch_paths(next) {
+			Ok(next) => next,
+			Err(error) => {
+				tracing::warn!(%error, "failed to watch the paths");
+				self.reset();
+				return;
+			},
+		};
+
+		// Remove the nodes for paths that changed after the checkin read them and before they were watched.
+		self.remove_changed_paths(next);
 	}
 
-	fn try_watch_paths(&mut self, next: usize) -> tg::Result<()> {
+	fn try_watch_paths(&mut self, next: usize) -> tg::Result<usize> {
 		// Create the watcher if there is none, and watch every path with a new watcher.
-		#[cfg_attr(
-			not(target_os = "linux"),
-			expect(
-				unused_variables,
-				reason = "only linux watches the new nodes individually"
-			)
-		)]
 		let next = if self.watcher.is_some() {
 			next
 		} else {
@@ -635,7 +591,83 @@ impl State {
 		#[cfg(target_os = "macos")]
 		self.update_paths_darwin()?;
 
-		Ok(())
+		Ok(next)
+	}
+
+	fn remove_changed_paths(&mut self, next: usize) {
+		// Find the paths read by the checkin whose metadata no longer matches the graph, because no event reports a change made before a path was watched.
+		let paths = self
+			.graph
+			.nodes
+			.range(next..)
+			.filter_map(|(_, node)| node.path.clone())
+			.filter(|path| !Self::graph_matches_path(&self.graph, path))
+			.collect::<Vec<_>>();
+		if paths.is_empty() {
+			return;
+		}
+
+		// Remove the nodes and invalidate any checkins that read the paths before the change.
+		for path in &paths {
+			tracing::trace!(path = %path.display(), "changed before it was watched");
+			self.remove_path(path);
+		}
+		self.version += 1;
+		self.invalidated_paths.extend(paths);
+	}
+
+	fn remove_path(&mut self, path: &Path) -> bool {
+		// Get the path's node.
+		let Some(index) = self.graph.paths.get(path).copied() else {
+			return false;
+		};
+
+		// Remove the node along with its referrers and its children with no more referrers and no path.
+		let mut queue = vec![index];
+		let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
+		while let Some(index) = queue.pop() {
+			if !visited.insert(index) {
+				continue;
+			}
+
+			// Remove the node.
+			let node = *self.graph.nodes.remove(&index).unwrap();
+			tracing::trace!(path = ?node.path, edge = ?node.edge, "removed");
+			if let Some(artifact) = &node.artifact {
+				self.graph.artifacts.remove(artifact).unwrap();
+			}
+			if let Some(id) = &node.id {
+				self.graph.remove_id(index, id, node.permissions);
+			}
+			if let Some(path) = &node.path {
+				self.graph.paths.remove(path).unwrap();
+				self.affected_paths.insert(path.clone());
+			}
+
+			// Remove solutions that reference this node.
+			self.solutions.remove_by_node(index);
+
+			// Remove the node from its children's referrers and enqueue its children with no more referrers and no path.
+			for child_index in node
+				.children()
+				.into_iter()
+				.chain(node.object_children.iter().copied())
+			{
+				if let Some(child) = self.graph.nodes.get_mut(&child_index) {
+					child.referrers.remove(&index);
+					if child.referrers.is_empty() && child.path.is_none() {
+						queue.push(child_index);
+					}
+				}
+			}
+
+			// Enqueue the node's referrers.
+			for referrer in node.referrers {
+				queue.push(referrer);
+			}
+		}
+
+		true
 	}
 
 	fn create_watcher(&self) -> tg::Result<notify::RecommendedWatcher> {
