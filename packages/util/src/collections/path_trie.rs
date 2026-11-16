@@ -63,6 +63,32 @@ where
 		inner(&mut self.root, path)
 	}
 
+	pub fn descendants(&self, path: &Path) -> Vec<PathBuf> {
+		fn inner<V>(node: &Node<V>, path: &Path, output: &mut Vec<PathBuf>) {
+			for (component, child) in node.children.iter().flatten() {
+				let path = path.join(component);
+				if child.value.is_some() {
+					output.push(path.clone());
+				}
+				inner(child, &path, output);
+			}
+		}
+		let mut node = &self.root;
+		for component in path.components() {
+			let Some(child) = node
+				.children
+				.as_ref()
+				.and_then(|children| children.get(component.as_os_str()))
+			else {
+				return Vec::new();
+			};
+			node = child;
+		}
+		let mut output = Vec::new();
+		inner(node, path, &mut output);
+		output
+	}
+
 	pub fn is_empty(&self) -> bool {
 		self.root.value.is_none() && self.root.children.is_none()
 	}
@@ -127,6 +153,29 @@ mod tests {
 		let path = PathBuf::from("a/b/c");
 
 		assert_eq!(trie.get(&path), None);
+	}
+
+	// The descendants of a path are the paths with values beneath it, excluding the path itself.
+	#[test]
+	fn test_descendants() {
+		let mut trie = PathTrie::default();
+		trie.insert(&PathBuf::from("a"), 1);
+		trie.insert(&PathBuf::from("a/b"), 2);
+		trie.insert(&PathBuf::from("a/b/c/d"), 3);
+		trie.insert(&PathBuf::from("ab"), 4);
+		trie.insert(&PathBuf::from("e"), 5);
+
+		let mut descendants = trie.descendants(&PathBuf::from("a"));
+		descendants.sort();
+		assert_eq!(
+			descendants,
+			vec![PathBuf::from("a/b"), PathBuf::from("a/b/c/d")],
+		);
+		assert_eq!(
+			trie.descendants(&PathBuf::from("a/b/c/d")),
+			Vec::<PathBuf>::new(),
+		);
+		assert_eq!(trie.descendants(&PathBuf::from("f")), Vec::<PathBuf>::new(),);
 	}
 
 	// Multiple distinct paths can coexist and each retains its own value.
