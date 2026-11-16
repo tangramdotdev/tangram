@@ -443,11 +443,8 @@ impl Client {
 	}
 
 	#[must_use]
-	pub fn compatibility_date() -> time::OffsetDateTime {
-		time::OffsetDateTime::new_utc(
-			time::Date::from_calendar_date(2026, time::Month::January, 1).unwrap(),
-			time::Time::MIDNIGHT,
-		)
+	pub fn compatibility_date() -> jiff::Timestamp {
+		"2026-01-01T00:00:00Z".parse().unwrap()
 	}
 
 	#[must_use]

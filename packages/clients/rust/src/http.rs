@@ -15,7 +15,6 @@ use {
 	},
 	tangram_http::{request::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	time::format_description::well_known::Rfc3339,
 	tokio::io::{AsyncRead, AsyncWrite},
 	tower::{Service as _, util::BoxCloneSyncService},
 	tower_http::ServiceBuilderExt as _,
@@ -168,54 +167,52 @@ impl tg::Client {
 				}
 			}
 		});
-		let service = tower::ServiceBuilder::new()
-			.layer(tangram_http::layer::tracing::TracingLayer::new())
-			.layer(tower::layer::layer_fn(move |service| {
-				let service = Service::new(service);
-				tower::service_fn(move |request| {
-					let future = service.clone().call(request);
-					async move {
-						match tokio::time::timeout(http.request_timeout, future).await {
-							Ok(result) => result,
-							Err(_) => Err(Error::Timeout(tg::error!("the request timed out"))),
+		let service =
+			tower::ServiceBuilder::new()
+				.layer(tangram_http::layer::tracing::TracingLayer::new())
+				.layer(tower::layer::layer_fn(move |service| {
+					let service = Service::new(service);
+					tower::service_fn(move |request| {
+						let future = service.clone().call(request);
+						async move {
+							match tokio::time::timeout(http.request_timeout, future).await {
+								Ok(result) => result,
+								Err(_) => Err(Error::Timeout(tg::error!("the request timed out"))),
+							}
 						}
-					}
-				})
-			}))
-			.insert_request_header_if_not_present(
-				http::HeaderName::from_str("x-tg-compatibility-date").unwrap(),
-				http::HeaderValue::from_str(&Self::compatibility_date().format(&Rfc3339).unwrap())
-					.unwrap(),
-			)
-			.insert_request_header_if_not_present(
-				http::HeaderName::from_str("x-tg-version").unwrap(),
-				http::HeaderValue::from_str(version).unwrap(),
-			)
-			.layer(
-				tangram_http::layer::compression::RequestCompressionLayer::new(|parts, _| {
-					let has_content_length =
-						parts.headers.get(http::header::CONTENT_LENGTH).is_some();
-					let is_sync =
-						parts
-							.headers
-							.get(http::header::CONTENT_TYPE)
-							.is_some_and(|content_type| {
+					})
+				}))
+				.insert_request_header_if_not_present(
+					http::HeaderName::from_str("x-tg-compatibility-date").unwrap(),
+					http::HeaderValue::from_str(&Self::compatibility_date().to_string()).unwrap(),
+				)
+				.insert_request_header_if_not_present(
+					http::HeaderName::from_str("x-tg-version").unwrap(),
+					http::HeaderValue::from_str(version).unwrap(),
+				)
+				.layer(
+					tangram_http::layer::compression::RequestCompressionLayer::new(|parts, _| {
+						let has_content_length =
+							parts.headers.get(http::header::CONTENT_LENGTH).is_some();
+						let is_sync = parts.headers.get(http::header::CONTENT_TYPE).is_some_and(
+							|content_type| {
 								matches!(content_type.to_str(), Ok(tg::sync::CONTENT_TYPE))
-							});
-					if has_content_length || is_sync {
-						Some((tangram_http::body::compression::Algorithm::Zstd, 3))
-					} else {
-						None
-					}
-				}),
-			)
-			.layer(
-				tangram_http::layer::coalescing::RequestCoalescingLayer::new(
-					http.coalescing_target_size,
-				),
-			)
-			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
-			.service(service);
+							},
+						);
+						if has_content_length || is_sync {
+							Some((tangram_http::body::compression::Algorithm::Zstd, 3))
+						} else {
+							None
+						}
+					}),
+				)
+				.layer(
+					tangram_http::layer::coalescing::RequestCoalescingLayer::new(
+						http.coalescing_target_size,
+					),
+				)
+				.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
+				.service(service);
 		Service::new(service)
 	}
 

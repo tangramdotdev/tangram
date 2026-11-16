@@ -2395,7 +2395,7 @@ dependencies = [
  "anstream",
  "anstyle",
  "env_filter",
- "jiff",
+ "jiff 0.2.43",
  "log",
 ]
 
@@ -3999,9 +3999,25 @@ version = "0.2.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26699905cc795a23e3949585cc7ba3ee8ade090872a27e4316304a777297894a"
 dependencies = [
- "jiff-core",
- "jiff-static",
- "jiff-tzdb-platform",
+ "jiff-core 0.1.5",
+ "jiff-static 0.2.43",
+ "jiff-tzdb-platform 0.1.3",
+ "log",
+ "portable-atomic",
+ "portable-atomic-util",
+ "serde_core",
+ "windows-link 0.2.1",
+]
+
+[[package]]
+name = "jiff"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cc767b5763de45e810109520123bb2829a653f3a7ed9be40b2bc4f81158f595"
+dependencies = [
+ "jiff-core 1.0.0",
+ "jiff-static 1.0.0",
+ "jiff-tzdb-platform 1.0.0",
  "log",
  "portable-atomic",
  "portable-atomic-util",
@@ -4019,15 +4035,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "jiff-core"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "894f7ac42105f584100691b3bf6e6b92dd12fcfa225f6c397f95c8a94b47b68f"
+dependencies = [
+ "log",
+]
+
+[[package]]
 name = "jiff-static"
 version = "0.2.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b4ff49b2887190c760b86207b55cdcaabbdecaf7a0660d68aa2ed6f652abf0a"
 dependencies = [
- "jiff-core",
+ "jiff-core 0.1.5",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "jiff-static"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "955491488dc99b572ea6d67b172dcd98787d00744b1fb44a5689b4e6413695a6"
+dependencies = [
+ "jiff-core 1.0.0",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -4037,12 +4074,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa8377070c6bae868759445e5a77f66d84f0b72f3a054bfb00e6d038b8282da7"
 
 [[package]]
+name = "jiff-tzdb"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12e71a1b68a875a44a33bb7a1dd84392cb77145a3367a552a3cfe6a4f5cf3afc"
+
+[[package]]
 name = "jiff-tzdb-platform"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "875a5a69ac2bab1a891711cf5eccbec1ce0341ea805560dcd90b7a2e925132e8"
 dependencies = [
- "jiff-tzdb",
+ "jiff-tzdb 0.1.9",
+]
+
+[[package]]
+name = "jiff-tzdb-platform"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc65b284afcfa8f6cf189c7274c805505314a7ab975c60e1f548bff56525420e"
+dependencies = [
+ "jiff-tzdb 1.0.0",
 ]
 
 [[package]]
@@ -8397,7 +8449,7 @@ dependencies = [
  "hex",
  "indexmap 1.9.3",
  "indexmap 2.14.2",
- "jiff",
+ "jiff 0.2.43",
  "schemars 0.9.0",
  "schemars 1.2.3",
  "serde_core",
@@ -9067,6 +9119,7 @@ dependencies = [
  "http",
  "hyper",
  "hyper-util",
+ "jiff 1.0.0",
  "quick-xml",
  "rustls",
  "rustls-platform-verifier",
@@ -9077,7 +9130,6 @@ dependencies = [
  "tangram_http",
  "tangram_pool",
  "tangram_uri",
- "time",
  "tokio",
  "tokio-rustls",
  "tracing",
@@ -9456,7 +9508,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "humantime",
- "jiff",
+ "jiff 1.0.0",
  "tangram_cli_core",
  "tangram_client",
 ]
@@ -9484,7 +9536,7 @@ dependencies = [
  "derive_more",
  "futures",
  "indexmap 2.14.2",
- "jiff",
+ "jiff 1.0.0",
  "libc",
  "maml",
  "miette",
@@ -10112,7 +10164,7 @@ dependencies = [
  "indoc",
  "insta",
  "itertools 0.15.0",
- "jiff",
+ "jiff 1.0.0",
  "libc",
  "lsp-types",
  "miette",
@@ -10134,7 +10186,6 @@ dependencies = [
  "tangram_serialize",
  "tangram_uri",
  "tangram_util",
- "time",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
@@ -10374,7 +10425,7 @@ dependencies = [
  "derive_more",
  "foundationdb-tuple",
  "futures",
- "jiff",
+ "jiff 1.0.0",
  "num-derive 0.5.1",
  "num-traits",
  "serde",
@@ -10394,7 +10445,7 @@ dependencies = [
  "foundationdb",
  "foundationdb-tuple",
  "futures",
- "jiff",
+ "jiff 1.0.0",
  "libc",
  "num",
  "num-derive 0.5.1",
@@ -10420,7 +10471,7 @@ dependencies = [
  "foundationdb-tuple",
  "futures",
  "heed",
- "jiff",
+ "jiff 1.0.0",
  "num",
  "num-derive 0.5.1",
  "num-traits",
@@ -10977,7 +11028,7 @@ version = "0.0.0"
 dependencies = [
  "futures",
  "http",
- "jiff",
+ "jiff 1.0.0",
  "mime",
  "num",
  "tangram_client",
@@ -11008,7 +11059,7 @@ name = "tangram_server_clock_core"
 version = "0.0.0"
 dependencies = [
  "futures",
- "jiff",
+ "jiff 1.0.0",
  "tangram_client",
  "tangram_server_checkpoint_core",
  "tangram_server_config",
@@ -11020,7 +11071,7 @@ name = "tangram_server_config"
 version = "0.0.0"
 dependencies = [
  "derive_more",
- "jiff",
+ "jiff 1.0.0",
  "libc",
  "tangram_billing_stripe",
  "tangram_client",
@@ -11275,7 +11326,7 @@ name = "tangram_server_index"
 version = "0.0.0"
 dependencies = [
  "derive_more",
- "jiff",
+ "jiff 1.0.0",
  "tangram_client",
  "tangram_index",
  "tangram_index_fdb",

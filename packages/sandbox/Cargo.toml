@@ -28,7 +28,6 @@ http = { workspace = true }
 http-body = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
-include_dir = { workspace = true }
 indoc = { workspace = true }
 libc = { workspace = true }
 mime = { workspace = true }
@@ -52,6 +51,7 @@ tracing = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 env_logger = { workspace = true }
+include_dir = { workspace = true }
 log = { workspace = true }
 tangram_vfs = { workspace = true }
 vhost = { workspace = true }

@@ -22,7 +22,6 @@ tracing-subscriber = { workspace = true }
 
 [dependencies]
 bytes = { workspace = true }
-crossbeam-channel = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
 libc = { workspace = true }
@@ -35,11 +34,12 @@ tangram_futures = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
-zerocopy = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+crossbeam-channel = { workspace = true }
 io-uring = { workspace = true }
 vhost = { workspace = true }
 vhost-user-backend = { workspace = true }
 virtiofsd = { workspace = true }
 vm-memory = { workspace = true }
+zerocopy = { workspace = true }

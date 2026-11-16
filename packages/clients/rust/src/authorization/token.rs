@@ -163,7 +163,7 @@ impl Token {
 	}
 
 	pub fn verify(&self, secret: &Secret) -> tg::Result<()> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = jiff::Timestamp::now().as_second();
 		self.verify_at(secret, now)
 	}
 

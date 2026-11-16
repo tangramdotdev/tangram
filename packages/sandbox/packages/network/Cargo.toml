@@ -18,12 +18,12 @@ workspace = true
 
 [dependencies]
 derive_more = { workspace = true }
-libc = { workspace = true }
-rand = { workspace = true }
 serde = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }
+neli = { workspace = true }
+rand = { workspace = true }
 tangram_client = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-neli = { workspace = true }

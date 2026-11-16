@@ -67,7 +67,6 @@ tangram_pool = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
-time = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true, optional = true }
 tokio-stream = { workspace = true }

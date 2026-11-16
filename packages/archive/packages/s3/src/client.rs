@@ -22,7 +22,7 @@ pub(super) struct Client {
 	request_timeout: Duration,
 	retry: tangram_futures::retry::Options,
 	session: Option<tokio::sync::Mutex<Option<Session>>>,
-	session_refresh_buffer: time::Duration,
+	session_refresh_buffer: Duration,
 	url: Uri,
 }
 
@@ -34,7 +34,7 @@ pub(super) struct Response {
 
 pub(super) struct Session {
 	credentials: Credentials,
-	expiration: time::OffsetDateTime,
+	expiration: jiff::Timestamp,
 	token: String,
 }
 
@@ -103,13 +103,7 @@ impl Client {
 		);
 		let pool = Self::pool(config.pool, &config.reconnect, &url, config.connect_timeout);
 		let region = config.region.clone();
-		let session_refresh_buffer = time::Duration::try_from(config.session_refresh_buffer)
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					"the S3 archive session refresh buffer is out of range"
-				)
-			})?;
+		let session_refresh_buffer = config.session_refresh_buffer;
 
 		Ok(Self {
 			credentials,

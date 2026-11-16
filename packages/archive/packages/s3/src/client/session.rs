@@ -4,7 +4,6 @@ use {
 	aws_credential_types::Credentials,
 	bytes::Bytes,
 	tangram_client::prelude::*,
-	time::{OffsetDateTime, format_description::well_known::Rfc3339},
 };
 
 #[derive(serde::Deserialize)]
@@ -28,10 +27,18 @@ impl Client {
 			return Ok((self.credentials.clone(), None));
 		};
 		let mut session = session.lock().await;
-		let now = OffsetDateTime::now_utc();
+		let now = jiff::Timestamp::now();
+		let refresh_at = now
+			.checked_add(self.session_refresh_buffer)
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"the S3 archive session refresh buffer is out of range"
+				)
+			})?;
 		if let Some(session) = session
 			.as_ref()
-			.filter(|session| session.expiration > now + self.session_refresh_buffer)
+			.filter(|session| session.expiration > refresh_at)
 		{
 			return Ok((session.credentials.clone(), Some(session.token.clone())));
 		}
@@ -82,9 +89,11 @@ fn parse_session(bytes: &[u8]) -> tg::Result<Session> {
 			"the S3 Express session response contains empty credentials"
 		));
 	}
-	let expiration = OffsetDateTime::parse(&credentials.expiration, &Rfc3339)
+	let expiration = credentials
+		.expiration
+		.parse::<jiff::Timestamp>()
 		.map_err(|error| tg::error!(!error, "failed to parse the S3 Express session expiration"))?;
-	if expiration <= OffsetDateTime::now_utc() {
+	if expiration <= jiff::Timestamp::now() {
 		return Err(tg::error!(
 			"the S3 Express session response is already expired"
 		));
@@ -108,9 +117,7 @@ fn parse_session(bytes: &[u8]) -> tg::Result<Session> {
 mod tests {
 	#[test]
 	fn parses_a_session() {
-		let expiration = (time::OffsetDateTime::now_utc() + time::Duration::minutes(5))
-			.format(&time::format_description::well_known::Rfc3339)
-			.unwrap();
+		let expiration = (jiff::Timestamp::now() + std::time::Duration::from_mins(5)).to_string();
 		let response = format!(
 			"<CreateSessionResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Credentials><AccessKeyId>access</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>token</SessionToken><Expiration>{expiration}</Expiration></Credentials></CreateSessionResult>"
 		);
