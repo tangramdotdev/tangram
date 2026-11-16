@@ -88,14 +88,8 @@ impl SchedulerState {
 			registration_index,
 			&request.sandboxes,
 		);
-		let completions = self.remove_runner(scheduler, &request.runner);
+		let completions = self.remove_runner(scheduler, &request.runner, &request.sandboxes);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
-		self.reconcile_placed_sandboxes(
-			scheduler,
-			&request.runner,
-			registration_index,
-			&request.sandboxes,
-		);
 		let runner = Runner {
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
@@ -112,15 +106,13 @@ impl SchedulerState {
 		};
 		self.runners.entries.insert(request.runner.clone(), runner);
 
-		// Track the boots that the runner reports, which a restarted scheduler rebuilds its tracking from.
+		// Track the sandboxes that the runner reports, which a restarted scheduler rebuilds its tracking from.
 		for sandbox in &request.sandboxes {
-			self.track_scheduled_sandbox(
-				sandbox.id.clone(),
-				sandbox.boot,
-				None,
-				&request.runner,
+			let runner = super::sandbox::RunnerRef {
 				registration_index,
-			);
+				id: request.runner.clone(),
+			};
+			self.track_accepted_sandbox(scheduler, &sandbox.id, sandbox.boot, None, runner);
 		}
 		self.queue.wake();
 
@@ -225,11 +217,8 @@ impl SchedulerState {
 			return;
 		}
 		tracing::info!(runner = %request.runner, registration_index = request.registration_index, "removing the runner");
-		let completions = self.remove_runner(scheduler, &request.runner);
+		let completions = self.remove_runner(scheduler, &request.runner, &[]);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
-
-		// Requeue the sandboxes that the runner held but that never connected.
-		self.handle_lost_runner(scheduler, &request.runner);
 
 		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later. This scheduler holds those boots, so their discard alone records their end, and the runner's cleanup leaves them alone.
 		let mut queued = Vec::new();

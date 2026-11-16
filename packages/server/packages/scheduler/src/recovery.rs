@@ -3,7 +3,6 @@ use {
 	futures::FutureExt as _,
 	std::collections::HashMap,
 	tangram_client::prelude::*,
-	tangram_futures::stream::TryExt as _,
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 };
 
@@ -35,16 +34,7 @@ impl Scheduler {
 		}
 
 		// Await indexing, because an acknowledged write may not be applied yet.
-		let session = self.server.session(&self.server.context);
-		self.server
-			.components
-			.indexer
-			.index(&session, tg::index::Arg::default())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index"))?
-			.try_last()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index"))?;
+		self.index().await?;
 
 		// Reload the requests.
 		let sandboxes = self
@@ -272,13 +262,12 @@ impl SchedulerState {
 				};
 				self.send_destroy_sandbox(scheduler, destroy);
 			} else {
-				let placed = super::sandbox::Placed {
-					generation: 0,
+				let boot = claim.request.boot;
+				let runner = super::sandbox::RunnerRef {
 					registration_index: claim.registration_index,
-					request: claim.request,
-					runner: claim.runner,
+					id: claim.runner,
 				};
-				self.insert_placed_sandbox(id, placed);
+				self.track_accepted_sandbox(scheduler, &id, boot, Some(claim.request), runner);
 			}
 		}
 		for (id, request) in recovery.requests {

@@ -5,7 +5,6 @@ use {
 		stream::{BoxStream, FuturesUnordered},
 	},
 	std::{
-		collections::HashMap,
 		sync::{
 			Arc, Mutex,
 			atomic::{AtomicBool, Ordering},
@@ -91,7 +90,6 @@ enum HolderMessage {
 }
 
 struct SchedulerState {
-	accepting: HashMap<tg::sandbox::Id, sandbox::Accepting, tg::id::BuildHasher>,
 	operations: Operations,
 	parents: sandbox::Parents,
 	queue: sandbox::Queue,
@@ -116,14 +114,14 @@ enum Operation {
 		destroy: sandbox::DestroySandbox,
 		result: tg::Result<bool>,
 	},
-	PersistSandbox {
-		result: tg::Result<()>,
-		sandbox: tg::sandbox::Id,
-	},
-	PlacedSandboxes {
-		generation: u64,
+	LostSandboxes {
 		keys: Vec<tg::sandbox::Id>,
 		lost: Vec<EnqueueSandboxRequestArg>,
+	},
+	PersistSandbox {
+		boot: u64,
+		result: tg::Result<()>,
+		sandbox: tg::sandbox::Id,
 	},
 	Publish {
 		context: &'static str,
@@ -136,6 +134,10 @@ enum Operation {
 	RemoveRunner {
 		id: Option<String>,
 		result: tg::Result<RemoveRunnerResponseOutput>,
+	},
+	RemoveTerminalSandbox {
+		boot: u64,
+		sandbox: tg::sandbox::Id,
 	},
 	RetrySandbox {
 		sandbox: tg::sandbox::Id,
@@ -634,7 +636,7 @@ impl Scheduler {
 				}
 			},
 			Notification::SandboxEnded(notification) => {
-				state.handle_sandbox_ended(&notification);
+				state.handle_sandbox_ended(self, &notification);
 			},
 		}
 	}
@@ -684,7 +686,7 @@ impl Scheduler {
 					},
 					Err(error) => {
 						if current {
-							let completions = state.remove_runner(self, &runner);
+							let completions = state.remove_runner(self, &runner, &[]);
 							self.send_dequeue_sandbox_completions(state, completions);
 						}
 						Err(error)
@@ -716,15 +718,15 @@ impl Scheduler {
 			Operation::DestroySandbox { destroy, result } => {
 				state.handle_destroy_sandbox(self, destroy, result);
 			},
-			Operation::PersistSandbox { result, sandbox } => {
-				state.handle_persist_sandbox_completion(self, &sandbox, result);
+			Operation::LostSandboxes { keys, lost } => {
+				state.handle_lost_sandboxes(self, keys, lost);
 			},
-			Operation::PlacedSandboxes {
-				generation,
-				keys,
-				lost,
+			Operation::PersistSandbox {
+				boot,
+				result,
+				sandbox,
 			} => {
-				state.handle_placed_sandboxes(self, generation, keys, lost);
+				state.handle_persist_sandbox_completion(self, &sandbox, boot, result);
 			},
 			Operation::Publish { context, result } => {
 				if let Err(error) = result {
@@ -749,6 +751,9 @@ impl Scheduler {
 					tracing::error!(error = %error.trace(), "failed to remove the expired runner");
 				}
 			},
+			Operation::RemoveTerminalSandbox { boot, sandbox } => {
+				state.handle_remove_terminal_sandbox(self, &sandbox, boot);
+			},
 			Operation::RetrySandbox { sandbox } => {
 				state.handle_retry_sandbox(self, &sandbox);
 			},
@@ -759,7 +764,6 @@ impl Scheduler {
 	}
 
 	fn handle_cleaner_tick(&self, state: &mut SchedulerState) {
-		state.prune_placed_sandboxes(self);
 		state.prune_sandbox_holders();
 		let now = self.server.clock.instant();
 		let expired = state.runners.expired(now, self.config.runner_time_to_live);
@@ -787,9 +791,12 @@ impl Scheduler {
 		let server = self.server.clone();
 		state.operations.push(
 			async move {
-				// Record the failure in the sandbox's error field, and then wake the callers.
+				// Record the failure in the sandbox's error field, unless the scheduler already began the write, and then wake the callers.
 				let request = discarded.request;
-				let result = scheduler.fail_sandbox(&request, error).await;
+				let result = match discarded.write {
+					Some(write) => write.await,
+					None => scheduler.fail_sandbox(&request, error).await,
+				};
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), sandbox = %request.sandbox, "failed to record the discarded sandbox");
 				}
