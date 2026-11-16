@@ -430,11 +430,11 @@ impl Watch {
 			drop(state);
 			return false;
 		}
-		graph.clean(&key.path, next);
+		let mut removed_paths = graph.clean(&key.path, next);
 
-		// Update the state.
+		// Update the state, and collect the paths that invalidation removed from the graph.
 		let index_task = spawn_index_task();
-		state.affected_paths.clear();
+		removed_paths.extend(state.affected_paths.drain());
 		state.graph = graph;
 		state.index_task = index_task;
 		state.invalidated_paths.clear();
@@ -452,6 +452,8 @@ impl Watch {
 		));
 
 		// Update the watched paths.
+		#[cfg(target_os = "linux")]
+		state.unwatch_paths_linux(&removed_paths);
 		state.watch_paths(next);
 		if let Some(lock_write_guard) = lock_write_guard {
 			lock_write_guard.commit();
@@ -764,21 +766,27 @@ impl State {
 	}
 
 	#[cfg(target_os = "linux")]
-	fn update_paths_linux(&mut self, next: usize) -> tg::Result<()> {
-		// Remove paths that are no longer in the graph, including paths removed by invalidation.
-		let watcher = self.watcher.as_mut().unwrap();
+	fn unwatch_paths_linux(&mut self, removed_paths: &HashSet<PathBuf, fnv::FnvBuildHasher>) {
+		// Unwatch the removed paths that are no longer in the graph, including paths removed by invalidation.
+		let Some(watcher) = &mut self.watcher else {
+			return;
+		};
 		let mut watcher_paths = watcher.paths_mut();
-		self.paths.retain(|path, _| {
-			if self.graph.paths.get(path).is_some() {
-				return true;
+		for path in removed_paths {
+			if self.graph.paths.get(path).is_some() || self.paths.remove(path).is_none() {
+				continue;
 			}
 			tracing::trace!(path = %path.display(), "unwatched");
 			watcher_paths.remove(path).ok();
+		}
+		watcher_paths.commit().ok();
+	}
 
-			false
-		});
-
+	#[cfg(target_os = "linux")]
+	fn update_paths_linux(&mut self, next: usize) -> tg::Result<()> {
 		// Add the new paths, stopping at the first path that cannot be watched.
+		let watcher = self.watcher.as_mut().unwrap();
+		let mut watcher_paths = watcher.paths_mut();
 		for (_, node) in self.graph.nodes.range(next..) {
 			let Some(path) = &node.path else {
 				continue;
