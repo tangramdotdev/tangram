@@ -652,6 +652,11 @@ impl Component {
 			.write_all(bytes)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to write the checkout temp file"))?;
+		handle
+			.file
+			.flush()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to flush the checkout temp file"))?;
 		handle.position += u64::try_from(bytes.len()).unwrap();
 		Self::sync_get_checkout_put_write_handle(state, pointer.file.clone(), handle);
 
