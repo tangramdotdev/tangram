@@ -96,6 +96,10 @@ impl Component {
 					None,
 				);
 
+				let ids = artifacts
+					.iter()
+					.map(|artifact| artifact.node.clone())
+					.collect::<Vec<_>>();
 				let result = future::try_join_all(artifacts.into_iter().map({
 					|artifact| {
 						let component = component.clone();
@@ -113,6 +117,14 @@ impl Component {
 				}))
 				.await
 				.map(|results| results.into_iter().try_collect::<_, (), _>());
+
+				// Retain the checkouts until the process finishes if a process requested them.
+				let result = match (result, &session.context.principal) {
+					(Ok(Ok(())), tg::Principal::Process(process)) => {
+						Ok(Self::retain_process_checkouts(&session, process, ids).await)
+					},
+					(result, _) => result,
+				};
 
 				progress.finish_all();
 
@@ -630,7 +642,35 @@ impl Component {
 		Err(tg::error!(requested_ids = %ids.format(", "), "failed to ensure artifact availability"))
 	}
 
-	pub(crate) async fn checkout_internal_ids(
+	pub(crate) async fn retain_process_checkouts(
+		session: &Session,
+		process: &tg::process::Id,
+		artifacts: Vec<tg::artifact::Id>,
+	) -> tg::Result<()> {
+		// Get the checkouts that hold the artifacts.
+		let checkouts = Self::checkout_internal_ids(session, artifacts).await?;
+		if checkouts.is_empty() {
+			return Ok(());
+		}
+
+		// Retain the checkouts in the index until the process finishes, so that cleaning does not remove them while the process uses them.
+		let process = process.clone();
+		let entry = tangram_index::process::checkout::put::Arg { checkouts, process };
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutProcessCheckouts(Box::new(entry))],
+		};
+		session
+			.server
+			.index
+			.write(arg)
+			.await
+			.and_then(std::convert::identity)
+			.map_err(|error| tg::error!(!error, "failed to retain the checkouts"))?;
+
+		Ok(())
+	}
+
+	async fn checkout_internal_ids(
 		session: &Session,
 		artifacts: Vec<tg::artifact::Id>,
 	) -> tg::Result<Vec<tg::Id>> {

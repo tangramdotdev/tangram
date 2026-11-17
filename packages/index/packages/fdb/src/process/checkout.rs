@@ -8,11 +8,23 @@ use {
 };
 
 impl Index {
-	pub(crate) fn put_process_checkouts(
+	pub(crate) async fn put_process_checkouts(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::process::checkout::put::Arg,
-	) {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		// Do not retain checkouts for a process that has finished, since nothing would release them until the process is cleaned.
+		let process = crate::propagate!(
+			Self::try_get_process_with_transaction(txn, subspace, &arg.process).await
+		);
+		let finished = process
+			.and_then(|process| process.status)
+			.is_some_and(|status| status.is_finished());
+		if finished {
+			return Ok(ControlFlow::Break(()));
+		}
+
+		// Put the keys.
 		for checkout in &arg.checkouts {
 			let key = Key::Process(crate::process::Key::ProcessCheckout {
 				checkout: checkout.clone(),
@@ -28,6 +40,8 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 		}
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn delete_process_checkouts(

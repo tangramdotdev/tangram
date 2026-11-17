@@ -210,6 +210,18 @@ async fn a_process_retains_its_checkouts_until_it_finishes() {
 }
 
 #[tokio::test]
+async fn a_finished_process_does_not_retain_checkouts() {
+	let (_dir, index) = super::new_index();
+	let id = tg::process::Id::new();
+	let data = process_data(tg::process::Status::Finished, String::new());
+	put_process(&index, process_arg(&id, data)).await;
+	let checkout = put_retained_checkout(&index, &id).await;
+
+	// Clean every checkout.
+	assert_eq!(clean_checkouts(&index, i64::MIN).await, vec![checkout]);
+}
+
+#[tokio::test]
 async fn cleaning_a_process_releases_its_checkouts() {
 	let (_dir, index) = super::new_index();
 	let id = tg::process::Id::new();

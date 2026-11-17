@@ -286,9 +286,6 @@ impl Index {
 						std::slice::from_ref(arg),
 					));
 				},
-				tangram_index::Item::PutProcessCheckouts(arg) => {
-					Self::put_process_checkouts(txn, subspace, arg);
-				},
 				tangram_index::Item::PutProcess(arg) => {
 					let result = crate::propagate!(
 						Self::put_processes_with_transaction(
@@ -303,6 +300,9 @@ impl Index {
 					if let Err(error) = result {
 						rejection.get_or_insert(error);
 					}
+				},
+				tangram_index::Item::PutProcessCheckouts(arg) => {
+					crate::propagate!(Self::put_process_checkouts(txn, subspace, arg).await);
 				},
 				tangram_index::Item::PutRunner(arg) => {
 					let result = crate::propagate!(

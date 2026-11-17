@@ -12,6 +12,17 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::process::checkout::put::Arg,
 	) -> tg::Result<()> {
+		// Do not retain checkouts for a process that has finished, since nothing would release them until the process is cleaned.
+		let process =
+			Self::try_get_process_with_transaction(db, subspace, transaction, &arg.process)?;
+		let finished = process
+			.and_then(|process| process.status)
+			.is_some_and(|status| status.is_finished());
+		if finished {
+			return Ok(());
+		}
+
+		// Put the keys.
 		for checkout in &arg.checkouts {
 			let key = Key::Process(crate::process::Key::ProcessCheckout {
 				checkout: checkout.clone(),
@@ -29,6 +40,7 @@ impl Index {
 			db.put(transaction, &key, &[])
 				.map_err(|error| tg::error!(!error, "failed to put the checkout process"))?;
 		}
+
 		Ok(())
 	}
 
