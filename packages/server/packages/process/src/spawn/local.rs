@@ -591,7 +591,7 @@ impl Component {
 			retry: spawn_arg.retry,
 			sandbox: Some(sandbox.clone()),
 			started_at: None,
-			status: tg::process::Status::Started,
+			status: tg::process::Status::Queued,
 			stderr: spawn_arg.stderr.clone(),
 			stdin: spawn_arg.stdin.clone(),
 			stdout: spawn_arg.stdout.clone(),

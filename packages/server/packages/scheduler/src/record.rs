@@ -122,12 +122,12 @@ impl Scheduler {
 			touched_at: now,
 		};
 
-		// Carry a starting process in the sandbox's item, so that the two are written together.
+		// Carry a queued process in the sandbox's item, so that the two are written together.
 		let mut arg = arg;
 		if status.is_starting()
 			&& let Some(process) = &request.process
 		{
-			let process = self.starting_process_arg(process, id, now)?;
+			let process = self.queued_process_arg(process, id, now)?;
 			arg.process = Some(Box::new(process));
 		}
 		let mut items = vec![tangram_index::Item::PutSandbox(Box::new(arg))];
@@ -172,8 +172,8 @@ impl Scheduler {
 		Ok(())
 	}
 
-	/// Create the starting record of a process, which is visible until its runner connects.
-	pub(super) fn starting_process_arg(
+	/// Create the queued record of a process, which is visible until its runner connects.
+	pub(super) fn queued_process_arg(
 		&self,
 		process: &tg::runner::control::Process,
 		sandbox: &tg::sandbox::Id,
@@ -183,12 +183,10 @@ impl Scheduler {
 			.id
 			.clone()
 			.ok_or_else(|| tg::error!("expected the scheduled process to have an id"))?;
-		let mut data = process
+		let data = process
 			.data
 			.clone()
 			.without_location_and_tokens_except_sync();
-		data.started_at = None;
-		data.status = tg::process::Status::Starting;
 		let location = tg::Location::Local(tg::location::Local {
 			region: self.server.config.region.clone(),
 		});

@@ -23,7 +23,7 @@ let command = tg build $'($path)#hello' | str trim
 let sandbox = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let output = tg process spawn --no-tokens --verbose --sandbox=true $command | from json
 let process = $output.process
-assert equal (tg get $process | from json | get status) starting
+assert equal (tg get $process | from json | get status) queued
 
 # Canceling the process releases its lease at the scheduler, which finishes it.
 tg process cancel $process $output.lease

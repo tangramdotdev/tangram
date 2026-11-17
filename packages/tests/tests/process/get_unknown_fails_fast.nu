@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A request for an unknown process that is too old to be starting fails without waiting for the process's control service.
+# A request for an unknown process that is too old to be queued fails without waiting for the process's control service.
 
 let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let mallory = tg login --verbose --name mallory | from json

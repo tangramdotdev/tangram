@@ -480,7 +480,7 @@ impl Component {
 			subscription.insert(wakeups)
 		};
 
-		// Get the children from the process's holder or the index, which answers for a process that has its children or that is starting.
+		// Get the children from the process's holder or the index, which answers for a process that has its children or that is queued.
 		let request = tg::process::control::ServerRequestArg::GetChildren(
 			tg::process::control::GetChildrenServerRequestArg { length, position },
 		);

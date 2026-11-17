@@ -36,7 +36,7 @@ pub(crate) struct StreamArg<'a, M> {
 	/// The relay that the runner opened when the process started, which the first attempt claims instead of sending an open request.
 	pub(crate) open: Option<String>,
 
-	/// The future that resolves once the process leaves the starting status, while which the relay waits for its holder without timing out.
+	/// The future that resolves once the process leaves the queued status, while which the relay waits for its holder without timing out.
 	pub(crate) start: Option<crate::stdio::read::Start>,
 }
 
@@ -303,7 +303,7 @@ impl tangram_server_core::holder::Item for Item<'_> {
 
 	fn index(&self, exhaustive: bool) -> BoxFuture<'_, tg::Result<Option<Self::Indexed>>> {
 		async move {
-			// A request for a process's children requires a record that has them, or a starting process, which has none yet.
+			// A request for a process's children requires a record that has them, or a queued process, which has none yet.
 			let indexed = self
 				.component
 				.try_get_process_with_data_from_index_with_exhaustive(
@@ -315,7 +315,7 @@ impl tangram_server_core::holder::Item for Item<'_> {
 			Ok(indexed.filter(|(process, _)| {
 				!self.children
 					|| process.set.children
-					|| process.status.is_some_and(|status| status.is_starting())
+					|| process.status.is_some_and(|status| status.is_queued())
 			}))
 		}
 		.boxed()
@@ -359,7 +359,7 @@ impl tangram_server_core::holder::Item for Item<'_> {
 		.boxed()
 	}
 
-	/// A request for a process's children is answered by a record that has them or by a starting process, a finished process is final, a process in a remote is answered by the index and is complete when it is finished or starting, and the index answers a read for a starting process.
+	/// A request for a process's children is answered by a record that has them or by a queued process, a finished process is final, a process in a remote is answered by the index and is complete when it is finished or queued, and the index answers a read for a queued process.
 	fn state(&self, indexed: Option<&Self::Indexed>) -> tangram_server_core::holder::State {
 		let Some((process, _)) = indexed else {
 			return tangram_server_core::holder::State::Missing;
@@ -370,11 +370,11 @@ impl tangram_server_core::holder::Item for Item<'_> {
 			.is_some_and(tg::Location::is_remote);
 		match process.status {
 			_ if self.children => tangram_server_core::holder::State::Final,
-			Some(status) if status.is_finished() || (remote && status.is_starting()) => {
+			Some(status) if status.is_finished() || (remote && status.is_queued()) => {
 				tangram_server_core::holder::State::Final
 			},
 			_ if remote => tangram_server_core::holder::State::Remote,
-			Some(status) if status.is_starting() => tangram_server_core::holder::State::Starting,
+			Some(status) if status.is_queued() => tangram_server_core::holder::State::Starting,
 			Some(_) => tangram_server_core::holder::State::Held,
 			None => tangram_server_core::holder::State::Missing,
 		}

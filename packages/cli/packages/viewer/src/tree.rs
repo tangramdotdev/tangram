@@ -2470,7 +2470,7 @@ impl Tree {
 			let guard = counter.guard();
 			let indicator = match (process.node.cached(), status) {
 				(Some(true), _) => Indicator::Cached,
-				(_, tg::process::Status::Started | tg::process::Status::Starting) => {
+				(_, tg::process::Status::Queued | tg::process::Status::Started) => {
 					Indicator::Started
 				},
 				(_, tg::process::Status::Finished) => {

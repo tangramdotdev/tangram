@@ -23,7 +23,7 @@ mod relay;
 
 type Acks = tokio::sync::watch::Receiver<u64>;
 
-/// A future that waits for a starting process to leave the starting status, and resolves to whether it started.
+/// A future that waits for a queued process to leave the queued status, and resolves to whether it started.
 pub(crate) type Start = future::Shared<future::BoxFuture<'static, tg::Result<bool>>>;
 
 enum Source {
@@ -343,7 +343,7 @@ impl Component {
 				let start = output
 					.data
 					.status
-					.is_starting()
+					.is_queued()
 					.then(|| self.create_wait_process_start_future(session, id));
 				self.try_read_process_stdio_pipe_local(
 					session, id, &arg, streams, acks, open, start,

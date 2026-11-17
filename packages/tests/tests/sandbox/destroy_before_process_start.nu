@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Destroying a sandbox while its process is starting cancels the process.
+# Destroying a sandbox while its process is queued cancels the process.
 
 let server = server spawn --config { advanced: { checkpoints: true } }
 let sandbox = tg sandbox create --no-tokens | referent node

@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A signal and a tty resize sent to a process that is still starting reach the process once it starts, on the process's status change rather than after the sender's backoff.
+# A signal and a tty resize sent to a process that is still queued reach the process once it starts, on the process's status change rather than after the sender's backoff.
 
 let local = server spawn --config {
 	control: { request_retry: { backoff: 60, jitter: 0, max_delay: 60 } },
@@ -22,10 +22,10 @@ let path = artifact {
 let mount = artifact {}
 let spin = tg build $'($path)#spin' | str trim
 
-# Fill the runner, so that the process waits in the queue, and signal it while it is starting.
+# Fill the runner, so that the process waits in the queue, and signal it while it is queued.
 let sandbox = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let spawned = tg process spawn --no-tokens --verbose --sandbox=true --mount $"($mount):/target" $spin | from json
-assert equal (tg get $spawned.process | from json | get status) starting
+assert equal (tg get $spawned.process | from json | get status) queued
 let signal = job spawn {
 	let id = job id
 	timeout 30s tg signal --signal KILL $spawned.process | complete | job send --tag $id 0
@@ -37,10 +37,10 @@ success $output "the signal should reach the process once it starts"
 let outcome = timeout 30s tg wait $spawned.process | from json
 assert ($outcome.exit != 0) "the signal should kill the process"
 
-# Fill the runner again, and resize the tty of a process while it is starting.
+# Fill the runner again, and resize the tty of a process while it is queued.
 let sandbox = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let spawned = tg process spawn --no-tokens --verbose --sandbox=true --mount $"($mount):/target" --tty=24,80 $spin | from json
-assert equal (tg get $spawned.process | from json | get status) starting
+assert equal (tg get $spawned.process | from json | get status) queued
 let body = { size: { cols: 100, rows: 40 } } | to json --raw
 let resize = job spawn {
 	let id = job id

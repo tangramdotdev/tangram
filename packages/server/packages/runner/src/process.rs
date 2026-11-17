@@ -303,6 +303,7 @@ impl Component {
 		} = process;
 		data.started_at
 			.get_or_insert_with(|| session.server.clock.unix_timestamp());
+		data.status = tg::process::Status::Started;
 		let mut state = tg::process::State::try_from_data(data)?;
 		let mut command_options = options.clone();
 		command_options

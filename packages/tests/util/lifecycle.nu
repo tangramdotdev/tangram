@@ -58,9 +58,9 @@ export def --env process_lifecycle [commands: record] {
 	let spawned = tg process spawn --no-tokens --verbose --sandbox=true --network $spin | from json
 	let process = $spawned.process
 
-	# The process is starting.
-	assert equal (tg get $process | from json | get status) starting
-	process_reads $process starting
+	# The process is queued.
+	assert equal (tg get $process | from json | get status) queued
+	process_reads $process queued
 
 	# The process is started.
 	tg sandbox destroy --wait $sandbox

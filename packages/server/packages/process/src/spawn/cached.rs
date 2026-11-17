@@ -105,11 +105,11 @@ impl Component {
 			})
 			.collect::<Vec<_>>();
 
-		// Two spawns that are starting must not each cancel themselves for the other, so only the older process counts as a cache hit.
+		// Two spawns whose processes are queued must not each cancel themselves for the other, so only the older process counts as a cache hit.
 		let candidates = candidates
 			.into_iter()
 			.filter(|(id, _, data)| {
-				!data.status.is_starting() || candidate.is_none_or(|candidate| id < candidate)
+				!data.status.is_queued() || candidate.is_none_or(|candidate| id < candidate)
 			})
 			.collect::<Vec<_>>();
 		let mut cycle = None;
