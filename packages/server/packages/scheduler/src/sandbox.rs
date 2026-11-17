@@ -13,6 +13,9 @@ use {
 	tangram_server_core::control::accept::{Accept, Path},
 };
 
+#[cfg(test)]
+mod tests;
+
 /// The write of the terminal state of a sandbox that the scheduler ended, which the response that follows it and the removal of the sandbox's entry share.
 pub(super) type Write = future::Shared<future::BoxFuture<'static, tg::Result<()>>>;
 
@@ -416,7 +419,7 @@ impl SchedulerState {
 		self.operations.push(
 			async move {
 				let result = write.await;
-				Operation::Publish {
+				Operation::Finished {
 					context: "failed to record the ended sandbox",
 					result,
 				}
@@ -711,7 +714,7 @@ impl SchedulerState {
 				let result = scheduler
 					.put_sandbox_status(&request, tg::sandbox::Status::Destroyed, error, None)
 					.await;
-				Operation::Publish {
+				Operation::Finished {
 					context: "failed to record the destroyed sandbox",
 					result,
 				}
@@ -868,10 +871,33 @@ impl SchedulerState {
 		}
 	}
 
-	/// Add a parent to a sandbox that the scheduler holds, so that the sandbox can borrow the capacity of a sandbox whose process waits for its process after a cache hit. Reply with the sandbox's capacity, or with none if the scheduler does not hold the sandbox.
+	/// Add a parent to a sandbox that the scheduler holds, so that the sandbox can borrow the capacity of a sandbox whose process waits for its process after a cache hit, and offer a queued sandbox if the parent already lends its capacity. Reply with the sandbox's capacity, or with none if the scheduler does not hold the sandbox.
 	pub(super) fn add_sandbox_parent(
 		&mut self,
 		scheduler: &Scheduler,
+		request: &AddSandboxParentRequestArg,
+	) -> AddSandboxParentResponseOutput {
+		let output = self.add_sandbox_parent_inner(request);
+
+		// Offer the sandbox if the parent already lends its capacity.
+		let queued = self
+			.sandboxes
+			.entries
+			.get(&request.sandbox)
+			.is_some_and(|entry| matches!(entry.state, State::Queued));
+		if output.capacity.is_some()
+			&& queued
+			&& self.sandboxes.offers < scheduler.config.max_offers
+		{
+			self.try_offer_sandbox(scheduler, &request.sandbox);
+		}
+
+		output
+	}
+
+	/// Add a parent to a sandbox that the scheduler holds as queued or offered, unless the sandbox has it already. Reply with the sandbox's capacity, or with none if the scheduler does not hold the sandbox.
+	pub(super) fn add_sandbox_parent_inner(
+		&mut self,
 		request: &AddSandboxParentRequestArg,
 	) -> AddSandboxParentResponseOutput {
 		let AddSandboxParentRequestArg { parent, sandbox } = request;
@@ -882,14 +908,8 @@ impl SchedulerState {
 			return AddSandboxParentResponseOutput { capacity: None };
 		};
 		let capacity = entry.capacity;
-		let queued = matches!(entry.state, State::Queued);
 		if !entry.parents.iter().any(|links| links.parent == *parent) {
 			self.add_parent(sandbox, parent);
-		}
-
-		// Offer the sandbox if the parent already lends its capacity.
-		if queued && self.sandboxes.offers < scheduler.config.max_offers {
-			self.try_offer_sandbox(scheduler, sandbox);
 		}
 
 		AddSandboxParentResponseOutput {

@@ -509,7 +509,7 @@ impl SchedulerState {
 						.await
 				}
 				.await;
-				Operation::Publish {
+				Operation::Finished {
 					context: "failed to answer the request to the sandbox's holder",
 					result,
 				}
@@ -536,7 +536,7 @@ impl SchedulerState {
 					.sandbox
 					.publish_sandbox_holder_response(&scheduler.server, &sandbox, response)
 					.await;
-				Operation::Publish {
+				Operation::Finished {
 					context: "failed to answer the request to the sandbox's holder",
 					result,
 				}
@@ -617,7 +617,7 @@ impl SchedulerState {
 						.await
 				}
 				.await;
-				Operation::Publish {
+				Operation::Finished {
 					context: "failed to answer the request to the process's holder",
 					result,
 				}
@@ -644,7 +644,7 @@ impl SchedulerState {
 					.process
 					.publish_process_holder_response(&scheduler.server, &process, response)
 					.await;
-				Operation::Publish {
+				Operation::Finished {
 					context: "failed to answer the request to the process's holder",
 					result,
 				}

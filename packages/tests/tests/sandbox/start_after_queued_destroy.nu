@@ -32,12 +32,21 @@ let destroy = job spawn {
 checkpoint pass $end | ignore
 checkpoint unwatch $end
 
-# Start the sandbox while the index still records the destroyed boot as starting, and let the scheduler answer the start.
+# Hold the connection of any later boot of the sandbox, so that a boot that the scheduler started again would keep the runner's capacity.
+let connect = checkpoint watch sandbox.control.connect --params { sandbox: $sandbox } --token $root_token --url $url
+
+# Start the sandbox while the index still records the destroyed boot as starting, so that the start sends the boot's enqueue again, and let the scheduler answer the enqueue and the start before the index records the destruction.
+let resume = checkpoint watch sandbox.start.resume --params { sandbox: $sandbox } --token $root_token --url $url
+let enqueued = checkpoint watch scheduler.sandbox.enqueued --params { sandbox: $sandbox } --token $root_token --url $url
 let reply = checkpoint watch sandbox.control.response.publish --params { kind: start, sandbox: $sandbox } --token $root_token --url $url
 let start = job spawn {
 	let id = job id
 	timeout 30s tg --url $url --token $root_token sandbox start $sandbox | complete | job send --tag $id 0
 }
+checkpoint pass $resume | ignore
+checkpoint unwatch $resume
+checkpoint pass $enqueued | ignore
+checkpoint unwatch $enqueued
 checkpoint pass $reply | ignore
 checkpoint unwatch $reply
 checkpoint unwatch $write
@@ -46,6 +55,7 @@ job recv --tag $start --timeout 30sec | ignore
 
 # Free the runner. The runner has capacity for another sandbox, because the scheduler does not place the destroyed sandbox ahead of it, and the sandbox stays destroyed.
 tg --url $url --token $root_token sandbox destroy --wait $running
-success (timeout 30s tg --url $url --token $root_token sandbox create --wait --no-tokens --cpu 1 | complete) "the runner should have capacity for another sandbox"
+success (timeout 10s tg --url $url --token $root_token sandbox create --wait --no-tokens --cpu 1 | complete) "the runner should have capacity for another sandbox"
+checkpoint unwatch $connect
 tg --url $url --token $root_token index
 assert equal (tg --url $url --token $root_token sandbox get $sandbox | from json | get data.status) destroyed "the sandbox should be destroyed"

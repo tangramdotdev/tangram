@@ -281,7 +281,7 @@ impl SchedulerState {
 		true
 	}
 
-	/// Hit a checkpoint, if checkpoints are enabled, once the scheduler has decided to keep a sandbox queued. The sandbox is placeable if a runner could fit it once the runner has capacity.
+	/// Hit a checkpoint in an operation, if checkpoints are enabled, once the scheduler has decided to keep a sandbox queued. The sandbox is placeable if a runner could fit it once the runner has capacity.
 	fn hit_unplaced_checkpoint(
 		&mut self,
 		scheduler: &Scheduler,
@@ -297,10 +297,7 @@ impl SchedulerState {
 			async move {
 				tangram_server_core::checkpoint!(scheduler.server, "scheduler.sandbox.unplaced", placeable, sandbox = %sandbox)
 					.await;
-				Operation::Publish {
-					context: "failed to hit the unplaced sandbox checkpoint",
-					result: Ok(()),
-				}
+				Operation::Checkpoint
 			}
 			.boxed(),
 		);

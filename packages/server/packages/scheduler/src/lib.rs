@@ -111,6 +111,7 @@ enum Operation {
 		result: tg::Result<(AddRunnerResponseOutput, Option<tg::Id>)>,
 		runner: tg::runner::Id,
 	},
+	Checkpoint,
 	DestroyRunnerSandbox {
 		id: String,
 		result: tg::Result<bool>,
@@ -118,6 +119,10 @@ enum Operation {
 	DestroySandbox {
 		destroy: sandbox::DestroySandbox,
 		result: tg::Result<bool>,
+	},
+	Finished {
+		context: &'static str,
+		result: tg::Result<()>,
 	},
 	IndexTerminalSandboxes {
 		sandboxes: Vec<(tg::sandbox::Id, u64)>,
@@ -135,10 +140,6 @@ enum Operation {
 		boot: u64,
 		result: tg::Result<()>,
 		sandbox: tg::sandbox::Id,
-	},
-	Publish {
-		context: &'static str,
-		result: tg::Result<()>,
 	},
 	Recovered {
 		statuses: recovery::Statuses,
@@ -741,6 +742,7 @@ impl Scheduler {
 				let response = request::Response::new(id, result);
 				self.send_response(state, response);
 			},
+			Operation::Checkpoint => {},
 			Operation::DestroyRunnerSandbox { id, result } => {
 				let result = result.map(|destroyed| {
 					ResponseOutput::DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput {
@@ -752,6 +754,11 @@ impl Scheduler {
 			},
 			Operation::DestroySandbox { destroy, result } => {
 				state.handle_destroy_sandbox(self, destroy, result);
+			},
+			Operation::Finished { context, result } => {
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), "{context}");
+				}
 			},
 			Operation::IndexTerminalSandboxes { sandboxes } => {
 				state.handle_index_terminal_sandboxes(self, sandboxes);
@@ -772,11 +779,6 @@ impl Scheduler {
 				sandbox,
 			} => {
 				state.handle_persist_sandbox_completion(self, &sandbox, boot, result);
-			},
-			Operation::Publish { context, result } => {
-				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), "{context}");
-				}
 			},
 			Operation::Recovered { statuses } => {
 				state.handle_recovered(self, statuses);
@@ -859,7 +861,7 @@ impl Scheduler {
 							"failed to publish the sandbox discard notification"
 						)
 					});
-				Operation::Publish {
+				Operation::Finished {
 					context: "failed to publish the sandbox discard notification",
 					result,
 				}
@@ -898,7 +900,7 @@ impl Scheduler {
 					.map_err(|source| {
 						tg::error!(!source, "failed to acknowledge the runner heartbeat")
 					});
-				Operation::Publish {
+				Operation::Finished {
 					context: "failed to acknowledge the runner heartbeat",
 					result,
 				}

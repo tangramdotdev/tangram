@@ -19,10 +19,10 @@ let path = artifact {
 	tangram.ts: '
 		export default async () => {
 			const child = await tg.spawn({
-				args: ["-c", "n=0; trap \"n=\\$((n + 1))\" USR1; trap \"exit \\$n\" TERM; while :; do :; done"],
+				args: ["-c", "n=0; trap \"n=\\$((n + 1))\" USR1; trap \"exit \\$n\" TERM; echo ready; while :; do :; done"],
 				executable: "sh",
 				network: true,
-			}).sandbox(false);
+			}).stdout("pipe").sandbox(false);
 			console.log(child.id);
 			await child.wait();
 		};
@@ -44,8 +44,10 @@ checkpoint wait $write | ignore
 let children = ^timeout 30s tg --url $remote.url --token $root_token process children --no-timeout --length 1 $parent | from json
 let child = $children | first | get process | split row '?' | first
 
-# Give the child two real seconds to install its traps, because nothing that the test can observe marks that moment while the index does not have the child.
-sleep 2sec
+# Wait for the child to install its traps, after which it prints a line to its piped stdout, which the test is the only reader of.
+let ready = timeout 30s tg --url $remote.url --token $root_token process stdio read --stream stdout --length 6 --no-timeout $child | complete
+success $ready "the stdio read should succeed"
+assert equal $ready.stdout "ready\n" "the child should print that it is ready"
 
 # Signal the child, and hold the holder's reply, so that the signal's read of the index finds no child, after which the signal is sent again once the index has the child.
 let response = checkpoint watch process.control.response.publish --params { kind: signal, process: $child } --token $root_token --url $remote.url
