@@ -11,6 +11,7 @@ use {
 		},
 		path::Path,
 		sync::Arc,
+		time::{Duration, Instant},
 	},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -126,14 +127,28 @@ impl Server {
 			command.process_group(0);
 		}
 
-		// Spawn.
-		let mut child = command.spawn().map_err(|error| {
-			tg::error!(
-				!error,
-				executable = %executable.display(),
-				"failed to spawn the child process"
-			)
-		})?;
+		// Spawn. If the executable is open for writing, then try again for up to one second, because a child process that forked while the file was being written holds it open until it executes its program.
+		let start = Instant::now();
+		let mut duration = Duration::from_micros(100);
+		let mut child = loop {
+			match command.spawn() {
+				Ok(child) => break child,
+				Err(error)
+					if error.kind() == std::io::ErrorKind::ExecutableFileBusy
+						&& start.elapsed() < Duration::from_secs(1) =>
+				{
+					tokio::time::sleep(duration).await;
+					duration = (duration * 2).min(Duration::from_millis(10));
+				},
+				Err(error) => {
+					return Err(tg::error!(
+						!error,
+						executable = %executable.display(),
+						"failed to spawn the child process"
+					));
+				},
+			}
+		};
 
 		// Get the pid.
 		let pid = child

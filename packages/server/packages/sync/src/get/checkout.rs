@@ -790,6 +790,7 @@ impl Component {
 			let artifact = artifact.clone();
 			let temp_path = temp_path.clone();
 			move || {
+				// Write the xattrs.
 				let capabilities = session
 					.server
 					.components
@@ -806,6 +807,12 @@ impl Component {
 					token: token.as_ref(),
 				};
 				tg::file::xattrs::write(&temp_path, xattrs, capabilities)?;
+
+				// Wait until no child process has the file open for writing, so that it can be executed when it is renamed to the checkouts directory.
+				if executable {
+					session.server.wait_for_file_writers_sync(&temp_path);
+				}
+
 				Ok::<_, tg::Error>(())
 			}
 		})

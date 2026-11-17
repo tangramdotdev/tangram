@@ -15,7 +15,8 @@ use {
 		collections::BTreeMap,
 		ops::Deref,
 		path::{Path, PathBuf},
-		sync::{Arc, Mutex},
+		sync::{Arc, Mutex, Once},
+		time::{Duration, Instant},
 	},
 	tangram_client::prelude::*,
 	tangram_uri::Uri,
@@ -287,6 +288,41 @@ impl Server {
 	#[must_use]
 	pub fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
+	}
+
+	/// Wait until no process has the file open for writing, so that it can be executed. A child process holds copies of the server's file descriptors from when it forks until it executes its program, and Linux refuses to execute a file that any process has open for writing. The wait ends with a warning after one second, or at once if the filesystem cannot report if a process has the file open for writing.
+	pub fn wait_for_file_writers_sync(&self, path: &Path) {
+		const TIMEOUT: Duration = Duration::from_secs(1);
+		static FAILED: Once = Once::new();
+		static TIMED_OUT: Once = Once::new();
+		let start = Instant::now();
+		let mut duration = Duration::from_micros(100);
+		loop {
+			// Return if no process has the file open for writing, or if the filesystem cannot report it.
+			match tangram_util::fs::has_writers_sync(path) {
+				Ok(false) => return,
+				Ok(true) => (),
+				Err(error) => {
+					FAILED.call_once(|| {
+						tracing::warn!(?error, path = %path.display(), "failed to determine if a file is open for writing");
+					});
+					return;
+				},
+			}
+
+			// Return if the time has run out.
+			if start.elapsed() > TIMEOUT {
+				TIMED_OUT.call_once(|| {
+					tracing::warn!(path = %path.display(), "a file is still open for writing");
+				});
+				return;
+			}
+
+			// Wait for the process to close the file.
+			futures::executor::block_on(crate::checkpoint!(self, "file.writers"));
+			std::thread::sleep(duration);
+			duration = (duration * 2).min(Duration::from_millis(10));
+		}
 	}
 }
 
