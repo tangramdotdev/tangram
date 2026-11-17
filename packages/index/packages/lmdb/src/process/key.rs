@@ -29,6 +29,14 @@ pub enum Key {
 		process: tg::process::Id,
 		sandbox: tg::sandbox::Id,
 	},
+	ProcessCheckout {
+		checkout: tg::Id,
+		process: tg::process::Id,
+	},
+	CheckoutProcess {
+		checkout: tg::Id,
+		process: tg::process::Id,
+	},
 	CreatorProcess {
 		creator: tg::Principal,
 		process: tg::process::Id,

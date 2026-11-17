@@ -609,6 +609,15 @@ impl Index {
 
 			// Put the captures, which require the accepted process.
 			Self::put_captures_with_transaction(db, subspace, transaction, &process.captures)?;
+
+			// Release the checkouts that the process retains once it finishes.
+			if process
+				.data
+				.as_ref()
+				.is_some_and(|data| data.status.is_finished())
+			{
+				Self::delete_process_checkouts(db, subspace, transaction, &process.id)?;
+			}
 		}
 
 		// Return the first rejection, since a rejected process does not affect the other processes.

@@ -102,6 +102,8 @@ pub enum Kind {
 	SchedulerSandbox = 93,
 	Scheduler = 94,
 	SandboxScheduler = 95,
+	ProcessCheckout = 96,
+	CheckoutProcess = 97,
 }
 
 impl fdbt::TuplePack for Key {
@@ -328,6 +330,18 @@ impl fdbt::TuplePack for Key {
 				Kind::ProcessSandbox.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
 				sandbox.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+			Key::Process(crate::process::Key::ProcessCheckout { checkout, process }) => (
+				Kind::ProcessCheckout.to_i32().unwrap(),
+				process.to_bytes().as_ref(),
+				checkout.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+			Key::Process(crate::process::Key::CheckoutProcess { checkout, process }) => (
+				Kind::CheckoutProcess.to_i32().unwrap(),
+				checkout.to_bytes().as_ref(),
+				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
@@ -1139,6 +1153,32 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((
 					input,
 					Key::Process(crate::process::Key::ProcessSandbox { process, sandbox }),
+				))
+			},
+			Kind::ProcessCheckout => {
+				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, checkout): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let process = tg::process::Id::from_slice(&process)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let checkout = tg::Id::from_slice(&checkout)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				Ok((
+					input,
+					Key::Process(crate::process::Key::ProcessCheckout { checkout, process }),
+				))
+			},
+			Kind::CheckoutProcess => {
+				let (input, checkout): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let checkout = tg::Id::from_slice(&checkout)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let process = tg::process::Id::from_slice(&process)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((
+					input,
+					Key::Process(crate::process::Key::CheckoutProcess { checkout, process }),
 				))
 			},
 

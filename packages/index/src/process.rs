@@ -7,6 +7,7 @@ use {
 
 pub use tg::process::storage;
 
+pub mod checkout;
 pub mod data;
 pub mod list;
 pub mod object;

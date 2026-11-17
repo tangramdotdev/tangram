@@ -286,6 +286,9 @@ impl Index {
 						std::slice::from_ref(arg),
 					));
 				},
+				tangram_index::Item::PutProcessCheckouts(arg) => {
+					Self::put_process_checkouts(txn, subspace, arg);
+				},
 				tangram_index::Item::PutProcess(arg) => {
 					let result = crate::propagate!(
 						Self::put_processes_with_transaction(

@@ -4,6 +4,7 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod checkout;
 mod get;
 mod key;
 mod list;

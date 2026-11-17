@@ -1100,6 +1100,7 @@ fn item_kind(item: &tangram_index::Item) -> &'static str {
 		tangram_index::Item::PutOrganizationMember(_) => "put_organization_member",
 		tangram_index::Item::PutPermission(_) => "put_permission",
 		tangram_index::Item::PutProcess(_) => "put_process",
+		tangram_index::Item::PutProcessCheckouts(_) => "put_process_checkouts",
 		tangram_index::Item::PutSandbox(_) => "put_sandbox",
 		tangram_index::Item::PutSchedulerSandbox(_) => "put_scheduler_sandbox",
 		tangram_index::Item::PutSync(_) => "put_sync",

@@ -644,6 +644,23 @@ impl Index {
 				)
 				.await
 			);
+
+			// Release the checkouts that the process retains once it finishes.
+			if process
+				.data
+				.as_ref()
+				.is_some_and(|data| data.status.is_finished())
+			{
+				crate::propagate!(
+					Self::delete_process_checkouts(
+						txn,
+						subspace,
+						&process.id,
+						partition_totals.cleaning
+					)
+					.await
+				);
+			}
 		}
 
 		// Return the first rejection, since a rejected process does not affect the other processes.

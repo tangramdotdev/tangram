@@ -71,6 +71,9 @@ pub enum Item {
 	#[tangram_serialize(id = 15)]
 	PutProcess(Box<crate::process::put::Arg>),
 
+	#[tangram_serialize(id = 35)]
+	PutProcessCheckouts(Box<crate::process::checkout::put::Arg>),
+
 	#[tangram_serialize(id = 32)]
 	PutRunner(Box<crate::runner::put::Arg>),
 

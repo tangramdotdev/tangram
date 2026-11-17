@@ -249,6 +249,9 @@ impl Index {
 						rejection.get_or_insert(error);
 					}
 				},
+				tangram_index::Item::PutProcessCheckouts(arg) => {
+					Self::put_process_checkouts(db, subspace, transaction, arg)?;
+				},
 				tangram_index::Item::PutRunner(arg) => {
 					let result = Self::put_runner_with_transaction(db, subspace, transaction, arg)?;
 					if let Err(error) = result {

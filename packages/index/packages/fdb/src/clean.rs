@@ -606,6 +606,7 @@ impl Index {
 		let id = id.to_bytes();
 		let result = futures::try_join!(
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::CheckoutObject, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::CheckoutProcess, id.as_ref()),
 			Self::count_entries_for_kind_and_id(
 				txn,
 				subspace,
@@ -613,8 +614,9 @@ impl Index {
 				id.as_ref(),
 			),
 		);
-		let (checkout_object_count, dependency_checkout_count) = crate::retry!(result);
-		let count = checkout_object_count + dependency_checkout_count;
+		let (checkout_object_count, checkout_process_count, dependency_checkout_count) =
+			crate::retry!(result);
+		let count = checkout_object_count + checkout_process_count + dependency_checkout_count;
 
 		Ok(ControlFlow::Break(count))
 	}
@@ -1019,6 +1021,7 @@ impl Index {
 		}
 		txn.clear(&key);
 		Self::delete_process_data(txn, subspace, id);
+		crate::propagate!(Self::delete_process_checkouts(txn, subspace, id, partition_total).await);
 		Self::clear_update_propagated_versions(txn, subspace, id_bytes.as_ref());
 
 		// Delete the children.
@@ -1252,7 +1255,7 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 
-	async fn decrement_checkout_reference_count(
+	pub(super) async fn decrement_checkout_reference_count(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,

@@ -2056,6 +2056,7 @@ impl Component {
 
 			// Check out the process's children.
 			self.checkout_process_artifacts(session,
+				&id,
 				command,
 				state
 					.sandbox
@@ -2488,6 +2489,7 @@ impl Component {
 	async fn checkout_process_artifacts(
 		&self,
 		session: &Session,
+		process: &tg::process::Id,
 		command: &tg::process::data::Command,
 		sandbox: &tg::sandbox::Id,
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
@@ -2554,6 +2556,26 @@ impl Component {
 		}
 		if session.server.components.vfs.mounted() {
 			return Ok(());
+		}
+
+		// Retain the artifacts' checkouts in the index until the process finishes, so that cleaning does not remove them while the process uses them.
+		let checkouts = artifacts
+			.iter()
+			.map(|artifact| artifact.node.clone().into())
+			.collect::<Vec<tg::Id>>();
+		if !checkouts.is_empty() {
+			let process = process.clone();
+			let entry = tangram_index::process::checkout::put::Arg { checkouts, process };
+			let arg = tangram_index::write::Arg {
+				items: vec![tangram_index::Item::PutProcessCheckouts(Box::new(entry))],
+			};
+			session
+				.server
+				.index
+				.write(arg)
+				.await
+				.and_then(std::convert::identity)
+				.map_err(|error| tg::error!(!error, "failed to retain the checkouts"))?;
 		}
 
 		// Check out the artifacts.

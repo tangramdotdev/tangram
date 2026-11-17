@@ -473,7 +473,17 @@ impl Index {
 		let dependency_checkout_count =
 			Self::count_keys_with_prefix(db, transaction, &dependency_checkout_prefix)?;
 
-		Ok(checkout_object_count + dependency_checkout_count)
+		let checkout_process_prefix = Self::pack(
+			subspace,
+			&(
+				Kind::CheckoutProcess.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			),
+		);
+		let checkout_process_count =
+			Self::count_keys_with_prefix(db, transaction, &checkout_process_prefix)?;
+
+		Ok(checkout_object_count + checkout_process_count + dependency_checkout_count)
 	}
 
 	fn compute_object_reference_count(
@@ -844,6 +854,7 @@ impl Index {
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete process"))?;
 		Self::delete_process_data(db, subspace, transaction, id)?;
+		Self::delete_process_checkouts(db, subspace, transaction, id)?;
 		let id_bytes = id.to_bytes();
 		Self::clear_update_propagated_versions(db, subspace, transaction, id_bytes.as_ref())?;
 		let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());

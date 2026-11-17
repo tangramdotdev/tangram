@@ -97,6 +97,49 @@ async fn put_process(index: &Index, arg: tangram_index::process::put::Arg) {
 	index.write(arg).await.unwrap().unwrap();
 }
 
+async fn put_retained_checkout(index: &Index, process: &tg::process::Id) -> tg::Id {
+	let checkout: tg::Id = tg::tag::Id::new().into();
+	let put_checkout = tangram_index::checkout::put::Arg {
+		dependencies: Vec::new(),
+		id: checkout.clone(),
+		replace: false,
+		touched_at: 0,
+	};
+	let put_process_checkouts = tangram_index::process::checkout::put::Arg {
+		checkouts: vec![checkout.clone()],
+		process: process.clone(),
+	};
+	let arg = tangram_index::write::Arg {
+		items: vec![
+			tangram_index::Item::PutCheckout(Box::new(put_checkout)),
+			tangram_index::Item::PutProcessCheckouts(Box::new(put_process_checkouts)),
+		],
+	};
+	index.write(arg).await.unwrap().unwrap();
+	checkout
+}
+
+async fn clean_checkouts(index: &Index, max_process_touched_at: i64) -> Vec<tg::Id> {
+	let mut checkouts = Vec::new();
+	for _ in 0..100 {
+		let arg = tangram_index::clean::Arg {
+			batch_size: 100,
+			max_object_touched_at: i64::MAX,
+			max_process_touched_at,
+			max_sandbox_touched_at: i64::MAX,
+			now: i64::MAX,
+			partition_end: 1,
+			partition_start: 0,
+		};
+		let output = index.clean(arg).await.unwrap();
+		checkouts.extend(output.checkouts);
+		if output.done {
+			break;
+		}
+	}
+	checkouts
+}
+
 #[tokio::test]
 async fn rewriting_process_data_replaces_its_fragments() {
 	let (_dir, index) = super::new_index();
@@ -147,6 +190,36 @@ async fn cleaning_a_process_deletes_its_data() {
 	// Verify that the process and its data are gone.
 	assert!(index.try_get_process(&id).await.unwrap().is_none());
 	assert_eq!(count_process_data_fragments(&index, &id), 0);
+}
+
+#[tokio::test]
+async fn a_process_retains_its_checkouts_until_it_finishes() {
+	let (_dir, index) = super::new_index();
+	let id = tg::process::Id::new();
+	let data = process_data(tg::process::Status::Started, String::new());
+	put_process(&index, process_arg(&id, data)).await;
+	let checkout = put_retained_checkout(&index, &id).await;
+
+	// Clean every checkout while the process runs.
+	assert_eq!(clean_checkouts(&index, i64::MIN).await, Vec::new());
+
+	// Finish the process, and clean every checkout again.
+	let data = process_data(tg::process::Status::Finished, String::new());
+	put_process(&index, process_arg(&id, data)).await;
+	assert_eq!(clean_checkouts(&index, i64::MIN).await, vec![checkout]);
+}
+
+#[tokio::test]
+async fn cleaning_a_process_releases_its_checkouts() {
+	let (_dir, index) = super::new_index();
+	let id = tg::process::Id::new();
+	let data = process_data(tg::process::Status::Started, String::new());
+	put_process(&index, process_arg(&id, data)).await;
+	let checkout = put_retained_checkout(&index, &id).await;
+
+	// Clean every process and checkout.
+	assert_eq!(clean_checkouts(&index, i64::MAX).await, vec![checkout]);
+	assert!(index.try_get_process(&id).await.unwrap().is_none());
 }
 
 #[tokio::test]
