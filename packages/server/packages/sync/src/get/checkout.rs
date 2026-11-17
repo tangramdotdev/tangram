@@ -810,7 +810,7 @@ impl Component {
 
 				// Wait until no child process has the file open for writing, so that it can be executed when it is renamed to the checkouts directory.
 				if executable {
-					session.server.wait_for_file_writers_sync(&temp_path)?;
+					session.server.wait_for_file_writers_sync(&temp_path);
 				}
 
 				Ok::<_, tg::Error>(())

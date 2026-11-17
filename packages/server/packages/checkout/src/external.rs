@@ -674,7 +674,7 @@ impl Component {
 
 		// Wait until no child process has the file open for writing, so that it can be executed when the checkout returns.
 		if node.executable {
-			session.server.try_wait_for_file_writers_sync(path)?;
+			session.server.wait_for_file_writers_sync(path);
 		}
 
 		// Increment the progress.

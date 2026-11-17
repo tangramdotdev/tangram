@@ -276,9 +276,9 @@ impl Component {
 			)?;
 			result?;
 
-			// Wait until no process has the file open for writing, so that it can be executed and cannot be modified once it is in the checkouts directory.
+			// Wait until no process has the file open for writing, so that it can be executed when it is renamed to the checkouts directory.
 			if file.is_some() && metadata.permissions().mode() & 0o111 != 0 {
-				session.server.wait_for_file_writers_sync(&path)?;
+				session.server.wait_for_file_writers_sync(&path);
 			}
 		}
 
@@ -434,7 +434,7 @@ impl Component {
 
 				// Wait until no child process has the copy open for writing, so that it can be executed when it is renamed to the checkouts directory.
 				if executable {
-					session.server.wait_for_file_writers_sync(dst)?;
+					session.server.wait_for_file_writers_sync(dst);
 				}
 			}
 
