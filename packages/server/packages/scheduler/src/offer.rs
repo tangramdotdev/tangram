@@ -11,8 +11,8 @@ use {
 };
 
 pub(super) struct OfferArg<'a> {
-	pub(super) borrowed: bool,
 	pub(super) capacity: tg::runner::Capacity,
+	pub(super) lender: Option<tg::sandbox::Id>,
 	pub(super) offer: String,
 	pub(super) request: &'a EnqueueSandboxRequestArg,
 	pub(super) runner: &'a RunnerRef,
@@ -296,14 +296,17 @@ impl SchedulerState {
 		let session = scheduler.server.session(&scheduler.server.context);
 		let scheduler_id = scheduler.id.clone();
 		let timeout = scheduler.config.offer_timeout;
-		let borrowed = matches!(placement, Placement::Borrowed { .. });
+		let lender = match &placement {
+			Placement::Borrowed { parent, .. } => Some(parent.clone()),
+			Placement::Regular { .. } => None,
+		};
 		let sandbox = id.clone();
 		self.operations.push(
 			async move {
 				let runner = placement.runner();
 				let arg = OfferArg {
-					borrowed,
 					capacity,
+					lender,
 					offer,
 					request: &request,
 					runner,
@@ -382,22 +385,22 @@ impl SchedulerState {
 #[tracing::instrument(name = "sandbox.offer", level = "debug", skip_all, fields(runner = %arg.runner.id, sandbox = %arg.request.sandbox, scheduler = %arg.scheduler))]
 pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome {
 	let OfferArg {
-		borrowed,
 		capacity,
+		lender,
 		offer,
 		request,
 		runner,
 		scheduler,
 		timeout,
 	} = arg;
-	tracing::info!(borrowed, runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler, "offering the sandbox to a runner");
+	tracing::info!(lender = lender.as_ref().map(ToString::to_string), runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler, "offering the sandbox to a runner");
 	let arg = tg::runner::control::ServerRequestArg::OfferSandbox(
 		tg::runner::control::OfferSandboxServerRequestArg {
 			arg: request.arg.clone(),
 			boot: request.boot,
-			borrowed,
 			capacity,
 			creator: request.creator.clone(),
+			lender,
 			owner: request.owner.clone(),
 			parent: request.parent.clone(),
 			process: request.process.clone(),

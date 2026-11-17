@@ -1,6 +1,9 @@
 use {
 	super::Queue,
-	crate::sandbox::{Entries, Sandbox, State},
+	crate::{
+		SchedulerState,
+		sandbox::{Entries, Sandbox, State},
+	},
 	tangram_client::prelude::*,
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 };
@@ -100,4 +103,31 @@ fn a_pass_skips_a_removed_sandbox() {
 	assert_eq!(queue.len(), 0);
 	queue.wake();
 	assert!(!queue.passing());
+}
+
+#[test]
+fn a_sandbox_is_queued_under_each_of_its_parents() {
+	let mut state = SchedulerState::new();
+	let [a, b] = std::array::from_fn(|_| tg::sandbox::Id::new());
+	let [first, second] = std::array::from_fn(|_| tg::sandbox::Id::new());
+	for id in [&a, &b] {
+		state.sandboxes.entries.insert(id.clone(), sandbox(id));
+		state.queue.push(&mut state.sandboxes.entries, id);
+	}
+
+	// Each parent keeps its children in the order that they were added to it.
+	state.add_parent(&a, &first);
+	state.add_parent(&b, &first);
+	state.add_parent(&b, &second);
+	state.add_parent(&a, &second);
+	assert_eq!(state.first_queued_child(&first), Some(a.clone()));
+	assert_eq!(state.first_queued_child(&second), Some(b.clone()));
+
+	// A sandbox that leaves the queue leaves the queue of each of its parents.
+	state.remove_queued_sandbox(&a);
+	assert_eq!(state.first_queued_child(&first), Some(b.clone()));
+	assert_eq!(state.first_queued_child(&second), Some(b.clone()));
+	state.remove_queued_sandbox(&b);
+	assert!(state.parents.0.is_empty());
+	assert_eq!(state.queue.len(), 0);
 }

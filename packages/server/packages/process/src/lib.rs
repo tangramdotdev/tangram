@@ -667,11 +667,11 @@ impl tangram_server_core::process::Component for Component {
 	fn try_acquire_scheduled_sandbox_capacity<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
-		borrowed: bool,
+		lender: Option<&'a tg::sandbox::Id>,
 		parent: Option<&'a tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
 	) -> Option<tangram_server_runner_core::capacity::Allocation> {
-		Self::try_acquire_scheduled_sandbox_capacity(session, borrowed, parent, requested)
+		Self::try_acquire_scheduled_sandbox_capacity(session, lender, parent, requested)
 	}
 
 	fn try_get_process_local_inner<'a>(

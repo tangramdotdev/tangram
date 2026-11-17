@@ -15,7 +15,7 @@ impl Component {
 		command: &tg::Referent<tg::command::Id>,
 		output: Option<Output>,
 		location: Option<&tg::Location>,
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
+	) -> tg::Result<Option<(tg::process::spawn::Output, Option<tg::sandbox::Id>)>> {
 		let candidate = output.as_ref().map(|output| output.id.clone());
 		let scheduled_sandbox = output.as_ref().and_then(|output| {
 			(output.sandbox_arg.is_some() && output.allocation.is_none())
@@ -93,7 +93,11 @@ impl Component {
 								);
 							},
 						}
-						return Ok(cache.map(cached::Output::into_output));
+						let output = cache.map(|cache| {
+							let sandbox = cache.sandbox.clone();
+							(cache.into_output(), sandbox)
+						});
+						return Ok(output);
 					}
 					let output = spawn_future.await?;
 					(cache, None, output)
@@ -118,12 +122,15 @@ impl Component {
 			if let Err(error) = result {
 				tracing::warn!(error = %error.trace(), process = %output.id, "failed to cancel the candidate process");
 			}
-			return Ok(Some(cache.into_output()));
+			let sandbox = cache.sandbox.clone();
+			return Ok(Some((cache.into_output(), sandbox)));
 		}
 		let Some(output) = output else {
 			return Ok(None);
 		};
-		Ok(Some(Self::spawn_process_output(output, outcome)?))
+		let output = Self::spawn_process_output(output, outcome)?;
+
+		Ok(Some((output, None)))
 	}
 
 	pub(super) async fn spawn_process_wait_or_get_cached(
@@ -261,11 +268,18 @@ impl Component {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get a cached process"))?
 				.map(|output| -> tg::Result<_> {
+					let sandbox = output
+						.data
+						.sandbox
+						.clone()
+						.filter(|_| output.data.status.is_queued());
 					let mut output = Self::spawn_process_output(output, None)?;
 					if let Some(location) = location {
 						output.location = Some(location.clone());
 					}
-					Ok(cached::Output::new(session, output))
+					let mut output = cached::Output::new(session, output);
+					output.sandbox = sandbox;
+					Ok(output)
 				})
 				.transpose()?
 		};

@@ -1,14 +1,14 @@
 use {
 	super::{
-		DequeueSandboxRequestArg, DequeueSandboxResponseOutput, EnqueueSandboxRequestArg,
-		EnqueueSandboxResponseOutput, Operation, ResponseOutput, SandboxEndedNotification,
-		Scheduler, SchedulerState,
-		placement::{Block, Parent, Parents, Placement, RunnerRef},
-		queue::{Links, List, Queue},
+		AddSandboxParentRequestArg, AddSandboxParentResponseOutput, DequeueSandboxRequestArg,
+		DequeueSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
+		Operation, ResponseOutput, SandboxEndedNotification, Scheduler, SchedulerState,
+		placement::{Block, Parents, Placement, RunnerRef},
+		queue::{Links, Queue},
 		record::failed_sandbox_status,
 	},
 	futures::{FutureExt as _, future},
-	std::collections::{BTreeMap, HashMap, HashSet},
+	std::collections::{HashMap, HashSet},
 	tangram_client::prelude::*,
 	tangram_server_core::control::accept::{Accept, Path},
 };
@@ -76,11 +76,11 @@ pub(super) struct Sandbox {
 	/// The sandbox's links in the queue.
 	pub(super) links: Links,
 
-	/// The parent of the sandbox, if the scheduler knows it.
+	/// The sandbox that created the sandbox, if the scheduler knows it.
 	pub(super) parent: Option<tg::sandbox::Id>,
 
-	/// The sandbox's links in its parent's queue.
-	pub(super) parent_links: Links,
+	/// The sandboxes that the sandbox can borrow capacity from while the scheduler holds it, which are the sandbox that created it and each sandbox whose process waits for its process after a cache hit, with the sandbox's links in each one's queue.
+	pub(super) parents: Vec<ParentLinks>,
 
 	pub(super) persisted: bool,
 
@@ -92,6 +92,12 @@ pub(super) struct Sandbox {
 	pub(super) state: State,
 
 	pub(super) unplaceable_since: Option<tangram_server_core::clock::Instant>,
+}
+
+/// A queued sandbox's links in the queue of one of its parents.
+pub(super) struct ParentLinks {
+	pub(super) links: Links,
+	pub(super) parent: tg::sandbox::Id,
 }
 
 pub(super) enum State {
@@ -163,7 +169,7 @@ impl Sandbox {
 			failures: 0,
 			links: Links::default(),
 			parent,
-			parent_links: Links::default(),
+			parents: Vec::new(),
 			persisted: false,
 			request,
 			retrying: false,
@@ -185,8 +191,23 @@ impl Sandbox {
 		&mut self.links
 	}
 
-	pub(super) fn parent_links_mut(&mut self) -> &mut Links {
-		&mut self.parent_links
+	/// Get the sandbox's links in the queue of one of its parents.
+	pub(super) fn parent_links(&self, parent: &tg::sandbox::Id) -> &Links {
+		let links = self
+			.parents
+			.iter()
+			.find(|links| links.parent == *parent)
+			.unwrap();
+		&links.links
+	}
+
+	pub(super) fn parent_links_mut(&mut self, parent: &tg::sandbox::Id) -> &mut Links {
+		let links = self
+			.parents
+			.iter_mut()
+			.find(|links| links.parent == *parent)
+			.unwrap();
+		&mut links.links
 	}
 }
 
@@ -589,16 +610,7 @@ impl SchedulerState {
 		// Add the sandbox to the end of the queue, and of its parent's queue.
 		self.queue.push(&mut self.sandboxes.entries, &id);
 		if let Some(parent) = parent {
-			self.parents
-				.0
-				.entry(parent)
-				.or_insert_with(|| Parent {
-					borrowable: None,
-					children: BTreeMap::new(),
-					queue: List::default(),
-				})
-				.queue
-				.push(&mut self.sandboxes.entries, Sandbox::parent_links_mut, &id);
+			self.add_parent(&id, &parent);
 		}
 
 		Ok(())
@@ -851,6 +863,35 @@ impl SchedulerState {
 				continue;
 			}
 			self.handle_enqueue_sandbox_request(scheduler, None, request, true);
+		}
+	}
+
+	/// Add a parent to a sandbox that the scheduler holds, so that the sandbox can borrow the capacity of a sandbox whose process waits for its process after a cache hit. Reply with the sandbox's capacity, or with none if the scheduler does not hold the sandbox.
+	pub(super) fn add_sandbox_parent(
+		&mut self,
+		scheduler: &Scheduler,
+		request: &AddSandboxParentRequestArg,
+	) -> AddSandboxParentResponseOutput {
+		let AddSandboxParentRequestArg { parent, sandbox } = request;
+		let entry = self.sandboxes.entries.get(sandbox).filter(|entry| {
+			matches!(entry.state, State::Offered { .. } | State::Queued) && sandbox != parent
+		});
+		let Some(entry) = entry else {
+			return AddSandboxParentResponseOutput { capacity: None };
+		};
+		let capacity = entry.capacity;
+		let queued = matches!(entry.state, State::Queued);
+		if !entry.parents.iter().any(|links| links.parent == *parent) {
+			self.add_parent(sandbox, parent);
+		}
+
+		// Offer the sandbox if the parent already lends its capacity.
+		if queued && self.sandboxes.offers < scheduler.config.max_offers {
+			self.try_offer_sandbox(scheduler, sandbox);
+		}
+
+		AddSandboxParentResponseOutput {
+			capacity: Some(capacity),
 		}
 	}
 

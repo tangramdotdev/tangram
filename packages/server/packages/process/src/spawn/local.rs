@@ -1,7 +1,7 @@
 use {
 	super::child::AddProcessChildArg,
 	crate::Component,
-	futures::{FutureExt as _, future},
+	futures::{FutureExt as _, TryStreamExt as _, future, future::BoxFuture},
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_server_core::Session,
@@ -51,6 +51,15 @@ struct SpawnProcessCreateLocalProcessArg<'a> {
 	parent_sandbox: Option<&'a tg::sandbox::Id>,
 	spawn_arg: &'a tg::process::spawn::Arg,
 	write_command_permissions: bool,
+}
+
+/// What borrows a parent's capacity.
+pub(super) enum Borrower<'a> {
+	/// The sandbox of a cached process that the parent's process waits for, which the scheduler may hold.
+	Cached(&'a tg::sandbox::Id),
+
+	/// A child that the spawn creates, with the capacity that it needs.
+	Child(tg::runner::Capacity),
 }
 
 impl Output {
@@ -106,12 +115,11 @@ impl Component {
 
 	pub(crate) fn try_acquire_scheduled_sandbox_capacity(
 		session: &Session,
-		borrowed: bool,
+		lender: Option<&tg::sandbox::Id>,
 		parent: Option<&tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
 	) -> Option<tangram_server_runner_core::capacity::Allocation> {
-		if borrowed {
-			let parent = parent?;
+		if let Some(parent) = lender {
 			return session
 				.server
 				.components
@@ -151,12 +159,75 @@ impl Component {
 		)
 	}
 
+	/// Lend a parent's capacity in a task until a process starts or finishes.
+	pub(super) fn spawn_process_lend_capacity_task(
+		session: &Session,
+		lend: BoxFuture<'static, ()>,
+		output: &tg::process::spawn::Output,
+	) {
+		let tg::Either::Right(process) = &output.process else {
+			return;
+		};
+		let arg = tg::process::status::Arg {
+			location: output.location.clone().map(Into::into),
+			tokens: output.tokens.clone(),
+			..Default::default()
+		};
+		let process = process.clone();
+		let session = session.clone();
+		tokio::spawn(async move {
+			let start = async {
+				let stream = session.get_process_status(&process, arg).await?;
+				let mut stream = pin!(stream);
+				while let Some(status) = stream.try_next().await? {
+					match status {
+						tg::process::Status::Finished | tg::process::Status::Started => break,
+						tg::process::Status::Queued => (),
+					}
+				}
+				Ok::<_, tg::Error>(())
+			};
+			if let future::Either::Right((Err(error), _)) = future::select(lend, pin!(start)).await
+			{
+				tracing::debug!(error = %error.trace(), %process, "failed to get the status of the process that borrows capacity");
+			}
+		});
+	}
+
+	/// Create a future that lends a parent's capacity to the sandbox of a cached process that has not started, so that a process that waits for a queued process after a cache hit does not keep the capacity that the queued process needs.
+	pub(super) fn spawn_process_lend_capacity_to_cached_process(
+		&self,
+		session: &Session,
+		parent: &tg::process::Id,
+		parent_sandbox: &tg::sandbox::Id,
+		sandbox: tg::sandbox::Id,
+	) -> BoxFuture<'static, ()> {
+		let component = self.clone();
+		let parent = parent.clone();
+		let parent_sandbox = parent_sandbox.clone();
+		let session = session.clone();
+		async move {
+			let result = component
+				.spawn_process_notify_borrowable_capacity(
+					&session,
+					&parent,
+					&parent_sandbox,
+					Borrower::Cached(&sandbox),
+				)
+				.await;
+			if let Err(error) = result {
+				tracing::debug!(error = %error.trace(), %parent, "failed to lend capacity to the cached process");
+			}
+		}
+		.boxed()
+	}
+
 	pub(super) async fn spawn_process_notify_borrowable_capacity(
 		&self,
 		session: &Session,
 		parent: &tg::process::Id,
 		parent_sandbox: &tg::sandbox::Id,
-		requested: tg::runner::Capacity,
+		borrower: Borrower<'_>,
 	) -> tg::Result<()> {
 		let sandbox = session
 			.server
@@ -207,6 +278,23 @@ impl Component {
 				.state()
 				.wait_for_scheduler()
 				.await;
+
+			// Get the capacity that the borrower needs, adding the parent to the sandbox of a cached process, which has nothing to borrow if the scheduler does not hold it.
+			let requested = match &borrower {
+				Borrower::Cached(sandbox) => {
+					let capacity = session
+						.server
+						.components
+						.scheduler
+						.add_sandbox_parent(session, sandbox, parent_sandbox, &scheduler)
+						.await?;
+					let Some(capacity) = capacity else {
+						return Ok(());
+					};
+					capacity
+				},
+				Borrower::Child(requested) => *requested,
+			};
 			if capacity.try_borrow(requested).is_none() {
 				return Ok(());
 			}

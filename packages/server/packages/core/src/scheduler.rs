@@ -6,6 +6,14 @@ use {
 
 /// The scheduler component.
 pub trait Component: crate::component::Lifecycle {
+	fn add_sandbox_parent<'a>(
+		&'a self,
+		session: &'a Session,
+		sandbox: &'a tg::sandbox::Id,
+		parent: &'a tg::sandbox::Id,
+		scheduler: &'a tg::scheduler::Id,
+	) -> BoxFuture<'a, tg::Result<Option<tg::runner::Capacity>>>;
+
 	fn destroy_runner_sandbox<'a>(
 		&'a self,
 		server: &'a Server,

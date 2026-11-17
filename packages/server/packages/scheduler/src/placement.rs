@@ -272,23 +272,29 @@ impl SchedulerState {
 		sandbox: &Sandbox,
 		request_limit: usize,
 	) -> Option<Placement> {
-		let (borrowable, runner) = self.borrowable(sandbox)?;
-		if !borrowable.available || runner.reservations.len() >= request_limit {
-			return None;
-		}
-		let runner = RunnerRef {
-			registration_index: runner.registration_index,
-			id: borrowable.runner.clone(),
-		};
-		Some(Placement::Borrowed {
-			parent: sandbox.parent.clone().unwrap(),
-			runner,
+		sandbox.parents.iter().find_map(|links| {
+			let (borrowable, runner) = self.borrowable(sandbox, &links.parent)?;
+			if !borrowable.available || runner.reservations.len() >= request_limit {
+				return None;
+			}
+			let runner = RunnerRef {
+				registration_index: runner.registration_index,
+				id: borrowable.runner.clone(),
+			};
+			let placement = Placement::Borrowed {
+				parent: links.parent.clone(),
+				runner,
+			};
+			Some(placement)
 		})
 	}
 
-	/// Find the capacity that a sandbox's parent lends on a runner that can take the sandbox, where the runner also has the capacity that the sandbox must acquire in addition to what it borrows.
-	pub(super) fn borrowable(&self, sandbox: &Sandbox) -> Option<(&Borrowable, &Runner)> {
-		let parent = sandbox.parent.as_ref()?;
+	/// Find the capacity that one of a sandbox's parents lends on a runner that can take the sandbox, where the runner also has the capacity that the sandbox must acquire in addition to what it borrows.
+	pub(super) fn borrowable(
+		&self,
+		sandbox: &Sandbox,
+		parent: &tg::sandbox::Id,
+	) -> Option<(&Borrowable, &Runner)> {
 		let borrowable = self.parents.0.get(parent)?.borrowable.as_ref()?;
 		let runner = self.runners.entries.get(&borrowable.runner)?;
 		let (_, acquired) = borrowable.capacity.try_borrow(sandbox.capacity)?;
