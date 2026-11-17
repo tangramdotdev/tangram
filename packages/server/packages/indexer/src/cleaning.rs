@@ -166,6 +166,9 @@ impl Component {
 		let max_process_touched_at = now - process_time_to_live.as_secs().to_i64().unwrap();
 		let max_sandbox_touched_at = now - sandbox_time_to_live.as_secs().to_i64().unwrap();
 
+		// Exclude checkouts from using the paths of the checkouts that the index deletes until the paths are removed.
+		let guard = server.components.checkout.artifact_lock().read().await;
+
 		// Clean.
 		let mut output = server
 			.index
@@ -214,6 +217,12 @@ impl Component {
 			})
 			.collect();
 
+		// Hit the deletion checkpoint of each artifact checkout before its path is removed.
+		for artifact in &artifacts {
+			tangram_server_core::checkpoint!(server, "cleaning.checkout.delete", checkout = %artifact)
+				.await;
+		}
+
 		// Run every side effect independently.
 		let delete_artifact_checkouts_future = self.delete_artifact_checkouts(server, artifacts);
 		let delete_named_checkouts_future = self.delete_named_checkouts(server, named);
@@ -245,6 +254,7 @@ impl Component {
 		output.checkout_bytes = checkouts.bytes;
 		output.checkout_files = checkouts.files;
 		output.object_bytes = object_bytes;
+		drop(guard);
 
 		// Invalidate watched graphs that reference the cleaned objects.
 		if !output.objects.is_empty() {

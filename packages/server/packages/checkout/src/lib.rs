@@ -31,6 +31,7 @@ type Tasks<Id> = tangram_futures::task::Map<
 pub struct Component(Arc<State>);
 
 pub struct State {
+	artifact_lock: tokio::sync::RwLock<()>,
 	graph_tasks: Tasks<tg::graph::Id>,
 	lock: Lock,
 	tasks: Tasks<tg::artifact::Id>,
@@ -67,6 +68,9 @@ pub(crate) struct NamedTree {
 impl Component {
 	#[must_use]
 	pub fn new() -> Self {
+		// Create the artifact lock.
+		let artifact_lock = tokio::sync::RwLock::new(());
+
 		// Create the checkout graph tasks.
 		let graph_tasks = tangram_futures::task::Map::default();
 
@@ -78,6 +82,7 @@ impl Component {
 
 		let xattr_value_size = Mutex::new(None);
 		let state = State {
+			artifact_lock,
 			graph_tasks,
 			lock,
 			tasks,
@@ -608,6 +613,10 @@ impl tangram_server_core::checkout::Component for Component {
 		server: &tangram_server_core::Server,
 	) -> tg::Result<tg::file::xattrs::Options> {
 		self.internal_xattr_capabilities(server)
+	}
+
+	fn artifact_lock(&self) -> &tokio::sync::RwLock<()> {
+		&self.artifact_lock
 	}
 
 	fn lock(&self) -> &Lock {

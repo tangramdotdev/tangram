@@ -901,13 +901,25 @@ impl Component {
 			return Ok(ids);
 		}
 
-		// Refresh the checkouts if all of them exist and are indexed.
-		let exist = Self::checkouts_exist(&session.server, &ids).await?;
-		if exist && Self::touch_checkouts(&session.server, &ids).await? {
+		// Refresh the checkouts if the index has all of them, which is what determines whether they exist.
+		if Self::touch_checkouts(&session.server, &ids).await? {
 			return Ok(ids);
 		}
 
-		// Collect the dependencies of each item, writing the item to a temp unless the checkouts exist.
+		// Determine whether the items are already written, so that they are recorded without being written again. Exclude cleaning, so that a path that exists is not one that cleaning is about to remove.
+		for id in ids.iter() {
+			tangram_server_core::checkpoint!(
+				session.server,
+				"checkout.artifact.unindexed",
+				artifact = %id,
+			)
+			.await;
+		}
+		let guard = self.artifact_lock.write().await;
+		let written = Self::checkouts_written(&session.server, &ids).await?;
+		drop(guard);
+
+		// Collect the dependencies of each item, writing the item to a temp unless it is already written.
 		let outputs = tokio::task::spawn_blocking({
 			let component = self.clone();
 			let session = session.clone();
@@ -916,8 +928,8 @@ impl Component {
 			move || {
 				let mut outputs = Vec::new();
 				for item in items {
-					// Write the item to a temp, or only collect its dependencies if its checkout exists.
-					let (temp, mut dependencies) = if exist {
+					// Write the item to a temp, or only collect its dependencies if it is already written.
+					let (temp, mut dependencies) = if written {
 						let dependencies = Self::checkout_internal_dependencies(&session, &item)?;
 						(None, dependencies)
 					} else {
@@ -967,7 +979,8 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to check out the dependencies"))?;
 
-		// Rename the temps to the checkouts directory and create the index args.
+		// Rename the temps to the checkouts directory and create the index args. Exclude cleaning, so that a path that already exists is not one that cleaning is about to remove.
+		let guard = self.artifact_lock.write().await;
 		let put_checkout_args = tokio::task::spawn_blocking({
 			let session = session.clone();
 			move || {
@@ -990,6 +1003,7 @@ impl Component {
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
+		drop(guard);
 
 		// Index the checkouts.
 		let arg = tangram_index::write::Arg {
@@ -1009,7 +1023,7 @@ impl Component {
 		Ok(ids)
 	}
 
-	async fn checkouts_exist(server: &Server, ids: &[tg::Id]) -> tg::Result<bool> {
+	async fn checkouts_written(server: &Server, ids: &[tg::Id]) -> tg::Result<bool> {
 		let directory = server.checkout_path();
 		let paths = ids
 			.iter()
