@@ -167,7 +167,11 @@ impl Component {
 		let max_sandbox_touched_at = now - sandbox_time_to_live.as_secs().to_i64().unwrap();
 
 		// Exclude checkouts from using the paths of the checkouts that the index deletes until the paths are removed.
-		let guard = server.components.checkout.artifact_lock().read().await;
+		let guard = if server.checkouts_enabled() {
+			Some(server.components.checkout.artifact_lock().write().await)
+		} else {
+			None
+		};
 
 		// Clean.
 		let mut output = server

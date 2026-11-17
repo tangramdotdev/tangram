@@ -906,7 +906,7 @@ impl Component {
 			return Ok(ids);
 		}
 
-		// Determine whether the items are already written, so that they are recorded without being written again. Exclude cleaning, so that a path that exists is not one that cleaning is about to remove.
+		// Determine whether the items are already written, so that they are recorded without being written again.
 		for id in ids.iter() {
 			tangram_server_core::checkpoint!(
 				session.server,
@@ -915,9 +915,7 @@ impl Component {
 			)
 			.await;
 		}
-		let guard = self.artifact_lock.write().await;
 		let written = Self::checkouts_written(&session.server, &ids).await?;
-		drop(guard);
 
 		// Collect the dependencies of each item, writing the item to a temp unless it is already written.
 		let outputs = tokio::task::spawn_blocking({
@@ -979,16 +977,38 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to check out the dependencies"))?;
 
-		// Rename the temps to the checkouts directory and create the index args. Exclude cleaning, so that a path that already exists is not one that cleaning is about to remove.
-		let guard = self.artifact_lock.write().await;
+		// Exclude cleaning until the checkouts are indexed, so that a path that exists is not one that cleaning is about to remove, and no index write is pending when cleaning runs.
+		let guard = self.artifact_lock.read().await;
+
+		// Rename the temps to the checkouts directory and create the index args.
 		let put_checkout_args = tokio::task::spawn_blocking({
+			let component = self.clone();
 			let session = session.clone();
 			move || {
 				let mut put_checkout_args = Vec::with_capacity(outputs.len());
 				for (item, temp, dependencies) in outputs {
+					// Write an item that was already written but has since been removed.
+					let id = item.id.clone().into();
+					let temp = if temp.is_none() && !Self::checkout_written(&session.server, &id)? {
+						let temp = Temp::new(&session.server);
+						component.checkout_internal_write(
+							&session,
+							temp.path(),
+							&item,
+							&progress,
+						)?;
+						Some(temp)
+					} else {
+						temp
+					};
+
+					// Rename the temp to the checkouts directory, and report a path that cannot be resolved, such as a symlink loop.
 					if let Some(temp) = &temp {
 						Self::checkout_internal_rename(&session, &item, temp)?;
+						Self::checkout_written(&session.server, &id)?;
 					}
+
+					// Create the index arg.
 					let touched_at = session.server.clock.unix_timestamp();
 					let put_checkout_arg = tangram_index::checkout::put::Arg {
 						dependencies,
@@ -1003,9 +1023,16 @@ impl Component {
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
-		drop(guard);
 
-		// Index the checkouts.
+		// Index the checkouts and wait for the index to record them.
+		for arg in &put_checkout_args {
+			tangram_server_core::checkpoint!(
+				session.server,
+				"checkout.artifact.index",
+				artifact = %arg.id,
+			)
+			.await;
+		}
 		let arg = tangram_index::write::Arg {
 			items: put_checkout_args
 				.into_iter()
@@ -1014,40 +1041,42 @@ impl Component {
 		};
 		session
 			.server
-			.components
-			.indexer
-			.write(&session.server, arg)
+			.index
+			.write(arg)
 			.await
+			.and_then(std::convert::identity)
 			.map_err(|error| tg::error!(!error, "failed to index the checkouts"))?;
+		drop(guard);
 
 		Ok(ids)
 	}
 
-	async fn checkouts_written(server: &Server, ids: &[tg::Id]) -> tg::Result<bool> {
-		let directory = server.checkout_path();
-		let paths = ids
-			.iter()
-			.map(|id| directory.join(id.to_string()))
-			.collect::<Vec<_>>();
-		let exists = tokio::task::spawn_blocking(move || {
-			for path in paths {
-				match path.try_exists() {
-					Ok(true) => (),
-					Ok(false) => return Ok(false),
-					Err(error) if error.raw_os_error() == Some(libc::ELOOP) => return Ok(false),
-					Err(error) => {
-						return Err(
-							tg::error!(!error, path = %path.display(), "failed to inspect the checkout"),
-						);
-					},
+	async fn checkouts_written(server: &Server, ids: &Arc<[tg::Id]>) -> tg::Result<bool> {
+		let written = tokio::task::spawn_blocking({
+			let server = server.clone();
+			let ids = ids.clone();
+			move || {
+				for id in ids.iter() {
+					if !Self::checkout_written(&server, id)? {
+						return Ok(false);
+					}
 				}
+				Ok::<_, tg::Error>(true)
 			}
-			Ok(true)
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
-		Ok(exists)
+		Ok(written)
+	}
+
+	fn checkout_written(server: &Server, id: &tg::Id) -> tg::Result<bool> {
+		let path = server.checkout_path().join(id.to_string());
+		let written = path.try_exists().map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to inspect the checkout"),
+		)?;
+
+		Ok(written)
 	}
 
 	async fn touch_checkouts(server: &Server, ids: &[tg::Id]) -> tg::Result<bool> {

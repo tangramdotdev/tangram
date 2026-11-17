@@ -24,12 +24,8 @@ for value in [$file $cycle $parent] {
 	let unused = tg put --no-tokens 'tg.blob("unused")' | referent node
 	tg index
 
-	# Check out the artifact twice while its index writes are held.
-	let write = checkpoint watch index.write
+	# Check out the artifact.
 	tg checkout $artifact | ignore
-	tg checkout $artifact | ignore
-	checkpoint unwatch $write
-	tg index
 
 	# Reuse the checkout and hold the sandbox before it executes the script.
 	advance_time $local 50sec

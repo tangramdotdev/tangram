@@ -29,7 +29,7 @@ pub trait Component: crate::component::Lifecycle {
 	fn internal_xattr_capabilities(&self, server: &Server)
 	-> tg::Result<tg::file::xattrs::Options>;
 
-	/// The lock that cleaning holds for reading while it removes artifact checkouts, and that a checkout holds for writing while it decides whether a path in the checkouts directory can be used.
+	/// The lock that cleaning holds for writing from when the index deletes artifact checkouts until their paths are removed, and that a checkout holds for reading from when it uses a path in the checkouts directory until the index records the checkout.
 	fn artifact_lock(&self) -> &tokio::sync::RwLock<()>;
 
 	fn lock(&self) -> &Lock;
