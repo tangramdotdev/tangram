@@ -248,20 +248,18 @@ fn setup_firewall() -> tg::Result<()> {
 }
 
 fn cleanup_dynamic_port_forwarding_rules(identity: &str) -> tg::Result<()> {
+	// Hold the lock while removing the rules, so that the server does not add rules that the removal deletes.
 	static CLEANED: std::sync::OnceLock<Mutex<BTreeSet<String>>> = std::sync::OnceLock::new();
-	let cleaned = CLEANED.get_or_init(Mutex::default);
-	if cleaned
+	let mut cleaned = CLEANED
+		.get_or_init(Mutex::default)
 		.lock()
-		.map_err(|_| tg::error!("failed to lock the firewall cleanup state"))?
-		.contains(identity)
-	{
+		.map_err(|_| tg::error!("failed to lock the firewall cleanup state"))?;
+	if cleaned.contains(identity) {
 		return Ok(());
 	}
 	cleanup_dynamic_port_forwarding_rules_inner(identity)?;
-	cleaned
-		.lock()
-		.map_err(|_| tg::error!("failed to lock the firewall cleanup state"))?
-		.insert(identity.to_owned());
+	cleaned.insert(identity.to_owned());
+
 	Ok(())
 }
 

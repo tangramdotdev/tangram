@@ -464,6 +464,13 @@ pub fn add_port_forwarding_rules(
 	ports: &[tg::sandbox::Port],
 ) -> tg::Result<Vec<IptablesRuleGuard>> {
 	let identity = super::hash_identity(identity);
+
+	// Convert a trailing wildcard in the interface name to the wildcard that iptables matches.
+	let out_interface = out_interface
+		.strip_suffix('*')
+		.map_or_else(|| out_interface.to_owned(), |prefix| format!("{prefix}+"));
+	let out_interface = out_interface.as_str();
+
 	setup_port_forwarding()?;
 	cleanup_port_forwarding_rules(&identity)?;
 	let mut guards = Vec::new();
