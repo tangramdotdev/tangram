@@ -469,11 +469,26 @@ impl Scheduler {
 			runner: request.runner.clone(),
 			scheduler: self.id.clone(),
 		};
-		let result = self
-			.component
-			.handle_expired_runner(&self.server, &registration, &queued)
-			.boxed()
-			.await;
+
+		// Record the registration before finishing the sandboxes, so that the index accepts the writes for a registration that the scheduler failed to record. The index rejects the registration if a newer one owns the runner.
+		let session = self.server.session(&self.server.context);
+		let result = async {
+			self.server
+				.components
+				.runner
+				.set_runner_scheduler(
+					&session,
+					&request.runner,
+					&self.id,
+					request.registration_index,
+				)
+				.await?;
+			self.component
+				.handle_expired_runner(&self.server, &registration, &queued)
+				.boxed()
+				.await
+		}
+		.await;
 		if let Err(error) = result {
 			let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
 			let mut superseded = false;
