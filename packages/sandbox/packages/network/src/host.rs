@@ -1,4 +1,11 @@
-use {std::net::Ipv4Addr, tangram_client::prelude::*};
+use {
+	std::{
+		net::Ipv4Addr,
+		os::unix::ffi::OsStrExt as _,
+		path::{Path, PathBuf},
+	},
+	tangram_client::prelude::*,
+};
 
 mod iptables;
 mod nft;
@@ -10,6 +17,12 @@ pub const TAP_INTERFACE_NAME_PREFIX: &str = "tg-";
 pub enum FirewallRuleGuard {
 	Iptables(iptables::IptablesRuleGuard),
 	Nft(nft::FirewallRuleGuard),
+}
+
+/// Lock the setup of the bridge, the tap interfaces, and their firewall rules, which every server on the host shares.
+pub fn lock_setup() -> tg::Result<std::fs::File> {
+	let path = Path::new(crate::lock::DIRECTORY).join("setup.lock");
+	crate::lock::lock(&path)
 }
 
 pub fn enable_ipv4_forwarding() -> tg::Result<()> {
@@ -75,4 +88,19 @@ pub fn add_port_forwarding_rules(
 				.map(|rules| rules.into_iter().map(FirewallRuleGuard::Nft).collect())
 		},
 	}
+}
+
+/// Hash the path of a server's directory, which identifies the server's firewall rules.
+fn hash_identity(identity: &Path) -> String {
+	let identity = canonicalize_identity(identity);
+	let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+	for byte in identity.as_os_str().as_bytes() {
+		hash ^= u64::from(*byte);
+		hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+	}
+	format!("{hash:016x}")
+}
+
+fn canonicalize_identity(identity: &Path) -> PathBuf {
+	std::fs::canonicalize(identity).unwrap_or_else(|_| identity.to_owned())
 }

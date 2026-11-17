@@ -124,6 +124,7 @@ pub enum Network {
 		fd: i32,
 		gateway: std::net::Ipv4Addr,
 		guest: std::net::Ipv4Addr,
+		name: String,
 	},
 }
 
@@ -720,10 +721,14 @@ fn setup_network(arg: &Options) -> tg::Result<()> {
 				.read_exact(&mut [0])
 				.map_err(|error| tg::error!(!error, "failed to wait for network setup"))?;
 
-			if let Some(Network::Veth { gateway, guest, .. }) = &arg.network {
-				let suffix = format!("{:09}", arg.index % 1_000_000_000);
-				let name = format!("tg-vc-{suffix}");
-				configure_guest_interface(&name, *guest, *gateway)?;
+			if let Some(Network::Veth {
+				gateway,
+				guest,
+				name,
+				..
+			}) = &arg.network
+			{
+				configure_guest_interface(name, *guest, *gateway)?;
 			}
 		},
 		None => {

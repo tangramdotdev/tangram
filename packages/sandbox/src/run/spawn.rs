@@ -51,14 +51,11 @@ pub(crate) async fn spawn(
 	let isolation = &arg.resources;
 	let mut veth = match network.as_deref() {
 		Some(crate::network::Network::Veth(network)) => {
-			let index = arg.index;
 			let bridge_name = network.bridge_name().to_owned();
 			Some(
-				tokio::task::spawn_blocking(move || {
-					crate::network::veth::Pair::new(index, &bridge_name)
-				})
-				.await
-				.map_err(|error| tg::error!(!error, "the veth creation task panicked"))??,
+				tokio::task::spawn_blocking(move || crate::network::veth::Pair::new(&bridge_name))
+					.await
+					.map_err(|error| tg::error!(!error, "the veth creation task panicked"))??,
 			)
 		},
 		_ => None,
@@ -255,6 +252,7 @@ pub(crate) async fn spawn(
 				.as_raw_fd(),
 			gateway: network.gateway_ip(),
 			guest: network.guest_ip(),
+			name: veth.as_ref().unwrap().guest_name.clone(),
 		}),
 		Some(crate::network::Network::Passt(_) | crate::network::Network::Tap(_)) => {
 			return Err(tg::error!("unsupported Linux setup network"));

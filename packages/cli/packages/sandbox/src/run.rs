@@ -148,6 +148,9 @@ pub struct Options {
 	#[arg(long)]
 	pub network_fd: Option<i32>,
 
+	#[arg(long)]
+	pub network_interface: Option<String>,
+
 	#[arg(long, value_parser = humantime::parse_duration)]
 	pub network_interface_timeout: Option<std::time::Duration>,
 
@@ -578,6 +581,9 @@ impl Options {
 				guest: self
 					.guest_ip
 					.ok_or_else(|| tg::error!("the guest address is required"))?,
+				name: self
+					.network_interface
+					.ok_or_else(|| tg::error!("the network interface name is required"))?,
 			}),
 			Some(kind) => return Err(tg::error!(%kind, "invalid Linux launch network")),
 		};

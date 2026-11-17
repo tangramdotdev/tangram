@@ -1,9 +1,6 @@
 use {
 	std::{
-		collections::BTreeSet,
-		net::Ipv4Addr,
-		os::unix::ffi::OsStrExt as _,
-		path::{Path, PathBuf},
+		collections::BTreeSet, fmt::Write as _, io::Write as _, net::Ipv4Addr, path::Path,
 		sync::Mutex,
 	},
 	tangram_client::prelude::*,
@@ -17,6 +14,7 @@ const NFT_TABLE: &str = "tangram";
 const OUTPUT_CHAIN: &str = "output";
 const POSTROUTING_CHAIN: &str = "postrouting";
 const PREROUTING_CHAIN: &str = "prerouting";
+const TANGRAM_BRIDGE_COMMENT_PREFIX: &str = "tangram:bridge:";
 const TANGRAM_BRIDGE_FORWARD_IN_COMMENT: &str = "tangram:bridge:forward-in";
 const TANGRAM_BRIDGE_FORWARD_IN_DROP_COMMENT: &str = "tangram:bridge:forward-in-drop";
 const TANGRAM_BRIDGE_FORWARD_OUT_COMMENT: &str = "tangram:bridge:forward-out";
@@ -27,6 +25,7 @@ const TANGRAM_BRIDGE_INPUT_DNS_COMMENT_PREFIX: &str = "tangram:bridge:input-dns:
 const TANGRAM_BRIDGE_INPUT_DROP_COMMENT: &str = "tangram:bridge:input-drop";
 const TANGRAM_BRIDGE_INPUT_REPLY_COMMENT: &str = "tangram:bridge:input-reply";
 const TANGRAM_BRIDGE_MASQUERADE_COMMENT: &str = "tangram:bridge:masquerade";
+const TANGRAM_TAP_COMMENT_PREFIX: &str = "tangram:tap:";
 const TANGRAM_TAP_FORWARD_IN_COMMENT: &str = "tangram:tap:forward-in";
 const TANGRAM_TAP_FORWARD_OUT_COMMENT: &str = "tangram:tap:forward-out";
 const TANGRAM_TAP_MASQUERADE_COMMENT: &str = "tangram:tap:masquerade";
@@ -91,20 +90,21 @@ impl FirewallRuleGuard {
 pub fn setup_tap_networking() -> tg::Result<()> {
 	let interface = format!("{TAP_INTERFACE_NAME_PREFIX}*");
 	setup_firewall()?;
-	replace_nft_rule(
-		POSTROUTING_CHAIN,
-		TANGRAM_TAP_MASQUERADE_COMMENT,
-		tap_masquerade_rule(&interface),
-	)?;
-	replace_nft_rule(
-		FORWARD_CHAIN,
-		TANGRAM_TAP_FORWARD_OUT_COMMENT,
-		forward_out_rule(&interface, TANGRAM_TAP_FORWARD_OUT_COMMENT),
-	)?;
-	replace_nft_rule(
-		FORWARD_CHAIN,
-		TANGRAM_TAP_FORWARD_IN_COMMENT,
-		forward_in_rule(&interface, TANGRAM_TAP_FORWARD_IN_COMMENT),
+	let rules = [
+		nft_add_rule_args(POSTROUTING_CHAIN, tap_masquerade_rule(&interface)),
+		nft_add_rule_args(
+			FORWARD_CHAIN,
+			forward_out_rule(&interface, TANGRAM_TAP_FORWARD_OUT_COMMENT),
+		),
+		nft_add_rule_args(
+			FORWARD_CHAIN,
+			forward_in_rule(&interface, TANGRAM_TAP_FORWARD_IN_COMMENT),
+		),
+	];
+	replace_rules(
+		&[POSTROUTING_CHAIN, FORWARD_CHAIN],
+		TANGRAM_TAP_COMMENT_PREFIX,
+		&rules,
 	)?;
 	Ok(())
 }
@@ -114,72 +114,69 @@ pub fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr, dns: &[Ipv4Addr]) -
 	let subnet = Ipv4Addr::new(octets[0], octets[1], 0, 0);
 	let cidr = format!("{subnet}/16");
 	setup_firewall()?;
-	replace_nft_rule(
+
+	// Create the masquerade and DNS rules.
+	let mut rules = vec![nft_add_rule_args(
 		POSTROUTING_CHAIN,
-		TANGRAM_BRIDGE_MASQUERADE_COMMENT,
 		bridge_masquerade_rule(bridge, &cidr),
-	)?;
-	delete_rules_by_comment(
-		INPUT_CHAIN,
-		CommentMatcher::Prefix(TANGRAM_BRIDGE_INPUT_DNS_COMMENT_PREFIX),
-	)?;
-	delete_rules_by_comment(
-		FORWARD_CHAIN,
-		CommentMatcher::Prefix(TANGRAM_BRIDGE_FORWARD_OUT_DNS_COMMENT_PREFIX),
-	)?;
+	)];
 	for (index, addr) in dns.iter().enumerate() {
 		for protocol in ["tcp", "udp"] {
 			let comment = format!("{TANGRAM_BRIDGE_INPUT_DNS_COMMENT_PREFIX}{index}:{protocol}");
-			run_nft_checked(&nft_add_rule_args(
+			rules.push(nft_add_rule_args(
 				INPUT_CHAIN,
 				dns_rule(bridge, *addr, protocol, &comment),
-			))?;
+			));
 			let comment =
 				format!("{TANGRAM_BRIDGE_FORWARD_OUT_DNS_COMMENT_PREFIX}{index}:{protocol}");
-			run_nft_checked(&nft_add_rule_args(
+			rules.push(nft_add_rule_args(
 				FORWARD_CHAIN,
 				dns_rule(bridge, *addr, protocol, &comment),
-			))?;
+			));
 		}
 	}
-	replace_nft_rule(
+
+	// Create the drop and forward rules.
+	rules.push(nft_add_rule_args(
 		INPUT_CHAIN,
-		TANGRAM_BRIDGE_INPUT_DROP_COMMENT,
 		input_drop_rule(bridge, TANGRAM_BRIDGE_INPUT_DROP_COMMENT),
-	)?;
-	replace_nft_rule(
+	));
+	rules.push(nft_add_rule_args(
 		FORWARD_CHAIN,
-		TANGRAM_BRIDGE_FORWARD_OUT_PRIVATE_COMMENT,
 		forward_private_drop_rule(bridge, TANGRAM_BRIDGE_FORWARD_OUT_PRIVATE_COMMENT),
-	)?;
-	replace_nft_rule(
+	));
+	rules.push(nft_add_rule_args(
 		FORWARD_CHAIN,
-		TANGRAM_BRIDGE_FORWARD_OUT_COMMENT,
 		forward_out_rule(bridge, TANGRAM_BRIDGE_FORWARD_OUT_COMMENT),
-	)?;
-	replace_nft_rule(
+	));
+	rules.push(nft_add_rule_args(
 		FORWARD_CHAIN,
-		TANGRAM_BRIDGE_FORWARD_IN_COMMENT,
 		forward_in_rule(bridge, TANGRAM_BRIDGE_FORWARD_IN_COMMENT),
-	)?;
-	replace_nft_rule(
+	));
+	rules.push(nft_add_rule_args(
 		FORWARD_CHAIN,
-		TANGRAM_BRIDGE_FORWARD_IN_DROP_COMMENT,
 		forward_in_drop_rule(bridge, TANGRAM_BRIDGE_FORWARD_IN_DROP_COMMENT),
-	)?;
-	// Insert replies before all bridge drops, including rules retained from an earlier setup.
+	));
+
+	// Insert the reply rules before all bridge drops and published ports.
 	for (chain, comment) in [
 		(FORWARD_CHAIN, TANGRAM_BRIDGE_FORWARD_REPLY_COMMENT),
 		(INPUT_CHAIN, TANGRAM_BRIDGE_INPUT_REPLY_COMMENT),
 	] {
-		delete_rules_by_comment(chain, CommentMatcher::Exact(comment))?;
 		let rule = NftRule::insert(
 			chain,
 			comment.to_owned(),
 			bridge_reply_rule(bridge, comment),
 		);
-		run_nft_checked(&rule.args)?;
+		rules.push(rule.args);
 	}
+
+	// Replace the bridge rules.
+	replace_rules(
+		&[POSTROUTING_CHAIN, INPUT_CHAIN, FORWARD_CHAIN],
+		TANGRAM_BRIDGE_COMMENT_PREFIX,
+		&rules,
+	)?;
 
 	Ok(())
 }
@@ -192,7 +189,7 @@ pub fn add_port_forwarding_rules(
 	guest_ip: Ipv4Addr,
 	ports: &[tg::sandbox::Port],
 ) -> tg::Result<Vec<FirewallRuleGuard>> {
-	let identity = hash_identity(identity);
+	let identity = super::hash_identity(identity);
 	setup_firewall()?;
 	cleanup_dynamic_port_forwarding_rules(&identity)?;
 	let mut guards = Vec::new();
@@ -349,13 +346,20 @@ fn ensure_nft_chain(chain: &'static str, spec: &str) -> tg::Result<()> {
 	Err(nft_error(&args, &stderr))
 }
 
-fn replace_nft_rule(
-	chain: &'static str,
-	comment: &'static str,
-	rule: Vec<String>,
-) -> tg::Result<()> {
-	delete_rules_by_comment(chain, CommentMatcher::Exact(comment))?;
-	run_nft_checked(&nft_add_rule_args(chain, rule))
+/// Replace the rules in chains whose comments start with a prefix in one transaction, so that the rules are never missing while they are replaced.
+fn replace_rules(chains: &[&str], prefix: &str, rules: &[Vec<String>]) -> tg::Result<()> {
+	let mut script = String::new();
+	for chain in chains {
+		for handle in rule_handles(chain, CommentMatcher::Prefix(prefix))? {
+			writeln!(script, "delete rule ip {NFT_TABLE} {chain} handle {handle}").unwrap();
+		}
+	}
+	for rule in rules {
+		script.push_str(&rule.join(" "));
+		script.push('\n');
+	}
+	run_nft_script(&script)?;
+	Ok(())
 }
 
 fn tap_masquerade_rule(interface: &str) -> Vec<String> {
@@ -571,11 +575,26 @@ fn nft_add_rule_args(chain: &'static str, rule: Vec<String>) -> Vec<String> {
 }
 
 fn delete_rules_by_comment(chain: &str, matcher: CommentMatcher<'_>) -> tg::Result<()> {
+	for handle in rule_handles(chain, matcher)? {
+		run_nft_checked(&[
+			"delete".to_owned(),
+			"rule".to_owned(),
+			"ip".to_owned(),
+			NFT_TABLE.to_owned(),
+			chain.to_owned(),
+			"handle".to_owned(),
+			handle,
+		])?;
+	}
+	Ok(())
+}
+
+fn rule_handles(chain: &str, matcher: CommentMatcher<'_>) -> tg::Result<Vec<String>> {
 	let output = run_nft(&["-a", "list", "chain", "ip", NFT_TABLE, chain])?;
 	if !output.status.success() {
 		let stderr = String::from_utf8_lossy(&output.stderr);
 		if is_nft_missing_table_or_chain_error(&stderr) {
-			return Ok(());
+			return Ok(Vec::new());
 		}
 		return Err(nft_error(
 			&["-a", "list", "chain", "ip", NFT_TABLE, chain],
@@ -588,19 +607,8 @@ fn delete_rules_by_comment(chain: &str, matcher: CommentMatcher<'_>) -> tg::Resu
 		.filter(|line| matcher.matches(line))
 		.filter_map(rule_handle)
 		.map(str::to_owned)
-		.collect::<Vec<_>>();
-	for handle in handles {
-		run_nft_checked(&[
-			"delete".to_owned(),
-			"rule".to_owned(),
-			"ip".to_owned(),
-			NFT_TABLE.to_owned(),
-			chain.to_owned(),
-			"handle".to_owned(),
-			handle,
-		])?;
-	}
-	Ok(())
+		.collect();
+	Ok(handles)
 }
 
 fn rule_handle(line: &str) -> Option<&str> {
@@ -628,20 +636,6 @@ fn dynamic_rule_comment_prefix(prefix: &str, identity: &str) -> String {
 	format!("{prefix}{identity}:")
 }
 
-fn hash_identity(identity: &Path) -> String {
-	let identity = canonicalize_identity(identity);
-	let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-	for byte in identity.as_os_str().as_bytes() {
-		hash ^= u64::from(*byte);
-		hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-	}
-	format!("{hash:016x}")
-}
-
-fn canonicalize_identity(identity: &Path) -> PathBuf {
-	std::fs::canonicalize(identity).unwrap_or_else(|_| identity.to_owned())
-}
-
 fn quote(value: &str) -> String {
 	format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
@@ -652,6 +646,33 @@ fn run_nft(args: &[&str]) -> tg::Result<std::process::Output> {
 		.stderr(std::process::Stdio::piped())
 		.output()
 		.map_err(|error| tg::error!(!error, "failed to spawn nft"))
+}
+
+fn run_nft_script(script: &str) -> tg::Result<()> {
+	// Spawn nft with the script on its standard input.
+	let mut child = std::process::Command::new("nft")
+		.args(["-f", "-"])
+		.stdin(std::process::Stdio::piped())
+		.stdout(std::process::Stdio::null())
+		.stderr(std::process::Stdio::piped())
+		.spawn()
+		.map_err(|error| tg::error!(!error, "failed to spawn nft"))?;
+	let mut stdin = child.stdin.take().unwrap();
+	stdin
+		.write_all(script.as_bytes())
+		.map_err(|error| tg::error!(!error, "failed to write the nft script"))?;
+	drop(stdin);
+
+	// Wait for nft to apply the script.
+	let output = child
+		.wait_with_output()
+		.map_err(|error| tg::error!(!error, "failed to wait for nft"))?;
+	if !output.status.success() {
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		return Err(tg::error!(%script, %stderr, "failed to run the nft script"));
+	}
+
+	Ok(())
 }
 
 fn run_nft_checked(args: &[String]) -> tg::Result<()> {
