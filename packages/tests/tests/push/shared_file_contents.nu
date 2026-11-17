@@ -6,11 +6,9 @@ let remote = server spawn --name remote
 let local = server spawn --name local
 tg remote put default $remote.url
 
-# Create pairs of files with the same contents, where only one file of each pair is executable.
-let path = mktemp -d | path join 'artifact'
-mkdir $path
-let count = 1500
-for index in 0..<$count {
+# Create many pairs of distinct files with shared contents to exercise copies while writes are still pending.
+let path = mktemp -d
+for index in 0..<1500 {
 	let bytes = random binary 120000
 	$bytes | save ($path | path join $'plain_($index)')
 	$bytes | save ($path | path join $'executable_($index)')
@@ -22,9 +20,8 @@ let id = tg checkin --no-tokens $path | referent node
 let output = tg push $id --eager | complete
 success $output 'the push should succeed when files share their contents'
 
-# Both files of a pair are readable on the remote.
+# Read both files of a pair through the pushed directory.
 let expected = open --raw ($path | path join 'plain_0') | hash sha256
 for name in ['plain_0' 'executable_0'] {
-	let file = tg checkin --no-tokens ($path | path join $name) | referent node
-	assert equal (tg --url $remote.url read $file | hash sha256) $expected $'the remote should serve ($name)'
+	assert equal (tg --url $remote.url read $'($id)?get=($name)' | hash sha256) $expected $'the remote should serve ($name)'
 }
