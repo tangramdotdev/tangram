@@ -2,10 +2,13 @@ use {
 	std::{
 		ffi::CStr,
 		net::Ipv4Addr,
+		os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _},
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
 };
+
+const HOST_LOCK_DIRECTORY: &str = "/run/tangram/network/ip";
 
 #[derive(Clone, Debug)]
 pub struct Pool {
@@ -32,8 +35,21 @@ pub struct Lease {
 
 struct Block {
 	base: u32,
+
+	/// The lock of the block's addresses across the host, which keeps another server that shares the bridge from leasing them.
+	_lock: Option<std::fs::File>,
+
 	range: usize,
 	state: Arc<Mutex<State>>,
+}
+
+/// The result of an attempt to lock a block's addresses across the host.
+enum HostLock {
+	/// Another process holds the block.
+	Held,
+
+	/// This process holds the block, or the host has no lock directory that this process can use.
+	Locked(Option<std::fs::File>),
 }
 
 impl Pool {
@@ -77,6 +93,9 @@ impl Pool {
 		if state.ranges.is_empty() {
 			return Err(tg::error!("no networks are configured"));
 		}
+
+		// Collect the blocks that another server holds, and return them to the pool after the search, so that they are tried again later.
+		let mut held = Vec::new();
 		for index in 0..state.ranges.len() {
 			loop {
 				let range = &mut state.ranges[index];
@@ -89,14 +108,24 @@ impl Pool {
 					let overlaps = used
 						.iter()
 						.any(|&(start, last)| base <= last && base + 3 >= start);
-					if !overlaps {
-						return Ok(Block {
-							base,
-							range: index,
-							state: Arc::clone(&self.state),
-						});
+					if overlaps {
+						continue;
 					}
-					continue;
+					match lock_host_block(base) {
+						HostLock::Held => {
+							held.push((index, base));
+							continue;
+						},
+						HostLock::Locked(lock) => {
+							restore_held_blocks(&mut state, held);
+							return Ok(Block {
+								_lock: lock,
+								base,
+								range: index,
+								state: Arc::clone(&self.state),
+							});
+						},
+					}
 				}
 				let mut next = range.next;
 				if let Some((min, _)) = bounds
@@ -132,14 +161,56 @@ impl Pool {
 					continue;
 				}
 				range.next = end;
+				let HostLock::Locked(lock) = lock_host_block(next) else {
+					held.push((index, next));
+					continue;
+				};
+				restore_held_blocks(&mut state, held);
 				return Ok(Block {
+					_lock: lock,
 					base: next,
 					range: index,
 					state: Arc::clone(&self.state),
 				});
 			}
 		}
+		restore_held_blocks(&mut state, held);
 		Err(tg::error!("out of ip addresses"))
+	}
+}
+
+/// Lock a block's addresses across the host with a lock file, which the kernel releases when the process exits, so that servers that share the bridge do not lease the same addresses. Use no lock if the process cannot create the lock directory, such as when it is not root, in which case it does not use the shared bridge.
+fn lock_host_block(base: u32) -> HostLock {
+	let directory = std::path::Path::new(HOST_LOCK_DIRECTORY);
+	if std::fs::DirBuilder::new()
+		.recursive(true)
+		.mode(0o755)
+		.create(directory)
+		.is_err()
+	{
+		return HostLock::Locked(None);
+	}
+	let path = directory.join(Ipv4Addr::from_bits(base).to_string());
+	let Ok(file) = std::fs::OpenOptions::new()
+		.create(true)
+		.mode(0o600)
+		.truncate(false)
+		.write(true)
+		.open(&path)
+	else {
+		return HostLock::Locked(None);
+	};
+	match file.try_lock() {
+		Ok(()) => HostLock::Locked(Some(file)),
+		Err(std::fs::TryLockError::WouldBlock) => HostLock::Held,
+		Err(std::fs::TryLockError::Error(_)) => HostLock::Locked(None),
+	}
+}
+
+/// Return the blocks that another server held during a search to the pool.
+fn restore_held_blocks(state: &mut State, held: Vec<(usize, u32)>) {
+	for (index, base) in held {
+		state.ranges[index].blocks.push(base);
 	}
 }
 

@@ -53,9 +53,10 @@ pub(crate) async fn spawn(
 		Some(crate::network::Network::Veth(network)) => {
 			let index = arg.index;
 			let bridge_name = network.bridge_name().to_owned();
+			let scope = network.scope().to_owned();
 			Some(
 				tokio::task::spawn_blocking(move || {
-					crate::network::veth::Pair::new(index, &bridge_name)
+					crate::network::veth::Pair::new(index, &scope, &bridge_name)
 				})
 				.await
 				.map_err(|error| tg::error!(!error, "the veth creation task panicked"))??,
@@ -245,17 +246,15 @@ pub(crate) async fn spawn(
 				.ok_or_else(|| tg::error!("missing the pasta synchronization descriptor"))?
 				.as_raw_fd(),
 		}),
-		Some(crate::network::Network::Veth(network)) => Some(crate::run::Network::Veth {
-			fd: veth
-				.as_ref()
-				.unwrap()
-				.guest_pipe
-				.as_ref()
-				.unwrap()
-				.as_raw_fd(),
-			gateway: network.gateway_ip(),
-			guest: network.guest_ip(),
-		}),
+		Some(crate::network::Network::Veth(network)) => {
+			let pair = veth.as_ref().unwrap();
+			Some(crate::run::Network::Veth {
+				fd: pair.guest_pipe.as_ref().unwrap().as_raw_fd(),
+				gateway: network.gateway_ip(),
+				guest: network.guest_ip(),
+				name: pair.guest_name.clone(),
+			})
+		},
 		Some(crate::network::Network::Passt(_) | crate::network::Network::Tap(_)) => {
 			return Err(tg::error!("unsupported Linux setup network"));
 		},

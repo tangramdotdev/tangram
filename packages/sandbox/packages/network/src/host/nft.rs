@@ -1,14 +1,12 @@
 use {
 	std::{
-		collections::BTreeSet,
-		net::Ipv4Addr,
-		os::unix::ffi::OsStrExt as _,
-		path::{Path, PathBuf},
+		collections::BTreeSet, fmt::Write as _, io::Write as _, net::Ipv4Addr, path::Path,
 		sync::Mutex,
 	},
 	tangram_client::prelude::*,
 };
 
+const ATOMIC_REPLACE_ATTEMPTS: usize = 16;
 const DYNAMIC_RULE_COMMENT_PREFIX: &str = "tangram:identity=";
 const FORWARD_CHAIN: &str = "forward";
 const INPUT_CHAIN: &str = "input";
@@ -91,21 +89,35 @@ impl FirewallRuleGuard {
 pub fn setup_tap_networking() -> tg::Result<()> {
 	let interface = format!("{TAP_INTERFACE_NAME_PREFIX}*");
 	setup_firewall()?;
-	replace_nft_rule(
-		POSTROUTING_CHAIN,
-		TANGRAM_TAP_MASQUERADE_COMMENT,
-		tap_masquerade_rule(&interface),
-	)?;
-	replace_nft_rule(
-		FORWARD_CHAIN,
-		TANGRAM_TAP_FORWARD_OUT_COMMENT,
-		forward_out_rule(&interface, TANGRAM_TAP_FORWARD_OUT_COMMENT),
-	)?;
-	replace_nft_rule(
-		FORWARD_CHAIN,
-		TANGRAM_TAP_FORWARD_IN_COMMENT,
-		forward_in_rule(&interface, TANGRAM_TAP_FORWARD_IN_COMMENT),
-	)?;
+
+	// Replace the shared tap rules in one transaction, so that the other servers on the host never see them missing.
+	let deletes = [
+		(
+			POSTROUTING_CHAIN,
+			CommentMatcher::Exact(TANGRAM_TAP_MASQUERADE_COMMENT),
+		),
+		(
+			FORWARD_CHAIN,
+			CommentMatcher::Exact(TANGRAM_TAP_FORWARD_OUT_COMMENT),
+		),
+		(
+			FORWARD_CHAIN,
+			CommentMatcher::Exact(TANGRAM_TAP_FORWARD_IN_COMMENT),
+		),
+	];
+	let rules = vec![
+		nft_add_rule_args(POSTROUTING_CHAIN, tap_masquerade_rule(&interface)),
+		nft_add_rule_args(
+			FORWARD_CHAIN,
+			forward_out_rule(&interface, TANGRAM_TAP_FORWARD_OUT_COMMENT),
+		),
+		nft_add_rule_args(
+			FORWARD_CHAIN,
+			forward_in_rule(&interface, TANGRAM_TAP_FORWARD_IN_COMMENT),
+		),
+	];
+	replace_rules_atomically(&deletes, &rules)?;
+
 	Ok(())
 }
 
@@ -114,72 +126,105 @@ pub fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr, dns: &[Ipv4Addr]) -
 	let subnet = Ipv4Addr::new(octets[0], octets[1], 0, 0);
 	let cidr = format!("{subnet}/16");
 	setup_firewall()?;
-	replace_nft_rule(
+
+	// Create the shared bridge rules in order, with the replies before all bridge drops.
+	let mut rules = vec![nft_add_rule_args(
 		POSTROUTING_CHAIN,
-		TANGRAM_BRIDGE_MASQUERADE_COMMENT,
 		bridge_masquerade_rule(bridge, &cidr),
-	)?;
-	delete_rules_by_comment(
-		INPUT_CHAIN,
-		CommentMatcher::Prefix(TANGRAM_BRIDGE_INPUT_DNS_COMMENT_PREFIX),
-	)?;
-	delete_rules_by_comment(
-		FORWARD_CHAIN,
-		CommentMatcher::Prefix(TANGRAM_BRIDGE_FORWARD_OUT_DNS_COMMENT_PREFIX),
-	)?;
+	)];
 	for (index, addr) in dns.iter().enumerate() {
 		for protocol in ["tcp", "udp"] {
 			let comment = format!("{TANGRAM_BRIDGE_INPUT_DNS_COMMENT_PREFIX}{index}:{protocol}");
-			run_nft_checked(&nft_add_rule_args(
+			rules.push(nft_add_rule_args(
 				INPUT_CHAIN,
 				dns_rule(bridge, *addr, protocol, &comment),
-			))?;
+			));
 			let comment =
 				format!("{TANGRAM_BRIDGE_FORWARD_OUT_DNS_COMMENT_PREFIX}{index}:{protocol}");
-			run_nft_checked(&nft_add_rule_args(
+			rules.push(nft_add_rule_args(
 				FORWARD_CHAIN,
 				dns_rule(bridge, *addr, protocol, &comment),
-			))?;
+			));
 		}
 	}
-	replace_nft_rule(
-		INPUT_CHAIN,
-		TANGRAM_BRIDGE_INPUT_DROP_COMMENT,
-		input_drop_rule(bridge, TANGRAM_BRIDGE_INPUT_DROP_COMMENT),
-	)?;
-	replace_nft_rule(
-		FORWARD_CHAIN,
-		TANGRAM_BRIDGE_FORWARD_OUT_PRIVATE_COMMENT,
-		forward_private_drop_rule(bridge, TANGRAM_BRIDGE_FORWARD_OUT_PRIVATE_COMMENT),
-	)?;
-	replace_nft_rule(
-		FORWARD_CHAIN,
-		TANGRAM_BRIDGE_FORWARD_OUT_COMMENT,
-		forward_out_rule(bridge, TANGRAM_BRIDGE_FORWARD_OUT_COMMENT),
-	)?;
-	replace_nft_rule(
-		FORWARD_CHAIN,
-		TANGRAM_BRIDGE_FORWARD_IN_COMMENT,
-		forward_in_rule(bridge, TANGRAM_BRIDGE_FORWARD_IN_COMMENT),
-	)?;
-	replace_nft_rule(
-		FORWARD_CHAIN,
-		TANGRAM_BRIDGE_FORWARD_IN_DROP_COMMENT,
-		forward_in_drop_rule(bridge, TANGRAM_BRIDGE_FORWARD_IN_DROP_COMMENT),
-	)?;
-	// Insert replies before all bridge drops, including rules retained from an earlier setup.
+	rules.extend([
+		nft_add_rule_args(
+			INPUT_CHAIN,
+			input_drop_rule(bridge, TANGRAM_BRIDGE_INPUT_DROP_COMMENT),
+		),
+		nft_add_rule_args(
+			FORWARD_CHAIN,
+			forward_private_drop_rule(bridge, TANGRAM_BRIDGE_FORWARD_OUT_PRIVATE_COMMENT),
+		),
+		nft_add_rule_args(
+			FORWARD_CHAIN,
+			forward_out_rule(bridge, TANGRAM_BRIDGE_FORWARD_OUT_COMMENT),
+		),
+		nft_add_rule_args(
+			FORWARD_CHAIN,
+			forward_in_rule(bridge, TANGRAM_BRIDGE_FORWARD_IN_COMMENT),
+		),
+		nft_add_rule_args(
+			FORWARD_CHAIN,
+			forward_in_drop_rule(bridge, TANGRAM_BRIDGE_FORWARD_IN_DROP_COMMENT),
+		),
+	]);
 	for (chain, comment) in [
 		(FORWARD_CHAIN, TANGRAM_BRIDGE_FORWARD_REPLY_COMMENT),
 		(INPUT_CHAIN, TANGRAM_BRIDGE_INPUT_REPLY_COMMENT),
 	] {
-		delete_rules_by_comment(chain, CommentMatcher::Exact(comment))?;
 		let rule = NftRule::insert(
 			chain,
 			comment.to_owned(),
 			bridge_reply_rule(bridge, comment),
 		);
-		run_nft_checked(&rule.args)?;
+		rules.push(rule.args);
 	}
+
+	// Replace the shared bridge rules in one transaction, so that the other servers on the host never see them missing or out of order.
+	let deletes = [
+		(
+			POSTROUTING_CHAIN,
+			CommentMatcher::Exact(TANGRAM_BRIDGE_MASQUERADE_COMMENT),
+		),
+		(
+			INPUT_CHAIN,
+			CommentMatcher::Prefix(TANGRAM_BRIDGE_INPUT_DNS_COMMENT_PREFIX),
+		),
+		(
+			FORWARD_CHAIN,
+			CommentMatcher::Prefix(TANGRAM_BRIDGE_FORWARD_OUT_DNS_COMMENT_PREFIX),
+		),
+		(
+			INPUT_CHAIN,
+			CommentMatcher::Exact(TANGRAM_BRIDGE_INPUT_DROP_COMMENT),
+		),
+		(
+			FORWARD_CHAIN,
+			CommentMatcher::Exact(TANGRAM_BRIDGE_FORWARD_OUT_PRIVATE_COMMENT),
+		),
+		(
+			FORWARD_CHAIN,
+			CommentMatcher::Exact(TANGRAM_BRIDGE_FORWARD_OUT_COMMENT),
+		),
+		(
+			FORWARD_CHAIN,
+			CommentMatcher::Exact(TANGRAM_BRIDGE_FORWARD_IN_COMMENT),
+		),
+		(
+			FORWARD_CHAIN,
+			CommentMatcher::Exact(TANGRAM_BRIDGE_FORWARD_IN_DROP_COMMENT),
+		),
+		(
+			FORWARD_CHAIN,
+			CommentMatcher::Exact(TANGRAM_BRIDGE_FORWARD_REPLY_COMMENT),
+		),
+		(
+			INPUT_CHAIN,
+			CommentMatcher::Exact(TANGRAM_BRIDGE_INPUT_REPLY_COMMENT),
+		),
+	];
+	replace_rules_atomically(&deletes, &rules)?;
 
 	Ok(())
 }
@@ -192,7 +237,7 @@ pub fn add_port_forwarding_rules(
 	guest_ip: Ipv4Addr,
 	ports: &[tg::sandbox::Port],
 ) -> tg::Result<Vec<FirewallRuleGuard>> {
-	let identity = hash_identity(identity);
+	let identity = super::identity_hash(identity);
 	setup_firewall()?;
 	cleanup_dynamic_port_forwarding_rules(&identity)?;
 	let mut guards = Vec::new();
@@ -347,15 +392,6 @@ fn ensure_nft_chain(chain: &'static str, spec: &str) -> tg::Result<()> {
 		return Ok(());
 	}
 	Err(nft_error(&args, &stderr))
-}
-
-fn replace_nft_rule(
-	chain: &'static str,
-	comment: &'static str,
-	rule: Vec<String>,
-) -> tg::Result<()> {
-	delete_rules_by_comment(chain, CommentMatcher::Exact(comment))?;
-	run_nft_checked(&nft_add_rule_args(chain, rule))
 }
 
 fn tap_masquerade_rule(interface: &str) -> Vec<String> {
@@ -571,11 +607,39 @@ fn nft_add_rule_args(chain: &'static str, rule: Vec<String>) -> Vec<String> {
 }
 
 fn delete_rules_by_comment(chain: &str, matcher: CommentMatcher<'_>) -> tg::Result<()> {
+	let handles = list_rule_handles(chain, matcher)?;
+	for handle in handles {
+		let args = [
+			"delete".to_owned(),
+			"rule".to_owned(),
+			"ip".to_owned(),
+			NFT_TABLE.to_owned(),
+			chain.to_owned(),
+			"handle".to_owned(),
+			handle,
+		];
+		let output = run_nft_owned(&args)?;
+		if output.status.success() {
+			continue;
+		}
+
+		// Ignore a rule that is already gone.
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		if is_nft_missing_table_or_chain_error(&stderr) {
+			continue;
+		}
+		return Err(nft_error(&args, &stderr));
+	}
+	Ok(())
+}
+
+/// List the handles of the rules in a chain whose comments match.
+fn list_rule_handles(chain: &str, matcher: CommentMatcher<'_>) -> tg::Result<Vec<String>> {
 	let output = run_nft(&["-a", "list", "chain", "ip", NFT_TABLE, chain])?;
 	if !output.status.success() {
 		let stderr = String::from_utf8_lossy(&output.stderr);
 		if is_nft_missing_table_or_chain_error(&stderr) {
-			return Ok(());
+			return Ok(Vec::new());
 		}
 		return Err(nft_error(
 			&["-a", "list", "chain", "ip", NFT_TABLE, chain],
@@ -588,19 +652,57 @@ fn delete_rules_by_comment(chain: &str, matcher: CommentMatcher<'_>) -> tg::Resu
 		.filter(|line| matcher.matches(line))
 		.filter_map(rule_handle)
 		.map(str::to_owned)
-		.collect::<Vec<_>>();
-	for handle in handles {
-		run_nft_checked(&[
-			"delete".to_owned(),
-			"rule".to_owned(),
-			"ip".to_owned(),
-			NFT_TABLE.to_owned(),
-			chain.to_owned(),
-			"handle".to_owned(),
-			handle,
-		])?;
+		.collect();
+	Ok(handles)
+}
+
+/// Delete the rules whose comments match and add the rules in one nft transaction, and try again if another server changed the rules between the listing and the transaction.
+fn replace_rules_atomically(
+	deletes: &[(&str, CommentMatcher<'_>)],
+	rules: &[Vec<String>],
+) -> tg::Result<()> {
+	let mut stderr = String::new();
+	for _ in 0..ATOMIC_REPLACE_ATTEMPTS {
+		// Create the transaction from the current handles.
+		let mut script = String::new();
+		for (chain, matcher) in deletes {
+			for handle in list_rule_handles(chain, *matcher)? {
+				writeln!(script, "delete rule ip {NFT_TABLE} {chain} handle {handle}").unwrap();
+			}
+		}
+		for rule in rules {
+			script.push_str(&rule.join(" "));
+			script.push('\n');
+		}
+
+		// Run the transaction.
+		let mut child = std::process::Command::new("nft")
+			.args(["-f", "-"])
+			.stdin(std::process::Stdio::piped())
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::piped())
+			.spawn()
+			.map_err(|error| tg::error!(!error, "failed to spawn nft"))?;
+		child
+			.stdin
+			.take()
+			.unwrap()
+			.write_all(script.as_bytes())
+			.map_err(|error| tg::error!(!error, "failed to write the nft transaction"))?;
+		let output = child
+			.wait_with_output()
+			.map_err(|error| tg::error!(!error, "failed to wait for nft"))?;
+		if output.status.success() {
+			return Ok(());
+		}
+
+		// Try again if a rule that the transaction deletes is already gone.
+		stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+		if !is_nft_missing_table_or_chain_error(&stderr) {
+			return Err(nft_error(&["-f", "-"], &stderr));
+		}
 	}
-	Ok(())
+	Err(nft_error(&["-f", "-"], &stderr))
 }
 
 fn rule_handle(line: &str) -> Option<&str> {
@@ -628,20 +730,6 @@ fn dynamic_rule_comment_prefix(prefix: &str, identity: &str) -> String {
 	format!("{prefix}{identity}:")
 }
 
-fn hash_identity(identity: &Path) -> String {
-	let identity = canonicalize_identity(identity);
-	let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-	for byte in identity.as_os_str().as_bytes() {
-		hash ^= u64::from(*byte);
-		hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-	}
-	format!("{hash:016x}")
-}
-
-fn canonicalize_identity(identity: &Path) -> PathBuf {
-	std::fs::canonicalize(identity).unwrap_or_else(|_| identity.to_owned())
-}
-
 fn quote(value: &str) -> String {
 	format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
@@ -654,12 +742,16 @@ fn run_nft(args: &[&str]) -> tg::Result<std::process::Output> {
 		.map_err(|error| tg::error!(!error, "failed to spawn nft"))
 }
 
-fn run_nft_checked(args: &[String]) -> tg::Result<()> {
-	let output = std::process::Command::new("nft")
+fn run_nft_owned(args: &[String]) -> tg::Result<std::process::Output> {
+	std::process::Command::new("nft")
 		.args(args)
 		.stderr(std::process::Stdio::piped())
 		.output()
-		.map_err(|error| tg::error!(!error, "failed to spawn nft"))?;
+		.map_err(|error| tg::error!(!error, "failed to spawn nft"))
+}
+
+fn run_nft_checked(args: &[String]) -> tg::Result<()> {
+	let output = run_nft_owned(args)?;
 	if output.status.success() {
 		return Ok(());
 	}

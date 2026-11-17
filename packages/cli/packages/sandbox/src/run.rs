@@ -101,6 +101,9 @@ pub struct Options {
 	pub gid: Option<u32>,
 
 	#[arg(long)]
+	pub guest_interface: Option<String>,
+
+	#[arg(long)]
 	pub guest_ip: Option<std::net::Ipv4Addr>,
 
 	#[arg(long)]
@@ -578,6 +581,10 @@ impl Options {
 				guest: self
 					.guest_ip
 					.ok_or_else(|| tg::error!("the guest address is required"))?,
+				name: self
+					.guest_interface
+					.clone()
+					.ok_or_else(|| tg::error!("the guest interface is required"))?,
 			}),
 			Some(kind) => return Err(tg::error!(%kind, "invalid Linux launch network")),
 		};

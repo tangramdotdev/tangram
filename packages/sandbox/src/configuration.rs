@@ -125,8 +125,9 @@ impl Sandbox {
 				crate::network::Network::Veth(network) => {
 					let index = arg.index;
 					let bridge = network.bridge_name().to_owned();
+					let scope = network.scope().to_owned();
 					let mut pair = tokio::task::spawn_blocking(move || {
-						crate::network::veth::Pair::new(index, &bridge)
+						crate::network::veth::Pair::new(index, &scope, &bridge)
 					})
 					.await
 					.map_err(|error| tg::error!(!error, "the network creation task panicked"))??;

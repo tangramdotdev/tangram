@@ -13,6 +13,7 @@ pub struct Network {
 	gateway_ip: Ipv4Addr,
 	guest: ip::Lease,
 	_port_forwarding_rules: Vec<host::FirewallRuleGuard>,
+	scope: String,
 }
 
 #[derive(Debug)]
@@ -47,12 +48,14 @@ impl Network {
 			guest.addr,
 			ports,
 		)?;
+		let scope = scope(identity);
 		Ok(Self {
 			_port_forwarding_rules: port_forwarding_rules,
 			bridge_name,
 			dns,
 			gateway_ip: gateway_ip(),
 			guest,
+			scope,
 		})
 	}
 
@@ -75,15 +78,29 @@ impl Network {
 	pub fn guest_ip(&self) -> Ipv4Addr {
 		self.guest.addr
 	}
+
+	/// The scope of the server's interface names, which `Pair::new` takes.
+	#[must_use]
+	pub fn scope(&self) -> &str {
+		&self.scope
+	}
 }
 
 impl Pair {
-	pub fn new(index: u64, bridge_name: &str) -> tg::Result<Self> {
-		let suffix = format!("{:09}", index % 1_000_000_000);
-		let host_name = format!("tg-vh-{suffix}");
-		let guest_name = format!("tg-vc-{suffix}");
+	pub fn new(index: u64, scope: &str, bridge_name: &str) -> tg::Result<Self> {
+		// Name the links with the server's scope and the sandbox's index, which fit in an interface name of 15 bytes.
+		let suffix = format!("{:06x}", index % 0x0100_0000);
+		let host_name = format!("{}{scope}h{suffix}", host::TAP_INTERFACE_NAME_PREFIX);
+		let guest_name = format!("{}{scope}c{suffix}", host::TAP_INTERFACE_NAME_PREFIX);
 
-		let netlink = Netlink::new()?;
+		// Delete a link with the same name that this server left behind when it crashed.
+		let mut netlink = Netlink::new()?;
+		if netlink.link_exists(&host_name)? {
+			netlink.link_delete(&host_name)?;
+		}
+		if netlink.link_exists(&guest_name)? {
+			netlink.link_delete(&guest_name)?;
+		}
 
 		let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair()
 			.map_err(|error| tg::error!(!error, "failed to create socket pair"))?;
@@ -193,6 +210,11 @@ pub fn create_bridge(
 	host::enable_route_localnet(name)?;
 	host::setup_bridge_networking(firewall, name, ip, dns)?;
 	Ok(())
+}
+
+/// Get the scope of a server's interface names, which is the first five hex digits of the hash of the server's identity.
+fn scope(identity: &Path) -> String {
+	host::identity_hash(identity)[..5].to_owned()
 }
 
 fn isolate_bridge_port(interface: &str) -> tg::Result<()> {

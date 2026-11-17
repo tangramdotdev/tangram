@@ -39,6 +39,12 @@ with socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=5) as con
 	tg sandbox wait $sandbox | ignore
 }
 
+# Give the servers of this copy of the test a range of one block of guest addresses, derived from the test's process ID, so that copies of the test that run at the same time on the host do not share a range.
+let block = $nu.pid mod (63 * 250)
+let octet = 1 + ($block // 63)
+let first = 4 + ($block mod 63) * 4
+let ip_range = $'172.18.($octet).($first)-172.18.($octet).($first + 3)'
+
 let backends = if (which bwrap | is-empty) { [builtin] } else { [builtin bubblewrap] }
 let mounts = [/usr /lib /lib64 /bin] | where { path exists } | each {|path| [--mount $'($path | path expand):($path),ro'] } | flatten
 for backend in $backends {
@@ -46,7 +52,7 @@ for backend in $backends {
 		let config = {
 			advanced: { checkpoints: true },
 			runner: { backend: { kind: $backend, storage_limits: $root }, sandbox_pool_size: 1, storage: 201326592 },
-			sandbox: { network: { ip_ranges: ['172.18.251.4-172.18.251.7'] } },
+			sandbox: { network: { ip_ranges: [$ip_range] } },
 			scheduler: { default_cpu: 2, default_memory: 134217728, default_storage: 67108864 },
 		}
 		let local = if $root { server spawn --root --config $config } else { server spawn --config $config }
