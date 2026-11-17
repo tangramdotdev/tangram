@@ -290,6 +290,12 @@ impl Component {
 		{
 			return Ok(Some(output));
 		}
+		tangram_server_core::checkpoint!(
+			session.server,
+			"process.spawn.cached.region_or_remote",
+			command = %command.node,
+		)
+		.await;
 		let output = match self
 			.spawn_process_get_cached_process_region_or_remote(session, arg, true, false)
 			.await
