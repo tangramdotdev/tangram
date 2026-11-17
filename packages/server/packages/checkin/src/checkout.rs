@@ -275,6 +275,11 @@ impl Component {
 				|error| tg::error!(!error, path = %path.display(), "failed to restore permissions"),
 			)?;
 			result?;
+
+			// Wait until no process has the file open for writing, so that it can be executed and cannot be modified once it is in the checkouts directory.
+			if file.is_some() && metadata.permissions().mode() & 0o111 != 0 {
+				session.server.wait_for_file_writers_sync(&path)?;
+			}
 		}
 
 		Ok(())
@@ -426,6 +431,11 @@ impl Component {
 				std::fs::set_permissions(dst, permissions).map_err(
 					|error| tg::error!(!error, path = %dst.display(), "failed to set permissions"),
 				)?;
+
+				// Wait until no child process has the copy open for writing, so that it can be executed when it is renamed to the checkouts directory.
+				if executable {
+					session.server.wait_for_file_writers_sync(dst)?;
+				}
 			}
 
 			// Rename the temp to the checkouts directory.

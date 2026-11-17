@@ -16,6 +16,7 @@ use {
 		ops::Deref,
 		path::{Path, PathBuf},
 		sync::{Arc, Mutex},
+		time::{Duration, Instant},
 	},
 	tangram_client::prelude::*,
 	tangram_uri::Uri,
@@ -287,6 +288,45 @@ impl Server {
 	#[must_use]
 	pub fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
+	}
+
+	/// Wait until no process has the file open for writing, so that it can be executed. A child process holds copies of the server's file descriptors from when it forks until it executes its program, and Linux refuses to execute a file that any process has open for writing.
+	pub fn wait_for_file_writers_sync(&self, path: &Path) -> tg::Result<()> {
+		self.try_wait_for_file_writers_sync(path)?.ok_or_else(
+			|| tg::error!(path = %path.display(), "the filesystem cannot report if the file is open for writing"),
+		)
+	}
+
+	/// Wait until no process has the file open for writing, returning `None` if the filesystem cannot report if any process does.
+	pub fn try_wait_for_file_writers_sync(&self, path: &Path) -> tg::Result<Option<()>> {
+		const TIMEOUT: Duration = Duration::from_secs(10);
+		let start = Instant::now();
+		let mut duration = Duration::from_micros(100);
+		loop {
+			// Return if no process has the file open for writing, or if the filesystem does not support leases.
+			match tangram_util::fs::has_writers_sync(path) {
+				Ok(false) => break,
+				Ok(true) => (),
+				Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
+					return Ok(None);
+				},
+				Err(error) => {
+					return Err(
+						tg::error!(!error, path = %path.display(), "failed to determine if the file is open for writing"),
+					);
+				},
+			}
+			futures::executor::block_on(crate::checkpoint!(self, "file.writers"));
+
+			// Wait for the process to close the file.
+			if start.elapsed() > TIMEOUT {
+				return Err(tg::error!(path = %path.display(), "the file is open for writing"));
+			}
+			std::thread::sleep(duration);
+			duration = (duration * 2).min(Duration::from_millis(10));
+		}
+
+		Ok(Some(()))
 	}
 }
 

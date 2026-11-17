@@ -129,6 +129,42 @@ pub fn canonicalize_parent_sync(path: impl AsRef<Path>) -> std::io::Result<PathB
 	Ok(path)
 }
 
+/// Return whether any process has the file open for writing, which is the condition under which Linux refuses to execute it. On other platforms, this is always false.
+pub fn has_writers_sync(path: impl AsRef<Path>) -> std::io::Result<bool> {
+	#[cfg(target_os = "linux")]
+	{
+		use std::os::fd::AsRawFd as _;
+
+		// Handle the signal that the kernel sends if another process opens the file for writing while the lease is held.
+		static HANDLER: std::sync::Once = std::sync::Once::new();
+		HANDLER.call_once(handle_lease_break_signal);
+
+		// Attempt to acquire a read lease, which the kernel grants only if no process has the file open for writing.
+		let file = std::fs::File::open(path)?;
+		let fd = file.as_raw_fd();
+		// SAFETY: The file descriptor is open for the duration of the call.
+		let result = unsafe { libc::fcntl(fd, libc::F_SETLEASE, libc::F_RDLCK) };
+		if result != 0 {
+			let error = std::io::Error::last_os_error();
+			if error.raw_os_error() == Some(libc::EAGAIN) {
+				return Ok(true);
+			}
+			return Err(error);
+		}
+
+		// Release the lease, so that a copy of the file descriptor in a forked child process does not keep it.
+		// SAFETY: The file descriptor is open for the duration of the call.
+		unsafe { libc::fcntl(fd, libc::F_SETLEASE, libc::F_UNLCK) };
+
+		Ok(false)
+	}
+	#[cfg(not(target_os = "linux"))]
+	{
+		let _ = path;
+		Ok(false)
+	}
+}
+
 pub async fn remove(path: impl AsRef<Path>) -> std::io::Result<()> {
 	let path = path.as_ref().to_owned();
 	tokio::task::spawn_blocking(move || remove_sync(&path))
@@ -257,6 +293,26 @@ pub fn sync_recursive_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 	inner(path.as_ref())
 }
 
+/// Install a handler that does nothing for the signal that the kernel sends to break a lease, whose default action is to terminate the process, unless a handler is already installed.
+#[cfg(target_os = "linux")]
+fn handle_lease_break_signal() {
+	extern "C" fn handler(_: libc::c_int) {}
+
+	// SAFETY: The actions are valid for the duration of the calls, and the handler does nothing, so it is safe to run at any time.
+	unsafe {
+		let mut action = std::mem::zeroed::<libc::sigaction>();
+		if libc::sigaction(libc::SIGIO, std::ptr::null(), &raw mut action) != 0
+			|| action.sa_sigaction != libc::SIG_DFL
+		{
+			return;
+		}
+		action.sa_sigaction = handler as extern "C" fn(libc::c_int) as libc::sighandler_t;
+		action.sa_flags = libc::SA_RESTART;
+		libc::sigemptyset(&raw mut action.sa_mask);
+		libc::sigaction(libc::SIGIO, &raw const action, std::ptr::null_mut());
+	}
+}
+
 #[cfg(target_os = "linux")]
 fn try_canonicalize_descriptor_path(path: &Path) -> std::io::Result<Option<PathBuf>> {
 	use {
@@ -371,5 +427,14 @@ mod tests {
 			canonicalize_sync(temp.path().join("link/file")).unwrap(),
 			temp.path().join("directory/file")
 		);
+	}
+
+	#[test]
+	fn has_writers() {
+		let temp = Temp::new().unwrap();
+		let file = std::fs::File::create(temp.path()).unwrap();
+		assert!(has_writers_sync(temp.path()).unwrap());
+		drop(file);
+		assert!(!has_writers_sync(temp.path()).unwrap());
 	}
 }

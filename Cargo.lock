@@ -10735,6 +10735,7 @@ name = "tangram_server"
 version = "0.0.0"
 dependencies = [
  "futures",
+ "libc",
  "serde_json",
  "tangram_client",
  "tangram_server_authentication",

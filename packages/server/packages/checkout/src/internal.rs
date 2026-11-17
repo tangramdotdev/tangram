@@ -1284,8 +1284,14 @@ impl Component {
 			});
 			let mut file = std::fs::File::create(path)
 				.map_err(|error| tg::error!(!error, ?path, "failed to create the file"))?;
+			futures::executor::block_on(tangram_server_core::checkpoint!(
+				session.server,
+				"checkout.file.write",
+				id = %id,
+			));
 			std::io::copy(&mut reader, &mut file)
 				.map_err(|error| tg::error!(!error, ?path, "failed to write to the file"))?;
+			drop(file);
 
 			// Write all file xattrs before making the file read-only.
 			let module = node.module.as_ref().map(ToString::to_string);
@@ -1309,6 +1315,11 @@ impl Component {
 			let permissions = std::fs::Permissions::from_mode(mode);
 			std::fs::set_permissions(path, permissions)
 				.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
+
+			// Wait until no child process has the file open for writing, so that it can be executed when it is renamed to the checkouts directory.
+			if node.executable {
+				session.server.wait_for_file_writers_sync(path)?;
+			}
 		}
 
 		// Increment the progress.
