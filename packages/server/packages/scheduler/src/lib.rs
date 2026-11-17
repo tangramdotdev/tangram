@@ -17,8 +17,9 @@ use {
 	tangram_messenger::Messenger,
 	tangram_server_core::{Server, Session},
 	tangram_server_scheduler_core::{
-		AddRunnerRequestArg, AddRunnerResponseOutput, BorrowableCapacityNotification,
-		DequeueSandboxRequestArg, DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
+		AddRunnerRequestArg, AddRunnerResponseOutput, AddSandboxParentRequestArg,
+		AddSandboxParentResponseOutput, BorrowableCapacityNotification, DequeueSandboxRequestArg,
+		DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
 		DestroyRunnerSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
 		HeartbeatAcknowledgement, HeartbeatNotification, Notification, RemoveRunnerRequestArg,
 		RemoveRunnerResponseOutput, RequestArg, ResponseOutput, SandboxEndedNotification,
@@ -313,6 +314,34 @@ impl Component {
 			.try_unwrap_destroy_runner_sandbox()
 			.map_err(|_| tg::error!("expected a destroy runner sandbox response"))?;
 		Ok(output.destroyed)
+	}
+
+	/// Add a parent to a sandbox that a scheduler holds, and return the sandbox's capacity, or none if the scheduler does not hold the sandbox.
+	pub(crate) async fn add_sandbox_parent(
+		&self,
+		session: &Session,
+		sandbox: &tg::sandbox::Id,
+		parent: &tg::sandbox::Id,
+		scheduler: &tg::scheduler::Id,
+	) -> tg::Result<Option<tg::runner::Capacity>> {
+		let request = RequestArg::AddSandboxParent(AddSandboxParentRequestArg {
+			parent: parent.clone(),
+			sandbox: sandbox.clone(),
+		});
+		let response = self
+			.send_scheduler_request_to(session, scheduler, request)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %sandbox, %scheduler, "failed to send the add sandbox parent request"),
+			)?
+			.map_err(
+				|source| tg::error!(!source, %sandbox, %scheduler, "the add sandbox parent request failed"),
+			)?;
+		let output = response
+			.try_unwrap_add_sandbox_parent()
+			.map_err(|_| tg::error!("expected an add sandbox parent response"))?;
+
+		Ok(output.capacity)
 	}
 
 	pub(crate) async fn dequeue_sandbox(
@@ -660,6 +689,12 @@ impl Scheduler {
 			RequestArg::AddRunner(request) => {
 				state.handle_add_runner_request(self, id, request);
 			},
+			RequestArg::AddSandboxParent(request) => {
+				let output = state.add_sandbox_parent(self, &request);
+				let response =
+					request::Response::new(id, Ok(ResponseOutput::AddSandboxParent(output)));
+				self.send_response(state, response);
+			},
 			RequestArg::DequeueSandbox(request) => {
 				if let Some(output) = state.dequeue_sandbox(self, id.clone(), request) {
 					self.send_dequeue_sandbox_response(state, id, output);
@@ -950,6 +985,17 @@ impl tangram_server_core::component::Lifecycle for Component {
 }
 
 impl tangram_server_core::scheduler::Component for Component {
+	fn add_sandbox_parent<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		sandbox: &'a tg::sandbox::Id,
+		parent: &'a tg::sandbox::Id,
+		scheduler: &'a tg::scheduler::Id,
+	) -> BoxFuture<'a, tg::Result<Option<tg::runner::Capacity>>> {
+		self.add_sandbox_parent(session, sandbox, parent, scheduler)
+			.boxed()
+	}
+
 	fn destroy_runner_sandbox<'a>(
 		&'a self,
 		server: &'a tangram_server_core::Server,

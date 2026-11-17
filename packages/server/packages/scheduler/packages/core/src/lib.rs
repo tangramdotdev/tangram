@@ -123,6 +123,9 @@ pub enum RequestArg {
 	#[tangram_serialize(id = 1)]
 	AddRunner(AddRunnerRequestArg),
 
+	#[tangram_serialize(id = 9)]
+	AddSandboxParent(AddSandboxParentRequestArg),
+
 	#[tangram_serialize(id = 3)]
 	DequeueSandbox(DequeueSandboxRequestArg),
 
@@ -149,6 +152,9 @@ pub enum RequestArg {
 pub enum ResponseOutput {
 	#[tangram_serialize(id = 1)]
 	AddRunner(AddRunnerResponseOutput),
+
+	#[tangram_serialize(id = 9)]
+	AddSandboxParent(AddSandboxParentResponseOutput),
 
 	#[tangram_serialize(id = 3)]
 	DequeueSandbox(DequeueSandboxResponseOutput),
@@ -233,6 +239,38 @@ pub struct RemoveRunnerRequestArg {
 pub struct RemoveRunnerResponseOutput {
 	#[tangram_serialize(id = 0)]
 	pub runner: tg::runner::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct AddSandboxParentRequestArg {
+	/// The sandbox whose process waits for the queued sandbox's process.
+	#[tangram_serialize(id = 0)]
+	pub parent: tg::sandbox::Id,
+
+	#[tangram_serialize(id = 1)]
+	pub sandbox: tg::sandbox::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct AddSandboxParentResponseOutput {
+	/// The capacity of the sandbox, which is absent if the scheduler does not hold the sandbox.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub capacity: Option<tg::runner::Capacity>,
 }
 
 #[derive(

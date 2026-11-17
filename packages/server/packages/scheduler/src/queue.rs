@@ -1,8 +1,10 @@
 use {
 	super::{
 		Scheduler, SchedulerState,
-		sandbox::{Entries, Sandbox, State},
+		placement::Parent,
+		sandbox::{Entries, ParentLinks, Sandbox, State},
 	},
+	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 };
 
@@ -99,7 +101,7 @@ impl List {
 	pub(super) fn push(
 		&mut self,
 		entries: &mut Entries,
-		links: fn(&mut Sandbox) -> &mut Links,
+		links: impl Fn(&mut Sandbox) -> &mut Links,
 		id: &tg::sandbox::Id,
 	) {
 		let previous = self.tail.replace(id.clone());
@@ -119,7 +121,7 @@ impl List {
 	pub(super) fn remove(
 		&mut self,
 		entries: &mut Entries,
-		links: fn(&mut Sandbox) -> &mut Links,
+		links: impl Fn(&mut Sandbox) -> &mut Links,
 		id: &tg::sandbox::Id,
 	) -> Option<tg::sandbox::Id> {
 		let Links { next, previous } = std::mem::take(links(entries.get_mut(id).unwrap()));
@@ -161,20 +163,56 @@ impl SchedulerState {
 		self.sandboxes.entries.get_mut(id).unwrap().state = State::Queued;
 	}
 
-	/// Remove a sandbox from the queue, and from its parent's queue.
+	/// Add a sandbox that the scheduler holds to the end of a parent's queue, so that the sandbox can borrow the parent's capacity.
+	pub(super) fn add_parent(&mut self, id: &tg::sandbox::Id, parent: &tg::sandbox::Id) {
+		let links = ParentLinks {
+			links: Links::default(),
+			parent: parent.clone(),
+		};
+		self.sandboxes
+			.entries
+			.get_mut(id)
+			.unwrap()
+			.parents
+			.push(links);
+		self.parents
+			.0
+			.entry(parent.clone())
+			.or_insert_with(|| Parent {
+				borrowable: None,
+				children: BTreeMap::new(),
+				queue: List::default(),
+			})
+			.queue
+			.push(
+				&mut self.sandboxes.entries,
+				|sandbox| sandbox.parent_links_mut(parent),
+				id,
+			);
+	}
+
+	/// Remove a sandbox from the queue, and from its parents' queues.
 	pub(super) fn remove_queued_sandbox(&mut self, id: &tg::sandbox::Id) {
-		let parent_id = self.sandboxes.entries[id].parent.clone();
 		self.queue.remove(&mut self.sandboxes.entries, id);
-		if let Some(parent_id) = parent_id
-			&& let Some(parent) = self.parents.0.get_mut(&parent_id)
-		{
-			parent
-				.queue
-				.remove(&mut self.sandboxes.entries, Sandbox::parent_links_mut, id);
+		let parents = self.sandboxes.entries[id]
+			.parents
+			.iter()
+			.map(|links| links.parent.clone())
+			.collect::<Vec<_>>();
+		for parent_id in parents {
+			let Some(parent) = self.parents.0.get_mut(&parent_id) else {
+				continue;
+			};
+			parent.queue.remove(
+				&mut self.sandboxes.entries,
+				|sandbox| sandbox.parent_links_mut(&parent_id),
+				id,
+			);
 			if parent.is_empty() {
 				self.parents.0.remove(&parent_id);
 			}
 		}
+		self.sandboxes.entries.get_mut(id).unwrap().parents.clear();
 	}
 
 	/// Find the first of a parent's children that the scheduler has not offered to a runner.
@@ -185,7 +223,7 @@ impl SchedulerState {
 			if matches!(sandbox.state, State::Queued) {
 				return Some(id.clone());
 			}
-			child = sandbox.parent_links.next.as_ref();
+			child = sandbox.parent_links(parent).next.as_ref();
 		}
 
 		None

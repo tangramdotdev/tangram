@@ -1249,7 +1249,7 @@ impl Component {
 				.process
 				.try_acquire_scheduled_sandbox_capacity(
 					session,
-					request.borrowed,
+					request.lender.as_ref(),
 					request.parent.as_ref(),
 					requested,
 				);

@@ -282,6 +282,7 @@ impl Component {
 			arg.wait = true;
 		}
 
+		let lender = parent_sandbox.clone();
 		let mut output = if shortcut {
 			self.try_spawn_process_local(
 				session,
@@ -331,6 +332,28 @@ impl Component {
 			&& !output.cached
 		{
 			output.location = Some(location);
+		}
+
+		// Lend the parent's capacity to a cached process that has not finished, in place of the process that the spawn would have created.
+		if runner_matches_location
+			&& new_sandbox
+			&& let Some(output) = &output
+			&& output.cached
+			&& output.outcome.is_none()
+			&& let Some(parent) = &arg.parent
+			&& let Some(parent_sandbox) = &lender
+		{
+			let result = self
+				.spawn_process_lend_capacity_to_cached_process(
+					session,
+					parent,
+					parent_sandbox,
+					output,
+				)
+				.await;
+			if let Err(error) = result {
+				tracing::debug!(error = %error.trace(), %parent, "failed to lend capacity to the cached process");
+			}
 		}
 		let mut lease_guard = output
 			.as_ref()
@@ -393,7 +416,7 @@ impl Component {
 		let parent = parent.clone();
 		let parent_sandbox = parent_sandbox.clone();
 		let notify = async move {
-			if let Err(error) = component.spawn_process_notify_borrowable_capacity(&session, &parent, &parent_sandbox, requested).await {
+			if let Err(error) = component.spawn_process_notify_borrowable_capacity(&session, &parent, &parent_sandbox, local::Borrower::Child(requested)).await {
 				tracing::debug!(error = %error.trace(), %parent, "failed to notify the scheduler of borrowable capacity");
 			}
 		}.boxed();

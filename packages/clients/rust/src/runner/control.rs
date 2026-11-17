@@ -368,15 +368,17 @@ pub struct OfferSandboxServerRequestArg {
 	)]
 	pub boot: u64,
 
-	#[tangram_serialize(id = 1)]
-	pub borrowed: bool,
-
 	#[tangram_serialize(id = 2)]
 	pub capacity: tg::runner::Capacity,
 
 	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "tg::Principal::is_root")]
 	pub creator: tg::Principal,
+
+	/// The parent whose capacity the sandbox borrows, if it borrows.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	pub lender: Option<tg::sandbox::Id>,
 
 	#[serde(default, skip_serializing_if = "tg::Principal::is_root")]
 	#[tangram_serialize(id = 8, default, skip_serializing_if = "tg::Principal::is_root")]

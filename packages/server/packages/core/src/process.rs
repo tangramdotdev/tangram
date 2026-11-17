@@ -355,7 +355,7 @@ pub trait Component: crate::component::Lifecycle {
 	fn try_acquire_scheduled_sandbox_capacity<'a>(
 		&'a self,
 		session: &'a Session,
-		borrowed: bool,
+		lender: Option<&'a tg::sandbox::Id>,
 		parent: Option<&'a tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
 	) -> Option<tangram_server_runner_core::capacity::Allocation>;
