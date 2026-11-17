@@ -24,10 +24,7 @@ let path = artifact {
 # Hold the waiter before execution while it borrows the parent's capacity.
 let start = checkpoint watch runner.process.start
 let enqueued = checkpoint watch scheduler.sandbox.enqueued
-let build = job spawn {
-	let job_id = job id
-	tg build $path | complete | job send --tag $job_id 0
-}
+let root = tg build --detach --verbose $path | from json | get process
 checkpoint pass $start | ignore
 checkpoint wait $start 1 | ignore
 
@@ -37,6 +34,13 @@ checkpoint unwatch $enqueued
 tg index
 checkpoint unwatch $start
 
-let output = job recv --tag $build --timeout 30sec
+let output = timeout 30s tg wait $root | complete
 success $output 'the shared child should run on the capacity that its parent lends'
-assert equal ($output.stdout | from json) ["leaf" "leaf"]
+assert equal ($output.stdout | from json | get output) ["leaf" "leaf"]
+
+# The parent and the waiter share one leaf process, so the command runs once.
+let children = tg process children --no-tokens $root | from json | get process | each { split row '?' | first }
+let waiter = $children | get 0
+let leaf = $children | get 1
+let shared = tg process children --no-tokens $waiter | from json | get 0.process | split row '?' | first
+assert equal $shared $leaf 'the waiter should reuse the leaf that its parent queued'

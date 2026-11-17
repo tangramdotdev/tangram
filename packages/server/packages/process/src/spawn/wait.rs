@@ -268,7 +268,11 @@ impl Component {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get a cached process"))?
 				.map(|output| -> tg::Result<_> {
-					let sandbox = output.data.sandbox.clone();
+					let sandbox = output
+						.data
+						.sandbox
+						.clone()
+						.filter(|_| output.data.status.is_queued());
 					let mut output = Self::spawn_process_output(output, None)?;
 					if let Some(location) = location {
 						output.location = Some(location.clone());

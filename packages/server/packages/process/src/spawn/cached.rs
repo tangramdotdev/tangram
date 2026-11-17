@@ -25,7 +25,7 @@ pub(super) struct Output {
 
 	inner: tg::process::spawn::Output,
 
-	/// The sandbox of a cached process in this region, which may borrow the capacity of the sandbox whose process waits for it if a scheduler holds it.
+	/// The sandbox of a cached process that is queued, which may borrow the capacity of the sandbox whose process waits for it.
 	pub(super) sandbox: Option<tg::sandbox::Id>,
 }
 

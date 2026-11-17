@@ -182,7 +182,7 @@ impl Component {
 				while let Some(status) = stream.try_next().await? {
 					match status {
 						tg::process::Status::Finished | tg::process::Status::Started => break,
-						tg::process::Status::Starting => (),
+						tg::process::Status::Queued => (),
 					}
 				}
 				Ok::<_, tg::Error>(())

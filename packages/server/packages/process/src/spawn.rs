@@ -517,10 +517,10 @@ impl Component {
 			output.tokens.clear();
 		}
 
-		// Get the sandbox of a cached process, which may borrow the capacity of the parent's sandbox if a scheduler holds it.
+		// Get the sandbox of a cached process that is queued, which may borrow the capacity of the parent's sandbox.
 		let sandbox = output
 			.as_ref()
-			.filter(|output| output.cached)
+			.filter(|output| output.cached && output.data.status.is_queued())
 			.and_then(|output| output.data.sandbox.clone());
 		let (output, sandbox) = if cacheable && arg.cached.is_none() {
 			let output = self
