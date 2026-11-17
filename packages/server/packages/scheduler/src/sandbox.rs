@@ -42,6 +42,21 @@ pub(super) struct Sandboxes {
 	pub(super) written: Vec<(tg::sandbox::Id, u64)>,
 }
 
+/// What remains to be sent after the state is updated for a sandbox that a runner holds.
+pub(super) enum Tracked {
+	/// The runner accepted the queued sandbox, so its acceptance finishes.
+	Accepted,
+
+	/// The scheduler ended the sandbox as destroyed, so its runner destroys it.
+	Destroy(DestroySandbox),
+
+	/// The scheduler's entry stays as it is.
+	Ignored,
+
+	/// The scheduler tracks the sandbox on the runner, and the enqueue requests that waited for the acceptance of the entry it replaced fail.
+	Inserted { ids: Vec<String> },
+}
+
 /// A destroy of a sandbox on a runner. The request is present if the sandbox has a record to finish.
 pub(super) struct DestroySandbox {
 	pub(super) error: tg::error::Data,
@@ -338,19 +353,28 @@ impl SchedulerState {
 		scheduler: &Scheduler,
 		id: &tg::sandbox::Id,
 	) -> Option<Sandbox> {
+		let (sandbox, ids) = self.remove_sandbox_inner(id)?;
+		if !ids.is_empty() {
+			let error =
+				tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
+			self.send_enqueue_responses(scheduler, ids, Err(error));
+		}
+
+		Some(sandbox)
+	}
+
+	/// Remove the entry of a sandbox that is not in the queue, and return it with the enqueue requests that still wait for its acceptance.
+	fn remove_sandbox_inner(&mut self, id: &tg::sandbox::Id) -> Option<(Sandbox, Vec<String>)> {
 		let mut sandbox = self.sandboxes.entries.remove(id)?;
 		if let Some(parent) = &sandbox.parent {
 			self.remove_child(parent, id);
 		}
-		if let Some(accept) = sandbox.accept.take()
-			&& !accept.ids.is_empty()
-		{
-			let error =
-				tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
-			self.send_enqueue_responses(scheduler, accept.ids, Err(error));
-		}
+		let ids = sandbox
+			.accept
+			.take()
+			.map_or_else(Vec::new, |accept| accept.ids);
 
-		Some(sandbox)
+		Some((sandbox, ids))
 	}
 
 	/// End a sandbox that no runner accepted, and write its terminal state. Keep the sandbox's entry until the index has recorded the terminal state, so that an enqueue of the sandbox that the lagging index sends again does not start it. Return the write, which a response that follows it awaits.
@@ -732,26 +756,45 @@ impl SchedulerState {
 		request: Option<EnqueueSandboxRequestArg>,
 		runner: RunnerRef,
 	) {
+		match self.track_accepted_sandbox_inner(id, boot, request, runner) {
+			Tracked::Accepted => self.finish_accept(scheduler, id, Path::Handled, Ok(())),
+			Tracked::Destroy(destroy) => self.send_destroy_sandbox(scheduler, destroy),
+			Tracked::Ignored => {},
+			Tracked::Inserted { ids } => {
+				let error = tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
+				self.send_enqueue_responses(scheduler, ids, Err(error));
+			},
+		}
+	}
+
+	/// Update the state for a sandbox that a runner holds, and return what remains to be sent.
+	pub(super) fn track_accepted_sandbox_inner(
+		&mut self,
+		id: &tg::sandbox::Id,
+		boot: u64,
+		request: Option<EnqueueSandboxRequestArg>,
+		runner: RunnerRef,
+	) -> Tracked {
 		let mut parent = request.as_ref().and_then(|request| request.parent.clone());
 		let mut request = request;
+		let mut ids = Vec::new();
 		if let Some(entry) = self.sandboxes.entries.get(id) {
 			if entry.boot > boot {
-				return;
+				return Tracked::Ignored;
 			}
 			match &entry.state {
 				// Record that the runner accepted a queued sandbox that it holds, whose offer's answer the scheduler did not receive.
 				State::Queued if entry.boot == boot => {
 					self.accept_sandbox(id, runner);
-					self.finish_accept(scheduler, id, Path::Handled, Ok(()));
-					return;
+					return Tracked::Accepted;
 				},
 
 				// Leave a sandbox that the scheduler offered to a runner to the offer's answer, and a queued later boot alone.
-				State::Offered { .. } | State::Queued => return,
+				State::Offered { .. } | State::Queued => return Tracked::Ignored,
 
 				// Leave a boot that the scheduler ended as stopped to its runner, which stops the boots that the index records as stopped when it registers, so that the sandbox's directory stays for its next start.
 				State::Terminal { status, .. } if entry.boot == boot && status.is_stopped() => {
-					return;
+					return Tracked::Ignored;
 				},
 
 				// Destroy a sandbox on its runner that the scheduler ended as destroyed.
@@ -764,13 +807,13 @@ impl SchedulerState {
 						runner: runner.id,
 						sandbox: id.clone(),
 					};
-					self.send_destroy_sandbox(scheduler, destroy);
-					return;
+					return Tracked::Destroy(destroy);
 				},
 
 				// Replace an older boot, and keep what the scheduler knows about the boot if the report does not carry it.
 				State::Accepted { .. } | State::Terminal { .. } => {
-					let previous = self.remove_sandbox(scheduler, id).unwrap();
+					let (previous, waiting) = self.remove_sandbox_inner(id).unwrap();
+					ids = waiting;
 					parent = parent.or(previous.parent);
 					if previous.boot == boot {
 						request = request.or(previous.request);
@@ -783,6 +826,8 @@ impl SchedulerState {
 		}
 		let sandbox = Sandbox::new(boot, parent, request, State::Accepted { runner });
 		self.sandboxes.entries.insert(id.clone(), sandbox);
+
+		Tracked::Inserted { ids }
 	}
 
 	/// Forget a sandbox that its runner reports ended.

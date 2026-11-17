@@ -288,6 +288,10 @@ display_progress() {
 		if $finished; then
 			break
 		fi
+		# Exit if the supervisor was killed before it could finish the progress.
+		if ! kill -0 "$$" 2>/dev/null; then
+			break
+		fi
 		sleep 0.1
 	done
 	exit 0
@@ -624,11 +628,24 @@ def run_databases [profile: string, target_path: string] {
 		ensure_docker_image $scylla_image
 	}
 
-	# Create the temporary state.
+	# Create the temporary state, and record the supervisor's process ID, which this process keeps when it becomes the supervisor.
 	let state_path = if $nu.os-info.name == 'linux' {
 		mktemp -d --tmpdir-path /var/tmp tangram_databases_XXXXXX | path expand
 	} else {
 		mktemp -d -t tangram_databases_XXXXXX | path expand
+	}
+	$nu.pid | into string | save -f ($state_path | path join 'pid')
+
+	# Remove the temporary state of earlier supervisors that were killed before they could remove it.
+	for path in (glob ($state_path | path dirname | path join 'tangram_databases_*')) {
+		if $path == $state_path {
+			continue
+		}
+		let pid_path = $path | path join 'pid'
+		let running = ($pid_path | path exists) and ((^kill -0 (open --raw $pid_path | str trim) | complete).exit_code == 0)
+		if not $running {
+			rm -rf $path
+		}
 	}
 	let cluster_path = $state_path | path join 'fdb.cluster'
 	let database_pool_path = database_pool_path
