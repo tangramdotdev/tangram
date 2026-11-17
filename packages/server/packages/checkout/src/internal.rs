@@ -892,15 +892,22 @@ impl Component {
 		graph_id: Option<&tg::graph::Id>,
 		progress: tg::progress::Handle<()>,
 	) -> tg::Result<Arc<[tg::Id]>> {
+		// Get the IDs of the items.
 		let ids = items
 			.iter()
 			.map(|item| item.id.clone().into())
 			.collect::<Arc<[_]>>();
-		if ids.is_empty() || Self::touch_existing_checkouts(&session.server, &ids).await? {
+		if ids.is_empty() {
 			return Ok(ids);
 		}
 
-		// Write each item to a temp and collect dependencies.
+		// Refresh the checkouts if all of them exist and are indexed.
+		let exist = Self::checkouts_exist(&session.server, &ids).await?;
+		if exist && Self::touch_checkouts(&session.server, &ids).await? {
+			return Ok(ids);
+		}
+
+		// Collect the dependencies of each item, writing the item to a temp unless the checkouts exist.
 		let outputs = tokio::task::spawn_blocking({
 			let component = self.clone();
 			let session = session.clone();
@@ -909,16 +916,20 @@ impl Component {
 			move || {
 				let mut outputs = Vec::new();
 				for item in items {
-					// Create a temp.
-					let temp = Temp::new(&session.server);
-
-					// Write the item.
-					let mut dependencies = component.checkout_internal_write(
-						&session,
-						temp.path(),
-						&item,
-						&progress,
-					)?;
+					// Write the item to a temp, or only collect its dependencies if its checkout exists.
+					let (temp, mut dependencies) = if exist {
+						let dependencies = Self::checkout_internal_dependencies(&session, &item)?;
+						(None, dependencies)
+					} else {
+						let temp = Temp::new(&session.server);
+						let dependencies = component.checkout_internal_write(
+							&session,
+							temp.path(),
+							&item,
+							&progress,
+						)?;
+						(Some(temp), dependencies)
+					};
 
 					// Skip dependencies that this graph checkout is already writing.
 					if let Some(graph_id) = &graph_id {
@@ -956,14 +967,22 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to check out the dependencies"))?;
 
-		// Rename all entries to the checkouts directory.
+		// Rename the temps to the checkouts directory and create the index args.
 		let put_checkout_args = tokio::task::spawn_blocking({
 			let session = session.clone();
 			move || {
 				let mut put_checkout_args = Vec::with_capacity(outputs.len());
 				for (item, temp, dependencies) in outputs {
-					let put_checkout_arg =
-						Self::checkout_internal_rename(&session, item, &temp, dependencies)?;
+					if let Some(temp) = &temp {
+						Self::checkout_internal_rename(&session, &item, temp)?;
+					}
+					let touched_at = session.server.clock.unix_timestamp();
+					let put_checkout_arg = tangram_index::checkout::put::Arg {
+						dependencies,
+						id: item.id.into(),
+						replace: false,
+						touched_at,
+					};
 					put_checkout_args.push(put_checkout_arg);
 				}
 				Ok::<_, tg::Error>(put_checkout_args)
@@ -990,8 +1009,7 @@ impl Component {
 		Ok(ids)
 	}
 
-	async fn touch_existing_checkouts(server: &Server, ids: &[tg::Id]) -> tg::Result<bool> {
-		// Check that each checkout exists and its path resolves.
+	async fn checkouts_exist(server: &Server, ids: &[tg::Id]) -> tg::Result<bool> {
 		let directory = server.checkout_path();
 		let paths = ids
 			.iter()
@@ -1014,11 +1032,11 @@ impl Component {
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
-		if !exists {
-			return Ok(false);
-		}
 
-		// Refresh the checkouts together, and rebuild them if the index is missing an entry.
+		Ok(exists)
+	}
+
+	async fn touch_checkouts(server: &Server, ids: &[tg::Id]) -> tg::Result<bool> {
 		let touched_at = server.clock.unix_timestamp();
 		let time_to_touch = server.config.object.time_to_touch;
 		let checkouts = server
@@ -1029,6 +1047,78 @@ impl Component {
 		let touched = checkouts.iter().all(Option::is_some);
 
 		Ok(touched)
+	}
+
+	fn checkout_internal_dependencies(session: &Session, item: &Item) -> tg::Result<Vec<Item>> {
+		let graphs = tangram_server_core::graph::Graphs::default();
+		// Walk the artifact's nodes without writing them.
+		let mut dependencies = Vec::new();
+		let mut dependency_ids = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
+		let mut entry_ids = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
+		let mut stack = vec![item.clone()];
+		while let Some(Item { graph, node, .. }) = stack.pop() {
+			// Get the edges to the node's entries and dependencies.
+			let (entries, edges) = match &node {
+				tg::graph::data::Node::Directory(node) => {
+					let entries = tangram_server_core::directory::collect_directory_entries(
+						&session.server.cache,
+						&graphs,
+						node,
+						graph.as_ref(),
+					)?;
+					(entries.into_values().collect(), vec![])
+				},
+				tg::graph::data::Node::File(node) => {
+					let edges = node
+						.dependencies
+						.values()
+						.flatten()
+						.filter_map(Self::checkout_internal_file_dependency_edge)
+						.collect();
+					(vec![], edges)
+				},
+				tg::graph::data::Node::Symlink(node) => {
+					(vec![], node.artifact.clone().into_iter().collect())
+				},
+			};
+
+			// Visit each entry once.
+			for edge in entries {
+				let entry =
+					Self::checkout_internal_get_item(session, &graphs, edge, graph.as_ref())
+						.map_err(|error| tg::error!(!error, "failed to get the item"))?;
+				if entry_ids.insert(entry.id.clone()) {
+					stack.push(entry);
+				}
+			}
+
+			// Collect each dependency once if it is not the root artifact.
+			for edge in edges {
+				let dependency =
+					Self::checkout_internal_get_item(session, &graphs, edge, graph.as_ref())
+						.map_err(|error| tg::error!(!error, "failed to get the item"))?;
+				if dependency.id != item.id && dependency_ids.insert(dependency.id.clone()) {
+					dependencies.push(dependency);
+				}
+			}
+		}
+
+		Ok(dependencies)
+	}
+
+	fn checkout_internal_file_dependency_edge(
+		dependency: &tg::graph::data::Dependency,
+	) -> Option<tg::graph::data::Edge<tg::artifact::Id>> {
+		match dependency.node.clone()? {
+			tg::graph::data::Edge::Index(index) => Some(tg::graph::data::Edge::Index(index)),
+			tg::graph::data::Edge::Pointer(pointer) => {
+				Some(tg::graph::data::Edge::Pointer(pointer))
+			},
+			tg::graph::data::Edge::Object(id) => {
+				let id = id.try_into().ok()?;
+				Some(tg::graph::data::Edge::Object(id))
+			},
+		}
 	}
 
 	fn checkout_internal_write(
@@ -1194,22 +1284,9 @@ impl Component {
 			};
 
 			// Get the edge.
-			let edge = match dependency.node.clone() {
-				Some(tg::graph::data::Edge::Index(index)) => tg::graph::data::Edge::Index(index),
-				Some(tg::graph::data::Edge::Pointer(graph)) => {
-					tg::graph::data::Edge::Pointer(graph)
-				},
-				Some(tg::graph::data::Edge::Object(id)) => {
-					let Ok(id) = id.try_into() else {
-						references.push(reference);
-						continue;
-					};
-					tg::graph::data::Edge::Object(id)
-				},
-				None => {
-					references.push(reference);
-					continue;
-				},
+			let Some(edge) = Self::checkout_internal_file_dependency_edge(dependency) else {
+				references.push(reference);
+				continue;
 			};
 
 			// Get the node.
@@ -1395,12 +1472,7 @@ impl Component {
 		Ok(dependencies)
 	}
 
-	fn checkout_internal_rename(
-		session: &Session,
-		item: Item,
-		temp: &Temp,
-		dependencies: Vec<tg::Id>,
-	) -> tg::Result<tangram_index::checkout::put::Arg> {
+	fn checkout_internal_rename(session: &Session, item: &Item, temp: &Temp) -> tg::Result<()> {
 		// Create the path.
 		let path = session.server.checkout_path().join(item.id.to_string());
 
@@ -1444,16 +1516,7 @@ impl Component {
 			)?;
 		}
 
-		// Index the checkout.
-		let touched_at = session.server.clock.unix_timestamp();
-		let arg = tangram_index::checkout::put::Arg {
-			dependencies,
-			id: item.id.into(),
-			replace: false,
-			touched_at,
-		};
-
-		Ok(arg)
+		Ok(())
 	}
 
 	fn checkout_internal_get_item(
