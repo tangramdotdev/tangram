@@ -843,7 +843,7 @@ impl Component {
 		// Create the path.
 		let path = session.server.checkout_path().join(item.id.to_string());
 
-		// If the path exists, then return.
+		// If the path exists, then touch the checkout so that cleaning does not remove it while it is in use, and return unless the index no longer has it.
 		let exists = tokio::task::spawn_blocking({
 			let path = path.clone();
 			move || path.try_exists()
@@ -852,7 +852,18 @@ impl Component {
 		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 		.map_err(|error| tg::error!(!error, "failed to determine if the path exists"))?;
 		if exists {
-			return Ok(());
+			let id = tg::Id::from(item.id.clone());
+			let touched_at = session.server.clock.unix_timestamp();
+			let time_to_touch = session.server.config.object.time_to_touch;
+			let checkout = session
+				.server
+				.index
+				.touch_checkout(&id, touched_at, time_to_touch)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to touch the checkout"))?;
+			if checkout.is_some() {
+				return Ok(());
+			}
 		}
 
 		// Create the temp and write the artifact.
