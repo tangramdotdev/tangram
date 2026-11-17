@@ -6,13 +6,15 @@ use {
 };
 
 pub const BRIDGE_NAME: &str = "tangram0";
+const GUEST_INTERFACE_NAME_PREFIX: &str = "tg-vc-";
+const HOST_INTERFACE_NAME_PREFIX: &str = "tg-vh-";
 
 pub struct Network {
 	bridge_name: String,
 	dns: Vec<Ipv4Addr>,
 	gateway_ip: Ipv4Addr,
 	guest: ip::Lease,
-	_port_forwarding_rules: Vec<host::FirewallRuleGuard>,
+	port_forwarding_rules: Vec<host::FirewallRuleGuard>,
 }
 
 #[derive(Debug)]
@@ -48,11 +50,11 @@ impl Network {
 			ports,
 		)?;
 		Ok(Self {
-			_port_forwarding_rules: port_forwarding_rules,
 			bridge_name,
 			dns,
 			gateway_ip: gateway_ip(),
 			guest,
+			port_forwarding_rules,
 		})
 	}
 
@@ -78,10 +80,10 @@ impl Network {
 }
 
 impl Pair {
-	pub fn new(index: u64, bridge_name: &str) -> tg::Result<Self> {
-		let suffix = format!("{:09}", index % 1_000_000_000);
-		let host_name = format!("tg-vh-{suffix}");
-		let guest_name = format!("tg-vc-{suffix}");
+	pub fn new(bridge_name: &str) -> tg::Result<Self> {
+		let suffix = interface_name_suffix();
+		let host_name = format!("{HOST_INTERFACE_NAME_PREFIX}{suffix}");
+		let guest_name = format!("{GUEST_INTERFACE_NAME_PREFIX}{suffix}");
 
 		let netlink = Netlink::new()?;
 
@@ -156,6 +158,13 @@ impl Pair {
 	}
 }
 
+impl Drop for Network {
+	fn drop(&mut self) {
+		// Remove the port forwarding rules before the guest address lease is released.
+		self.port_forwarding_rules.clear();
+	}
+}
+
 impl Drop for Pair {
 	fn drop(&mut self) {
 		if self.created && !self.attached {
@@ -170,7 +179,11 @@ pub fn setup(firewall: crate::Firewall, dns: &[Ipv4Addr]) -> tg::Result<Vec<Ipv4
 	SETUP
 		.get_or_init(|| {
 			let dns = crate::dns::resolve(dns)?;
+
+			// Create the bridge and its firewall rules while holding the host's setup lock, because every server on the host shares them.
+			let _lock = host::lock_setup()?;
 			create_bridge(firewall, BRIDGE_NAME, gateway_ip(), &dns)?;
+
 			Ok(dns)
 		})
 		.clone()
@@ -193,6 +206,15 @@ pub fn create_bridge(
 	host::enable_route_localnet(name)?;
 	host::setup_bridge_networking(firewall, name, ip, dns)?;
 	Ok(())
+}
+
+/// Generate a random suffix for the names of a pair, which keeps the names within the kernel's limit and unique across the servers on the host.
+fn interface_name_suffix() -> String {
+	const ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+	let length = libc::IFNAMSIZ - 1 - HOST_INTERFACE_NAME_PREFIX.len();
+	(0..length)
+		.map(|_| char::from(ALPHABET[rand::random_range(0..ALPHABET.len())]))
+		.collect()
 }
 
 fn isolate_bridge_port(interface: &str) -> tg::Result<()> {

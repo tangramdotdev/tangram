@@ -1,4 +1,13 @@
-use {std::net::Ipv4Addr, tangram_client::prelude::*};
+use {
+	std::{
+		collections::BTreeSet,
+		io::Write as _,
+		net::Ipv4Addr,
+		path::Path,
+		sync::{Mutex, OnceLock},
+	},
+	tangram_client::prelude::*,
+};
 
 const FILTER_TABLE: &[&str] = &[];
 const IPTABLES_WAIT: &str = "-w";
@@ -8,7 +17,7 @@ const TANGRAM_BRIDGE_CHAIN: &str = "TANGRAM-BRIDGE";
 const TANGRAM_FORWARD_CHAIN: &str = "TANGRAM-FWD";
 const TANGRAM_INPUT_CHAIN: &str = "TANGRAM-INPUT";
 const TANGRAM_SNAT_CHAIN: &str = "TANGRAM-SNAT";
-const TANGRAM_RULE_COMMENT_PREFIX: &str = "tangram:sandbox_index=";
+const TANGRAM_RULE_COMMENT_PREFIX: &str = "tangram:identity=";
 
 #[derive(Debug)]
 struct IptablesRule {
@@ -19,6 +28,12 @@ struct IptablesRule {
 #[derive(Debug)]
 pub struct IptablesRuleGuard {
 	rule: IptablesRule,
+}
+
+#[derive(Clone, Copy)]
+enum CommentMatcher<'a> {
+	Exact(&'a str),
+	Prefix(&'a str),
 }
 
 impl IptablesRule {
@@ -52,25 +67,25 @@ impl IptablesRuleGuard {
 	}
 }
 
-/// Best-effort removal of host-wide iptables rules that prior runs of the server
-/// may have left behind. If the `iptables` binary reports a permission error,
-/// log a warning and return Ok rather than failing; the server can still start
-/// without networking, and the operator may not have `CAP_NET_ADMIN`.
-pub fn cleanup_persistent_rules(bridge: Option<&str>) -> tg::Result<()> {
-	for rule in cleanup_persistent_rule_commands(bridge) {
+impl CommentMatcher<'_> {
+	fn matches(&self, comment: &str) -> bool {
+		match self {
+			Self::Exact(expected) => comment == *expected,
+			Self::Prefix(prefix) => comment.starts_with(prefix),
+		}
+	}
+}
+
+/// Remove the rules that earlier versions of the server installed in the shared chains for a bridge. If the `iptables` binary reports a permission error, log a warning and return Ok rather than failing; the server can still start without networking, and the operator may not have `CAP_NET_ADMIN`.
+fn delete_legacy_bridge_rules(bridge: &str) -> tg::Result<()> {
+	for rule in legacy_bridge_rules(bridge) {
 		let rule_args = rule.rule.iter().map(String::as_str).collect::<Vec<_>>();
 		delete_iptables_rule(rule.table, &rule_args)?;
-	}
-	if let Some(bridge) = bridge {
-		delete_bridge_masquerade_rules(bridge)?;
 	}
 	Ok(())
 }
 
 pub fn setup_tap_networking() -> tg::Result<()> {
-	if let Err(error) = cleanup_persistent_rules(None) {
-		tracing::warn!(%error, "failed to clean up persistent sandbox rules");
-	}
 	setup_port_forwarding()?;
 	let prefix = format!("{}+", super::TAP_INTERFACE_NAME_PREFIX);
 
@@ -115,53 +130,87 @@ pub fn setup_tap_networking() -> tg::Result<()> {
 }
 
 pub fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr, dns: &[Ipv4Addr]) -> tg::Result<()> {
-	if let Err(error) = cleanup_persistent_rules(Some(bridge)) {
+	// Remove the legacy rules and set up the port forwarding chains.
+	if let Err(error) = delete_legacy_bridge_rules(bridge) {
 		tracing::warn!(%error, "failed to clean up persistent sandbox rules");
 	}
 	setup_port_forwarding()?;
-	ensure_iptables_chain(FILTER_TABLE, TANGRAM_BRIDGE_CHAIN)?;
-	ensure_iptables_chain(FILTER_TABLE, TANGRAM_INPUT_CHAIN)?;
-	flush_iptables_chain(FILTER_TABLE, TANGRAM_BRIDGE_CHAIN)?;
-	flush_iptables_chain(FILTER_TABLE, TANGRAM_INPUT_CHAIN)?;
+
+	// Install the masquerade rule, then remove the bridge's other masquerade rules.
 	let octets = addr.octets();
 	let subnet = Ipv4Addr::new(octets[0], octets[1], 0, 0);
 	let cidr = format!("{subnet}/16");
-	get_or_set_iptables_rule(
-		NAT_TABLE,
-		&[
-			"POSTROUTING",
-			"-s",
-			cidr.as_str(),
-			"!",
-			"-o",
-			bridge,
-			"-j",
-			"MASQUERADE",
-		],
-	)?;
-	for rule in bridge_filter_rules(bridge, dns) {
-		let rule = rule.rule.iter().map(String::as_str).collect::<Vec<_>>();
-		append_iptables_rule(FILTER_TABLE, &rule)?;
+	let masquerade = [
+		"POSTROUTING",
+		"-s",
+		cidr.as_str(),
+		"!",
+		"-o",
+		bridge,
+		"-j",
+		"MASQUERADE",
+	];
+	get_or_set_iptables_rule(NAT_TABLE, &masquerade)?;
+	if let Err(error) = delete_bridge_masquerade_rules(bridge, &masquerade[1..]) {
+		tracing::warn!(%error, "failed to clean up persistent sandbox rules");
 	}
-	for rule in bridge_input_rules(bridge, dns) {
-		let rule = rule.rule.iter().map(String::as_str).collect::<Vec<_>>();
-		append_iptables_rule(FILTER_TABLE, &rule)?;
-	}
-	replace_iptables_rule(
-		FILTER_TABLE,
-		&["FORWARD", "-i", bridge, "-j", TANGRAM_BRIDGE_CHAIN],
-	)?;
-	replace_iptables_rule(
-		FILTER_TABLE,
-		&["FORWARD", "-o", bridge, "-j", TANGRAM_BRIDGE_CHAIN],
-	)?;
-	replace_iptables_rule(
-		FILTER_TABLE,
-		&["INPUT", "-i", bridge, "-j", TANGRAM_INPUT_CHAIN],
-	)?;
-	// Published ports must be considered before the bridge chain rejects unsolicited inbound traffic.
-	replace_iptables_rule(FILTER_TABLE, &["FORWARD", "-j", TANGRAM_FORWARD_CHAIN])?;
+
+	// Replace the bridge chains and the jumps to them in one transaction, so that no rule is missing while they are replaced.
+	let forward = list_iptables_rules(FILTER_TABLE, "FORWARD")?;
+	let input = list_iptables_rules(FILTER_TABLE, "INPUT")?;
+	let script = bridge_restore_script(bridge, dns, &forward, &input);
+	restore_iptables(&script)?;
+
 	Ok(())
+}
+
+/// Create the `iptables-restore` script that replaces the bridge chains, and that moves the jumps to the bridge and published port chains to the top of the built-in chains, given the current rules of the built-in chains.
+fn bridge_restore_script(
+	bridge: &str,
+	dns: &[Ipv4Addr],
+	forward: &[String],
+	input: &[String],
+) -> String {
+	// Declare the bridge chains, which flushes them.
+	let mut lines = vec![
+		"*filter".to_owned(),
+		format!(":{TANGRAM_BRIDGE_CHAIN} - [0:0]"),
+		format!(":{TANGRAM_INPUT_CHAIN} - [0:0]"),
+	];
+
+	// Append the bridge rules.
+	for rule in bridge_filter_rules(bridge, dns)
+		.into_iter()
+		.chain(bridge_input_rules(bridge, dns))
+	{
+		lines.push(format!("-A {}", rule.rule.join(" ")));
+	}
+
+	// Move the jumps to the top. Published ports must be considered before the bridge chain rejects unsolicited inbound traffic.
+	let jumps = [
+		(
+			forward,
+			format!("FORWARD -i {bridge} -j {TANGRAM_BRIDGE_CHAIN}"),
+		),
+		(
+			forward,
+			format!("FORWARD -o {bridge} -j {TANGRAM_BRIDGE_CHAIN}"),
+		),
+		(input, format!("INPUT -i {bridge} -j {TANGRAM_INPUT_CHAIN}")),
+		(forward, format!("FORWARD -j {TANGRAM_FORWARD_CHAIN}")),
+	];
+	for (rules, jump) in jumps {
+		let existing = format!("-A {jump}");
+		for _ in rules.iter().filter(|rule| **rule == existing) {
+			lines.push(format!("-D {jump}"));
+		}
+		lines.push(format!("-I {jump}"));
+	}
+	lines.push("COMMIT".to_owned());
+
+	let mut script = lines.join("\n");
+	script.push('\n');
+	script
 }
 
 fn bridge_filter_rules(bridge: &str, dns: &[Ipv4Addr]) -> Vec<IptablesRule> {
@@ -292,11 +341,30 @@ pub fn setup_port_forwarding() -> tg::Result<()> {
 	SETUP.get_or_init(setup_port_forwarding_inner).clone()
 }
 
-fn cleanup_port_forwarding_rules() -> tg::Result<()> {
-	static CLEANUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
-	CLEANUP
-		.get_or_init(cleanup_port_forwarding_rules_inner)
-		.clone()
+/// Remove the port forwarding rules that this server left behind in an earlier run, once per server.
+fn cleanup_port_forwarding_rules(identity: &str) -> tg::Result<()> {
+	// Hold the lock while removing the rules, so that the server does not add rules that the removal deletes.
+	static CLEANED: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
+	let mut cleaned = CLEANED
+		.get_or_init(Mutex::default)
+		.lock()
+		.map_err(|_| tg::error!("failed to lock the firewall cleanup state"))?;
+	if cleaned.contains(identity) {
+		return Ok(());
+	}
+
+	// Remove the rules whose comments name this server.
+	let prefix = rule_comment_prefix(identity);
+	for (table, chain) in [
+		(NAT_TABLE, TANGRAM_DNAT_CHAIN),
+		(NAT_TABLE, TANGRAM_SNAT_CHAIN),
+		(FILTER_TABLE, TANGRAM_FORWARD_CHAIN),
+	] {
+		delete_iptables_rules_by_comment(table, chain, CommentMatcher::Prefix(&prefix))?;
+	}
+	cleaned.insert(identity.to_owned());
+
+	Ok(())
 }
 
 fn setup_port_forwarding_inner() -> tg::Result<()> {
@@ -312,56 +380,10 @@ fn setup_port_forwarding_inner() -> tg::Result<()> {
 	Ok(())
 }
 
-fn cleanup_port_forwarding_rules_inner() -> tg::Result<()> {
-	setup_port_forwarding()?;
-	flush_iptables_chain(NAT_TABLE, TANGRAM_DNAT_CHAIN)?;
-	flush_iptables_chain(NAT_TABLE, TANGRAM_SNAT_CHAIN)?;
-	flush_iptables_chain(FILTER_TABLE, TANGRAM_FORWARD_CHAIN)?;
-	Ok(())
-}
-
-fn cleanup_persistent_rule_commands(bridge: Option<&str>) -> Vec<IptablesRule> {
-	let tap_prefix = format!("{}+", super::TAP_INTERFACE_NAME_PREFIX);
-	let mut rules = Vec::new();
-	if bridge.is_none() {
-		rules.push(IptablesRule::new(
-			NAT_TABLE,
-			[
-				"POSTROUTING",
-				"-s",
-				"172.16.0.0/12",
-				"!",
-				"-o",
-				tap_prefix.as_str(),
-				"-j",
-				"MASQUERADE",
-			],
-		));
-		rules.push(IptablesRule::new(
-			FILTER_TABLE,
-			["FORWARD", "-i", tap_prefix.as_str(), "-j", "ACCEPT"],
-		));
-		rules.push(IptablesRule::new(
-			FILTER_TABLE,
-			[
-				"FORWARD",
-				"-o",
-				tap_prefix.as_str(),
-				"-m",
-				"conntrack",
-				"--ctstate",
-				"ESTABLISHED,RELATED",
-				"-j",
-				"ACCEPT",
-			],
-		));
-	}
-	if let Some(bridge) = bridge {
-		rules.push(IptablesRule::new(
-			FILTER_TABLE,
-			["FORWARD", "-i", bridge, "-j", "ACCEPT"],
-		));
-		rules.push(IptablesRule::new(
+fn legacy_bridge_rules(bridge: &str) -> Vec<IptablesRule> {
+	vec![
+		IptablesRule::new(FILTER_TABLE, ["FORWARD", "-i", bridge, "-j", "ACCEPT"]),
+		IptablesRule::new(
 			FILTER_TABLE,
 			[
 				"FORWARD",
@@ -374,9 +396,8 @@ fn cleanup_persistent_rule_commands(bridge: Option<&str>) -> Vec<IptablesRule> {
 				"-j",
 				"ACCEPT",
 			],
-		));
-	}
-	rules
+		),
+	]
 }
 
 fn ensure_iptables_chain(table: &[&str], chain: &str) -> tg::Result<()> {
@@ -408,21 +429,6 @@ fn ensure_iptables_chain(table: &[&str], chain: &str) -> tg::Result<()> {
 	Err(tg::error!(%stderr, %chain, "failed to create the iptables chain"))
 }
 
-fn flush_iptables_chain(table: &[&str], chain: &str) -> tg::Result<()> {
-	let mut args = iptables_args(table, "-F");
-	args.push(chain);
-	let output = std::process::Command::new("iptables")
-		.args(&args)
-		.stderr(std::process::Stdio::piped())
-		.output()
-		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
-	if output.status.success() {
-		return Ok(());
-	}
-	let stderr = String::from_utf8_lossy(&output.stderr);
-	Err(tg::error!(%stderr, %chain, "failed to flush the iptables chain"))
-}
-
 pub fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 	let mut check = iptables_args(table, "-C");
 	check.extend_from_slice(rule);
@@ -449,39 +455,26 @@ pub fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()>
 	Ok(())
 }
 
-fn append_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
-	let mut append = iptables_args(table, "-A");
-	append.extend_from_slice(rule);
-	let output = std::process::Command::new("iptables")
-		.args(&append)
-		.stderr(std::process::Stdio::piped())
-		.output()
-		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
-	if !output.status.success() {
-		let stderr = String::from_utf8_lossy(&output.stderr);
-		let rule = rule.join(" ");
-		return Err(tg::error!(%stderr, %rule, "failed to append an iptables rule"));
-	}
-	Ok(())
-}
-
-fn replace_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
-	delete_iptables_rule(table, rule)?;
-	insert_iptables_rule(table, rule)
-}
-
 pub fn add_port_forwarding_rules(
 	index: u64,
-	_identity: &std::path::Path,
+	identity: &Path,
 	out_interface: &str,
 	host_ip: Ipv4Addr,
 	guest_ip: Ipv4Addr,
 	ports: &[tg::sandbox::Port],
 ) -> tg::Result<Vec<IptablesRuleGuard>> {
+	let identity = super::hash_identity(identity);
+
+	// Convert a trailing wildcard in the interface name to the wildcard that iptables matches.
+	let out_interface = out_interface
+		.strip_suffix('*')
+		.map_or_else(|| out_interface.to_owned(), |prefix| format!("{prefix}+"));
+	let out_interface = out_interface.as_str();
+
 	setup_port_forwarding()?;
-	cleanup_port_forwarding_rules()?;
+	cleanup_port_forwarding_rules(&identity)?;
 	let mut guards = Vec::new();
-	let comment = sandbox_rule_comment(index);
+	let comment = sandbox_rule_comment(&identity, index);
 	for port in ports {
 		let host = port
 			.host
@@ -625,8 +618,12 @@ fn append_comment(rule: &mut Vec<String>, comment: &str) {
 	]);
 }
 
-fn sandbox_rule_comment(index: u64) -> String {
-	format!("{TANGRAM_RULE_COMMENT_PREFIX}{index}")
+fn sandbox_rule_comment(identity: &str, index: u64) -> String {
+	format!("{}sandbox_index={index}", rule_comment_prefix(identity))
+}
+
+fn rule_comment_prefix(identity: &str) -> String {
+	format!("{TANGRAM_RULE_COMMENT_PREFIX}{identity}:")
 }
 
 fn iptables_args<'a>(table: &'a [&'a str], operation: &'a str) -> Vec<&'a str> {
@@ -710,72 +707,102 @@ fn delete_iptables_rule_once(table: &[&str], rule: &[&str]) -> tg::Result<bool> 
 	Ok(false)
 }
 
-fn delete_iptables_rules_by_comment(table: &[&str], chain: &str, comment: &str) -> tg::Result<()> {
-	let mut list = iptables_args(table, "-L");
-	list.push(chain);
-	list.extend(["--line-numbers", "-n", "-v"]);
-	let output = match std::process::Command::new("iptables")
-		.args(&list)
-		.stderr(std::process::Stdio::piped())
-		.output()
-	{
-		Ok(output) => output,
-		Err(error) => {
-			if error.kind() == std::io::ErrorKind::NotFound {
-				tracing::warn!("iptables not found; skipping rule cleanup");
-				return Ok(());
-			}
-			return Err(tg::error!(!error, "failed to spawn iptables"));
-		},
-	};
-	if !output.status.success() {
-		let stderr = String::from_utf8_lossy(&output.stderr);
-		if is_iptables_permission_error(&stderr) {
-			tracing::warn!(%chain, %stderr, "iptables cleanup denied");
-		}
+/// Delete the rules in a chain whose comments match, in one transaction that names each rule by its specification, so that rules that other servers add or remove concurrently are not affected.
+fn delete_iptables_rules_by_comment(
+	table: &[&str],
+	chain: &str,
+	matcher: CommentMatcher<'_>,
+) -> tg::Result<()> {
+	let rules = list_iptables_rules(table, chain)?;
+	let prefix = format!("-A {chain} ");
+	let deletions = rules
+		.iter()
+		.filter_map(|rule| rule.strip_prefix(&prefix))
+		.filter(|rule| rule_comment(rule).is_some_and(|comment| matcher.matches(&comment)))
+		.map(|rule| format!("-D {chain} {rule}"))
+		.collect::<Vec<_>>();
+	if deletions.is_empty() {
 		return Ok(());
 	}
-	let stdout = String::from_utf8_lossy(&output.stdout);
-	let mut rule_numbers = Vec::new();
-	for line in stdout.lines() {
-		if !line.contains(comment) {
-			continue;
-		}
-		let Some(number) = line
-			.split_whitespace()
-			.next()
-			.and_then(|number| number.parse::<u32>().ok())
-		else {
-			continue;
-		};
-		rule_numbers.push(number);
+	let name = if table == NAT_TABLE { "nat" } else { "filter" };
+	let mut script = format!("*{name}\n");
+	for deletion in deletions {
+		script.push_str(&deletion);
+		script.push('\n');
 	}
-	for number in rule_numbers.into_iter().rev() {
-		let number = number.to_string();
-		let mut delete = iptables_args(table, "-D");
-		delete.push(chain);
-		delete.push(&number);
-		let output = match std::process::Command::new("iptables")
-			.args(&delete)
-			.stderr(std::process::Stdio::piped())
-			.output()
-		{
-			Ok(output) => output,
-			Err(error) => return Err(tg::error!(!error, "failed to spawn iptables")),
-		};
-		if output.status.success() {
-			continue;
-		}
-		let stderr = String::from_utf8_lossy(&output.stderr);
-		if is_iptables_permission_error(&stderr) {
-			tracing::warn!(%chain, %number, %stderr, "iptables cleanup denied");
-			return Ok(());
-		}
-	}
+	script.push_str("COMMIT\n");
+	restore_iptables(&script)?;
 	Ok(())
 }
 
-fn delete_bridge_masquerade_rules(bridge: &str) -> tg::Result<()> {
+/// List the rules of a chain in the format of `iptables -S`.
+fn list_iptables_rules(table: &[&str], chain: &str) -> tg::Result<Vec<String>> {
+	let mut list = iptables_args(table, "-S");
+	list.push(chain);
+	let output = std::process::Command::new("iptables")
+		.args(&list)
+		.stderr(std::process::Stdio::piped())
+		.output()
+		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
+	if !output.status.success() {
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		return Err(tg::error!(%stderr, %chain, "failed to list the iptables rules"));
+	}
+	let rules = String::from_utf8_lossy(&output.stdout)
+		.lines()
+		.map(str::to_owned)
+		.collect();
+	Ok(rules)
+}
+
+/// Apply an `iptables-restore` script without flushing the tables, which applies each table's changes in one transaction.
+fn restore_iptables(script: &str) -> tg::Result<()> {
+	// Spawn iptables-restore with the script on its standard input.
+	let mut child = std::process::Command::new("iptables-restore")
+		.args([IPTABLES_WAIT, "--noflush"])
+		.stdin(std::process::Stdio::piped())
+		.stdout(std::process::Stdio::null())
+		.stderr(std::process::Stdio::piped())
+		.spawn()
+		.map_err(|error| tg::error!(!error, "failed to spawn iptables-restore"))?;
+	let mut stdin = child.stdin.take().unwrap();
+	stdin
+		.write_all(script.as_bytes())
+		.map_err(|error| tg::error!(!error, "failed to write the iptables-restore script"))?;
+	drop(stdin);
+
+	// Wait for iptables-restore to apply the script.
+	let output = child
+		.wait_with_output()
+		.map_err(|error| tg::error!(!error, "failed to wait for iptables-restore"))?;
+	if !output.status.success() {
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		return Err(tg::error!(%script, %stderr, "failed to run iptables-restore"));
+	}
+
+	Ok(())
+}
+
+/// Get the comment of a rule in the format of `iptables -S`, which quotes a comment that contains characters other than letters, digits, hyphens, and underscores.
+fn rule_comment(rule: &str) -> Option<String> {
+	let (_, rest) = rule.split_once("--comment ")?;
+	let Some(rest) = rest.strip_prefix('"') else {
+		let comment = rest.split_whitespace().next()?;
+		return Some(comment.to_owned());
+	};
+	let mut comment = String::new();
+	let mut chars = rest.chars();
+	loop {
+		match chars.next()? {
+			'"' => return Some(comment),
+			'\\' => comment.push(chars.next()?),
+			char => comment.push(char),
+		}
+	}
+}
+
+/// Delete the masquerade rules for a bridge, except for the rule to keep.
+fn delete_bridge_masquerade_rules(bridge: &str, keep: &[&str]) -> tg::Result<()> {
 	let output = match std::process::Command::new("iptables")
 		.args([IPTABLES_WAIT, "-t", "nat", "-S", "POSTROUTING"])
 		.stderr(std::process::Stdio::piped())
@@ -804,6 +831,9 @@ fn delete_bridge_masquerade_rules(bridge: &str) -> tg::Result<()> {
 			continue;
 		};
 		if !rest.contains(&needle) || !rest.contains("MASQUERADE") {
+			continue;
+		}
+		if rest.split_whitespace().eq(keep.iter().copied()) {
 			continue;
 		}
 		let mut args = vec![IPTABLES_WAIT, "-t", "nat", "-D", "POSTROUTING"];
@@ -851,9 +881,11 @@ impl Drop for IptablesRuleGuard {
 			Ok(true) => {},
 			Ok(false) => {
 				if let (Some(chain), Some(comment)) = (self.rule.chain(), self.rule.comment())
-					&& let Err(error) =
-						delete_iptables_rules_by_comment(self.rule.table, chain, comment)
-				{
+					&& let Err(error) = delete_iptables_rules_by_comment(
+						self.rule.table,
+						chain,
+						CommentMatcher::Exact(comment),
+					) {
 					tracing::error!(
 						%error,
 						"failed to clean up the sandbox port forwarding rule"
@@ -902,6 +934,64 @@ mod tests {
 			"TANGRAM-BRIDGE -o tangram0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
 		);
 		assert_eq!(rules[rules.len() - 1], "TANGRAM-BRIDGE -o tangram0 -j DROP");
+	}
+
+	#[test]
+	fn rule_comments_are_read_from_listed_rules() {
+		let quoted = "-A TANGRAM-DNAT -d 127.0.0.1/32 -p tcp -m tcp --dport 1234 -m comment --comment \"tangram:identity=0123456789abcdef:sandbox_index=7\" -j DNAT --to-destination 172.18.0.5:8080";
+		let unquoted = "-A TANGRAM-DNAT -p tcp -m comment --comment other -j ACCEPT";
+		let escaped = r#"-A TANGRAM-DNAT -m comment --comment "a \"b\" c" -j ACCEPT"#;
+
+		assert_eq!(
+			rule_comment(quoted).as_deref(),
+			Some("tangram:identity=0123456789abcdef:sandbox_index=7")
+		);
+		assert_eq!(rule_comment(unquoted).as_deref(), Some("other"));
+		assert_eq!(rule_comment(escaped).as_deref(), Some("a \"b\" c"));
+		assert_eq!(rule_comment("-A TANGRAM-DNAT -j ACCEPT"), None);
+
+		let prefix = rule_comment_prefix("0123456789abcdef");
+		let comment = rule_comment(quoted).unwrap();
+		assert!(CommentMatcher::Prefix(&prefix).matches(&comment));
+		assert!(
+			!CommentMatcher::Prefix(&rule_comment_prefix("fedcba9876543210")).matches(&comment)
+		);
+		assert!(
+			CommentMatcher::Exact(&sandbox_rule_comment("0123456789abcdef", 7)).matches(&comment)
+		);
+		assert!(
+			!CommentMatcher::Exact(&sandbox_rule_comment("0123456789abcdef", 70)).matches(&comment)
+		);
+	}
+
+	#[test]
+	fn bridge_restore_script_moves_each_jump_once() {
+		let forward = [
+			"-P FORWARD DROP".to_owned(),
+			"-A FORWARD -j DOCKER-USER".to_owned(),
+			"-A FORWARD -i tangram0 -j TANGRAM-BRIDGE".to_owned(),
+			"-A FORWARD -i tangram0 -j TANGRAM-BRIDGE".to_owned(),
+			"-A FORWARD -j TANGRAM-FWD".to_owned(),
+		];
+		let script = bridge_restore_script("tangram0", &[], &forward, &[]);
+		let lines = script.lines().collect::<Vec<_>>();
+
+		assert_eq!(lines[0], "*filter");
+		assert_eq!(lines[1], ":TANGRAM-BRIDGE - [0:0]");
+		assert_eq!(lines[2], ":TANGRAM-INPUT - [0:0]");
+		assert_eq!(
+			lines[lines.len() - 8..],
+			[
+				"-D FORWARD -i tangram0 -j TANGRAM-BRIDGE",
+				"-D FORWARD -i tangram0 -j TANGRAM-BRIDGE",
+				"-I FORWARD -i tangram0 -j TANGRAM-BRIDGE",
+				"-I FORWARD -o tangram0 -j TANGRAM-BRIDGE",
+				"-I INPUT -i tangram0 -j TANGRAM-INPUT",
+				"-D FORWARD -j TANGRAM-FWD",
+				"-I FORWARD -j TANGRAM-FWD",
+				"COMMIT",
+			][..]
+		);
 	}
 
 	#[test]

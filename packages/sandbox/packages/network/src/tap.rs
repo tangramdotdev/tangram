@@ -11,7 +11,7 @@ use {
 pub struct Network {
 	guest: ip::Lease,
 	host: ip::Lease,
-	_port_forwarding_rules: Vec<host::FirewallRuleGuard>,
+	port_forwarding_rules: Vec<host::FirewallRuleGuard>,
 }
 
 #[derive(Debug)]
@@ -39,9 +39,9 @@ impl Network {
 			firewall, index, identity, &prefix, host.addr, guest.addr, ports,
 		)?;
 		Ok(Self {
-			_port_forwarding_rules: port_forwarding_rules,
 			guest,
 			host,
+			port_forwarding_rules,
 		})
 	}
 
@@ -121,6 +121,13 @@ impl Device {
 	}
 }
 
+impl Drop for Network {
+	fn drop(&mut self) {
+		// Remove the port forwarding rules before the address leases are released.
+		self.port_forwarding_rules.clear();
+	}
+}
+
 impl Drop for Device {
 	fn drop(&mut self) {
 		if let Err(error) = self.netlink.link_delete(&self.name) {
@@ -132,7 +139,11 @@ impl Drop for Device {
 pub fn setup(firewall: crate::Firewall) -> tg::Result<()> {
 	static SETUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
 	SETUP
-		.get_or_init(|| host::setup_tap_networking(firewall))
+		.get_or_init(|| {
+			// Install the firewall rules while holding the host's setup lock, because every server on the host shares them.
+			let _lock = host::lock_setup()?;
+			host::setup_tap_networking(firewall)
+		})
 		.clone()
 }
 

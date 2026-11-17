@@ -1,5 +1,7 @@
 #[cfg(target_os = "linux")]
 mod dns;
+#[cfg(target_os = "linux")]
+mod lock;
 
 #[cfg(target_os = "linux")]
 pub mod host;
