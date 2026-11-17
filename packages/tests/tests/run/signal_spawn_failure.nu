@@ -19,7 +19,7 @@ let hit = tg checkpoint wait sandbox.control.connect $watch 0 | from json
 # Terminate tg run while the spawn is held, then destroy the sandbox and let the spawn fail.
 let pid = open --raw $pid_path | str trim | into int
 kill --signal 15 $pid
-wait_until { (tg sandbox destroy $hit.params.sandbox | complete | get exit_code) == 0 } 'the destroy should succeed'
+success (tg sandbox destroy $hit.params.sandbox | complete) 'the destroy should succeed'
 tg checkpoint continue sandbox.control.connect $watch 0
 tg checkpoint unwatch sandbox.control.connect $watch
 let output = job recv --tag $run --timeout 30sec

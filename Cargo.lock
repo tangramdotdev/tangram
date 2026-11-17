@@ -9941,12 +9941,14 @@ name = "tangram_cli_sandbox"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "futures",
  "humantime",
  "libc",
  "serde_json",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
+ "tangram_futures",
  "tangram_http",
  "tangram_sandbox",
  "tangram_uri",

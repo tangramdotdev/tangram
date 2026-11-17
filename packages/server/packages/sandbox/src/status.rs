@@ -55,6 +55,11 @@ impl Component {
 				)
 			});
 
+		// Let tests observe that the request reached the server before it changes what the request observes.
+		if output.is_some() {
+			tangram_server_core::checkpoint!(session.server, "sandbox.status.subscribed", sandbox = %id).await;
+		}
+
 		Ok(output)
 	}
 

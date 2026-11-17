@@ -376,6 +376,8 @@ impl SchedulerState {
 		let write = {
 			let scheduler = scheduler.clone();
 			async move {
+				tangram_server_core::checkpoint!(scheduler.server, "scheduler.sandbox.end", sandbox = %request.sandbox, status = %status)
+					.await;
 				scheduler
 					.put_sandbox_status(&request, status, error, None)
 					.await

@@ -61,11 +61,7 @@ success $output "spawn should return while the command push is blocked"
 # Crash and restart the remote without removing its runners, so that the command push's connection breaks partway through its transfer.
 let pid = open --raw ($remote.directory | path join lock) | str trim | into int
 kill --signal 9 $pid
-if $nu.os-info.name == "linux" {
-	^tail --pid $pid -f /dev/null
-} else {
-	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
-}
+wait_for_exit $pid "the remote should exit"
 let remote = server start $remote
 
 # The retried push must complete.

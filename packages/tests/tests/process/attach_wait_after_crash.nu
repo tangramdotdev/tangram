@@ -42,11 +42,7 @@ tg --url $runner.url checkpoint unwatch runner.process.run $run_watch
 # Crash and restart the remote without removing its runners while the child runs.
 let pid = open --raw ($remote.directory | path join lock) | str trim | into int
 kill --signal 9 $pid
-if $nu.os-info.name == "linux" {
-	^tail --pid $pid -f /dev/null
-} else {
-	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
-}
+wait_for_exit $pid "the remote should exit"
 let remote = server start $remote
 
 # The build reconnects and completes with the child's output.

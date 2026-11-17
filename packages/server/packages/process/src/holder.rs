@@ -337,17 +337,30 @@ impl tangram_server_core::holder::Item for Item<'_> {
 			tg::process::control::ServerRequestArg::Get(_)
 				| tg::process::control::ServerRequestArg::GetChildren(_)
 		);
+		let kind = match &request {
+			tg::process::control::ServerRequestArg::AcquireLease(_) => "acquire_lease",
+			tg::process::control::ServerRequestArg::Finish(_) => "finish",
+			tg::process::control::ServerRequestArg::Get(_) => "get",
+			tg::process::control::ServerRequestArg::GetChildren(_) => "get_children",
+			tg::process::control::ServerRequestArg::Open(_) => "open",
+			tg::process::control::ServerRequestArg::ReleaseLease(_) => "release_lease",
+			tg::process::control::ServerRequestArg::Signal(_) => "signal",
+			tg::process::control::ServerRequestArg::Tty(_) => "tty",
+		};
 		async move {
 			if cancel {
 				tangram_server_core::checkpoint!(self.session.server, "process.cancel.control", process = %self.id)
 					.await;
 			}
 			let output = async {
-				self.component
+				let response = self
+					.component
 					.send_process_control_request(self.session, self.id, id, request, options, Some(resend))
 					.boxed()
-					.await?
-					.await?
+					.await?;
+				tangram_server_core::checkpoint!(self.session.server, "process.control.request.sent", kind = %kind, process = %self.id)
+					.await;
+				response.await?
 			}
 			.await;
 			if get {

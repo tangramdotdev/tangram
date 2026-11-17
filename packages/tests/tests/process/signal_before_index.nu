@@ -39,22 +39,24 @@ checkpoint unwatch $registration
 let write = checkpoint watch index.write --token $root_token --url $remote.url
 let parent = tg --url $remote.url --token $root_token spawn --network --no-tokens $id | referent node
 checkpoint wait $write | ignore
-mut children = []
-while ($children | is-empty) {
-	$children = (^timeout 10s tg --url $remote.url --token $root_token process children $parent | from json)
-	sleep 200ms
-}
+
+# Get the child from its parent's holder once the parent spawns it.
+let children = ^timeout 30s tg --url $remote.url --token $root_token process children --no-timeout --length 1 $parent | from json
 let child = $children | first | get process | split row '?' | first
+
+# Give the child two real seconds to install its traps, because nothing that the test can observe marks that moment while the index does not have the child.
 sleep 2sec
 
 # Signal the child, and hold the holder's reply, so that the signal's read of the index finds no child, after which the signal is sent again once the index has the child.
 let response = checkpoint watch process.control.response.publish --params { kind: signal, process: $child } --token $root_token --url $remote.url
 let index = checkpoint watch process.signal.index --params { process: $child } --token $root_token --url $remote.url
+let sent = checkpoint watch process.control.request.sent --params { kind: signal, process: $child } --token $root_token --url $remote.url
 let url = $remote.url
 let signal = job spawn {
 	let id = job id
 	timeout 60s tg --url $url --token $root_token signal --signal USR1 $child | complete | job send --tag $id 0
 }
+checkpoint pass $sent | ignore
 checkpoint wait $response | ignore
 checkpoint pass $index | ignore
 
@@ -62,12 +64,14 @@ checkpoint pass $index | ignore
 checkpoint unwatch $write
 checkpoint pass $index 1 | ignore
 checkpoint unwatch $index
-sleep 1sec
+
+# Wait for the signal to be sent again, which the holder answers with its reply instead of signaling the child again.
+checkpoint pass $sent 1 | ignore
+checkpoint unwatch $sent
 checkpoint unwatch $response
 success (job recv --tag $signal --timeout 60sec) "the signal should succeed"
 
-# Stop the child, which exits with the number of signals that it received.
-sleep 1sec
+# Stop the child, which handles the pending signals in the order of their numbers, so that it exits with the number of signals that it received.
 tg --url $remote.url --token $root_token signal --signal TERM $child
 let outcome = timeout 30s tg --url $remote.url --token $root_token wait $child | from json
 assert equal $outcome.exit 1 "the child should receive the signal once"

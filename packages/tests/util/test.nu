@@ -963,31 +963,6 @@ export def fuse_io_uring_available [] {
 	}
 }
 
-# Poll a condition until it returns true, erroring if the timeout elapses. Prefer this over a bare sleep, so the test runs as soon as the condition holds and tolerates slow machines.
-export def wait_until [
-	condition: closure
-	message?: string
-	--timeout: duration = 10sec
-	--interval: duration = 50ms
-] {
-	let start = date now
-	loop {
-		if (do $condition) {
-			return
-		}
-		if ((date now) - $start) > $timeout {
-			error make {
-				msg: ($message | default 'the condition was not met within the timeout'),
-				label: {
-					span: (metadata $condition).span,
-					text: 'the condition',
-				},
-			}
-		}
-		sleep $interval
-	}
-}
-
 # Clear the environment that a parent Tangram process set for itself.
 def --env clear_inherited_env [] {
 	let reserved = $env | columns | where { |name| $name starts-with 'TANGRAM_ENV_' }

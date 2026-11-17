@@ -21,13 +21,15 @@ let connect = checkpoint watch sandbox.control.connect --token $root_token --url
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 checkpoint wait $connect | ignore
 
-# The destroy returns without the connection, and the teardown finishes once the connection is released.
+# The destroy returns without the connection, and the teardown finishes once the connection is released after the scheduler replies that it no longer holds the sandbox.
 let url = $remote.url
+let reply = checkpoint watch sandbox.control.response.publish --params { kind: not_holder, sandbox: $sandbox } --token $root_token --url $remote.url
 let destroy = job spawn {
 	let id = job id
 	tg --url $url --token $root_token sandbox destroy --wait $sandbox | complete | job send --tag $id 0
 }
-sleep 200ms
+checkpoint pass $reply | ignore
+checkpoint unwatch $reply
 checkpoint unwatch $connect
 success (job recv --tag $destroy --timeout 30sec) "the destroy should finish"
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) destroyed

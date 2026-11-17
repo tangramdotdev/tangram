@@ -12,9 +12,10 @@ let fifo_directory = mktemp -d
 let fifo_path = $fifo_directory | path join 'stdin'
 ^mkfifo $fifo_path
 let trigger_path = $fifo_directory | path join 'close'
+^mkfifo $trigger_path
 let tangram = which tg | where type == external | get path | first
 let writer = job spawn {
-	^bash -c 'exec 3> "$1"; while [ ! -e "$2" ]; do sleep 0.05; done; exec 3>&-' _ $fifo_path $trigger_path
+	^bash -c 'exec 3> "$1"; cat "$2" > /dev/null; exec 3>&-' _ $fifo_path $trigger_path
 }
 let run = job spawn {
 	let job_id = job id
@@ -30,6 +31,6 @@ success $output "the stdin close should succeed"
 
 # Release the runner and the client's stdin, and the run completes.
 tg checkpoint unwatch runner.process.exited $exited_watch
-touch $trigger_path
+^bash -c ': > "$1"' _ $trigger_path
 let output = job recv --tag $run --timeout 30sec
 success $output "the run should complete"

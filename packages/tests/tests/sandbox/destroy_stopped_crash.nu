@@ -28,10 +28,4 @@ wait_for_exit $pid
 
 # Start the server again. The sandbox is destroyed once the runner reports it and removes its directory.
 let remote = server start $remote
-mut status = ""
-for _ in 0..300 {
-	$status = (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status)
-	if $status == destroyed { break }
-	sleep 100ms
-}
-assert equal $status destroyed "the sandbox should be destroyed without another destroy"
+success (timeout 30s tg --url $remote.url --token $root_token sandbox status --until destroyed $sandbox | complete) "the sandbox should be destroyed without another destroy"

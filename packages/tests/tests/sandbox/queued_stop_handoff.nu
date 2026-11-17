@@ -20,16 +20,20 @@ def offered [] {
 	{ create: $create, sandbox: $queued }
 }
 
-# Start the sandbox during the handoff. It ends started.
+# Start the sandbox during the handoff, after the scheduler replies that it no longer holds the sandbox. Once the runner has the sandbox ready without the stop, it ends started.
 let offered = offered
+let reply = checkpoint watch sandbox.control.response.publish --params { kind: not_holder, sandbox: $offered.sandbox }
+let ready = checkpoint watch runner.sandbox.ready --params { sandbox: $offered.sandbox }
 let start = job spawn {
 	let id = job id
 	timeout 30s tg --url $url sandbox start --wait $offered.sandbox | complete | job send --tag $id 0
 }
-sleep 500ms
+checkpoint pass $reply | ignore
+checkpoint unwatch $reply
 checkpoint unwatch $offered.create
 success (job recv --tag $start --timeout 30sec) "the start should succeed"
-sleep 1sec
+checkpoint pass $ready | ignore
+checkpoint unwatch $ready
 assert equal (tg sandbox get $offered.sandbox | from json | get data.status) started "the sandbox should stay started"
 tg sandbox destroy --wait $offered.sandbox
 

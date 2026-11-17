@@ -5,24 +5,24 @@ use ../../util/test.nu *
 let server = server spawn
 let tangram = which tg | where type == external | get path | first
 
-# Handle each signal without exiting, then exit with a distinct code when the test permits it.
+# Handle each signal without exiting by reporting it through a fifo, then exit with a distinct code when the test permits it.
 let script = '
-	trap "echo ALRM >> signals" ALRM
-	trap "echo HUP >> signals" HUP
-	trap "echo INT >> signals" INT
-	trap "echo QUIT >> signals" QUIT
-	trap "echo TERM >> signals" TERM
-	trap "echo USR1 >> signals" USR1
-	trap "echo USR2 >> signals" USR2
-	echo ready > marker
+	trap "echo ALRM > signals" ALRM
+	trap "echo HUP > signals" HUP
+	trap "echo INT > signals" INT
+	trap "echo QUIT > signals" QUIT
+	trap "echo TERM > signals" TERM
+	trap "echo USR1 > signals" USR1
+	trap "echo USR2 > signals" USR2
+	echo ready > signals
 	while [ ! -f finish ]; do :; done
 	exit 7
 '
 
-# Run the script in a new sandbox that mounts a directory for the files.
+# Run the script in a new sandbox that mounts a directory for the fifo and the files.
 let directory = mktemp -d
-let marker = $directory | path join 'marker'
 let signals = $directory | path join 'signals'
+^mkfifo $signals
 let pid_path = mktemp
 let run = job spawn {
 	let id = job id
@@ -30,15 +30,17 @@ let run = job spawn {
 	| complete
 	| job send --tag $id 0
 }
-wait_until { $marker | path exists } 'the process should install its signal handlers'
+let output = timeout 30s cat $signals | complete
+success $output 'the process should install its signal handlers'
+assert equal ($output.stdout | str trim) ready
 
-# Send each signal to tg run, and TERM twice, waiting for the process to handle each one.
+# Send each signal to tg run, and TERM twice, reading the fifo until the process reports that it handled each one.
 let pid = open --raw $pid_path | str trim | into int
-let names = [ALRM HUP INT QUIT TERM USR1 USR2 TERM]
-for entry in ($names | enumerate) {
-	^kill -s $entry.item $pid
-	let expected = $names | take ($entry.index + 1)
-	wait_until { try { (open --raw $signals | lines) == $expected } catch { false } } $'the process should receive SIG($entry.item)'
+for name in [ALRM HUP INT QUIT TERM USR1 USR2 TERM] {
+	^kill -s $name $pid
+	let output = timeout 30s cat $signals | complete
+	success $output $'the process should receive SIG($name)'
+	assert equal ($output.stdout | str trim) $name $'the process should receive SIG($name)'
 }
 
 # Allow the process to finish.

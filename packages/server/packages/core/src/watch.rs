@@ -4,7 +4,7 @@ use {
 };
 
 pub use tangram_server_watch_core::{
-	Expire, Id, Key, LockWriteGuard, Message, NewArg, Snapshot, State, UpdateArg, Watch,
+	Checkpoint, Expire, Id, Key, LockWriteGuard, Message, NewArg, Snapshot, State, UpdateArg, Watch,
 };
 
 /// The watch component.

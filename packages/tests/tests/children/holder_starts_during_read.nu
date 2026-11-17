@@ -39,12 +39,14 @@ let parent = tg --url $remote.url --token $root_token spawn --no-tokens $id | re
 checkpoint wait $start | ignore
 
 # Read the children, and let the holder start the process once the read has sent its request.
+let sent = checkpoint watch process.control.request.sent --params { kind: get_children, process: $parent } --token $root_token --url $remote.url
 let url = $remote.url
 let read = job spawn {
 	let id = job id
 	timeout 20s tg --url $url --token $root_token process children $parent | complete | job send --tag $id 0
 }
-sleep 1sec
+checkpoint pass $sent | ignore
+checkpoint unwatch $sent
 checkpoint unwatch $start
 
 # The holder answers the read.

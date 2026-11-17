@@ -14,6 +14,8 @@ use {
 #[cfg(test)]
 mod tests;
 
+pub type Checkpoint = Arc<dyn Fn(PathBuf) -> BoxFuture<'static, ()> + Send + Sync>;
+
 pub type Expire = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
 #[cfg(target_os = "linux")]
@@ -48,6 +50,7 @@ pub struct Watch {
 }
 
 pub struct NewArg<F> {
+	pub checkpoint: Option<Checkpoint>,
 	pub clock: Clock,
 	pub config: tangram_server_config::Watch,
 	pub expire: Expire,
@@ -145,6 +148,7 @@ impl Watch {
 		F: FnOnce() -> Shared<tg::Result<()>>,
 	{
 		let NewArg {
+			checkpoint,
 			clock,
 			config,
 			expire,
@@ -227,80 +231,102 @@ impl Watch {
 						lock_changed && state.lock().unwrap().pending_lock_write_version.is_none();
 					let lock = read_lock.then(|| try_read_lock(&root));
 
-					// Lock the state.
-					let mut state = state.lock().unwrap();
+					// Apply the event to the state.
+					let changed_paths = {
+						// Lock the state.
+						let mut state = state.lock().unwrap();
 
-					// Discard the graph if the channel or the watcher dropped events, so that the next checkin reads every path.
-					let overflowed = state.overflowed.swap(false, Ordering::SeqCst);
-					if overflowed || message.event.need_rescan() {
-						state.reset();
-					}
+						// Discard the graph if the channel or the watcher dropped events, so that the next checkin reads every path.
+						let overflowed = state.overflowed.swap(false, Ordering::SeqCst);
+						let reset = overflowed || message.event.need_rescan();
+						if reset {
+							state.reset();
+						}
 
-					// Retain the graph's lock so the next checkin detects the change and rebuilds it.
-					let mut lock_modified = false;
-					let mut modified = false;
-					if state.pending_lock_write_version.is_none()
-						&& let Some(lock) = lock
-					{
-						match lock {
-							Ok(lock) => {
-								let lock = lock.map(Arc::new);
-								if state.lock != lock {
+						// Retain the graph's lock so the next checkin detects the change and rebuilds it.
+						let mut lock_modified = false;
+						let mut modified = false;
+						if state.pending_lock_write_version.is_none()
+							&& let Some(lock) = lock
+						{
+							match lock {
+								Ok(lock) => {
+									let lock = lock.map(Arc::new);
+									if state.lock != lock {
+										lock_modified = true;
+										modified = true;
+									}
+								},
+								Err(error) => {
+									tracing::error!(%error, "failed to read the lock");
 									lock_modified = true;
 									modified = true;
-								}
-							},
-							Err(error) => {
-								tracing::error!(%error, "failed to read the lock");
-								lock_modified = true;
+								},
+							}
+						}
+
+						// Update the nodes for the affected paths along with their ancestors.
+						let mut root_ignored = false;
+						for path in paths {
+							// Ignore delayed root notifications that match the metadata after the lock write.
+							if message.sender.is_none()
+								&& path == root.as_path()
+								&& State::graph_matches_path(&state.graph, path)
+							{
+								root_ignored = true;
+								continue;
+							}
+							if state.affected_paths.contains(path) {
 								modified = true;
-							},
+							}
+							if state.remove_path(path) {
+								modified = true;
+							}
 						}
-					}
 
-					// Update the nodes for the affected paths along with their ancestors.
-					let mut root_ignored = false;
-					for path in paths {
-						// Ignore delayed root notifications that match the metadata after the lock write.
-						if message.sender.is_none()
-							&& path == root.as_path()
-							&& State::graph_matches_path(&state.graph, path)
-						{
-							root_ignored = true;
-							continue;
+						// Remove the nodes beneath each created, renamed, or removed path, because no event reports a change made beneath a path while it is elsewhere, and the watcher stops watching the paths beneath it.
+						for path in replaced_paths {
+							if root_ignored && path == root.as_path() {
+								continue;
+							}
+							if state.remove_descendants(path) {
+								modified = true;
+							}
 						}
-						if state.affected_paths.contains(path) {
-							modified = true;
-						}
-						if state.remove_path(path) {
-							modified = true;
-						}
-					}
 
-					// Remove the nodes beneath each created, renamed, or removed path, because no event reports a change made beneath a path while it is elsewhere, and the watcher stops watching the paths beneath it.
-					for path in replaced_paths {
-						if root_ignored && path == root.as_path() {
-							continue;
+						// Record the event and increment the version if the lock or any nodes changed.
+						if modified {
+							state.version += 1;
+							if lock_modified {
+								state.invalidated_paths.clear();
+								state.revalidation_version = state.version;
+							} else {
+								state.invalidated_paths.extend(event_paths.iter().cloned());
+							}
 						}
-						if state.remove_descendants(path) {
-							modified = true;
-						}
-					}
 
-					// Record the event and increment the version if the lock or any nodes changed.
-					if modified {
-						state.version += 1;
-						if lock_modified {
-							state.invalidated_paths.clear();
-							state.revalidation_version = state.version;
-						} else {
-							state.invalidated_paths.extend(event_paths);
+						// Collect the paths that the event changed, including the root if the graph was discarded.
+						let mut changed_paths = Vec::new();
+						if reset {
+							changed_paths.push(root.clone());
 						}
-					}
+						if modified {
+							changed_paths.extend(event_paths);
+						}
+
+						changed_paths
+					};
 
 					// Notify any tasks waiting that the message has been received.
 					if let Some(sender) = message.sender {
 						sender.send(()).ok();
+					}
+
+					// Pass the checkpoint for each changed path, after the watch has applied the event.
+					if let Some(checkpoint) = &checkpoint {
+						for path in changed_paths {
+							checkpoint(path).await;
+						}
 					}
 				}
 			}

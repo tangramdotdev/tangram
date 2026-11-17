@@ -15,8 +15,8 @@ let job = job spawn {
 }
 success (tg checkpoint wait --timeout 30s runner.sandbox.pool.take $watch 0 | complete) 'the sandbox should come from the warm pool'
 
-# Hold the claim before assignment while the physical sandbox remains alive.
-sleep 10sec
+# Hold the claim before assignment while the physical sandbox remains alive, for a real second, because usage is charged for real elapsed time, and a second of pool wait exceeds the tens of milliseconds by which the measured time after the release exceeds the assigned lifetime.
+sleep 1sec
 let released_at = date now
 tg checkpoint continue runner.sandbox.pool.take $watch 0
 tg checkpoint unwatch runner.sandbox.pool.take $watch

@@ -36,12 +36,15 @@ let output = tg --url $server.url sandbox create --no-tokens --wait | complete
 failure $output "a waiting create should report the failure"
 assert ($output.stderr | str contains "no runners available")
 
-# A null timeout keeps the request queued for a runner that may arrive later.
+# A null timeout keeps the request queued for a runner that may arrive later, once the scheduler finds that no runner can fit it.
 let server = server spawn --name indefinite --config {
+	advanced: { checkpoints: true },
 	roles: [api indexer scheduler],
 	scheduler: { unplaceable_timeout: null },
 }
+let unplaced = checkpoint watch scheduler.sandbox.unplaced --params { placeable: false } --url $server.url
 let sandbox = tg --url $server.url sandbox create --no-tokens | str trim
-sleep 500ms
+checkpoint pass $unplaced | ignore
+checkpoint unwatch $unplaced
 let data = tg --url $server.url sandbox get $sandbox | from json
 assert equal $data.data.status 'starting'

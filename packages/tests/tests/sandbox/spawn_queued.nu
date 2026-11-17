@@ -3,6 +3,7 @@ use ../../util/test.nu *
 # A process spawned into a sandbox that is still queued runs once the sandbox starts, on the sandbox's status change rather than after the sender's backoff.
 
 let local = server spawn --config {
+	advanced: { checkpoints: true },
 	control: { request_retry: { backoff: 60, jitter: 0, max_delay: 60 } },
 	runner: { cpus: 1, overcommit: { cpu: 1 } },
 	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
@@ -25,12 +26,14 @@ let filler = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let sandbox = tg sandbox create --no-tokens --cpu 1 | referent node
 assert equal (tg sandbox get $sandbox | from json | get data.status) starting
 
-# Spawn a process into the queued sandbox, and then free the runner.
+# Spawn a process into the queued sandbox, and then free the runner once the scheduler replies that it is not ready for the spawn.
+let reply = checkpoint watch sandbox.control.response.publish --params { kind: not_ready, sandbox: $sandbox }
 let run = job spawn {
 	let id = job id
 	timeout 30s tg run --no-tokens $'--sandbox=($sandbox)' $command | complete | job send --tag $id 0
 }
-sleep 1sec
+checkpoint pass $reply | ignore
+checkpoint unwatch $reply
 tg sandbox destroy $filler
 let output = job recv --tag $run --timeout 30sec
 success $output "the process should run once the sandbox starts"

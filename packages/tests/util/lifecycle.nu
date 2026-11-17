@@ -64,10 +64,7 @@ export def --env process_lifecycle [commands: record] {
 
 	# The process is started.
 	tg sandbox destroy --wait $sandbox
-	loop {
-		if (tg get $process | from json | get status) == started { break }
-		sleep 100ms
-	}
+	success (tg process status --until started $process | complete) 'the process should start'
 	process_reads $process started
 
 	# The process is finished.

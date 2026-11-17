@@ -244,6 +244,7 @@ impl Server {
 				})
 			};
 			task_tracker.spawn({
+				let server = self.clone();
 				let service = service.clone();
 				let stopper = stopper.clone();
 				#[cfg(feature = "tls")]
@@ -251,7 +252,8 @@ impl Server {
 				async move {
 					match stream {
 						Stream::Stdio(stream) => {
-							Server::serve_connection(stream, service, idle_timeout, http2, stopper)
+							server
+								.serve_connection(stream, service, idle_timeout, http2, stopper)
 								.await;
 						},
 						Stream::Tcp(stream) => {
@@ -259,14 +261,15 @@ impl Server {
 							if let Some(tls) = tls {
 								match tls.accept(stream).await {
 									Ok(stream) => {
-										Server::serve_connection(
-											stream,
-											service,
-											idle_timeout,
-											http2,
-											stopper,
-										)
-										.await;
+										server
+											.serve_connection(
+												stream,
+												service,
+												idle_timeout,
+												http2,
+												stopper,
+											)
+											.await;
 									},
 									Err(error) => {
 										tracing::error!(
@@ -276,26 +279,24 @@ impl Server {
 									},
 								}
 							} else {
-								Server::serve_connection(
-									stream,
-									service,
-									idle_timeout,
-									http2,
-									stopper,
-								)
-								.await;
+								server
+									.serve_connection(stream, service, idle_timeout, http2, stopper)
+									.await;
 							}
 							#[cfg(not(feature = "tls"))]
-							Server::serve_connection(stream, service, idle_timeout, http2, stopper)
+							server
+								.serve_connection(stream, service, idle_timeout, http2, stopper)
 								.await;
 						},
 						Stream::Unix(stream) => {
-							Server::serve_connection(stream, service, idle_timeout, http2, stopper)
+							server
+								.serve_connection(stream, service, idle_timeout, http2, stopper)
 								.await;
 						},
 						#[cfg(feature = "vsock")]
 						Stream::Vsock(stream) => {
-							Server::serve_connection(stream, service, idle_timeout, http2, stopper)
+							server
+								.serve_connection(stream, service, idle_timeout, http2, stopper)
 								.await;
 						},
 					}
@@ -394,7 +395,8 @@ impl Server {
 		let service = self.service(origin, stopper.clone());
 		let idle_timeout = self.http_idle_timeout();
 		let http2 = self.config.http.http2;
-		Server::serve_connection(stream, service, idle_timeout, http2, stopper).await;
+		self.serve_connection(stream, service, idle_timeout, http2, stopper)
+			.await;
 	}
 
 	fn http_idle_timeout(&self) -> Duration {
@@ -402,6 +404,7 @@ impl Server {
 	}
 
 	async fn serve_connection<S, T>(
+		&self,
 		stream: S,
 		service: T,
 		idle_timeout: Duration,
@@ -457,9 +460,16 @@ impl Server {
 		.await
 		{
 			future::Either::Left((result, _)) => result,
-			future::Either::Right((_, mut connection)) => {
+			future::Either::Right((reason, mut connection)) => {
 				connection.as_mut().graceful_shutdown();
-				connection.await
+				let result = connection.await;
+
+				// Hit a checkpoint when the connection closed because it was idle.
+				if matches!(reason, future::Either::Left(_)) {
+					crate::checkpoint!(self, "http.connection.idle").await;
+				}
+
+				result
 			},
 		};
 		result

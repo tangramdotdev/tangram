@@ -807,11 +807,13 @@ impl Component {
 					WatchObservation::Incompatible { id, version },
 				) if entry.get().id() == id => {
 					// Replace the incompatible watcher.
+					let checkpoint = Self::checkin_watch_checkpoint(session);
 					let clock = session.server.clock.clone();
 					let config = session.server.config.watch.clone().unwrap_or_default();
 					let id = session.server.components.watch.create_watch_id();
 					let expire = Self::checkin_watch_expire(session, &watch_key, id);
 					let new_arg = watch::NewArg {
+						checkpoint,
 						clock,
 						config,
 						expire,
@@ -836,11 +838,13 @@ impl Component {
 					}
 				},
 				(dashmap::Entry::Vacant(entry), WatchObservation::Vacant) => {
+					let checkpoint = Self::checkin_watch_checkpoint(session);
 					let clock = session.server.clock.clone();
 					let config = session.server.config.watch.clone().unwrap_or_default();
 					let id = session.server.components.watch.create_watch_id();
 					let expire = Self::checkin_watch_expire(session, &watch_key, id);
 					let new_arg = watch::NewArg {
+						checkpoint,
 						clock,
 						config,
 						expire,
@@ -890,6 +894,20 @@ impl Component {
 			}
 			.boxed()
 		})
+	}
+
+	fn checkin_watch_checkpoint(session: &Session) -> Option<watch::Checkpoint> {
+		session.server.checkpoints.as_ref()?;
+		let server = session.server.clone();
+		let checkpoint: watch::Checkpoint = Arc::new(move |path| {
+			let server = server.clone();
+			async move {
+				crate::checkpoint!(server, "watch.event", path = %path.display()).await;
+			}
+			.boxed()
+		});
+
+		Some(checkpoint)
 	}
 
 	pub(crate) async fn checkin_find_root_path(

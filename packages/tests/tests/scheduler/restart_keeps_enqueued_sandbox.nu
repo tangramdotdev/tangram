@@ -36,9 +36,8 @@ let remote = server start $remote
 
 # The queued sandbox starts once the capacity is released.
 tg --url $remote.url --token $root_token sandbox destroy --wait $running
-loop {
-	let status = tg --url $remote.url --token $root_token sandbox get $queued | from json | get data.status
-	if $status == 'started' { break }
-	assert equal $status 'starting'
-	sleep 100ms
-}
+let output = timeout 30s tg --url $remote.url --token $root_token sandbox status --until started $queued | complete
+success $output 'the queued sandbox should start'
+let statuses = $output.stdout | from json
+assert equal ($statuses | last) 'started'
+assert equal ($statuses | drop | uniq | where $it != 'starting') [] 'the queued sandbox should only be starting before it starts'

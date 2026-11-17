@@ -15,6 +15,8 @@ let local = server spawn --directory $directory --config {
 }
 
 let sandbox = tg sandbox create --no-tokens --no-ttl --cpu-min 0.25 --cpu-max 1 | referent node
+
+# Keep the sandbox idle for 200 real milliseconds, because usage is charged for real elapsed time, and the reservation of the 0.25 CPU minimum must reach 50 CPU-milliseconds.
 sleep 200ms
 tg sandbox destroy --wait $sandbox
 let data = tg sandbox get $sandbox | from json | get data

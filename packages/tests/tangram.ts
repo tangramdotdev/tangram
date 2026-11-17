@@ -6,7 +6,7 @@ export const check = async () => {
 	await task(
 		"tests",
 		"check",
-		tg.run`uv run --locked --package tangram python -m ruff check tests/python`
+		tg.run`nu check.nu && uv run --locked --package tangram python -m ruff check tests/python`
 			.cwd(cwd)
 			.env(env),
 	);

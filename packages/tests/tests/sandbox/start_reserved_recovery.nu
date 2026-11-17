@@ -58,13 +58,7 @@ job recv --tag $start --timeout 30sec | ignore
 
 # Start the scheduler's server again. The scheduler recovers the reserved boot, and the sandbox starts.
 let remote = server start $remote
-mut status = ""
-for _ in 0..300 {
-	$status = (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status)
-	if $status == started { break }
-	sleep 100ms
-}
-assert equal $status started "the recovered boot should start"
+success (timeout 30s tg --url $remote.url --token $root_token sandbox status --until started $sandbox | complete) "the recovered boot should start"
 let output = tg --url $remote.url --token $root_token run $'--sandbox=($sandbox)' $read | complete
 success $output "the read should succeed"
 assert ($output.stdout | str contains 'hello') "the file should survive the crash"

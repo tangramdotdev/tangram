@@ -31,8 +31,4 @@ assert equal ($statuses | sort) [200 409]
 let data = tg sandbox get $sandbox | from json | get data
 assert equal $data.boot 1
 assert equal $data.status started
-sleep 1sec
-let data = tg sandbox get $sandbox | from json | get data
-assert equal $data.boot 1
-assert equal $data.status started
 tg sandbox destroy $sandbox

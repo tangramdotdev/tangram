@@ -2,7 +2,11 @@ use ../../util/test.nu *
 
 # Watched checkins can update their own locks and resume watching after success or failure.
 
-let local = server spawn
+let local = server spawn --config {
+	advanced: {
+		checkpoints: true
+	}
+}
 
 for kind in [directory attr file] {
 	let path = if $kind == directory {
@@ -32,12 +36,13 @@ for kind in [directory attr file] {
 	assert ($output.stderr | str contains 'the lock is out of date')
 
 	# Observe a subsequent source edit through native filesystem notifications.
+	let event = checkpoint watch watch.event --params { path: $source }
 	'import a from "a/^1"; // after failure' | save --force $source
-	wait_until {
-		let id = tg checkin --no-tokens --watch --no-checkout-pointers $'--lock=($lock)' $path | referent node
-		let id = if $kind == directory { $'($id)?get=tangram.ts' } else { $id }
-		tg read $id | str contains '// after failure'
-	} 'the watch should detect source edits after a failed checkin' --interval 200ms
+	checkpoint wait $event | ignore
+	checkpoint unwatch $event
+	let id = tg checkin --no-tokens --watch --no-checkout-pointers $'--lock=($lock)' $path | referent node
+	let id = if $kind == directory { $'($id)?get=tangram.ts' } else { $id }
+	assert (tg read $id | str contains '// after failure') 'the watch should detect source edits after a failed checkin'
 
 	let id = tg checkin --no-tokens --watch --no-checkout-pointers $'--lock=($lock)' $path --update a | referent node
 	let object = tg object get --blobs --depth=inf --no-tokens $id

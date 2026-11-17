@@ -101,6 +101,23 @@ after `start` returns runs in it. Both are idempotent, and a stopped sandbox
 can still be destroyed. `tg sandbox list --status stopped` lists the stopped
 sandboxes.
 
+`tg sandbox status` prints a sandbox's statuses: `starting`, `started`,
+`stopping`, `stopped`, `destroying`, and `destroyed`. It prints the current
+status, or follows the status with `--timeout` or `--no-timeout`. To wait for a
+status, such as after a start or a stop, pass `--until`:
+
+```sh
+tg sandbox status --until started $sandbox
+```
+
+It exits successfully as soon as the sandbox has the status, waiting without a
+timeout unless `--timeout` is given. It fails if the timeout passes first, or if
+the sandbox can no longer have the status: once the sandbox is destroying, only
+`destroying` and `destroyed` remain, and once it is destroyed, only `destroyed`
+remains. `tg process status --until` waits for a process's status in the same
+way, and a process that finished after it started counts as having been
+`started`.
+
 A graceful server shutdown, such as `tangram server stop`, stops the server's
 sandboxes rather than destroying them, and so does the expiration of a
 runner's heartbeat. Usage accrues only while a sandbox runs, and the usage of

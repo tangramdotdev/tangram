@@ -18,12 +18,14 @@ workspace = true
 
 [dependencies]
 clap = { workspace = true }
+futures = { workspace = true }
 humantime = { workspace = true }
 libc = { workspace = true }
 serde_json = { workspace = true }
 tangram_cli_core = { workspace = true }
 tangram_cli_reference = { workspace = true }
 tangram_client = { workspace = true }
+tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_uri = { workspace = true }

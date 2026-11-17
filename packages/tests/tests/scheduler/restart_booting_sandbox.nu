@@ -33,15 +33,16 @@ kill --signal 9 $pid
 wait_for_exit $pid
 let remote = server start $remote
 
-# The sandbox connects to the restarted server, and is the only sandbox on the runner, so another sandbox waits.
-loop {
-	let status = tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status
-	if $status == 'started' { break }
-	assert equal $status 'starting'
-	sleep 100ms
-}
+# The sandbox connects to the restarted server, and is the only sandbox on the runner, so another sandbox waits once the scheduler finds that the runner can fit it only once the runner has capacity.
+let output = timeout 30s tg --url $remote.url --token $root_token sandbox status --until started $sandbox | complete
+success $output 'the sandbox should start'
+let statuses = $output.stdout | from json
+assert equal ($statuses | last) 'started'
+assert equal ($statuses | drop | uniq | where $it != 'starting') [] 'the sandbox should only be starting before it starts'
+let unplaced = checkpoint watch scheduler.sandbox.unplaced --params { placeable: true } --token $root_token --url $remote.url
 let queued = tg --url $remote.url --token $root_token sandbox create --no-tokens --cpu 1 | referent node
-sleep 500ms
+checkpoint pass $unplaced | ignore
+checkpoint unwatch $unplaced
 assert equal (tg --url $remote.url --token $root_token sandbox get $queued | from json | get data.status) starting
 tg --url $remote.url --token $root_token sandbox destroy --wait $sandbox
 tg --url $remote.url --token $root_token sandbox destroy --wait $queued

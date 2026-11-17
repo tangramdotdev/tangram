@@ -45,13 +45,14 @@ success $output 'the create should finish after the scheduler restarts'
 let sandbox = $output.stdout | referent node
 
 # The sandbox starts on the runner that the scheduler handed it to.
-loop {
-	let status = tg --url $api.url --token $root sandbox get $sandbox | from json | get data.status
-	if $status == 'started' { break }
-	assert equal $status 'starting'
-	sleep 100ms
-}
+let output = timeout 30s tg --url $api.url --token $root sandbox status --until started $sandbox | complete
+success $output 'the sandbox should start'
+let statuses = $output.stdout | from json
+assert equal ($statuses | last) 'started'
+assert equal ($statuses | drop | uniq | where $it != 'starting') [] 'the sandbox should only be starting before it starts'
 
-# The sandbox stays started, because the runner does not boot it a second time.
-sleep 3sec
+# The sandbox stays started once the runner has registered with the restarted scheduler, which tracks the sandbox on the runner, because the runner does not boot it a second time.
+let heartbeat = checkpoint watch runner.control.heartbeat.received --params { runner: $created.data.id } --token $root --url $scheduler.url
+checkpoint pass $heartbeat | ignore
+checkpoint unwatch $heartbeat
 assert equal (tg --url $api.url --token $root sandbox get $sandbox | from json | get data.status) started 'the sandbox should stay started'

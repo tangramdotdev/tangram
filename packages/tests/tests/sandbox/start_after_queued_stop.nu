@@ -22,20 +22,24 @@ tg --url $url --token $root_token sandbox stop --wait $sandbox
 let running = tg --url $url --token $root_token sandbox create --wait --no-tokens --cpu 1 | referent node
 success (timeout 30s tg --url $url --token $root_token sandbox start $sandbox | complete) "the start should return on acceptance"
 
-# Hold the index writes, and stop the queued boot, so that the index has not recorded the stop.
+# Hold the index writes, and stop the queued boot, so that the scheduler ends the boot while the index has not recorded the stop.
 let write = checkpoint watch index.write --token $root_token --url $url
+let end = checkpoint watch scheduler.sandbox.end --params { sandbox: $sandbox, status: stopped } --token $root_token --url $url
 let stop = job spawn {
 	let id = job id
 	timeout 30s tg --url $url --token $root_token sandbox stop $sandbox | complete | job send --tag $id 0
 }
-sleep 1sec
+checkpoint pass $end | ignore
+checkpoint unwatch $end
 
-# Start the sandbox again while the index still records the stopped boot as starting.
+# Start the sandbox again while the index still records the stopped boot as starting, and let the scheduler answer the start.
+let reply = checkpoint watch sandbox.control.response.publish --params { kind: start, sandbox: $sandbox } --token $root_token --url $url
 let start = job spawn {
 	let id = job id
 	timeout 30s tg --url $url --token $root_token sandbox start $sandbox | complete | job send --tag $id 0
 }
-sleep 1sec
+checkpoint pass $reply | ignore
+checkpoint unwatch $reply
 checkpoint unwatch $write
 success (job recv --tag $stop --timeout 30sec) "the stop should succeed"
 success (job recv --tag $start --timeout 30sec) "the start should succeed"

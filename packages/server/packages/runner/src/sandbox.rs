@@ -1561,6 +1561,7 @@ impl Component {
 			pending.push(wait_for_process_control_connection(output, None));
 		}
 		let mut ready = false;
+		let mut ready_reported = false;
 		let mut ready_connection = connected.clone();
 
 		// Wait for the sandbox process to exit.
@@ -1594,6 +1595,12 @@ impl Component {
 					Self::set_sandbox_status(session, &id, tg::sandbox::Status::Stopping);
 					teardown = Teardown::Stop;
 					break;
+				}
+
+				// Hit a checkpoint the first time that the sandbox is ready without a pending stop.
+				if ready && !ready_reported {
+					ready_reported = true;
+					tangram_server_core::checkpoint!(session.server, "runner.sandbox.ready", sandbox = %id).await;
 				}
 
 				let current_timer_future = timer_future.as_mut().map_or_else(
@@ -2696,6 +2703,10 @@ impl Component {
 			{
 				tracing::error!(error = %error.trace(), "failed to update the stopped sandboxes");
 			}
+
+			// Hit a checkpoint once this interval's update of the stopped sandboxes is finished.
+			tangram_server_core::checkpoint!(session.server, "runner.sandbox.stopped.updated")
+				.await;
 		}
 	}
 

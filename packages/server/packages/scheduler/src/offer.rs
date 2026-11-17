@@ -202,11 +202,13 @@ impl SchedulerState {
 					.get_mut(id)
 					.unwrap()
 					.unplaceable_since = None;
+				self.hit_unplaced_checkpoint(scheduler, id, true);
 				return false;
 			}
 
 			// Keep a sandbox that no runner can fit queued if the configuration waits for one.
 			let Some(timeout) = scheduler.config.unplaceable_timeout else {
+				self.hit_unplaced_checkpoint(scheduler, id, false);
 				return false;
 			};
 
@@ -277,6 +279,31 @@ impl SchedulerState {
 		self.offer_sandbox(scheduler, id);
 
 		true
+	}
+
+	/// Hit a checkpoint, if checkpoints are enabled, once the scheduler has decided to keep a sandbox queued. The sandbox is placeable if a runner could fit it once the runner has capacity.
+	fn hit_unplaced_checkpoint(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::sandbox::Id,
+		placeable: bool,
+	) {
+		if scheduler.server.checkpoints.is_none() {
+			return;
+		}
+		let scheduler = scheduler.clone();
+		let sandbox = id.clone();
+		self.operations.push(
+			async move {
+				tangram_server_core::checkpoint!(scheduler.server, "scheduler.sandbox.unplaced", placeable, sandbox = %sandbox)
+					.await;
+				Operation::Publish {
+					context: "failed to hit the unplaced sandbox checkpoint",
+					result: Ok(()),
+				}
+			}
+			.boxed(),
+		);
 	}
 
 	/// Send the offer of a boot to its runner, whose answer completes the offer.

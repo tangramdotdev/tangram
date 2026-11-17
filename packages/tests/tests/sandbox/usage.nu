@@ -10,6 +10,8 @@ let local = server spawn --directory $directory --config {
  runner: { memory_sampling_interval: 0.05 },
 }
 let sandbox = tg sandbox create --no-tokens --no-ttl --cpu 2 --memory 268435456 | referent node
+
+# Keep the sandbox idle for two real seconds, because usage is charged for real elapsed time, and charging the 2 CPU allocation or the 256 MiB limit over two seconds would exceed the bounds below.
 sleep 2sec
 tg sandbox destroy --wait $sandbox
 tg sandbox wait $sandbox | ignore

@@ -171,19 +171,36 @@ snapshot --normalize --redact $path $output.stderr '…'
 snapshot --normalize --redact [$path $server.directory] $output.stderr '…'
 ```
 
-### 5. Synchronize with `wait_until`, not `sleep`
+### 5. Order events with checkpoints, never with time
 
-Never wait for the system with a bare `sleep` or a hand-rolled polling loop.
-Use the `wait_until` helper from `util/test.nu`, which polls a condition and errors
-with a clear message after a timeout:
+Never wait for the system with a `sleep` or a polling loop. A wait on real time is
+slow, and when the event is late the test goes on without it and may pass without
+exercising its scenario. Use, in order of preference:
+
+- **A blocking operation** that returns when the event has happened: a `--wait`
+  flag, `tg sandbox status --until <status>` and `tg process status --until <status>`,
+  `tg index`, `job spawn` with `job recv`, a read from a fifo that the other side
+  writes to, or `wait_for_exit`.
+- **A checkpoint** that the test watches and waits for:
 
 ```nushell
-wait_until { tg watch list | from json | is-empty } "the watch should be removed after its ttl expires"
+let end = checkpoint watch scheduler.sandbox.end --params { sandbox: $sandbox }
+let stop = job spawn { tg sandbox stop $sandbox }
+checkpoint pass $end | ignore
+checkpoint unwatch $end
 ```
 
-This runs as soon as the condition holds and tolerates slow machines. If there
-is genuinely no observable condition to poll, keep the `sleep` and add a
-comment explaining why.
+- **The virtual clock** for a timer that reads the server's clock: spawn the server
+  with `--now` and move it with `advance_time`.
+
+To assert that something does not happen, drive the test past the point where it
+would have been decided, then assert once.
+
+The only exception is behavior that is defined in real time, such as usage that is
+charged for real elapsed time. Keep that `sleep` as short as the assertion allows,
+and put a comment directly above it that says why real time is required.
+`tg run ./packages/tests#check` fails on a `sleep` without such a comment. A `sleep`
+inside a sandboxed command that is the workload under test is fine.
 
 ### 6. A test is either a behavior test or a load test, never both
 
