@@ -359,7 +359,7 @@ impl tangram_server_core::holder::Item for Item<'_> {
 		.boxed()
 	}
 
-	/// A request for a process's children is answered by a record that has them or by a queued process, a finished process is final, a process in a remote is answered by the index and is complete when it is finished or starting, and the index answers a read for a starting process.
+	/// A request for a process's children is answered by a record that has them or by a queued process, a finished process is final, a process in a remote is answered by the index and is complete when it is finished or queued, and the index answers a read for a queued process.
 	fn state(&self, indexed: Option<&Self::Indexed>) -> tangram_server_core::holder::State {
 		let Some((process, _)) = indexed else {
 			return tangram_server_core::holder::State::Missing;

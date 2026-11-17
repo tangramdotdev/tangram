@@ -29,7 +29,6 @@ pub enum Status {
 	#[tangram_serialize(id = 1)]
 	Finished,
 
-	/// The process waits for a runner to start it.
 	#[tangram_serialize(id = 2)]
 	Queued,
 
