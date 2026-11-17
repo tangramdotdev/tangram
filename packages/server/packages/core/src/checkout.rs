@@ -55,6 +55,13 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		artifacts: Vec<tg::Referent<tg::artifact::Id>>,
 	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<()>>>>>;
+
+	/// Get the IDs of the checkouts that hold the artifacts, which include every item of an artifact's graph that is checked out together with it.
+	fn checkout_internal_ids<'a>(
+		&'a self,
+		session: &'a Session,
+		artifacts: Vec<tg::artifact::Id>,
+	) -> BoxFuture<'a, tg::Result<Vec<tg::Id>>>;
 }
 
 #[derive(Default)]

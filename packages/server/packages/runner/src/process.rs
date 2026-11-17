@@ -2558,11 +2558,32 @@ impl Component {
 			return Ok(());
 		}
 
+		// Check out the artifacts.
+		let stream = session
+			.server
+			.components
+			.checkout
+			.checkout_internal(session, artifacts.clone())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to check out the artifacts"))?;
+
+		// Write progress.
+		self.write_progress_stream(session, progress, stderr, stream)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
+
 		// Retain the artifacts' checkouts in the index until the process finishes, so that cleaning does not remove them while the process uses them.
-		let checkouts = artifacts
+		let artifacts = artifacts
 			.iter()
-			.map(|artifact| artifact.node.clone().into())
-			.collect::<Vec<tg::Id>>();
+			.map(|artifact| artifact.node.clone())
+			.collect::<Vec<_>>();
+		let checkouts = session
+			.server
+			.components
+			.checkout
+			.checkout_internal_ids(session, artifacts)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the checkouts"))?;
 		if !checkouts.is_empty() {
 			let process = process.clone();
 			let entry = tangram_index::process::checkout::put::Arg { checkouts, process };
@@ -2577,20 +2598,6 @@ impl Component {
 				.and_then(std::convert::identity)
 				.map_err(|error| tg::error!(!error, "failed to retain the checkouts"))?;
 		}
-
-		// Check out the artifacts.
-		let stream = session
-			.server
-			.components
-			.checkout
-			.checkout_internal(session, artifacts)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to check out the artifacts"))?;
-
-		// Write progress.
-		self.write_progress_stream(session, progress, stderr, stream)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 
 		Ok(())
 	}

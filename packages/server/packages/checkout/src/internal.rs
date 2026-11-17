@@ -630,6 +630,54 @@ impl Component {
 		Err(tg::error!(requested_ids = %ids.format(", "), "failed to ensure artifact availability"))
 	}
 
+	pub(crate) async fn checkout_internal_ids(
+		session: &Session,
+		artifacts: Vec<tg::artifact::Id>,
+	) -> tg::Result<Vec<tg::Id>> {
+		let ids = tokio::task::spawn_blocking({
+			let session = session.clone();
+			move || {
+				let graphs = tangram_server_core::graph::Graphs::default();
+				let mut ids = Vec::new();
+				for artifact in artifacts {
+					// Get the item.
+					let edge = tg::graph::data::Edge::Object(artifact);
+					let item = Self::checkout_internal_get_item(&session, &graphs, edge, None)?;
+					let id = tg::Id::from(item.id);
+
+					// Get the items of the artifact's graph that are checked out together.
+					let graph_ids = if let Some(graph_id) = &item.graph {
+						let graph_data = tangram_server_core::graph::get_leaf(
+							&session.server.cache,
+							&graphs,
+							graph_id,
+						)?;
+						Self::checkout_internal_items_for_graph(graph_id, &graph_data)?
+							.into_iter()
+							.map(|item| item.id.into())
+							.collect::<Vec<tg::Id>>()
+					} else {
+						Vec::new()
+					};
+
+					// Add the graph's items if the artifact is one of them, and the artifact otherwise.
+					if graph_ids.contains(&id) {
+						ids.extend(graph_ids);
+					} else {
+						ids.push(id);
+					}
+				}
+				ids.sort_unstable();
+				ids.dedup();
+				Ok::<_, tg::Error>(ids)
+			}
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
+
+		Ok(ids)
+	}
+
 	async fn checkout_internal_task(
 		&self,
 		session: &Session,

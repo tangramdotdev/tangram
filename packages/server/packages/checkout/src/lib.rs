@@ -635,6 +635,14 @@ impl tangram_server_core::checkout::Component for Component {
 		self.checkout_internal(session, artifacts).boxed()
 	}
 
+	fn checkout_internal_ids<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		artifacts: Vec<tg::artifact::Id>,
+	) -> BoxFuture<'a, tg::Result<Vec<tg::Id>>> {
+		Self::checkout_internal_ids(session, artifacts).boxed()
+	}
+
 	fn checkout_await_indexing<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
