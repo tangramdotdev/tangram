@@ -569,6 +569,7 @@ impl<O: 'static> tg::Process<O> {
 		let location = arg.location.take();
 		let stdio = stdin.is_some() || stdout.is_some() || stderr.is_some() || local_tty;
 		let nonce = stdio.then(tg::process::Nonce::new);
+		let (raw_sender, raw_receiver) = tokio::sync::oneshot::channel();
 		let stdio_task = nonce.map(|nonce| {
 			let instance = tg::instance::dynamic::Instance::new(instance.clone());
 			let location = location.clone();
@@ -580,7 +581,7 @@ impl<O: 'static> tg::Process<O> {
 					instance,
 					location,
 					nonce,
-					raw,
+					raw: raw.then_some(raw_receiver),
 					stderr,
 					stdin,
 					stdout,
@@ -620,6 +621,7 @@ impl<O: 'static> tg::Process<O> {
 		};
 		let (connection, stream) = tg::process::attach::Connection::open(&instance, arg).await?;
 		let output = progress(stream).await?;
+		raw_sender.send(()).ok();
 		let connection = (options.mode == tg::process::attach::Mode::Run).then_some(connection);
 		let outcome = output
 			.outcome

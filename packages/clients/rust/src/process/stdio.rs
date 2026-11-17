@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	bytes::Bytes,
-	futures::{StreamExt as _, TryStreamExt as _, future},
+	futures::{StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	serde_with::serde_as,
 	std::collections::BTreeMap,
@@ -158,7 +158,7 @@ pub(super) struct StdioTaskArg<I> {
 	pub instance: I,
 	pub location: Option<tg::location::Arg>,
 	pub nonce: tg::process::Nonce,
-	pub raw: bool,
+	pub raw: Option<tokio::sync::oneshot::Receiver<()>>,
 	pub stderr: Option<tg::process::Stdio>,
 	pub stdin: Option<tg::process::Stdio>,
 	pub stdout: Option<tg::process::Stdio>,
@@ -227,7 +227,7 @@ async fn stdin_task<I>(
 	location: Option<tg::location::Arg>,
 	nonce: tg::process::Nonce,
 	stdin: tg::process::Stdio,
-	raw: bool,
+	raw: Option<tokio::sync::oneshot::Receiver<()>>,
 ) -> tg::Result<()>
 where
 	I: tg::Instance,
@@ -235,8 +235,63 @@ where
 	if !matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Tty) {
 		return Ok(());
 	}
+	let arg = tg::process::stdio::write::stream::Arg {
+		id: None,
+		location,
+		streams: vec![tg::process::stdio::Stream::Stdin],
+		tokens: tg::authorization::Tokens::default(),
+	};
+	let input = stream::once(stdin_stream(raw))
+		.try_flatten()
+		.filter_map(|result| {
+			future::ready(match result {
+				Ok(bytes) if bytes.is_empty() => None,
+				Ok(bytes) => Some(Ok(bytes)),
+				Err(error) => Some(Err(error)),
+			})
+		})
+		.scan(0_u64, |position, result| {
+			let result = result.and_then(|bytes| {
+				let length = bytes.len().to_u64().unwrap();
+				let chunk = tg::process::stdio::Chunk {
+					bytes,
+					combined_position: *position,
+					stream: tg::process::stdio::Stream::Stdin,
+					stream_position: *position,
+					timestamp: None,
+				};
+				*position = position
+					.checked_add(length)
+					.ok_or_else(|| tg::error!("the stdin position is too large"))?;
+
+				Ok(chunk)
+			});
+
+			future::ready(Some(result))
+		})
+		.boxed();
+	let process = tg::Either::Left(nonce);
+	instance.write_process_stdio_all(&process, arg, input).await
+}
+
+async fn stdin_stream(
+	raw: Option<tokio::sync::oneshot::Receiver<()>>,
+) -> tg::Result<impl futures::Stream<Item = tg::Result<Bytes>> + Send + 'static> {
+	use tangram_futures::stream::Ext as _;
+
+	// Wait for progress reporting to finish before changing the terminal mode.
+	let raw = if let Some(ready) = raw {
+		ready
+			.await
+			.map_err(|error| tg::error!(!error, "failed to await the stdin terminal"))?;
+		true
+	} else {
+		false
+	};
+
+	// Restore the terminal when the input stream is dropped.
 	#[cfg(unix)]
-	let _raw_mode_guard =
+	let raw_mode_guard =
 		if raw && tangram_util::tty::is_foreground_controlling_tty(libc::STDIN_FILENO) {
 			let fd = libc::STDIN_FILENO;
 			let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
@@ -264,44 +319,14 @@ where
 			None
 		};
 	#[cfg(not(unix))]
-	let _ = raw;
-	let arg = tg::process::stdio::write::stream::Arg {
-		id: None,
-		location,
-		streams: vec![tg::process::stdio::Stream::Stdin],
-		tokens: tg::authorization::Tokens::default(),
-	};
+	let raw_mode_guard = raw;
+
 	let input = io::stdin()
 		.map_err(|error| tg::error!(!error, "failed to open stdin"))?
-		.filter_map(|result| {
-			future::ready(match result {
-				Ok(bytes) if bytes.is_empty() => None,
-				Ok(bytes) => Some(Ok(bytes)),
-				Err(error) => Some(Err(tg::error!(!error, "failed to read stdin"))),
-			})
-		})
-		.scan(0_u64, |position, result| {
-			let result = result.and_then(|bytes| {
-				let length = bytes.len().to_u64().unwrap();
-				let chunk = tg::process::stdio::Chunk {
-					bytes,
-					combined_position: *position,
-					stream: tg::process::stdio::Stream::Stdin,
-					stream_position: *position,
-					timestamp: None,
-				};
-				*position = position
-					.checked_add(length)
-					.ok_or_else(|| tg::error!("the stdin position is too large"))?;
+		.map_err(|error| tg::error!(!error, "failed to read stdin"))
+		.attach(raw_mode_guard);
 
-				Ok(chunk)
-			});
-
-			future::ready(Some(result))
-		})
-		.boxed();
-	let process = tg::Either::Left(nonce);
-	instance.write_process_stdio_all(&process, arg, input).await
+	Ok(input)
 }
 
 async fn stdout_stderr_task<I>(
