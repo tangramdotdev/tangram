@@ -19,16 +19,9 @@ mod xattrs;
 
 pub(crate) mod internal;
 
-type Tasks = tangram_futures::task::Map<
-	tg::artifact::Id,
-	tg::Result<()>,
-	tg::progress::Handle<()>,
-	tg::id::BuildHasher,
->;
-
-type GraphTasks = tangram_futures::task::Map<
-	tg::graph::Id,
-	tg::Result<()>,
+type Tasks<Id> = tangram_futures::task::Map<
+	Id,
+	tg::Result<Arc<[tg::Id]>>,
 	tg::progress::Handle<()>,
 	tg::id::BuildHasher,
 >;
@@ -38,9 +31,9 @@ type GraphTasks = tangram_futures::task::Map<
 pub struct Component(Arc<State>);
 
 pub struct State {
-	graph_tasks: GraphTasks,
+	graph_tasks: Tasks<tg::graph::Id>,
 	lock: Lock,
-	tasks: Tasks,
+	tasks: Tasks<tg::artifact::Id>,
 	xattr_value_size: Mutex<Option<usize>>,
 }
 

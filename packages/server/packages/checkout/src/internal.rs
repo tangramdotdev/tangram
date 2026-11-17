@@ -12,6 +12,7 @@ use {
 		panic::AssertUnwindSafe,
 		path::{Path, PathBuf},
 		pin::pin,
+		sync::Arc,
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -653,7 +654,9 @@ impl Component {
 
 		// Check out the entry and all its dependencies.
 		self.checkout_internal_artifact(session, item, progress.clone())
-			.await
+			.await?;
+
+		Ok(())
 	}
 
 	fn checkout_internal_artifact(
@@ -661,7 +664,7 @@ impl Component {
 		session: &Session,
 		item: Item,
 		progress: tg::progress::Handle<()>,
-	) -> impl Future<Output = tg::Result<()>> + Send {
+	) -> impl Future<Output = tg::Result<Arc<[tg::Id]>>> + Send {
 		let component = self.clone();
 		let session = session.clone();
 		async move {
@@ -746,7 +749,7 @@ impl Component {
 		session: &Session,
 		graph_id: &tg::graph::Id,
 		progress: tg::progress::Handle<()>,
-	) -> impl Future<Output = tg::Result<()>> + Send {
+	) -> impl Future<Output = tg::Result<Arc<[tg::Id]>>> + Send {
 		let component = self.clone();
 		let session = session.clone();
 		let graph_id = graph_id.clone();
@@ -832,89 +835,24 @@ impl Component {
 		session: &Session,
 		item: Item,
 		progress: tg::progress::Handle<()>,
-	) -> tg::Result<()> {
-		// If this item is in a graph, ensure the graph's cycle-related items are checked out first.
+	) -> tg::Result<Arc<[tg::Id]>> {
+		// Check out the graph's cycle-related items together.
 		if let Some(graph_id) = &item.graph {
-			self.checkout_internal_graph(session, graph_id, progress.clone())
+			let ids = self
+				.checkout_internal_graph(session, graph_id, progress.clone())
 				.await
 				.map_err(|error| tg::error!(!error, %graph_id, "failed to check out the graph"))?;
-		}
-
-		// Create the path.
-		let path = session.server.checkout_path().join(item.id.to_string());
-
-		// If the path exists, then touch the checkout so that cleaning does not remove it while it is in use, and return unless the index no longer has it.
-		let exists = tokio::task::spawn_blocking({
-			let path = path.clone();
-			move || path.try_exists()
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
-		.map_err(|error| tg::error!(!error, "failed to determine if the path exists"))?;
-		if exists {
-			let id = tg::Id::from(item.id.clone());
-			let touched_at = session.server.clock.unix_timestamp();
-			let time_to_touch = session.server.config.object.time_to_touch;
-			let checkout = session
-				.server
-				.index
-				.touch_checkout(&id, touched_at, time_to_touch)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to touch the checkout"))?;
-			if checkout.is_some() {
-				return Ok(());
+			if ids.contains(&item.id.clone().into()) {
+				return Ok(ids);
 			}
 		}
 
-		// Create the temp and write the artifact.
-		let (temp, dependencies) = tokio::task::spawn_blocking({
-			let component = self.clone();
-			let session = session.clone();
-			let item = item.clone();
-			let progress = progress.clone();
-			move || {
-				let temp = Temp::new(&session.server);
-				let dependencies =
-					component.checkout_internal_write(&session, temp.path(), &item, &progress)?;
-				Ok::<_, tg::Error>((temp, dependencies))
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
+		// Check out the requested item if the graph did not include it.
+		let ids = self
+			.checkout_internal_items(session, vec![item], None, progress)
+			.await?;
 
-		let dependency_ids: Vec<tg::artifact::Id> = dependencies
-			.iter()
-			.map(|dependency| dependency.id.clone())
-			.collect();
-
-		// Await the dependency checkout tasks.
-		future::try_join_all(dependencies.into_iter().map(|dependency| {
-			self.checkout_internal_artifact(session, dependency, progress.clone())
-		}))
-		.await
-		.map_err(|error| tg::error!(!error, "failed to check out the dependencies"))?;
-
-		// Rename the temp to the checkouts directory.
-		let put_checkout_arg = tokio::task::spawn_blocking({
-			let session = session.clone();
-			move || Self::checkout_internal_rename(&session, item, &temp, &dependency_ids)
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
-
-		// Index the checkout.
-		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutCheckout(Box::new(put_checkout_arg))],
-		};
-		session
-			.server
-			.components
-			.indexer
-			.write(&session.server, arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the checkout"))?;
-
-		Ok(())
+		Ok(ids)
 	}
 
 	async fn checkout_internal_graph_task(
@@ -922,7 +860,7 @@ impl Component {
 		session: &Session,
 		graph_id: &tg::graph::Id,
 		progress: tg::progress::Handle<()>,
-	) -> tg::Result<()> {
+	) -> tg::Result<Arc<[tg::Id]>> {
 		// Load the graph in a blocking task.
 		let graph_data = tokio::task::spawn_blocking({
 			let session = session.clone();
@@ -940,36 +878,33 @@ impl Component {
 
 		// Get the items that need checkouts.
 		let items = Self::checkout_internal_items_for_graph(graph_id, &graph_data)?;
-		if items.is_empty() {
-			return Ok(());
-		}
+		let ids = self
+			.checkout_internal_items(session, items, Some(graph_id), progress)
+			.await?;
 
-		// Check if all items already exist in the checkouts directory.
-		let all_exist = tokio::task::spawn_blocking({
-			let session = session.clone();
-			let items = items.clone();
-			move || {
-				for item in &items {
-					let path = session.server.checkout_path().join(item.id.to_string());
-					if !path.try_exists().unwrap_or(false) {
-						return false;
-					}
-				}
-				true
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?;
-		if all_exist {
-			return Ok(());
+		Ok(ids)
+	}
+
+	async fn checkout_internal_items(
+		&self,
+		session: &Session,
+		items: Vec<Item>,
+		graph_id: Option<&tg::graph::Id>,
+		progress: tg::progress::Handle<()>,
+	) -> tg::Result<Arc<[tg::Id]>> {
+		let ids = items
+			.iter()
+			.map(|item| item.id.clone().into())
+			.collect::<Arc<[_]>>();
+		if ids.is_empty() || Self::touch_existing_checkouts(&session.server, &ids).await? {
+			return Ok(ids);
 		}
 
 		// Write each item to a temp and collect dependencies.
 		let outputs = tokio::task::spawn_blocking({
 			let component = self.clone();
 			let session = session.clone();
-			let items = items.clone();
-			let graph_id = graph_id.clone();
+			let graph_id = graph_id.cloned();
 			let progress = progress.clone();
 			move || {
 				let mut outputs = Vec::new();
@@ -978,18 +913,18 @@ impl Component {
 					let temp = Temp::new(&session.server);
 
 					// Write the item.
-					let dependencies = component.checkout_internal_write(
+					let mut dependencies = component.checkout_internal_write(
 						&session,
 						temp.path(),
 						&item,
 						&progress,
 					)?;
 
-					// Filter out same-graph dependencies.
-					let dependencies: Vec<Item> = dependencies
-						.into_iter()
-						.filter(|dependency| dependency.graph.as_ref() != Some(&graph_id))
-						.collect();
+					// Skip dependencies that this graph checkout is already writing.
+					if let Some(graph_id) = &graph_id {
+						dependencies
+							.retain(|dependency| dependency.graph.as_ref() != Some(graph_id));
+					}
 
 					// Add the output.
 					let output = (item, temp, dependencies);
@@ -1001,15 +936,25 @@ impl Component {
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
-		let dependencies: Vec<Item> = outputs
-			.iter()
-			.flat_map(|(_, _, dependencies)| dependencies.clone())
-			.collect();
-		future::try_join_all(dependencies.into_iter().map(|dependency| {
-			self.checkout_internal_artifact(session, dependency, progress.clone())
-		}))
-		.await
-		.map_err(|error| tg::error!(!error, "failed to check out the dependencies"))?;
+		// Retain every checkout needed by each dependency, including the other members of its cycle.
+		let outputs =
+			future::try_join_all(outputs.into_iter().map(|(item, temp, dependencies)| {
+				let tasks = dependencies.into_iter().map(|dependency| {
+					self.checkout_internal_artifact(session, dependency, progress.clone())
+				});
+				async move {
+					let checkouts = future::try_join_all(tasks).await?;
+					let dependencies = checkouts
+						.iter()
+						.flat_map(|ids| ids.iter().cloned())
+						.sorted_unstable()
+						.dedup()
+						.collect();
+					Ok::<_, tg::Error>((item, temp, dependencies))
+				}
+			}))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to check out the dependencies"))?;
 
 		// Rename all entries to the checkouts directory.
 		let put_checkout_args = tokio::task::spawn_blocking({
@@ -1017,12 +962,8 @@ impl Component {
 			move || {
 				let mut put_checkout_args = Vec::with_capacity(outputs.len());
 				for (item, temp, dependencies) in outputs {
-					let dependency_ids: Vec<tg::artifact::Id> = dependencies
-						.iter()
-						.map(|dependency| dependency.id.clone())
-						.collect();
 					let put_checkout_arg =
-						Self::checkout_internal_rename(&session, item, &temp, &dependency_ids)?;
+						Self::checkout_internal_rename(&session, item, &temp, dependencies)?;
 					put_checkout_args.push(put_checkout_arg);
 				}
 				Ok::<_, tg::Error>(put_checkout_args)
@@ -1046,7 +987,48 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the checkouts"))?;
 
-		Ok(())
+		Ok(ids)
+	}
+
+	async fn touch_existing_checkouts(server: &Server, ids: &[tg::Id]) -> tg::Result<bool> {
+		// Check that each checkout exists and its path resolves.
+		let directory = server.checkout_path();
+		let paths = ids
+			.iter()
+			.map(|id| directory.join(id.to_string()))
+			.collect::<Vec<_>>();
+		let exists = tokio::task::spawn_blocking(move || {
+			for path in paths {
+				match path.try_exists() {
+					Ok(true) => (),
+					Ok(false) => return Ok(false),
+					Err(error) if error.raw_os_error() == Some(libc::ELOOP) => return Ok(false),
+					Err(error) => {
+						return Err(
+							tg::error!(!error, path = %path.display(), "failed to inspect the checkout"),
+						);
+					},
+				}
+			}
+			Ok(true)
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
+		if !exists {
+			return Ok(false);
+		}
+
+		// Refresh the checkouts together, and rebuild them if the index is missing an entry.
+		let touched_at = server.clock.unix_timestamp();
+		let time_to_touch = server.config.object.time_to_touch;
+		let checkouts = server
+			.index
+			.touch_checkouts(ids, touched_at, time_to_touch)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the checkouts"))?;
+		let touched = checkouts.iter().all(Option::is_some);
+
+		Ok(touched)
 	}
 
 	fn checkout_internal_write(
@@ -1417,7 +1399,7 @@ impl Component {
 		session: &Session,
 		item: Item,
 		temp: &Temp,
-		dependencies: &[tg::artifact::Id],
+		dependencies: Vec<tg::Id>,
 	) -> tg::Result<tangram_index::checkout::put::Arg> {
 		// Create the path.
 		let path = session.server.checkout_path().join(item.id.to_string());
@@ -1465,7 +1447,7 @@ impl Component {
 		// Index the checkout.
 		let touched_at = session.server.clock.unix_timestamp();
 		let arg = tangram_index::checkout::put::Arg {
-			dependencies: dependencies.iter().cloned().map(Into::into).collect(),
+			dependencies,
 			id: item.id.into(),
 			replace: false,
 			touched_at,
