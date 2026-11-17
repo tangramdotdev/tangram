@@ -22,7 +22,11 @@ enum CandidateOutcome {
 
 pub(super) struct Output {
 	guard: Option<super::lease::LeaseGuard>,
-	output: tg::process::spawn::Output,
+
+	inner: tg::process::spawn::Output,
+
+	/// The sandbox of a cached process in this region, which may borrow the capacity of the sandbox whose process waits for it if a scheduler holds it.
+	pub(super) sandbox: Option<tg::sandbox::Id>,
 }
 
 struct TryGetCachedProcessWithMismatchedChecksumLocalArg<'a> {
@@ -37,18 +41,22 @@ struct TryGetCachedProcessWithMismatchedChecksumLocalArg<'a> {
 impl Output {
 	pub fn new(session: &Session, output: tg::process::spawn::Output) -> Self {
 		let guard = super::lease::LeaseGuard::new(session, &output);
-		Self { guard, output }
+		Self {
+			guard,
+			inner: output,
+			sandbox: None,
+		}
 	}
 
 	pub fn into_output(mut self) -> tg::process::spawn::Output {
 		if let Some(mut guard) = self.guard.take() {
 			guard.disarm();
 		}
-		self.output
+		self.inner
 	}
 
 	pub fn process(&self) -> Option<&tg::process::Id> {
-		self.output.process.as_ref().right()
+		self.inner.process.as_ref().right()
 	}
 }
 

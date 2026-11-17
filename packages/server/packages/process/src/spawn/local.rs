@@ -1,10 +1,9 @@
 use {
 	super::child::AddProcessChildArg,
 	crate::Component,
-	futures::{FutureExt as _, TryStreamExt as _, future},
+	futures::{FutureExt as _, TryStreamExt as _, future, future::BoxFuture},
 	std::pin::pin,
 	tangram_client::prelude::*,
-	tangram_index::prelude::*,
 	tangram_server_core::Session,
 };
 
@@ -160,60 +159,67 @@ impl Component {
 		)
 	}
 
-	/// Lend a parent's capacity to a cached process that has not started, until it starts, so that a process that waits for a queued process after a cache hit does not keep the capacity that the queued process needs.
-	pub(super) async fn spawn_process_lend_capacity_to_cached_process(
-		&self,
+	/// Lend a parent's capacity in a task until a process starts or finishes.
+	pub(super) fn spawn_process_lend_capacity_task(
 		session: &Session,
-		parent: &tg::process::Id,
-		parent_sandbox: &tg::sandbox::Id,
+		lend: BoxFuture<'static, ()>,
 		output: &tg::process::spawn::Output,
-	) -> tg::Result<()> {
-		// Get the sandbox of the cached process, unless the process has started.
+	) {
 		let tg::Either::Right(process) = &output.process else {
-			return Ok(());
+			return;
 		};
-		let sandbox = session
-			.server
-			.index
-			.try_get_process_with_data(process)
-			.await?
-			.and_then(|(_, data)| data)
-			.filter(|data| matches!(data.status, tg::process::Status::Starting))
-			.and_then(|data| data.sandbox);
-		let Some(sandbox) = sandbox.filter(|sandbox| sandbox != parent_sandbox) else {
-			return Ok(());
-		};
-
-		// Lend the capacity until the cached process starts.
-		let lend_future = self.spawn_process_notify_borrowable_capacity(
-			session,
-			parent,
-			parent_sandbox,
-			Borrower::Cached(&sandbox),
-		);
 		let arg = tg::process::status::Arg {
 			location: output.location.clone().map(Into::into),
 			tokens: output.tokens.clone(),
 			..Default::default()
 		};
-		let start_future = async {
-			let stream = session.get_process_status(process, arg).await.map_err(
-				|error| tg::error!(!error, %process, "failed to get the cached process status"),
-			)?;
-			let mut stream = pin!(stream);
-			while let Some(status) = stream.try_next().await? {
-				match status {
-					tg::process::Status::Finished | tg::process::Status::Started => break,
-					tg::process::Status::Starting => (),
+		let process = process.clone();
+		let session = session.clone();
+		tokio::spawn(async move {
+			let start = async {
+				let stream = session.get_process_status(&process, arg).await?;
+				let mut stream = pin!(stream);
+				while let Some(status) = stream.try_next().await? {
+					match status {
+						tg::process::Status::Finished | tg::process::Status::Started => break,
+						tg::process::Status::Starting => (),
+					}
 				}
+				Ok::<_, tg::Error>(())
+			};
+			if let future::Either::Right((Err(error), _)) = future::select(lend, pin!(start)).await
+			{
+				tracing::debug!(error = %error.trace(), %process, "failed to get the status of the process that borrows capacity");
 			}
-			Ok::<_, tg::Error>(())
-		};
-		match future::select(pin!(lend_future), pin!(start_future)).await {
-			future::Either::Left((result, _)) | future::Either::Right((result, _)) => result?,
-		}
+		});
+	}
 
-		Ok(())
+	/// Create a future that lends a parent's capacity to the sandbox of a cached process that has not started, so that a process that waits for a queued process after a cache hit does not keep the capacity that the queued process needs.
+	pub(super) fn spawn_process_lend_capacity_to_cached_process(
+		&self,
+		session: &Session,
+		parent: &tg::process::Id,
+		parent_sandbox: &tg::sandbox::Id,
+		sandbox: tg::sandbox::Id,
+	) -> BoxFuture<'static, ()> {
+		let component = self.clone();
+		let parent = parent.clone();
+		let parent_sandbox = parent_sandbox.clone();
+		let session = session.clone();
+		async move {
+			let result = component
+				.spawn_process_notify_borrowable_capacity(
+					&session,
+					&parent,
+					&parent_sandbox,
+					Borrower::Cached(&sandbox),
+				)
+				.await;
+			if let Err(error) = result {
+				tracing::debug!(error = %error.trace(), %parent, "failed to lend capacity to the cached process");
+			}
+		}
+		.boxed()
 	}
 
 	pub(super) async fn spawn_process_notify_borrowable_capacity(

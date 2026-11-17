@@ -265,7 +265,7 @@ impl Component {
 			&& runner_matches_location
 			&& arg.cached != Some(true)
 			&& (!new_sandbox || allocation.is_some());
-		let notify = if shortcut {
+		let mut notify = if shortcut {
 			None
 		} else {
 			self.try_prepare_spawn_process_for_location(
@@ -277,23 +277,23 @@ impl Component {
 			.await
 		};
 
-		// Wait for a child that may borrow its parent's capacity to start, because the notification of the capacity lasts only as long as the spawn.
-		if notify.is_some() {
-			arg.wait = true;
-		}
-
 		let lender = parent_sandbox.clone();
+		let mut borrower = None;
 		let mut output = if shortcut {
-			self.try_spawn_process_local(
-				session,
-				arg.clone(),
-				parent_sandbox,
-				allocation,
-				None,
-				Some(&location),
-			)
-			.boxed()
-			.await?
+			let (output, sandbox) = self
+				.try_spawn_process_local(
+					session,
+					arg.clone(),
+					parent_sandbox,
+					allocation,
+					None,
+					Some(&location),
+				)
+				.boxed()
+				.await?
+				.unzip();
+			borrower = sandbox.flatten();
+			output
 		} else {
 			let spawn_future = match location.clone() {
 				tg::Location::Local(tg::location::Local {
@@ -310,6 +310,13 @@ impl Component {
 						open,
 						None,
 					)
+					.map(|result| {
+						result.map(|output| {
+							let (output, sandbox) = output.unzip();
+							borrower = sandbox.flatten();
+							output
+						})
+					})
 					.boxed(),
 				tg::Location::Remote(tg::location::Remote {
 					name: remote,
@@ -318,9 +325,12 @@ impl Component {
 					.try_spawn_process_remote(session, arg.clone(), progress, remote, region)
 					.boxed(),
 			};
-			if let Some(notify) = notify {
-				match futures::future::select(spawn_future, notify).await {
-					futures::future::Either::Left((result, _)) => result?,
+			if let Some(future) = notify.take() {
+				match futures::future::select(spawn_future, future).await {
+					futures::future::Either::Left((result, future)) => {
+						notify = Some(future);
+						result?
+					},
 					futures::future::Either::Right(((), spawn_future)) => spawn_future.await?,
 				}
 			} else {
@@ -334,25 +344,30 @@ impl Component {
 			output.location = Some(location);
 		}
 
-		// Lend the parent's capacity to a cached process that has not finished, in place of the process that the spawn would have created.
-		if runner_matches_location
-			&& new_sandbox
-			&& let Some(output) = &output
-			&& output.cached
+		// Keep lending the parent's capacity in a task until the process starts, so that the spawn does not wait for it. A cached process that has not finished borrows in place of the process that the spawn would have created.
+		if let Some(output) = &output
 			&& output.outcome.is_none()
-			&& let Some(parent) = &arg.parent
-			&& let Some(parent_sandbox) = &lender
 		{
-			let result = self
-				.spawn_process_lend_capacity_to_cached_process(
+			let lend = if !output.cached {
+				notify
+			} else if runner_matches_location
+				&& new_sandbox
+				&& let Some(parent) = &arg.parent
+				&& let Some(parent_sandbox) = &lender
+				&& let Some(sandbox) = borrower.filter(|sandbox| sandbox != parent_sandbox)
+			{
+				let future = self.spawn_process_lend_capacity_to_cached_process(
 					session,
 					parent,
 					parent_sandbox,
-					output,
-				)
-				.await;
-			if let Err(error) = result {
-				tracing::debug!(error = %error.trace(), %parent, "failed to lend capacity to the cached process");
+					sandbox,
+				);
+				Some(future)
+			} else {
+				None
+			};
+			if let Some(lend) = lend {
+				Self::spawn_process_lend_capacity_task(session, lend, output);
 			}
 		}
 		let mut lease_guard = output
@@ -463,7 +478,7 @@ impl Component {
 		allocation: Option<tangram_server_runner_core::capacity::Allocation>,
 		open: Option<crate::attach::service::Open>,
 		cache_location: Option<&tg::Location>,
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
+	) -> tg::Result<Option<(tg::process::spawn::Output, Option<tg::sandbox::Id>)>> {
 		let command = Self::spawn_process_resolve_command(session, &mut arg)?;
 
 		// Determine whether the process is cacheable.
@@ -501,16 +516,27 @@ impl Component {
 			output.sandbox_token = None;
 			output.tokens.clear();
 		}
-		let output = if cacheable && arg.cached.is_none() {
-			self.spawn_process_in_sandbox_or_get_cached(
-				session,
-				&arg,
-				&command,
-				output,
-				cache_location,
-			)
-			.boxed()
-			.await?
+
+		// Get the sandbox of a cached process, which may borrow the capacity of the parent's sandbox if a scheduler holds it.
+		let sandbox = output
+			.as_ref()
+			.filter(|output| output.cached)
+			.and_then(|output| output.data.sandbox.clone());
+		let (output, sandbox) = if cacheable && arg.cached.is_none() {
+			let output = self
+				.spawn_process_in_sandbox_or_get_cached(
+					session,
+					&arg,
+					&command,
+					output,
+					cache_location,
+				)
+				.boxed()
+				.await?;
+			match output {
+				Some((output, cached)) => (Some(output), sandbox.or(cached)),
+				None => (None, None),
+			}
 		} else {
 			// Spawn the process in a sandbox.
 			let output = self
@@ -519,9 +545,11 @@ impl Component {
 				.await?;
 
 			// Wait for the local process or get a cached process.
-			self.spawn_process_wait_or_get_cached(session, &arg, output, cacheable)
+			let output = self
+				.spawn_process_wait_or_get_cached(session, &arg, output, cacheable)
 				.boxed()
-				.await?
+				.await?;
+			(output, sandbox)
 		};
 		let Some(mut output) = output else {
 			return Ok(None);
@@ -540,7 +568,7 @@ impl Component {
 			guard.disarm();
 		}
 
-		Ok(Some(output))
+		Ok(Some((output, sandbox)))
 	}
 
 	pub(super) fn create_process_wait_token(
