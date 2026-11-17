@@ -142,6 +142,15 @@ export const imageBuild = async (...args: Array<string>) => {
 		.env(env);
 };
 
+export const imageClean = async (...args: Array<string>) => {
+	const { cwd, env } = await context();
+	await tg.run`docker buildx prune --filter type=exec.cachemount "$@"`
+		.executable("sh")
+		.args(["--", ...args])
+		.cwd(cwd)
+		.env(env);
+};
+
 export const imagePush = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
 	await tg.run`docker push ghcr.io/tangramdotdev/tangram:latest "$@"`

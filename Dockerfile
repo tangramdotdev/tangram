@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM --platform=$BUILDPLATFORM rust:1.99.0-trixie AS build
+FROM --platform=$BUILDPLATFORM rust:1.100.0-trixie AS build
 
 ARG TARGETARCH
 
@@ -12,9 +12,10 @@ RUN set -eu; \
         ca-certificates clang cmake curl git libclang-dev make perl pkg-config \
         python3 unzip xz-utils zstd \
         "libcap-ng-dev:$TARGETARCH" "libseccomp-dev:$TARGETARCH" "libssl-dev:$TARGETARCH" "liblzma-dev:$TARGETARCH" "zlib1g-dev:$TARGETARCH"; \
-    if [ "$TARGETARCH" = arm64 ]; then \
-        apt-get install -y --no-install-recommends g++-aarch64-linux-gnu; \
-    fi; \
+    case "$TARGETARCH" in \
+        amd64) apt-get install -y --no-install-recommends g++-x86-64-linux-gnu ;; \
+        arm64) apt-get install -y --no-install-recommends g++-aarch64-linux-gnu ;; \
+    esac; \
     rm -rf /var/lib/apt/lists/*
 
 # Install the host JavaScript tooling used by Rust's build scripts.
@@ -30,7 +31,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
     set -eu; \
     case "$TARGETARCH" in \
-        amd64) triple=x86_64-unknown-linux-gnu; multiarch=x86_64-linux-gnu ;; \
+        amd64) triple=x86_64-unknown-linux-gnu; multiarch=x86_64-linux-gnu; \
+            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc; \
+            export CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc; \
+            export BINDGEN_EXTRA_CLANG_ARGS_x86_64_unknown_linux_gnu="-I/usr/x86_64-linux-gnu/include"; \
+            export CXX_x86_64_unknown_linux_gnu=x86_64-linux-gnu-g++; \
+            export AR_x86_64_unknown_linux_gnu=x86_64-linux-gnu-ar; \
+            export OBJCOPY_x86_64_unknown_linux_gnu=x86_64-linux-gnu-objcopy ;; \
         arm64) triple=aarch64-unknown-linux-gnu; multiarch=aarch64-linux-gnu; \
             export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc; \
             export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc; \
@@ -51,7 +58,7 @@ ARG TARGETARCH
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        ca-certificates curl fuse3 libcap-ng0 libseccomp2 libssl3t64 liblzma5 zlib1g libstdc++6 passt && \
+        ca-certificates curl fuse3 iptables libcap-ng0 libseccomp2 libssl3t64 liblzma5 zlib1g libstdc++6 nftables passt squashfs-tools && \
     rm -rf /var/lib/apt/lists/*
 
 # Install a checksummed Cloud Hypervisor binary for each supported architecture.

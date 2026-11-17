@@ -145,6 +145,7 @@ have their hooks invoked automatically.
 | `run`, `runRelease` | Build and run a Tangram target with the local CLI |
 | `test`, `testRust` | Full test suite or the Rust tests |
 | `imageBuild`, `imagePush`, `imagePublish` | Build or publish the container image |
+| `imageClean` | Remove unused Docker build cache mounts |
 | `canary` | Build and publish the canary release |
 | `clean` | Remove checkout state, dependencies, and build output |
 
@@ -179,6 +180,17 @@ image assembly; the Rust compilation itself uses a cross compiler.
 ```nu
 tg run .#imageBuild -- --platform linux/arm64
 ```
+
+Builds on the same Docker builder reuse Cargo's registry, Git, and target caches.
+To clear unused cache mounts, including those shared with other builds on the
+selected builder, run:
+
+```nu
+tg run .#imageClean
+```
+
+Pass `-- --force` to skip Docker's confirmation prompt, or `-- --builder <name>`
+to select another builder.
 
 To publish a multiarchitecture image index:
 
