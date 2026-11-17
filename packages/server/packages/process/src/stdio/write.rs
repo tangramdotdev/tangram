@@ -344,7 +344,7 @@ impl Component {
 		{
 			let start = data
 				.status
-				.is_starting()
+				.is_queued()
 				.then(|| self.create_wait_process_start_future(session, id));
 			let arg = relay::WriteProcessStdioRelayTaskArg {
 				id,

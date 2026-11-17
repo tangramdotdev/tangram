@@ -743,7 +743,7 @@ impl Component {
 			return Ok(None);
 		}
 
-		// Skip a process whose ID is outside the proof window, since a process that is still starting has a recent ID.
+		// Skip a process whose ID is outside the proof window, since a process that is still queued has a recent ID.
 		let now = session.server.clock.unix_timestamp();
 		let now = now.to_u64().unwrap_or_default() * 1000;
 		let window = session.server.config.process.id_proof_window;

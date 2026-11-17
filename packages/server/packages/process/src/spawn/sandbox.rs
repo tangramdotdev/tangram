@@ -185,7 +185,7 @@ impl Component {
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
 		let started = process
 			.and_then(|process| process.status)
-			.is_some_and(|status| !status.is_starting());
+			.is_some_and(|status| !status.is_queued());
 
 		Ok(started)
 	}

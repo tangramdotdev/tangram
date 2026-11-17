@@ -60,11 +60,11 @@ impl Index {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 
-		// Ignore a starting record that arrives after the process started, because writes may be applied out of order.
+		// Ignore a queued record that arrives after the process started, because writes may be applied out of order.
 		if arg
 			.data
 			.as_ref()
-			.is_some_and(|data| data.status.is_starting())
+			.is_some_and(|data| data.status.is_queued())
 			&& existing
 				.as_ref()
 				.is_some_and(|existing| existing.status.is_some())

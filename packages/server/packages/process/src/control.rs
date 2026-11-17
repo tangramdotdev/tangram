@@ -870,7 +870,7 @@ impl Component {
 		Ok(output)
 	}
 
-	/// Create a future that waits for a process to leave the starting status, and resolves to whether it started, because a process can finish without starting.
+	/// Create a future that waits for a process to leave the queued status, and resolves to whether it started, because a process can finish without starting.
 	pub(crate) fn create_wait_process_start_future(
 		&self,
 		session: &Session,
@@ -898,7 +898,7 @@ impl Component {
 				let Some(status) = process.status else {
 					return Ok(true);
 				};
-				if !status.is_starting() {
+				if !status.is_queued() {
 					let started =
 						!status.is_finished() || data.is_some_and(|data| data.started_at.is_some());
 					return Ok(started);

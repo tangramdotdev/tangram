@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Requests that a spawner sends to a process that is still starting wait for it to start, however long it waits in the queue.
+# Requests that a spawner sends to a process that is still queued wait for it to start, however long it waits in the queue.
 
 let local = server spawn --config {
 	process: {
@@ -48,7 +48,7 @@ assert ($output.stdout | str contains 'hello world')
 # A signal waits for the process to start.
 let sandbox = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let spawned = tg process spawn --no-tokens --verbose --sandbox=true --mount $"($mount):/target" $spin | from json
-assert equal (tg get $spawned.process | from json | get status) starting
+assert equal (tg get $spawned.process | from json | get status) queued
 assert equal (tg process children $spawned.process | from json) []
 let free = job spawn {
 	sleep 2sec
@@ -66,7 +66,7 @@ let run = job spawn {
 	$output | job send --tag $job_id 0
 }
 sleep 1sec
-let queued = tg process list --status starting | from json | first | get node
+let queued = tg process list --status queued | from json | first | get node
 let queued = tg get $queued | from json | get sandbox
 tg sandbox destroy $queued
 let output = job recv --tag $run --timeout 30sec

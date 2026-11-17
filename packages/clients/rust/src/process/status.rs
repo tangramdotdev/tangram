@@ -26,14 +26,15 @@ use {
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
 pub enum Status {
-	#[tangram_serialize(id = 0)]
-	Started,
-
 	#[tangram_serialize(id = 1)]
 	Finished,
 
+	/// The process waits for a runner to start it.
 	#[tangram_serialize(id = 2)]
-	Starting,
+	Queued,
+
+	#[tangram_serialize(id = 0)]
+	Started,
 }
 
 #[serde_as]
