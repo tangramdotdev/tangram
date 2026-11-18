@@ -21,7 +21,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Graph {
 	nodes: Vec<Node>,
 }
@@ -48,8 +48,6 @@ struct Entry {
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
-	let client = cli.client().await?;
-
 	// Find the root.
 	let root = find_root(args.path.clone())
 		.await
@@ -59,15 +57,14 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// Deserialize the lock.
 	let lock = try_read_lock(root.clone())
 		.await
-		.map_err(|error| tg::error!(!error, "failed to read lockfile"))?
-		.ok_or_else(|| tg::error!("missing lockfile"))?;
-
-	if lock.nodes.is_empty() {
-		return Ok(());
-	}
+		.map_err(|error| tg::error!(!error, "failed to read lockfile"))?;
 
 	// Collect dependencies.
-	let graph = create_graph(&lock, root);
+	let client = cli.client().await?;
+	let graph = lock
+		.as_ref()
+		.filter(|lock| !lock.nodes.is_empty())
+		.map_or_default(|lock| create_graph(lock, root));
 	let mut output: HashSet<Entry> = HashSet::new();
 	for node in &graph.nodes {
 		for (pattern, edge) in &node.edges {

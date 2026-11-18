@@ -1,15 +1,15 @@
 use ../../util/test.nu *
 
-# Outdated fails when the package has no lockfile.
+# Outdated reports no outdated dependencies when the package has no lockfile.
 
 let local = server spawn
 
 let path = artifact { tangram.ts: 'export default function () { return 42; }' }
 
 let output = do --env { cd $path; tg outdated . } | complete
-failure $output
-snapshot --normalize --redact $path $output.stderr '
-	error an error occurred
-	-> missing lockfile
+success $output
+assert equal $output.stdout ""
 
-'
+let output = do --env { cd $path; tg outdated --json . } | complete
+success $output
+assert equal ($output.stdout | from json) []
