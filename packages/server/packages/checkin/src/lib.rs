@@ -125,7 +125,10 @@ impl Component {
 			.map_err(|error| tg::error!(!error, path = %arg.path.display(), "failed to canonicalize the path's parent"))?;
 
 		// Recognize the store path after resolving parent symlinks and traversal components.
-		if let Some(output) = self.try_checkin_store_path(session, &arg.path).await? {
+		if let Some(output) = self
+			.try_checkin_store_path(session, &arg.path, arg.options.public)
+			.await?
+		{
 			let capacity = session.server.config.progress.channel_capacity;
 			let progress = tg::progress::Handle::new(capacity);
 			progress.output(output);

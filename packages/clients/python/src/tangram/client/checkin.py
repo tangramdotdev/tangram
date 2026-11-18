@@ -23,6 +23,7 @@ class Options(TypedDict, total=False):
     local_dependencies: bool
     lock: Literal["auto", "attr", "file"] | None
     locked: bool
+    public: bool
     solve: bool
     unsolved_dependencies: bool
     time_to_live: float | None
@@ -65,6 +66,8 @@ class Arg:
                 options["lock"] = source["lock"]
         if source.get("locked"):
             options["locked"] = source["locked"]
+        if source.get("public"):
+            options["public"] = source["public"]
         if source.get("root"):
             options["root"] = source["root"]
         if "solve" in source and not source["solve"]:

@@ -607,6 +607,26 @@ impl Component {
 			(_, _) => Ok(tangram_server_core::http::not_found()),
 		}
 	}
+
+	fn sync_named_node_read_permission(id: &tg::Id) -> tg::Result<tg::authorization::Permission> {
+		let permission = match id.kind() {
+			tg::id::Kind::Group => tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Read,
+			),
+			tg::id::Kind::Organization => tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Read,
+			),
+			tg::id::Kind::Tag => tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			),
+			tg::id::Kind::User => tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Read,
+			),
+			_ => return Err(tg::error!(%id, "invalid database node kind")),
+		};
+
+		Ok(permission)
+	}
 }
 
 impl std::ops::Deref for Component {

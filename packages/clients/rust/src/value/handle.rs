@@ -116,6 +116,20 @@ impl Value {
 	where
 		I: tg::Instance,
 	{
+		self.store_with_options_with_instance(instance, location, false)
+			.await?;
+		Ok(())
+	}
+
+	pub async fn store_with_options_with_instance<I>(
+		&self,
+		instance: &I,
+		location: Option<tg::Location>,
+		public: bool,
+	) -> tg::Result<()>
+	where
+		I: tg::Instance,
+	{
 		loop {
 			// Collect all unstored states with children before parents.
 			let mut pending = Vec::new();
@@ -169,7 +183,7 @@ impl Value {
 			let location = location.clone();
 			let status = tg::object::State::start_store_task(states, move |states| {
 				tg::object::state::StoreTask::spawn(states, move |states| async move {
-					Self::store_task(instance, location, states).await
+					Self::store_task(instance, location, public, states).await
 				})
 			});
 			match status {
@@ -190,6 +204,7 @@ impl Value {
 	async fn store_task<I>(
 		instance: I,
 		location: Option<tg::Location>,
+		public: bool,
 		states: Vec<tg::object::State>,
 	) -> tg::Result<()>
 	where
@@ -240,6 +255,7 @@ impl Value {
 		let arg = tg::object::batch::Arg {
 			location: location.map(Into::into),
 			objects,
+			public,
 		};
 		let output = instance.post_object_batch(arg).await?;
 

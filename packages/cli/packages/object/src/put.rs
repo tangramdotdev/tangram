@@ -25,6 +25,10 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub print: tangram_cli_core::print::Options,
+
+	/// Grant public read access.
+	#[arg(long)]
+	pub public: bool,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -66,6 +70,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			children: Vec::new(),
 			location,
 			metadata: None,
+			public: args.public,
 		};
 		let output = client
 			.put_object(&id, arg)
@@ -82,7 +87,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 
 		// Store the value.
 		value
-			.store_with_location_with_instance(&client, location_)
+			.store_with_options_with_instance(&client, location_, args.public)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the value"))?;
 

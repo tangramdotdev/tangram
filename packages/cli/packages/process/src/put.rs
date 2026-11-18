@@ -15,6 +15,10 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub location: tangram_cli_core::location::Args,
+
+	/// Grant public read access.
+	#[arg(long)]
+	pub public: bool,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -37,6 +41,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let arg = tg::process::put::Arg {
 		data,
 		location: args.location.get(),
+		public: args.public,
 	};
 	client
 		.put_process(&args.id, arg)

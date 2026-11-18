@@ -770,10 +770,11 @@ impl Component {
 		&self,
 		session: &Session,
 		graph: Arc<Mutex<Graph>>,
+		public: bool,
 		sync: &tg::sync::Id,
 	) -> tg::Result<()> {
 		let put_sandbox_args = self
-			.sync_get_index_sandbox_args(session, &graph, sync)
+			.sync_get_index_sandbox_args(session, &graph, public, sync)
 			.boxed()
 			.await?;
 		let arg = tangram_index::write::Arg {
@@ -783,7 +784,8 @@ impl Component {
 				.collect(),
 		};
 		session.server.index.write(arg).await??;
-		self.sync_get_index_put_inner(session, graph, sync).await?;
+		self.sync_get_index_put_inner(session, graph, public, sync)
+			.await?;
 
 		Ok(())
 	}
@@ -794,7 +796,8 @@ impl Component {
 		graph: Arc<Mutex<Graph>>,
 		sync: &tg::sync::Id,
 	) -> tg::Result<()> {
-		self.sync_get_index_put_inner(session, graph, sync).await?;
+		self.sync_get_index_put_inner(session, graph, false, sync)
+			.await?;
 
 		Ok(())
 	}
@@ -803,11 +806,12 @@ impl Component {
 		&self,
 		session: &Session,
 		graph: Arc<Mutex<Graph>>,
+		public: bool,
 		sync: &tg::sync::Id,
 	) -> tg::Result<()> {
 		let options = session.server.config.sync.retry.clone().into();
 		tangram_futures::retry(&options, || {
-			self.sync_get_index_put_attempt(session, graph.clone(), sync)
+			self.sync_get_index_put_attempt(session, graph.clone(), public, sync)
 		})
 		.await?;
 
@@ -818,6 +822,7 @@ impl Component {
 		&self,
 		session: &Session,
 		graph: Arc<Mutex<Graph>>,
+		public: bool,
 		sync: &tg::sync::Id,
 	) -> tg::Result<ControlFlow<(), tg::Error>> {
 		// Flush the cache.
@@ -872,7 +877,7 @@ impl Component {
 			storage_roots,
 		) = {
 			let mut graph = graph.lock().unwrap();
-			let args = Self::sync_get_index_create_args(session, &graph, sync)
+			let args = Self::sync_get_index_create_args(session, &graph, public, sync)
 				.map_err(|error| tg::error!(!error, "failed to create the index args"))?;
 			for arg in &args.0 {
 				match arg.resource.kind() {
@@ -990,6 +995,7 @@ impl Component {
 		&self,
 		session: &Session,
 		graph: &Arc<Mutex<Graph>>,
+		public: bool,
 		sync: &tg::sync::Id,
 	) -> tg::Result<Vec<tangram_index::sandbox::put::Arg>> {
 		// Get the sandbox messages.
@@ -1020,13 +1026,19 @@ impl Component {
 				.usage
 				.usage_account(session, &message.data.data.owner)
 				.await?;
-			let permissions = [
-				Self::sync_get_create_permission(session, &message.id.clone().into(), Some(sync))?,
-				Self::sync_get_create_permission(session, &message.id.clone().into(), None)?,
-			]
-			.into_iter()
-			.flatten()
-			.collect();
+			let id = message.id.clone().into();
+			let sync_permission = Self::sync_get_create_permission(session, &id, Some(sync))?;
+			let principal_permission = Self::sync_get_create_permission(session, &id, None)?;
+			let public_permission = sync_permission.clone().filter(|_| public).map(|arg| {
+				tangram_index::permission::put::Arg {
+					subject: tg::authorization::Subject::Public,
+					..arg
+				}
+			});
+			let permissions = [sync_permission, principal_permission, public_permission]
+				.into_iter()
+				.flatten()
+				.collect();
 			put_sandbox_args.push(tangram_index::sandbox::put::Arg {
 				account,
 				created_at: message.created_at,
@@ -1113,6 +1125,7 @@ impl Component {
 	fn sync_get_index_create_args(
 		session: &Session,
 		graph: &Graph,
+		public: bool,
 		sync: &tg::sync::Id,
 	) -> tg::Result<(
 		Vec<tangram_index::permission::put::Arg>,
@@ -1134,11 +1147,11 @@ impl Component {
 		let mut put_permission_args = Vec::new();
 		let mut permission_subjects = vec![tg::authorization::Subject::Sync(sync.clone())];
 		match &session.context.principal {
-			tg::Principal::Anonymous => {
-				permission_subjects.push(tg::authorization::Subject::Public);
-			},
-			tg::Principal::Root => (),
+			tg::Principal::Anonymous | tg::Principal::Root => (),
 			principal => permission_subjects.push(principal.try_to_subject()?),
+		}
+		if public || matches!(session.context.principal, tg::Principal::Anonymous) {
+			permission_subjects.push(tg::authorization::Subject::Public);
 		}
 		let expires_at = touched_at
 			+ session

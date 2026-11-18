@@ -37,6 +37,9 @@ export namespace Checkin {
 			if (arg.options.locked) {
 				options.locked = arg.options.locked;
 			}
+			if (arg.options.public) {
+				options.public = arg.options.public;
+			}
 			if (arg.options.root) {
 				options.root = arg.options.root;
 			}
@@ -84,6 +87,7 @@ export namespace Checkin {
 		localDependencies?: boolean;
 		lock?: "auto" | "attr" | "file" | null;
 		locked?: boolean;
+		public?: boolean;
 		solve?: boolean;
 		unsolvedDependencies?: boolean;
 		timeToLive?: number | null;

@@ -29,6 +29,7 @@ struct SyncGetDatabaseWithTransactionArg<'a> {
 	),
 	force: bool,
 	nodes: &'a [tg::sync::PutNodeMessage],
+	public: bool,
 	tag_permissions: &'a BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
 	touched_at: i64,
 }
@@ -51,9 +52,12 @@ impl Component {
 		&self,
 		session: &Session,
 		graph: &Arc<Mutex<Graph>>,
-		force: bool,
+		arg: &tg::sync::Arg,
 		sync: &tg::sync::Id,
 	) -> tg::Result<()> {
+		let force = arg.force;
+		let public = arg.public;
+
 		// Get the staged nodes.
 		let mut nodes = {
 			let graph = graph.lock().unwrap();
@@ -71,7 +75,7 @@ impl Component {
 		if !session.server.is_primary_region() {
 			let tag_permissions = Self::sync_get_database_tag_permissions(session, graph, &nodes)?;
 			Self::sync_get_database_add_tag_target_tokens(session, &mut nodes, &tag_permissions)?;
-			self.sync_get_database_to_primary_region(session, nodes, force)
+			self.sync_get_database_to_primary_region(session, nodes, force, public)
 				.await?;
 
 			return Ok(());
@@ -104,7 +108,7 @@ impl Component {
 					.sync_get_database_attempt(
 						&session,
 						&nodes,
-						force,
+						arg,
 						&tag_permissions,
 						touched_at,
 						&sync,
@@ -132,15 +136,17 @@ impl Component {
 		&self,
 		session: &Session,
 		nodes: &[tg::sync::PutNodeMessage],
-		force: bool,
+		arg: &tg::sync::Arg,
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
 		touched_at: i64,
 		sync: &tg::sync::Id,
 	) -> tg::Result<ControlFlow<BTreeSet<tg::Specifier>>> {
 		let authorized_state = self
-			.sync_get_database_authorize(session, nodes, force, sync)
+			.sync_get_database_authorize(session, nodes, arg, sync)
 			.await?;
 		tangram_server_core::checkpoint!(session.server, "sync.get.database.authorized").await;
+		let force = arg.force;
+		let public = arg.public;
 		let component = self.clone();
 		let session = session.clone();
 		let output = session
@@ -157,6 +163,7 @@ impl Component {
 						authorized_state: &authorized_state,
 						force,
 						nodes: &nodes,
+						public,
 						tag_permissions: &tag_permissions,
 						touched_at,
 					};
@@ -212,11 +219,13 @@ impl Component {
 		session: &Session,
 		mut nodes: Vec<tg::sync::PutNodeMessage>,
 		force: bool,
+		public: bool,
 	) -> tg::Result<()> {
 		// Start a sync to the primary region.
 		let primary_region_arg = tg::sync::Arg {
 			ancestors: tg::node::AncestorsPull::Missing,
 			force,
+			public,
 			..Default::default()
 		};
 		let client = session
@@ -292,6 +301,7 @@ impl Component {
 			authorized_state,
 			force,
 			nodes,
+			public,
 			tag_permissions,
 			touched_at,
 		} = arg;
@@ -440,6 +450,31 @@ impl Component {
 			touched_at,
 		)?;
 		batch.items.extend(put_batch.items);
+
+		// Grant public read access to the named nodes.
+		if public {
+			for node in nodes {
+				let id = Self::sync_get_database_node_id(node)?;
+				let permission = Self::sync_named_node_read_permission(&id)?;
+				let arg = tg::grant::grant::Arg {
+					create: false,
+					permissions: tg::Either::Left(permission.into()),
+					resource: tg::Referent::with_node(tg::Selector::Id(id)),
+					subject: tg::authorization::Subject::Public.into(),
+				};
+				match session
+					.server
+					.components
+					.grant
+					.grant_with_transaction(session, transaction, arg, &mut batch)
+					.await?
+				{
+					ControlFlow::Break(_) => (),
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
+			}
+		}
+
 		match session
 			.server
 			.components
@@ -463,7 +498,7 @@ impl Component {
 		&self,
 		session: &Session,
 		nodes: &[tg::sync::PutNodeMessage],
-		force: bool,
+		arg: &tg::sync::Arg,
 		sync: &tg::sync::Id,
 	) -> tg::Result<(
 		Specifiers,
@@ -497,6 +532,8 @@ impl Component {
 				.boxed()
 			})
 			.await?;
+
+		let force = arg.force;
 
 		// Validate the conflicts and collect all required authorizations.
 		let replacement_roots = if force {
@@ -547,7 +584,11 @@ impl Component {
 						.ids_by_specifier
 						.contains_key(&specifier)
 				});
-			let permission = tangram_server_grant_common::write_permission_for_resource(&id)?;
+			let permission = if arg.public && by_id.is_some() {
+				tangram_server_grant_common::admin_permission_for_resource(&id)?
+			} else {
+				tangram_server_grant_common::write_permission_for_resource(&id)?
+			};
 			let permissions = tg::authorization::permission::Set::from_permission(permission);
 			let resource = tg::Selector::<tg::Id>::Specifier(specifier.clone());
 			authorizations.push((resource, allow_unclaimed, permissions));

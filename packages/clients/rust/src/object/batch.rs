@@ -22,6 +22,10 @@ pub struct Arg {
 
 	#[tangram_serialize(id = 1)]
 	pub objects: Vec<Object>,
+
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "tangram_util::serde::is_false")]
+	pub public: bool,
 }
 
 #[serde_as]

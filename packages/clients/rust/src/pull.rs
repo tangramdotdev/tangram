@@ -106,6 +106,7 @@ impl From<tg::pull::Arg> for tg::push::Arg {
 			process_error_objects: value.process_error_objects,
 			process_log_objects: value.process_log_objects,
 			process_output_objects: value.process_output_objects,
+			public: false,
 			sandbox_processes: value.sandbox_processes,
 			source: value.source,
 			tag_targets: value.tag_targets,

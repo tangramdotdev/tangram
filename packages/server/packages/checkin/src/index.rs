@@ -69,8 +69,13 @@ impl Component {
 		}
 
 		// Create put object args in reverse topological order.
-		let put_permission_args =
-			Self::checkin_index_create_permissions(session, graph, &index_object_args, touched_at)?;
+		let put_permission_args = Self::checkin_index_create_permissions(
+			session,
+			graph,
+			&index_object_args,
+			arg.options.public,
+			touched_at,
+		)?;
 		let put_index_object_args: Vec<_> = index_object_args.into_values().rev().collect();
 
 		// Create the index items.
@@ -98,16 +103,20 @@ impl Component {
 		session: &Session,
 		graph: &Graph,
 		objects: &IndexObjectArgs,
+		public: bool,
 		touched_at: i64,
 	) -> tg::Result<Vec<tangram_index::permission::put::Arg>> {
-		let subject = match &session.context.principal {
-			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
-			tg::Principal::Root => None,
-			principal => Some(principal.try_to_subject()?),
-		};
-		let Some(subject) = subject else {
+		let mut subjects = Vec::new();
+		match &session.context.principal {
+			tg::Principal::Anonymous | tg::Principal::Root => (),
+			principal => subjects.push(principal.try_to_subject()?),
+		}
+		if public || matches!(session.context.principal, tg::Principal::Anonymous) {
+			subjects.push(tg::authorization::Subject::Public);
+		}
+		if subjects.is_empty() {
 			return Ok(Vec::new());
-		};
+		}
 
 		// Build a parent count for the new object graph.
 		let mut parents = vec![0; objects.len()];
@@ -150,18 +159,20 @@ impl Component {
 						tg::authorization::permission::object::Permission::Node
 					};
 				let permissions = tg::authorization::Permission::Object(permission).into();
-				let arg = tangram_index::permission::put::Arg {
-					created_at: touched_at,
-					permissions,
-					resource: id.clone().into(),
-					source: tangram_index::permission::Source::Direct {
-						expires_at: Some(expires_at),
-					},
-					subject: subject.clone(),
-					time_to_touch: Some(session.server.config.object.permission_time_to_touch),
-					version: None,
-				};
-				args.push(arg);
+				for subject in &subjects {
+					let arg = tangram_index::permission::put::Arg {
+						created_at: touched_at,
+						permissions,
+						resource: id.clone().into(),
+						source: tangram_index::permission::Source::Direct {
+							expires_at: Some(expires_at),
+						},
+						subject: subject.clone(),
+						time_to_touch: Some(session.server.config.object.permission_time_to_touch),
+						version: None,
+					};
+					args.push(arg);
+				}
 			}
 
 			let covers_children = covered[index] || subtree;
@@ -193,18 +204,20 @@ impl Component {
 					continue;
 				};
 			let permissions = tg::authorization::Permission::Object(permission).into();
-			let arg = tangram_index::permission::put::Arg {
-				created_at: touched_at,
-				permissions,
-				resource: id.clone().into(),
-				source: tangram_index::permission::Source::Direct {
-					expires_at: Some(expires_at),
-				},
-				subject: subject.clone(),
-				time_to_touch: Some(session.server.config.object.permission_time_to_touch),
-				version: None,
-			};
-			args.push(arg);
+			for subject in &subjects {
+				let arg = tangram_index::permission::put::Arg {
+					created_at: touched_at,
+					permissions,
+					resource: id.clone().into(),
+					source: tangram_index::permission::Source::Direct {
+						expires_at: Some(expires_at),
+					},
+					subject: subject.clone(),
+					time_to_touch: Some(session.server.config.object.permission_time_to_touch),
+					version: None,
+				};
+				args.push(arg);
+			}
 		}
 
 		Ok(args)

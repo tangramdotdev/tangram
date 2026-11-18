@@ -782,6 +782,7 @@ class ObjectBatch:
     class Arg(TypedDict):
         objects: list[ObjectBatch.Object]
         location: NotRequired[str | dict[str, builtins.object] | None]
+        public: NotRequired[bool]
 
     class Output(TypedDict):
         objects: list[Referent]
@@ -792,6 +793,7 @@ class ObjectPut:
         data: ObjectData
         children: NotRequired[list[Referent] | None]
         location: NotRequired[str | dict[str, builtins.object] | None]
+        public: NotRequired[bool]
 
     class Output(TypedDict):
         object: Referent

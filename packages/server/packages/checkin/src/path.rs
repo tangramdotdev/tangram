@@ -16,6 +16,7 @@ impl Component {
 		&self,
 		session: &Session,
 		path: &Path,
+		public: bool,
 	) -> tg::Result<Option<tg::checkin::Output>> {
 		let checkout_path = session.server.checkout_path();
 		let store_path = session.server.store_path();
@@ -42,7 +43,7 @@ impl Component {
 		};
 		let path = components.collect::<PathBuf>();
 		let output = self
-			.checkin_store_path_inner(session, id, &path)
+			.checkin_store_path_inner(session, id, &path, public)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to check in the store path"))?;
 
@@ -54,6 +55,7 @@ impl Component {
 		session: &Session,
 		id: tg::artifact::Id,
 		path: &Path,
+		public: bool,
 	) -> tg::Result<tg::checkin::Output> {
 		// Recover proofs from the physical checkout, the authenticated origin sandbox, and its VFS.
 		let checkout_path = session.server.checkout_path().join(id.to_string());
@@ -173,6 +175,28 @@ impl Component {
 					state.tokens.insert(id, token.clone());
 				}
 			}
+		}
+		if public {
+			let permission = tangram_index::permission::put::Arg {
+				created_at: now,
+				permissions: subtree.into(),
+				resource: referent.node.clone().into(),
+				source: tangram_index::permission::Source::Direct {
+					expires_at: Some(expires_at),
+				},
+				subject: tg::authorization::Subject::Public,
+				time_to_touch: Some(session.server.config.object.permission_time_to_touch),
+				version: None,
+			};
+			let arg = tangram_index::write::Arg {
+				items: vec![tangram_index::Item::PutPermission(Box::new(permission))],
+			};
+			session
+				.server
+				.components
+				.indexer
+				.write(&session.server, arg)
+				.await?;
 		}
 		let output = tg::checkin::Output { artifact: referent };
 

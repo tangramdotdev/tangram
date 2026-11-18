@@ -100,8 +100,14 @@ impl Component {
 			.node
 			.try_get_ids_and_ancestors_for_specifiers(session, specifiers)
 			.await?;
-		self.authorize_tag_puts(session, specifiers, arg.force, &ids_by_specifier)
-			.await?;
+		self.authorize_tag_puts(
+			session,
+			specifiers,
+			arg.force,
+			arg.public,
+			&ids_by_specifier,
+		)
+		.await?;
 		let component = self.clone();
 		let session = session.clone();
 		let output = session
@@ -174,7 +180,7 @@ impl Component {
 				},
 				force: arg.force,
 				location: None,
-				public: false,
+				public: arg.public,
 				specifier: item.specifier,
 				target: item.target,
 			};

@@ -16,12 +16,14 @@ from tangram.location import ArgObject as LocationArgObject
 
 class KeywordOptions(TypedDict, total=False):
     location: LocationArgObject | None
+    public: bool
 
 
 class Put:
     class Arg(TypedDict):
         data: "ProcessDataObject"
         location: NotRequired[LocationArgObject | None]
+        public: NotRequired[bool]
 
     class Output(TypedDict):
         tokens: NotRequired[dict[str, list[str]] | None]

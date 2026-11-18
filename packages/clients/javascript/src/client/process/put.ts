@@ -6,6 +6,7 @@ export namespace Put {
 	export type Arg = {
 		data: tg.Process.Data;
 		location?: tg.Location.Arg | null;
+		public?: boolean;
 	};
 
 	export type Output = {

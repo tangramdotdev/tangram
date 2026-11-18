@@ -108,6 +108,11 @@ pub struct Arg {
 	#[tangram_serialize(id = 12, default, skip_serializing_if = "is_false")]
 	pub process_output_objects: bool,
 
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 20, default, skip_serializing_if = "is_false")]
+	pub public: bool,
+
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(id = 13, default, skip_serializing_if = "Vec::is_empty")]

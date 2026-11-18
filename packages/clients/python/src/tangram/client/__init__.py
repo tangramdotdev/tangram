@@ -310,24 +310,32 @@ class Client:
         *,
         children: list[Referent[str]] | None = None,
         location: LocationArgObject | LocationObject | str | None = None,
+        public: bool = False,
     ) -> Object.Put.Output:
         from .object.put import put_object
 
         if "data" in arg:
-            return await put_object(self, id, **cast("Object.Put.Arg", arg))
-        return await put_object(self, id, arg, children=children, location=location)
+            return await put_object(
+                self, id, {**arg, "public": arg.get("public", public)}
+            )
+        return await put_object(
+            self, id, arg, children=children, location=location, public=public
+        )
 
     async def post_object_batch(
         self,
         arg: Object.Batch.Arg | list[Object.Batch.Object],
         *,
         location: LocationArgObject | LocationObject | str | None = None,
+        public: bool = False,
     ) -> Object.Batch.Output:
         from .object.batch import post_object_batch
 
         if isinstance(arg, dict):
-            return await post_object_batch(self, **arg)
-        return await post_object_batch(self, arg, location=location)
+            return await post_object_batch(
+                self, {**arg, "public": arg.get("public", public)}
+            )
+        return await post_object_batch(self, arg, location=location, public=public)
 
     @overload
     async def write(self, arg_or_bytes: str | bytes) -> str: ...

@@ -28,6 +28,7 @@ export async function putObject(
 			arg.location === undefined || arg.location === null
 				? null
 				: tg.Location.Arg.toDataString(arg.location),
+		public: arg.public ?? false,
 	});
 	let response = await client.sendWithRetry(request);
 	if (response.status < 200 || response.status >= 300) {

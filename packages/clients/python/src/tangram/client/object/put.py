@@ -16,13 +16,20 @@ from ...referent import Referent
 
 
 async def put_object(
-    client: Client, id: str, data: Mapping[str, Any], *, children=None, location=None
+    client: Client,
+    id: str,
+    data: Mapping[str, Any],
+    *,
+    children=None,
+    location=None,
+    public: bool = False,
 ) -> Object.Put.Output:
     if "data" in data:
         arg = data
         data = arg["data"]
         children = arg.get("children")
         location = arg.get("location")
+        public = arg.get("public", public)
     output = await client._json(
         "PUT",
         f"/objects/{percent_encode(id)}",
@@ -30,6 +37,7 @@ async def put_object(
         arg={
             "children": [child_to_data_string(child) for child in children or []],
             "location": None if location is None else location_to_data_string(location),
+            "public": public,
         },
     )
     output = cast(dict[str, str], output)
