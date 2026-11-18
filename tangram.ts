@@ -187,6 +187,15 @@ export const installDev = async (...args: Array<string>) => {
 		.env(env);
 };
 
+export const release = async (...args: Array<string>) => {
+	const { cwd, env } = await context();
+	await tg.run`tg build ./build.tg.ts#release --arg-value "{\\"commit\\":\\"$(python3 scripts/version.py)\\"}" --checkout=release --checkout-force "$@"`
+		.executable("sh")
+		.args(["--", ...args])
+		.cwd(cwd)
+		.env(env);
+};
+
 export const run = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
 	const path = tg.path.join(cwd, "target/debug");

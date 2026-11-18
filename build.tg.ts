@@ -84,20 +84,40 @@ export const build = async (...args: tg.Args<Arg>) => {
 	const features = featureList(merged);
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
 
+	// Compile the C libraries that a standalone Linux build links statically against the deployment libc's headers. Only the compiler flags apply, because the libraries' own executables link them dynamically.
+	let cLibraryEnv: std.env.Arg | undefined;
+	if (standalone && std.triple.os(host) === "linux") {
+		const options = await std.sdk.standalone({
+			...(typeof standalone === "object" ? standalone : {}),
+			host: build,
+			target: host,
+		});
+		const compileFlags = tg.Template.join(" ", ...options.compileArgs);
+		cLibraryEnv = {
+			CFLAGS: await tg.Mutation.suffix(compileFlags, " "),
+			CXXFLAGS: await tg.Mutation.suffix(compileFlags, " "),
+		};
+	}
+	const cLibraryArg = {
+		build,
+		host,
+		...std.args.optional("env", cLibraryEnv),
+	};
+
 	// Collect environment.
 	const envs: tg.Args<std.env.Arg> = [
 		bunEnvArg(build),
 		librustyv8(cargoLock, build, host),
 		libpython(source_, build, host),
 		// `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`.
-		openssl({ build, host }),
+		openssl(cLibraryArg),
 		sandboxRootfs(host),
 	];
 
 	// On Linux `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp. Standalone builds link them statically.
 	if (std.triple.os(host) === "linux") {
-		const capNg = libcapNg({ build, host });
-		const seccomp = libseccomp({ build, host });
+		const capNg = libcapNg(cLibraryArg);
+		const seccomp = libseccomp(cLibraryArg);
 		envs.push(capNg, seccomp);
 		if (standalone) {
 			envs.push({
@@ -114,10 +134,12 @@ export const build = async (...args: tg.Args<Arg>) => {
 		envs.push({ OPENSSL_STATIC: "1", PKG_CONFIG_ALL_STATIC: "1" });
 	}
 
+	// Compile C for the host with the cross compiler, and let the pkg-config crate run in a cross build, because every library that pkg-config finds here is built for the host.
 	if (build !== host) {
 		envs.push({
 			[`CC_${host}`]: `${host}-cc`,
 			[`CXX_${host}`]: `${host}-c++`,
+			PKG_CONFIG_ALLOW_CROSS: "1",
 		});
 	}
 
@@ -225,17 +247,38 @@ export const image = async (...args: tg.Args<Arg>) => {
 	});
 };
 
-export const release = async () => {
+export const release = async (arg?: { commit?: string }) => {
 	const targets = [
 		"aarch64-apple-darwin",
 		"aarch64-unknown-linux-gnu",
 		"x86_64-apple-darwin",
 		"x86_64-unknown-linux-gnu",
 	];
+	const machine = std.triple.host();
 	const archives: Record<string, tg.File> = {};
 	for (const target of targets) {
-		// Build tangram for this target.
-		const output = await build({ host: target });
+		// Skip the targets of other operating systems, which this machine cannot build.
+		if (std.triple.os(target) !== std.triple.os(machine)) {
+			continue;
+		}
+
+		// Spell a native host like the machine, because std compares triples as strings.
+		const native =
+			std.sdk.canonicalTriple(machine) === std.sdk.canonicalTriple(target);
+		const host = native ? machine : target;
+
+		// Build a standalone tangram for this target that reports the commit, linked against an old glibc on Linux.
+		const standalone =
+			std.triple.os(target) === "linux" ? { glibcVersion: "2.35" } : true;
+		const env = arg?.commit
+			? { TANGRAM_CLI_COMMIT_HASH: arg.commit }
+			: undefined;
+		const output = await build({
+			build: machine,
+			host,
+			standalone,
+			...std.args.optional("env", env),
+		});
 
 		// Determine the archive name.
 		const arch = std.triple.arch(target);
@@ -254,14 +297,10 @@ export const release = async () => {
 		});
 
 		// Create a tar.gz archive.
-		const archive = await $`
-			mkdir -p $OUTPUT
-			tar -czf $OUTPUT/${archiveName} -C ${releaseDir}/bin tangram tg tgx
-		`
-			.env(dash({ build: std.triple.host() }))
-			.then(tg.Directory.expect)
-			.then((d) => d.get(archiveName))
-			.then(tg.File.expect);
+		const archive =
+			await $`tar -czf ${tg.output} -C ${releaseDir}/bin tangram tg tgx`
+				.env(dash({ build: machine }))
+				.then(tg.File.expect);
 
 		archives[archiveName] = archive;
 	}
