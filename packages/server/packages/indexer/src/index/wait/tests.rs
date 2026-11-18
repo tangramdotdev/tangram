@@ -13,14 +13,78 @@ fn insert(
 	id: &str,
 	request_state: RequestState,
 ) -> tokio::sync::oneshot::Receiver<tg::Result<()>> {
+	insert_with_usage(state, id, request_state, true)
+}
+
+fn insert_with_usage(
+	state: &mut State,
+	id: &str,
+	request_state: RequestState,
+	usage: bool,
+) -> tokio::sync::oneshot::Receiver<tg::Result<()>> {
 	let (sender, receiver) = tokio::sync::oneshot::channel();
 	let request = Request {
 		id: id.into(),
 		sender,
 		state: request_state,
+		usage,
 	};
 	state.waits.insert(id.into(), request);
 	receiver
+}
+
+#[tokio::test]
+async fn waits_without_usage_do_not_wait_for_usage_updates() {
+	let mut state = State::new();
+	let read = insert_with_usage(
+		&mut state,
+		"read",
+		RequestState::Updates {
+			transaction_id: Some(10),
+		},
+		false,
+	);
+
+	// A wait without usage finishes while a usage update before its target is pending, without reading the usage progress.
+	state
+		.poll_updates(|kind| async move {
+			match kind {
+				tangram_index::update::Kind::Usage => {
+					panic!("waits without usage must not read the usage progress")
+				},
+				tangram_index::update::Kind::Permission
+				| tangram_index::update::Kind::StorageAndMetadata => Ok(None),
+			}
+		})
+		.await
+		.unwrap();
+	read.await.unwrap().unwrap();
+
+	// A wait with usage waits for the pending usage update.
+	let mut index = insert_with_usage(
+		&mut state,
+		"index",
+		RequestState::Updates {
+			transaction_id: Some(10),
+		},
+		true,
+	);
+	state
+		.poll_updates(|kind| async move {
+			match kind {
+				tangram_index::update::Kind::Usage => Ok(Some(5)),
+				tangram_index::update::Kind::Permission
+				| tangram_index::update::Kind::StorageAndMetadata => Ok(None),
+			}
+		})
+		.await
+		.unwrap();
+	assert!(matches!(
+		index.try_recv(),
+		Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+	));
+	state.poll_updates(|_| async { Ok(None) }).await.unwrap();
+	index.await.unwrap().unwrap();
 }
 
 #[tokio::test]

@@ -12,7 +12,7 @@ pub struct Args {
 	#[arg(long)]
 	pub database: bool,
 
-	/// Also do everything that --capture does, and aggregate usage for every hour before the server's current hour.
+	/// Also wait for the usage updates, do everything that --capture does, and aggregate usage for every hour before the server's current hour.
 	#[arg(long)]
 	pub usage: bool,
 }

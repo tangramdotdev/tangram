@@ -21,6 +21,7 @@ type IndexerWaits =
 pub(crate) struct WaitArg {
 	database: bool,
 	sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
+	usage: bool,
 }
 
 struct State {
@@ -31,8 +32,13 @@ struct State {
 
 pub(crate) struct Request {
 	id: String,
+
 	sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
+
 	state: RequestState,
+
+	/// Whether the request waits for the usage updates, which only usage reads depend on, and which propagate through the whole storage graph of a tag at the version of the put that started them.
+	usage: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -55,9 +61,13 @@ enum Progress<T> {
 
 impl Component {
 	#[tracing::instrument(name = "index.wait", level = "info", skip_all, err)]
-	pub(crate) async fn index_inner(&self, database: bool) -> tg::Result<()> {
+	pub(crate) async fn index_inner(&self, database: bool, usage: bool) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let arg = WaitArg { database, sender };
+		let arg = WaitArg {
+			database,
+			sender,
+			usage,
+		};
 		self.index_wait_sender
 			.send(arg)
 			.await
@@ -104,11 +114,12 @@ impl Component {
 			tokio::select! {
 				() = stopper.wait() => return,
 				request = receiver.recv(), if state.waits.len() < server.config.indexer.request.wait_concurrency => {
-					let Some(WaitArg { database, sender }) = request else { return; };
+					let Some(WaitArg { database, sender, usage }) = request else { return; };
 					let request = Request {
 						id: tangram_server_core::control::id(),
 						sender,
 						state: RequestState::new(database),
+						usage,
 					};
 					state.waits.insert(request.id.clone(), request);
 				},
@@ -423,6 +434,7 @@ impl State {
 	where
 		F: Future<Output = tg::Result<Option<u64>>>,
 	{
+		// Read progress only while a request waits for the updates.
 		let poll = self.waits.values().any(|request| {
 			matches!(
 				request.state,
@@ -434,13 +446,32 @@ impl State {
 		if !poll {
 			return Ok(());
 		}
+
+		// Read the oldest update of each kind, reading the usage updates only for the requests that wait for them.
+		let usage = self.waits.values().any(|request| {
+			request.usage
+				&& matches!(
+					request.state,
+					RequestState::Updates {
+						transaction_id: Some(_)
+					}
+				)
+		});
 		let oldests = future::try_join3(
 			read(tangram_index::update::Kind::Permission),
 			read(tangram_index::update::Kind::StorageAndMetadata),
-			read(tangram_index::update::Kind::Usage),
+			async {
+				if usage {
+					read(tangram_index::update::Kind::Usage).await
+				} else {
+					Ok(None)
+				}
+			},
 		)
 		.await?;
 		tracing::debug!(?oldests, "read the oldest index updates");
+
+		// Finish each request whose kinds of updates have all passed its target.
 		let ids = self
 			.waits
 			.iter()
@@ -451,7 +482,8 @@ impl State {
 				else {
 					return None;
 				};
-				[oldests.0, oldests.1, oldests.2]
+				let usage = if request.usage { oldests.2 } else { None };
+				[oldests.0, oldests.1, usage]
 					.into_iter()
 					.all(|oldest| oldest.is_none_or(|oldest| oldest > transaction_id))
 					.then(|| id.clone())

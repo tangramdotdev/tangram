@@ -69,14 +69,14 @@ let private_object = tg --url $bob_local.url put --no-tokens 'tg.file("private")
 tg --url $bob_local.url push --remote=b $private_object
 failure (tg --url $remote_region_b.url --token $alice.token object get --bytes --local $private_object | complete) "Alice must not access Bob's private object"
 tg --url $remote_region_b.url --token $alice.token tag put alice/no-access $private_object
-tg --url $remote_region_b.url index --database
+tg --url $remote_region_b.url index --database --usage
 let tag = tg --url $remote_region_b.url --token $alice.token tag get alice/no-access | from json
 assert (target_permissions $remote_region_b.url $alice.token $tag.id | is-empty) "the tag must not record unavailable target permissions"
 let usage = tg --url $remote_region_b.url --token $alice.token user usage --location='local(b)' | from json
 assert equal $usage.object_count $region_b_usage.object_count "an inaccessible tag target must not charge Alice in region B"
 
 tg --url $bob_local.url push --remote=a $private_object
-tg --url $remote_region_a.url index --database
+tg --url $remote_region_a.url index --database --usage
 failure (tg --url $remote_region_a.url --token $alice.token object get --bytes --local $private_object | complete) "the tag must not grant Alice access in region A"
 let usage = tg --url $remote_region_a.url --token $alice.token user usage --location='local(a)' | from json
 assert equal $usage.object_count $region_a_usage.object_count "an inaccessible tag target must not charge Alice in region A"

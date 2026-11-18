@@ -14,7 +14,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub database: bool,
 
-	/// Also do everything that `capture` does, and aggregate usage for every hour before the server's current hour.
+	/// Also wait for the usage updates, do everything that `capture` does, and aggregate usage for every hour before the server's current hour.
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	pub usage: bool,
 }
