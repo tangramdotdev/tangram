@@ -2,7 +2,6 @@ use {
 	crate::Component,
 	futures::{FutureExt as _, StreamExt as _},
 	tangram_client::prelude::*,
-	tangram_futures::stream::TryExt as _,
 	tangram_server_core::{
 		Session,
 		location::{
@@ -167,25 +166,9 @@ impl Component {
 		node: Option<tg::Id>,
 		exhaustive: bool,
 	) -> tg::Result<Option<tg::get::Output>> {
-		// Find the node if it was not provided, awaiting indexing for a specifier because a forced push can redirect it.
+		// Find the node if it was not provided. The index lookup awaits indexing for a specifier that the database has and the index does not, because a forced push can redirect it.
 		let mut id = node;
 		if id.is_none() && exhaustive {
-			if matches!(selector, tg::Selector::Specifier(_)) {
-				let arg = tg::index::Arg {
-					database: true,
-					..Default::default()
-				};
-				session
-					.server
-					.components
-					.indexer
-					.index(session, arg)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to index"))?
-					.try_last()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to index"))?;
-			}
 			id = self
 				.try_get_with_selector_id_local(session, selector)
 				.await?;

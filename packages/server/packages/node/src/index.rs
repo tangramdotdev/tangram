@@ -1,8 +1,9 @@
 use {
 	crate::Component,
 	futures::TryStreamExt as _,
-	std::pin::pin,
+	std::{collections::BTreeMap, pin::pin},
 	tangram_client::prelude::*,
+	tangram_database as db,
 	tangram_futures::stream::TryExt as _,
 	tangram_index::prelude::*,
 	tangram_server_core::{Session, node::IndexOutput},
@@ -89,6 +90,25 @@ impl Component {
 			.enumerate()
 			.filter_map(|(index, output)| output.is_none().then_some(index))
 			.collect::<Vec<_>>();
+
+		// Keep only the missing specifiers that the database has, because the database is the source of truth for specifiers and the index only lags it, so that a specifier that does not exist does not wait for indexing.
+		let missing_specifiers = if missing_specifiers.is_empty() {
+			missing_specifiers
+		} else {
+			let missing = missing_specifiers
+				.iter()
+				.map(|&index| specifiers[index].clone())
+				.collect::<Vec<_>>();
+			let stored = self
+				.try_get_ids_for_specifiers_from_database(session, &missing)
+				.await?;
+			missing_specifiers
+				.into_iter()
+				.filter(|&index| stored.get(&specifiers[index]).is_some_and(Option::is_some))
+				.collect()
+		};
+
+		// Return the output if nothing that the index lags is missing.
 		if missing_ids.is_empty() && missing_specifiers.is_empty() {
 			let output = IndexOutput {
 				ids: ids_for_specifiers,
@@ -176,6 +196,40 @@ impl Component {
 		let output = IndexOutput { ids, specifiers };
 
 		Ok(output)
+	}
+
+	async fn try_get_ids_for_specifiers_from_database(
+		&self,
+		session: &Session,
+		specifiers: &[tg::Specifier],
+	) -> tg::Result<BTreeMap<tg::Specifier, Option<tg::Id>>> {
+		// Read the IDs from the read connection.
+		let mut ids = self
+			.try_get_ids_for_specifiers_with_options(
+				session,
+				specifiers,
+				db::ConnectionOptions::default(),
+			)
+			.await?;
+
+		// Read the IDs that the read connection does not have from the write connection, because a new specifier may not have reached the read connection.
+		let missing = ids
+			.iter()
+			.filter(|(_, id)| id.is_none())
+			.map(|(specifier, _)| specifier.clone())
+			.collect::<Vec<_>>();
+		if !missing.is_empty() {
+			let options = db::ConnectionOptions {
+				kind: db::ConnectionKind::Write,
+				..Default::default()
+			};
+			let written = self
+				.try_get_ids_for_specifiers_with_options(session, &missing, options)
+				.await?;
+			ids.extend(written);
+		}
+
+		Ok(ids)
 	}
 
 	pub async fn pull_ancestors(

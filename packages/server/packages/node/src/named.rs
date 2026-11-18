@@ -56,11 +56,25 @@ impl Component {
 		session: &Session,
 		specifiers: &[tg::Specifier],
 	) -> tg::Result<BTreeMap<tg::Specifier, Option<tg::Id>>> {
+		self.try_get_ids_for_specifiers_with_options(
+			session,
+			specifiers,
+			db::ConnectionOptions::default(),
+		)
+		.await
+	}
+
+	pub(crate) async fn try_get_ids_for_specifiers_with_options(
+		&self,
+		session: &Session,
+		specifiers: &[tg::Specifier],
+		options: db::ConnectionOptions,
+	) -> tg::Result<BTreeMap<tg::Specifier, Option<tg::Id>>> {
 		let batch_size = session.server.config.sync.get.database.batch_size;
 		let ids_by_specifier = session
 			.server
 			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run_with_options(options, |transaction| {
 				let specifiers = specifiers.to_vec();
 				async move {
 					tangram_server_node_common::specifier::try_get_ids_for_specifiers_with_transaction(
