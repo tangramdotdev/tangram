@@ -116,20 +116,23 @@ impl Value {
 	where
 		I: tg::Instance,
 	{
-		self.store_with_options_with_instance(instance, location, false)
-			.await?;
+		let arg = tg::value::store::Arg {
+			location,
+			public: false,
+		};
+		self.store_with_arg_with_instance(instance, arg).await?;
 		Ok(())
 	}
 
-	pub async fn store_with_options_with_instance<I>(
+	pub async fn store_with_arg_with_instance<I>(
 		&self,
 		instance: &I,
-		location: Option<tg::Location>,
-		public: bool,
+		arg: tg::value::store::Arg,
 	) -> tg::Result<()>
 	where
 		I: tg::Instance,
 	{
+		let tg::value::store::Arg { location, public } = arg;
 		loop {
 			// Collect all unstored states with children before parents.
 			let mut pending = Vec::new();

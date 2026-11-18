@@ -9,6 +9,7 @@ pub mod handle;
 pub mod load;
 pub mod parse;
 pub mod print;
+pub mod store;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Config {

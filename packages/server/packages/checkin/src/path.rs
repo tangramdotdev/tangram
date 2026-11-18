@@ -176,6 +176,8 @@ impl Component {
 				}
 			}
 		}
+
+		// Grant public read access to the resolved artifact.
 		if public {
 			let permission = tangram_index::permission::put::Arg {
 				created_at: now,
@@ -198,6 +200,7 @@ impl Component {
 				.write(&session.server, arg)
 				.await?;
 		}
+
 		let output = tg::checkin::Output { artifact: referent };
 
 		Ok(output)

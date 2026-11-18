@@ -44,7 +44,7 @@ impl Component {
 		node: Node,
 	) -> tg::Result<()> {
 		// Authorize the node.
-		let permission = Self::sync_named_node_read_permission(&node.id)?;
+		let permission = Self::sync_put_database_read_permission(&node.id)?;
 		let resource = tg::Selector::Id(node.id.clone());
 		let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
 		let resource = tg::Referent::with_node_and_tokens(resource, tokens);
@@ -447,5 +447,25 @@ impl Component {
 			state.sender.send(Ok(message)).await.ok();
 		}
 		state.queue.close_if_end();
+	}
+
+	fn sync_put_database_read_permission(id: &tg::Id) -> tg::Result<tg::authorization::Permission> {
+		let permission = match id.kind() {
+			tg::id::Kind::Group => tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Read,
+			),
+			tg::id::Kind::Organization => tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Read,
+			),
+			tg::id::Kind::Tag => tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			),
+			tg::id::Kind::User => tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Read,
+			),
+			_ => return Err(tg::error!(%id, "invalid database node kind")),
+		};
+
+		Ok(permission)
 	}
 }

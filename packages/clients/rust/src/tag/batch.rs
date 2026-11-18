@@ -15,7 +15,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub parents: bool,
 
-	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub public: bool,
 
 	pub tags: Vec<Item>,
