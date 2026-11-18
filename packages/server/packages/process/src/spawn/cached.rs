@@ -815,6 +815,7 @@ impl Component {
 			cached: Some(true),
 			cache_location: Some(tg::location::Arg::default()),
 			location: Some(location.clone().into()),
+			parent: None,
 			..arg.clone()
 		};
 		Self::update_spawn_process_arg_for_location(&mut arg, &location);
@@ -891,6 +892,7 @@ impl Component {
 				})
 				.into(),
 			),
+			parent: None,
 			..arg.clone()
 		};
 		Self::update_spawn_process_arg_for_location(&mut arg, &location);
