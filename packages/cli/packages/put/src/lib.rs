@@ -22,6 +22,10 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub print: tangram_cli_core::print::Options,
+
+	/// Grant public read access.
+	#[arg(long)]
+	pub public: bool,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -36,6 +40,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 				kind,
 				location: location.clone(),
 				print: args.print,
+				public: args.public,
 			};
 			tangram_cli_object::put::run(cli, args).await?;
 		},
@@ -44,6 +49,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 				bytes: args.input,
 				id,
 				location,
+				public: args.public,
 			};
 			tangram_cli_process::put::run(cli, args).await?;
 		},

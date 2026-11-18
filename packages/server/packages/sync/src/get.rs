@@ -257,7 +257,7 @@ impl Component {
 			self.sync_get_output(session, &state, &get).await?;
 
 			// Index the objects, processes, and sandboxes and update the graph permissions.
-			self.sync_get_index_put(session, state.graph.clone(), &state.id)
+			self.sync_get_index_put(session, state.graph.clone(), state.arg.public, &state.id)
 				.await?;
 			completion.enqueued = true;
 
@@ -269,7 +269,7 @@ impl Component {
 				.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
 			// Commit the database nodes.
-			self.sync_get_database(session, &state.graph, state.arg.force, &state.id)
+			self.sync_get_database(session, &state.graph, &state.arg, &state.id)
 				.await?;
 
 			Ok(())

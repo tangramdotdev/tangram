@@ -18,6 +18,10 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
+	/// Grant public read access.
+	#[arg(long)]
+	pub public: bool,
+
 	#[arg(
 		action = clap::ArgAction::Append,
 		long = "update",
@@ -262,7 +266,10 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 
 	// Check in the artifact.
 	let arg = tg::checkin::Arg {
-		options: args.options.to_options(),
+		options: tg::checkin::Options {
+			public: args.public,
+			..args.options.to_options()
+		},
 		path,
 		updates,
 	};
@@ -364,6 +371,7 @@ impl Options {
 			ignore: self.ignore.get(),
 			lock: self.lock.get(),
 			locked: self.locked,
+			public: false,
 			root: self.root,
 			solve: self.solve.get(),
 			source_dependencies: self.source_dependencies.get(),

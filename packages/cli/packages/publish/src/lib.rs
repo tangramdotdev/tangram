@@ -27,6 +27,10 @@ pub struct Args {
 	#[arg(default_value = ".", index = 1)]
 	pub path: PathBuf,
 
+	/// Grant public read access.
+	#[arg(long)]
+	pub public: bool,
+
 	#[arg(long, short)]
 	pub tag: Option<String>,
 
@@ -182,7 +186,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 					},
 					force: args.force,
 					location: None,
-					public: false,
+					public: args.public,
 					specifier: tag.clone(),
 					target: id.into(),
 				};
@@ -233,7 +237,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 						},
 						force: true,
 						location: None,
-						public: false,
+						public: args.public,
 						specifier: tag.clone(),
 						target: id.into(),
 					};
@@ -303,6 +307,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		force: args.force,
 		location: Some(location.into()),
 		parents: true,
+		public: args.public,
 		tags: tags.clone(),
 	};
 	client

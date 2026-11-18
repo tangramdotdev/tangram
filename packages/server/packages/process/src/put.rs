@@ -87,6 +87,7 @@ impl Component {
 		let entry = tg::process::put::Arg {
 			data,
 			location: None,
+			public: false,
 		};
 		self.put_process_local_inner(session, id, entry, principal, options)
 			.await
@@ -236,26 +237,31 @@ impl Component {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		let permission_subject = match &session.context.principal {
-			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
-			tg::Principal::Root => None,
-			principal => Some(principal.try_to_subject()?),
-		};
+		let mut subjects = Vec::new();
+		match &session.context.principal {
+			tg::Principal::Anonymous | tg::Principal::Root => (),
+			principal => subjects.push(principal.try_to_subject()?),
+		}
+		if arg.public || matches!(session.context.principal, tg::Principal::Anonymous) {
+			subjects.push(tg::authorization::Subject::Public);
+		}
 		let put_permission =
-			permission_subject.map(|permission_subject| tangram_index::permission::put::Arg {
-				created_at: now,
-				permissions: tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::Node,
-				)
-				.into(),
-				resource: id.clone().into(),
-				source: tangram_index::permission::Source::Direct {
-					expires_at: Some(permission_expires_at),
-				},
-				subject: permission_subject,
-				time_to_touch: Some(session.server.config.process.permission_time_to_touch),
-				version: None,
-			});
+			subjects
+				.into_iter()
+				.map(|subject| tangram_index::permission::put::Arg {
+					created_at: now,
+					permissions: tg::authorization::Permission::Process(
+						tg::authorization::permission::process::Permission::Node,
+					)
+					.into(),
+					resource: id.clone().into(),
+					source: tangram_index::permission::Source::Direct {
+						expires_at: Some(permission_expires_at),
+					},
+					subject,
+					time_to_touch: Some(session.server.config.process.permission_time_to_touch),
+					version: None,
+				});
 		put_process_arg.permissions.extend(put_permission);
 		put_process_arg.account = session
 			.server

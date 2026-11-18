@@ -71,11 +71,14 @@ impl Component {
 				.unwrap();
 
 		// Get the permission subject.
-		let permission_subject = match &session.context.principal {
-			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
-			tg::Principal::Root => None,
-			principal => Some(principal.try_to_subject()?),
-		};
+		let mut subjects = Vec::new();
+		match &session.context.principal {
+			tg::Principal::Anonymous | tg::Principal::Root => (),
+			principal => subjects.push(principal.try_to_subject()?),
+		}
+		if arg.public || matches!(session.context.principal, tg::Principal::Anonymous) {
+			subjects.push(tg::authorization::Subject::Public);
+		}
 		// Create the cache and index args.
 		let mut batch_objects = BTreeSet::new();
 		let mut object_children = BTreeMap::new();
@@ -169,7 +172,7 @@ impl Component {
 
 		let mut put_permission_args = Vec::with_capacity(arg.objects.len());
 		for object in &arg.objects {
-			if let Some(permission_subject) = &permission_subject {
+			for subject in &subjects {
 				let permission = if subtree_objects.contains(&object.id) {
 					tg::authorization::permission::object::Permission::Subtree
 				} else {
@@ -182,7 +185,7 @@ impl Component {
 					source: tangram_index::permission::Source::Direct {
 						expires_at: Some(permission_expires_at),
 					},
-					subject: permission_subject.clone(),
+					subject: subject.clone(),
 					time_to_touch: Some(session.server.config.object.permission_time_to_touch),
 					version: None,
 				});

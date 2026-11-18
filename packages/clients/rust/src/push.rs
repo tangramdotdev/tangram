@@ -51,6 +51,9 @@ pub struct Arg {
 	pub process_output_objects: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub public: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub sandbox_processes: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -197,6 +200,7 @@ impl Default for Arg {
 			process_error_objects: true,
 			process_log_objects: false,
 			process_output_objects: true,
+			public: false,
 			sandbox_processes: false,
 			source: Some(tg::Location::Local(tg::location::Local::default())),
 			tag_targets: true,

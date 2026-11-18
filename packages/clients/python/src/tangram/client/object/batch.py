@@ -19,11 +19,12 @@ async def post_object_batch(
     objects: Mapping[str, Any] | Sequence[Mapping[str, Any]],
     *,
     location=None,
+    public: bool = False,
 ) -> Object.Batch.Output:
     arg = (
         dict(objects)
         if isinstance(objects, dict)
-        else {"objects": objects, "location": location}
+        else {"objects": objects, "location": location, "public": public}
     )
     location = arg.get("location")
     data = {

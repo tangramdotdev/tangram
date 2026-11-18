@@ -62,6 +62,7 @@ impl Component {
 			process_error_objects: false,
 			process_log_objects: false,
 			process_output_objects: false,
+			public: false,
 			sandbox_processes: false,
 			source: Some(local),
 			tag_targets: false,

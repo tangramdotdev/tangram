@@ -911,6 +911,7 @@ impl Component {
 		let arg = tg::process::put::Arg {
 			data,
 			location: None,
+			public: false,
 		};
 		let options = tangram_server_process_core::put::Options {
 			command_sync: None,

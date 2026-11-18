@@ -131,6 +131,7 @@ impl Component {
 			.usage
 			.usage_account(session, &session.context.principal)
 			.await?;
+		let public = arg.public;
 		let arg = tangram_index::object::put::Arg {
 			account,
 			checkout: None,
@@ -142,23 +143,28 @@ impl Component {
 			time_to_touch: session.server.config.object.time_to_touch,
 			touched_at: now,
 		};
-		let permission_subject = match &session.context.principal {
-			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
-			tg::Principal::Root => None,
-			principal => Some(principal.try_to_subject()?),
-		};
+		let mut subjects = Vec::new();
+		match &session.context.principal {
+			tg::Principal::Anonymous | tg::Principal::Root => (),
+			principal => subjects.push(principal.try_to_subject()?),
+		}
+		if public || matches!(session.context.principal, tg::Principal::Anonymous) {
+			subjects.push(tg::authorization::Subject::Public);
+		}
 		let put_permission =
-			permission_subject.map(|permission_subject| tangram_index::permission::put::Arg {
-				created_at: now,
-				permissions: tg::authorization::Permission::Object(permission).into(),
-				resource: id.clone().into(),
-				source: tangram_index::permission::Source::Direct {
-					expires_at: Some(permission_expires_at),
-				},
-				subject: permission_subject,
-				time_to_touch: Some(session.server.config.object.permission_time_to_touch),
-				version: None,
-			});
+			subjects
+				.into_iter()
+				.map(|subject| tangram_index::permission::put::Arg {
+					created_at: now,
+					permissions: tg::authorization::Permission::Object(permission).into(),
+					resource: id.clone().into(),
+					source: tangram_index::permission::Source::Direct {
+						expires_at: Some(permission_expires_at),
+					},
+					subject,
+					time_to_touch: Some(session.server.config.object.permission_time_to_touch),
+					version: None,
+				});
 		let arg = tangram_index::write::Arg {
 			items: std::iter::once(tangram_index::Item::PutObject(Box::new(arg)))
 				.chain(put_permission.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))))

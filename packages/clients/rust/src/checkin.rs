@@ -53,6 +53,10 @@ pub struct Options {
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub public: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub root: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
@@ -206,6 +210,7 @@ impl Default for Options {
 			ignore: true,
 			lock: Some(Lock::default()),
 			locked: false,
+			public: false,
 			root: false,
 			solve: true,
 			source_dependencies: true,

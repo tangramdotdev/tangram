@@ -741,6 +741,7 @@ impl Component {
 		let entry = tg::process::put::Arg {
 			data: data.clone(),
 			location: None,
+			public: false,
 		};
 		let location = tg::Location::Local(tg::location::Local {
 			region: session.server.config.region.clone(),

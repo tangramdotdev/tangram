@@ -666,6 +666,7 @@ impl Component {
 				let entry = tg::process::put::Arg {
 					data: data.clone(),
 					location: None,
+					public: false,
 				};
 				let options = tangram_server_process_core::put::Options {
 					command_sync: None,

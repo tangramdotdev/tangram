@@ -44,6 +44,10 @@ pub struct Args {
 	#[command(flatten)]
 	pub process_output_objects: ProcessOutputObjects,
 
+	/// Grant public read access.
+	#[arg(long)]
+	pub public: bool,
+
 	#[arg(required = true)]
 	pub references: Vec<tg::Reference>,
 
@@ -194,6 +198,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		process_error_objects: args.process_error_objects.get(),
 		process_log_objects: args.process_log_objects,
 		process_output_objects: args.process_output_objects.get(),
+		public: args.public,
 		sandbox_processes: args.sandbox_processes,
 		source: Some(source),
 		tag_targets: args.tag_targets.get(),

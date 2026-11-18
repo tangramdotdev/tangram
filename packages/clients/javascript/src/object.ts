@@ -38,6 +38,7 @@ export namespace Object {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
 			objects: Array<tg.Object.Batch.Object>;
+			public?: boolean;
 		};
 
 		export type Output = {
@@ -50,6 +51,7 @@ export namespace Object {
 			children?: Array<tg.Referent<tg.Object.Id>> | null;
 			data: tg.Object.Data;
 			location?: tg.Location.Arg | null;
+			public?: boolean;
 		};
 
 		export type Output = {

@@ -1596,6 +1596,7 @@ impl Component {
 		let arg = tg::process::put::Arg {
 			data,
 			location: None,
+			public: false,
 		};
 		tangram_server_core::checkpoint!(
 			session.server,

@@ -21,6 +21,9 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::object::Metadata>,
+
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
+	pub public: bool,
 }
 
 #[serde_as]

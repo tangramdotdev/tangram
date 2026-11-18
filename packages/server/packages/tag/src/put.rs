@@ -98,8 +98,14 @@ impl Component {
 			.node
 			.try_get_ids_and_ancestors_for_specifiers(session, specifiers)
 			.await?;
-		self.authorize_tag_puts(session, specifiers, arg.force, &ids_by_specifier)
-			.await?;
+		self.authorize_tag_puts(
+			session,
+			specifiers,
+			arg.force,
+			arg.public,
+			&ids_by_specifier,
+		)
+		.await?;
 		tangram_server_core::checkpoint!(session.server, "tag.put.authorized", specifier = %arg.specifier).await;
 		let component = self.clone();
 		let session = session.clone();
@@ -145,6 +151,7 @@ impl Component {
 		session: &Session,
 		specifiers: &[tg::Specifier],
 		force: bool,
+		public: bool,
 		ids_by_specifier: &BTreeMap<tg::Specifier, Option<tg::Id>>,
 	) -> tg::Result<()> {
 		let batch_size = session.server.config.sync.get.database.batch_size;
@@ -161,9 +168,12 @@ impl Component {
 				.and_then(std::option::Option::as_ref);
 			match existing {
 				Some(id) if id.kind() == tg::id::Kind::Tag => {
-					let permission = tg::authorization::Permission::Tag(
-						tg::authorization::permission::tag::Permission::Write,
-					);
+					let permission = if public {
+						tg::authorization::permission::tag::Permission::Admin
+					} else {
+						tg::authorization::permission::tag::Permission::Write
+					};
+					let permission = tg::authorization::Permission::Tag(permission);
 					let permissions =
 						tg::authorization::permission::Set::from_permission(permission);
 					let resource = tg::Selector::<tg::Id>::Id(id.clone());
@@ -497,29 +507,6 @@ impl Component {
 				)
 				.await;
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
-			if arg.public {
-				let arg = tg::grant::grant::Arg {
-					create: false,
-					permissions: tg::Either::Left(
-						tg::authorization::Permission::Tag(
-							tg::authorization::permission::tag::Permission::Read,
-						)
-						.into(),
-					),
-					resource: tg::Referent::with_node(tg::Selector::Id(id.clone().into())),
-					subject: tg::authorization::Subject::Public.into(),
-				};
-				match session
-					.server
-					.components
-					.grant
-					.grant_with_transaction(session, transaction, arg, batch)
-					.await?
-				{
-					ControlFlow::Break(_) => (),
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				}
-			}
 			if let Some(subject) = Self::write_user_grant_subject(session) {
 				let arg = tg::grant::grant::Arg {
 					create: false,
@@ -545,6 +532,29 @@ impl Component {
 			}
 			(id, version)
 		};
+		if arg.public {
+			let arg = tg::grant::grant::Arg {
+				create: false,
+				permissions: tg::Either::Left(
+					tg::authorization::Permission::Tag(
+						tg::authorization::permission::tag::Permission::Read,
+					)
+					.into(),
+				),
+				resource: tg::Referent::with_node(tg::Selector::Id(id.clone().into())),
+				subject: tg::authorization::Subject::Public.into(),
+			};
+			match session
+				.server
+				.components
+				.grant
+				.grant_with_transaction(session, transaction, arg, batch)
+				.await?
+			{
+				ControlFlow::Break(_) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+		}
 		let data = tg::tag::Data {
 			id,
 			name: arg.specifier.name().to_owned(),

@@ -637,6 +637,7 @@ impl Component {
 						children: Vec::new(),
 						location: None,
 						metadata,
+						public: false,
 					};
 					let result = component.put_object(&session, &id, arg).await;
 					if let Err(error) = result {
