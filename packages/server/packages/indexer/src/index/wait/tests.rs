@@ -1,5 +1,5 @@
 use {
-	super::{Progress, Request, RequestState, State},
+	super::{Progress, Request, RequestState, SLOW_WAIT_INTERVAL, State},
 	futures::StreamExt as _,
 	std::sync::{
 		Arc,
@@ -17,6 +17,7 @@ fn insert(
 	let request = Request {
 		id: id.into(),
 		sender,
+		started: tokio::time::Instant::now(),
 		state: request_state,
 	};
 	state.waits.insert(id.into(), request);
@@ -361,4 +362,70 @@ async fn an_indexer_error_only_fails_its_batch() {
 			..
 		}
 	));
+}
+
+#[tokio::test]
+async fn slow_waits_are_reported_at_most_once_per_interval() {
+	let mut state = State::new();
+	let now = tokio::time::Instant::now();
+	assert!(!state.warn_slow_waits(now + SLOW_WAIT_INTERVAL));
+	let _inputs = insert(&mut state, "inputs", RequestState::new(true));
+	let _updates = insert(
+		&mut state,
+		"updates",
+		RequestState::Updates {
+			transaction_id: Some(10),
+		},
+	);
+	let now = tokio::time::Instant::now();
+	assert!(!state.warn_slow_waits(now));
+	let now = now + SLOW_WAIT_INTERVAL;
+	assert!(state.warn_slow_waits(now));
+	let (_, deadline) = state.stall().unwrap();
+	assert_eq!(deadline, now + SLOW_WAIT_INTERVAL);
+	assert!(!state.warn_slow_waits(now + SLOW_WAIT_INTERVAL / 2));
+	assert!(state.warn_slow_waits(now + SLOW_WAIT_INTERVAL));
+}
+
+#[tokio::test]
+async fn slow_waits_are_reported_when_earlier_waits_were_abandoned() {
+	let mut state = State::new();
+	let now = tokio::time::Instant::now();
+	state.progressed = Some(now);
+	let _wait = insert(&mut state, "wait", RequestState::new(true));
+	state.waits.get_mut("wait").unwrap().started = now + SLOW_WAIT_INTERVAL / 2;
+	assert!(!state.warn_slow_waits(now + SLOW_WAIT_INTERVAL / 2));
+	assert!(state.warn_slow_waits(now + SLOW_WAIT_INTERVAL));
+}
+
+#[tokio::test]
+async fn an_abandoned_wait_does_not_restart_the_stall_clock() {
+	let mut state = State::new();
+	let abandoned = insert(
+		&mut state,
+		"abandoned",
+		RequestState::Updates {
+			transaction_id: Some(10),
+		},
+	);
+	drop(abandoned);
+	state
+		.poll_updates(|_| async { Ok(Some(11)) })
+		.await
+		.unwrap();
+	assert!(state.waits.is_empty());
+	assert!(state.progressed.is_none());
+	let received = insert(
+		&mut state,
+		"received",
+		RequestState::Updates {
+			transaction_id: Some(10),
+		},
+	);
+	state
+		.poll_updates(|_| async { Ok(Some(11)) })
+		.await
+		.unwrap();
+	received.await.unwrap().unwrap();
+	assert!(state.progressed.is_some());
 }

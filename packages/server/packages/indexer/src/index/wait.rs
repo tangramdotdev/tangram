@@ -11,6 +11,8 @@ use {
 #[cfg(test)]
 mod tests;
 
+const SLOW_WAIT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub(crate) type Receiver = tokio::sync::mpsc::Receiver<WaitArg>;
 
 pub(crate) type Sender = tokio::sync::mpsc::Sender<WaitArg>;
@@ -25,13 +27,30 @@ pub(crate) struct WaitArg {
 
 struct State {
 	database_index_queue_batch_id: Option<tangram_server_core::database::index::queue::BatchId>,
+
+	#[allow(
+		clippy::option_option,
+		reason = "the outer option marks whether the database index queue progress has been read and the inner option is the batch that was read"
+	)]
+	database_index_queue_progress:
+		Option<Option<tangram_server_core::database::index::queue::BatchId>>,
+
 	indexer_waits: IndexerWaits,
+
+	last_report: Option<tokio::time::Instant>,
+
+	oldests: Option<Oldests>,
+
+	// The time of the last completed wait, or of the first request since the waits were last empty.
+	progressed: Option<tokio::time::Instant>,
+
 	waits: BTreeMap<String, Request>,
 }
 
 pub(crate) struct Request {
 	id: String,
 	sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
+	started: tokio::time::Instant,
 	state: RequestState,
 }
 
@@ -51,6 +70,13 @@ enum Progress<T> {
 	Complete,
 	Pending(T),
 	Ready,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Oldests {
+	permission: Option<u64>,
+	storage_and_metadata: Option<u64>,
+	usage: Option<u64>,
 }
 
 impl Component {
@@ -91,16 +117,34 @@ impl Component {
 					let server = server.clone();
 					async move { component.wait_for_indexers(&server).await }
 				});
-				let result = tokio::select! {
-					() = stopper.wait() => return,
-					result = state.poll(server, &self.indexers) => result,
+				let result = {
+					let started = tokio::time::Instant::now();
+					let poll = state.poll(server, &self.indexers);
+					tokio::pin!(poll);
+					loop {
+						// Warn while the progress reads run longer than the slow wait interval, since the waits cannot be reported until the reads return.
+						tokio::select! {
+							() = stopper.wait() => return,
+							result = &mut poll => break result,
+							() = tokio::time::sleep(SLOW_WAIT_INTERVAL) => {
+								tracing::warn!(elapsed = ?started.elapsed(), "the index wait progress reads are slow");
+							},
+						}
+					}
 				};
 				if let Err(error) = result {
 					state.fail(&error);
 				}
 			}
 
-			// Wake on new requests, indexer completion, index changes, or the fallback tick.
+			// Wake on new requests, indexer completion, index changes, the next slow wait warning, or the fallback tick.
+			let deadline = state.stall().map(|(_, deadline)| deadline);
+			let slow = async move {
+				match deadline {
+					Some(deadline) => tokio::time::sleep_until(deadline).await,
+					None => future::pending().await,
+				}
+			};
 			tokio::select! {
 				() = stopper.wait() => return,
 				request = receiver.recv(), if state.waits.len() < server.config.indexer.request.wait_concurrency => {
@@ -108,14 +152,20 @@ impl Component {
 					let request = Request {
 						id: tangram_server_core::control::id(),
 						sender,
+						started: tokio::time::Instant::now(),
 						state: RequestState::new(database),
 					};
+					tracing::debug!(id = %request.id, state = ?request.state, "started an index wait");
+					if state.waits.is_empty() {
+						state.progressed = Some(request.started);
+					}
 					state.waits.insert(request.id.clone(), request);
 				},
 				Some((ids, result)) = state.indexer_waits.next(), if !state.indexer_waits.is_empty() => {
 					state.handle_indexer_wait(ids, &result);
 				},
 				() = &mut changed, if !state.waits.is_empty() => {},
+				() = slow => {},
 				_ = interval.tick(), if !state.waits.is_empty() => {},
 			}
 		}
@@ -162,7 +212,11 @@ impl State {
 	fn new() -> Self {
 		Self {
 			database_index_queue_batch_id: None,
+			database_index_queue_progress: None,
 			indexer_waits: IndexerWaits::new(),
+			last_report: None,
+			oldests: None,
+			progressed: None,
 			waits: BTreeMap::new(),
 		}
 	}
@@ -285,9 +339,7 @@ impl State {
 		})
 		.await?;
 
-		for (id, request) in &self.waits {
-			tracing::debug!(%id, state = ?request.state, "waiting for indexing progress");
-		}
+		self.warn_slow_waits(tokio::time::Instant::now());
 
 		// Pending shared work needs a surviving indexer after the private waits finish.
 		if server.config.advanced.multi_server
@@ -344,7 +396,12 @@ impl State {
 
 		// Advance each input independently without admitting later requests to an older snapshot.
 		if let Some(batch) = database_index_queue {
-			tracing::debug!(?batch, "read the database index queue progress");
+			// Log the database index queue progress only when it changes.
+			if self.database_index_queue_progress != Some(batch) {
+				tracing::debug!(?batch, "read the database index queue progress");
+				self.database_index_queue_progress = Some(batch);
+			}
+
 			let pending = self.database_index_queue_batch_id.is_some();
 			for request in self.waits.values_mut() {
 				let RequestState::Inputs {
@@ -410,6 +467,7 @@ impl State {
 			} = &mut request.state
 			{
 				*transaction = Some(transaction_id);
+				tracing::debug!(id = %request.id, transaction_id, "waiting for index updates");
 			}
 		}
 
@@ -434,13 +492,25 @@ impl State {
 		if !poll {
 			return Ok(());
 		}
-		let oldests = future::try_join3(
+		let (permission, storage_and_metadata, usage) = future::try_join3(
 			read(tangram_index::update::Kind::Permission),
 			read(tangram_index::update::Kind::StorageAndMetadata),
 			read(tangram_index::update::Kind::Usage),
 		)
 		.await?;
-		tracing::debug!(?oldests, "read the oldest index updates");
+		let oldests = Oldests {
+			permission,
+			storage_and_metadata,
+			usage,
+		};
+
+		// Log the oldest updates only when they change, so that the log follows indexing progress rather than the poll rate.
+		if self.oldests != Some(oldests) {
+			tracing::debug!(?oldests, "read the oldest index updates");
+			self.oldests = Some(oldests);
+		}
+
+		// Complete the requests whose target transactions have been indexed.
 		let ids = self
 			.waits
 			.iter()
@@ -451,19 +521,93 @@ impl State {
 				else {
 					return None;
 				};
-				[oldests.0, oldests.1, oldests.2]
-					.into_iter()
-					.all(|oldest| oldest.is_none_or(|oldest| oldest > transaction_id))
-					.then(|| id.clone())
+				[
+					oldests.permission,
+					oldests.storage_and_metadata,
+					oldests.usage,
+				]
+				.into_iter()
+				.all(|oldest| oldest.is_none_or(|oldest| oldest > transaction_id))
+				.then(|| id.clone())
 			})
 			.collect::<Vec<_>>();
 		for id in ids {
-			if let Some(request) = self.waits.remove(&id) {
-				request.sender.send(Ok(())).ok();
+			// Record the completion only when the caller receives it, so that an abandoned wait does not restart the stall clock.
+			if let Some(request) = self.waits.remove(&id)
+				&& request.sender.send(Ok(())).is_ok()
+			{
+				tracing::debug!(%id, elapsed = ?request.started.elapsed(), "finished an index wait");
+				self.progressed = Some(tokio::time::Instant::now());
 			}
 		}
 
 		Ok(())
+	}
+
+	fn stall(&self) -> Option<(tokio::time::Instant, tokio::time::Instant)> {
+		// Measure from the oldest wait, or from the last completed wait if the waits have gone without one completing since before then.
+		let started = self.waits.values().map(|request| request.started).min()?;
+		let started = self
+			.progressed
+			.map_or(started, |progressed| progressed.min(started));
+
+		// Warn once the interval has passed, and at most once per interval.
+		let deadline = started + SLOW_WAIT_INTERVAL;
+		let deadline = self.last_report.map_or(deadline, |last_report| {
+			deadline.max(last_report + SLOW_WAIT_INTERVAL)
+		});
+
+		Some((started, deadline))
+	}
+
+	fn warn_slow_waits(&mut self, now: tokio::time::Instant) -> bool {
+		let Some((started, deadline)) = self.stall() else {
+			return false;
+		};
+		if now < deadline {
+			return false;
+		}
+		let elapsed = now.duration_since(started);
+		self.last_report = Some(now);
+
+		// Count the waits at each stage, and find the earliest update target.
+		let mut database_index_queue = 0;
+		let mut indexers = 0;
+		let mut updates = 0;
+		let mut transaction_id = None::<u64>;
+		for request in self.waits.values() {
+			match request.state {
+				RequestState::Inputs {
+					database_index_queue: database_index_queue_progress,
+					indexers: indexers_progress,
+				} => {
+					database_index_queue +=
+						usize::from(!matches!(database_index_queue_progress, Progress::Complete));
+					indexers += usize::from(!matches!(indexers_progress, Progress::Complete));
+				},
+				RequestState::Updates {
+					transaction_id: target,
+				} => {
+					updates += 1;
+					transaction_id = transaction_id.into_iter().chain(target).min();
+				},
+			}
+		}
+
+		// Include the oldest updates only when a request is waiting on them, since they are read only for those requests.
+		let oldests = self.oldests.filter(|_| updates > 0);
+		tracing::warn!(
+			database_index_queue,
+			?elapsed,
+			indexers,
+			?oldests,
+			?transaction_id,
+			updates,
+			waits = self.waits.len(),
+			"the index waits are slow",
+		);
+
+		true
 	}
 }
 

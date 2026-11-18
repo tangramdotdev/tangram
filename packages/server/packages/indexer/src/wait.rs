@@ -16,6 +16,7 @@ pub(super) type Sender = tokio::sync::mpsc::Sender<Request>;
 type TaskWaits = FuturesUnordered<futures::future::BoxFuture<'static, Vec<String>>>;
 
 struct State {
+	queue_progress: Option<(u64, u64)>,
 	task_waits: TaskWaits,
 	waits: BTreeMap<String, Request>,
 }
@@ -97,12 +98,18 @@ impl Indexer {
 						state.queues.target_sequences().1,
 					)
 				};
-				tracing::debug!(
-					read,
-					target,
-					waits = state.waits.len(),
-					"read the private index queue progress"
-				);
+
+				// Log the private index queue progress only when it changes.
+				if state.queue_progress != Some((read, target)) {
+					tracing::debug!(
+						read,
+						target,
+						waits = state.waits.len(),
+						"read the private index queue progress"
+					);
+					state.queue_progress = Some((read, target));
+				}
+
 				state.poll_queues(self.server.config.advanced.multi_server, read, target);
 			}
 
@@ -126,6 +133,7 @@ impl Indexer {
 impl State {
 	fn new() -> Self {
 		Self {
+			queue_progress: None,
 			task_waits: TaskWaits::new(),
 			waits: BTreeMap::new(),
 		}
