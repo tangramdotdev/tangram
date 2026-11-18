@@ -46,7 +46,7 @@ impl Component {
 
 		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-		// Find the node, which awaits indexing only for a specifier that the database has and the index does not, because a forced push can redirect it.
+		// Resolve the selector locally.
 		let node = if current {
 			self.try_get_with_selector_id_local(session, selector)
 				.await?

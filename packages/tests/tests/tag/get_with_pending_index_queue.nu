@@ -24,8 +24,10 @@ job spawn {
 	{ kind: get, output: $output } | job send 0
 }
 job spawn {
-	tg --token $root_token checkpoint wait --timeout 30s index.wait.database_index_queue $wait 0 | complete | ignore
-	{ kind: wait } | job send 0
+	let output = tg --token $root_token checkpoint wait --timeout 30s index.wait.database_index_queue $wait 0 | complete
+	if $output.exit_code == 0 {
+		{ kind: wait } | job send 0
+	}
 }
 let message = job recv --timeout 30sec
 
