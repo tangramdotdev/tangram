@@ -256,6 +256,9 @@ impl Component {
 			&& runner_matches_location
 			&& new_sandbox
 			&& arg.cached != Some(true)
+			&& self
+				.spawn_process_runner_matches_host(session, &arg)
+				.await?
 		{
 			Self::try_acquire_sandbox_capacity(session, parent_sandbox.as_ref(), requested.unwrap())
 		} else {
@@ -468,6 +471,30 @@ impl Component {
 				.is_none_or(|region| Some(region) == session.server.config.region.as_deref()),
 			_ => runner_location == *location,
 		}
+	}
+
+	async fn spawn_process_runner_matches_host(
+		&self,
+		session: &Session,
+		arg: &tg::process::spawn::Arg,
+	) -> tg::Result<bool> {
+		let host = match &arg.command.node {
+			tg::Either::Left(command_arg) => command_arg
+				.host
+				.clone()
+				.or_else(|| session.server.config.process.spawn.host.clone())
+				.unwrap_or_else(|| tg::host::current().to_owned()),
+			tg::Either::Right(id) => {
+				let command = tg::Referent::new(id.clone(), arg.command.options.clone());
+				let (host, _) = self
+					.spawn_process_get_command(session, arg, &command)
+					.await?;
+				host
+			},
+		};
+		let matches = host == tg::host::current();
+
+		Ok(matches)
 	}
 
 	async fn try_spawn_process_local(

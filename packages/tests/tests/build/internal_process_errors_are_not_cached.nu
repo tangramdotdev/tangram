@@ -7,9 +7,7 @@ let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		function inner() { return tg.build({
-			args: ["-c", "true"],
-			executable: "sh",
-			host: "not-a-real-host",
+			executable: "/not-a-real-executable",
 		}).named("inner"); }
 
 		export async function first() { return await inner(); }
@@ -29,10 +27,19 @@ snapshot --normalize-ids --redact $path $first_error_pretty '
 	  "code": "internal",
 	  "message": "failed to run the process",
 	  "source": tg.error({
-	    "message": "cannot run process with host",
-	    "values": {
-	      "host": "not-a-real-host",
-	    },
+	    "message": "failed to spawn the process in the sandbox",
+	    "source": tg.error({
+	      "message": "failed to spawn",
+	      "source": tg.error({
+	        "message": "failed to spawn the child process",
+	        "source": tg.error({
+	          "message": "No such file or directory (os error 2)",
+	        }),
+	        "values": {
+	          "executable": "/not-a-real-executable",
+	        },
+	      }),
+	    }),
 	  }),
 	  "values": {
 	    "process": "pcs_0000000000000000000000000000",
