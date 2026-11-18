@@ -297,14 +297,10 @@ export const release = async (arg?: { commit?: string }) => {
 		});
 
 		// Create a tar.gz archive.
-		const archive = await $`
-			mkdir -p $OUTPUT
-			tar -czf $OUTPUT/${archiveName} -C ${releaseDir}/bin tangram tg tgx
-		`
-			.env(dash({ build: std.triple.host() }))
-			.then(tg.Directory.expect)
-			.then((d) => d.get(archiveName))
-			.then(tg.File.expect);
+		const archive =
+			await $`tar -czf ${tg.output} -C ${releaseDir}/bin tangram tg tgx`
+				.env(dash({ build: machine }))
+				.then(tg.File.expect);
 
 		archives[archiveName] = archive;
 	}
