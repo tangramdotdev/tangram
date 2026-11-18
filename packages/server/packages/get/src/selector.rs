@@ -46,40 +46,30 @@ impl Component {
 
 		let current = locations.local.as_ref().is_some_and(|local| local.current);
 
-		// Find the node and authorize it without awaiting indexing or searching.
+		// Find the node, which awaits indexing only for a specifier that the database has and the index does not, because a forced push can redirect it.
 		let node = if current {
 			self.try_get_with_selector_id_local(session, selector)
 				.await?
 		} else {
 			None
 		};
-		if node.is_some()
+
+		// Authorize the node without searching.
+		if let Some(id) = &node
 			&& let Some(output) = self
-				.try_get_with_selector_local(
-					session,
-					selector,
-					tokens.local_authorization(),
-					node.clone(),
-					false,
-				)
+				.try_get_with_selector_local(session, id, tokens.local_authorization(), false)
 				.await?
 		{
 			return Ok(Some(output));
 		}
 
-		// Await indexing and search locally while trying the regions and then the remotes.
+		// Authorize the node with a search while trying the regions and then the remotes, because the local lookup has already decided whether the node exists locally.
 		let local_future = async {
-			if !current {
+			let Some(id) = node else {
 				return Ok(None);
-			}
-			self.try_get_with_selector_local(
-				session,
-				selector,
-				tokens.local_authorization(),
-				node,
-				true,
-			)
-			.await
+			};
+			self.try_get_with_selector_local(session, &id, tokens.local_authorization(), true)
+				.await
 		};
 		let regions = match &locations.local {
 			// Every region has the same names, so a local read of a specifier covers the regions.
@@ -161,24 +151,12 @@ impl Component {
 	async fn try_get_with_selector_local(
 		&self,
 		session: &Session,
-		selector: &tg::Selector<tg::Id>,
+		id: &tg::Id,
 		tokens: &[tg::authorization::Token],
-		node: Option<tg::Id>,
 		exhaustive: bool,
 	) -> tg::Result<Option<tg::get::Output>> {
-		// Find the node if it was not provided. The index lookup awaits indexing for a specifier that the database has and the index does not, because a forced push can redirect it.
-		let mut id = node;
-		if id.is_none() && exhaustive {
-			id = self
-				.try_get_with_selector_id_local(session, selector)
-				.await?;
-		}
-		let Some(id) = id else {
-			return Ok(None);
-		};
-
 		// Authorize the node.
-		let permission = tangram_server_grant_common::read_permission_for_resource(&id)?;
+		let permission = tangram_server_grant_common::read_permission_for_resource(id)?;
 		let resource =
 			tg::Referent::with_node_and_local_tokens(tg::Selector::Id(id.clone()), tokens.to_vec());
 		let authorized = session
@@ -197,7 +175,7 @@ impl Component {
 			.server
 			.components
 			.authorization
-			.create_read_token(session, &id)?
+			.create_read_token(session, id)?
 		{
 			tokens.insert_local_authorization(token);
 		}
@@ -206,7 +184,7 @@ impl Component {
 			tokens,
 			..tg::referent::Options::default()
 		};
-		let referent = tg::Referent::new(tg::get::Node::Id(id), options);
+		let referent = tg::Referent::new(tg::get::Node::Id(id.clone()), options);
 		let output = tg::get::Output { referent };
 
 		Ok(Some(output))

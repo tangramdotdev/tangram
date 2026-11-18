@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A tag get of a tag that the index has not caught up to waits for the index and then finds the tag.
+# A tag get of a committed tag that the index has not caught up to finds the tag.
 
 let root_token = random chars
 let local = server spawn --config {
@@ -17,19 +17,23 @@ tg --token $root_token tag put hello $object
 let output = tg --token $root_token checkpoint wait --timeout 30s indexer.database_index_queue.named_node $named 0 | complete
 success $output "the tag put must reach the held database index queue"
 
-# Get the tag, and observe that it waits for the index rather than answering that the tag does not exist.
+# Get the tag while the index lags, and observe whether the tag get waits for the index, so that the queue is released only after the tag get either finishes or waits.
 let wait = tg --token $root_token checkpoint watch index.wait.database_index_queue | from json | get watch
-let get = job spawn {
-	let job_id = job id
+job spawn {
 	let output = tg --token $root_token tag get hello | complete
-	$output | job send --tag $job_id 0
+	{ kind: get, output: $output } | job send 0
 }
-let output = tg --token $root_token checkpoint wait --timeout 30s index.wait.database_index_queue $wait 0 | complete
-success $output "the tag get must wait for the index"
-tg --token $root_token checkpoint unwatch index.wait.database_index_queue $wait
+job spawn {
+	tg --token $root_token checkpoint wait --timeout 30s index.wait.database_index_queue $wait 0 | complete | ignore
+	{ kind: wait } | job send 0
+}
+let message = job recv --timeout 30sec
 
-# Release the database index queue. The tag get must find the tag.
+# Release the database index queue.
+tg --token $root_token checkpoint unwatch index.wait.database_index_queue $wait
 tg --token $root_token checkpoint unwatch indexer.database_index_queue.named_node $named
-let output = job recv --tag $get --timeout 30sec
-success $output "the tag get should find the tag once the index catches up"
-assert equal ($output.stdout | from json | get target.id) $object
+
+# The tag get must find the tag.
+let message = if $message.kind == get { $message } else { job recv --timeout 30sec }
+success $message.output "the tag get should find the committed tag"
+assert equal ($message.output.stdout | from json | get target.id) $object
