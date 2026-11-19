@@ -260,6 +260,19 @@ impl Component {
 			spawn_arg,
 		} = arg;
 
+		// Get what an error reports if the spawn returns no process.
+		let cached = spawn_arg.cached == Some(true);
+		let host = match &spawn_arg.command.node {
+			tg::Either::Left(command) => Some(
+				command
+					.host
+					.clone()
+					.or_else(|| session.server.config.process.spawn.host.clone())
+					.unwrap_or_else(|| tg::host::current().to_owned()),
+			),
+			tg::Either::Right(_) => None,
+		};
+
 		// Buffer requests while spawning so the client can send operations immediately.
 		let mut progress = self
 			.try_spawn_process_inner(session, spawn_arg, prepare_output)
@@ -281,7 +294,11 @@ impl Component {
 				event = progress.try_next() => {
 					let event = event?.ok_or_else(|| tg::error!("the spawn stream ended without an output"))?;
 					if let tg::progress::Event::Output(output) = event {
-						break output.ok_or_else(|| tg::error!("expected a process"))?;
+						break output.ok_or_else(|| match &host {
+							_ if cached => tg::error!("failed to find a cached process"),
+							Some(host) => tg::error!(%host, "no location accepts the process's host"),
+							None => tg::error!("no location accepts the process's host"),
+						})?;
 					}
 					let message = tg::process::attach::ServerMessage::Notification(tg::process::attach::ServerNotification::Progress(event.map_output(Option::unwrap)));
 					sender.send(Ok(message)).await.map_err(|_| tg::error!("the process connection closed"))?;

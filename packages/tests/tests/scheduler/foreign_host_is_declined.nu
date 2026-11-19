@@ -17,7 +17,7 @@ let path = artifact {
 # A build with a host that the scheduler does not accept fails.
 let output = tg --url $server.url build --host not-a-real-host $path | complete
 failure $output "a build with a host that no scheduler accepts should fail"
-assert ($output.stderr | str contains "no scheduler accepts the host")
+assert ($output.stderr | str contains "no location accepts the process's host")
 assert ($output.stderr | str contains "not-a-real-host")
 
 # A sandbox create with a host that the scheduler does not accept fails.

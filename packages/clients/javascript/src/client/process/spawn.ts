@@ -148,7 +148,7 @@ export async function spawnProcess(
 	arg: tg.Process.Spawn.Arg,
 ): Promise<AsyncIterableIterator<tg.Progress.Event<tg.Process.Spawn.Output>>> {
 	let stream = await trySpawnProcess(client, arg);
-	return mapSpawnEvents(stream);
+	return mapSpawnEvents(stream, arg.cached === true);
 }
 
 export async function trySpawnProcess(
@@ -185,11 +185,15 @@ export async function trySpawnProcess(
 
 async function* mapSpawnEvents(
 	events: AsyncIterable<tg.Progress.Event<tg.Process.Spawn.Output | null>>,
+	cached: boolean,
 ): AsyncIterableIterator<tg.Progress.Event<tg.Process.Spawn.Output>> {
 	for await (let event of events) {
 		if (event.kind === "output") {
 			if (event.value === null) {
-				throw new Error("expected a process");
+				if (cached) {
+					throw new Error("failed to find a cached process");
+				}
+				throw new Error("no location accepts the process's host");
 			}
 			yield event as tg.Progress.Event<tg.Process.Spawn.Output>;
 		} else {
