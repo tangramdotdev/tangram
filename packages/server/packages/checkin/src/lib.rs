@@ -705,12 +705,22 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to create the lock"))?;
 		progress.finish("locking");
 
-		// Record the root metadata after the lock write so its notifications match the published graph.
+		// Record the metadata of the root and of the lockfile's parent after the lock write so their notifications match the published graph.
 		if arg.options.lock.is_some() && !arg.options.destructive {
 			let metadata = std::fs::symlink_metadata(root)
 				.map_err(|error| tg::error!(!error, "failed to read the root metadata"))?;
 			let index = graph.paths.get(root).unwrap();
 			graph.nodes.get_mut(index).unwrap().path_metadata = Some(metadata);
+			let lockfile_path = tangram_server_checkin_core::lockfile_path(root);
+			if let Some(parent) = lockfile_path.parent()
+				&& parent != root
+				&& let Some(index) = graph.paths.get(parent)
+			{
+				let metadata = std::fs::symlink_metadata(parent).map_err(|error| {
+					tg::error!(!error, "failed to read the lockfile parent metadata")
+				})?;
+				graph.nodes.get_mut(index).unwrap().path_metadata = Some(metadata);
+			}
 		}
 
 		// Create the index items.
