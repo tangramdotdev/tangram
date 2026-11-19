@@ -11582,7 +11582,6 @@ dependencies = [
  "serde_json",
  "tangram_cache",
  "tangram_client",
- "tangram_database",
  "tangram_futures",
  "tangram_http",
  "tangram_index",

@@ -136,7 +136,7 @@ impl Scheduler {
 		if status.is_starting()
 			&& let Some(process) = &request.process
 		{
-			let process = self.queued_process_arg(process, id, now, permissions)?;
+			let process = self.queued_process_arg(process, id, now, permissions, request.public)?;
 			arg.process = Some(Box::new(process));
 		}
 		let mut items = vec![tangram_index::Item::PutSandbox(Box::new(arg))];
@@ -188,6 +188,7 @@ impl Scheduler {
 		sandbox: &tg::sandbox::Id,
 		now: i64,
 		permissions: bool,
+		public: bool,
 	) -> tg::Result<tangram_index::process::put::Arg> {
 		let id = process
 			.id
@@ -196,7 +197,7 @@ impl Scheduler {
 
 		// Create the creator permission and the command captures from the data with its tokens, so that the creator can access the process as soon as it is visible.
 		let (captures, permissions) = if permissions {
-			self.queued_process_permissions(&id, &process.data)?
+			self.queued_process_permissions(&id, &process.data, public)?
 		} else {
 			(
 				tangram_index::permission::capture::Captures::default(),
@@ -246,17 +247,18 @@ impl Scheduler {
 		Ok(arg)
 	}
 
-	/// Create the permission that lets the creator of a queued process access it, and the captures that give the process the creator's access to its command.
+	/// Create the permission that lets the creator of a queued process access it, the temporary public permission of a public process, and the captures that give the process the creator's access to its command.
 	fn queued_process_permissions(
 		&self,
 		id: &tg::process::Id,
 		data: &tg::process::Data,
+		public: bool,
 	) -> tg::Result<(
 		tangram_index::permission::capture::Captures,
 		Vec<tangram_index::permission::put::Arg>,
 	)> {
 		let config = &self.server.config.process;
-		let permissions = tangram_server_process_core::permission::creator_permission_arg(
+		let mut permissions = tangram_server_process_core::permission::creator_permission_arg(
 			&data.creator,
 			id,
 			data.created_at,
@@ -264,7 +266,16 @@ impl Scheduler {
 			config.permission_time_to_touch,
 		)?
 		.into_iter()
-		.collect();
+		.collect::<Vec<_>>();
+		if public {
+			let permission = tangram_server_process_core::permission::public_permission_arg(
+				id,
+				data.created_at,
+				config.permission_time_to_live,
+				config.permission_time_to_touch,
+			)?;
+			permissions.push(permission);
+		}
 		let session = self.server.session(&self.server.context);
 		let roots = data
 			.command

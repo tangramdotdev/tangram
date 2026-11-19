@@ -10,10 +10,11 @@ let path = artifact {
 	'
 }
 
-# Build with a public grant, so the index has a grant on the process.
-let build = tg build --detach --verbose --public $path | from json
+# Build and grant the public subject the subtree, so the index has a grant on the process.
+let build = tg build --detach --verbose $path | from json
 let process = $build.process
 tg wait $process
+tg grant public subtree $process | ignore
 
 # Clean deletes the process from the index and leaves its grants.
 tg clean

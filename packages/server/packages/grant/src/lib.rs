@@ -2059,19 +2059,6 @@ impl tangram_server_core::grant::Component for Component {
 		self.request(session, request).boxed()
 	}
 
-	fn list_resource_grants_with_transaction<'a>(
-		&'a self,
-		transaction: &'a tangram_server_core::database::Transaction<'_>,
-		resource: &'a tg::Id,
-		after: Option<&'a tg::grant::Id>,
-		limit: Option<u64>,
-	) -> BoxFuture<
-		'a,
-		tg::Result<ControlFlow<Vec<tg::grant::Data>, tangram_server_core::database::Error>>,
-	> {
-		Self::list_resource_grants_with_transaction(transaction, resource, after, limit).boxed()
-	}
-
 	fn resolve_subject_with_transaction<'a>(
 		&'a self,
 		transaction: &'a tangram_server_core::database::Transaction<'_>,

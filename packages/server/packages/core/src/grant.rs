@@ -75,14 +75,6 @@ pub trait Component: crate::component::Lifecycle {
 		batch: &'a mut tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<(), crate::database::Error>>>;
 
-	fn list_resource_grants_with_transaction<'a>(
-		&'a self,
-		transaction: &'a crate::database::Transaction<'_>,
-		resource: &'a tg::Id,
-		after: Option<&'a tg::grant::Id>,
-		limit: Option<u64>,
-	) -> BoxFuture<'a, tg::Result<ControlFlow<Vec<tg::grant::Data>, crate::database::Error>>>;
-
 	fn resolve_subject_with_transaction<'a>(
 		&'a self,
 		transaction: &'a crate::database::Transaction<'_>,

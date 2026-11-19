@@ -712,7 +712,7 @@ impl Component {
 			return Ok(output);
 		}
 
-		// Write the creator permissions independently of the sandbox and prepare command access.
+		// Write the creator and public permissions independently of the sandbox and prepare command access.
 		let mut items = Vec::new();
 		if let Some(permission) = Self::spawn_process_create_creator_permission_arg(
 			session,
@@ -720,6 +720,10 @@ impl Component {
 			&id,
 			now,
 		)? {
+			items.push(tangram_index::Item::PutPermission(Box::new(permission)));
+		}
+		if spawn_arg.public {
+			let permission = Self::spawn_process_create_public_permission_arg(session, &id, now)?;
 			items.push(tangram_index::Item::PutPermission(Box::new(permission)));
 		}
 		if write_command_permissions {

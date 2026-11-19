@@ -245,24 +245,19 @@ impl Component {
 		if arg.public || matches!(session.context.principal, tg::Principal::Anonymous) {
 			subjects.push(tg::authorization::Subject::Public);
 		}
-		let put_permission =
-			subjects
-				.into_iter()
-				.map(|subject| tangram_index::permission::put::Arg {
-					created_at: now,
-					permissions: tg::authorization::Permission::Process(
-						tg::authorization::permission::process::Permission::Node,
-					)
-					.into(),
-					resource: id.clone().into(),
-					source: tangram_index::permission::Source::Direct {
-						expires_at: Some(permission_expires_at),
-					},
-					subject,
-					time_to_touch: Some(session.server.config.process.permission_time_to_touch),
-					version: None,
-				});
-		put_process_arg.permissions.extend(put_permission);
+		let config = &session.server.config.process;
+		let permissions = tg::authorization::permission::process::Set::NODE;
+		for subject in subjects {
+			let permission = tangram_server_process_core::permission::permission_arg(
+				subject,
+				permissions,
+				id,
+				now,
+				config.permission_time_to_live,
+				config.permission_time_to_touch,
+			)?;
+			put_process_arg.permissions.push(permission);
+		}
 		put_process_arg.account = session
 			.server
 			.components

@@ -29,7 +29,7 @@ impl Component {
 			Some(tg::Either::Left(_)) if process.allocation.is_some() => {
 				let lease = tg::process::Lease::new();
 				let ready_event = self
-					.spawn_process_local_in_new_sandbox(session, process, lease)
+					.spawn_process_local_in_new_sandbox(session, process, lease, arg.public)
 					.await?
 					.ok_or_else(|| tg::error!("expected the sandbox to be ready"))?;
 				let connected_event = ready_event
@@ -52,7 +52,7 @@ impl Component {
 					.sandbox
 					.subscribe_sandbox_connection(session, &sandbox)
 					.await?;
-				self.spawn_process_local_in_new_sandbox(session, process, lease)
+				self.spawn_process_local_in_new_sandbox(session, process, lease, arg.public)
 					.await?;
 				if let Some(sender) = scheduler_sender.take() {
 					let scheduler = process
@@ -363,6 +363,7 @@ impl Component {
 		session: &Session,
 		output: &mut Output,
 		lease: tg::process::Lease,
+		public: bool,
 	) -> tg::Result<Option<tangram_server_runner_core::sandbox::ReadyEvent>> {
 		let sandbox = output
 			.data
@@ -433,6 +434,7 @@ impl Component {
 			owner_ancestors,
 			parent: output.parent_sandbox.clone(),
 			process: Some(process),
+			public,
 			runner: None,
 			sandbox: sandbox.clone(),
 			scheduler: output.scheduler.clone(),

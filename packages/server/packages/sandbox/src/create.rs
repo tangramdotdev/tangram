@@ -133,6 +133,7 @@ impl Component {
 			owner_ancestors,
 			parent: None,
 			process: None,
+			public: false,
 			runner: None,
 			sandbox: id.clone(),
 			scheduler: None,

@@ -13,17 +13,59 @@ pub fn creator_permission_arg(
 		tg::Principal::Root => return Ok(None),
 		principal => principal.try_to_subject()?,
 	};
+	let permissions = tg::authorization::permission::process::Set::from_permission(
+		tg::authorization::permission::process::Permission::Parent,
+	);
+	let arg = permission_arg(
+		subject,
+		permissions,
+		id,
+		created_at,
+		time_to_live,
+		time_to_touch,
+	)?;
+	Ok(Some(arg))
+}
+
+/// Create the temporary permission that lets anyone read a public process, its children, and their command, error, log, and output objects.
+pub fn public_permission_arg(
+	id: &tg::process::Id,
+	created_at: i64,
+	time_to_live: std::time::Duration,
+	time_to_touch: std::time::Duration,
+) -> tg::Result<tangram_index::permission::put::Arg> {
+	let mut permissions = tg::authorization::permission::process::Set::SUBTREE;
+	permissions.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND_OBJECTS);
+	permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS);
+	permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS);
+	permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS);
+	permission_arg(
+		tg::authorization::Subject::Public,
+		permissions,
+		id,
+		created_at,
+		time_to_live,
+		time_to_touch,
+	)
+}
+
+/// Create a direct permission on a process that expires after the ttl unless it is touched.
+pub fn permission_arg(
+	subject: tg::authorization::Subject,
+	permissions: tg::authorization::permission::process::Set,
+	id: &tg::process::Id,
+	created_at: i64,
+	time_to_live: std::time::Duration,
+	time_to_touch: std::time::Duration,
+) -> tg::Result<tangram_index::permission::put::Arg> {
 	let time_to_live = i64::try_from(time_to_live.as_secs())
 		.map_err(|error| tg::error!(!error, "failed to convert the permission ttl"))?;
 	let expires_at = created_at
 		.checked_add(time_to_live)
 		.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
-	let permission = tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::Parent,
-	);
 	let arg = tangram_index::permission::put::Arg {
 		created_at,
-		permissions: permission.into(),
+		permissions: tg::authorization::permission::Set::Process(permissions),
 		resource: id.clone().into(),
 		source: tangram_index::permission::Source::Direct {
 			expires_at: Some(expires_at),
@@ -32,5 +74,5 @@ pub fn creator_permission_arg(
 		time_to_touch: Some(time_to_touch),
 		version: None,
 	};
-	Ok(Some(arg))
+	Ok(arg)
 }

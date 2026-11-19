@@ -1,7 +1,4 @@
-use {
-	crate::Component, futures::FutureExt as _, std::ops::ControlFlow, tangram_client::prelude::*,
-	tangram_database as db, tangram_server_core::Session,
-};
+use {crate::Component, tangram_client::prelude::*, tangram_server_core::Session};
 
 impl Component {
 	pub(super) fn spawn_process_create_creator_permission_arg(
@@ -20,114 +17,45 @@ impl Component {
 		)
 	}
 
-	pub(super) async fn spawn_process_create_public_grant_if_requested(
+	pub(super) fn spawn_process_create_public_permission_arg(
+		session: &Session,
+		id: &tg::process::Id,
+		created_at: i64,
+	) -> tg::Result<tangram_index::permission::put::Arg> {
+		let config = &session.server.config.process;
+		tangram_server_process_core::permission::public_permission_arg(
+			id,
+			created_at,
+			config.permission_time_to_live,
+			config.permission_time_to_touch,
+		)
+	}
+
+	/// Put the public permission on a cached process that a public spawn returns, with one index write.
+	pub(super) async fn spawn_process_put_public_permission_if_requested(
 		&self,
 		session: &Session,
 		arg: &tg::process::spawn::Arg,
 		output: &tg::process::spawn::Output,
 	) -> tg::Result<()> {
-		if arg.public
-			&& let tg::Either::Right(id) = &output.process
-		{
-			self.spawn_process_create_public_grant(session, id).await?;
+		if !arg.public {
+			return Ok(());
 		}
-		Ok(())
-	}
-
-	async fn spawn_process_create_public_grant(
-		&self,
-		session: &Session,
-		id: &tg::process::Id,
-	) -> tg::Result<()> {
-		let resource = tg::Id::from(id.clone());
-
-		// Read the grants from the read connection.
-		let options = db::ConnectionOptions::default();
-		let mut missing =
-			Self::get_spawn_process_missing_public_permissions(session, &resource, options).await?;
-
-		// Read the grants from the write connection, because a new grant may not have reached the read connection.
-		if !missing.is_empty() {
-			let options = db::ConnectionOptions {
-				kind: db::ConnectionKind::Write,
-				..Default::default()
-			};
-			missing =
-				Self::get_spawn_process_missing_public_permissions(session, &resource, options)
-					.await?;
-		}
-
-		if !missing.is_empty() {
-			let arg = tg::grant::grant::Arg {
-				create: false,
-				permissions: tg::Either::Left(tg::authorization::permission::Set::Process(missing)),
-				resource: tg::Referent::with_node(tg::Selector::Id(resource)),
-				subject: tg::authorization::subject::Selector::Subject(
-					tg::authorization::Subject::Public,
-				),
-			};
-			session.grant(arg).await?;
-		}
-		Ok(())
-	}
-
-	async fn get_spawn_process_missing_public_permissions(
-		session: &Session,
-		resource: &tg::Id,
-		options: db::ConnectionOptions,
-	) -> tg::Result<tg::authorization::permission::process::Set> {
-		let existing = session
-			.server
-			.database
-			.run_with_options(options, |transaction| {
-				let resource = resource.clone();
-				let session = session.clone();
-				async move {
-					Self::list_spawn_process_grants_with_transaction(
-						&session,
-						transaction,
-						&resource,
-					)
-					.await
-				}
-				.boxed()
-			})
-			.await?;
-		let mut covered = tg::authorization::permission::process::Set::empty();
-		for grant in existing {
-			if grant.subject == tg::authorization::Subject::Public
-				&& let tg::authorization::permission::Set::Process(set) = grant.permissions
-			{
-				covered.insert(set);
-			}
-		}
-		let mut missing = tg::authorization::permission::process::Set::empty();
-		for permission in [
-			tg::authorization::permission::process::Permission::Subtree,
-			tg::authorization::permission::process::Permission::SubtreeCommandObjects,
-			tg::authorization::permission::process::Permission::SubtreeErrorObjects,
-			tg::authorization::permission::process::Permission::SubtreeLogObjects,
-			tg::authorization::permission::process::Permission::SubtreeOutputObjects,
-		] {
-			let set = tg::authorization::permission::process::Set::from_permission(permission);
-			if !covered.contains(set) {
-				missing.insert(set);
-			}
-		}
-
-		Ok(missing)
-	}
-
-	async fn list_spawn_process_grants_with_transaction(
-		session: &Session,
-		transaction: &tangram_server_core::database::Transaction<'_>,
-		resource: &tg::Id,
-	) -> tg::Result<ControlFlow<Vec<tg::grant::Data>, tangram_server_core::database::Error>> {
+		let tg::Either::Right(id) = &output.process else {
+			return Ok(());
+		};
+		let now = session.server.clock.unix_timestamp();
+		let permission = Self::spawn_process_create_public_permission_arg(session, id, now)?;
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutPermission(Box::new(permission))],
+		};
 		session
 			.server
 			.components
-			.grant
-			.list_resource_grants_with_transaction(transaction, resource, None, None)
+			.indexer
+			.write(&session.server, arg)
 			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to write the public permission"))?;
+		Ok(())
 	}
 }
