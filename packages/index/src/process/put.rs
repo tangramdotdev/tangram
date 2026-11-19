@@ -122,6 +122,17 @@ impl Arg {
 		existing: &super::Process,
 		existing_data: Option<&tg::process::Data>,
 	) -> tg::Result<tg::Result<()>> {
+		// Reject a write that changes the creator or the owner of a process whose record has them.
+		if existing.status.is_some()
+			&& let Some(data) = &self.data
+			&& (data.creator != existing.creator || data.owner != existing.owner)
+		{
+			return Ok(Err(tg::error!(
+				id = %self.id,
+				"cannot change the creator or the owner of an existing process"
+			)));
+		}
+
 		if self.principal == tg::Principal::Process(self.id.clone())
 			&& existing.status.is_none_or(|status| !status.is_finished())
 		{

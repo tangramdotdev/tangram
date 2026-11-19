@@ -511,3 +511,40 @@ async fn processes_are_listed_by_page() {
 	assert_eq!(page, ids[2..]);
 	assert!(output.next.is_none());
 }
+
+#[tokio::test]
+async fn a_write_cannot_change_the_creator_or_the_owner_of_a_process() {
+	let (_dir, index) = super::new_index();
+	let id = tg::process::Id::new();
+	let user = tg::Principal::Process(tg::process::Id::new());
+
+	// Start the process.
+	let data = process_data(tg::process::Status::Started, String::new());
+	put_process(&index, process_arg(&id, data.clone())).await;
+
+	// Put the process's own data with another creator, and verify that the write is rejected.
+	let mut changed = data.clone();
+	changed.creator = user.clone();
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(Box::new(process_arg(
+			&id, changed,
+		)))],
+	};
+	assert!(index.write(arg).await.unwrap().is_err());
+
+	// Put the process's own data with another owner, and verify that the write is rejected.
+	let mut changed = data.clone();
+	changed.owner = user;
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(Box::new(process_arg(
+			&id, changed,
+		)))],
+	};
+	assert!(index.write(arg).await.unwrap().is_err());
+
+	// Put the process's own data with the same creator and owner, and verify that they are unchanged.
+	put_process(&index, process_arg(&id, data)).await;
+	let process = index.try_get_process(&id).await.unwrap().unwrap();
+	assert_eq!(process.creator, tg::Principal::Root);
+	assert_eq!(process.owner, tg::Principal::Root);
+}
