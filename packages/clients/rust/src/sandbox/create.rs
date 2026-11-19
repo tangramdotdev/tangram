@@ -137,10 +137,10 @@ impl tg::Sandbox {
 }
 
 impl tg::Session {
-	pub async fn create_sandbox(
+	pub async fn try_create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
-	) -> tg::Result<tg::sandbox::create::Output> {
+	) -> tg::Result<Option<tg::sandbox::create::Output>> {
 		let method = http::Method::POST;
 		let uri = "/sandboxes".to_owned();
 		let request = http::request::Builder::default()
@@ -158,6 +158,9 @@ impl tg::Session {
 			.send_with_retry(request)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
 		if !response.status().is_success() {
 			let status = response.status();
 			let error = response
@@ -171,6 +174,6 @@ impl tg::Session {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
-		Ok(output)
+		Ok(Some(output))
 	}
 }

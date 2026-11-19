@@ -2,18 +2,20 @@ use {
 	crate::Component,
 	futures::FutureExt as _,
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_server_core::Session,
 };
 
 mod arg;
 
 impl Component {
-	pub(crate) async fn create_sandbox(
+	pub(crate) async fn try_create_sandbox(
 		&self,
 		session: &Session,
 		arg: tg::sandbox::create::Arg,
-	) -> tg::Result<tg::sandbox::create::Output> {
+	) -> tg::Result<Option<tg::sandbox::create::Output>> {
 		let parent = session
 			.server
 			.try_get_request_origin_sandbox(session.context.origin)?
@@ -23,33 +25,60 @@ impl Component {
 				.await?;
 		}
 
-		let location = session.server.location(arg.location.as_ref())?;
+		// Determine whether the create tries the other locations, one at a time, when a location declines it, which a create with an explicit location does not.
+		let walk = arg.location.is_none();
 
-		let output = match location {
-			tg::Location::Local(tg::location::Local {
-				region: Some(region),
-			}) if Some(region.as_str()) != session.server.config.region.as_deref() => {
-				self.create_sandbox_region(session, arg, region).await?
-			},
-			tg::Location::Local(_) => self.create_sandbox_local(session, arg).await?,
-			tg::Location::Remote(tg::location::Remote {
-				name: remote,
-				region,
-			}) => {
-				self.create_sandbox_remote(session, arg, remote, region)
-					.await?
-			},
+		// Create the sandbox at the first location, and then at each other location until one accepts it.
+		let mut location = session.server.location(arg.location.as_ref())?;
+		let mut tried = Vec::new();
+		let mut candidates = None;
+		let output = loop {
+			let output = match location.clone() {
+				tg::Location::Local(tg::location::Local {
+					region: Some(region),
+				}) if Some(region.as_str()) != session.server.config.region.as_deref() => {
+					self.try_create_sandbox_region(session, arg.clone(), region)
+						.await?
+				},
+				tg::Location::Local(_) => {
+					self.try_create_sandbox_local(session, arg.clone()).await?
+				},
+				tg::Location::Remote(tg::location::Remote {
+					name: remote,
+					region,
+				}) => {
+					self.try_create_sandbox_remote(session, arg.clone(), remote, region)
+						.await?
+				},
+			};
+			if output.is_some() || !walk {
+				break output;
+			}
+			tried.push(session.server.normalize_location(location));
+			if candidates.is_none() {
+				candidates = Some(session.candidate_locations().await?);
+			}
+			let next = candidates
+				.as_ref()
+				.unwrap()
+				.iter()
+				.find(|candidate| !tried.contains(candidate))
+				.cloned();
+			let Some(next) = next else {
+				break None;
+			};
+			location = next;
 		};
 
 		Ok(output)
 	}
 
 	#[tracing::instrument(name = "sandbox.schedule", level = "info", skip_all, fields(sandbox = tracing::field::Empty), err(level = "debug"))]
-	async fn create_sandbox_local(
+	async fn try_create_sandbox_local(
 		&self,
 		session: &Session,
 		mut arg: tg::sandbox::create::Arg,
-	) -> tg::Result<tg::sandbox::create::Output> {
+	) -> tg::Result<Option<tg::sandbox::create::Output>> {
 		// Authorize and normalize the sandbox request.
 		if matches!(session.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
@@ -142,15 +171,16 @@ impl Component {
 		};
 		let data =
 			tangram_server_scheduler_core::sandbox_data(&request, tg::sandbox::Status::Starting);
-		let host = request.arg.host.clone().unwrap_or_default();
-		session
+		let scheduler = session
 			.server
 			.components
 			.scheduler
 			.try_enqueue_sandbox(session, request)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?
-			.ok_or_else(|| tg::error!(%host, sandbox = %id, "no scheduler accepts the host"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
+		if scheduler.is_none() {
+			return Ok(None);
+		}
 
 		// Wait for the sandbox to start if requested.
 		if let Some(wakeups) = &mut wakeups {
@@ -169,7 +199,7 @@ impl Component {
 				location: output.location,
 				tokens: output.tokens,
 			};
-			return Ok(output);
+			return Ok(Some(output));
 		}
 
 		// Create the output from the request.
@@ -191,15 +221,15 @@ impl Component {
 			tokens,
 		};
 
-		Ok(output)
+		Ok(Some(output))
 	}
 
-	async fn create_sandbox_region(
+	async fn try_create_sandbox_region(
 		&self,
 		session: &Session,
 		arg: tg::sandbox::create::Arg,
 		region: String,
-	) -> tg::Result<tg::sandbox::create::Output> {
+	) -> tg::Result<Option<tg::sandbox::create::Output>> {
 		let client = session.get_region_session(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
@@ -210,19 +240,19 @@ impl Component {
 			location: Some(location.into()),
 			..arg
 		};
-		let output = client.create_sandbox(arg).await.map_err(
+		let output = client.try_create_sandbox(arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to create the sandbox"),
 		)?;
 		Ok(output)
 	}
 
-	async fn create_sandbox_remote(
+	async fn try_create_sandbox_remote(
 		&self,
 		session: &Session,
 		arg: tg::sandbox::create::Arg,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<tg::sandbox::create::Output> {
+	) -> tg::Result<Option<tg::sandbox::create::Output>> {
 		let client = session
 			.server
 			.components
@@ -241,9 +271,12 @@ impl Component {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		let mut output = client.create_sandbox(arg).await.map_err(
+		let output = client.try_create_sandbox(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to create the sandbox"),
 		)?;
+		let Some(mut output) = output else {
+			return Ok(None);
+		};
 		session
 			.server
 			.components
@@ -256,10 +289,10 @@ impl Component {
 				trusted,
 			)?;
 
-		Ok(output)
+		Ok(Some(output))
 	}
 
-	pub(crate) async fn create_sandbox_request(
+	pub(crate) async fn try_create_sandbox_request(
 		&self,
 		session: &Session,
 		request: http::Request<BoxBody>,
@@ -274,7 +307,13 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
-		let output = self.create_sandbox(session, arg).await?;
+		let Some(output) = self.try_create_sandbox(session, arg).await? else {
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
+		};
 
 		let (content_type, body) = match accept
 			.as_ref()

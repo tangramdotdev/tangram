@@ -89,6 +89,19 @@ impl Server {
 		self.location_with_default(arg, default)
 	}
 
+	/// Normalize a location in this server's region to the location of this server.
+	#[must_use]
+	pub fn normalize_location(&self, location: tg::Location) -> tg::Location {
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) == self.config.region.as_deref() => {
+				tg::Location::Local(tg::location::Local::default())
+			},
+			location => location,
+		}
+	}
+
 	/// Resolve one location while preserving an explicit region, including the current region.
 	pub(crate) fn location_with_default(
 		&self,
@@ -130,6 +143,29 @@ impl Server {
 }
 
 impl Session {
+	/// Get the locations that a create without an explicit location tries in order: this server, each other region, and each remote.
+	pub async fn candidate_locations(&self) -> tg::Result<Vec<tg::Location>> {
+		let locations = self
+			.locations(None)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+		let mut candidates = vec![tg::Location::Local(tg::location::Local::default())];
+		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		candidates.extend(regions.into_iter().map(|region| {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			})
+		}));
+		candidates.extend(locations.remotes.into_iter().map(|remote| {
+			tg::Location::Remote(tg::location::Remote {
+				name: remote.name,
+				region: None,
+			})
+		}));
+
+		Ok(candidates)
+	}
+
 	pub async fn locations(&self, arg: Option<&tg::location::Arg>) -> tg::Result<Output> {
 		let current_region = self.server.config.region.as_deref();
 		let configured_regions = self.server.config.regions.as_deref();

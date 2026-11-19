@@ -8,7 +8,23 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 	fn create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::create::Output>> + Send;
+	) -> impl Future<Output = tg::Result<tg::sandbox::create::Output>> + Send {
+		let host = arg.host.clone();
+		async move {
+			self.try_create_sandbox(arg).await?.ok_or_else(|| {
+				if let Some(host) = &host {
+					tg::error!(%host, "no location accepts the sandbox's host")
+				} else {
+					tg::error!("no location accepts the sandbox's host")
+				}
+			})
+		}
+	}
+
+	fn try_create_sandbox(
+		&self,
+		arg: tg::sandbox::create::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::sandbox::create::Output>>> + Send;
 
 	fn get_sandbox(
 		&self,
@@ -149,11 +165,11 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::instance::Sandbox for tg::Client {
-	async fn create_sandbox(
+	async fn try_create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
-	) -> tg::Result<tg::sandbox::create::Output> {
-		self.session(&self.context).create_sandbox(arg).await
+	) -> tg::Result<Option<tg::sandbox::create::Output>> {
+		self.session(&self.context).try_create_sandbox(arg).await
 	}
 
 	async fn try_get_sandbox(

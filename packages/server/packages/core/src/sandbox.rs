@@ -25,11 +25,11 @@ pub type HolderHandle = Box<
 
 /// The sandbox component.
 pub trait Component: crate::component::Lifecycle {
-	fn create_sandbox<'a>(
+	fn try_create_sandbox<'a>(
 		&'a self,
 		session: &'a Session,
 		arg: tg::sandbox::create::Arg,
-	) -> BoxFuture<'a, tg::Result<tg::sandbox::create::Output>>;
+	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::create::Output>>>;
 
 	fn try_get_sandbox<'a>(
 		&'a self,

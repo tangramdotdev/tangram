@@ -601,6 +601,11 @@ class Client:
 
         return await create_sandbox(self, arg)
 
+    async def try_create_sandbox(self, arg: SandboxCreateArg) -> SandboxOutput | None:
+        from .sandbox.create import try_create_sandbox
+
+        return await try_create_sandbox(self, arg)
+
     async def try_get_sandbox(
         self,
         id: str,

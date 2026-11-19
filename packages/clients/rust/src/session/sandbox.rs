@@ -5,11 +5,11 @@ use {
 };
 
 impl tg::instance::Sandbox for tg::Session {
-	fn create_sandbox(
+	fn try_create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::create::Output>> {
-		self.create_sandbox(arg)
+	) -> impl Future<Output = tg::Result<Option<tg::sandbox::create::Output>>> {
+		self.try_create_sandbox(arg)
 	}
 
 	fn try_get_sandbox(
