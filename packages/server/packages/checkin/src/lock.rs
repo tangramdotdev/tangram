@@ -58,12 +58,13 @@ impl Component {
 			return Ok((None, lock_write_guard));
 		}
 
-		// Do not write a lock if the lock was not changed during solving.
-		if let Some(lock) = &lock {
-			let changed = Self::checkin_lock_changed(graph, next, lock);
-			if !changed {
-				return Ok((Some(lock.clone()), None));
-			}
+		// Do not write a lock if the lock was not changed during solving and is stored as requested.
+		let lock_kind = arg.options.lock.unwrap();
+		if let Some(lock) = &lock
+			&& !Self::checkin_lock_changed(graph, next, lock)
+			&& Self::checkin_lock_is_stored_as(root, &root_node.variant, lock_kind)
+		{
+			return Ok((Some(lock.clone()), None));
 		}
 
 		// Create the lock.
@@ -76,6 +77,15 @@ impl Component {
 				.is_some_and(|existing| new_lock.nodes != existing.nodes)
 		{
 			return Err(tg::error!("the lock is out of date"));
+		}
+
+		// Do not write a lock that has the same contents as the existing lock and is stored as requested.
+		if let Some(lock) = &lock
+			&& !new_lock.nodes.is_empty()
+			&& new_lock.nodes == lock.nodes
+			&& Self::checkin_lock_is_stored_as(root, &root_node.variant, lock_kind)
+		{
+			return Ok((Some(lock.clone()), None));
 		}
 
 		let lock = Arc::new(new_lock);
@@ -107,7 +117,6 @@ impl Component {
 			},
 
 			Variant::File(_) => {
-				let lock_kind = arg.options.lock.unwrap();
 				let lock_kind = if matches!(lock_kind, tg::checkin::Lock::Auto) {
 					let lockfile_path = root.with_extension("lock");
 					if tokio::fs::metadata(&lockfile_path)
@@ -255,6 +264,29 @@ impl Component {
 			}
 			false
 		})
+	}
+
+	fn checkin_lock_is_stored_as(
+		root: &Path,
+		variant: &Variant,
+		lock_kind: tg::checkin::Lock,
+	) -> bool {
+		// A directory stores its lock only in its lockfile.
+		if !variant.is_file() {
+			return true;
+		}
+
+		// Determine where the file's lock is stored.
+		let lockfile_exists =
+			std::fs::metadata(root.with_extension("lock")).is_ok_and(|metadata| metadata.is_file());
+		let lockattr_exists = tg::file::xattrs::read_lock(root).ok().flatten().is_some();
+
+		// Compare it with the requested storage. An automatic lock keeps whichever of the two exists, so it is stored as requested when exactly one exists.
+		match lock_kind {
+			tg::checkin::Lock::Attr => lockattr_exists && !lockfile_exists,
+			tg::checkin::Lock::Auto => lockfile_exists != lockattr_exists,
+			tg::checkin::Lock::File => lockfile_exists && !lockattr_exists,
+		}
 	}
 
 	fn checkin_create_lock(
