@@ -62,6 +62,50 @@ pub fn metadata(_text: &str) -> tg::Result<Option<serde_json::Map<String, serde_
 	Err(tg::error!("the javascript feature is not enabled"))
 }
 
+#[cfg(feature = "python")]
+pub fn python(text: &str) -> tg::Result<Option<serde_json::Map<String, serde_json::Value>>> {
+	use ruff_python_ast::{Expr, Stmt};
+
+	// Parse the module.
+	let parsed = ruff_python_parser::parse_module(text)
+		.map_err(|source| tg::error!(!source, "failed to parse the python module"))?;
+
+	// Find the module level assignment to metadata, with or without an annotation.
+	for statement in &parsed.syntax().body {
+		let (target, value) = match statement {
+			Stmt::Assign(assign) => {
+				let [target] = assign.targets.as_slice() else {
+					continue;
+				};
+				(target, Some(assign.value.as_ref()))
+			},
+			Stmt::AnnAssign(assign) => (assign.target.as_ref(), assign.value.as_deref()),
+			_ => continue,
+		};
+		let Expr::Name(name) = target else {
+			continue;
+		};
+		if name.id.as_str() != "metadata" {
+			continue;
+		}
+		let Some(value) = value else {
+			return Err(tg::error!("the metadata assignment has no value"));
+		};
+		let value = python_expression_to_json(value)?;
+		let serde_json::Value::Object(map) = value else {
+			return Err(tg::error!("expected metadata to be a dict"));
+		};
+		return Ok(Some(map));
+	}
+
+	Ok(None)
+}
+
+#[cfg(not(feature = "python"))]
+pub fn python(_text: &str) -> tg::Result<Option<serde_json::Map<String, serde_json::Value>>> {
+	Err(tg::error!("the python feature is not enabled"))
+}
+
 #[cfg(feature = "javascript")]
 fn expression_to_json(expr: &Expression) -> tg::Result<serde_json::Value> {
 	match expr {
@@ -174,6 +218,161 @@ fn expression_to_json(expr: &Expression) -> tg::Result<serde_json::Value> {
 		_ => Err(tg::error!(
 			"only literal values are supported in metadata exports"
 		)),
+	}
+}
+
+#[cfg(feature = "python")]
+fn python_expression_to_json(expr: &ruff_python_ast::Expr) -> tg::Result<serde_json::Value> {
+	use ruff_python_ast::Expr;
+	match expr {
+		Expr::BooleanLiteral(literal) => Ok(serde_json::Value::Bool(literal.value)),
+
+		Expr::Dict(dict) => {
+			let mut map = serde_json::Map::new();
+			for item in &dict.items {
+				let Some(Expr::StringLiteral(key)) = &item.key else {
+					return Err(tg::error!(
+						"only string literal keys are supported in metadata dicts"
+					));
+				};
+				let value = python_expression_to_json(&item.value)?;
+				map.insert(key.value.to_str().to_owned(), value);
+			}
+			Ok(serde_json::Value::Object(map))
+		},
+
+		Expr::List(list) => {
+			let values = list
+				.elts
+				.iter()
+				.map(python_expression_to_json)
+				.collect::<tg::Result<_>>()?;
+			Ok(serde_json::Value::Array(values))
+		},
+
+		Expr::NoneLiteral(_) => Ok(serde_json::Value::Null),
+
+		Expr::NumberLiteral(literal) => python_number_to_json(&literal.value, false),
+
+		Expr::StringLiteral(literal) => {
+			Ok(serde_json::Value::String(literal.value.to_str().to_owned()))
+		},
+
+		Expr::UnaryOp(unary)
+			if unary.op == ruff_python_ast::UnaryOp::USub
+				&& let Expr::NumberLiteral(literal) = unary.operand.as_ref() =>
+		{
+			python_number_to_json(&literal.value, true)
+		},
+
+		_ => Err(tg::error!(
+			"only string, number, bool, None, list, and dict literals are supported in metadata"
+		)),
+	}
+}
+
+#[cfg(feature = "python")]
+fn python_number_to_json(
+	number: &ruff_python_ast::Number,
+	negative: bool,
+) -> tg::Result<serde_json::Value> {
+	match number {
+		ruff_python_ast::Number::Complex { .. } => {
+			Err(tg::error!("complex numbers are not supported in metadata"))
+		},
+		ruff_python_ast::Number::Float(value) => {
+			let value = if negative { -value } else { *value };
+			let number = serde_json::Number::from_f64(value)
+				.ok_or_else(|| tg::error!("invalid float literal in metadata"))?;
+			Ok(serde_json::Value::Number(number))
+		},
+		ruff_python_ast::Number::Int(value) => {
+			let value = value
+				.as_i64()
+				.and_then(|value| {
+					if negative {
+						value.checked_neg()
+					} else {
+						Some(value)
+					}
+				})
+				.ok_or_else(|| {
+					tg::error!("the integer literal in metadata does not fit a JSON number")
+				})?;
+			Ok(serde_json::Value::Number(value.into()))
+		},
+	}
+}
+
+#[cfg(all(test, feature = "python"))]
+mod python_tests {
+	use {super::*, indoc::indoc};
+
+	// A metadata assignment with an annotation is parsed into the corresponding map entries.
+	#[test]
+	fn test_annotated_metadata() {
+		let text = indoc!(
+			r#"
+				import std
+
+				metadata: std.Metadata = {
+					"builds": {"exports": ["default", "build"], "public": True},
+					"name": "less",
+					"tag": "less/710",
+				}
+			"#
+		);
+		let result = python(text).unwrap().unwrap();
+		assert_eq!(result.get("tag").unwrap(), "less/710");
+		assert_eq!(result.get("name").unwrap(), "less");
+		assert_eq!(
+			result.get("builds").unwrap(),
+			&serde_json::json!({ "exports": ["default", "build"], "public": true }),
+		);
+	}
+
+	// A metadata assignment without an annotation is parsed.
+	#[test]
+	fn test_metadata() {
+		let text = r#"metadata = {"tag": "foo/1.0.0"}"#;
+		let result = python(text).unwrap().unwrap();
+		assert_eq!(result.get("tag").unwrap(), "foo/1.0.0");
+	}
+
+	// A module without a metadata assignment has no metadata.
+	#[test]
+	fn test_no_metadata() {
+		let text = "def build():\n    pass\n";
+		assert!(python(text).unwrap().is_none());
+	}
+
+	// None and number literals in metadata are parsed into JSON null and numbers.
+	#[test]
+	fn test_none_and_number_metadata() {
+		let text = r#"metadata = {"none": None, "int": 42, "float": 1.5, "negative": -3, "negative_float": -2.5}"#;
+		let result = python(text).unwrap().unwrap();
+		assert_eq!(result.get("none").unwrap(), &serde_json::Value::Null);
+		assert_eq!(result.get("int").unwrap(), &serde_json::json!(42));
+		assert_eq!(result.get("float").unwrap(), &serde_json::json!(1.5));
+		assert_eq!(result.get("negative").unwrap(), &serde_json::json!(-3));
+		assert_eq!(
+			result.get("negative_float").unwrap(),
+			&serde_json::json!(-2.5)
+		);
+	}
+
+	// An integer literal that does not fit a JSON number is rejected.
+	#[test]
+	fn test_large_integer_metadata() {
+		let text = r#"metadata = {"int": 100000000000000000000000}"#;
+		assert!(python(text).is_err());
+	}
+
+	// A metadata value that is not a literal is rejected.
+	#[test]
+	fn test_non_literal_metadata() {
+		let text = r#"metadata = {"tag": "foo/" + version}"#;
+		assert!(python(text).is_err());
 	}
 }
 
