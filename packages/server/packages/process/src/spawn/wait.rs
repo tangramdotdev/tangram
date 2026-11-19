@@ -8,7 +8,7 @@ use {
 };
 
 impl Component {
-	pub(super) async fn spawn_process_in_sandbox_or_get_cached(
+	pub(super) async fn spawn_process_local_in_sandbox_or_get_cached(
 		&self,
 		session: &Session,
 		arg: &tg::process::spawn::Arg,
@@ -28,7 +28,7 @@ impl Component {
 		} else {
 			(None, None)
 		};
-		let cache_future = self.spawn_process_get_cached_process(
+		let cache_future = self.spawn_process_local_get_cached_process(
 			session,
 			arg,
 			command,
@@ -36,8 +36,12 @@ impl Component {
 			candidate.as_ref(),
 		);
 		let create_delay = session.server.config.process.spawn.create_delay;
-		let spawn_future =
-			self.spawn_process_in_new_or_existing_sandbox(session, arg, output, scheduler_sender);
+		let spawn_future = self.spawn_process_local_in_new_or_existing_sandbox(
+			session,
+			arg,
+			output,
+			scheduler_sender,
+		);
 		let spawn_future = if create_delay.is_zero() {
 			spawn_future.left_future()
 		} else {
@@ -86,7 +90,7 @@ impl Component {
 							},
 							future::Either::Right((result, _)) => {
 								let scheduler = result?;
-								Self::spawn_process_dequeue_sandbox_candidate(
+								Self::spawn_process_local_dequeue_sandbox_candidate(
 									session,
 									sandbox.clone(),
 									scheduler,
@@ -128,7 +132,7 @@ impl Component {
 		let Some(output) = output else {
 			return Ok(None);
 		};
-		let output = Self::spawn_process_output(output, outcome)?;
+		let output = Self::spawn_process_local_output(output, outcome)?;
 
 		Ok(Some((output, None)))
 	}
@@ -167,7 +171,7 @@ impl Component {
 						guard.disarm();
 					}
 					let output = output.unwrap();
-					Self::spawn_process_output(output, Some(outcome))?
+					Self::spawn_process_local_output(output, Some(outcome))?
 				} else {
 					let Some(cached_output) = cached_future.await? else {
 						return Ok(None);
@@ -202,7 +206,7 @@ impl Component {
 					let Some(output) = output else {
 						return Ok(None);
 					};
-					Self::spawn_process_output(output, None)?
+					Self::spawn_process_local_output(output, None)?
 				}
 			},
 		};
@@ -235,7 +239,7 @@ impl Component {
 		}
 	}
 
-	async fn spawn_process_get_cached_process(
+	async fn spawn_process_local_get_cached_process(
 		&self,
 		session: &Session,
 		arg: &tg::process::spawn::Arg,
@@ -273,7 +277,7 @@ impl Component {
 						.sandbox
 						.clone()
 						.filter(|_| output.data.status.is_queued());
-					let mut output = Self::spawn_process_output(output, None)?;
+					let mut output = Self::spawn_process_local_output(output, None)?;
 					if let Some(location) = location {
 						output.location = Some(location.clone());
 					}
@@ -318,7 +322,7 @@ impl Component {
 		Ok(output)
 	}
 
-	fn spawn_process_dequeue_sandbox_candidate(
+	fn spawn_process_local_dequeue_sandbox_candidate(
 		session: &Session,
 		sandbox: tg::sandbox::Id,
 		scheduler: tg::scheduler::Id,
@@ -412,7 +416,7 @@ impl Component {
 		Ok(())
 	}
 
-	fn spawn_process_output(
+	fn spawn_process_local_output(
 		output: Output,
 		outcome: Option<tg::process::outcome::Data>,
 	) -> tg::Result<tg::process::spawn::Output> {

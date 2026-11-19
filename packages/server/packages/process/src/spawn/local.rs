@@ -45,7 +45,7 @@ pub(super) struct SandboxArg {
 	pub owner: tg::Principal,
 }
 
-struct SpawnProcessCreateLocalProcessArg<'a> {
+struct SpawnProcessLocalCreateProcessArg<'a> {
 	cacheable: bool,
 	command: &'a tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 	host: &'a str,
@@ -470,7 +470,7 @@ impl Component {
 		Ok(())
 	}
 
-	pub(super) async fn spawn_process_get_or_create_local_process(
+	pub(super) async fn spawn_process_local_get_or_create_process(
 		&self,
 		session: &Session,
 		arg: &tg::process::spawn::Arg,
@@ -483,7 +483,7 @@ impl Component {
 			let (host, command) = self
 				.spawn_process_get_command(session, arg, command)
 				.await?;
-			let arg = SpawnProcessCreateLocalProcessArg {
+			let arg = SpawnProcessLocalCreateProcessArg {
 				cacheable,
 				command: &command,
 				host: &host,
@@ -492,7 +492,7 @@ impl Component {
 				write_command_permissions,
 			};
 			return self
-				.spawn_process_create_local_process(session, arg)
+				.spawn_process_local_create_process(session, arg)
 				.boxed()
 				.await
 				.map(Some);
@@ -503,12 +503,12 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to get a cached process"))
 	}
 
-	async fn spawn_process_create_local_process(
+	async fn spawn_process_local_create_process(
 		&self,
 		session: &Session,
-		arg: SpawnProcessCreateLocalProcessArg<'_>,
+		arg: SpawnProcessLocalCreateProcessArg<'_>,
 	) -> tg::Result<Output> {
-		let SpawnProcessCreateLocalProcessArg {
+		let SpawnProcessLocalCreateProcessArg {
 			cacheable,
 			command,
 			host,
