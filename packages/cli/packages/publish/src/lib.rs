@@ -396,13 +396,14 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		while waits.len() < build_concurrency
 			&& let Some((index, build)) = pending.next()
 		{
-			let result = publish_build_spawn(cli, build, args.retry)
+			let result = publish_build_spawn(cli, build, args.public, args.retry)
 				.boxed_local()
 				.await;
 			match result {
 				Ok(process) => {
-					let future = publish_build_wait(&client, build, process, args.force)
-						.map(move |result| (index, result));
+					let future =
+						publish_build_wait(&client, build, process, args.force, args.public)
+							.map(move |result| (index, result));
 					waits.push(future);
 				},
 				Err(error) => {
@@ -480,7 +481,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		force: args.force,
 		location: Some(location.into()),
 		parents: true,
-		public: true,
+		public: args.public,
 		tags: tags.clone(),
 	};
 	client
@@ -1355,6 +1356,7 @@ fn create_builds(package: &tg::Specifier, builds: &Builds) -> tg::Result<Vec<Bui
 async fn publish_build_spawn(
 	cli: &mut Cli,
 	build: &Build,
+	public: bool,
 	retry: bool,
 ) -> tg::Result<tg::Referent<tg::process::Id>> {
 	let reference = format!("{}#{}", build.package, build.export)
@@ -1365,7 +1367,7 @@ async fn publish_build_spawn(
 		..Default::default()
 	};
 	options.spawn.host = Some(build.host.clone());
-	options.spawn.public = true;
+	options.spawn.public = public;
 	options.spawn.retry = retry;
 	let args = tangram_cli_process::run::Args {
 		options,
@@ -1395,6 +1397,7 @@ async fn publish_build_wait(
 	build: &Build,
 	process: tg::Referent<tg::process::Id>,
 	force: bool,
+	public: bool,
 ) -> tg::Result<tg::Referent<tg::process::Id>> {
 	// Wait for the build to succeed.
 	let arg = tg::process::wait::Arg {
@@ -1423,7 +1426,7 @@ async fn publish_build_wait(
 		},
 		force,
 		location: None,
-		public: true,
+		public,
 		specifier: build.tag.clone(),
 		target: process.node.clone().into(),
 		tokens: process.options.tokens.clone(),
