@@ -49,6 +49,32 @@ pub fn public_permission_arg(
 	)
 }
 
+/// Create the temporary permission that lets anyone read a cached process, its error objects, and its output objects, which a cache lookup proves for the caller.
+pub fn cached_public_permission_arg(
+	id: &tg::process::Id,
+	created_at: i64,
+	time_to_live: std::time::Duration,
+	time_to_touch: std::time::Duration,
+) -> tg::Result<tangram_index::permission::put::Arg> {
+	permission_arg(
+		tg::authorization::Subject::Public,
+		cached_process_permissions(),
+		id,
+		created_at,
+		time_to_live,
+		time_to_touch,
+	)
+}
+
+/// Get the permissions that a cache lookup requires on a cached process, which are the node, error objects, and output objects.
+#[must_use]
+pub fn cached_process_permissions() -> tg::authorization::permission::process::Set {
+	let mut permissions = tg::authorization::permission::process::Set::NODE;
+	permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
+	permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
+	permissions
+}
+
 /// Create a direct permission on a process that expires after the ttl unless it is touched.
 pub fn permission_arg(
 	subject: tg::authorization::Subject,

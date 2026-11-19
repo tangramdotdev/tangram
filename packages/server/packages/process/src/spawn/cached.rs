@@ -335,10 +335,9 @@ impl Component {
 		candidate_indices: &[usize],
 		public: bool,
 	) -> tg::Result<Vec<bool>> {
-		let mut permissions = tg::authorization::permission::process::Set::NODE;
-		permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
-		permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
-		let permissions = tg::authorization::permission::Set::Process(permissions);
+		let permissions = tg::authorization::permission::Set::Process(
+			tangram_server_process_core::permission::cached_process_permissions(),
+		);
 		let args = candidate_indices
 			.iter()
 			.map(|index| {
