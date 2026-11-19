@@ -29,16 +29,8 @@ impl Component {
 				}
 			}
 		}
-		if session
-			.server
-			.try_get_request_origin_sandbox(session.context.origin)?
-			.is_some()
-			&& fields.is_none_or(|fields| {
-				fields
-					.iter()
-					.any(|field| !matches!(field.as_str(), "diagnostics" | "version"))
-			}) {
-			return Err(tg::error!("unauthorized"));
+		if !session.context.principal.is_root() {
+			return Ok(tg::Health::default());
 		}
 
 		let include_field = |name: &str| match fields {

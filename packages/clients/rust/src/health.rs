@@ -14,7 +14,7 @@ pub struct Arg {
 	pub fields: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Health {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database: Option<Database>,

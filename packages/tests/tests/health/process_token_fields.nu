@@ -1,33 +1,20 @@
 use ../../util/test.nu *
 
-# A process may request only the diagnostics and version health fields from its sandbox.
+# A process token receives no health fields, even when requesting them explicitly.
 
 let local = server spawn
 
-let full = artifact {
+let path = artifact {
 	tangram.ts: '
 		export default function () {
 			return tg.run`
-				if tg health > /dev/null 2> "$TANGRAM_OUTPUT"; then
-					exit 1
-				fi
+				tg health > "$TANGRAM_OUTPUT"
+				tg health --fields database,diagnostics,processes,version >> "$TANGRAM_OUTPUT"
 			`
 				.sandbox()
 				.then(tg.File.expect);
 		}
 	'
 }
-let output = tg build $full | str trim | tg cat $in
-assert ($output | str contains "unauthorized")
-
-let partial = artifact {
-	tangram.ts: '
-		export default function () {
-			return tg.run`tg health --fields diagnostics,version > "$TANGRAM_OUTPUT"`
-				.sandbox()
-				.then(tg.File.expect);
-		}
-	'
-}
-let health = tg build $partial | str trim | tg cat $in | from json
-assert equal ($health | columns) [diagnostics version] "the allowed fields should be returned"
+let health = tg build $path | str trim | tg cat $in | lines | each {|line| $line | from json }
+assert equal $health [{} {}] "both requests should return an empty object"
