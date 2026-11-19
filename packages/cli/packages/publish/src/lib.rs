@@ -1192,8 +1192,18 @@ async fn try_get_package_tag_and_builds(
 		(None, _) => None,
 	};
 
-	// Extract metadata statically.
-	let map = match tangram_compiler::metadata::metadata(&text) {
+	// Read the metadata statically, with the parser for the module's language.
+	let python = match (&module_name, &package_path) {
+		(Some(name), _) => tg::module::module_kind_for_path(name).ok(),
+		(None, Some(path)) => tg::module::module_kind_for_path(path).ok(),
+		(None, None) => None,
+	} == Some(tg::module::Kind::Python);
+	let result = if python {
+		tangram_compiler::metadata::python(&text)
+	} else {
+		tangram_compiler::metadata::metadata(&text)
+	};
+	let map = match result {
 		Ok(Some(map)) => map,
 		Ok(None) => return Ok(None),
 		Err(error) => {
