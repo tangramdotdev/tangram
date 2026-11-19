@@ -109,38 +109,36 @@ export const build = async (...args: tg.Args<Arg>) => {
 		bunEnvArg(build),
 		librustyv8(cargoLock, build, host),
 		libpython(source_, build, host),
-		// `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`.
-		openssl(cLibraryArg),
 		sandboxRootfs(host),
 	];
 
-	// On Linux `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp. Standalone builds link them statically.
+	// On Linux, `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`, and `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp. On macOS, `native-tls` uses the Security framework, so none of these libraries are in the dependency graph. Standalone builds link them statically.
 	if (std.triple.os(host) === "linux") {
 		const capNg = libcapNg(cLibraryArg);
 		const seccomp = libseccomp(cLibraryArg);
-		envs.push(capNg, seccomp);
+		envs.push(openssl(cLibraryArg), capNg, seccomp);
 		if (standalone) {
 			envs.push({
 				LIBCAPNG_LIB_PATH: tg`${capNg}/lib`,
 				LIBCAPNG_LINK_TYPE: "static",
 				LIBSECCOMP_LIB_PATH: tg`${seccomp}/lib`,
 				LIBSECCOMP_LINK_TYPE: "static",
+				OPENSSL_STATIC: "1",
+				PKG_CONFIG_ALL_STATIC: "1",
 			});
 		}
 	}
 
-	// Link OpenSSL and the libraries found with pkg-config statically into standalone builds.
-	if (standalone) {
-		envs.push({ OPENSSL_STATIC: "1", PKG_CONFIG_ALL_STATIC: "1" });
-	}
-
-	// Compile C for the host with the cross compiler, and let the pkg-config crate run in a cross build, because every library that pkg-config finds here is built for the host.
+	// Compile C for the host with the cross compiler.
 	if (build !== host) {
 		envs.push({
 			[`CC_${host}`]: `${host}-cc`,
 			[`CXX_${host}`]: `${host}-c++`,
-			PKG_CONFIG_ALLOW_CROSS: "1",
 		});
+		// Let the pkg-config crate run in a cross build for a Linux host, because every library that pkg-config finds here is built for the host. A macOS host has no such libraries, so pkg-config stays disabled and cannot report a library built for the build machine.
+		if (std.triple.os(host) === "linux") {
+			envs.push({ PKG_CONFIG_ALLOW_CROSS: "1" });
+		}
 	}
 
 	// Build node_modules and set NODE_PATH for esbuild and build scripts.
@@ -257,8 +255,11 @@ export const release = async (arg?: { commit?: string }) => {
 	const machine = std.triple.host();
 	const archives: Record<string, tg.File> = {};
 	for (const target of targets) {
-		// Skip the targets of other operating systems, which this machine cannot build.
-		if (std.triple.os(target) !== std.triple.os(machine)) {
+		// A Linux machine builds every target, and cross-compiles the macOS targets with the LLVM toolchain. A macOS machine cannot build the Linux targets, so skip them there.
+		if (
+			std.triple.os(machine) === "darwin" &&
+			std.triple.os(target) !== "darwin"
+		) {
 			continue;
 		}
 
@@ -269,7 +270,9 @@ export const release = async (arg?: { commit?: string }) => {
 
 		// Build a standalone tangram for this target that reports the commit, linked against an old glibc on Linux.
 		const standalone =
-			std.triple.os(target) === "linux" ? { glibcVersion: "2.35" } : true;
+			std.triple.os(target) === "linux"
+				? ({ glibcVersion: "2.35" } as const)
+				: true;
 		const env = arg?.commit
 			? { TANGRAM_CLI_COMMIT_HASH: arg.commit }
 			: undefined;
