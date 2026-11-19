@@ -1,3 +1,11 @@
+/// The hosts that Tangram supports.
+pub const SUPPORTED: [&str; 4] = [
+	"aarch64-darwin",
+	"aarch64-linux",
+	"x86_64-darwin",
+	"x86_64-linux",
+];
+
 /// Get the current host.
 #[must_use]
 pub fn current() -> &'static str {

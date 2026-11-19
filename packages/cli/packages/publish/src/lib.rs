@@ -17,12 +17,24 @@ pub struct Args {
 	#[arg(default_value = "false", long)]
 	pub dry_run: bool,
 
+	/// Build only these exports of the published packages. Can be specified multiple times.
+	#[arg(action = clap::ArgAction::Append, long = "export")]
+	pub exports: Vec<String>,
+
 	/// Replace conflicting named nodes and their descendants.
 	#[arg(long, short)]
 	pub force: bool,
 
+	/// Build only on these hosts. Can be specified multiple times.
+	#[arg(action = clap::ArgAction::Append, long = "host")]
+	pub hosts: Vec<String>,
+
 	#[command(flatten)]
 	pub location: tangram_cli_core::location::Args,
+
+	/// Do not build the exports of the published packages.
+	#[arg(long)]
+	pub no_builds: bool,
 
 	#[arg(default_value = ".", index = 1)]
 	pub path: PathBuf,
@@ -31,12 +43,29 @@ pub struct Args {
 	#[arg(long)]
 	pub public: bool,
 
+	/// Retry failed builds.
+	#[arg(long)]
+	pub retry: bool,
+
 	#[arg(long, short)]
 	pub tag: Option<String>,
 
 	/// Write the interface beside each config whose interface differs from the interface that its runtime generates.
 	#[arg(default_value = "false", long)]
 	pub update_interfaces: bool,
+}
+
+/// The builds that a package's metadata requests.
+#[derive(Clone, Debug, Default)]
+struct Builds {
+	exports: Vec<BuildExport>,
+	hosts: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct BuildExport {
+	export: String,
+	path: String,
 }
 
 #[derive(Default)]
@@ -60,6 +89,16 @@ struct State {
 	tags: Vec<(tg::Specifier, tg::Referent<tg::object::Id>)>,
 }
 
+/// A build of an export of a published package on a host, whose process gets the tag.
+#[derive(Clone, Debug, serde::Serialize)]
+struct Build {
+	export: String,
+	host: String,
+	#[serde(skip)]
+	package: tg::Specifier,
+	tag: tg::Specifier,
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(untagged)]
 enum Step {
@@ -69,6 +108,8 @@ enum Step {
 
 #[derive(Clone, Debug, serde::Serialize)]
 struct Item {
+	#[serde(skip_serializing_if = "Vec::is_empty")]
+	builds: Vec<Build>,
 	referent: tg::Referent<tg::object::Id>,
 	path: Option<PathBuf>,
 	tag: tg::Specifier,
@@ -118,11 +159,26 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.transpose()
 		.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
 	let tag_concurrency = cli.publish_config().tag_concurrency;
-	let plan = state
+	let mut plan = state
 		.create_plan(&client, tag, tag_concurrency)
 		.boxed()
 		.await
 		.map_err(|error| tg::error!(!error, "failed to create publishing plan"))?;
+
+	// Restrict the builds to the requested exports and hosts.
+	for step in &mut plan {
+		let items = match step {
+			Step::Item(item) => std::slice::from_mut(item),
+			Step::Cycle(items) => items.as_mut_slice(),
+		};
+		for item in items {
+			item.builds.retain(|build| {
+				!args.no_builds
+					&& (args.exports.is_empty() || args.exports.contains(&build.export))
+					&& (args.hosts.is_empty() || args.hosts.contains(&build.host))
+			});
+		}
+	}
 
 	// Check the interfaces of the configs in the packages that publishing checks in from disk against the interfaces that their runtimes generate, before checking them in again.
 	let mut paths = vec![absolute_path.clone()];
@@ -146,6 +202,16 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		return Ok(());
 	}
 
+	// Collect the builds of the published packages.
+	let builds = plan
+		.iter()
+		.flat_map(|step| match step {
+			Step::Item(item) => std::slice::from_ref(item),
+			Step::Cycle(items) => items.as_slice(),
+		})
+		.flat_map(|item| item.builds.clone())
+		.collect::<Vec<_>>();
+
 	// Collect all the local items.
 	let mut items = state
 		.tags
@@ -165,9 +231,10 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		match step {
 			Step::Item(item) => {
 				let Item {
-					referent,
 					path,
+					referent,
 					tag,
+					..
 				} = item;
 				let node = if let Some(path) = path {
 					publish_checkin(&client, path, true).await?
@@ -258,7 +325,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	});
 
 	// Push the tag ancestors.
-	push_tag_ancestors(cli, &client, &location, &tags, args.force).await?;
+	let specifiers = tags.iter().map(|(tag, _)| tag.clone()).collect::<Vec<_>>();
+	push_tag_ancestors(cli, &client, &location, &specifiers, args.force).await?;
 
 	// Push.
 	let arg = tg::push::Arg {
@@ -305,7 +373,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.collect::<Vec<_>>();
 	let arg = tg::tag::batch::Arg {
 		force: args.force,
-		location: Some(location.into()),
+		location: Some(location.clone().into()),
 		parents: true,
 		public: args.public,
 		tags: tags.clone(),
@@ -314,6 +382,84 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.post_tag_batch(arg)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to publish tags to remote"))?;
+	for item in &tags {
+		let message = format!("tagged {} {:?}", item.specifier, item.target);
+		cli.print_info_message(&message);
+	}
+
+	// Build the exports of the published packages, warning about and skipping a build that fails.
+	let mut processes = Vec::new();
+	let mut build_tags = Vec::new();
+	for build in builds {
+		let result = publish_build(cli, &client, &build, args.retry, args.force)
+			.boxed_local()
+			.await;
+		match result {
+			Ok(process) => {
+				build_tags.push((build.tag.clone(), process.node.clone()));
+				processes.push(process.map(Into::into));
+			},
+			Err(error) => {
+				let message = format!(
+					"skipped the build of {}#{} on {}: {}",
+					build.package,
+					build.export,
+					build.host,
+					error.trace()
+				);
+				Cli::print_warning_message(&message);
+			},
+		}
+	}
+	if processes.is_empty() {
+		return Ok(());
+	}
+
+	// Push the build tag ancestors and the processes.
+	let specifiers = build_tags
+		.iter()
+		.map(|(tag, _)| tag.clone())
+		.collect::<Vec<_>>();
+	push_tag_ancestors(cli, &client, &location, &specifiers, args.force).await?;
+	let arg = tg::push::Arg {
+		destination: Some(location.clone()),
+		eager: true,
+		force: args.force,
+		nodes: processes,
+		metadata: false,
+		process_error_objects: true,
+		process_output_objects: true,
+		source: Some(tg::Location::Local(tg::location::Local::default())),
+		..Default::default()
+	};
+	let (_, stream) = client
+		.push(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to push the builds"))?;
+	cli.render_progress_stream(stream)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to push the builds"))?;
+
+	// Put the build tags on the remote.
+	let tags = build_tags
+		.into_iter()
+		.map(|(tag, process)| tg::tag::batch::Item {
+			specifier: tag,
+			target: process.into(),
+			tokens: tg::authorization::Tokens::default(),
+		})
+		.collect::<Vec<_>>();
+	let arg = tg::tag::batch::Arg {
+		force: args.force,
+		location: Some(location.into()),
+		parents: true,
+		public: true,
+		tags: tags.clone(),
+	};
+	client
+		.post_tag_batch(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to publish the build tags to remote"))?;
 	for item in &tags {
 		let message = format!("tagged {} {:?}", item.specifier, item.target);
 		cli.print_info_message(&message);
@@ -399,14 +545,16 @@ impl State {
 				)
 			})
 			.collect();
-		let tags: HashMap<tg::object::Id, Option<tg::Specifier>> = futures::stream::iter(packages)
-			.map(|(id, object, path)| async move {
-				let tag = try_get_package_tag(client, &object, path.as_deref()).await?;
-				Ok::<_, tg::Error>((id, tag))
-			})
-			.buffer_unordered(tag_concurrency)
-			.try_collect()
-			.await?;
+		let tags: HashMap<tg::object::Id, Option<(tg::Specifier, Builds)>> =
+			futures::stream::iter(packages)
+				.map(|(id, object, path)| async move {
+					let tag =
+						try_get_package_tag_and_builds(client, &object, path.as_deref()).await?;
+					Ok::<_, tg::Error>((id, tag))
+				})
+				.buffer_unordered(tag_concurrency)
+				.try_collect()
+				.await?;
 
 		let sccs = tarjan_scc(&self.graph);
 		let mut plan = Vec::new();
@@ -431,10 +579,12 @@ impl State {
 
 				// Check if this package has a tag.
 				let override_ = (index == 0).then_some(()).and(tag.take());
-				let original = tags.get(&node.package.node().id()).cloned().flatten();
+				let metadata = tags.get(&node.package.node().id()).cloned().flatten();
+				let (original, builds) = metadata.unzip();
 				let Some(tag) = override_.or(original) else {
 					continue;
 				};
+				let builds = create_builds(&tag, &builds.unwrap_or_default())?;
 
 				// If this node has source dependencies then we need to check it in again.
 				let path = if node.outgoing.is_empty() {
@@ -445,8 +595,9 @@ impl State {
 				};
 
 				items.push(Item {
-					referent: node.package.clone().map(|object| object.id()),
+					builds,
 					path,
+					referent: node.package.clone().map(|object| object.id()),
 					tag,
 				});
 			}
@@ -683,7 +834,7 @@ async fn push_tag_ancestors(
 	cli: &mut Cli,
 	client: &tg::Client,
 	destination: &tg::Location,
-	tags: &[(tg::Specifier, tg::object::Id)],
+	tags: &[tg::Specifier],
 	force: bool,
 ) -> tg::Result<()> {
 	if destination.is_local() {
@@ -692,7 +843,7 @@ async fn push_tag_ancestors(
 
 	// Collect the ancestors by depth so that parents are pushed before children.
 	let mut ancestors = BTreeMap::<usize, BTreeSet<tg::Specifier>>::new();
-	for (specifier, _) in tags {
+	for specifier in tags {
 		for ancestor in specifier.ancestors() {
 			let depth = ancestor.components().count();
 			ancestors.entry(depth).or_default().insert(ancestor);
@@ -917,12 +1068,12 @@ fn interface_file_path(stem: &Path, language: tg::interface::Language) -> PathBu
 	path.into()
 }
 
-/// Given an object, get the tag from its internal metadata by statically parsing the module.
-async fn try_get_package_tag(
+/// Given an object, get the tag and the builds from its internal metadata by statically parsing the module.
+async fn try_get_package_tag_and_builds(
 	client: &impl tg::Instance,
 	object: &tg::Object,
 	package_path: Option<&Path>,
-) -> tg::Result<Option<tg::Specifier>> {
+) -> tg::Result<Option<(tg::Specifier, Builds)>> {
 	// Get the file text and module file name from the object.
 	let (text, module_name) = match object {
 		tg::Object::File(file) => {
@@ -960,7 +1111,15 @@ async fn try_get_package_tag(
 				let tag = tag
 					.parse()
 					.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
-				return Ok(Some(tag));
+				let builds = metadata
+					.get("builds")
+					.map(value_to_json)
+					.transpose()?
+					.map(|builds| parse_builds(&builds))
+					.transpose()
+					.map_err(|error| tg::error!(!error, %name, "invalid 'builds' metadata"))?
+					.unwrap_or_default();
+				return Ok(Some((tag, builds)));
 			}
 
 			let file = directory
@@ -1019,7 +1178,228 @@ async fn try_get_package_tag(
 	let tag = tag
 		.parse()
 		.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
-	Ok(Some(tag))
+
+	// Get the builds from the metadata.
+	let builds = map
+		.get("builds")
+		.map(parse_builds)
+		.transpose()
+		.map_err(|error| tg::error!(!error, "invalid 'builds' metadata"))?
+		.unwrap_or_default();
+
+	Ok(Some((tag, builds)))
+}
+
+/// Parse the `builds` metadata, which is a bool or an object with optional `hosts` and `exports`.
+fn parse_builds(value: &serde_json::Value) -> tg::Result<Builds> {
+	let default_exports = || {
+		vec![BuildExport {
+			export: "default".to_owned(),
+			path: "default".to_owned(),
+		}]
+	};
+	let default_hosts = || {
+		tg::host::SUPPORTED
+			.iter()
+			.map(|host| (*host).to_owned())
+			.collect::<Vec<_>>()
+	};
+	let builds = match value {
+		serde_json::Value::Bool(false) => Builds::default(),
+		serde_json::Value::Bool(true) => Builds {
+			exports: default_exports(),
+			hosts: default_hosts(),
+		},
+		serde_json::Value::Object(map) => {
+			let hosts = match map.get("hosts") {
+				None => default_hosts(),
+				Some(serde_json::Value::Array(hosts)) => hosts
+					.iter()
+					.map(|host| {
+						host.as_str()
+							.map(ToOwned::to_owned)
+							.ok_or_else(|| tg::error!("expected 'hosts' to contain strings"))
+					})
+					.collect::<tg::Result<_>>()?,
+				Some(_) => return Err(tg::error!("expected 'hosts' to be an array")),
+			};
+			let exports = match map.get("exports") {
+				None => default_exports(),
+				Some(serde_json::Value::Array(exports)) => exports
+					.iter()
+					.map(parse_build_export)
+					.collect::<tg::Result<_>>()?,
+				Some(_) => return Err(tg::error!("expected 'exports' to be an array")),
+			};
+			Builds { exports, hosts }
+		},
+		_ => return Err(tg::error!("expected 'builds' to be a bool or an object")),
+	};
+
+	Ok(builds)
+}
+
+/// Parse an export of the `builds` metadata, which is an export name that is also the tag path, or an object with an export and a path.
+fn parse_build_export(value: &serde_json::Value) -> tg::Result<BuildExport> {
+	match value {
+		serde_json::Value::String(export) => {
+			let export = BuildExport {
+				export: export.clone(),
+				path: export.clone(),
+			};
+			Ok(export)
+		},
+		serde_json::Value::Object(map) => {
+			let export = map
+				.get("export")
+				.and_then(serde_json::Value::as_str)
+				.ok_or_else(|| tg::error!("expected the export to have a string 'export'"))?;
+			let path = map
+				.get("path")
+				.and_then(serde_json::Value::as_str)
+				.ok_or_else(|| tg::error!("expected the export to have a string 'path'"))?;
+			let export = BuildExport {
+				export: export.to_owned(),
+				path: path.to_owned(),
+			};
+			Ok(export)
+		},
+		_ => Err(tg::error!(
+			"expected the export to be a string or an object"
+		)),
+	}
+}
+
+/// Convert a config's metadata value to JSON, which supports the values that the `builds` metadata uses.
+fn value_to_json(value: &tg::Value) -> tg::Result<serde_json::Value> {
+	let value = match value {
+		tg::Value::Null => serde_json::Value::Null,
+		tg::Value::Bool(value) => serde_json::Value::Bool(*value),
+		tg::Value::String(value) => serde_json::Value::String(value.clone()),
+		tg::Value::Array(values) => serde_json::Value::Array(
+			values
+				.iter()
+				.map(value_to_json)
+				.collect::<tg::Result<_>>()?,
+		),
+		tg::Value::Map(map) => serde_json::Value::Object(
+			map.iter()
+				.map(|(key, value)| Ok((key.clone(), value_to_json(value)?)))
+				.collect::<tg::Result<_>>()?,
+		),
+		_ => return Err(tg::error!("unexpected value in the 'builds' metadata")),
+	};
+
+	Ok(value)
+}
+
+/// Create the builds of a package from its tag, which name their tags `name/builds/version/path/host`.
+fn create_builds(package: &tg::Specifier, builds: &Builds) -> tg::Result<Vec<Build>> {
+	let mut components = package.components();
+	let name = components
+		.next()
+		.ok_or_else(|| tg::error!(%package, "expected the tag to have a name"))?;
+	let version = components.collect::<Vec<_>>();
+	let mut output = Vec::new();
+	for export in &builds.exports {
+		for host in &builds.hosts {
+			let mut tag = vec![name, "builds"];
+			tag.extend(version.iter().copied());
+			tag.push(&export.path);
+			tag.push(host);
+			let tag = tag
+				.join("/")
+				.parse()
+				.map_err(|error| tg::error!(!error, %package, "failed to create the build tag"))?;
+			let build = Build {
+				export: export.export.clone(),
+				host: host.clone(),
+				package: package.clone(),
+				tag,
+			};
+			output.push(build);
+		}
+	}
+
+	Ok(output)
+}
+
+/// Build an export of a published package on a host without a location, wait for the process to succeed, and tag the process.
+async fn publish_build(
+	cli: &mut Cli,
+	client: &tg::Client,
+	build: &Build,
+	retry: bool,
+	force: bool,
+) -> tg::Result<tg::Referent<tg::process::Id>> {
+	// Spawn the build.
+	let reference = format!("{}#{}", build.package, build.export)
+		.parse::<tg::Reference>()
+		.map_err(|error| tg::error!(!error, "failed to parse the reference"))?;
+	let mut options = tangram_cli_process::run::Options {
+		detach: true,
+		..Default::default()
+	};
+	options.spawn.host = Some(build.host.clone());
+	options.spawn.public = true;
+	options.spawn.retry = retry;
+	let args = tangram_cli_process::run::Args {
+		options,
+		reference: Some(reference),
+		trailing: Vec::new(),
+	};
+	let output = tangram_cli_process::build::build(cli, args)
+		.boxed_local()
+		.await?;
+	let output = output
+		.try_unwrap_string()
+		.map_err(|_| tg::error!("expected a string"))?;
+	let process = output
+		.parse::<tg::Referent<tg::Either<u32, tg::process::Id>>>()
+		.map_err(|error| tg::error!(!error, "failed to parse the process referent"))?
+		.try_map(|node| {
+			node.right()
+				.ok_or_else(|| tg::error!("expected a process id"))
+		})?;
+
+	// Wait for the build to succeed.
+	let arg = tg::process::wait::Arg {
+		location: process.options.location.clone().map(Into::into),
+		tokens: process.options.tokens.clone(),
+		..Default::default()
+	};
+	let outcome = client.wait_process(&process.node, arg).await.map_err(
+		|error| tg::error!(!error, process = %process.node, "failed to wait for the build"),
+	)?;
+	if let Some(tg::Either::Left(error)) = outcome.error {
+		let source = tg::Error::try_from(error)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the error"))?;
+		return Err(tg::error!(!source, process = %process.node, "the build failed"));
+	}
+	if outcome.error.is_some() || outcome.exit != 0 {
+		let exit = outcome.exit;
+		return Err(tg::error!(process = %process.node, %exit, "the build failed"));
+	}
+
+	// Tag the process.
+	let arg = tg::tag::put::Arg {
+		ancestors: tg::node::Ancestors {
+			create: true,
+			..Default::default()
+		},
+		force,
+		location: None,
+		public: true,
+		specifier: build.tag.clone(),
+		target: process.node.clone().into(),
+		tokens: process.options.tokens.clone(),
+	};
+	client
+		.put_tag(arg)
+		.await
+		.map_err(|error| tg::error!(!error, tag = %build.tag, "failed to tag the build"))?;
+
+	Ok(process)
 }
 
 async fn publish_path(
