@@ -75,6 +75,12 @@ export def program_binds [] {
 		| flatten
 }
 
+# Get the host of this machine, such as `x86_64-linux`.
+export def current_host [] {
+	let os = if $nu.os-info.name == 'macos' { 'darwin' } else { $nu.os-info.name }
+	$'($nu.os-info.arch)-($os)'
+}
+
 export def artifact [artifact] {
 	def inner [artifact: any, path: string] {
 		let artifact = if ($artifact | describe) == 'string' {

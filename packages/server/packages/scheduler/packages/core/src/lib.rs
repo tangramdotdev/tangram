@@ -397,13 +397,25 @@ pub struct EnqueueSandboxRequestArg {
 
 #[derive(
 	Clone,
+	Copy,
 	Debug,
+	Eq,
+	PartialEq,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct EnqueueSandboxResponseOutput {}
+#[serde(rename_all = "snake_case")]
+pub enum EnqueueSandboxResponseOutput {
+	/// The scheduler accepted the sandbox.
+	#[tangram_serialize(id = 0)]
+	Enqueued,
+
+	/// The scheduler does not accept the sandbox's host, so it did nothing, and the sender may ask another scheduler.
+	#[tangram_serialize(id = 1)]
+	Unplaceable,
+}
 
 /// Create the data of a sandbox from its enqueued request.
 #[must_use]

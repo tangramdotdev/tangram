@@ -1,9 +1,9 @@
 use ../../util/test.nu *
 
-# A spawn whose host this server's runner cannot run goes through the scheduler, which rejects it when no runner has the host.
+# A spawn whose host this server's runner cannot run goes through the scheduler, which accepts the host and rejects it when no runner has the host.
 
 let server = server spawn --config {
-	scheduler: { unplaceable_timeout: 0 },
+	scheduler: { hosts: [(current_host) 'not-a-real-host'], unplaceable_timeout: 0 },
 }
 
 let path = artifact {

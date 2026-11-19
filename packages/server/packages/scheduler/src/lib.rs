@@ -180,6 +180,7 @@ enum Event {
 #[derive(Clone)]
 struct Config {
 	default_capacity: tg::runner::Capacity,
+	hosts: std::collections::BTreeSet<String>,
 	max_offer_failures: usize,
 	max_offers: usize,
 	max_offers_per_runner: usize,
@@ -404,17 +405,18 @@ impl Component {
 		Ok(ancestors)
 	}
 
+	/// Enqueue a sandbox with a scheduler that accepts its host, returning the scheduler, or `None` if every scheduler that answers declines the sandbox.
 	#[tracing::instrument(name = "sandbox.enqueue", level = "debug", skip_all, fields(sandbox = %request.sandbox), err(level = "debug"))]
-	pub(crate) async fn enqueue_sandbox(
+	pub(crate) async fn try_enqueue_sandbox(
 		&self,
 		session: &Session,
 		request: EnqueueSandboxRequestArg,
-	) -> tg::Result<tg::scheduler::Id> {
+	) -> tg::Result<Option<tg::scheduler::Id>> {
 		tracing::info!(sandbox = %request.sandbox, "enqueueing the sandbox");
 		let sandbox = request.sandbox.clone();
 
-		// Send a sandbox with a parent to its parent's scheduler, a start of a stopped sandbox to its runner's scheduler, and any other sandbox to any scheduler.
-		let target = if let Some(parent) = &request.parent {
+		// Send a sandbox with a parent to its parent's scheduler, and a start of a stopped sandbox to its runner's scheduler.
+		let pinned = if let Some(parent) = &request.parent {
 			let scheduler = request.scheduler.clone().ok_or_else(
 				|| tg::error!(%parent, "missing the scheduler for the parent sandbox"),
 			)?;
@@ -423,24 +425,80 @@ impl Component {
 			request.scheduler.clone()
 		};
 		let arg = RequestArg::EnqueueSandbox(request);
-		let (scheduler, response) = match target {
-			Some(scheduler) => {
-				let response = self
-					.send_scheduler_request_to(session, &scheduler, arg)
-					.boxed()
-					.await?;
-				(scheduler, response)
-			},
-			None => self.send_scheduler_request(session, arg).boxed().await?,
-		};
-		response?
-			.try_unwrap_enqueue_sandbox()
-			.map_err(|_| tg::error!("expected an enqueue sandbox response"))?;
-		tracing::info!(%sandbox, %scheduler, "enqueued the sandbox");
-		tangram_server_core::checkpoint!(session.server, "scheduler.sandbox.enqueued", sandbox = %sandbox)
-			.await;
+		if let Some(scheduler) = pinned {
+			let output = self
+				.send_scheduler_request_to(session, &scheduler, arg)
+				.boxed()
+				.await??
+				.try_unwrap_enqueue_sandbox()
+				.map_err(|_| tg::error!("expected an enqueue sandbox response"))?;
+			let output =
+				Self::try_enqueue_sandbox_output(session, &sandbox, scheduler, output).await;
+			return Ok(output);
+		}
 
-		Ok(scheduler)
+		// Get the schedulers, beginning with a random one.
+		let mut schedulers = self.schedulers.available();
+		if schedulers.is_empty() {
+			self.schedulers.refresh(&session.server).await?;
+			schedulers = self.schedulers.available();
+		}
+		if schedulers.is_empty() {
+			return Err(tg::error!("no schedulers are available"));
+		}
+		let len = u64::try_from(schedulers.len()).unwrap();
+		let start = usize::try_from(tangram_server_core::service::start() % len).unwrap();
+		schedulers.rotate_left(start);
+
+		// Ask each scheduler once until one accepts the sandbox, sharing one retry budget, and move to the next scheduler if one declines the sandbox or is unavailable.
+		let retry = session.server.config.scheduler.request.retry.clone().into();
+		let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
+		let mut answered = false;
+		for scheduler in schedulers {
+			let output = self
+				.try_send_scheduler_request_to(session, &scheduler, arg.clone(), &mut retries)
+				.boxed()
+				.await?;
+			let Some(output) = output else {
+				tracing::info!(%sandbox, %scheduler, "the scheduler is unavailable");
+				continue;
+			};
+			answered = true;
+			let output = output?
+				.try_unwrap_enqueue_sandbox()
+				.map_err(|_| tg::error!("expected an enqueue sandbox response"))?;
+			let output =
+				Self::try_enqueue_sandbox_output(session, &sandbox, scheduler, output).await;
+			if output.is_some() {
+				return Ok(output);
+			}
+		}
+		if !answered {
+			return Err(tg::error!(%sandbox, "no scheduler is available"));
+		}
+
+		Ok(None)
+	}
+
+	/// Get the scheduler that enqueued the sandbox, or `None` if the scheduler declined it.
+	async fn try_enqueue_sandbox_output(
+		session: &Session,
+		sandbox: &tg::sandbox::Id,
+		scheduler: tg::scheduler::Id,
+		output: EnqueueSandboxResponseOutput,
+	) -> Option<tg::scheduler::Id> {
+		match output {
+			EnqueueSandboxResponseOutput::Enqueued => {
+				tracing::info!(%sandbox, %scheduler, "enqueued the sandbox");
+				tangram_server_core::checkpoint!(session.server, "scheduler.sandbox.enqueued", sandbox = %sandbox)
+					.await;
+				Some(scheduler)
+			},
+			EnqueueSandboxResponseOutput::Unplaceable => {
+				tracing::info!(%sandbox, %scheduler, "the scheduler declined the sandbox");
+				None
+			},
+		}
 	}
 
 	pub(crate) async fn scheduler_task(
@@ -515,6 +573,7 @@ impl Scheduler {
 		let request_config = config.request.clone();
 		let config = Config {
 			default_capacity: config.default_capacity(),
+			hosts: config.hosts.clone(),
 			max_offer_failures: config.max_offer_failures,
 			max_offers: config.max_offers,
 			max_offers_per_runner: config.max_offers_per_runner,
@@ -1027,14 +1086,6 @@ impl tangram_server_core::scheduler::Component for Component {
 		self.dequeue_sandbox(session, sandbox, scheduler).boxed()
 	}
 
-	fn enqueue_sandbox<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		request: EnqueueSandboxRequestArg,
-	) -> BoxFuture<'a, tg::Result<tg::scheduler::Id>> {
-		self.enqueue_sandbox(session, request).boxed()
-	}
-
 	fn get_owner_ancestors<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
@@ -1079,5 +1130,13 @@ impl tangram_server_core::scheduler::Component for Component {
 		error: tg::error::Data,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.stop_runner_sandbox(server, id, error).boxed()
+	}
+
+	fn try_enqueue_sandbox<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		request: EnqueueSandboxRequestArg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::scheduler::Id>>> {
+		self.try_enqueue_sandbox(session, request).boxed()
 	}
 }

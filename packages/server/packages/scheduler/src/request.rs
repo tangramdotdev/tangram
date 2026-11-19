@@ -73,6 +73,23 @@ impl Component {
 		.await
 	}
 
+	/// Send the request to the scheduler until it answers, spending retries from a stream that the caller shares across schedulers, and return `None` if the scheduler is unavailable.
+	pub(crate) async fn try_send_scheduler_request_to(
+		&self,
+		session: &Session,
+		scheduler: &tg::scheduler::Id,
+		arg: RequestArg,
+		retries: &mut std::pin::Pin<&mut impl futures::Stream<Item = ()>>,
+	) -> tg::Result<Option<tg::Result<ResponseOutput>>> {
+		let server = &session.server;
+		let config = &server.config.scheduler.request;
+		service::try_retry_to(retries, config.response_time_to_live, |id| {
+			let arg = arg.clone();
+			async move { Self::send_scheduler_request_inner(server, scheduler, &id, arg).await }
+		})
+		.await
+	}
+
 	async fn send_scheduler_request_inner(
 		server: &Server,
 		scheduler: &tg::scheduler::Id,

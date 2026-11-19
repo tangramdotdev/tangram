@@ -465,9 +465,10 @@ impl Component {
 			.server
 			.components
 			.scheduler
-			.enqueue_sandbox(session, request)
+			.try_enqueue_sandbox(session, request)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?
+			.ok_or_else(|| tg::error!(sandbox = %id, "the scheduler declined the sandbox"))?;
 
 		Ok(Some(boot))
 	}
@@ -537,9 +538,10 @@ impl Component {
 			.server
 			.components
 			.scheduler
-			.enqueue_sandbox(session, request)
+			.try_enqueue_sandbox(session, request)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?
+			.ok_or_else(|| tg::error!(sandbox = %id, "the scheduler declined the sandbox"))?;
 
 		Ok(())
 	}

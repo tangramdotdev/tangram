@@ -196,6 +196,20 @@ where
 	}
 }
 
+/// Send the request to a known server with one request ID until it answers, spending retries from a stream that the caller shares across servers, and return `None` if the server replies that it is unavailable, so that the caller can move to another server.
+pub async fn try_retry_to<T, F, Fut>(
+	retries: &mut std::pin::Pin<&mut impl futures::Stream<Item = ()>>,
+	response_timeout: Duration,
+	f: F,
+) -> tg::Result<Option<T>>
+where
+	F: Fn(String) -> Fut,
+	Fut: Future<Output = tg::Result<Option<T>>>,
+{
+	let request_id = crate::control::id();
+	attempt(retries, response_timeout, || f(request_id.clone())).await
+}
+
 /// Get a random starting point for server selection.
 #[must_use]
 pub fn start() -> u64 {

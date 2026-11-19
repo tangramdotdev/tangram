@@ -2165,6 +2165,10 @@ pub struct Scheduler {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_storage: Option<tg::sandbox::Resource<u64>>,
 
+	/// The hosts of the sandboxes that the scheduler accepts, which defaults to the server's host.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub hosts: Option<BTreeSet<String>>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::scheduler::Id>,
 
