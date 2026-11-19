@@ -50,6 +50,7 @@ struct SpawnProcessLocalCreateProcessArg<'a> {
 	command: &'a tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 	host: &'a str,
 	parent_sandbox: Option<&'a tg::sandbox::Id>,
+	scheduled: bool,
 	spawn_arg: &'a tg::process::spawn::Arg,
 	write_command_permissions: bool,
 }
@@ -470,6 +471,7 @@ impl Component {
 		Ok(())
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	pub(super) async fn spawn_process_local_get_or_create_process(
 		&self,
 		session: &Session,
@@ -477,6 +479,7 @@ impl Component {
 		command: &tg::Referent<tg::command::Id>,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
+		scheduled: bool,
 		write_command_permissions: bool,
 	) -> tg::Result<Option<Output>> {
 		if !matches!(arg.cached, Some(true)) {
@@ -488,6 +491,7 @@ impl Component {
 				command: &command,
 				host: &host,
 				parent_sandbox,
+				scheduled,
 				spawn_arg: arg,
 				write_command_permissions,
 			};
@@ -513,6 +517,7 @@ impl Component {
 			command,
 			host,
 			parent_sandbox,
+			scheduled,
 			spawn_arg,
 			write_command_permissions,
 		} = arg;
@@ -702,11 +707,19 @@ impl Component {
 			tokens: tg::authorization::Tokens::with_authorization(token),
 		};
 
+		// Leave the permissions of a scheduled process to the scheduler, which writes them with the queued process.
+		if scheduled {
+			return Ok(output);
+		}
+
 		// Write the creator permissions independently of the sandbox and prepare command access.
 		let mut items = Vec::new();
-		if let Some(permission) =
-			Self::spawn_process_create_creator_permission_arg(session, &id, now)?
-		{
+		if let Some(permission) = Self::spawn_process_create_creator_permission_arg(
+			session,
+			&session.context.principal,
+			&id,
+			now,
+		)? {
 			items.push(tangram_index::Item::PutPermission(Box::new(permission)));
 		}
 		if write_command_permissions {

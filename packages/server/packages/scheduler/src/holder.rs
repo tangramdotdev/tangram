@@ -209,7 +209,7 @@ impl SchedulerState {
 				let write = if std::mem::take(&mut request.stop) {
 					let request = request.clone();
 					let scheduler_ = scheduler.clone();
-					Some(async move { scheduler_.persist_sandbox(&request).await }.boxed())
+					Some(async move { scheduler_.persist_sandbox(&request, false).await }.boxed())
 				} else {
 					None
 				};
@@ -234,7 +234,7 @@ impl SchedulerState {
 				} else {
 					request.stop = true;
 					let request = request.clone();
-					async move { scheduler_.persist_sandbox(&request).await }.boxed()
+					async move { scheduler_.persist_sandbox(&request, false).await }.boxed()
 				};
 				self.publish_sandbox_holder_response(scheduler, sandbox, id, Some(write), output);
 			},
@@ -398,7 +398,8 @@ impl SchedulerState {
 					},
 				);
 				let scheduler_ = scheduler.clone();
-				let write = async move { scheduler_.persist_sandbox(&request).await }.boxed();
+				let write =
+					async move { scheduler_.persist_sandbox(&request, false).await }.boxed();
 				self.publish_process_holder_response(scheduler, process, id, Some(write), output);
 			},
 
@@ -442,7 +443,7 @@ impl SchedulerState {
 					write
 				} else {
 					let request = request.clone();
-					async move { scheduler_.persist_sandbox(&request).await }.boxed()
+					async move { scheduler_.persist_sandbox(&request, false).await }.boxed()
 				};
 				self.publish_process_holder_response(
 					scheduler,

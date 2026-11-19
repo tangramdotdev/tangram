@@ -313,7 +313,7 @@ impl SchedulerState {
 				let sandbox = sandbox.clone();
 				self.operations.push(
 					async move {
-						let result = scheduler.persist_sandbox(&request).await;
+						let result = scheduler.persist_sandbox(&request, true).await;
 						Operation::PersistSandbox {
 							boot,
 							result,
@@ -418,7 +418,7 @@ impl SchedulerState {
 				tangram_server_core::checkpoint!(scheduler.server, "scheduler.sandbox.end", sandbox = %request.sandbox, status = %status)
 					.await;
 				scheduler
-					.put_sandbox_status(&request, status, error, None)
+					.put_sandbox_status(&request, status, error, None, false)
 					.await
 			}
 			.boxed()
@@ -756,7 +756,13 @@ impl SchedulerState {
 		self.operations.push(
 			async move {
 				let result = scheduler
-					.put_sandbox_status(&request, tg::sandbox::Status::Destroyed, error, None)
+					.put_sandbox_status(
+						&request,
+						tg::sandbox::Status::Destroyed,
+						error,
+						None,
+						false,
+					)
 					.await;
 				Operation::Finished {
 					context: "failed to record the destroyed sandbox",

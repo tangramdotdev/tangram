@@ -528,6 +528,9 @@ impl Component {
 		let cacheable = Self::spawn_process_is_cacheable(&arg);
 		let write_command_permissions = cache_location.is_none_or(|location| !location.is_remote());
 
+		// Determine whether the scheduler writes the permissions, which it does for a process that creates a sandbox without an allocation on this server's runner.
+		let scheduled = matches!(arg.sandbox, Some(tg::Either::Left(_))) && allocation.is_none();
+
 		// Authorize the sandbox owner.
 		self.spawn_process_authorize_sandbox_owner(session, &arg)
 			.await?;
@@ -540,6 +543,7 @@ impl Component {
 				&command,
 				parent_sandbox.as_ref(),
 				cacheable,
+				scheduled,
 				write_command_permissions,
 			)
 			.boxed()

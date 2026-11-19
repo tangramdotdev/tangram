@@ -3,6 +3,7 @@ use {
 };
 
 pub mod control;
+pub mod permission;
 pub mod put;
 
 pub type IndexTask = tangram_futures::task::Shared<tg::Result<()>>;

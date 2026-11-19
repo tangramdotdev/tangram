@@ -35,9 +35,11 @@ impl Scheduler {
 		Ok(())
 	}
 
+	/// Write the starting record and the key that associates the sandbox with this scheduler. The first write of a request also writes the permissions of its queued process.
 	pub(super) async fn persist_sandbox(
 		&self,
 		request: &EnqueueSandboxRequestArg,
+		first: bool,
 	) -> tg::Result<()> {
 		tangram_server_core::checkpoint!(self.server, "scheduler.sandbox.persist", sandbox = %request.sandbox)
 			.await;
@@ -47,8 +49,14 @@ impl Scheduler {
 		};
 		let stored = serde_json::to_vec(&stored)
 			.map_err(|error| tg::error!(!error, "failed to serialize the request"))?;
-		self.put_sandbox_status(request, tg::sandbox::Status::Starting, None, Some(stored))
-			.await
+		self.put_sandbox_status(
+			request,
+			tg::sandbox::Status::Starting,
+			None,
+			Some(stored),
+			first,
+		)
+		.await
 	}
 
 	/// Record a failure after acceptance in the sandbox's error field. A new sandbox is destroyed, and a sandbox that was starting again is stopped.
@@ -58,7 +66,7 @@ impl Scheduler {
 		error: tg::Either<tg::error::Data, tg::error::Id>,
 	) -> tg::Result<()> {
 		let status = failed_sandbox_status(request);
-		self.put_sandbox_status(request, status, Some(error), None)
+		self.put_sandbox_status(request, status, Some(error), None, false)
 			.await
 	}
 
@@ -68,6 +76,7 @@ impl Scheduler {
 		status: tg::sandbox::Status,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 		stored: Option<Vec<u8>>,
+		permissions: bool,
 	) -> tg::Result<()> {
 		// Create the sandbox's data.
 		let session = self.server.session(&self.server.context);
@@ -127,7 +136,7 @@ impl Scheduler {
 		if status.is_starting()
 			&& let Some(process) = &request.process
 		{
-			let process = self.queued_process_arg(process, id, now)?;
+			let process = self.queued_process_arg(process, id, now, permissions)?;
 			arg.process = Some(Box::new(process));
 		}
 		let mut items = vec![tangram_index::Item::PutSandbox(Box::new(arg))];
@@ -172,17 +181,30 @@ impl Scheduler {
 		Ok(())
 	}
 
-	/// Create the queued record of a process, which is visible until its runner connects.
+	/// Create the queued record of a process, which is visible until its runner connects, with the permissions of its creator if requested.
 	pub(super) fn queued_process_arg(
 		&self,
 		process: &tg::runner::control::Process,
 		sandbox: &tg::sandbox::Id,
 		now: i64,
+		permissions: bool,
 	) -> tg::Result<tangram_index::process::put::Arg> {
 		let id = process
 			.id
 			.clone()
 			.ok_or_else(|| tg::error!("expected the scheduled process to have an id"))?;
+
+		// Create the creator permission and the command captures from the data with its tokens, so that the creator can access the process as soon as it is visible.
+		let (captures, permissions) = if permissions {
+			self.queued_process_permissions(&id, &process.data)?
+		} else {
+			(
+				tangram_index::permission::capture::Captures::default(),
+				Vec::new(),
+			)
+		};
+
+		// Create the record.
 		let data = process
 			.data
 			.clone()
@@ -193,7 +215,7 @@ impl Scheduler {
 		let arg = tangram_index::process::put::Arg {
 			account: None,
 			cached: false,
-			captures: tangram_index::permission::capture::Captures::default(),
+			captures,
 			children: None,
 			command: Some(
 				data.command
@@ -212,7 +234,7 @@ impl Scheduler {
 			options: tg::referent::Options::default(),
 			output: None,
 			parent: None,
-			permissions: Vec::new(),
+			permissions,
 			principal: tg::Principal::Process(id),
 			registration: None,
 			sandbox: Some(sandbox.clone()),
@@ -222,6 +244,45 @@ impl Scheduler {
 		};
 
 		Ok(arg)
+	}
+
+	/// Create the permission that lets the creator of a queued process access it, and the captures that give the process the creator's access to its command.
+	fn queued_process_permissions(
+		&self,
+		id: &tg::process::Id,
+		data: &tg::process::Data,
+	) -> tg::Result<(
+		tangram_index::permission::capture::Captures,
+		Vec<tangram_index::permission::put::Arg>,
+	)> {
+		let config = &self.server.config.process;
+		let permissions = tangram_server_process_core::permission::creator_permission_arg(
+			&data.creator,
+			id,
+			data.created_at,
+			config.permission_time_to_live,
+			config.permission_time_to_touch,
+		)?
+		.into_iter()
+		.collect();
+		let session = self.server.session(&self.server.context);
+		let roots = data
+			.command
+			.objects()
+			.into_iter()
+			.map(|root| root.map(Into::into))
+			.collect();
+		let captures = self.server.components.authorization.create_captures(
+			&session,
+			id.clone().into(),
+			None,
+			roots,
+			data.creator.clone(),
+			data.created_at,
+		)?;
+		let output = (captures, permissions);
+
+		Ok(output)
 	}
 
 	/// Record the failure of a process whose sandbox ended before the process started.
