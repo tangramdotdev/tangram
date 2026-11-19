@@ -16,6 +16,7 @@ use {
 mod holder;
 mod notification;
 mod push;
+mod queued;
 mod runner;
 mod sandbox;
 
@@ -539,6 +540,18 @@ impl tangram_server_core::process::Component for Component {
 			.boxed()
 	}
 
+	fn create_queued_process_arg(
+		&self,
+		session: &tangram_server_core::Session,
+		process: &tg::runner::control::Process,
+		sandbox: &tg::sandbox::Id,
+		now: i64,
+		permissions: bool,
+		public: bool,
+	) -> tg::Result<tangram_index::process::put::Arg> {
+		Self::create_queued_process_arg(session, process, sandbox, now, permissions, public)
+	}
+
 	fn expire_process_log_cache<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
@@ -546,6 +559,16 @@ impl tangram_server_core::process::Component for Component {
 		data: &'a tg::process::Data,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.expire_process_log_cache(session, id, data).boxed()
+	}
+
+	fn finish_unstarted_process<'a>(
+		&'a self,
+		server: &'a tangram_server_core::Server,
+		process: &'a tg::runner::control::Process,
+		error: tg::Either<tg::error::Data, tg::error::Id>,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.finish_unstarted_process(server, process, error)
+			.boxed()
 	}
 
 	fn get_process_local<'a>(

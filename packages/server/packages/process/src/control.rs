@@ -42,6 +42,14 @@ struct IndexProcessControlArg {
 	id: tg::process::Id,
 	options: tg::referent::Options,
 	parent: Option<tg::process::Id>,
+	public: bool,
+	sandbox: Option<tg::process::control::SandboxCreate>,
+}
+
+/// The parent and the sandbox that a start's shortcut proof proves, and whether the start makes the process public.
+struct VerifyProcessControlStartOutput {
+	parent: Option<tg::process::Id>,
+	public: bool,
 	sandbox: Option<tg::process::control::SandboxCreate>,
 }
 
@@ -215,7 +223,11 @@ impl Component {
 				let proven = self
 					.verify_process_control_start(session, shortcut, shortcut_arg, &data)
 					.await;
-				let (start_parent, sandbox) = match proven {
+				let VerifyProcessControlStartOutput {
+					parent: start_parent,
+					public,
+					sandbox,
+				} = match proven {
 					Ok(output) => output,
 					Err(error) => {
 						if shortcut {
@@ -240,6 +252,7 @@ impl Component {
 					id: id.clone(),
 					options,
 					parent: start_parent,
+					public,
 					sandbox,
 				};
 				// Enqueue initialization before acknowledging the start or accepting subsequent requests. Continue if the index cannot accept the batch, so that the client retries the start, and reject the start for any other error.
@@ -488,6 +501,7 @@ impl Component {
 			id,
 			options,
 			parent,
+			public,
 			sandbox,
 		} = arg;
 		tangram_server_core::checkpoint!(session.server, "process.control.index.started", process = %id).await;
@@ -531,6 +545,29 @@ impl Component {
 			let parent = parent
 				.as_ref()
 				.ok_or_else(|| tg::error!("a process on the shortcut path must have a parent"))?;
+
+			// Give the parent, which is the process's creator, its permission, and give a public process the public permission, which apply only if the put is accepted.
+			let config = &session.server.config.process;
+			let creator = tg::Principal::Process(parent.clone());
+			let permission = tangram_server_process_core::permission::creator_permission_arg(
+				&creator,
+				&id,
+				touched_at,
+				config.permission_time_to_live,
+				config.permission_time_to_touch,
+			)?;
+			captures.permissions.extend(permission);
+			if public {
+				let permission = tangram_server_process_core::permission::public_permission_arg(
+					&id,
+					touched_at,
+					config.permission_time_to_live,
+					config.permission_time_to_touch,
+				)?;
+				captures.permissions.push(permission);
+			}
+
+			// Give the process the parent's access to its command.
 			let destination = id.clone().into();
 			let roots = command_objects.into_iter().map(|root| root.map(Into::into));
 			let source = tg::Principal::Process(parent.clone());
@@ -615,20 +652,21 @@ impl Component {
 		Ok(())
 	}
 
-	/// Verify a start's shortcut proof, returning its parent and the sandbox that it creates.
+	/// Verify a start's shortcut proof, returning its parent, whether it makes the process public, and the sandbox that it creates.
 	async fn verify_process_control_start(
 		&self,
 		session: &Session,
 		shortcut: bool,
 		shortcut_arg: Option<tg::process::control::Shortcut>,
 		data: &tg::process::Data,
-	) -> tg::Result<(
-		Option<tg::process::Id>,
-		Option<tg::process::control::SandboxCreate>,
-	)> {
+	) -> tg::Result<VerifyProcessControlStartOutput> {
 		match (shortcut, shortcut_arg) {
 			(true, Some(shortcut_arg)) => {
-				let tg::process::control::Shortcut { parent, sandbox } = shortcut_arg;
+				let tg::process::control::Shortcut {
+					parent,
+					public,
+					sandbox,
+				} = shortcut_arg;
 				if let Some(token) = &parent.token {
 					let principal = tg::Principal::Process(parent.id.clone());
 					self.verify_process_control_start_token(session, token, principal)
@@ -673,7 +711,24 @@ impl Component {
 						)
 						.await?;
 				}
-				Ok((Some(parent.id), sandbox.create))
+
+				// Require the parent to be the process's creator, because the parent receives the creator's permission on the process.
+				let creator = tg::Principal::Process(parent.id.clone());
+				if data.creator != creator {
+					return Err(tg::error!(
+						unauthorized,
+						creator = %data.creator,
+						parent = %parent.id,
+						"the creator of a process on the shortcut path must be its parent"
+					));
+				}
+
+				let output = VerifyProcessControlStartOutput {
+					parent: Some(parent.id),
+					public,
+					sandbox: sandbox.create,
+				};
+				Ok(output)
 			},
 			(true, None) => Err(tg::error!(
 				unauthorized,
@@ -682,7 +737,14 @@ impl Component {
 			(false, Some(_)) => Err(tg::error!(
 				"a scheduled process's start must not have a shortcut proof"
 			)),
-			(false, None) => Ok((None, None)),
+			(false, None) => {
+				let output = VerifyProcessControlStartOutput {
+					parent: None,
+					public: false,
+					sandbox: None,
+				};
+				Ok(output)
+			},
 		}
 	}
 

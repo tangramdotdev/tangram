@@ -257,7 +257,7 @@ impl Component {
 		location: Option<&tg::Location>,
 		events: &tokio::sync::mpsc::UnboundedSender<Event>,
 	) -> tg::Result<Option<(tg::process::spawn::Output, Option<tg::sandbox::Id>)>> {
-		let candidate = output.as_ref().map(|output| output.id.clone());
+		let candidate = output.as_ref().and_then(|output| output.id.clone());
 		let scheduled_sandbox = output.as_ref().and_then(|output| {
 			(output.sandbox_arg.is_some() && output.allocation.is_none())
 				.then(|| output.data.sandbox.clone())
@@ -344,7 +344,7 @@ impl Component {
 		let cache = cache.filter(|cache| {
 			output
 				.as_ref()
-				.is_none_or(|output| cache.process() != Some(&output.id))
+				.is_none_or(|output| cache.process() != output.id.as_ref())
 		});
 		if let Some(cache) = cache {
 			// Return the cached process if no scheduler accepted the candidate's sandbox.
@@ -354,16 +354,20 @@ impl Component {
 			};
 
 			// Cancel the candidate, logging a failure, because the spawn already has the cached process.
+			let process = output
+				.id
+				.clone()
+				.ok_or_else(|| tg::error!("expected the candidate process to have an id"))?;
 			let result = self
 				.spawn_process_cancel_candidate(
 					session,
-					output.id.clone(),
+					process.clone(),
 					output.lease,
 					arg.location.clone(),
 				)
 				.await;
 			if let Err(error) = result {
-				tracing::warn!(error = %error.trace(), process = %output.id, "failed to cancel the candidate process");
+				tracing::warn!(error = %error.trace(), %process, "failed to cancel the candidate process");
 			}
 			let sandbox = cache.sandbox.clone();
 			return Ok(Some((cache.into_output(), sandbox)));
@@ -575,13 +579,16 @@ impl Component {
 		} else {
 			output.lease
 		};
+		let process = output
+			.id
+			.ok_or_else(|| tg::error!("expected the process to have an id"))?;
 		let output = tg::process::spawn::Output {
 			cached: output.cached,
 			command: None,
 			lease,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			outcome,
-			process: tg::Either::Right(output.id),
+			process: tg::Either::Right(process),
 			tokens: output.tokens,
 		};
 

@@ -20,7 +20,8 @@ pub(super) struct Output {
 
 	pub data: tg::process::Data,
 
-	pub id: tg::process::Id,
+	/// The process's ID, which is absent until the process connects if its runner derives the ID.
+	pub id: Option<tg::process::Id>,
 
 	pub lease: Option<tg::process::Lease>,
 
@@ -50,9 +51,8 @@ struct SpawnProcessLocalCreateProcessArg<'a> {
 	command: &'a tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 	host: &'a str,
 	parent_sandbox: Option<&'a tg::sandbox::Id>,
-	scheduled: bool,
+	runner_derives_id: bool,
 	spawn_arg: &'a tg::process::spawn::Arg,
-	write_command_permissions: bool,
 }
 
 /// What borrows a parent's capacity.
@@ -73,7 +73,7 @@ impl Output {
 		let exit = self
 			.data
 			.exit
-			.ok_or_else(|| tg::error!(process = %self.id, "expected the exit to be set"))?;
+			.ok_or_else(|| tg::error!(process = ?self.id, "expected the exit to be set"))?;
 		Ok(Some(tg::process::outcome::Data {
 			checksum: self.data.checksum.actual.clone(),
 			error,
@@ -479,8 +479,7 @@ impl Component {
 		command: &tg::Referent<tg::command::Id>,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
-		scheduled: bool,
-		write_command_permissions: bool,
+		runner_derives_id: bool,
 	) -> tg::Result<Option<Output>> {
 		if !matches!(arg.cached, Some(true)) {
 			let (host, command) = self
@@ -491,9 +490,8 @@ impl Component {
 				command: &command,
 				host: &host,
 				parent_sandbox,
-				scheduled,
+				runner_derives_id,
 				spawn_arg: arg,
-				write_command_permissions,
 			};
 			return self
 				.spawn_process_local_create_process(session, arg)
@@ -517,9 +515,8 @@ impl Component {
 			command,
 			host,
 			parent_sandbox,
-			scheduled,
+			runner_derives_id,
 			spawn_arg,
-			write_command_permissions,
 		} = arg;
 
 		// Resolve the process owner.
@@ -605,15 +602,21 @@ impl Component {
 				.await?;
 		}
 
-		// Create the process identity and tokens.
-		let id = tg::process::Id::new();
+		// Create the process identity and tokens, unless the runner derives the process's ID.
 		let now = session.server.clock.unix_timestamp();
-		let token = Self::create_process_wait_token(session, &id, now)?;
-		let process_token = session
-			.server
-			.components
-			.authentication
-			.create_process_authentication_token(&session.server, id.clone())?;
+		let (id, process_token, tokens) = if runner_derives_id {
+			(None, None, tg::authorization::Tokens::default())
+		} else {
+			let id = tg::process::Id::new();
+			let token = Self::create_process_wait_token(session, &id, now)?;
+			let process_token = session
+				.server
+				.components
+				.authentication
+				.create_process_authentication_token(&session.server, id.clone())?;
+			let tokens = tg::authorization::Tokens::with_authorization(token);
+			(Some(id), Some(process_token), tokens)
+		};
 
 		// Resolve the sandbox and terminal settings.
 		let (sandbox, sandbox_arg, sandbox_token) = match &spawn_arg.sandbox {
@@ -637,16 +640,21 @@ impl Component {
 					sandbox_arg.storage,
 				)?;
 				let sandbox = tg::sandbox::Id::new();
-				let token = session
-					.server
-					.components
-					.authentication
-					.create_sandbox_authentication_token(&session.server, sandbox.clone())?;
+				let token = if runner_derives_id {
+					None
+				} else {
+					let token = session
+						.server
+						.components
+						.authentication
+						.create_sandbox_authentication_token(&session.server, sandbox.clone())?;
+					Some(token)
+				};
 				let sandbox_arg = SandboxArg {
 					arg: sandbox_arg,
 					owner: owner.clone(),
 				};
-				(sandbox, Some(sandbox_arg), Some(token))
+				(sandbox, Some(sandbox_arg), token)
 			},
 			Some(tg::Either::Right(sandbox)) => (sandbox.node.clone(), None, None),
 			None => return Err(tg::error!("expected the sandbox to be set")),
@@ -696,70 +704,16 @@ impl Component {
 			open: None,
 			cached: false,
 			data,
-			id: id.clone(),
+			id,
 			lease: None,
 			parent: spawn_arg.parent.clone(),
 			parent_sandbox: parent_sandbox.cloned(),
-			process_token: Some(process_token),
+			process_token,
 			sandbox_arg,
 			sandbox_token,
 			scheduler: spawn_arg.scheduler.clone(),
-			tokens: tg::authorization::Tokens::with_authorization(token),
+			tokens,
 		};
-
-		// Leave the permissions of a scheduled process to the scheduler, which writes them with the queued process.
-		if scheduled {
-			return Ok(output);
-		}
-
-		// Write the creator and public permissions independently of the sandbox and prepare command access.
-		let mut items = Vec::new();
-		if let Some(permission) = Self::spawn_process_create_creator_permission_arg(
-			session,
-			&session.context.principal,
-			&id,
-			now,
-		)? {
-			items.push(tangram_index::Item::PutPermission(Box::new(permission)));
-		}
-		if spawn_arg.public {
-			let permission = Self::spawn_process_create_public_permission_arg(session, &id, now)?;
-			items.push(tangram_index::Item::PutPermission(Box::new(permission)));
-		}
-		if write_command_permissions {
-			let destination = id.clone().into();
-			let roots = command
-				.objects()
-				.into_iter()
-				.map(|root| root.map(Into::into));
-			items.extend(
-				session
-					.server
-					.components
-					.authorization
-					.create_captures(
-						session,
-						destination,
-						None,
-						roots.into_iter().collect(),
-						session.context.principal.clone(),
-						now,
-					)?
-					.into_items(),
-			);
-		}
-		if !items.is_empty() {
-			let arg = tangram_index::write::Arg { items };
-			session
-				.server
-				.components
-				.indexer
-				.write(&session.server, arg)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to write the process permissions"),
-				)?;
-		}
 
 		Ok(output)
 	}

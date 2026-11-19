@@ -238,6 +238,11 @@ pub struct Shortcut {
 	#[tangram_serialize(id = 0)]
 	pub parent: Parent,
 
+	/// Whether the spawn made the process public, so that the home writes the public permission with the process.
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
+	pub public: bool,
+
 	#[tangram_serialize(id = 1)]
 	pub sandbox: Sandbox,
 }

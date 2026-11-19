@@ -600,7 +600,7 @@ async fn start_process(
 	Ok((control, id, token))
 }
 
-/// Create the mode that starts a shortcut child of the parent, naming the parent with tokens that the server does not check for the root.
+/// Create the mode that starts a shortcut child of the parent, which is the child's creator, naming the parent with tokens that the server does not check for the root.
 fn start(
 	parent: &tg::process::Id,
 	finished: &tg::process::Data,
@@ -610,13 +610,16 @@ fn start(
 			id: parent.clone(),
 			token: Some(String::new()),
 		},
+		public: false,
 		sandbox: tg::process::control::Sandbox {
 			create: None,
 			token: Some(String::new()),
 		},
 	};
+	let mut data = started_data(finished);
+	data.creator = tg::Principal::Process(parent.clone());
 	let start = tg::process::control::StartClientRequestArg {
-		data: started_data(finished),
+		data,
 		lease: LEASE.parse()?,
 		options: tg::referent::Options::default(),
 		shortcut: Some(shortcut),

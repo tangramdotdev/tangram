@@ -115,6 +115,8 @@ struct IndexProcessTaskArg<'a> {
 	location: &'a tg::Location,
 	options: tg::referent::Options,
 	parent: Option<&'a tg::process::Id>,
+	public: bool,
+	shortcut: bool,
 }
 
 enum LogEvent {
@@ -299,6 +301,7 @@ impl Component {
 			open,
 			options,
 			parent,
+			public,
 			token,
 		} = process;
 		data.started_at
@@ -419,7 +422,11 @@ impl Component {
 					create: sandbox_create,
 					token: sandbox_token,
 				};
-				let shortcut = tg::process::control::Shortcut { parent, sandbox };
+				let shortcut = tg::process::control::Shortcut {
+					parent,
+					public,
+					sandbox,
+				};
 
 				// Push the command objects concurrently with the start, joining the process's command sync through its control service.
 				if !Self::is_local_process_location(session, &location) {
@@ -1008,6 +1015,8 @@ impl Component {
 			location: &location,
 			options,
 			parent: parent.as_ref(),
+			public,
+			shortcut: shortcut_start,
 		};
 		let index_result = self.spawn_index_process_task(&session, arg).await;
 		index_result_sender.send(index_result.clone()).ok();
@@ -1908,6 +1917,8 @@ impl Component {
 			location,
 			mut options,
 			parent,
+			public,
+			shortcut,
 		} = arg;
 		if !location.is_remote() {
 			return Ok(());
@@ -1937,6 +1948,33 @@ impl Component {
 			.create_process_sandbox_permission_arg(session, id, sandbox, now)?;
 		let mut captures = tangram_index::permission::capture::Captures::default();
 		captures.permissions.push(permission_arg);
+
+		// Give the parent of a process whose ID the runner derived the creator's permission, and give a public process the public permission, which apply only if the put is accepted.
+		if shortcut {
+			let parent = parent.ok_or_else(
+				|| tg::error!(%id, "a process on the shortcut path must have a parent"),
+			)?;
+			let config = &session.server.config.process;
+			let creator = tg::Principal::Process(parent.clone());
+			let permission = tangram_server_process_core::permission::creator_permission_arg(
+				&creator,
+				id,
+				now,
+				config.permission_time_to_live,
+				config.permission_time_to_touch,
+			)?;
+			captures.permissions.extend(permission);
+			if public {
+				let permission = tangram_server_process_core::permission::public_permission_arg(
+					id,
+					now,
+					config.permission_time_to_live,
+					config.permission_time_to_touch,
+				)?;
+				captures.permissions.push(permission);
+			}
+		}
+
 		let destination = id.clone().into();
 		// Loading an inline command does not prove permissions on the objects it references.
 		let permissions = match &command.node {
