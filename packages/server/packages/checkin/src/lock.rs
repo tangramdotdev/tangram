@@ -78,6 +78,14 @@ impl Component {
 			return Err(tg::error!("the lock is out of date"));
 		}
 
+		// Do not write a lock that has the same contents as the existing lock.
+		if let Some(lock) = &lock
+			&& !new_lock.nodes.is_empty()
+			&& new_lock.nodes == lock.nodes
+		{
+			return Ok((Some(lock.clone()), None));
+		}
+
 		let lock = Arc::new(new_lock);
 		let expected = (!lock.nodes.is_empty()).then(|| lock.clone());
 		let lock_write_guard = reserve_lock_write()?;
