@@ -387,13 +387,40 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		cli.print_info_message(&message);
 	}
 
-	// Build the exports of the published packages, warning about and skipping a build that fails.
+	// Build the exports of the published packages concurrently, spawning each build while fewer than the build concurrency are running.
+	let build_concurrency = cli.publish_config().build_concurrency;
+	let mut results = builds.iter().map(|_| None).collect::<Vec<_>>();
+	let mut waits = futures::stream::FuturesUnordered::new();
+	let mut pending = builds.iter().enumerate();
+	loop {
+		while waits.len() < build_concurrency
+			&& let Some((index, build)) = pending.next()
+		{
+			let result = publish_build_spawn(cli, build, args.retry)
+				.boxed_local()
+				.await;
+			match result {
+				Ok(process) => {
+					let future = publish_build_wait(&client, build, process, args.force)
+						.map(move |result| (index, result));
+					waits.push(future);
+				},
+				Err(error) => {
+					results[index] = Some(Err(error));
+				},
+			}
+		}
+		let Some((index, result)) = waits.next().await else {
+			break;
+		};
+		results[index] = Some(result);
+	}
+
+	// Collect the results in the order of the builds, warning about and skipping a build that fails.
 	let mut processes = Vec::new();
 	let mut build_tags = Vec::new();
-	for build in builds {
-		let result = publish_build(cli, &client, &build, args.retry, args.force)
-			.boxed_local()
-			.await;
+	for (build, result) in builds.iter().zip(results) {
+		let result = result.ok_or_else(|| tg::error!("expected a build result"))?;
 		match result {
 			Ok(process) => {
 				build_tags.push((build.tag.clone(), process.node.clone()));
@@ -1324,15 +1351,12 @@ fn create_builds(package: &tg::Specifier, builds: &Builds) -> tg::Result<Vec<Bui
 	Ok(output)
 }
 
-/// Build an export of a published package on a host without a location, wait for the process to succeed, and tag the process.
-async fn publish_build(
+/// Spawn the build of an export of a published package on a host without a location.
+async fn publish_build_spawn(
 	cli: &mut Cli,
-	client: &tg::Client,
 	build: &Build,
 	retry: bool,
-	force: bool,
 ) -> tg::Result<tg::Referent<tg::process::Id>> {
-	// Spawn the build.
 	let reference = format!("{}#{}", build.package, build.export)
 		.parse::<tg::Reference>()
 		.map_err(|error| tg::error!(!error, "failed to parse the reference"))?;
@@ -1362,6 +1386,16 @@ async fn publish_build(
 				.ok_or_else(|| tg::error!("expected a process id"))
 		})?;
 
+	Ok(process)
+}
+
+/// Wait for the build of an export of a published package to succeed, and tag the process.
+async fn publish_build_wait(
+	client: &tg::Client,
+	build: &Build,
+	process: tg::Referent<tg::process::Id>,
+	force: bool,
+) -> tg::Result<tg::Referent<tg::process::Id>> {
 	// Wait for the build to succeed.
 	let arg = tg::process::wait::Arg {
 		location: process.options.location.clone().map(Into::into),
