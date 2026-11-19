@@ -7,7 +7,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{task::Shared, task::Task},
-	tangram_server_checkin_core::{Graph, Solutions, try_read_lock},
+	tangram_server_checkin_core::{Graph, Solutions, lockfile_path, try_read_lock},
 	tangram_server_clock_core::Clock,
 };
 
@@ -204,9 +204,14 @@ impl Watch {
 		// Watch the paths.
 		state.lock().unwrap().watch_paths(next);
 
+		// Get the path of the lockfile, which a watch without a lock does not have, nor a root whose lockfile path is the root itself.
+		let lockfile_path = options
+			.lock
+			.is_some()
+			.then(|| lockfile_path(&key.path))
+			.filter(|lockfile_path| lockfile_path != &key.path);
+
 		// Spawn the task.
-		let lockfile_path = key.path.join(tg::module::LOCKFILE_FILE_NAME);
-		let uses_lock = options.lock.is_some();
 		let task = Task::spawn({
 			let lockfile_path = lockfile_path.clone();
 			let state = state.clone();
@@ -217,18 +222,22 @@ impl Watch {
 					let event_paths = message.event.paths.clone();
 					let mut paths = Self::changes(&message.event);
 					let replaced_paths = Self::replacements(&message.event);
-					let lockfile_changed = paths.remove(lockfile_path.as_path());
+					let lockfile_changed = lockfile_path
+						.as_ref()
+						.is_some_and(|lockfile_path| paths.remove(lockfile_path.as_path()));
 					let only_lockfile_changed = message
 						.event
 						.paths
 						.iter()
-						.all(|path| path == &lockfile_path);
-					if lockfile_changed && only_lockfile_changed {
-						paths.remove(root.as_path());
+						.all(|path| lockfile_path.as_ref() == Some(path));
+					if lockfile_changed
+						&& only_lockfile_changed
+						&& let Some(parent) = lockfile_path.as_ref().and_then(|path| path.parent())
+					{
+						paths.remove(parent);
 					}
-					let lock_changed = uses_lock && lockfile_changed;
-					let read_lock =
-						lock_changed && state.lock().unwrap().pending_lock_write_version.is_none();
+					let read_lock = lockfile_changed
+						&& state.lock().unwrap().pending_lock_write_version.is_none();
 					let lock = read_lock.then(|| try_read_lock(&root));
 
 					// Apply the event to the state.

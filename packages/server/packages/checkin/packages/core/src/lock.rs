@@ -1,13 +1,14 @@
-use {std::path::Path, tangram_client::prelude::*};
+use {
+	std::path::{Path, PathBuf},
+	tangram_client::prelude::*,
+};
 
 pub fn try_read_lock(path: &Path) -> tg::Result<Option<tg::graph::data::Leaf>> {
 	// Try to read the lock contents.
 	let contents = if path.is_dir() {
-		let lockfile_path = path.join(tg::module::LOCKFILE_FILE_NAME);
-		try_read_lockfile(&lockfile_path)?
+		try_read_lockfile(&lockfile_path(path))?
 	} else if std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file()) {
-		let lockfile_path = path.with_extension("lock");
-		let contents = try_read_lockfile(&lockfile_path)?;
+		let contents = try_read_lockfile(&lockfile_path(path))?;
 		if contents.is_some() {
 			contents
 		} else {
@@ -29,6 +30,16 @@ pub fn try_read_lock(path: &Path) -> tg::Result<Option<tg::graph::data::Leaf>> {
 	)?;
 
 	Ok(Some(lock))
+}
+
+/// Get the path of the lockfile of a checkin root, which is `tangram.lock` in a directory and the sibling with the `lock` extension of a file.
+#[must_use]
+pub fn lockfile_path(path: &Path) -> PathBuf {
+	if path.is_dir() {
+		path.join(tg::module::LOCKFILE_FILE_NAME)
+	} else {
+		path.with_extension("lock")
+	}
 }
 
 fn try_read_lockfile(path: &Path) -> tg::Result<Option<Vec<u8>>> {

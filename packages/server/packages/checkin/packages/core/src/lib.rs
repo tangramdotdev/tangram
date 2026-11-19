@@ -4,7 +4,7 @@ mod solutions;
 
 pub use self::{
 	graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
-	lock::try_read_lock,
+	lock::{lockfile_path, try_read_lock},
 	solutions::{ObjectOptions, Referrer, Solution, Solutions},
 };
 
