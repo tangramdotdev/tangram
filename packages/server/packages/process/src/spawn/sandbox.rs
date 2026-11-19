@@ -16,6 +16,7 @@ impl Component {
 		arg: &tg::process::spawn::Arg,
 		mut output: Option<Output>,
 		mut scheduler_sender: Option<tokio::sync::oneshot::Sender<tg::scheduler::Id>>,
+		events: Option<&tokio::sync::mpsc::UnboundedSender<super::Event>>,
 	) -> tg::Result<Option<Output>> {
 		let Some(process) = output.as_mut() else {
 			return Ok(output);
@@ -59,6 +60,13 @@ impl Component {
 						.clone()
 						.ok_or_else(|| tg::error!("missing the scheduler"))?;
 					sender.send(scheduler).ok();
+				}
+				if let Some(events) = events {
+					let event = super::CandidateEvent {
+						lease,
+						process: id.clone(),
+					};
+					events.send(super::Event::Candidate(event)).ok();
 				}
 				if arg.wait {
 					self.wait_process_start(session, &id, &sandbox, &mut sandbox_connection_future)

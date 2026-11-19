@@ -1,5 +1,5 @@
 use {
-	super::{cached, lease::LeaseGuard, local::Output},
+	super::{CandidateEvent, Event, cached, lease::LeaseGuard, local::Output},
 	crate::Component,
 	futures::{FutureExt as _, future},
 	std::pin::pin,
@@ -8,6 +8,237 @@ use {
 };
 
 impl Component {
+	pub(super) async fn try_spawn_process_local_or_get_cached(
+		&self,
+		session: &Session,
+		mut arg: tg::process::spawn::Arg,
+		parent_sandbox: Option<tg::sandbox::Id>,
+		allocation: Option<tangram_server_runner_core::capacity::Allocation>,
+		open: Option<crate::attach::service::Open>,
+		cache_location: Option<&tg::Location>,
+	) -> tg::Result<Option<(tg::process::spawn::Output, Option<tg::sandbox::Id>)>> {
+		// Spawn the process on this server, and return its output if the spawn cannot get a cached process from another region or remote.
+		let command = Self::spawn_process_resolve_command(session, &mut arg)?;
+		let cacheable =
+			Self::spawn_process_is_cacheable(&arg) && matches!(arg.cached, None | Some(true));
+		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+		let mut local_future = self
+			.try_spawn_process_local(
+				session,
+				arg.clone(),
+				parent_sandbox,
+				allocation,
+				open,
+				cache_location,
+				sender,
+			)
+			.boxed();
+		if !cacheable {
+			return local_future.await;
+		}
+		let mut fan_out_future =
+			pin!(self.try_get_cached_process_regions_and_remotes(session, &arg));
+
+		// Wait for the local spawn to return or for its cache lookup to miss.
+		let mut candidate = None;
+		let mut missed = false;
+		let local = loop {
+			tokio::select! {
+				result = &mut local_future => break Some(result?),
+				Some(event) = receiver.recv() => match event {
+					Event::Candidate(event) => candidate = Some(event),
+					Event::Missed => {
+						missed = true;
+						break None;
+					},
+				},
+			}
+		};
+
+		let cached = 'cached: {
+			let local = 'local: {
+				if let Some(local) = local {
+					// Record a miss that the local spawn sent before it returned.
+					while let Ok(event) = receiver.try_recv() {
+						missed |= matches!(event, Event::Missed);
+					}
+					break 'local local;
+				}
+
+				// Race the local spawn against the fan-out.
+				let result = loop {
+					tokio::select! {
+						result = &mut local_future => break tg::Either::Left(result?),
+						Some(event) = receiver.recv() => {
+							if let Event::Candidate(event) = event {
+								candidate = Some(event);
+							}
+						},
+						result = fan_out_future.as_mut() => break tg::Either::Right(result),
+					}
+				};
+				let cached = match result {
+					tg::Either::Left(local) => break 'local local,
+					tg::Either::Right(Ok(Some(cached))) => cached,
+					tg::Either::Right(result) => {
+						if let Err(error) = result {
+							tracing::debug!(
+								error = %error.trace(),
+								"failed to get a cached process from another region or remote"
+							);
+						}
+						return local_future.await;
+					},
+				};
+
+				// Wait for the candidate or for the local spawn to return.
+				let local = if candidate.is_some() {
+					None
+				} else {
+					loop {
+						tokio::select! {
+							result = &mut local_future => break Some(result?),
+							Some(event) = receiver.recv() => {
+								if let Event::Candidate(event) = event {
+									candidate = Some(event);
+									break None;
+								}
+							},
+						}
+					}
+				};
+				if let Some(Some((output, _))) = &local
+					&& !output.cached
+					&& let Some(process) = output.process.as_ref().right()
+					&& let Some(lease) = output.lease
+				{
+					candidate = Some(CandidateEvent {
+						lease,
+						process: process.clone(),
+					});
+				}
+
+				// Return the local output if the cached process is the candidate.
+				if candidate
+					.as_ref()
+					.is_some_and(|candidate| cached.process() == Some(&candidate.process))
+				{
+					return match local {
+						Some(local) => Ok(local),
+						None => local_future.await,
+					};
+				}
+
+				// Release the lease of a local cached process, and cancel the candidate, logging a failure, because the spawn already has the cached process.
+				if let Some(Some((output, _))) = &local
+					&& output.cached
+				{
+					drop(LeaseGuard::new(session, output));
+				}
+				if let Some(CandidateEvent { lease, process }) = candidate {
+					let result = self
+						.spawn_process_cancel_candidate(
+							session,
+							process.clone(),
+							Some(lease),
+							arg.location.clone(),
+						)
+						.await;
+					if let Err(error) = result {
+						tracing::warn!(error = %error.trace(), %process, "failed to cancel the candidate process");
+					}
+				}
+				break 'cached cached;
+			};
+
+			// Return the cached process from another region or remote if the local spawn has no process.
+			let Some((mut output, sandbox)) = local else {
+				let Some(cached) = fan_out_future.await? else {
+					return Ok(None);
+				};
+				break 'cached cached;
+			};
+
+			// Return a finished local process, or a local process whose spawn does not get a cached process from another region or remote.
+			if output.outcome.is_some() || !(missed || arg.cached == Some(true)) {
+				return Ok(Some((output, sandbox)));
+			}
+
+			// Race the local process's finish against the fan-out.
+			let mut lease_guard = if output.cached {
+				LeaseGuard::new(session, &output)
+			} else {
+				None
+			};
+			let id = output.process.as_ref().right().cloned();
+			let wait_future = self.spawn_process_wait_local(
+				session,
+				id.clone(),
+				output.tokens.clone(),
+				None,
+				false,
+			);
+			match future::select(pin!(wait_future), fan_out_future).await {
+				future::Either::Left((result, _)) => {
+					let outcome = result?;
+					if let Some(guard) = &mut lease_guard {
+						guard.disarm();
+					}
+					output.lease = None;
+					output.outcome = outcome;
+					Self::spawn_process_add_tokens(session, &mut output).await?;
+					return Ok(Some((output, sandbox)));
+				},
+				future::Either::Right((Ok(Some(cached)), _)) if cached.process() != id.as_ref() => {
+					// Cancel the candidate, logging a failure, because the spawn already has the cached process.
+					if !output.cached
+						&& let Some(process) = id
+						&& output.lease.is_some()
+					{
+						let result = self
+							.spawn_process_cancel_candidate(
+								session,
+								process.clone(),
+								output.lease,
+								arg.location.clone(),
+							)
+							.await;
+						if let Err(error) = result {
+							tracing::warn!(error = %error.trace(), %process, "failed to cancel the candidate process");
+						}
+					}
+					drop(lease_guard);
+					cached
+				},
+				future::Either::Right((result, _)) => {
+					if let Err(error) = result {
+						tracing::debug!(
+							error = %error.trace(),
+							"failed to get a cached process from another region or remote"
+						);
+					}
+					if let Some(guard) = &mut lease_guard {
+						guard.disarm();
+					}
+					return Ok(Some((output, sandbox)));
+				},
+			}
+		};
+
+		// Finish the cached process from another region or remote.
+		let mut output = cached.into_output();
+		let mut lease_guard = LeaseGuard::new(session, &output);
+		output.command = Some(command.node);
+		Self::spawn_process_add_tokens(session, &mut output).await?;
+		self.spawn_process_create_public_grant_if_requested(session, &arg, &output)
+			.await?;
+		if let Some(guard) = &mut lease_guard {
+			guard.disarm();
+		}
+
+		Ok(Some((output, None)))
+	}
+
 	pub(super) async fn spawn_process_local_in_sandbox_or_get_cached(
 		&self,
 		session: &Session,
@@ -15,6 +246,7 @@ impl Component {
 		command: &tg::Referent<tg::command::Id>,
 		output: Option<Output>,
 		location: Option<&tg::Location>,
+		events: &tokio::sync::mpsc::UnboundedSender<Event>,
 	) -> tg::Result<Option<(tg::process::spawn::Output, Option<tg::sandbox::Id>)>> {
 		let candidate = output.as_ref().map(|output| output.id.clone());
 		let scheduled_sandbox = output.as_ref().and_then(|output| {
@@ -34,6 +266,7 @@ impl Component {
 			command,
 			location,
 			candidate.as_ref(),
+			events,
 		);
 		let create_delay = session.server.config.process.spawn.create_delay;
 		let spawn_future = self.spawn_process_local_in_new_or_existing_sandbox(
@@ -41,6 +274,7 @@ impl Component {
 			arg,
 			output,
 			scheduler_sender,
+			Some(events),
 		);
 		let spawn_future = if create_delay.is_zero() {
 			spawn_future.left_future()
@@ -49,64 +283,55 @@ impl Component {
 				.then(|()| spawn_future)
 				.right_future()
 		};
-		let (cache, outcome, output) =
-			match future::select(pin!(spawn_future), pin!(cache_future)).await {
-				future::Either::Left((result, cache_future)) => {
-					let output = result?;
-					let local_id = output.as_ref().map(|output| output.id.clone());
-					let local_tokens = output
-						.as_ref()
-						.map_or_default(|output| output.tokens.clone());
-					let wait_future =
-						self.spawn_process_wait_local(session, local_id, local_tokens, None, false);
-					match future::select(pin!(wait_future), cache_future).await {
-						future::Either::Left((result, _)) => (None, result?, output),
-						future::Either::Right((result, _)) => (result?, None, output),
-					}
-				},
-				future::Either::Right((result, mut spawn_future)) => {
-					let cache = result?;
-					if cache.is_some()
-						&& let Some(sandbox) = &scheduled_sandbox
-					{
-						let scheduler_receiver = scheduler_receiver.unwrap();
-						let scheduler_future = async {
-							scheduler_receiver
-								.await
-								.map_err(|_| tg::error!("failed to receive the scheduler"))
-						};
-						let scheduler_future = pin!(scheduler_future);
-						match future::select(spawn_future.as_mut(), scheduler_future).await {
-							future::Either::Left((result, _)) => {
-								if let Some(output) = result? {
-									self.destroy_process_candidate_sandbox(
-										session,
-										output.data.sandbox.as_ref().ok_or_else(|| {
-											tg::error!("the scheduled process has no sandbox")
-										})?,
-									)
-									.await?;
-								}
-							},
-							future::Either::Right((result, _)) => {
-								let scheduler = result?;
-								Self::spawn_process_local_dequeue_sandbox_candidate(
+		let (cache, output) = match future::select(pin!(spawn_future), pin!(cache_future)).await {
+			future::Either::Left((result, cache_future)) => {
+				let output = result?;
+				let cache = cache_future.await?;
+				(cache, output)
+			},
+			future::Either::Right((result, mut spawn_future)) => {
+				let cache = result?;
+				if cache.is_some()
+					&& let Some(sandbox) = &scheduled_sandbox
+				{
+					let scheduler_receiver = scheduler_receiver.unwrap();
+					let scheduler_future = async {
+						scheduler_receiver
+							.await
+							.map_err(|_| tg::error!("failed to receive the scheduler"))
+					};
+					let scheduler_future = pin!(scheduler_future);
+					match future::select(spawn_future.as_mut(), scheduler_future).await {
+						future::Either::Left((result, _)) => {
+							if let Some(output) = result? {
+								self.destroy_process_candidate_sandbox(
 									session,
-									sandbox.clone(),
-									scheduler,
-								);
-							},
-						}
-						let output = cache.map(|cache| {
-							let sandbox = cache.sandbox.clone();
-							(cache.into_output(), sandbox)
-						});
-						return Ok(output);
+									output.data.sandbox.as_ref().ok_or_else(|| {
+										tg::error!("the scheduled process has no sandbox")
+									})?,
+								)
+								.await?;
+							}
+						},
+						future::Either::Right((result, _)) => {
+							let scheduler = result?;
+							Self::spawn_process_local_dequeue_sandbox_candidate(
+								session,
+								sandbox.clone(),
+								scheduler,
+							);
+						},
 					}
-					let output = spawn_future.await?;
-					(cache, None, output)
-				},
-			};
+					let output = cache.map(|cache| {
+						let sandbox = cache.sandbox.clone();
+						(cache.into_output(), sandbox)
+					});
+					return Ok(output);
+				}
+				let output = spawn_future.await?;
+				(cache, output)
+			},
+		};
 		let cache = cache.filter(|cache| {
 			output
 				.as_ref()
@@ -132,85 +357,9 @@ impl Component {
 		let Some(output) = output else {
 			return Ok(None);
 		};
-		let output = Self::spawn_process_local_output(output, outcome)?;
+		let output = Self::spawn_process_local_output(output, None)?;
 
 		Ok(Some((output, None)))
-	}
-
-	pub(super) async fn spawn_process_wait_or_get_cached(
-		&self,
-		session: &Session,
-		arg: &tg::process::spawn::Arg,
-		output: Option<Output>,
-		cacheable: bool,
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		let finished = output
-			.as_ref()
-			.is_some_and(|output| output.data.status.is_finished());
-		let local_id = output.as_ref().map(|output| output.id.clone());
-		let local_tokens = output
-			.as_ref()
-			.map_or_default(|output| output.tokens.clone());
-		let local_outcome = output
-			.as_ref()
-			.map(Output::try_outcome)
-			.transpose()?
-			.flatten();
-		let mut local_cache_guard = output
-			.as_ref()
-			.filter(|output| output.cached)
-			.and_then(|output| LeaseGuard::new_local(session, output));
-		let local_future =
-			self.spawn_process_wait_local(session, local_id, local_tokens, local_outcome, finished);
-		let cached_future = self
-			.spawn_process_get_cached_process_region_or_remote(session, arg, cacheable, finished);
-		let output = match future::select(pin!(local_future), pin!(cached_future)).await {
-			future::Either::Left((result, cached_future)) => {
-				if let Some(outcome) = result? {
-					if let Some(guard) = &mut local_cache_guard {
-						guard.disarm();
-					}
-					let output = output.unwrap();
-					Self::spawn_process_local_output(output, Some(outcome))?
-				} else {
-					let Some(cached_output) = cached_future.await? else {
-						return Ok(None);
-					};
-					cached_output.into_output()
-				}
-			},
-			future::Either::Right((result, _)) => {
-				if let Ok(Some(cached_output)) = result {
-					// Cancel the candidate, logging a failure, because the spawn already has the cached process.
-					if let Some(output) = &output
-						&& !output.cached
-						&& output.lease.is_some()
-					{
-						let result = self
-							.spawn_process_cancel_candidate(
-								session,
-								output.id.clone(),
-								output.lease,
-								arg.location.clone(),
-							)
-							.await;
-						if let Err(error) = result {
-							tracing::warn!(error = %error.trace(), process = %output.id, "failed to cancel the candidate process");
-						}
-					}
-					cached_output.into_output()
-				} else {
-					if let Some(guard) = &mut local_cache_guard {
-						guard.disarm();
-					}
-					let Some(output) = output else {
-						return Ok(None);
-					};
-					Self::spawn_process_local_output(output, None)?
-				}
-			},
-		};
-		Ok(Some(output))
 	}
 
 	async fn spawn_process_wait_local(
@@ -246,6 +395,7 @@ impl Component {
 		command: &tg::Referent<tg::command::Id>,
 		location: Option<&tg::Location>,
 		exclude: Option<&tg::process::Id>,
+		events: &tokio::sync::mpsc::UnboundedSender<Event>,
 	) -> tg::Result<Option<cached::Output>> {
 		let output = if let Some(location) = location
 			&& !matches!(
@@ -294,32 +444,17 @@ impl Component {
 		{
 			return Ok(Some(output));
 		}
+
+		// Report the miss, so that the spawn gets a cached process from another region or remote.
 		tangram_server_core::checkpoint!(
 			session.server,
 			"process.spawn.cached.region_or_remote",
 			command = %command.node,
 		)
 		.await;
-		let output = match self
-			.spawn_process_get_cached_process_region_or_remote(session, arg, true, false)
-			.await
-		{
-			Ok(output) => output,
-			Err(error) if exclude.is_some() => {
-				tracing::debug!(
-					error = %error.trace(),
-					"failed to get a cached process from another region or remote"
-				);
-				None
-			},
-			Err(error) => return Err(error),
-		};
-		let output = output.filter(|output| {
-			output
-				.process()
-				.is_none_or(|process| Some(process) != exclude)
-		});
-		Ok(output)
+		events.send(Event::Missed).ok();
+
+		Ok(None)
 	}
 
 	fn spawn_process_local_dequeue_sandbox_candidate(
@@ -416,7 +551,7 @@ impl Component {
 		Ok(())
 	}
 
-	fn spawn_process_local_output(
+	pub(super) fn spawn_process_local_output(
 		output: Output,
 		outcome: Option<tg::process::outcome::Data>,
 	) -> tg::Result<tg::process::spawn::Output> {
@@ -437,42 +572,6 @@ impl Component {
 		};
 
 		Ok(output)
-	}
-
-	async fn spawn_process_get_cached_process_region_or_remote(
-		&self,
-		session: &Session,
-		arg: &tg::process::spawn::Arg,
-		cacheable: bool,
-		finished: bool,
-	) -> tg::Result<Option<cached::Output>> {
-		if finished {
-			return Ok(None);
-		}
-		if cacheable && matches!(arg.cached, None | Some(true)) {
-			let locations = session
-				.locations(arg.cache_location.as_ref())
-				.await
-				.map_err(|error| tg::error!(!error, "failed to resolve the cache locations"))?;
-			let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-			if let Some(output) = self
-				.try_get_cached_process_regions(session, arg, &regions)
-				.await
-				.map_err(|error| {
-					tg::error!(!error, "failed to get a cached process from another region")
-				})? {
-				return Ok(Some(output));
-			}
-			let output = self
-				.try_get_cached_process_remotes(session, arg, &locations.remotes)
-				.await
-				.map_err(|error| {
-					tg::error!(!error, "failed to get a cached process from a remote")
-				})?;
-			Ok(output)
-		} else {
-			Ok(None)
-		}
 	}
 }
 

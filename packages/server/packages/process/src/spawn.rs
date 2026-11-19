@@ -27,6 +27,20 @@ pub(super) struct PrepareOutput {
 	pub parent_sandbox: Option<tg::sandbox::Id>,
 }
 
+/// An event that a local spawn sends to the task that races it against the cache lookups in other regions and remotes.
+pub(super) enum Event {
+	/// The candidate was enqueued, so the task can cancel it by its lease.
+	Candidate(CandidateEvent),
+
+	/// The local cache lookup missed, so the task can get a cached process from another region or remote.
+	Missed,
+}
+
+pub(super) struct CandidateEvent {
+	pub lease: tg::process::Lease,
+	pub process: tg::process::Id,
+}
+
 impl Component {
 	pub async fn try_spawn_process(
 		&self,
@@ -284,7 +298,7 @@ impl Component {
 		let mut borrower = None;
 		let mut output = if shortcut {
 			let (output, sandbox) = self
-				.try_spawn_process_local(
+				.try_spawn_process_local_or_get_cached(
 					session,
 					arg.clone(),
 					parent_sandbox,
@@ -305,7 +319,7 @@ impl Component {
 					.try_spawn_process_region(session, arg.clone(), progress, region)
 					.boxed(),
 				tg::Location::Local(_) => self
-					.try_spawn_process_local(
+					.try_spawn_process_local_or_get_cached(
 						session,
 						arg.clone(),
 						parent_sandbox.clone(),
@@ -497,6 +511,7 @@ impl Component {
 		Ok(matches)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	async fn try_spawn_process_local(
 		&self,
 		session: &Session,
@@ -505,6 +520,7 @@ impl Component {
 		allocation: Option<tangram_server_runner_core::capacity::Allocation>,
 		open: Option<crate::attach::service::Open>,
 		cache_location: Option<&tg::Location>,
+		events: tokio::sync::mpsc::UnboundedSender<Event>,
 	) -> tg::Result<Option<(tg::process::spawn::Output, Option<tg::sandbox::Id>)>> {
 		let command = Self::spawn_process_resolve_command(session, &mut arg)?;
 
@@ -557,6 +573,7 @@ impl Component {
 					&command,
 					output,
 					cache_location,
+					&events,
 				)
 				.boxed()
 				.await?;
@@ -567,15 +584,11 @@ impl Component {
 		} else {
 			// Spawn the process in a sandbox.
 			let output = self
-				.spawn_process_local_in_new_or_existing_sandbox(session, &arg, output, None)
+				.spawn_process_local_in_new_or_existing_sandbox(session, &arg, output, None, None)
 				.boxed()
-				.await?;
-
-			// Wait for the local process or get a cached process.
-			let output = self
-				.spawn_process_wait_or_get_cached(session, &arg, output, cacheable)
-				.boxed()
-				.await?;
+				.await?
+				.map(|output| Self::spawn_process_local_output(output, None))
+				.transpose()?;
 			(output, sandbox)
 		};
 		let Some(mut output) = output else {
