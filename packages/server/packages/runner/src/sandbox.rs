@@ -1703,7 +1703,7 @@ impl Component {
 									process_stopper: &process_stopper,
 									process_tasks: &mut process_tasks,
 									processes: processes.clone(),
-									public: false,
+									public: request.public,
 									retention_stopper: stopper.clone(),
 									sandbox: &sandbox,
 									sandbox_create: None,

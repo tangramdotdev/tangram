@@ -316,6 +316,7 @@ impl Component {
 						&sandbox,
 						location.as_ref(),
 						process,
+						public,
 						id.as_ref(),
 					)
 					.await
@@ -339,11 +340,13 @@ impl Component {
 		sandbox: &tg::sandbox::Id,
 		location: Option<&tg::location::Arg>,
 		process: tg::runner::control::Process,
+		public: bool,
 		id: Option<&tg::process::Id>,
 	) -> tg::Result<tangram_server_runner_core::process::ConnectedEvent> {
-		let request = tg::sandbox::control::ServerRequestArg::SpawnProcess(
-			tg::sandbox::control::SpawnProcessServerRequestArg { process },
-		);
+		// Carry the public flag only to a runner that derives the process's ID, because the spawn writes the public permission of a process whose ID it created.
+		let public = public && process.id.is_none();
+		let arg = tg::sandbox::control::SpawnProcessServerRequestArg { process, public };
+		let request = tg::sandbox::control::ServerRequestArg::SpawnProcess(arg);
 		let retry = session.server.config.control.request_retry.clone().into();
 		let timeout = session.server.config.control.request_timeout;
 		let options = tangram_server_core::control::Options { retry, timeout };

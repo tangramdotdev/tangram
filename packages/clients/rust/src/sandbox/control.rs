@@ -372,6 +372,11 @@ pub struct GetProcessesClientResponseOutput {
 pub struct SpawnProcessServerRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub process: tg::runner::control::Process,
+
+	/// Whether the spawn made the process public, which the runner carries to the process's home in the start of a process whose ID it derives.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "tangram_util::serde::is_false")]
+	pub public: bool,
 }
 
 #[derive(
