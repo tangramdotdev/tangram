@@ -10,7 +10,7 @@ use {
 };
 
 impl Component {
-	pub(super) async fn spawn_process_in_new_or_existing_sandbox(
+	pub(super) async fn spawn_process_local_in_new_or_existing_sandbox(
 		&self,
 		session: &Session,
 		arg: &tg::process::spawn::Arg,
@@ -28,7 +28,7 @@ impl Component {
 			Some(tg::Either::Left(_)) if process.allocation.is_some() => {
 				let lease = tg::process::Lease::new();
 				let ready_event = self
-					.spawn_process_in_new_sandbox(session, process, lease)
+					.spawn_process_local_in_new_sandbox(session, process, lease)
 					.await?
 					.ok_or_else(|| tg::error!("expected the sandbox to be ready"))?;
 				let connected_event = ready_event
@@ -51,7 +51,7 @@ impl Component {
 					.sandbox
 					.subscribe_sandbox_connection(session, &sandbox)
 					.await?;
-				self.spawn_process_in_new_sandbox(session, process, lease)
+				self.spawn_process_local_in_new_sandbox(session, process, lease)
 					.await?;
 				if let Some(sender) = scheduler_sender.take() {
 					let scheduler = process
@@ -68,7 +68,11 @@ impl Component {
 			},
 			Some(tg::Either::Right(_)) => {
 				let connected_event = self
-					.spawn_process_in_existing_sandbox(session, process, arg.location.as_ref())
+					.spawn_process_local_in_existing_sandbox(
+						session,
+						process,
+						arg.location.as_ref(),
+					)
 					.await?;
 				Self::spawn_process_apply_connected(session, process, connected_event)?;
 			},
@@ -234,7 +238,7 @@ impl Component {
 	}
 
 	#[tracing::instrument(name = "process.spawn_existing", level = "debug", skip_all, fields(process = %output.id, sandbox = output.data.sandbox.as_ref().map(ToString::to_string)), err(level = "debug"))]
-	async fn spawn_process_in_existing_sandbox(
+	async fn spawn_process_local_in_existing_sandbox(
 		&self,
 		session: &Session,
 		output: &Output,
@@ -346,7 +350,7 @@ impl Component {
 	}
 
 	#[tracing::instrument(name = "process.spawn_new", level = "debug", skip_all, fields(process = %output.id, sandbox = output.data.sandbox.as_ref().map(ToString::to_string)), err(level = "debug"))]
-	async fn spawn_process_in_new_sandbox(
+	async fn spawn_process_local_in_new_sandbox(
 		&self,
 		session: &Session,
 		output: &mut Output,

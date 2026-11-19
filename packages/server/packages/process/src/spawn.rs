@@ -518,7 +518,7 @@ impl Component {
 
 		// Get or create the local process.
 		let mut output = self
-			.spawn_process_get_or_create_local_process(
+			.spawn_process_local_get_or_create_process(
 				session,
 				&arg,
 				&command,
@@ -551,7 +551,7 @@ impl Component {
 			.and_then(|output| output.data.sandbox.clone());
 		let (output, sandbox) = if cacheable && arg.cached.is_none() {
 			let output = self
-				.spawn_process_in_sandbox_or_get_cached(
+				.spawn_process_local_in_sandbox_or_get_cached(
 					session,
 					&arg,
 					&command,
@@ -567,7 +567,7 @@ impl Component {
 		} else {
 			// Spawn the process in a sandbox.
 			let output = self
-				.spawn_process_in_new_or_existing_sandbox(session, &arg, output, None)
+				.spawn_process_local_in_new_or_existing_sandbox(session, &arg, output, None)
 				.boxed()
 				.await?;
 
