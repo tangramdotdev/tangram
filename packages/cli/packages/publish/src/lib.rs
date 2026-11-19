@@ -10,7 +10,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-/// Publish a package with its transitive source dependencies.
+/// Publish packages with their transitive source dependencies.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -36,8 +36,9 @@ pub struct Args {
 	#[arg(long)]
 	pub no_builds: bool,
 
+	/// The paths of the packages to publish.
 	#[arg(default_value = ".", index = 1)]
-	pub path: PathBuf,
+	pub paths: Vec<PathBuf>,
 
 	/// Grant public read access.
 	#[arg(long)]
@@ -85,6 +86,7 @@ struct State {
 	all_packages: Vec<tg::Referent<tg::Object>>,
 	file_trees: BTreeMap<Option<tg::object::Id>, radix_trie::Trie<PathBuf, tg::Artifact>>,
 	graph: Graph,
+	roots: Vec<tg::object::Id>,
 	source_packages: Vec<tg::Referent<tg::Object>>,
 	tags: Vec<(tg::Specifier, tg::Referent<tg::object::Id>)>,
 }
@@ -118,33 +120,43 @@ struct Item {
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
-	// Check in the root package.
-	let absolute_path = tangram_util::fs::canonicalize_parent(&args.path)
-		.await
-		.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-	let arg = tg::checkin::Arg {
-		options: tg::checkin::Options::default(),
-		path: absolute_path.clone(),
-		updates: Vec::new(),
-	};
-	let output = tg::checkin::checkin_with_instance(&client, arg).await.map_err(
-		|error| tg::error!(!error, path = %absolute_path.display(), "failed to check in the root package"),
-	)?;
-	let artifact = tg::Artifact::with_referent(output.artifact.clone());
-	let mut options = output.artifact.options;
-	if options.id.is_none() {
-		options.path = Some(args.path.clone());
+	// Reject a tag override for more than one package.
+	if args.tag.is_some() && args.paths.len() > 1 {
+		return Err(tg::error!(
+			"the tag can only be overridden when publishing a single path"
+		));
 	}
-	let referent = tg::Referent::new(artifact.into(), options);
 
-	// Create the state.
+	// Check in the root packages and visit their objects.
 	let mut state = State::default();
-
-	// Visit the objects.
-	state
-		.visit_objects(&client, &referent)
-		.await
-		.map_err(|error| tg::error!(!error, "failed to analyze objects"))?;
+	let mut absolute_paths = Vec::new();
+	for path in &args.paths {
+		let absolute_path = tangram_util::fs::canonicalize_parent(path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+		let arg = tg::checkin::Arg {
+			options: tg::checkin::Options::default(),
+			path: absolute_path.clone(),
+			updates: Vec::new(),
+		};
+		let output = tg::checkin::checkin_with_instance(&client, arg).await.map_err(
+			|error| tg::error!(!error, path = %absolute_path.display(), "failed to check in the root package"),
+		)?;
+		let artifact = tg::Artifact::with_referent(output.artifact.clone());
+		let mut options = output.artifact.options;
+		if options.id.is_none() {
+			options.path = Some(path.clone());
+		}
+		let referent = tg::Referent::new(artifact.into(), options);
+		state
+			.visit_objects(&client, &referent)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to analyze objects"))?;
+		absolute_paths.push(absolute_path);
+	}
+	if args.paths.len() > 1 {
+		state.deduplicate_tags();
+	}
 
 	// Create the graph.
 	state
@@ -181,7 +193,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	}
 
 	// Check the interfaces of the configs in the packages that publishing checks in from disk against the interfaces that their runtimes generate, before checking them in again.
-	let mut paths = vec![absolute_path.clone()];
+	let mut paths = absolute_paths;
 	for step in &plan {
 		match step {
 			Step::Item(item) => paths.extend(item.path.clone()),
@@ -502,7 +514,11 @@ impl State {
 		client: &impl tg::Instance,
 		root: &tg::Referent<tg::Object>,
 	) -> tg::Result<()> {
-		// Make sure the root is added if it is on the local file system.
+		// Record the root, and make sure that it is added if it is on the local file system.
+		let id = root.node().id();
+		if !self.roots.contains(&id) {
+			self.roots.push(id);
+		}
 		if root.path().is_some() {
 			self.source_packages.push(root.clone());
 			self.add_package(root);
@@ -593,20 +609,21 @@ impl State {
 				let node = &self.graph.nodes[index];
 				node.package.node.unload();
 
+				let root = self.roots.contains(&node.package.node().id());
 				let publishable =
-					index == 0
-						|| self.source_packages.iter().any(|referent| {
-							referent.clone().map(|r| r.id()) == node.package.clone().map(|r| r.id())
-						})
-						|| !node.incoming.iter().copied().any(|incoming| {
-							self.graph.nodes[incoming].package.node().is_directory()
-						});
+					root || self.source_packages.iter().any(|referent| {
+						referent.clone().map(|r| r.id()) == node.package.clone().map(|r| r.id())
+					}) || !node
+						.incoming
+						.iter()
+						.copied()
+						.any(|incoming| self.graph.nodes[incoming].package.node().is_directory());
 				if !publishable {
 					continue;
 				}
 
 				// Check if this package has a tag.
-				let override_ = (index == 0).then_some(()).and(tag.take());
+				let override_ = root.then_some(()).and(tag.take());
 				let metadata = tags.get(&node.package.node().id()).cloned().flatten();
 				let (original, builds) = metadata.unzip();
 				let Some(tag) = override_.or(original) else {
@@ -650,6 +667,13 @@ impl State {
 			}
 		}
 		Ok(plan)
+	}
+
+	/// Remove the duplicate tags that several roots visit.
+	fn deduplicate_tags(&mut self) {
+		let mut seen = BTreeSet::new();
+		self.tags
+			.retain(|(tag, node)| seen.insert((tag.to_string(), node.node.clone())));
 	}
 
 	fn get_package_index(graph: &mut Graph, referent: tg::Referent<tg::Object>) -> usize {
