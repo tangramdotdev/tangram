@@ -620,18 +620,28 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to put the objects in the archive"))?;
 
 		// Put the object cache entries.
-		if let Some(config) = &server.config.object.cache {
-			future::try_join_all(entries.into_iter().map(|(id, put)| {
-				let arg = tangram_server_core::cache::object::cache::put::Arg {
-					cache: uuid::Uuid::now_v7().into_bytes(),
-					id,
-					partition: rand::random_range(0..config.partition_total),
-					put,
-				};
-				server.cache.put_object_cache_entry(arg)
-			}))
-			.await?;
-		}
+		Self::put_object_cache_entry_batch(server, entries).await?;
+
+		Ok(())
+	}
+
+	pub(crate) async fn put_object_cache_entry_batch(
+		server: &Server,
+		entries: Vec<(tg::object::Id, [u8; 16])>,
+	) -> tg::Result<()> {
+		let Some(config) = &server.config.object.cache else {
+			return Ok(());
+		};
+		future::try_join_all(entries.into_iter().map(|(id, put)| {
+			let arg = tangram_server_core::cache::object::cache::put::Arg {
+				cache: uuid::Uuid::now_v7().into_bytes(),
+				id,
+				partition: rand::random_range(0..config.partition_total),
+				put,
+			};
+			server.cache.put_object_cache_entry(arg)
+		}))
+		.await?;
 
 		Ok(())
 	}

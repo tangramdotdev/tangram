@@ -10,25 +10,9 @@ use {
 
 #[tokio::test(start_paused = true)]
 async fn an_archive_item_for_a_cached_put_does_not_wait() {
-	// Put an object once.
-	let bytes = bytes::Bytes::from_static(b"hello");
-	let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
 	let put = [1; 16];
-	let get = |ids: Vec<tg::object::Id>| {
-		let outputs = ids.iter().map(|_| output(&bytes, put)).collect();
-		async move { Ok(outputs) }
-	};
-
-	// Wait for the put, as the archive item of the put does.
-	let retry = tangram_server_core::config::ArchiveQueue::default().retry;
-	let start = tokio::time::Instant::now();
-	let objects = try_wait_for_object_puts(&retry, &[(id, put)], get)
-		.await
-		.unwrap();
-	let elapsed = start.elapsed();
-
-	// The put is already in the cache, so the archive item has its bytes without waiting.
-	assert!(matches!(&objects[0], ObjectPut::Present(object) if object.put == put));
+	let (object, elapsed) = wait(put, put).await;
+	assert!(matches!(&object, ObjectPut::Present(object) if object.put == put));
 	assert_eq!(
 		elapsed,
 		Duration::ZERO,
@@ -38,26 +22,8 @@ async fn an_archive_item_for_a_cached_put_does_not_wait() {
 
 #[tokio::test(start_paused = true)]
 async fn an_archive_item_for_a_replaced_put_does_not_wait() {
-	// Put an object twice, so that the cache holds only the newer put.
-	let bytes = bytes::Bytes::from_static(b"hello");
-	let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-	let older = [1; 16];
-	let newer = [2; 16];
-	let get = |ids: Vec<tg::object::Id>| {
-		let outputs = ids.iter().map(|_| output(&bytes, newer)).collect();
-		async move { Ok(outputs) }
-	};
-
-	// Wait for the older put, as the archive item of the first put does.
-	let retry = tangram_server_core::config::ArchiveQueue::default().retry;
-	let start = tokio::time::Instant::now();
-	let objects = try_wait_for_object_puts(&retry, &[(id, older)], get)
-		.await
-		.unwrap();
-	let elapsed = start.elapsed();
-
-	// The newer put has its own archive item, so the older one has nothing to archive and nothing to wait for.
-	assert!(matches!(objects[0], ObjectPut::Replaced));
+	let (object, elapsed) = wait([2; 16], [1; 16]).await;
+	assert!(matches!(object, ObjectPut::Replaced));
 	assert_eq!(
 		elapsed,
 		Duration::ZERO,
@@ -92,6 +58,24 @@ async fn an_archive_item_waits_for_its_put_while_the_cache_has_an_older_put() {
 	// The older put does not replace the newer put, so the archive item waits for the newer put and archives it.
 	assert!(matches!(&objects[0], ObjectPut::Present(object) if object.put == newer));
 	assert_eq!(reads.load(Ordering::SeqCst), 2);
+}
+
+/// Wait for an archive item's put while the cache has the cached put, and return the put's state and the time spent waiting.
+async fn wait(cached: [u8; 16], put: [u8; 16]) -> (ObjectPut, Duration) {
+	let bytes = bytes::Bytes::from_static(b"hello");
+	let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+	let get = |ids: Vec<tg::object::Id>| {
+		let outputs = ids.iter().map(|_| output(&bytes, cached)).collect();
+		async move { Ok(outputs) }
+	};
+	let retry = tangram_server_core::config::ArchiveQueue::default().retry;
+	let start = tokio::time::Instant::now();
+	let mut objects = try_wait_for_object_puts(&retry, &[(id, put)], get)
+		.await
+		.unwrap();
+	let elapsed = start.elapsed();
+
+	(objects.remove(0), elapsed)
 }
 
 fn output(bytes: &bytes::Bytes, put: [u8; 16]) -> Output {
