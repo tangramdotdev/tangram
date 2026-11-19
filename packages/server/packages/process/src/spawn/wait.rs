@@ -151,10 +151,19 @@ impl Component {
 				break 'cached cached;
 			};
 
-			// Return the cached process from another region or remote if the local spawn has no process.
+			// Return the cached process from another region or remote if the local spawn has no process, which is a miss of a lookup or a candidate that no scheduler accepted.
 			let Some((mut output, sandbox)) = local else {
-				let Some(cached) = fan_out_future.await? else {
-					return Ok(None);
+				let cached = match fan_out_future.await {
+					Ok(Some(cached)) => cached,
+					Ok(None) => return Ok(None),
+					Err(error) if arg.cached != Some(true) => {
+						tracing::debug!(
+							error = %error.trace(),
+							"failed to get a cached process from another region or remote"
+						);
+						return Ok(None);
+					},
+					Err(error) => return Err(error),
 				};
 				break 'cached cached;
 			};
@@ -338,8 +347,13 @@ impl Component {
 				.is_none_or(|output| cache.process() != Some(&output.id))
 		});
 		if let Some(cache) = cache {
+			// Return the cached process if no scheduler accepted the candidate's sandbox.
+			let Some(output) = &output else {
+				let sandbox = cache.sandbox.clone();
+				return Ok(Some((cache.into_output(), sandbox)));
+			};
+
 			// Cancel the candidate, logging a failure, because the spawn already has the cached process.
-			let output = output.as_ref().unwrap();
 			let result = self
 				.spawn_process_cancel_candidate(
 					session,

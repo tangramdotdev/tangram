@@ -244,12 +244,128 @@ impl Component {
 	async fn try_spawn_process_task(
 		&self,
 		session: &Session,
+		arg: tg::process::spawn::Arg,
+		parent_sandbox: Option<tg::sandbox::Id>,
+		mut open: Option<crate::attach::service::Open>,
+		progress: &tg::progress::Handle<Option<tg::process::spawn::Output>>,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		// Determine whether the spawn tries the other locations, one at a time, when a location declines it. A spawn with an explicit location, into an existing sandbox, or that only gets a cached process tries one location.
+		let walk = (arg.location.is_none() || arg.parent.is_some())
+			&& !matches!(arg.sandbox, Some(tg::Either::Right(_)))
+			&& arg.cached != Some(true);
+
+		// Spawn the process at the first location, and then at each other location until one accepts it.
+		let mut location = session.server.location(arg.location.as_ref())?;
+		let mut tried = Vec::new();
+		let mut candidates = None;
+		let output = loop {
+			let mut location_arg = arg.clone();
+			if !tried.is_empty() {
+				location_arg.location = Some(location.clone().into());
+			}
+			let output = self
+				.try_spawn_process_location(
+					session,
+					location_arg,
+					&location,
+					parent_sandbox.clone(),
+					open.take(),
+					progress,
+				)
+				.boxed()
+				.await?;
+			if output.is_some() || !walk {
+				break output;
+			}
+			tried.push(Self::spawn_process_normalize_location(session, location));
+			if candidates.is_none() {
+				candidates = Some(Self::spawn_process_candidate_locations(session).await?);
+			}
+			let next = candidates
+				.as_ref()
+				.unwrap()
+				.iter()
+				.find(|candidate| !tried.contains(candidate))
+				.cloned();
+			let Some(next) = next else {
+				break None;
+			};
+			location = next;
+		};
+
+		let mut lease_guard = output
+			.as_ref()
+			.and_then(|output| lease::LeaseGuard::new(session, output));
+		if let Some(output) = &output {
+			match &output.process {
+				tg::Either::Left(index) => {
+					tracing::Span::current().record("process_index", index);
+					tracing::info!(
+						cached = output.cached,
+						parent = arg.parent.as_ref().map(ToString::to_string),
+						process_index = index,
+						"scheduled the process"
+					);
+				},
+				tg::Either::Right(id) => {
+					tracing::Span::current().record("process", tracing::field::display(id));
+					tracing::info!(cached = output.cached, parent = arg.parent.as_ref().map(ToString::to_string), process = %id, "scheduled the process");
+				},
+			}
+			self.spawn_process_add_child(session, &arg, output).await?;
+		}
+		if let Some(guard) = &mut lease_guard {
+			guard.disarm();
+		}
+
+		Ok(output)
+	}
+
+	/// Get the locations that a spawn without an explicit location tries in order: this server, each other region, and each remote.
+	async fn spawn_process_candidate_locations(session: &Session) -> tg::Result<Vec<tg::Location>> {
+		let locations = session
+			.locations(None)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+		let mut candidates = vec![tg::Location::Local(tg::location::Local::default())];
+		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		candidates.extend(regions.into_iter().map(|region| {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			})
+		}));
+		candidates.extend(locations.remotes.into_iter().map(|remote| {
+			tg::Location::Remote(tg::location::Remote {
+				name: remote.name,
+				region: None,
+			})
+		}));
+
+		Ok(candidates)
+	}
+
+	/// Normalize a location in this server's region to the location of this server.
+	fn spawn_process_normalize_location(session: &Session, location: tg::Location) -> tg::Location {
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) == session.server.config.region.as_deref() => {
+				tg::Location::Local(tg::location::Local::default())
+			},
+			location => location,
+		}
+	}
+
+	async fn try_spawn_process_location(
+		&self,
+		session: &Session,
 		mut arg: tg::process::spawn::Arg,
+		location: &tg::Location,
 		parent_sandbox: Option<tg::sandbox::Id>,
 		open: Option<crate::attach::service::Open>,
 		progress: &tg::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		let location = session.server.location(arg.location.as_ref())?;
+		let location = location.clone();
 		tracing::info!(location = %location, parent = arg.parent.as_ref().map(ToString::to_string), "scheduling the process");
 		let runner_matches_location =
 			Self::spawn_process_runner_matches_location(session, &location);
@@ -386,30 +502,6 @@ impl Component {
 			if let Some(lend) = lend {
 				Self::spawn_process_lend_capacity_task(session, lend, output);
 			}
-		}
-		let mut lease_guard = output
-			.as_ref()
-			.and_then(|output| lease::LeaseGuard::new(session, output));
-		if let Some(output) = &output {
-			match &output.process {
-				tg::Either::Left(index) => {
-					tracing::Span::current().record("process_index", index);
-					tracing::info!(
-						cached = output.cached,
-						parent = arg.parent.as_ref().map(ToString::to_string),
-						process_index = index,
-						"scheduled the process"
-					);
-				},
-				tg::Either::Right(id) => {
-					tracing::Span::current().record("process", tracing::field::display(id));
-					tracing::info!(cached = output.cached, parent = arg.parent.as_ref().map(ToString::to_string), process = %id, "scheduled the process");
-				},
-			}
-			self.spawn_process_add_child(session, &arg, output).await?;
-		}
-		if let Some(guard) = &mut lease_guard {
-			guard.disarm();
 		}
 
 		Ok(output)

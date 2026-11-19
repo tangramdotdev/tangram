@@ -9,7 +9,20 @@ use {
 	tangram_server_core::Session,
 };
 
+/// The result of spawning a process in a new sandbox.
+enum NewSandboxOutput {
+	/// No scheduler accepts the sandbox's host.
+	Declined,
+
+	/// A scheduler enqueued the sandbox.
+	Enqueued,
+
+	/// This server's runner created the sandbox.
+	Ready(tangram_server_runner_core::sandbox::ReadyEvent),
+}
+
 impl Component {
+	/// Spawn the process in a new or existing sandbox, returning `None` if no scheduler accepts the new sandbox's host.
 	pub(super) async fn spawn_process_local_in_new_or_existing_sandbox(
 		&self,
 		session: &Session,
@@ -28,10 +41,12 @@ impl Component {
 		match &arg.sandbox {
 			Some(tg::Either::Left(_)) if process.allocation.is_some() => {
 				let lease = tg::process::Lease::new();
-				let ready_event = self
+				let NewSandboxOutput::Ready(ready_event) = self
 					.spawn_process_local_in_new_sandbox(session, process, lease, arg.public)
 					.await?
-					.ok_or_else(|| tg::error!("expected the sandbox to be ready"))?;
+				else {
+					return Err(tg::error!("expected the sandbox to be ready"));
+				};
 				let connected_event = ready_event
 					.connected_event
 					.ok_or_else(|| tg::error!("expected the process to be connected"))?;
@@ -52,8 +67,12 @@ impl Component {
 					.sandbox
 					.subscribe_sandbox_connection(session, &sandbox)
 					.await?;
-				self.spawn_process_local_in_new_sandbox(session, process, lease, arg.public)
+				let output = self
+					.spawn_process_local_in_new_sandbox(session, process, lease, arg.public)
 					.await?;
+				if matches!(output, NewSandboxOutput::Declined) {
+					return Ok(None);
+				}
 				if let Some(sender) = scheduler_sender.take() {
 					let scheduler = process
 						.scheduler
@@ -364,7 +383,7 @@ impl Component {
 		output: &mut Output,
 		lease: tg::process::Lease,
 		public: bool,
-	) -> tg::Result<Option<tangram_server_runner_core::sandbox::ReadyEvent>> {
+	) -> tg::Result<NewSandboxOutput> {
 		let sandbox = output
 			.data
 			.sandbox
@@ -407,7 +426,7 @@ impl Component {
 					));
 				},
 				tangram_server_runner_core::sandbox::Event::Ready(ready_event) => {
-					return Ok(Some(ready_event));
+					return Ok(NewSandboxOutput::Ready(ready_event));
 				},
 			}
 		}
@@ -441,7 +460,6 @@ impl Component {
 			stop: false,
 			token: output.sandbox_token.clone(),
 		};
-		let host = request.arg.host.clone().unwrap_or_default();
 		let scheduler = session
 			.server
 			.components
@@ -450,9 +468,12 @@ impl Component {
 			.await
 			.map_err(|error| {
 				tg::error!(!error, sandbox = %sandbox, process = %output.id, "failed to enqueue the sandbox")
-			})?
-			.ok_or_else(|| tg::error!(%host, process = %output.id, "no scheduler accepts the host"))?;
+			})?;
+		let Some(scheduler) = scheduler else {
+			return Ok(NewSandboxOutput::Declined);
+		};
 		output.scheduler = Some(scheduler);
-		Ok(None)
+
+		Ok(NewSandboxOutput::Enqueued)
 	}
 }

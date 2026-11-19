@@ -50,11 +50,23 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> {
 		async move {
+			let cached = arg.cached == Some(true);
+			let host = match &arg.command.node {
+				tg::Either::Left(command) => command.host.clone(),
+				tg::Either::Right(_) => None,
+			};
 			let stream = self.try_spawn_process(arg).await?;
-			let stream = stream.map(|event_result| {
+			let stream = stream.map(move |event_result| {
 				event_result.and_then(|event| {
-					event
-						.try_map_output(|item| item.ok_or_else(|| tg::error!("expected a process")))
+					event.try_map_output(|item| {
+						item.ok_or_else(|| match &host {
+							_ if cached => tg::error!("failed to find a cached process"),
+							Some(host) => {
+								tg::error!(%host, "no location accepts the process's host")
+							},
+							None => tg::error!("no location accepts the process's host"),
+						})
+					})
 				})
 			});
 			Ok(stream)

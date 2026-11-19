@@ -33,7 +33,7 @@ assert equal $output.data.status started
 tg --url $runner.url index
 let cached = timeout 10s tg --url $runner.url spawn --cached --local --verbose $path | complete
 failure $cached "a running remote process must not be treated as a local cache candidate"
-assert ($cached.stderr | str contains "expected a process") $cached.stderr
+assert ($cached.stderr | str contains "failed to find a cached process") $cached.stderr
 
 # An explicit local request must not release the remote lease.
 let query = { lease: $spawned.lease, location: local } | url build-query

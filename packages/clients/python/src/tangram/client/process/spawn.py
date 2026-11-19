@@ -142,7 +142,7 @@ async def spawn_process(
     client: "Client", arg: ArgObject
 ) -> AsyncIterator[Event[OutputObject]]:
     events = await try_spawn_process(client, arg)
-    return map_spawn_events(events)
+    return map_spawn_events(events, arg.get("cached") is True)
 
 
 async def try_spawn_process(
@@ -157,11 +157,14 @@ async def try_spawn_process(
 
 async def map_spawn_events(
     events: AsyncIterable[Event[OutputObject | None]],
+    cached: bool,
 ) -> AsyncIterator[Event[OutputObject]]:
     try:
         async for event in events:
             if event["kind"] == "output" and event["value"] is None:
-                raise ValueError("expected a process")
+                if cached:
+                    raise ValueError("failed to find a cached process")
+                raise ValueError("no location accepts the process's host")
             yield cast(Event[OutputObject], event)
     finally:
         close = getattr(events, "aclose", None)
