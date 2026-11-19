@@ -3,7 +3,7 @@ use {
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
-	tangram_server_core::Session,
+	tangram_server_core::{Session, authorization::CreateObjectToken},
 };
 
 #[cfg(test)]
@@ -131,23 +131,6 @@ impl Component {
 				.to_i64()
 				.unwrap();
 		Self::create_token(session, id.clone(), vec![permission], expires_at)
-	}
-
-	pub(crate) fn add_tokens_to_value_data(
-		session: &Session,
-		data: &mut tg::value::Data,
-	) -> tg::Result<()> {
-		let now = session.server.clock.unix_timestamp();
-		let expires_at = now
-			+ session
-				.server
-				.config
-				.object
-				.permission_time_to_live
-				.as_secs()
-				.to_i64()
-				.unwrap();
-		Self::add_tokens_to_value_data_with_expires_at(session, data, expires_at)
 	}
 
 	pub(crate) fn add_permanent_token_to_object_reference(
@@ -477,43 +460,34 @@ impl Component {
 		Ok(())
 	}
 
-	pub(crate) fn add_tokens_to_value_data_with_expires_at(
-		session: &Session,
+	pub(crate) fn add_tokens_to_value_data(
 		data: &mut tg::value::Data,
-		expires_at: i64,
+		create_token: &mut CreateObjectToken<'_>,
 	) -> tg::Result<()> {
 		match data {
 			tg::value::Data::Array(array) => {
 				for value in array {
-					Self::add_tokens_to_value_data_with_expires_at(session, value, expires_at)?;
+					Self::add_tokens_to_value_data(value, create_token)?;
 				}
 			},
 			tg::value::Data::Map(map) => {
 				for value in map.values_mut() {
-					Self::add_tokens_to_value_data_with_expires_at(session, value, expires_at)?;
+					Self::add_tokens_to_value_data(value, create_token)?;
 				}
 			},
 			tg::value::Data::Object(object) => {
-				let token = Self::create_token(
-					session,
-					object.node.clone().into(),
-					vec![tg::authorization::Permission::Object(
-						tg::authorization::permission::object::Permission::Subtree,
-					)],
-					expires_at,
-				)?;
-				if let Some(token) = token {
+				if let Some(token) = create_token(&object.node)? {
 					object.options.tokens.insert_local_authorization(token);
 				}
 			},
 			tg::value::Data::Mutation(mutation) => {
-				Self::add_tokens_to_mutation_data(session, mutation, expires_at)?;
+				Self::add_tokens_to_mutation_data(mutation, create_token)?;
 			},
 			tg::value::Data::Module(module) => {
-				Self::add_tokens_to_module_data_with_expires_at(session, module, expires_at)?;
+				Self::add_tokens_to_module_data(module, create_token)?;
 			},
 			tg::value::Data::Template(template) => {
-				Self::add_tokens_to_template_data(session, template, expires_at)?;
+				Self::add_tokens_to_template_data(template, create_token)?;
 			},
 			tg::value::Data::Bool(_)
 			| tg::value::Data::Bytes(_)
@@ -525,55 +499,45 @@ impl Component {
 		Ok(())
 	}
 
-	pub(crate) fn add_tokens_to_module_data_with_expires_at(
-		session: &Session,
+	pub(crate) fn add_tokens_to_module_data(
 		module: &mut tg::module::Data,
-		expires_at: i64,
+		create_token: &mut CreateObjectToken<'_>,
 	) -> tg::Result<()> {
 		let mut children = std::collections::BTreeSet::new();
 		module.children(&mut children);
-		if let Some(id) = children.into_iter().next() {
-			let token = Self::create_token(
-				session,
-				id.into(),
-				vec![tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Subtree,
-				)],
-				expires_at,
-			)?;
-			if let Some(token) = token {
-				module
-					.referent
-					.options
-					.tokens
-					.insert_local_authorization(token);
-			}
+		if let Some(id) = children.into_iter().next()
+			&& let Some(token) = create_token(&id)?
+		{
+			module
+				.referent
+				.options
+				.tokens
+				.insert_local_authorization(token);
 		}
 		Ok(())
 	}
 
 	pub(crate) fn add_tokens_to_mutation_data(
-		session: &Session,
 		data: &mut tg::mutation::Data,
-		expires_at: i64,
+		create_token: &mut CreateObjectToken<'_>,
 	) -> tg::Result<()> {
 		match data {
 			tg::mutation::Data::Unset => {},
 			tg::mutation::Data::Set { value } | tg::mutation::Data::SetIfUnset { value } => {
-				Self::add_tokens_to_value_data_with_expires_at(session, value, expires_at)?;
+				Self::add_tokens_to_value_data(value, create_token)?;
 			},
 			tg::mutation::Data::Prepend { values } | tg::mutation::Data::Append { values } => {
 				for value in values {
-					Self::add_tokens_to_value_data_with_expires_at(session, value, expires_at)?;
+					Self::add_tokens_to_value_data(value, create_token)?;
 				}
 			},
 			tg::mutation::Data::Prefix { template, .. }
 			| tg::mutation::Data::Suffix { template, .. } => {
-				Self::add_tokens_to_template_data(session, template, expires_at)?;
+				Self::add_tokens_to_template_data(template, create_token)?;
 			},
 			tg::mutation::Data::Merge { value } => {
 				for value in value.values_mut() {
-					Self::add_tokens_to_value_data_with_expires_at(session, value, expires_at)?;
+					Self::add_tokens_to_value_data(value, create_token)?;
 				}
 			},
 		}
@@ -616,23 +580,14 @@ impl Component {
 	}
 
 	pub(crate) fn add_tokens_to_template_data(
-		session: &Session,
 		data: &mut tg::template::Data,
-		expires_at: i64,
+		create_token: &mut CreateObjectToken<'_>,
 	) -> tg::Result<()> {
 		for component in &mut data.components {
-			if let tg::template::data::Component::Artifact(artifact) = component {
-				let token = Self::create_token(
-					session,
-					tg::object::Id::from(artifact.node.clone()).into(),
-					vec![tg::authorization::Permission::Object(
-						tg::authorization::permission::object::Permission::Subtree,
-					)],
-					expires_at,
-				)?;
-				if let Some(token) = token {
-					artifact.options.tokens.insert_local_authorization(token);
-				}
+			if let tg::template::data::Component::Artifact(artifact) = component
+				&& let Some(token) = create_token(&artifact.node.clone().into())?
+			{
+				artifact.options.tokens.insert_local_authorization(token);
 			}
 		}
 		Ok(())
@@ -846,30 +801,20 @@ impl tangram_server_core::authorization::Component for Component {
 		Self::add_permanent_token_to_object_reference(session, reference, resource)
 	}
 
-	fn add_tokens_to_module_data_with_expires_at<'a>(
+	fn add_tokens_to_module_data<'a>(
 		&'a self,
-		session: &'a tangram_server_core::Session,
 		module: &'a mut tg::module::Data,
-		expires_at: i64,
+		create_token: &'a mut CreateObjectToken<'_>,
 	) -> tg::Result<()> {
-		Self::add_tokens_to_module_data_with_expires_at(session, module, expires_at)
+		Self::add_tokens_to_module_data(module, create_token)
 	}
 
 	fn add_tokens_to_value_data<'a>(
 		&'a self,
-		session: &'a tangram_server_core::Session,
 		data: &'a mut tg::value::Data,
+		create_token: &'a mut CreateObjectToken<'_>,
 	) -> tg::Result<()> {
-		Self::add_tokens_to_value_data(session, data)
-	}
-
-	fn add_tokens_to_value_data_with_expires_at<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		data: &'a mut tg::value::Data,
-		expires_at: i64,
-	) -> tg::Result<()> {
-		Self::add_tokens_to_value_data_with_expires_at(session, data, expires_at)
+		Self::add_tokens_to_value_data(data, create_token)
 	}
 
 	fn authorize_owner<'a>(

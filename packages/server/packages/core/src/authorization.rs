@@ -6,6 +6,10 @@ mod token;
 
 pub use tangram_index::verify::Outcome;
 
+/// A function that creates the token for an object, if any.
+pub type CreateObjectToken<'a> =
+	dyn FnMut(&tg::object::Id) -> tg::Result<Option<tg::authorization::Token>> + 'a;
+
 /// The authorization component.
 pub trait Component: crate::component::Lifecycle {
 	fn create_captures(
@@ -35,24 +39,16 @@ pub trait Component: crate::component::Lifecycle {
 		resource: &'a tg::artifact::Id,
 	) -> tg::Result<()>;
 
-	fn add_tokens_to_module_data_with_expires_at<'a>(
+	fn add_tokens_to_module_data<'a>(
 		&'a self,
-		session: &'a Session,
 		module: &'a mut tg::module::Data,
-		expires_at: i64,
+		create_token: &'a mut CreateObjectToken<'_>,
 	) -> tg::Result<()>;
 
 	fn add_tokens_to_value_data<'a>(
 		&'a self,
-		session: &'a Session,
 		data: &'a mut tg::value::Data,
-	) -> tg::Result<()>;
-
-	fn add_tokens_to_value_data_with_expires_at<'a>(
-		&'a self,
-		session: &'a Session,
-		data: &'a mut tg::value::Data,
-		expires_at: i64,
+		create_token: &'a mut CreateObjectToken<'_>,
 	) -> tg::Result<()>;
 
 	fn authorize_owner<'a>(

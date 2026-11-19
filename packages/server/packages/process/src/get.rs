@@ -196,7 +196,7 @@ impl Component {
 		output.tokens = arg.tokens.clone();
 		output.tokens.remove_local_authorization();
 		let permissions = authorization.permissions;
-		Self::add_tokens_to_process_get_output(session, id, authorization, &mut output)?;
+		Self::add_tokens_to_process_get_output(session, id, authorization, &mut output).await?;
 
 		// Read index-only fields at the process's original location.
 		if arg.metadata || arg.availability {
@@ -361,7 +361,7 @@ impl Component {
 			Self::mask_process_child_tokens_with_permissions(children, authorization.permissions);
 		}
 		let permissions = authorization.permissions;
-		Self::add_tokens_to_process_get_output(session, id, authorization, &mut output)?;
+		Self::add_tokens_to_process_get_output(session, id, authorization, &mut output).await?;
 		if metadata {
 			output.metadata = self
 				.try_get_process_metadata_local_with_permissions(session, id, permissions)

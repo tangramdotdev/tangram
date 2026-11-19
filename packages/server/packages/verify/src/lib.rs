@@ -68,11 +68,18 @@ impl Component {
 		// Ask the syncs named by the tokens.
 		Self::verify_syncs(session, &mut items, current_sync).await?;
 
-		// Search the index as a last resort, or read only the principal's permissions from the index when searching is not allowed.
+		// Search the index as a last resort, or read only the subject's or the principal's permissions from the index when searching is not allowed.
 		if search {
 			self.verify_search(session, &mut items, subject.as_ref())
 				.await?;
-		} else if subject.is_none() {
+		} else if let Some(subject) = &subject {
+			Self::verify_permissions_with_subjects(
+				session,
+				&mut items,
+				std::slice::from_ref(subject),
+			)
+			.await?;
+		} else {
 			Self::verify_permissions(session, &mut items).await?;
 		}
 
@@ -344,7 +351,16 @@ impl Component {
 		if !matches!(principal, tg::Principal::Anonymous) {
 			subjects.push(principal.try_to_subject()?);
 		}
+		Self::verify_permissions_with_subjects(session, items, &subjects).await?;
 
+		Ok(())
+	}
+
+	async fn verify_permissions_with_subjects(
+		session: &Session,
+		items: &mut [Item],
+		subjects: &[tg::authorization::Subject],
+	) -> tg::Result<()> {
 		// Read the subjects' permissions on the resources of the items whose permissions are unproven.
 		let mut args = Vec::new();
 		for (position, item) in items.iter().enumerate() {
@@ -354,7 +370,7 @@ impl Component {
 			let tg::Selector::Id(id) = &item.resource else {
 				continue;
 			};
-			for subject in &subjects {
+			for subject in subjects {
 				let arg = tangram_index::permission::get::Arg {
 					resource: id.clone(),
 					subject: subject.clone(),
