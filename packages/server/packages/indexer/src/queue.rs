@@ -639,6 +639,7 @@ impl Indexer {
 		tracing::debug!(items = arg.items.len(), "decoded the archive entry");
 
 		// Wait for the object puts and read their bytes from the cache.
+		tangram_server_core::checkpoint!(self.server, "archive.wait").await;
 		let puts = arg
 			.items
 			.iter()
@@ -680,7 +681,7 @@ impl Indexer {
 			.archive_object_batch(&self.server, args)
 			.await?;
 
-		// Put the object cache entries of the replaced puts, so that eviction deletes their rows. Evicting a put deletes only that put, and the newer put that replaced it is archived or has its own archive item.
+		// Put the object cache entries of the replaced puts, so that eviction deletes their rows. Evicting a put deletes only that put, and the newer put that replaced it keeps the object in the cache.
 		self.server
 			.components
 			.object
