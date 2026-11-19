@@ -583,10 +583,9 @@ impl Component {
 
 		// Determine whether the process is cacheable.
 		let cacheable = Self::spawn_process_is_cacheable(&arg);
-		let write_command_permissions = cache_location.is_none_or(|location| !location.is_remote());
 
-		// Determine whether the scheduler writes the permissions, which it does for a process that creates a sandbox without an allocation on this server's runner.
-		let scheduled = matches!(arg.sandbox, Some(tg::Either::Left(_))) && allocation.is_none();
+		// Determine whether the runner derives the process's ID, which a runner that belongs to a remote does on the shortcut path, so that its start proves the ID to the process's home.
+		let runner_derives_id = cache_location.is_some_and(tg::Location::is_remote);
 
 		// Authorize the sandbox owner.
 		self.spawn_process_authorize_sandbox_owner(session, &arg)
@@ -600,8 +599,7 @@ impl Component {
 				&command,
 				parent_sandbox.as_ref(),
 				cacheable,
-				scheduled,
-				write_command_permissions,
+				runner_derives_id,
 			)
 			.boxed()
 			.await?;
@@ -611,14 +609,6 @@ impl Component {
 		{
 			output.allocation = allocation;
 			output.open = open;
-		}
-		if cache_location.is_some_and(tg::Location::is_remote)
-			&& let Some(output) = &mut output
-			&& !output.cached
-		{
-			output.process_token = None;
-			output.sandbox_token = None;
-			output.tokens.clear();
 		}
 
 		// Get the sandbox of a cached process that is queued, which may borrow the capacity of the parent's sandbox.
@@ -662,7 +652,7 @@ impl Component {
 		// Add tokens to the local output.
 		Self::spawn_process_add_tokens(session, &mut output).await?;
 
-		// Put the public permission on a cached process if necessary, because the spawn wrote the permission of a process that it created with the process.
+		// Put the public permission on a cached process if necessary, because the permissions of a process that the spawn created are written with its record.
 		if output.cached {
 			self.spawn_process_put_public_permission_if_requested(session, &arg, &output)
 				.await?;

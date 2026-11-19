@@ -263,11 +263,28 @@ pub trait Component: crate::component::Lifecycle {
 		timeout: Option<Duration>,
 	) -> BoxFuture<'a, tg::Result<BoxStream<'static, ()>>>;
 
+	fn create_queued_process_arg(
+		&self,
+		session: &Session,
+		process: &tg::runner::control::Process,
+		sandbox: &tg::sandbox::Id,
+		now: i64,
+		permissions: bool,
+		public: bool,
+	) -> tg::Result<tangram_index::process::put::Arg>;
+
 	fn expire_process_log_cache<'a>(
 		&'a self,
 		session: &'a Session,
 		id: &'a tg::process::Id,
 		data: &'a tg::process::Data,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
+	fn finish_unstarted_process<'a>(
+		&'a self,
+		server: &'a Server,
+		process: &'a tg::runner::control::Process,
+		error: tg::Either<tg::error::Data, tg::error::Id>,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn get_process_local<'a>(

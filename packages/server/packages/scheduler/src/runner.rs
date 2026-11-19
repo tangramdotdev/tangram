@@ -610,7 +610,7 @@ impl Component {
 		}
 		tracing::warn!(sandbox = %id, reason = error.as_ref().and_then(|error| error.message.as_deref()), %status, "finishing the runner sandbox");
 
-		// Finish the started processes with the error, or with a cancellation if the sandbox ends without one.
+		// Finish the started processes with the error, or with a cancellation if the sandbox ends without one, and the queued processes of a destroyed sandbox, which can never start.
 		let process_error = error.clone().unwrap_or_else(|| tg::error::Data {
 			code: Some(tg::error::Code::Cancellation),
 			message: Some("the sandbox was destroyed".to_owned()),
@@ -638,10 +638,11 @@ impl Component {
 			};
 			let process = process.clone();
 			let mut data = data.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
-			let finish = data.status.is_started();
+			let queued = data.status.is_queued() && status.is_destroyed();
+			let finish = data.status.is_started() || queued;
 			if finish {
 				let recover_log =
-					data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log());
+					!queued && data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log());
 				if recover_log {
 					match self
 						.finish_expired_process_log(server, &process)

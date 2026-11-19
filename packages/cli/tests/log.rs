@@ -56,7 +56,7 @@ async fn control_early_finish() -> tg::Result<()> {
 		let finish_watch = server
 			.watch_checkpoint(None, "process.control.finish", serde_json::json!({}))
 			.await?;
-		let finished = finished_data(finished);
+		let finished = finished_data(finished, &parent);
 		let finish = tg::process::control::ClientRequestArg::Finish(
 			tg::process::control::FinishClientRequestArg {
 				data: finished.clone(),
@@ -571,7 +571,7 @@ async fn finished_process() -> tg::Result<(Server, tg::process::Id, tg::process:
 	let finished = server
 		.get::<tg::process::Data>(None, &parent.to_string())
 		.await?;
-	let finished = finished_data(finished);
+	let finished = finished_data(finished, &parent);
 
 	Ok((server, parent, finished))
 }
@@ -600,7 +600,7 @@ async fn start_process(
 	Ok((control, id, token))
 }
 
-/// Create the mode that starts a shortcut child of the parent, naming the parent with tokens that the server does not check for the root.
+/// Create the mode that starts a shortcut child of the parent, which is the child's creator, naming the parent with tokens that the server does not check for the root.
 fn start(
 	parent: &tg::process::Id,
 	finished: &tg::process::Data,
@@ -610,6 +610,7 @@ fn start(
 			id: parent.clone(),
 			token: Some(String::new()),
 		},
+		public: false,
 		sandbox: tg::process::control::Sandbox {
 			create: None,
 			token: Some(String::new()),
@@ -625,8 +626,9 @@ fn start(
 	Ok(tg::process::control::Mode::Start(start))
 }
 
-/// Remove the log from a finished process's data.
-fn finished_data(mut data: tg::process::Data) -> tg::process::Data {
+/// Remove the log from a finished process's data, and make the parent its creator, so that it is the data of a shortcut child of the parent.
+fn finished_data(mut data: tg::process::Data, parent: &tg::process::Id) -> tg::process::Data {
+	data.creator = tg::Principal::Process(parent.clone());
 	data.log = None;
 	data
 }

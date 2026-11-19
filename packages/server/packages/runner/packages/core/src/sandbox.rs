@@ -15,6 +15,10 @@ pub struct SpawnSandboxTaskArg {
 	pub location: tg::Location,
 	pub owner: tg::Principal,
 	pub process: Option<tg::runner::control::Process>,
+
+	/// Whether the spawn made the process public, which the runner carries to the process's home in the start of a process whose ID it derives.
+	pub public: bool,
+
 	pub token: Option<String>,
 }
 

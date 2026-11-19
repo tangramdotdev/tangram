@@ -1,36 +1,6 @@
 use {crate::Component, tangram_client::prelude::*, tangram_server_core::Session};
 
 impl Component {
-	pub(super) fn spawn_process_create_creator_permission_arg(
-		session: &Session,
-		principal: &tg::Principal,
-		id: &tg::process::Id,
-		created_at: i64,
-	) -> tg::Result<Option<tangram_index::permission::put::Arg>> {
-		let config = &session.server.config.process;
-		tangram_server_process_core::permission::creator_permission_arg(
-			principal,
-			id,
-			created_at,
-			config.permission_time_to_live,
-			config.permission_time_to_touch,
-		)
-	}
-
-	pub(super) fn spawn_process_create_public_permission_arg(
-		session: &Session,
-		id: &tg::process::Id,
-		created_at: i64,
-	) -> tg::Result<tangram_index::permission::put::Arg> {
-		let config = &session.server.config.process;
-		tangram_server_process_core::permission::public_permission_arg(
-			id,
-			created_at,
-			config.permission_time_to_live,
-			config.permission_time_to_touch,
-		)
-	}
-
 	pub(super) fn spawn_process_create_cached_public_permission_arg(
 		session: &Session,
 		id: &tg::process::Id,

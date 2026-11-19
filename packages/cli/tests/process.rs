@@ -53,6 +53,7 @@ async fn shortcut_start_requires_proof() -> tg::Result<()> {
 			id: parent.clone(),
 			token: Some(mallory.token.clone()),
 		},
+		public: false,
 		sandbox: tg::process::control::Sandbox {
 			create: None,
 			token: Some(mallory.token.clone()),
@@ -139,6 +140,7 @@ async fn shortcut_start_requires_proof() -> tg::Result<()> {
 			id: own.clone(),
 			token: Some(own_token.clone()),
 		},
+		public: false,
 		sandbox: tg::process::control::Sandbox {
 			create: None,
 			token: Some(own_token),
@@ -198,7 +200,7 @@ async fn finished_parent_child() -> tg::Result<()> {
 		.await?;
 	assert!(matches!(data.status, tg::process::Status::Finished));
 
-	// Start a shortcut child of the finished parent as the root, which is not asked to prove the parent.
+	// Start a shortcut child of the finished parent, which is the child's creator, as the root, which is not asked to prove the parent.
 	data.children = None;
 	data.error = None;
 	data.exit = None;
@@ -206,11 +208,13 @@ async fn finished_parent_child() -> tg::Result<()> {
 	data.log = None;
 	data.output = None;
 	data.status = tg::process::Status::Started;
+	data.creator = tg::Principal::Process(parent.clone());
 	let shortcut = tg::process::control::Shortcut {
 		parent: tg::process::control::Parent {
 			id: parent.clone(),
 			token: Some(String::new()),
 		},
+		public: false,
 		sandbox: tg::process::control::Sandbox {
 			create: None,
 			token: Some(String::new()),
@@ -230,6 +234,75 @@ async fn finished_parent_child() -> tg::Result<()> {
 		!readable.status.success(),
 		"the child of a finished parent should not read the parent's objects"
 	);
+
+	server.stop().await?;
+
+	Ok(())
+}
+
+/// A shortcut start must name its parent as the process's creator, because the parent receives the creator's permission on the process.
+#[tokio::test]
+async fn shortcut_start_requires_parent_creator() -> tg::Result<()> {
+	// Start a server with users and a root token.
+	let root_token = "root".to_owned();
+	let mut config = Config::new();
+	config.merge(serde_json::json!({
+		"authentication": {
+			"root": { "token": root_token },
+			"users": { "providers": { "insecure": true } },
+		},
+	}));
+	let server = Server::start(env!("CARGO_BIN_EXE_tangram"), config).await?;
+	let alice = server.login("alice").await?;
+
+	// Alice runs a sandboxed process.
+	let parent = spawn(
+		&server,
+		&alice.token,
+		["--executable", "/bin/sh", "--", "-c", "true"],
+	)
+	.await?;
+	let parent_string = parent.to_string();
+	server
+		.output(Some(&alice.token), ["wait", &parent_string])
+		.await?;
+	server.tg(None, ["index"]).await?;
+	let mut data = server
+		.get::<tg::process::Data>(Some(&alice.token), &parent_string)
+		.await?;
+	data.children = None;
+	data.error = None;
+	data.exit = None;
+	data.finished_at = None;
+	data.log = None;
+	data.output = None;
+	data.status = tg::process::Status::Started;
+	let shortcut = tg::process::control::Shortcut {
+		parent: tg::process::control::Parent {
+			id: parent.clone(),
+			token: Some(String::new()),
+		},
+		public: false,
+		sandbox: tg::process::control::Sandbox {
+			create: None,
+			token: Some(String::new()),
+		},
+	};
+
+	// A shortcut child whose creator is Alice rather than its parent is rejected, even for the root.
+	assert_eq!(data.creator, tg::Principal::User(alice.user.id.clone()));
+	let start = start_arg(&data, &lease(&parent)?, Some(shortcut.clone()));
+	let (_, result) = start_process(&server, &root_token, start, None).await?;
+	let error =
+		result.expect_err("a shortcut start whose creator is not its parent should be rejected");
+	let message = error.trace().to_string();
+	assert!(message.contains("must be its parent"), "{message}");
+
+	// A shortcut child whose creator is its parent starts.
+	data.creator = tg::Principal::Process(parent.clone());
+	let start = start_arg(&data, &lease(&parent)?, Some(shortcut));
+	let (_, result) = start_process(&server, &root_token, start, None).await?;
+	result?;
 
 	server.stop().await?;
 

@@ -1299,6 +1299,7 @@ impl Component {
 					location: location.clone(),
 					owner: request.owner,
 					process: request.process,
+					public: false,
 					token: Some(token),
 				},
 			);

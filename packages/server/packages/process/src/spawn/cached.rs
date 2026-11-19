@@ -448,6 +448,10 @@ impl Component {
 		if output.data.status.is_finished() {
 			return Ok(Some(output));
 		}
+		let id = output
+			.id
+			.clone()
+			.ok_or_else(|| tg::error!("expected the cached process to have an id"))?;
 
 		let request = tg::process::control::ServerRequestArg::AcquireLease(
 			tg::process::control::AcquireLeaseServerRequestArg {},
@@ -456,9 +460,9 @@ impl Component {
 		let timeout = session.server.config.control.request_timeout;
 		let options = tangram_server_core::control::Options { retry, timeout };
 		let location = tg::Location::Local(tg::location::Local::default()).into();
-		let runner = Self::try_get_process_runner_inner(session, &output.id, Some(&location));
+		let runner = Self::try_get_process_runner_inner(session, &id, Some(&location));
 		let control = runner.as_ref().and_then(|runner| {
-			let process = runner.processes.get(&output.id)?;
+			let process = runner.processes.get(&id)?;
 			let data = process.data.status.is_finished().then(|| process.data());
 			Some((process.control_sender.clone(), data))
 		});
@@ -484,7 +488,7 @@ impl Component {
 			let mut wakeups = self
 				.create_process_status_wakeup_stream(
 					session,
-					&output.id,
+					&id,
 					session.context.stopper.clone(),
 					None,
 				)
@@ -500,7 +504,7 @@ impl Component {
 				wakeups: &mut wakeups,
 			};
 			let reply = self
-				.request_process_holder(session, &output.id, arg, |_| false)
+				.request_process_holder(session, &id, arg, |_| false)
 				.boxed()
 				.await?
 				.ok_or_else(|| tg::error!("the process status wakeup stream ended"))?
@@ -513,7 +517,7 @@ impl Component {
 		let response = match response {
 			Err(error) => {
 				if let Some(data) = runner.as_ref().and_then(|runner| {
-					let process = runner.processes.get(&output.id)?;
+					let process = runner.processes.get(&id)?;
 					process.data.status.is_finished().then(|| process.data())
 				}) {
 					output.data = data;
@@ -522,7 +526,7 @@ impl Component {
 				if let Some(process) = self
 					.try_get_process_local_inner(
 						session,
-						&output.id,
+						&id,
 						tangram_server_core::control::id(),
 						false,
 						true,
@@ -533,14 +537,12 @@ impl Component {
 					output.data = process.data;
 					return Ok(output.data.cacheable.then_some(output));
 				}
-				return Err(
-					tg::error!(!error, process = %output.id, "failed to acquire a process lease"),
-				);
+				return Err(tg::error!(!error, process = %id, "failed to acquire a process lease"));
 			},
 			Ok(response) => response,
 		}
 		.map_err(
-			|error| tg::error!(!error, process = %output.id, "the acquire process lease request failed"),
+			|error| tg::error!(!error, process = %id, "the acquire process lease request failed"),
 		)?;
 		let response = response
 			.try_unwrap_acquire_lease()
@@ -550,7 +552,7 @@ impl Component {
 		tangram_server_core::checkpoint!(
 			session.server,
 			"process.spawn.cached.lease.acquire",
-			process = %output.id,
+			process = %id,
 		)
 		.await;
 		if !output.data.cacheable || (!output.data.status.is_finished() && output.lease.is_none()) {
@@ -656,7 +658,7 @@ impl Component {
 			open: None,
 			cached: true,
 			data,
-			id,
+			id: Some(id),
 			lease: None,
 			parent: None,
 			parent_sandbox: None,
@@ -762,7 +764,7 @@ impl Component {
 			open: None,
 			cached: true,
 			data,
-			id,
+			id: Some(id),
 			lease: None,
 			parent: None,
 			parent_sandbox: None,
