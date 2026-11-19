@@ -721,6 +721,9 @@ mod tests {
 	fn install_default_policy() {
 		// Run the syscall checks in the filtered child.
 		if std::env::var_os("TANGRAM_SECCOMP_TEST_CHILD").is_some() {
+			// Query the memory policy without the filter, because a kernel without NUMA support does not implement the syscall.
+			let unfiltered_memory_policy = query_memory_policy();
+
 			let result = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
 			assert_eq!(result, 0);
 			install(SeccompPolicy::Default).unwrap();
@@ -756,18 +759,8 @@ mod tests {
 				Some(libc::ENOSYS)
 			);
 
-			// Query the memory policy, which is allowed on every architecture.
-			let result = unsafe {
-				libc::syscall(
-					libc::SYS_get_mempolicy,
-					std::ptr::null_mut::<libc::c_int>(),
-					std::ptr::null_mut::<libc::c_ulong>(),
-					0,
-					std::ptr::null_mut::<u8>(),
-					0,
-				)
-			};
-			assert_eq!(result, 0);
+			// Query the memory policy, which is allowed on every architecture, so the filter does not change the result.
+			assert_eq!(query_memory_policy(), unfiltered_memory_policy);
 
 			let result = unsafe { libc::syscall(libc::SYS_clone3, std::ptr::null::<u8>(), 0) };
 			assert_eq!(result, -1);
@@ -838,5 +831,24 @@ mod tests {
 
 		// Verify the filtered child succeeded.
 		assert!(status.success());
+	}
+
+	fn query_memory_policy() -> Result<(), Option<i32>> {
+		// SAFETY: The null pointers request no output, so the kernel does not write through them.
+		let result = unsafe {
+			libc::syscall(
+				libc::SYS_get_mempolicy,
+				std::ptr::null_mut::<libc::c_int>(),
+				std::ptr::null_mut::<libc::c_ulong>(),
+				0,
+				std::ptr::null_mut::<u8>(),
+				0,
+			)
+		};
+		if result == 0 {
+			Ok(())
+		} else {
+			Err(std::io::Error::last_os_error().raw_os_error())
+		}
 	}
 }
