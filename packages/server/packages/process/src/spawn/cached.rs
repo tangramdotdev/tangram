@@ -775,6 +775,32 @@ impl Component {
 		})
 	}
 
+	pub(super) async fn try_get_cached_process_regions_and_remotes(
+		&self,
+		session: &Session,
+		arg: &tg::process::spawn::Arg,
+	) -> tg::Result<Option<Output>> {
+		let locations = session
+			.locations(arg.cache_location.as_ref())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the cache locations"))?;
+		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		if let Some(output) = self
+			.try_get_cached_process_regions(session, arg, &regions)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to get a cached process from another region")
+			})? {
+			return Ok(Some(output));
+		}
+		let output = self
+			.try_get_cached_process_remotes(session, arg, &locations.remotes)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a cached process from a remote"))?;
+
+		Ok(output)
+	}
+
 	pub(super) async fn try_get_cached_process_regions(
 		&self,
 		session: &Session,
