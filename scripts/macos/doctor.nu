@@ -10,6 +10,7 @@ def require-command [command: string, help: string] {
 }
 
 def main [
+	--prebuilt # Skip the Rust toolchain check, because the helper and the provider library are already built.
 	--signing
 	--release
 	--notary-profile: string
@@ -18,7 +19,9 @@ def main [
 		error make { msg: "the macOS app can only be built on macOS" }
 	}
 
-	require-command cargo "Install Rust with rustup."
+	if not $prebuilt {
+		require-command cargo "Install Rust with rustup."
+	}
 	require-command security "Install macOS."
 	require-command xcode-select "Install Xcode from the App Store."
 	require-command xcodebuild "Install Xcode from the App Store."

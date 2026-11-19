@@ -109,38 +109,36 @@ export const build = async (...args: tg.Args<Arg>) => {
 		bunEnvArg(build),
 		librustyv8(cargoLock, build, host),
 		libpython(source_, build, host),
-		// `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`.
-		openssl(cLibraryArg),
 		sandboxRootfs(host),
 	];
 
-	// On Linux `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp. Standalone builds link them statically.
+	// On Linux, `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`, and `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp. On macOS, `native-tls` uses the Security framework, so none of these libraries are in the dependency graph. Standalone builds link them statically.
 	if (std.triple.os(host) === "linux") {
 		const capNg = libcapNg(cLibraryArg);
 		const seccomp = libseccomp(cLibraryArg);
-		envs.push(capNg, seccomp);
+		envs.push(openssl(cLibraryArg), capNg, seccomp);
 		if (standalone) {
 			envs.push({
 				LIBCAPNG_LIB_PATH: tg`${capNg}/lib`,
 				LIBCAPNG_LINK_TYPE: "static",
 				LIBSECCOMP_LIB_PATH: tg`${seccomp}/lib`,
 				LIBSECCOMP_LINK_TYPE: "static",
+				OPENSSL_STATIC: "1",
+				PKG_CONFIG_ALL_STATIC: "1",
 			});
 		}
 	}
 
-	// Link OpenSSL and the libraries found with pkg-config statically into standalone builds.
-	if (standalone) {
-		envs.push({ OPENSSL_STATIC: "1", PKG_CONFIG_ALL_STATIC: "1" });
-	}
-
-	// Compile C for the host with the cross compiler, and let the pkg-config crate run in a cross build, because every library that pkg-config finds here is built for the host.
+	// Compile C for the host with the cross compiler.
 	if (build !== host) {
 		envs.push({
 			[`CC_${host}`]: `${host}-cc`,
 			[`CXX_${host}`]: `${host}-c++`,
-			PKG_CONFIG_ALLOW_CROSS: "1",
 		});
+		// Let the pkg-config crate run in a cross build for a Linux host, because every library that pkg-config finds here is built for the host. A macOS host has no such libraries, so pkg-config stays disabled and cannot report a library built for the build machine.
+		if (std.triple.os(host) === "linux") {
+			envs.push({ PKG_CONFIG_ALLOW_CROSS: "1" });
+		}
 	}
 
 	// Build node_modules and set NODE_PATH for esbuild and build scripts.
@@ -219,6 +217,26 @@ export const build = async (...args: tg.Args<Arg>) => {
 export const standalone = async (...args: tg.Args<Arg>) =>
 	build(...args, { standalone: { glibcVersion: "2.39" } });
 
+/** Build the static library that the macOS app's FSKit extension links. */
+export const vfsProvider = async (arg?: { build?: string; host?: string }) => {
+	const host = arg?.host ?? std.triple.host();
+	const build = arg?.build ?? host;
+	tg.assert(
+		std.triple.os(host) === "darwin",
+		"the vfs provider is only available for macOS hosts",
+	);
+
+	const output = await cargo.build({
+		...(await std.triple.rotate({ build, host })),
+		packages: ["tangram_vfs_provider"],
+		source,
+		standalone: true,
+		useCargoVendor: true,
+	});
+
+	return output.get("lib/libtangram_vfs_provider.a").then(tg.File.expect);
+};
+
 export const cloud = async (...args: tg.Args<Arg>) => {
 	const merged = await mergeArgs(args);
 	const host = merged.host ?? std.triple.host();
@@ -247,18 +265,32 @@ export const image = async (...args: tg.Args<Arg>) => {
 	});
 };
 
-export const release = async (arg?: { commit?: string }) => {
-	const targets = [
-		"aarch64-apple-darwin",
-		"aarch64-unknown-linux-gnu",
-		"x86_64-apple-darwin",
-		"x86_64-unknown-linux-gnu",
-	];
+export const release = async (arg?: {
+	commit?: string;
+	targets?: Array<string>;
+}) => {
+	// Map the release targets that Tangram builds to their triples.
+	const triples: Record<string, string> = {
+		"aarch64-darwin": "aarch64-apple-darwin",
+		"aarch64-linux-gnu": "aarch64-unknown-linux-gnu",
+		"x86_64-darwin": "x86_64-apple-darwin",
+		"x86_64-linux-gnu": "x86_64-unknown-linux-gnu",
+	};
 	const machine = std.triple.host();
-	const archives: Record<string, tg.File> = {};
-	for (const target of targets) {
-		// Skip the targets of other operating systems, which this machine cannot build.
-		if (std.triple.os(target) !== std.triple.os(machine)) {
+	const outputs: Record<string, tg.File> = {};
+	for (const name of arg?.targets ?? Object.keys(triples)) {
+		const target = triples[name];
+		tg.assert(target !== undefined, `cannot build the release target ${name}`);
+
+		// A Linux machine builds every target, and cross-compiles the macOS targets with the LLVM toolchain. A macOS machine cannot build the Linux targets, so skip them there unless they were requested.
+		if (
+			std.triple.os(machine) === "darwin" &&
+			std.triple.os(target) !== "darwin"
+		) {
+			tg.assert(
+				arg?.targets === undefined,
+				`a macOS machine cannot build the release target ${name}`,
+			);
 			continue;
 		}
 
@@ -269,7 +301,9 @@ export const release = async (arg?: { commit?: string }) => {
 
 		// Build a standalone tangram for this target that reports the commit, linked against an old glibc on Linux.
 		const standalone =
-			std.triple.os(target) === "linux" ? { glibcVersion: "2.35" } : true;
+			std.triple.os(target) === "linux"
+				? ({ glibcVersion: "2.35" } as const)
+				: true;
 		const env = arg?.commit
 			? { TANGRAM_CLI_COMMIT_HASH: arg.commit }
 			: undefined;
@@ -280,31 +314,21 @@ export const release = async (arg?: { commit?: string }) => {
 			...std.args.optional("env", env),
 		});
 
-		// Determine the archive name.
-		const arch = std.triple.arch(target);
-		let os: string;
+		// Name the binary as the release script stages it.
+		outputs[`tangram_${name}`] = await output
+			.get("bin/tangram")
+			.then(tg.File.expect);
+
+		// Build the static library that the macOS app links, so that a Mac can bundle the app without compiling Rust.
 		if (std.triple.os(target) === "darwin") {
-			os = "darwin";
-		} else {
-			os = "linux";
+			outputs[`libtangram_vfs_provider_${name}.a`] = await vfsProvider({
+				build: machine,
+				host,
+			});
 		}
-		const archiveName = `tangram_${arch}-${os}.tar.gz`;
-
-		// Add a tgx wrapper script alongside the tangram binary.
-		const tgx = tg.file("#!/bin/sh\ntg run -b $@", { executable: true });
-		const releaseDir = await tg.directory(output, {
-			["bin/tgx"]: tgx,
-		});
-
-		// Create a tar.gz archive.
-		const archive =
-			await $`tar -czf ${tg.output} -C ${releaseDir}/bin tangram tg tgx`
-				.env(dash({ build: machine }))
-				.then(tg.File.expect);
-
-		archives[archiveName] = archive;
 	}
-	return tg.directory(archives);
+
+	return tg.directory(outputs);
 };
 
 // Test targets.

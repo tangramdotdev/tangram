@@ -12,8 +12,9 @@ const targets = [
 	x86_64-linux-musl
 	x86_64-linux-musl-static
 ]
+const tangram_targets = [aarch64-darwin aarch64-linux-gnu x86_64-darwin x86_64-linux-gnu]
 
-# Build and package Tangram with --cargo, or package staged binaries by default.
+# Build and package Tangram with --cargo, build it with Tangram with --stage compile, or package staged binaries by default.
 # Repeat --stage <stage> and --target <target> to select stages and targets.
 def --wrapped main [...args: string] {
 	mut cargo = false
@@ -32,8 +33,11 @@ def --wrapped main [...args: string] {
 
 Repeat --stage or --target to select more than one.
 The default stage is package, or compile followed by package with --cargo.
+The compile stage without --cargo builds the gnu and macOS targets with Tangram, and a Linux machine builds all of them.
+It also stages the provider library for each macOS target, and packaging on a Mac bundles the staged helper and library instead of building them with Cargo.
 The package stage signs Linux repositories using the authenticated cf CLI.
 Signed macOS packaging requires a Mac and a positive --build-number, and includes Tangram.dmg and its Sparkle appcast.
+The package stage signs and notarizes the macOS binaries when TANGRAM_APPLE_P12, TANGRAM_APPLE_P12_PASSWORD_FILE, and TANGRAM_APPLE_API_KEY are set.
 Downloaded keys are stored temporarily under keys/. Use --no-sign for local unsigned packages.
 Publishing requires --version, a matching GitHub tag, and signed packaging for the selected targets.
 Existing assets can be replaced, including for version 0.0.0.'
@@ -103,7 +107,8 @@ Existing assets can be replaced, including for version 0.0.0.'
 
 def compile [cargo: bool, selected_targets: list<string>] {
 	if not $cargo {
-		error make {msg: 'the compile stage requires --cargo'}
+		compile-tangram $selected_targets
+		return
 	}
 	let host = ^rustc -vV | lines | where {|line| $line starts-with 'host: '} | first | str replace 'host: ' ''
 	let target = $host | str replace '-apple-' '-' | str replace '-unknown-' '-'
@@ -143,6 +148,34 @@ def compile [cargo: bool, selected_targets: list<string>] {
 	print $'staged ($destination)'
 }
 
+def compile-tangram [selected_targets: list<string>] {
+	let unsupported = $selected_targets | where {|target| $target not-in $tangram_targets }
+	if not ($unsupported | is-empty) {
+		error make {msg: $'Tangram does not build ($unsupported | str join ", "), so build on that platform with --cargo'}
+	}
+	let commit = ^python3 scripts/version.py | str trim
+	let arg = if ($selected_targets | is-empty) { {commit: $commit} } else { {commit: $commit, targets: $selected_targets} }
+
+	mkdir release
+	let temporary = ^mktemp -d release/.compile.XXXXXXXX | str trim
+	try {
+		let output = $temporary | path join output
+		^tg build ./build.tg.ts#release --arg-value ($arg | to json --raw) $'--checkout=($output)'
+		for file in (ls $output | get name) {
+			let destination = 'release' | path join ($file | path basename)
+			let staged = $temporary | path join staged
+			let mode = if ($file | str ends-with '.a') { '644' } else { '755' }
+			^install -m $mode $file $staged
+			place-file $staged $destination
+			print $'staged ($destination)'
+		}
+	} catch {|error|
+		rm -rf $temporary
+		error make $error.raw
+	}
+	rm -rf $temporary
+}
+
 def package [selected_targets: list<string>, version: string, sign: bool, build_number: string] {
 	let selected_targets = if ($selected_targets | is-empty) {
 		$targets | where {|target| (staged-binary $target | path type) == file }
@@ -169,7 +202,17 @@ def package [selected_targets: list<string>, version: string, sign: bool, build_
 	if $macos_app {
 		let sign_flags = if $sign { [] } else { ['--no-sign'] }
 		let build_flags = if ($build_number | is-empty) { [] } else { ['--build-number' $build_number] }
-		^nu scripts/macos/release.nu --version $version ...$sign_flags ...$build_flags
+
+		# Bundle the staged helper and provider library for this Mac's architecture when both are staged, so that the app needs no Rust build.
+		let arch = ^uname -m | str trim | str replace 'arm64' 'aarch64'
+		let helper = staged-binary $'($arch)-darwin'
+		let provider = $'release/libtangram_vfs_provider_($arch)-darwin.a'
+		let prebuilt_flags = if ($helper | path type) == file and ($provider | path type) == file {
+			['--helper' $helper '--provider' $provider]
+		} else {
+			[]
+		}
+		^nu scripts/macos/release.nu --version $version ...$sign_flags ...$build_flags ...$prebuilt_flags
 	}
 	let manifest = ('release/manifest.json' | path expand)
 	if ($manifest | path type) == file {
@@ -192,6 +235,10 @@ def package [selected_targets: list<string>, version: string, sign: bool, build_
 			error make $error.raw
 		}
 		rm -r $staged
+	}
+	if $sign {
+		let darwin_targets = $selected_targets | where {|target| $target ends-with '-darwin' }
+		^nu scripts/release/sign.nu ...$darwin_targets
 	}
 	for target in $selected_targets {
 		let binary = staged-binary $target
