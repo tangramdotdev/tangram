@@ -117,7 +117,7 @@ pub struct Options {
 	#[command(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	/// Grant public read on the process so its result is reusable by anyone.
+	/// Grant temporary public read access to the process so that its result is reusable by anyone.
 	#[arg(id = "spawn.public", long = "public")]
 	pub public: bool,
 

@@ -392,6 +392,7 @@ impl Component {
 			owner_ancestors,
 			parent: None,
 			process: None,
+			public: false,
 			runner,
 			sandbox: id.clone(),
 			scheduler: Some(scheduler.clone()),

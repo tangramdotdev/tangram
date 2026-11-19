@@ -230,7 +230,7 @@ impl Component {
 		let mut lease_guard = LeaseGuard::new(session, &output);
 		output.command = Some(command.node);
 		Self::spawn_process_add_tokens(session, &mut output).await?;
-		self.spawn_process_create_public_grant_if_requested(session, &arg, &output)
+		self.spawn_process_put_public_permission_if_requested(session, &arg, &output)
 			.await?;
 		if let Some(guard) = &mut lease_guard {
 			guard.disarm();

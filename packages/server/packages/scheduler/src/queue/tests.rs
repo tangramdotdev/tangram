@@ -19,6 +19,7 @@ fn sandbox(id: &tg::sandbox::Id) -> Sandbox {
 		owner_ancestors: Vec::new(),
 		parent: None,
 		process: None,
+		public: false,
 		runner: None,
 		sandbox: id.clone(),
 		scheduler: None,

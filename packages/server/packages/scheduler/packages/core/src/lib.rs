@@ -373,6 +373,11 @@ pub struct EnqueueSandboxRequestArg {
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
 	pub process: Option<tg::runner::control::Process>,
 
+	/// Whether the process is public, so that the scheduler writes the public permission with the queued process.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[tangram_serialize(default, id = 13, skip_serializing_if = "std::ops::Not::not")]
+	pub public: bool,
+
 	/// The runner that the sandbox must start on, because its data is on that runner.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 7, skip_serializing_if = "Option::is_none")]
