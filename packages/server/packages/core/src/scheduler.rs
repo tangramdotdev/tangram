@@ -36,12 +36,6 @@ pub trait Component: crate::component::Lifecycle {
 		scheduler: &'a tg::scheduler::Id,
 	) -> BoxFuture<'a, tg::Result<bool>>;
 
-	fn enqueue_sandbox<'a>(
-		&'a self,
-		session: &'a Session,
-		request: tangram_server_scheduler_core::EnqueueSandboxRequestArg,
-	) -> BoxFuture<'a, tg::Result<tg::scheduler::Id>>;
-
 	/// Get a sandbox owner and its ancestors, which an enqueue request carries.
 	fn get_owner_ancestors<'a>(
 		&'a self,
@@ -82,4 +76,11 @@ pub trait Component: crate::component::Lifecycle {
 		id: &'a tg::sandbox::Id,
 		error: tg::error::Data,
 	) -> BoxFuture<'a, tg::Result<()>>;
+
+	/// Enqueue a sandbox with a scheduler that accepts its host, returning `None` if every scheduler declines it.
+	fn try_enqueue_sandbox<'a>(
+		&'a self,
+		session: &'a Session,
+		request: tangram_server_scheduler_core::EnqueueSandboxRequestArg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::scheduler::Id>>>;
 }

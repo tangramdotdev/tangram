@@ -275,7 +275,19 @@ impl SchedulerState {
 		}
 		let sandbox = request.sandbox.clone();
 		let result = self.enqueue_sandbox(scheduler, request, recovered);
-		self.finish_enqueue(scheduler, ids, &sandbox, result);
+
+		// Reply to a request that the scheduler declined, which it does not track.
+		if let Ok(EnqueueSandboxResponseOutput::Unplaceable) = result {
+			for id in ids {
+				let output =
+					ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput::Unplaceable);
+				let response = super::request::Response::new(id, Ok(output));
+				scheduler.send_response(self, response);
+			}
+			return;
+		}
+
+		self.finish_enqueue(scheduler, ids, &sandbox, result.map(|_| ()));
 	}
 
 	/// Respond to enqueue requests. A request that the scheduling task accepted responds once either its index write is enqueued or a runner accepts the sandbox, whichever is first.
@@ -558,7 +570,7 @@ impl SchedulerState {
 		result: tg::Result<()>,
 	) {
 		let result =
-			result.map(|()| ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput {}));
+			result.map(|()| ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput::Enqueued));
 		for id in ids {
 			let response = super::request::Response::new(id, result.clone());
 			scheduler.send_response(self, response);
@@ -595,7 +607,15 @@ impl SchedulerState {
 		scheduler: &Scheduler,
 		mut request: EnqueueSandboxRequestArg,
 		recovered: bool,
-	) -> tg::Result<()> {
+	) -> tg::Result<EnqueueSandboxResponseOutput> {
+		// Decline a sandbox whose host this scheduler does not accept, before tracking or persisting it.
+		if !recovered
+			&& let Some(host) = &request.arg.host
+			&& !scheduler.config.hosts.contains(host)
+		{
+			return Ok(EnqueueSandboxResponseOutput::Unplaceable);
+		}
+
 		// Resolve the sandbox's resources, so that the runner creates the sandbox with the bounds that the scheduler admits.
 		tangram_server_sandbox_common::resolve_sandbox_resources(
 			&scheduler.config.default_capacity,
@@ -642,7 +662,7 @@ impl SchedulerState {
 			self.add_parent(&id, &parent);
 		}
 
-		Ok(())
+		Ok(EnqueueSandboxResponseOutput::Enqueued)
 	}
 
 	/// Ask a runner to destroy a sandbox that it holds.

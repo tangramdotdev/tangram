@@ -141,13 +141,15 @@ impl Component {
 		};
 		let data =
 			tangram_server_scheduler_core::sandbox_data(&request, tg::sandbox::Status::Starting);
+		let host = request.arg.host.clone().unwrap_or_default();
 		session
 			.server
 			.components
 			.scheduler
-			.enqueue_sandbox(session, request)
+			.try_enqueue_sandbox(session, request)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?
+			.ok_or_else(|| tg::error!(%host, sandbox = %id, "no scheduler accepts the host"))?;
 
 		// Wait for the sandbox to start if requested.
 		if let Some(wakeups) = &mut wakeups {

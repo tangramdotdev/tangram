@@ -1298,6 +1298,9 @@ pub struct Scheduler {
 	/// The storage bounds for a sandbox that omits them, where an omitted maximum means no limit.
 	pub default_storage: tg::sandbox::Resource<u64>,
 
+	/// The hosts of the sandboxes that the scheduler accepts, which a scheduler declines for any other host.
+	pub hosts: BTreeSet<String>,
+
 	/// The scheduler's ID, which stays the same when the scheduler restarts.
 	pub id: Option<tg::scheduler::Id>,
 
@@ -3045,6 +3048,7 @@ impl Default for Scheduler {
 			default_cpu: tg::sandbox::Cpu::default(),
 			default_memory: tg::sandbox::Resource::default(),
 			default_storage: tg::sandbox::Resource::default(),
+			hosts: BTreeSet::from([tg::host::current().to_owned()]),
 			id: None,
 			max_offer_failures: default_scheduler_max_offer_failures(),
 			max_offers: default_scheduler_max_offers(),

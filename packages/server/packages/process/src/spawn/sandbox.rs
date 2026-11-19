@@ -439,9 +439,17 @@ impl Component {
 			stop: false,
 			token: output.sandbox_token.clone(),
 		};
-		let scheduler = session.server.components.scheduler.enqueue_sandbox(session, request).await.map_err(|error| {
-			tg::error!(!error, sandbox = %sandbox, process = %output.id, "failed to enqueue the sandbox")
-		})?;
+		let host = request.arg.host.clone().unwrap_or_default();
+		let scheduler = session
+			.server
+			.components
+			.scheduler
+			.try_enqueue_sandbox(session, request)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, sandbox = %sandbox, process = %output.id, "failed to enqueue the sandbox")
+			})?
+			.ok_or_else(|| tg::error!(%host, process = %output.id, "no scheduler accepts the host"))?;
 		output.scheduler = Some(scheduler);
 		Ok(None)
 	}
