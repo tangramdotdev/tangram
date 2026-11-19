@@ -97,12 +97,6 @@ impl Indexer {
 						state.queues.target_sequences().1,
 					)
 				};
-				tracing::debug!(
-					read,
-					target,
-					waits = state.waits.len(),
-					"read the private index queue progress"
-				);
 				state.poll_queues(self.server.config.advanced.multi_server, read, target);
 			}
 
@@ -183,15 +177,12 @@ impl State {
 			async move {
 				let request = ids.first().unwrap().clone();
 				tangram_server_core::checkpoint!(server, "indexer.request.wait", request,).await;
-				tracing::debug!("waiting for object puts before indexing");
 				server
 					.components
 					.object
 					.wait_remote_object_put_tasks()
 					.await;
-				tracing::debug!("waiting for index tasks");
 				component.index_tasks.wait().await;
-				tracing::debug!("finished waiting for index tasks");
 
 				ids
 			}

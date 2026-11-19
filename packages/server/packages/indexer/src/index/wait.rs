@@ -285,10 +285,6 @@ impl State {
 		})
 		.await?;
 
-		for (id, request) in &self.waits {
-			tracing::debug!(%id, state = ?request.state, "waiting for indexing progress");
-		}
-
 		// Pending shared work needs a surviving indexer after the private waits finish.
 		if server.config.advanced.multi_server
 			&& self.waits.values().any(|request| {
@@ -344,7 +340,6 @@ impl State {
 
 		// Advance each input independently without admitting later requests to an older snapshot.
 		if let Some(batch) = database_index_queue {
-			tracing::debug!(?batch, "read the database index queue progress");
 			let pending = self.database_index_queue_batch_id.is_some();
 			for request in self.waits.values_mut() {
 				let RequestState::Inputs {
@@ -440,7 +435,6 @@ impl State {
 			read(tangram_index::update::Kind::Usage),
 		)
 		.await?;
-		tracing::debug!(?oldests, "read the oldest index updates");
 		let ids = self
 			.waits
 			.iter()
