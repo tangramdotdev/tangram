@@ -35,12 +35,6 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::object::put::Arg,
 	) -> BoxFuture<'a, tg::Result<tg::object::put::Output>>;
 
-	fn put_object_cache_entry_batch<'a>(
-		&'a self,
-		server: &'a crate::Server,
-		entries: Vec<(tg::object::Id, [u8; 16])>,
-	) -> BoxFuture<'a, tg::Result<()>>;
-
 	fn try_get_object<'a>(
 		&'a self,
 		session: &'a Session,

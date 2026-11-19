@@ -168,14 +168,6 @@ impl tangram_server_core::object::Component for Component {
 		self.put_object(session, id, arg).boxed()
 	}
 
-	fn put_object_cache_entry_batch<'a>(
-		&'a self,
-		server: &'a Server,
-		entries: Vec<(tg::object::Id, [u8; 16])>,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		Self::put_object_cache_entry_batch(server, entries).boxed()
-	}
-
 	fn try_get_object<'a>(
 		&'a self,
 		session: &'a Session,
