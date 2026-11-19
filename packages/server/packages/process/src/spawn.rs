@@ -643,7 +643,6 @@ impl Component {
 			.map_err(|error| tg::error!(!error, region = %region, "failed to push the command"))?;
 		let mut arg = tg::process::spawn::Arg {
 			location: Some(location.clone().into()),
-			parent: None,
 			..arg
 		};
 		Self::update_spawn_process_arg_for_location(&mut arg, &location);
