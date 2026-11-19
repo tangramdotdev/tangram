@@ -229,6 +229,71 @@ fn a_zero_process_data_fragment_size_is_rejected() {
 	assert!(Index::new(&config).is_err());
 }
 
+fn creator_permission_arg(id: &tg::process::Id) -> tangram_index::permission::put::Arg {
+	let permission = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Parent,
+	);
+	tangram_index::permission::put::Arg {
+		created_at: 0,
+		permissions: permission.into(),
+		resource: id.clone().into(),
+		source: tangram_index::permission::Source::Direct {
+			expires_at: Some(i64::MAX),
+		},
+		subject: tg::authorization::Subject::Public,
+		time_to_touch: None,
+		version: None,
+	}
+}
+
+#[tokio::test]
+async fn a_queued_record_that_arrives_after_the_process_started_puts_its_permissions() {
+	let (_dir, index) = super::new_index();
+	let id = tg::process::Id::new();
+
+	// Start the process.
+	let data = process_data(tg::process::Status::Started, String::new());
+	put_process(&index, process_arg(&id, data)).await;
+
+	// Put a queued record that another principal rejects, and verify that it puts no permissions.
+	let data = process_data(tg::process::Status::Queued, String::new());
+	let mut arg = process_arg(&id, data.clone());
+	arg.permissions = vec![creator_permission_arg(&id)];
+	arg.principal = tg::Principal::Root;
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(Box::new(arg))],
+	};
+	assert!(index.write(arg).await.unwrap().is_err());
+	let permission = tangram_index::permission::get::Arg {
+		resource: id.clone().into(),
+		subject: tg::authorization::Subject::Public,
+	};
+	let permissions = index
+		.get_permissions(std::slice::from_ref(&permission))
+		.await
+		.unwrap();
+	assert_eq!(permissions[0], Vec::new());
+
+	// Put the queued record with the creator permission.
+	let mut arg = process_arg(&id, data);
+	arg.permissions = vec![creator_permission_arg(&id)];
+	put_process(&index, arg).await;
+
+	// Verify that the process is still started and that the creator permission was put.
+	let process = index.try_get_process(&id).await.unwrap().unwrap();
+	assert_eq!(process.status, Some(tg::process::Status::Started));
+	let permissions = index
+		.get_permissions(std::slice::from_ref(&permission))
+		.await
+		.unwrap();
+	assert_eq!(
+		permissions[0],
+		vec![tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent
+		)]
+	);
+}
+
 fn count_delegations(index: &Index, subject: &tg::authorization::Subject) -> usize {
 	let transaction = index.env.read_txn().unwrap();
 	let prefix = Index::pack(

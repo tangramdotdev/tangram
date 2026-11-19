@@ -6,41 +6,18 @@ use {
 impl Component {
 	pub(super) fn spawn_process_create_creator_permission_arg(
 		session: &Session,
+		principal: &tg::Principal,
 		id: &tg::process::Id,
 		created_at: i64,
 	) -> tg::Result<Option<tangram_index::permission::put::Arg>> {
-		let subject = match &session.context.principal {
-			tg::Principal::Anonymous => tg::authorization::Subject::Public,
-			tg::Principal::Root => return Ok(None),
-			principal => principal.try_to_subject()?,
-		};
-		let time_to_live = i64::try_from(
-			session
-				.server
-				.config
-				.process
-				.permission_time_to_live
-				.as_secs(),
-		)
-		.map_err(|error| tg::error!(!error, "failed to convert the permission ttl"))?;
-		let expires_at = created_at
-			.checked_add(time_to_live)
-			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
-		let permission = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Parent,
-		);
-		let arg = tangram_index::permission::put::Arg {
+		let config = &session.server.config.process;
+		tangram_server_process_core::permission::creator_permission_arg(
+			principal,
+			id,
 			created_at,
-			permissions: permission.into(),
-			resource: id.clone().into(),
-			source: tangram_index::permission::Source::Direct {
-				expires_at: Some(expires_at),
-			},
-			subject,
-			time_to_touch: Some(session.server.config.process.permission_time_to_touch),
-			version: None,
-		};
-		Ok(Some(arg))
+			config.permission_time_to_live,
+			config.permission_time_to_touch,
+		)
 	}
 
 	pub(super) async fn spawn_process_create_public_grant_if_requested(

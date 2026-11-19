@@ -37,7 +37,7 @@ impl Index {
 			.map(tangram_index::process::Process::deserialize)
 			.transpose()?;
 
-		// Ignore a queued record that arrives after the process started, because writes may be applied out of order.
+		// Ignore a queued record that arrives after the process started, except for its permissions, because writes may be applied out of order.
 		if arg
 			.data
 			.as_ref()
@@ -46,6 +46,7 @@ impl Index {
 				.as_ref()
 				.is_some_and(|existing| existing.status.is_some())
 		{
+			Self::put_permissions_with_transaction(db, subspace, transaction, &arg.permissions)?;
 			return Ok(Ok(()));
 		}
 

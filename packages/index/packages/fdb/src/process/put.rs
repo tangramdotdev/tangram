@@ -60,7 +60,7 @@ impl Index {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 
-		// Ignore a queued record that arrives after the process started, because writes may be applied out of order.
+		// Ignore a queued record that arrives after the process started, except for its permissions, because writes may be applied out of order.
 		if arg
 			.data
 			.as_ref()
@@ -69,6 +69,15 @@ impl Index {
 				.as_ref()
 				.is_some_and(|existing| existing.status.is_some())
 		{
+			crate::propagate!(
+				Self::put_permissions_with_transaction(
+					txn,
+					subspace,
+					&arg.permissions,
+					partition_totals
+				)
+				.await
+			);
 			return Ok(ControlFlow::Break(Ok(())));
 		}
 

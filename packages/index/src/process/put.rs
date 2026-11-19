@@ -69,7 +69,7 @@ pub struct Arg {
 	#[tangram_serialize(id = 8)]
 	pub parent: Option<tg::process::Id>,
 
-	/// Permissions granted after validation if the process is new or both `data` and `children` are `Some`.
+	/// Permissions granted after validation if the process is new, if both `data` and `children` are `Some`, or if the put is a queued record that arrives after the process started.
 	#[tangram_serialize(id = 18)]
 	pub permissions: Vec<crate::permission::put::Arg>,
 
