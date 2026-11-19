@@ -110,6 +110,30 @@ impl Session {
 		Ok(outputs.pop().unwrap())
 	}
 
+	pub async fn verify_batch_with_subject_without_search<R, I>(
+		&self,
+		args: I,
+		required: tg::authorization::permission::Set,
+		subject: tg::authorization::Subject,
+	) -> tg::Result<Vec<Output>>
+	where
+		R: IntoAuthorizationResource,
+		I: IntoIterator<Item = (R, tg::authorization::permission::Set, tg::storage::Set)>,
+	{
+		let args = args
+			.into_iter()
+			.map(|(resource, permissions, storage)| (resource, permissions, None, storage));
+		self.verify_batch_inner_with_subject(
+			args,
+			Some(required),
+			Some(subject),
+			None,
+			false,
+			false,
+		)
+		.await
+	}
+
 	pub async fn verify_batch<R, I>(&self, args: I) -> tg::Result<Vec<Output>>
 	where
 		R: IntoAuthorizationResource,

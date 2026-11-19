@@ -2,7 +2,8 @@ use {
 	super::child::AddProcessChildArg,
 	crate::Component,
 	futures::{FutureExt as _, TryStreamExt as _, future, future::BoxFuture},
-	std::pin::pin,
+	num::ToPrimitive as _,
+	std::{collections::BTreeSet, pin::pin},
 	tangram_client::prelude::*,
 	tangram_server_core::Session,
 };
@@ -746,27 +747,58 @@ impl Component {
 		Ok(output)
 	}
 
-	pub(super) fn spawn_process_add_tokens(
+	pub(super) async fn spawn_process_add_tokens(
 		session: &Session,
 		output: &mut tg::process::spawn::Output,
 	) -> tg::Result<()> {
-		if matches!(
+		let local = matches!(
 			&output.location,
 			Some(tg::Location::Local(tg::location::Local { region }))
 				if region.as_deref().is_none_or(|region| Some(region) == session.server.config.region.as_deref())
-		) && let Some(outcome) = &mut output.outcome
-		{
-			if let Some(output) = &mut outcome.output {
-				session
-					.server
-					.components
-					.authorization
-					.add_tokens_to_value_data(session, output)?;
-			}
-			if let Some(tg::Either::Right(error)) = &mut outcome.error {
-				session.add_token_to_object_referent(error)?;
-			}
+		);
+		let Some(id) = output.process.as_ref().right().cloned() else {
+			return Ok(());
+		};
+		let Some(outcome) = output.outcome.as_mut().filter(|_| local) else {
+			return Ok(());
+		};
+
+		// Collect the objects of the outcome.
+		let mut objects = BTreeSet::new();
+		if let Some(output) = &outcome.output {
+			output.children(&mut objects);
 		}
+		if let Some(tg::Either::Right(error)) = &outcome.error {
+			objects.insert(error.node.clone().into());
+		}
+
+		// Verify the objects as the process, so that a token authorizes only what the process has proven.
+		let proofs = Self::verify_process_objects(session, &id, objects).await?;
+		let expires_at = session.server.clock.unix_timestamp()
+			+ session
+				.server
+				.config
+				.object
+				.permission_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		let mut create_token = |object: &tg::object::Id| {
+			Self::create_process_object_token(session, &proofs, object, expires_at)
+		};
+		if let Some(output) = &mut outcome.output {
+			session
+				.server
+				.components
+				.authorization
+				.add_tokens_to_value_data(output, &mut create_token)?;
+		}
+		if let Some(tg::Either::Right(error)) = &mut outcome.error
+			&& let Some(token) = create_token(&error.node.clone().into())?
+		{
+			error.options.tokens.insert_local_authorization(token);
+		}
+
 		Ok(())
 	}
 

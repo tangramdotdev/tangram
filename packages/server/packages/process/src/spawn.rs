@@ -586,7 +586,7 @@ impl Component {
 		output.command = Some(command.node);
 
 		// Add tokens to the local output.
-		Self::spawn_process_add_tokens(session, &mut output)?;
+		Self::spawn_process_add_tokens(session, &mut output).await?;
 
 		// Create a public grant if necessary.
 		self.spawn_process_create_public_grant_if_requested(session, &arg, &output)
