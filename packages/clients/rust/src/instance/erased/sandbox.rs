@@ -5,10 +5,10 @@ use {
 };
 
 pub trait Sandbox: Send + Sync + 'static {
-	fn create_sandbox(
+	fn try_create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
-	) -> BoxFuture<'_, tg::Result<tg::sandbox::create::Output>>;
+	) -> BoxFuture<'_, tg::Result<Option<tg::sandbox::create::Output>>>;
 
 	fn try_get_sandbox<'a>(
 		&'a self,
@@ -85,11 +85,11 @@ impl<T> Sandbox for T
 where
 	T: tg::instance::Sandbox,
 {
-	fn create_sandbox(
+	fn try_create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
-	) -> BoxFuture<'_, tg::Result<tg::sandbox::create::Output>> {
-		self.create_sandbox(arg).boxed()
+	) -> BoxFuture<'_, tg::Result<Option<tg::sandbox::create::Output>>> {
+		self.try_create_sandbox(arg).boxed()
 	}
 
 	fn try_get_sandbox<'a>(

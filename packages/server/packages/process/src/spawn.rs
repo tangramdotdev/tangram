@@ -277,9 +277,9 @@ impl Component {
 			if output.is_some() || !walk {
 				break output;
 			}
-			tried.push(Self::spawn_process_normalize_location(session, location));
+			tried.push(session.server.normalize_location(location));
 			if candidates.is_none() {
-				candidates = Some(Self::spawn_process_candidate_locations(session).await?);
+				candidates = Some(session.candidate_locations().await?);
 			}
 			let next = candidates
 				.as_ref()
@@ -319,41 +319,6 @@ impl Component {
 		}
 
 		Ok(output)
-	}
-
-	/// Get the locations that a spawn without an explicit location tries in order: this server, each other region, and each remote.
-	async fn spawn_process_candidate_locations(session: &Session) -> tg::Result<Vec<tg::Location>> {
-		let locations = session
-			.locations(None)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		let mut candidates = vec![tg::Location::Local(tg::location::Local::default())];
-		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-		candidates.extend(regions.into_iter().map(|region| {
-			tg::Location::Local(tg::location::Local {
-				region: Some(region),
-			})
-		}));
-		candidates.extend(locations.remotes.into_iter().map(|remote| {
-			tg::Location::Remote(tg::location::Remote {
-				name: remote.name,
-				region: None,
-			})
-		}));
-
-		Ok(candidates)
-	}
-
-	/// Normalize a location in this server's region to the location of this server.
-	fn spawn_process_normalize_location(session: &Session, location: tg::Location) -> tg::Location {
-		match location {
-			tg::Location::Local(tg::location::Local {
-				region: Some(region),
-			}) if Some(region.as_str()) == session.server.config.region.as_deref() => {
-				tg::Location::Local(tg::location::Local::default())
-			},
-			location => location,
-		}
 	}
 
 	async fn try_spawn_process_location(

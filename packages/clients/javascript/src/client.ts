@@ -37,7 +37,7 @@ import {
 	waitProcessPromise,
 } from "./client/process/wait.ts";
 import { read, tryRead, tryReadStream } from "./client/read.ts";
-import { createSandbox } from "./client/sandbox/create.ts";
+import { createSandbox, tryCreateSandbox } from "./client/sandbox/create.ts";
 import { destroySandbox, tryDestroySandbox } from "./client/sandbox/destroy.ts";
 import { getSandbox, tryGetSandbox } from "./client/sandbox/get.ts";
 import { startSandbox, tryStartSandbox } from "./client/sandbox/start.ts";
@@ -267,6 +267,12 @@ export class Client {
 
 	createSandbox(arg: tg.Sandbox.Create.Arg): Promise<tg.Sandbox.Create.Output> {
 		return createSandbox(this, arg);
+	}
+
+	tryCreateSandbox(
+		arg: tg.Sandbox.Create.Arg,
+	): Promise<tg.Sandbox.Create.Output | null> {
+		return tryCreateSandbox(this, arg);
 	}
 
 	destroySandbox(

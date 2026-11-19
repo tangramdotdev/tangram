@@ -6,11 +6,11 @@ use {
 };
 
 impl tg::instance::Sandbox for Instance {
-	fn create_sandbox(
+	fn try_create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::create::Output>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.create_sandbox(arg)) }
+	) -> impl Future<Output = tg::Result<Option<tg::sandbox::create::Output>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_create_sandbox(arg)) }
 	}
 
 	fn try_get_sandbox(

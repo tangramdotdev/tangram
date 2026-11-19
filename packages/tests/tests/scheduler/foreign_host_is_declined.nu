@@ -23,7 +23,7 @@ assert ($output.stderr | str contains "not-a-real-host")
 # A sandbox create with a host that the scheduler does not accept fails.
 let output = tg --url $server.url sandbox create --no-tokens --host not-a-real-host | complete
 failure $output "a sandbox create with a host that no scheduler accepts should fail"
-assert ($output.stderr | str contains "no scheduler accepts the host")
+assert ($output.stderr | str contains "no location accepts the sandbox's host")
 assert ($output.stderr | str contains "not-a-real-host")
 
 # A sandbox with the server's own host is still accepted.

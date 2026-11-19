@@ -98,7 +98,7 @@ impl Component {
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		match (method, path_components.as_slice()) {
 			(http::Method::POST, ["sandboxes"]) => {
-				self.create_sandbox_request(session, request).await
+				self.try_create_sandbox_request(session, request).await
 			},
 			(http::Method::GET, ["sandboxes"]) => {
 				self.list_sandboxes_request(session, request).await
@@ -304,12 +304,12 @@ impl tangram_server_core::sandbox::Component for Component {
 			.boxed()
 	}
 
-	fn create_sandbox<'a>(
+	fn try_create_sandbox<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
 		arg: tg::sandbox::create::Arg,
-	) -> BoxFuture<'a, tg::Result<tg::sandbox::create::Output>> {
-		self.create_sandbox(session, arg).boxed()
+	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::create::Output>>> {
+		self.try_create_sandbox(session, arg).boxed()
 	}
 
 	fn try_get_sandbox<'a>(

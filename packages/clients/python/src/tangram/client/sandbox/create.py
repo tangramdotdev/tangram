@@ -34,6 +34,15 @@ class WireOutput(TypedDict):
 
 
 async def create_sandbox(client: Client, arg: DataArgObject) -> SandboxOutput:
+    output = await try_create_sandbox(client, arg)
+    if output is None:
+        raise ValueError("no location accepts the sandbox's host")
+    return output
+
+
+async def try_create_sandbox(
+    client: Client, arg: DataArgObject
+) -> SandboxOutput | None:
     body = Body.json(arg)
     request = Request(
         "POST",
@@ -42,7 +51,10 @@ async def create_sandbox(client: Client, arg: DataArgObject) -> SandboxOutput:
         body,
     )
     response = await client.send_with_retry(request)
-    if response.status < 200 or response.status >= 300:
+    if response.status == 404:
+        await response.close()
+        return None
+    elif response.status < 200 or response.status >= 300:
         raise Error.from_data(cast(ErrorData, await response.json()))
     output = cast(WireOutput, await response.json())
     location = output.get("location")

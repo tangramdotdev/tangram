@@ -6,6 +6,17 @@ export async function createSandbox(
 	client: Client,
 	arg: tg.Sandbox.Create.Arg,
 ): Promise<tg.Sandbox.Create.Output> {
+	let output = await tryCreateSandbox(client, arg);
+	if (output === null) {
+		throw new Error("no location accepts the sandbox's host");
+	}
+	return output;
+}
+
+export async function tryCreateSandbox(
+	client: Client,
+	arg: tg.Sandbox.Create.Arg,
+): Promise<tg.Sandbox.Create.Output | null> {
 	let method = "POST";
 	let uri = "/sandboxes";
 	let headers = {
@@ -20,7 +31,10 @@ export async function createSandbox(
 		uri,
 	});
 	let response = await client.sendWithRetry(request);
-	if (response.status < 200 || response.status >= 300) {
+	if (response.status === 404) {
+		response.close();
+		return null;
+	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	let output = await response.json<

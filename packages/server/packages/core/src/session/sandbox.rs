@@ -6,14 +6,14 @@ use {
 };
 
 impl tg::instance::Sandbox for Session {
-	async fn create_sandbox(
+	async fn try_create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
-	) -> tg::Result<tg::sandbox::create::Output> {
+	) -> tg::Result<Option<tg::sandbox::create::Output>> {
 		self.server
 			.components
 			.sandbox
-			.create_sandbox(self, arg)
+			.try_create_sandbox(self, arg)
 			.await
 	}
 

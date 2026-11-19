@@ -9,13 +9,13 @@ where
 	L: tg::instance::Sandbox,
 	R: tg::instance::Sandbox,
 {
-	fn create_sandbox(
+	fn try_create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::create::Output>> {
+	) -> impl Future<Output = tg::Result<Option<tg::sandbox::create::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.create_sandbox(arg).left_future(),
-			tg::Either::Right(s) => s.create_sandbox(arg).right_future(),
+			tg::Either::Left(s) => s.try_create_sandbox(arg).left_future(),
+			tg::Either::Right(s) => s.try_create_sandbox(arg).right_future(),
 		}
 	}
 
