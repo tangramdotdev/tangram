@@ -7,7 +7,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{task::Shared, task::Task},
-	tangram_server_checkin_core::{Graph, Solutions, try_read_lock},
+	tangram_server_checkin_core::{Graph, Solutions, lockfile_path, try_read_lock},
 	tangram_server_clock_core::Clock,
 };
 
@@ -205,7 +205,7 @@ impl Watch {
 		state.lock().unwrap().watch_paths(next);
 
 		// Spawn the task.
-		let lockfile_path = key.path.join(tg::module::LOCKFILE_FILE_NAME);
+		let lockfile_path = lockfile_path(&key.path);
 		let uses_lock = options.lock.is_some();
 		let task = Task::spawn({
 			let lockfile_path = lockfile_path.clone();
@@ -223,8 +223,11 @@ impl Watch {
 						.paths
 						.iter()
 						.all(|path| path == &lockfile_path);
-					if lockfile_changed && only_lockfile_changed {
-						paths.remove(root.as_path());
+					if lockfile_changed
+						&& only_lockfile_changed
+						&& let Some(parent) = lockfile_path.parent()
+					{
+						paths.remove(parent);
 					}
 					let lock_changed = uses_lock && lockfile_changed;
 					let read_lock =
