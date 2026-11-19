@@ -135,7 +135,7 @@ export const cliSudo = async (...args: Array<string>) => {
 
 export const imageBuild = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
-	await tg.run`docker buildx build --load -t ghcr.io/tangramdotdev/tangram:latest . "$@"`
+	await tg.run`docker buildx build --build-arg "TANGRAM_CLI_COMMIT_HASH=$(python3 scripts/version.py)" --load -t ghcr.io/tangramdotdev/tangram:latest . "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
@@ -162,7 +162,7 @@ export const imagePush = async (...args: Array<string>) => {
 
 export const imagePublish = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
-	await tg.run`docker buildx build --platform linux/amd64,linux/arm64 --push . "$@"`
+	await tg.run`docker buildx build --build-arg "TANGRAM_CLI_COMMIT_HASH=$(python3 scripts/version.py)" --platform linux/amd64,linux/arm64 --push . "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
