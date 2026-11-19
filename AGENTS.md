@@ -12,6 +12,8 @@ Work in the current checkout. Do not create additional Git worktrees.
 
 Force pushing branches other than `main` is allowed. Never force push `main`.
 
+When a change spans several pull requests that build on each other, open them as a GitHub stack, not as separate pull requests with chained bases. Use `gh stack init` and `gh stack submit` to create the stack, or `gh stack link <bottom> ... <top>` to link existing branches or pull requests from bottom to top. Merge a stack with `gh stack merge <stack> --yes --squash`.
+
 ## Repository scripts
 
 Use Tangram as the interface for repository scripts: `tg run .#<export>` from the root, or `tg run ./packages/<package>#<export>` for a package. Pass script arguments after `--`, such as `tg run ./packages/tests#test -- --offline build`. These exports run tools directly on the host without sandboxing. Keep OS-specific operations in the existing Nushell, Python, and Node scripts as appropriate.
