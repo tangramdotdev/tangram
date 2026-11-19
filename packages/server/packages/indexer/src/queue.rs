@@ -1,5 +1,5 @@
 use {
-	super::{Indexer, IndexerState},
+	super::{Indexer, IndexerState, object::ObjectPut},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		ops::ControlFlow,
@@ -639,6 +639,7 @@ impl Indexer {
 		tracing::debug!(items = arg.items.len(), "decoded the archive entry");
 
 		// Wait for the object puts and read their bytes from the cache.
+		tangram_server_core::checkpoint!(self.server, "archive.wait").await;
 		let puts = arg
 			.items
 			.iter()
@@ -648,10 +649,22 @@ impl Indexer {
 			.try_wait_for_object_put_batch(&self.server.config.object.archive_queue.retry, &puts)
 			.await?;
 		let mut args = Vec::with_capacity(puts.len());
+		let mut replaced = Vec::new();
 		for ((id, put), object) in puts.into_iter().zip(objects) {
-			let Some(bytes) = object.and_then(|object| object.bytes) else {
-				tracing::error!(object = %id, ?put, "discarding an archive item because the object put is absent from the cache");
-				continue;
+			let bytes = match object {
+				ObjectPut::Present(tangram_server_core::cache::object::Object {
+					bytes: Some(bytes),
+					..
+				}) => bytes,
+				ObjectPut::Replaced => {
+					tracing::debug!(object = %id, ?put, "skipping an archive item because a newer put of the object replaced it");
+					replaced.push((id, put));
+					continue;
+				},
+				ObjectPut::Absent | ObjectPut::Present(_) => {
+					tracing::error!(object = %id, ?put, "discarding an archive item because the object put is absent from the cache");
+					continue;
+				},
 			};
 			let arg = tangram_archive::object::put::Arg {
 				bytes: bytes.into_owned().into(),
@@ -666,6 +679,13 @@ impl Indexer {
 			.components
 			.object
 			.archive_object_batch(&self.server, args)
+			.await?;
+
+		// Put the object cache entries of the replaced puts, so that eviction deletes their rows. Evicting a put deletes only that put, and the newer put that replaced it keeps the object in the cache.
+		self.server
+			.components
+			.object
+			.put_object_cache_entry_batch(&self.server, replaced)
 			.await?;
 
 		Ok(Ok(()))

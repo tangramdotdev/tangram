@@ -951,16 +951,22 @@ impl Component {
 		let Some(object) = output.object else {
 			return Ok(None);
 		};
-		Self::spawn_put_object_in_cache_task(server, id.clone(), object.bytes.clone());
+
+		// Put the object in the cache with its archived put, so that the cache row cannot replace a pending put of the object whose archive item would then skip it.
+		Self::spawn_put_object_in_cache_task(server, id.clone(), object.bytes.clone(), object.put);
 
 		Ok(Some(object.bytes))
 	}
 
-	fn spawn_put_object_in_cache_task(server: &Server, id: tg::object::Id, bytes: Bytes) {
+	fn spawn_put_object_in_cache_task(
+		server: &Server,
+		id: tg::object::Id,
+		bytes: Bytes,
+		put: [u8; 16],
+	) {
 		tokio::spawn({
 			let server = server.clone();
 			async move {
-				let put = uuid::Uuid::now_v7().into_bytes();
 				let object = tangram_server_core::cache::object::put::Arg {
 					bytes: Some(bytes),
 					checkout_pointer: None,
