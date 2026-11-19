@@ -6,6 +6,19 @@ mod cache;
 #[cfg(test)]
 mod tests;
 
+/// The state of an object put in the cache.
+#[derive(Clone)]
+pub(super) enum ObjectPut {
+	/// The cache does not have the put yet.
+	Absent,
+
+	/// The cache has the put.
+	Present(tangram_server_core::cache::object::Object<'static>),
+
+	/// The cache has a newer put of the object, which replaced the put.
+	Replaced,
+}
+
 impl Indexer {
 	pub(super) async fn wait_for_object_put_batch(
 		&self,
@@ -55,7 +68,7 @@ impl Indexer {
 		&self,
 		retry: &tangram_server_core::config::Retry,
 		puts: &[(tg::object::Id, [u8; 16])],
-	) -> tg::Result<Vec<Option<tangram_server_core::cache::object::Object<'static>>>> {
+	) -> tg::Result<Vec<ObjectPut>> {
 		try_wait_for_object_puts(retry, puts, |ids| async move {
 			let arg = tangram_server_core::cache::object::get::batch::Arg { bytes: true, ids };
 			self.server
@@ -72,21 +85,18 @@ async fn try_wait_for_object_puts<F, Fut>(
 	retry: &tangram_server_core::config::Retry,
 	puts: &[(tg::object::Id, [u8; 16])],
 	get: F,
-) -> tg::Result<Vec<Option<tangram_server_core::cache::object::Object<'static>>>>
+) -> tg::Result<Vec<ObjectPut>>
 where
 	F: Fn(Vec<tg::object::Id>) -> Fut,
 	Fut: Future<Output = tg::Result<Vec<tangram_server_core::cache::object::get::Output>>>,
 {
-	// A queue item can become visible before its concurrent object puts complete.
-	let mut objects = vec![None; puts.len()];
+	// Read the puts until the cache has each one or a newer put that replaced it, because a queue item can become visible before its concurrent object puts complete.
+	let mut objects = vec![ObjectPut::Absent; puts.len()];
 	let mut missing = (0..puts.len()).collect::<Vec<_>>();
 	let options = retry.clone().into();
 	let attempts = tangram_futures::retry::stream(options);
 	futures::pin_mut!(attempts);
-	while attempts.next().await.is_some() {
-		if missing.is_empty() {
-			break;
-		}
+	while !missing.is_empty() && attempts.next().await.is_some() {
 		let ids = missing.iter().map(|index| puts[*index].0.clone()).collect();
 		let outputs = get(ids).await?;
 		if outputs.len() != missing.len() {
@@ -97,7 +107,11 @@ where
 			.zip(outputs)
 			.filter_map(|(index, output)| match output.object {
 				Some(object) if object.put == puts[index].1 => {
-					objects[index] = Some(object);
+					objects[index] = ObjectPut::Present(object);
+					None
+				},
+				Some(object) if object.put > puts[index].1 => {
+					objects[index] = ObjectPut::Replaced;
 					None
 				},
 				_ => Some(index),

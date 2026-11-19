@@ -1,5 +1,5 @@
 use {
-	super::{Indexer, IndexerState},
+	super::{Indexer, IndexerState, object::ObjectPut},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		ops::ControlFlow,
@@ -649,9 +649,19 @@ impl Indexer {
 			.await?;
 		let mut args = Vec::with_capacity(puts.len());
 		for ((id, put), object) in puts.into_iter().zip(objects) {
-			let Some(bytes) = object.and_then(|object| object.bytes) else {
-				tracing::error!(object = %id, ?put, "discarding an archive item because the object put is absent from the cache");
-				continue;
+			let bytes = match object {
+				ObjectPut::Present(tangram_server_core::cache::object::Object {
+					bytes: Some(bytes),
+					..
+				}) => bytes,
+				ObjectPut::Replaced => {
+					tracing::debug!(object = %id, ?put, "skipping an archive item because a newer put of the object replaced it");
+					continue;
+				},
+				ObjectPut::Absent | ObjectPut::Present(_) => {
+					tracing::error!(object = %id, ?put, "discarding an archive item because the object put is absent from the cache");
+					continue;
+				},
 			};
 			let arg = tangram_archive::object::put::Arg {
 				bytes: bytes.into_owned().into(),
