@@ -3188,6 +3188,9 @@ pub struct Builtin {
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Publish {
+	/// The maximum number of concurrent builds of the exports of published packages.
+	pub build_concurrency: usize,
+
 	/// The maximum number of concurrent package tag lookups.
 	pub tag_concurrency: usize,
 }
@@ -3471,6 +3474,13 @@ impl Config {
 			));
 		}
 		if let Some(publish) = &self.publish
+			&& publish.build_concurrency == 0
+		{
+			return Err(tg::error!(
+				"the publish build concurrency must be greater than zero"
+			));
+		}
+		if let Some(publish) = &self.publish
 			&& publish.tag_concurrency == 0
 		{
 			return Err(tg::error!(
@@ -3652,6 +3662,7 @@ impl Default for Builtin {
 impl Default for Publish {
 	fn default() -> Self {
 		Self {
+			build_concurrency: 8,
 			tag_concurrency: 16,
 		}
 	}
