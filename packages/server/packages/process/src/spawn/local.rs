@@ -639,16 +639,16 @@ impl Component {
 					sandbox_arg.hostname.as_deref(),
 					sandbox_arg.storage,
 				)?;
-				let sandbox = tg::sandbox::Id::new();
-				let token = if runner_derives_id {
-					None
+				let (sandbox, token) = if runner_derives_id {
+					(None, None)
 				} else {
+					let sandbox = tg::sandbox::Id::new();
 					let token = session
 						.server
 						.components
 						.authentication
 						.create_sandbox_authentication_token(&session.server, sandbox.clone())?;
-					Some(token)
+					(Some(sandbox), Some(token))
 				};
 				let sandbox_arg = SandboxArg {
 					arg: sandbox_arg,
@@ -656,7 +656,7 @@ impl Component {
 				};
 				(sandbox, Some(sandbox_arg), token)
 			},
-			Some(tg::Either::Right(sandbox)) => (sandbox.node.clone(), None, None),
+			Some(tg::Either::Right(sandbox)) => (Some(sandbox.node.clone()), None, None),
 			None => return Err(tg::error!("expected the sandbox to be set")),
 		};
 		let tty = spawn_arg
@@ -691,7 +691,7 @@ impl Component {
 			output: None,
 			owner: owner.clone(),
 			retry: spawn_arg.retry,
-			sandbox: Some(sandbox.clone()),
+			sandbox,
 			started_at: None,
 			status: tg::process::Status::Queued,
 			stderr: spawn_arg.stderr.clone(),

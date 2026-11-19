@@ -6,7 +6,7 @@ use {
 };
 
 impl Component {
-	/// Create the queued record of a process, which is visible until its runner connects, with the permissions of its creator if requested.
+	/// Create the queued record of a process, which is visible until its runner connects, with the permissions of its creator and the public permission of a public process if requested.
 	pub(crate) fn create_queued_process_arg(
 		session: &Session,
 		process: &tg::runner::control::Process,

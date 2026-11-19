@@ -12,6 +12,19 @@ use {
 	tracing::Instrument as _,
 };
 
+/// A process that a spawn hands to its runner.
+struct HandOffArg {
+	/// The creation of the process's new sandbox, if the spawn creates the sandbox, whose record the spawn writes with the process's.
+	create: Option<tg::process::control::SandboxCreate>,
+
+	process: tg::runner::control::Process,
+
+	public: bool,
+
+	/// The process's sandbox, which is absent until the sandbox is ready if its runner derives the sandbox's ID.
+	sandbox: Option<tg::sandbox::Id>,
+}
+
 /// The result of spawning a process in a new sandbox.
 enum NewSandboxOutput {
 	/// No scheduler accepts the sandbox's host.
@@ -253,7 +266,6 @@ impl Component {
 	fn spawn_process_runner_arg(
 		output: &Output,
 		lease: tg::process::Lease,
-		public: bool,
 	) -> tg::runner::control::Process {
 		let data = output.data.clone();
 		let id = output.id.clone();
@@ -269,7 +281,6 @@ impl Component {
 			open: Vec::new(),
 			options,
 			parent,
-			public,
 			token,
 		}
 	}
@@ -283,7 +294,7 @@ impl Component {
 		public: bool,
 	) -> tg::Result<tangram_server_runner_core::process::ConnectedEvent> {
 		let lease = tg::process::Lease::new();
-		let process = Self::spawn_process_runner_arg(output, lease, public);
+		let process = Self::spawn_process_runner_arg(output, lease);
 		let sandbox = output
 			.data
 			.sandbox
@@ -311,9 +322,13 @@ impl Component {
 			}
 			.boxed()
 		};
-		let connected_event = self
-			.spawn_process_hand_off(session, &process, &sandbox, public, hand_off)
-			.await?;
+		let arg = HandOffArg {
+			create: None,
+			process,
+			public,
+			sandbox: Some(sandbox),
+		};
+		let connected_event = self.spawn_process_hand_off(session, arg, hand_off).await?;
 
 		Ok(connected_event)
 	}
@@ -440,20 +455,24 @@ impl Component {
 		lease: tg::process::Lease,
 		public: bool,
 	) -> tg::Result<NewSandboxOutput> {
-		let sandbox = output
-			.data
-			.sandbox
-			.clone()
-			.ok_or_else(|| tg::error!("the scheduled process has no sandbox"))?;
 		let super::local::SandboxArg { arg, owner } = output
 			.sandbox_arg
 			.clone()
 			.ok_or_else(|| tg::error!("missing the sandbox arg"))?;
-		let process = Self::spawn_process_runner_arg(output, lease, public);
+		let process = Self::spawn_process_runner_arg(output, lease);
 		if let Some(allocation) = output.allocation.take() {
 			let location = session.server.location(arg.location.as_ref())?;
-			let id = output.sandbox_token.as_ref().map(|_| sandbox.clone());
+			let sandbox = output.data.sandbox.clone();
+			let id = sandbox.clone().filter(|_| output.sandbox_token.is_some());
 			let token = output.sandbox_token.clone();
+			let runner = session.server.components.runner.state().id();
+			let create = tg::process::control::SandboxCreate {
+				arg: arg.clone(),
+				created_at: output.data.created_at,
+				creator: session.context.principal.clone(),
+				owner: owner.clone(),
+				runner,
+			};
 			let spawn_sandbox_task_arg = tangram_server_runner_core::sandbox::SpawnSandboxTaskArg {
 				allocation,
 				arg,
@@ -463,6 +482,7 @@ impl Component {
 				location,
 				owner,
 				process: Some(process.clone()),
+				public: public && process.id.is_none(),
 				token,
 			};
 
@@ -479,25 +499,49 @@ impl Component {
 					let event = events
 						.recv()
 						.await
-						.ok_or_else(|| tg::error!("the sandbox event sender was dropped"))??;
+						.ok_or_else(|| tg::error!("the sandbox event sender was dropped"))?;
 					match event {
-						tangram_server_runner_core::sandbox::Event::Destroyed => Err(tg::error!(
-							code = tg::error::Code::Cancellation,
-							"the sandbox was destroyed before it became ready"
-						)),
-						tangram_server_runner_core::sandbox::Event::Ready(ready_event) => {
+						Ok(tangram_server_runner_core::sandbox::Event::Destroyed) => {
+							Err(tg::error!(
+								code = tg::error::Code::Cancellation,
+								"the sandbox was destroyed before it became ready"
+							))
+						},
+						Ok(tangram_server_runner_core::sandbox::Event::Ready(ready_event)) => {
 							Ok(ready_event)
+						},
+						Err(error) => {
+							// Wait for the sandbox to end, so that the runner records the end of a sandbox that connected before the spawn does.
+							while let Some(event) = events.recv().await {
+								if matches!(
+									event,
+									Ok(tangram_server_runner_core::sandbox::Event::Destroyed)
+								) {
+									break;
+								}
+							}
+							Err(error)
 						},
 					}
 				}
 				.boxed()
 			};
-			let ready_event = self
-				.spawn_process_hand_off(session, &process, &sandbox, public, hand_off)
-				.await?;
+			let arg = HandOffArg {
+				create: Some(create),
+				process,
+				public,
+				sandbox,
+			};
+			let ready_event = self.spawn_process_hand_off(session, arg, hand_off).await?;
 
 			return Ok(NewSandboxOutput::Ready(ready_event));
 		}
+
+		let sandbox = output
+			.data
+			.sandbox
+			.clone()
+			.ok_or_else(|| tg::error!("the scheduled process has no sandbox"))?;
 
 		// Give the assignment the connect's opens, and offer the opens to the connect's readers and writers.
 		let mut process = process;
@@ -545,26 +589,22 @@ impl Component {
 		Ok(NewSandboxOutput::Enqueued)
 	}
 
-	/// Hand a process to its runner with the hand-off future, after writing the process's queued record with its creator's permissions in one index write if the spawn created the process's ID, and record the process as failed if the hand-off fails. The write and the hand-off run in a task, so that a dropped spawn does not leave the process queued.
+	/// Hand a process to its runner with the hand-off future, after writing the process's queued record with its creator's permissions in one index write if the spawn created the process's ID, inside the record of its new sandbox in the starting state if the spawn creates the sandbox, and record the process as failed and the new sandbox as destroyed if the hand-off fails. The write and the hand-off run in a task, so that a dropped spawn does not leave the process queued.
 	async fn spawn_process_hand_off<T: Send + 'static>(
 		&self,
 		session: &Session,
-		process: &tg::runner::control::Process,
-		sandbox: &tg::sandbox::Id,
-		public: bool,
+		arg: HandOffArg,
 		hand_off: BoxFuture<'static, tg::Result<T>>,
 	) -> tg::Result<T> {
-		let Some(id) = process.id.clone() else {
+		let Some(id) = arg.process.id.clone() else {
 			return hand_off.await;
 		};
 		let component = self.clone();
 		let session = session.clone();
-		let process = process.clone();
-		let sandbox = sandbox.clone();
 		let task = tokio::spawn(
 			async move {
 				component
-					.spawn_process_hand_off_task(&session, &process, &sandbox, public, hand_off)
+					.spawn_process_hand_off_task(&session, arg, hand_off)
 					.await
 			}
 			.instrument(tracing::Span::current()),
@@ -576,18 +616,48 @@ impl Component {
 	async fn spawn_process_hand_off_task<T>(
 		&self,
 		session: &Session,
-		process: &tg::runner::control::Process,
-		sandbox: &tg::sandbox::Id,
-		public: bool,
+		arg: HandOffArg,
 		hand_off: BoxFuture<'static, tg::Result<T>>,
 	) -> tg::Result<T> {
-		// Write the queued record with the creator's permissions, the public permission, and the command captures.
+		let HandOffArg {
+			create,
+			process,
+			public,
+			sandbox,
+		} = arg;
+		let sandbox = sandbox.ok_or_else(|| tg::error!("expected the process's sandbox"))?;
+
+		// Create the queued record with the creator's permissions, the public permission, and the command captures.
 		let now = session.server.clock.unix_timestamp();
-		let arg = Self::create_queued_process_arg(session, process, sandbox, now, true, public)?;
-		let id = arg.id.clone();
-		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutProcess(Box::new(arg))],
+		let process_arg =
+			Self::create_queued_process_arg(session, &process, &sandbox, now, true, public)?;
+		let id = process_arg.id.clone();
+
+		// Carry the queued record in the record of a new sandbox in the starting state, so that the two are written together.
+		let sandbox_arg = if let Some(create) = create {
+			let mut sandbox_arg = session
+				.server
+				.components
+				.sandbox
+				.prepare_sandbox_control_index_arg(session, &sandbox, create)
+				.await?;
+			if let Some(data) = &mut sandbox_arg.data {
+				data.data.status = tg::sandbox::Status::Starting;
+			}
+			Some(sandbox_arg)
+		} else {
+			None
 		};
+		let item = if let Some(sandbox_arg) = sandbox_arg.clone() {
+			let mut sandbox_arg = sandbox_arg;
+			sandbox_arg.process = Some(Box::new(process_arg));
+			tangram_index::Item::PutSandbox(Box::new(sandbox_arg))
+		} else {
+			tangram_index::Item::PutProcess(Box::new(process_arg))
+		};
+
+		// Write the records.
+		let arg = tangram_index::write::Arg { items: vec![item] };
 		session
 			.server
 			.components
@@ -595,13 +665,27 @@ impl Component {
 			.write(&session.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, process = %id, "failed to write the process"))?;
+		if sandbox_arg.is_some() {
+			session
+				.server
+				.components
+				.sandbox
+				.spawn_publish_sandbox_status_task(&session.server, &sandbox);
+		}
 
 		// Hand the process off, and record its failure if it does not start, because no runner will report it.
 		let result = hand_off.await;
 		if let Err(error) = &result {
 			let error = error.to_data_or_id();
+			if let Some(sandbox_arg) = sandbox_arg
+				&& let Err(error) = self
+					.spawn_process_destroy_new_sandbox(session, sandbox_arg, error.clone())
+					.await
+			{
+				tracing::error!(error = %error.trace(), %sandbox, "failed to destroy the new sandbox");
+			}
 			if let Err(error) = self
-				.finish_unstarted_process(&session.server, process, error)
+				.finish_unstarted_process(&session.server, &process, error)
 				.await
 			{
 				tracing::error!(error = %error.trace(), process = %id, "failed to finish the unstarted process");
@@ -609,5 +693,37 @@ impl Component {
 		}
 
 		result
+	}
+
+	/// Record a new sandbox that failed before it became ready as destroyed with the error, as the scheduler records a new sandbox that fails after its acceptance.
+	async fn spawn_process_destroy_new_sandbox(
+		&self,
+		session: &Session,
+		mut sandbox_arg: tangram_index::sandbox::put::Arg,
+		error: tg::Either<tg::error::Data, tg::error::Id>,
+	) -> tg::Result<()> {
+		let id = sandbox_arg.id.clone();
+		if let Some(data) = &mut sandbox_arg.data {
+			data.data.error = Some(error);
+			data.data.status = tg::sandbox::Status::Destroyed;
+		}
+		sandbox_arg.touched_at = session.server.clock.unix_timestamp();
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(Box::new(sandbox_arg))],
+		};
+		session
+			.server
+			.components
+			.indexer
+			.write(&session.server, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to put the sandbox in the index"))?;
+		session
+			.server
+			.components
+			.sandbox
+			.spawn_publish_sandbox_status_task(&session.server, &id);
+
+		Ok(())
 	}
 }

@@ -80,6 +80,7 @@ struct SandboxTaskArg {
 	owner: tg::Principal,
 	process: Option<tg::runner::control::Process>,
 	proof: Option<tg::sandbox::id::Proof>,
+	public: bool,
 	stopper: Stopper,
 	token: Option<String>,
 }
@@ -421,6 +422,7 @@ impl Component {
 			owner: arg.owner,
 			process: arg.process,
 			proof,
+			public: arg.public,
 			stopper: stopper.clone(),
 			token,
 		};
@@ -524,6 +526,7 @@ impl Component {
 			owner,
 			process,
 			proof,
+			public,
 			stopper,
 			token,
 		} = arg;
@@ -840,6 +843,7 @@ impl Component {
 				process_stopper: &process_stopper,
 				process_tasks: &mut process_tasks,
 				processes: processes.clone(),
+				public,
 				retention_stopper: stopper.clone(),
 				sandbox: &create_output.sandbox,
 				sandbox_create,
@@ -1699,6 +1703,7 @@ impl Component {
 									process_stopper: &process_stopper,
 									process_tasks: &mut process_tasks,
 									processes: processes.clone(),
+									public: false,
 									retention_stopper: stopper.clone(),
 									sandbox: &sandbox,
 									sandbox_create: None,
@@ -2630,9 +2635,6 @@ impl Component {
 	) -> tg::Result<Vec<(tg::sandbox::Id, Teardown)>> {
 		// Get the sandboxes with directories.
 		let ids = Self::sandbox_directory_ids(session).await?;
-		if ids.is_empty() {
-			return Ok(Vec::new());
-		}
 
 		// Get the sandboxes' local records after pending indexing, so that a record is not stale.
 		session
@@ -2642,8 +2644,15 @@ impl Component {
 			.await?;
 		let indexed = session.server.index.try_get_sandboxes(&ids).await?;
 
+		// Destroy each sandbox that the index records as running on this runner without a directory, in this server's location, and without a boot that a scheduler holds, such as a sandbox whose spawn recorded it before a crash left the runner without its directory, because nothing can start it again.
+		let mut sandboxes = self
+			.get_previous_sandboxes_without_directories(session, &ids)
+			.await?
+			.into_iter()
+			.map(|id| (id, Teardown::Destroy))
+			.collect::<Vec<_>>();
+
 		// Stop each sandbox that was running with a nonzero ttl, keep each stopped sandbox, destroy the others once their destruction is reported, and remove now the directories of sandboxes that are destroyed or not recorded.
-		let mut sandboxes = Vec::new();
 		for (id, indexed) in std::iter::zip(ids, indexed) {
 			let teardown = match indexed.map(|indexed| indexed.data) {
 				None => None,
@@ -2683,6 +2692,54 @@ impl Component {
 				continue;
 			};
 			sandboxes.push((id, teardown));
+		}
+
+		Ok(sandboxes)
+	}
+
+	async fn get_previous_sandboxes_without_directories(
+		&self,
+		session: &Session,
+		directories: &[tg::sandbox::Id],
+	) -> tg::Result<Vec<tg::sandbox::Id>> {
+		let Some(runner) = self.state.id() else {
+			return Ok(Vec::new());
+		};
+		let ids = session
+			.server
+			.index
+			.get_runner_sandboxes(&runner)
+			.await?
+			.into_iter()
+			.filter(|id| !directories.contains(id) && self.state.sandboxes.get_by_id(id).is_none())
+			.collect::<Vec<_>>();
+		let indexed = session.server.index.try_get_sandboxes(&ids).await?;
+		let mut sandboxes = Vec::new();
+		for (id, indexed) in std::iter::zip(ids, indexed) {
+			// Leave a sandbox in a remote to the remote, whose scheduler may hold its boot.
+			let Some(indexed) = indexed else {
+				continue;
+			};
+			let remote = indexed
+				.location
+				.as_ref()
+				.is_some_and(tg::Location::is_remote);
+			let running = indexed
+				.data
+				.is_some_and(|data| !data.data.status.is_stopped_or_destroyed());
+			if remote || !running {
+				continue;
+			}
+			let held = session
+				.server
+				.index
+				.try_get_sandbox_scheduler(&id)
+				.await?
+				.is_some();
+			if held {
+				continue;
+			}
+			sandboxes.push(id);
 		}
 
 		Ok(sandboxes)

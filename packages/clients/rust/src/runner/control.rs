@@ -342,11 +342,6 @@ pub struct Process {
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
 
-	/// Whether the spawn made the process public, which a start on the shortcut path carries to the process's home.
-	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 8, default, skip_serializing_if = "is_default")]
-	pub public: bool,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 5, default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,

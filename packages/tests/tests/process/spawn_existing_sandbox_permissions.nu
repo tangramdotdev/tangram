@@ -13,8 +13,8 @@ let anonymous = {|command| with-env { TANGRAM_CONFIG: $config } { do $command | 
 
 # Alice spawns a private and a public process in her sandbox, without tokens, so that only their permissions authorize them.
 let sandbox = tg --token $alice.token sandbox create --no-tokens | referent node
-let private = tg --token $alice.token spawn --no-tokens --verbose $'--sandbox=($sandbox)' --executable /bin/sleep -- 1000 | from json
-let public = tg --token $alice.token spawn --no-tokens --verbose --public $'--sandbox=($sandbox)' --executable /bin/sleep -- 1000 | from json
+let private = tg --token $alice.token spawn --no-tokens --verbose $'--sandbox=($sandbox)' --executable /bin/sh -- -c 'while :; do :; done' | from json
+let public = tg --token $alice.token spawn --no-tokens --verbose --public $'--sandbox=($sandbox)' --executable /bin/sh -- -c 'while :; do :; done' | from json
 tg index
 
 # Alice can read her private process, and Eve and an anonymous client cannot.

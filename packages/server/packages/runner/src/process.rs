@@ -49,6 +49,7 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub process_stopper: &'a Stopper,
 	pub process_tasks: &'a mut JoinSet<tg::Result<()>>,
 	pub processes: Arc<tangram_server_process_core::Processes>,
+	pub public: bool,
 	pub retention_stopper: Stopper,
 	pub sandbox: &'a tangram_sandbox::Sandbox,
 	pub sandbox_create: Option<tg::process::control::SandboxCreate>,
@@ -66,6 +67,7 @@ struct ProcessTaskArg {
 	location: tg::Location,
 	process: tg::runner::control::Process,
 	processes: Arc<tangram_server_process_core::Processes>,
+	public: bool,
 	retention_stopper: Stopper,
 	sandbox: tangram_sandbox::Sandbox,
 	sandbox_create: Option<tg::process::control::SandboxCreate>,
@@ -241,6 +243,7 @@ impl Component {
 		let session = session.clone();
 		let process = arg.process;
 		let processes = arg.processes;
+		let public = arg.public;
 		let sandbox = arg.sandbox.clone();
 		let sandbox_create = arg.sandbox_create;
 		let guest_url = arg.guest_url.clone();
@@ -256,6 +259,7 @@ impl Component {
 					location,
 					process,
 					processes,
+					public,
 					retention_stopper,
 					sandbox,
 					sandbox_create,
@@ -287,6 +291,7 @@ impl Component {
 			location,
 			process,
 			processes,
+			public,
 			retention_stopper,
 			sandbox,
 			sandbox_create,
@@ -301,7 +306,6 @@ impl Component {
 			open,
 			options,
 			parent,
-			public,
 			token,
 		} = process;
 		data.started_at
