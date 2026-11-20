@@ -388,6 +388,7 @@ impl Component {
 				scheduler: id.clone(),
 			};
 			let arg = super::runner::EndRunnerSandboxesArg {
+				accepted: None,
 				checkpoint: "scheduler.runner.recovered",
 				directories: None,
 				error: error.clone(),

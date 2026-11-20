@@ -21,6 +21,9 @@ mod tests;
 
 /// The sandboxes of a runner that a registration ends.
 pub(super) struct EndRunnerSandboxesArg {
+	/// The boots that the scheduler tracked as accepted by the runner when it registered, or `None` if the routine also ends the boots that a start reserved in the scheduler's queue.
+	pub accepted: Option<Vec<tg::runner::control::ArgSandbox>>,
+
 	/// The checkpoint that the routine hits once it has read the runner's sandboxes.
 	pub checkpoint: &'static str,
 
@@ -154,6 +157,12 @@ impl SchedulerState {
 			registration_index,
 			&request.sandboxes,
 		);
+
+		// Get the boots that this scheduler tracks as accepted by the runner if the runner registers for the first time after it starts, so that the registration ends them unless the runner holds them, while it leaves the boots that a start reserved in this scheduler's queue.
+		let accepted = request
+			.directories
+			.is_some()
+			.then(|| self.get_accepted_sandboxes(&request.runner));
 		self.forget_accepted_sandboxes(scheduler, &request.runner, &request.sandboxes);
 		self.remove_runner(scheduler, &request.runner);
 		let runner = Runner {
@@ -191,7 +200,7 @@ impl SchedulerState {
 		let runner = request.runner.clone();
 		self.operations.push(
 			async move {
-				let result = scheduler.add_runner(request, queued).await;
+				let result = scheduler.add_runner(request, queued, accepted).await;
 				Operation::AddRunner {
 					registration_index,
 					id,
@@ -371,6 +380,21 @@ impl SchedulerState {
 		sandboxes
 	}
 
+	/// Get the boots that this scheduler tracks as accepted by a runner.
+	fn get_accepted_sandboxes(&self, id: &tg::runner::Id) -> Vec<tg::runner::control::ArgSandbox> {
+		self.sandboxes
+			.entries
+			.iter()
+			.filter(
+				|(_, sandbox)| matches!(&sandbox.state, State::Accepted { runner } if runner.id == *id),
+			)
+			.map(|(sandbox, entry)| tg::runner::control::ArgSandbox {
+				boot: entry.boot,
+				id: sandbox.clone(),
+			})
+			.collect()
+	}
+
 	/// Forget the sandboxes that a runner accepted, except the ones that it reports when it registers again, and queue the ones again whose control connections were not established, if their keys remain.
 	pub(super) fn forget_accepted_sandboxes(
 		&mut self,
@@ -463,6 +487,7 @@ impl Scheduler {
 		&self,
 		request: AddRunnerRequestArg,
 		queued: Option<Vec<tg::sandbox::Id>>,
+		accepted: Option<Vec<tg::runner::control::ArgSandbox>>,
 	) -> tg::Result<(AddRunnerResponseOutput, Option<tg::Id>)> {
 		let session = self.server.session(&self.server.context);
 		let runner = self
@@ -500,8 +525,10 @@ impl Scheduler {
 			)
 			.await?;
 
-		// End the sandboxes that the index records on a runner that registers for the first time after it starts, and that neither the runner nor this scheduler holds, and decide which of its directories the runner keeps, after pending indexing so that no acknowledged write is missed, or with the index as it is if indexing cannot be awaited.
-		let ended = if let (Some(directories), Some(queued)) = (&request.directories, queued) {
+		// End the sandboxes that the index records on a runner that registers for the first time after it starts, and that neither the runner nor this scheduler holds, except the boots that a start reserved in this scheduler's queue, and decide which of its directories the runner keeps, after pending indexing so that no acknowledged write is missed, or with the index as it is if indexing cannot be awaited.
+		let ended = if let (Some(directories), Some(queued), Some(accepted)) =
+			(&request.directories, queued, accepted)
+		{
 			if let Err(error) = self.index().await {
 				tracing::warn!(error = %error.trace(), "failed to await indexing");
 			}
@@ -516,6 +543,7 @@ impl Scheduler {
 				..Default::default()
 			};
 			let arg = EndRunnerSandboxesArg {
+				accepted: Some(accepted),
 				checkpoint: "scheduler.runner.restarted",
 				directories: Some(directories.iter().cloned().collect()),
 				error,
@@ -598,6 +626,7 @@ impl Component {
 			..Default::default()
 		};
 		let arg = EndRunnerSandboxesArg {
+			accepted: None,
 			checkpoint: "scheduler.runner.expired",
 			directories: None,
 			error,
@@ -617,6 +646,7 @@ impl Component {
 		arg: EndRunnerSandboxesArg,
 	) -> tg::Result<EndRunnerSandboxesOutput> {
 		let EndRunnerSandboxesArg {
+			accepted,
 			checkpoint,
 			directories,
 			error,
@@ -668,6 +698,14 @@ impl Component {
 				continue;
 			}
 
+			// Skip a boot that a start reserved in the scheduler's queue and that no runner accepted, which the scheduler holds once the start enqueues it.
+			if let (Some(accepted), Some(data)) = (&accepted, &data)
+				&& Self::is_reserved_runner_sandbox(server, &sandbox, data, registration, accepted)
+					.await?
+			{
+				continue;
+			}
+
 			// Destroy a sandbox with a zero ttl, because its processes are lost, a sandbox without a directory, because it cannot start again, and a sandbox that is being destroyed on a runner that reports its directories, which removes the directory, and stop the others.
 			let destroying = directories.is_some()
 				&& data
@@ -686,6 +724,7 @@ impl Component {
 			self.finish_runner_sandbox(
 				server,
 				&sandbox,
+				boot,
 				Some(error.clone()),
 				status,
 				Some(registration),
@@ -704,7 +743,7 @@ impl Component {
 			}
 		}
 
-		// Keep the directory of each reported sandbox that the index now records as stopped on the runner, or whose boot the scheduler holds, so that the runner removes every other directory.
+		// Keep the directory of each reported sandbox that the index now records as stopped on the runner, whose boot the scheduler holds, or whose boot a start reserved in the scheduler's queue, so that the runner removes every other directory.
 		let mut kept = Vec::new();
 		if let Some(directories) = directories {
 			let directories = directories.into_iter().collect::<Vec<_>>();
@@ -715,12 +754,18 @@ impl Component {
 				let Some(indexed) = indexed else {
 					continue;
 				};
-				let stopped = indexed
-					.data
-					.as_ref()
-					.is_some_and(|data| data.data.status.is_stopped());
-				if indexed.runner.as_ref() == Some(runner) && (stopped || queued.contains(&sandbox))
-				{
+				if indexed.runner.as_ref() != Some(runner) {
+					continue;
+				}
+				let data = indexed.data.as_ref().map(|data| &data.data);
+				let stopped = data.is_some_and(|data| data.status.is_stopped());
+				let reserved = if let (Some(accepted), Some(data)) = (&accepted, data) {
+					Self::is_reserved_runner_sandbox(server, &sandbox, data, registration, accepted)
+						.await?
+				} else {
+					false
+				};
+				if stopped || reserved || queued.contains(&sandbox) {
 					kept.push(sandbox);
 				}
 			}
@@ -741,9 +786,16 @@ impl Component {
 		id: &tg::sandbox::Id,
 		error: Option<tg::error::Data>,
 	) -> tg::Result<()> {
-		self.finish_runner_sandbox(server, id, error, tg::sandbox::Status::Destroyed, None)
-			.boxed()
-			.await
+		self.finish_runner_sandbox(
+			server,
+			id,
+			None,
+			error,
+			tg::sandbox::Status::Destroyed,
+			None,
+		)
+		.boxed()
+		.await
 	}
 
 	pub(crate) async fn stop_runner_sandbox(
@@ -752,20 +804,52 @@ impl Component {
 		id: &tg::sandbox::Id,
 		error: tg::error::Data,
 	) -> tg::Result<()> {
-		self.finish_runner_sandbox(server, id, Some(error), tg::sandbox::Status::Stopped, None)
-			.boxed()
-			.await
+		self.finish_runner_sandbox(
+			server,
+			id,
+			None,
+			Some(error),
+			tg::sandbox::Status::Stopped,
+			None,
+		)
+		.boxed()
+		.await
+	}
+
+	/// Get whether a sandbox's boot is one that a start reserved in the registration's scheduler's queue and that the scheduler did not track as accepted by the runner. Such a boot is starting, the scheduler's queue holds its request because no runner has connected for it, and the runner never held it.
+	async fn is_reserved_runner_sandbox(
+		server: &Server,
+		id: &tg::sandbox::Id,
+		data: &tg::sandbox::Data,
+		registration: &tangram_index::runner::Registration,
+		accepted: &[tg::runner::control::ArgSandbox],
+	) -> tg::Result<bool> {
+		if !data.status.is_starting()
+			|| accepted
+				.iter()
+				.any(|accepted| accepted.id == *id && accepted.boot == data.boot)
+		{
+			return Ok(false);
+		}
+		let scheduler =
+			server.index.try_get_sandbox_scheduler(id).await.map_err(
+				|error| tg::error!(!error, %id, "failed to get the sandbox's scheduler"),
+			)?;
+		let reserved = scheduler.as_ref() == Some(&registration.scheduler);
+
+		Ok(reserved)
 	}
 
 	async fn finish_runner_sandbox(
 		&self,
 		server: &Server,
 		id: &tg::sandbox::Id,
+		read_boot: Option<u64>,
 		error: Option<tg::error::Data>,
 		status: tg::sandbox::Status,
 		registration: Option<&tangram_index::runner::Registration>,
 	) -> tg::Result<()> {
-		// Leave a sandbox that is already stopped or destroyed alone, and get the boot that ends.
+		// Leave a sandbox that is already stopped or destroyed alone, or that moved past the boot that the caller read, and get the boot that ends.
 		let data = server
 			.index
 			.try_get_sandbox(id)
@@ -773,6 +857,11 @@ impl Component {
 			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox from the index"))?
 			.and_then(|sandbox| sandbox.data);
 		let boot = data.as_ref().map(|data| data.data.boot);
+		if let (Some(read_boot), Some(boot)) = (read_boot, boot)
+			&& boot > read_boot
+		{
+			return Ok(());
+		}
 		let stopped_or_destroyed = data.is_some_and(|data| match status {
 			tg::sandbox::Status::Destroyed => data.data.status.is_destroyed(),
 			tg::sandbox::Status::Destroying
