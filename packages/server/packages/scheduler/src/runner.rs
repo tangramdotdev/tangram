@@ -19,6 +19,21 @@ use {
 #[cfg(test)]
 mod tests;
 
+/// The sandboxes of a runner that a registration ends.
+struct EndRunnerSandboxesArg {
+	/// The sandboxes that the runner has directories for, or `None` if they are unknown.
+	directories: Option<BTreeSet<tg::sandbox::Id>>,
+
+	/// The error that the ended sandboxes and their processes record.
+	error: tg::error::Data,
+
+	/// The boots that the runner holds.
+	held: Vec<tg::runner::control::ArgSandbox>,
+
+	/// The sandboxes whose current boot the scheduler holds.
+	queued: Vec<tg::sandbox::Id>,
+}
+
 pub(super) struct Runners {
 	pub entries: HashMap<tg::runner::Id, Runner, tg::id::BuildHasher>,
 }
@@ -513,6 +528,34 @@ impl Component {
 		registration: &tangram_index::runner::Registration,
 		queued: &[tg::sandbox::Id],
 	) -> tg::Result<()> {
+		let error = tg::error::Data {
+			code: Some(tg::error::Code::Internal),
+			message: Some("heartbeat expired".to_owned()),
+			..Default::default()
+		};
+		let arg = EndRunnerSandboxesArg {
+			directories: None,
+			error,
+			held: Vec::new(),
+			queued: queued.to_vec(),
+		};
+		self.end_runner_sandboxes(server, registration, arg).await
+	}
+
+	/// End the sandboxes that the index records on a runner and that neither the runner nor the scheduler holds, with writes that only the registration may make.
+	async fn end_runner_sandboxes(
+		&self,
+		server: &Server,
+		registration: &tangram_index::runner::Registration,
+		arg: EndRunnerSandboxesArg,
+	) -> tg::Result<()> {
+		let EndRunnerSandboxesArg {
+			directories,
+			error,
+			held,
+			queued,
+		} = arg;
+
 		// Record the registration before finishing the sandboxes, so that the index accepts the writes for a registration that the scheduler failed to record. The index rejects the registration if a newer one owns the runner.
 		let session = server.session(&server.context);
 		server
@@ -543,23 +586,38 @@ impl Component {
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
 			)?;
 		for (sandbox, indexed) in std::iter::zip(sandboxes, indexed) {
-			// Destroy a sandbox with a zero ttl, because its processes are lost, and stop the others.
-			let error = tg::error::Data {
-				code: Some(tg::error::Code::Internal),
-				message: Some("heartbeat expired".to_owned()),
-				..Default::default()
-			};
-			let time_to_live = indexed
+			// Skip a sandbox whose recorded boot the runner holds.
+			let data = indexed
 				.and_then(|indexed| indexed.data)
-				.and_then(|data| data.data.time_to_live);
-			let status = if time_to_live.is_some_and(|time_to_live| time_to_live.is_zero()) {
+				.map(|data| data.data);
+			let boot = data.as_ref().map(|data| data.boot);
+			if held
+				.iter()
+				.any(|held| held.id == sandbox && Some(held.boot) == boot)
+			{
+				continue;
+			}
+
+			// Destroy a sandbox with a zero ttl, because its processes are lost, and a sandbox without a directory, because it cannot start again, and stop the others.
+			let time_to_live = data.and_then(|data| data.time_to_live);
+			let zero = time_to_live.is_some_and(|time_to_live| time_to_live.is_zero());
+			let missing = directories
+				.as_ref()
+				.is_some_and(|directories| !directories.contains(&sandbox));
+			let status = if zero || missing {
 				tg::sandbox::Status::Destroyed
 			} else {
 				tg::sandbox::Status::Stopped
 			};
-			self.finish_runner_sandbox(server, &sandbox, Some(error), status, Some(registration))
-				.boxed()
-				.await?;
+			self.finish_runner_sandbox(
+				server,
+				&sandbox,
+				Some(error.clone()),
+				status,
+				Some(registration),
+			)
+			.boxed()
+			.await?;
 		}
 
 		Ok(())
