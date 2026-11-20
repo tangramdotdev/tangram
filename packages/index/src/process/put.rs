@@ -1,8 +1,5 @@
 use {super::storage::Set, std::collections::BTreeSet, tangram_client::prelude::*};
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
 	/// The account for which to put a storage entry for the process, after the process is accepted.
