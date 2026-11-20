@@ -2,9 +2,6 @@ import bubblewrap from "bubblewrap" with {
 	source: "../packages/packages/bubblewrap.tg.ts",
 };
 import bun from "bun" with { source: "../packages/packages/bun.tg.ts" };
-import cargoNextest from "cargo-nextest" with {
-	source: "../packages/packages/cargo-nextest.tg.ts",
-};
 import curl from "curl" with { source: "../packages/packages/curl.tg.ts" };
 import dash from "dash" with { source: "../packages/packages/dash.tg.ts" };
 import delta from "delta" with { source: "../packages/packages/delta.tg.ts" };
@@ -79,12 +76,16 @@ export const run = async (...args: tg.Args<Arg>) => {
 	// Hybrid builds share Cargo's target directory, so only sandboxed builds supply NODE_PATH and the V8 and Python artifacts watched by build scripts.
 	const env = await std.env.arg(env_ ?? null, bunEnvArg(host));
 
+	// Link the dependencies that the proxy compiles in sandboxes with mold, so that rustflags that select mold, such as those in a user's Cargo configuration, also work there.
+	const sdk = { linker: "mold" as const };
+
 	const output = cargo.run({
 		disableDefaultFeatures,
 		env,
 		features,
 		host,
 		proxy,
+		sdk,
 		source: source_,
 	});
 
@@ -647,51 +648,37 @@ export const testIntegration = async (
 	return { passed, skipped };
 };
 
-/** Run the Rust tests in a sandbox, with only the artifacts that this module builds. */
-export const testRust = async () => {
-	// Get std's loader and libraries to install for the executables that the build runs.
-	const { ldso, libDir } = await std.sdk.toolchainComponents({
-		env: await std.env.arg(std.sdk()),
-	});
-	tg.assert(ldso !== undefined, "expected a dynamic loader");
+/** Run the Rust tests with nextest on the host, in the repository's target directory, compiling the dependencies through the rustc proxy. Run it with `tg run -b ./build.tg.ts#testRust`, and pass nextest's arguments after `--`. */
+export const testRust = async (...args: tg.Args<Arg>) => {
+	const merged = await mergeArgs(args);
+	const {
+		env: env_,
+		host: host_,
+		proxy = true,
+		source: source_ = source,
+	} = merged;
+	const host = host_ ?? std.triple.host();
 
-	// Run nextest as `tg run .#testRust` does, with mold, compiling the dependencies through the rustc proxy so that each compilation is a cached process. Use the stable toolchain, because the proxy's default nightly does not compile every dependency. Limit Cargo's jobs, because the proxy's default suits compilations that run in other sandboxes, while the build scripts that nextest's Cargo invocation runs start their compilers in this one. Compile the workspace's crates in this sandbox, because the proxy gives a crate only its own directory, and some crates include files from other packages. Run v8's build script in this sandbox when the proxy runs build scripts in their own, because it writes its library outside of its output directory. Set the PyO3 configuration to the file alone, because Cargo's configuration names it by a path in the source, which would make every dependency's compilation depend on the whole source. Fix the time that the C compilers report, because a dependency's build script compiles a file that includes the time, which would make its output and every compilation that depends on it differ in every run. Link the executables without Tangram wrappers, because a wrapper runs its executable through the loader, so that a test server would find the loader as its own executable, and because the servers run Tangram in their sandboxes, which do not contain the artifacts that a wrapper loads. Install std's loader at the path that those executables request, and its libraries in /lib, where the loader searches. Nextest's setup script builds the test runner with a nested Cargo invocation, so give that invocation this build's target directory and generated configuration, and provide the /usr/bin/env that the setup script's interpreter line names. Build the setup script's packages before nextest runs, because nextest gives the setup script an environment that differs in every run, which the proxy would include in each compilation's command.
-	await build({
-		channel: "stable",
-		env: std.env.arg(cargoNextest(), nushell(), zlib(), {
-			CARGO_NET_OFFLINE: "true",
-			PYO3_CONFIG_FILE: source
-				.get("packages/python/packages/build/pyo3.txt")
-				.then(tg.File.expect),
-			SOURCE_DATE_EPOCH: "315532800",
-			SSL_CERT_FILE: tg`${std.caCertificates()}/cacert.pem`,
-			TANGRAM_LINKER_PASSTHROUGH: "1",
-		}),
-		foundationdb: true,
-		parallelJobs: 8,
-		pre: tg`
-			mkdir -p /lib /lib64
-			ln -s ${ldso} "/lib/$(basename ${ldso})"
-			ln -s ${ldso} "/lib64/$(basename ${ldso})"
-			for library in ${libDir}/*; do
-				[ -e "/lib/$(basename "$library")" ] || ln -s "$library" /lib/
-			done
-			export CARGO_TARGET_DIR="$SCRATCH_TARGET_DIR"
-			export TGRUSTC_PASSTHROUGH_PROJECT_DIR="$TGRUSTC_SOURCE_DIR"
-			export TGRUSTC_RUNNER_PASSTHROUGH="v8"
-			cp "$cargo_config_path" "$CARGO_HOME/config.toml"
-			if [ ! -e /usr/bin/env ]; then
-				mkdir -p /usr/bin
-				ln -s "$(command -v env)" /usr/bin/env
-			fi
-			(cd "$TGRUSTC_SOURCE_DIR" && cargo build --package tangram_scylla_client --package tangram_tests_runner --package tangram_tests_supervisor)
-		`,
-		profile: "dev",
-		profileFlag: "--cargo-profile",
-		proxy: true,
-		sdk: { linker: "mold" },
-		subcommand: "nextest run --all-features --no-fail-fast --workspace",
+	// Use the environment of the run export, so that both share the fingerprints in the target directory.
+	const env = await std.env.arg(env_ ?? null, bunEnvArg(host));
+
+	// Run nextest for the whole workspace with every feature, followed by the arguments after `--`.
+	const pre =
+		'set -- nextest run --all-features --no-fail-fast --workspace "$@"';
+
+	// Link the dependencies that the proxy compiles in sandboxes with mold, so that rustflags that select mold, such as those in a user's Cargo configuration, also work there.
+	const sdk = { linker: "mold" as const };
+
+	const command = await cargo.run({
+		env,
+		host,
+		pre,
+		proxy,
+		sdk,
+		source: source_,
 	});
+
+	return command;
 };
 
 // Internal helpers.
