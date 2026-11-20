@@ -72,6 +72,7 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 				principal: tg::Principal::Root,
 				registration: Some(registration.clone()),
 				sandbox: None,
+				sandbox_boot: None,
 				storage: tg::process::storage::Set::NODE,
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 0,

@@ -569,21 +569,10 @@ impl Scheduler {
 			.handle_expired_runner(&self.server, &registration, &queued)
 			.boxed()
 			.await;
-		if let Err(error) = result {
-			let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
-			let mut superseded = false;
-			while let Some(error) = source {
-				if error.downcast_ref::<tg::Error>().is_some_and(|error| {
-					matches!(error.code(), Some(tg::error::Code::Cancellation))
-				}) {
-					superseded = true;
-					break;
-				}
-				source = error.source();
-			}
-			if !superseded {
-				return Err(error);
-			}
+		if let Err(error) = result
+			&& !is_cancellation(&error)
+		{
+			return Err(error);
 		}
 
 		tangram_server_core::checkpoint!(self.server, "scheduler.runner.removed", runner = %request.runner).await;
@@ -776,21 +765,22 @@ impl Component {
 		status: tg::sandbox::Status,
 		registration: Option<&tangram_index::runner::Registration>,
 	) -> tg::Result<()> {
-		// Leave a sandbox that is already stopped or destroyed alone.
-		let stopped_or_destroyed = server
+		// Leave a sandbox that is already stopped or destroyed alone, and get the boot that ends.
+		let data = server
 			.index
 			.try_get_sandbox(id)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox from the index"))?
-			.and_then(|sandbox| sandbox.data)
-			.is_some_and(|data| match status {
-				tg::sandbox::Status::Destroyed => data.data.status.is_destroyed(),
-				tg::sandbox::Status::Destroying
-				| tg::sandbox::Status::Started
-				| tg::sandbox::Status::Starting
-				| tg::sandbox::Status::Stopped
-				| tg::sandbox::Status::Stopping => data.data.status.is_stopped_or_destroyed(),
-			});
+			.and_then(|sandbox| sandbox.data);
+		let boot = data.as_ref().map(|data| data.data.boot);
+		let stopped_or_destroyed = data.is_some_and(|data| match status {
+			tg::sandbox::Status::Destroyed => data.data.status.is_destroyed(),
+			tg::sandbox::Status::Destroying
+			| tg::sandbox::Status::Started
+			| tg::sandbox::Status::Starting
+			| tg::sandbox::Status::Stopped
+			| tg::sandbox::Status::Stopping => data.data.status.is_stopped_or_destroyed(),
+		});
 		if stopped_or_destroyed {
 			return Ok(());
 		}
@@ -824,11 +814,35 @@ impl Component {
 			};
 			let process = process.clone();
 			let mut data = data.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
-			let queued = data.status.is_queued();
-			let finish = data.status.is_started() || queued;
-			if finish {
+			if data.status.is_queued() {
+				// Finish the queued process only while the sandbox is at the boot that ends, and leave a process that is not finished, because the sandbox moved to a later boot or another finisher finished it first, to the later boot or that finisher. A superseded registration ends the routine.
+				let error = tg::Either::Left(process_error.clone());
+				let sandbox_boot = boot.map(|boot| tangram_index::process::put::SandboxBoot {
+					boot,
+					sandbox: id.clone(),
+				});
+				let result = server
+					.components
+					.process
+					.finish_queued_process(
+						server,
+						&process,
+						data,
+						error,
+						sandbox_boot,
+						registration.cloned(),
+					)
+					.boxed()
+					.await;
+				if let Err(error) = result {
+					if is_cancellation(&error) {
+						return Err(error);
+					}
+					tracing::debug!(error = %error.trace(), %process, "failed to finish the queued process");
+				}
+			} else if data.status.is_started() {
 				let recover_log =
-					!queued && data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log());
+					data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log());
 				if recover_log {
 					match self
 						.finish_expired_process_log(server, &process)
@@ -861,18 +875,30 @@ impl Component {
 					location: None,
 					outcome_sync: None,
 					registration: registration.cloned(),
+					sandbox_boot: boot.map(|boot| tangram_index::process::put::SandboxBoot {
+						boot,
+						sandbox: id.clone(),
+					}),
 					store_data: true,
 				};
-				session
+
+				// Leave a process that is not finished, because the sandbox moved to a later boot or another finisher finished it first, to the later boot or that finisher. A superseded registration ends the routine.
+				let result = session
 					.server
 					.components
 					.process
 					.put_process_local(&session, &process, entry, options)
 					.boxed()
-					.await
-					.map_err(
-						|source| tg::error!(!source, %process, "failed to store the finished process"),
-					)?;
+					.await;
+				if let Err(error) = result {
+					if is_cancellation(&error) {
+						return Err(
+							tg::error!(!error, %process, "failed to store the finished process"),
+						);
+					}
+					tracing::debug!(error = %error.trace(), %process, "failed to finish the started process");
+					continue;
+				}
 
 				// Finalize the cache only after the fenced process write succeeds.
 				if recover_log {
@@ -929,6 +955,7 @@ impl Component {
 							principal: tg::Principal::Process(process.clone()),
 							registration: registration.cloned(),
 							sandbox: None,
+							sandbox_boot: None,
 							storage: indexed.storage,
 							time_to_touch: server.config.process.time_to_touch,
 							touched_at: now,
@@ -1125,4 +1152,20 @@ impl Component {
 
 		Ok(())
 	}
+}
+
+/// Get whether an error or one of its sources is a cancellation, such as the rejection of a superseded runner registration.
+fn is_cancellation(error: &tg::Error) -> bool {
+	let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+	while let Some(error) = source {
+		if error
+			.downcast_ref::<tg::Error>()
+			.is_some_and(|error| matches!(error.code(), Some(tg::error::Code::Cancellation)))
+		{
+			return true;
+		}
+		source = error.source();
+	}
+
+	false
 }

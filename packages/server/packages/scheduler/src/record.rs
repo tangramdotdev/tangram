@@ -179,8 +179,26 @@ impl Scheduler {
 			self.server
 				.components
 				.process
-				.finish_unstarted_process(&self.server, process, process_error)
+				.finish_unstarted_process(&self.server, process, process_error.clone())
 				.await?;
+		}
+
+		// Finish the other queued processes of a sandbox whose boot ended, which can never start.
+		if status.is_stopped() || status.is_destroyed() {
+			let result = self
+				.server
+				.components
+				.process
+				.finish_queued_sandbox_processes(
+					&self.server,
+					id,
+					request.boot,
+					Some(process_error),
+				)
+				.await;
+			if let Err(error) = result {
+				tracing::warn!(error = %error.trace(), %id, "failed to finish the queued processes of the ended sandbox");
+			}
 		}
 		self.server
 			.components

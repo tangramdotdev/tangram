@@ -607,6 +607,7 @@ impl Component {
 			principal: tg::Principal::Process(id.clone()),
 			registration: None,
 			sandbox: Some(sandbox_id.clone()),
+			sandbox_boot: None,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at,
