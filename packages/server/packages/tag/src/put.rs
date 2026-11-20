@@ -269,7 +269,7 @@ impl Component {
 		}
 		let mut batch = tangram_index::write::Arg::default();
 		let tokens = arg.tokens.clone();
-		let (data, version) = match self
+		let (data, version, groups, permissions) = match self
 			.put_tag_with_transaction(session, transaction, arg, &mut batch)
 			.await?
 		{
@@ -309,9 +309,11 @@ impl Component {
 		let arg = tangram_index::tag::put::Arg {
 			account: account.clone(),
 			captures,
+			groups,
 			id: data.id,
 			name: data.name,
 			parent: data.parent,
+			permissions,
 			specifier: data.specifier,
 			target: target.clone(),
 			touched_at,
@@ -340,8 +342,17 @@ impl Component {
 		transaction: &Transaction<'_>,
 		arg: tg::tag::put::Arg,
 		batch: &mut tangram_index::write::Arg,
-	) -> tg::Result<ControlFlow<(tg::tag::Data, String), tangram_server_core::database::Error>>
-	{
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::tag::Data,
+				String,
+				Vec<tangram_index::group::put::Arg>,
+				Vec<tangram_index::permission::put::Arg>,
+			),
+			tangram_server_core::database::Error,
+		>,
+	> {
 		let existing =
 			match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 				transaction,
@@ -400,13 +411,19 @@ impl Component {
 			existing
 		};
 
-		// Resolve the parent.
+		// Resolve the parent, collecting the index items of the groups that are created and of the grants separately.
+		let mut items = tangram_index::write::Arg::default();
 		let parent = if arg.ancestors.create {
 			match session
 				.server
 				.components
 				.group
-				.create_parent_groups_with_transaction(session, transaction, &arg.specifier, batch)
+				.create_parent_groups_with_transaction(
+					session,
+					transaction,
+					&arg.specifier,
+					&mut items,
+				)
 				.await?
 			{
 				ControlFlow::Break(parent) => parent,
@@ -523,7 +540,7 @@ impl Component {
 					.server
 					.components
 					.grant
-					.grant_with_transaction(session, transaction, arg, batch)
+					.grant_with_transaction(session, transaction, arg, &mut items)
 					.await?
 				{
 					ControlFlow::Break(_) => (),
@@ -548,7 +565,7 @@ impl Component {
 				.server
 				.components
 				.grant
-				.grant_with_transaction(session, transaction, arg, batch)
+				.grant_with_transaction(session, transaction, arg, &mut items)
 				.await?
 			{
 				ControlFlow::Break(_) => (),
@@ -563,7 +580,18 @@ impl Component {
 			target: arg.target,
 		};
 
-		Ok(ControlFlow::Break((data, version)))
+		// Collect the groups and the permissions, so that the index puts them with the tag in one item.
+		let mut groups = Vec::new();
+		let mut permissions = Vec::new();
+		for item in items.items {
+			match item {
+				tangram_index::Item::PutGroup(arg) => groups.push(*arg),
+				tangram_index::Item::PutPermission(arg) => permissions.push(*arg),
+				item => batch.items.push(item),
+			}
+		}
+
+		Ok(ControlFlow::Break((data, version, groups, permissions)))
 	}
 
 	async fn put_tag_primary_region(

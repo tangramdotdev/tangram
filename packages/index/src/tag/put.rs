@@ -13,6 +13,10 @@ pub struct Arg {
 	)]
 	pub captures: crate::permission::capture::Captures,
 
+	/// The groups to put before the tag, so that the index finds the tag's ancestors when it puts their visibility entries.
+	#[tangram_serialize(default, id = 11, skip_serializing_if = "Vec::is_empty")]
+	pub groups: Vec<crate::group::put::Arg>,
+
 	#[tangram_serialize(id = 0)]
 	pub id: tg::tag::Id,
 
@@ -21,6 +25,10 @@ pub struct Arg {
 
 	#[tangram_serialize(id = 3)]
 	pub parent: Option<tg::Id>,
+
+	/// The permissions to put after the groups and the tag, so that the index finds the tag's ancestors when it puts their visibility entries.
+	#[tangram_serialize(default, id = 10, skip_serializing_if = "Vec::is_empty")]
+	pub permissions: Vec<crate::permission::put::Arg>,
 
 	#[tangram_serialize(id = 5)]
 	pub specifier: tg::Specifier,

@@ -12,7 +12,13 @@ impl Index {
 		args: &[tangram_index::tag::put::Arg],
 	) -> tg::Result<()> {
 		for arg in args {
+			// Put the groups, which are the tag's ancestors that were created with it.
+			Self::put_groups_with_transaction(db, subspace, transaction, &arg.groups)?;
+
 			Self::put_tag(db, subspace, transaction, arg)?;
+
+			// Put the permissions, which put the visibility entries of the ancestors of the groups and the tag.
+			Self::put_permissions_with_transaction(db, subspace, transaction, &arg.permissions)?;
 
 			// Put the captures, which check the tag's version.
 			Self::put_captures_with_transaction(db, subspace, transaction, &arg.captures)?;

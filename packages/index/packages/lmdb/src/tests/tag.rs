@@ -9,6 +9,8 @@ async fn target_versions_clear_subject_permissions() {
 	let subject = tg::authorization::Subject::Tag(id.clone());
 	let mut tag = tangram_index::tag::put::Arg {
 		captures: tangram_index::permission::capture::Captures::default(),
+		groups: Vec::new(),
+		permissions: Vec::new(),
 		touched_at: 0,
 		account: None,
 		id: id.clone(),

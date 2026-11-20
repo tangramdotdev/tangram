@@ -171,6 +171,7 @@ impl Component {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 		let mut batch = tangram_index::write::Arg::default();
+		let mut created = BTreeMap::new();
 		for item in arg.tags {
 			let arg = tg::tag::put::Arg {
 				tokens: item.tokens,
@@ -185,13 +186,25 @@ impl Component {
 				target: item.target,
 			};
 			let tokens = arg.tokens.clone();
-			let (data, version) = match self
+			let (data, version, groups, permissions) = match self
 				.put_tag_with_transaction(session, transaction, arg, &mut batch)
 				.await?
 			{
 				ControlFlow::Break(data) => data,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
+
+			// Collect the tag's ancestors that this batch created, including those created for an earlier tag, so that the tag's item does not depend on another item.
+			for group in groups {
+				created.insert(tg::Id::from(group.id.clone()), group);
+			}
+			let mut groups = Vec::new();
+			let mut parent = data.parent.clone();
+			while let Some(group) = parent.as_ref().and_then(|id| created.get(id)) {
+				groups.push(group.clone());
+				parent = group.parent.clone();
+			}
+			groups.reverse();
 			let account = match session
 				.server
 				.components
@@ -225,9 +238,11 @@ impl Component {
 			let arg = tangram_index::tag::put::Arg {
 				account: account.clone(),
 				captures,
+				groups,
 				id: data.id,
 				name: data.name,
 				parent: data.parent,
+				permissions,
 				specifier: data.specifier,
 				target: target.clone(),
 				touched_at,

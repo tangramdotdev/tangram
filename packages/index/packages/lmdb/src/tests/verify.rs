@@ -2873,6 +2873,8 @@ async fn verify_descendant_node_proof_can_walk_upward() {
 		&[
 			tangram_index::tag::put::Arg {
 				captures: tangram_index::permission::capture::Captures::default(),
+				groups: Vec::new(),
+				permissions: Vec::new(),
 				touched_at: 0,
 				version: "initial".into(),
 				account: None,
@@ -2884,6 +2886,8 @@ async fn verify_descendant_node_proof_can_walk_upward() {
 			},
 			tangram_index::tag::put::Arg {
 				captures: tangram_index::permission::capture::Captures::default(),
+				groups: Vec::new(),
+				permissions: Vec::new(),
 				touched_at: 0,
 				version: "initial".into(),
 				account: None,

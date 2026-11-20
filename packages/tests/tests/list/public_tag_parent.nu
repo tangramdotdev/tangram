@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A public tag makes its parent group appear in an anonymous client's list, whether the tag is made public by a grant or when it is put.
+# A public tag makes its ancestor groups appear in an anonymous client's list, whether the tag is made public by a grant or when it is put, and whether or not the put creates the groups.
 
 let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
@@ -16,6 +16,10 @@ tg --token $alice.token grant public read granted/1.0.0
 # Alice puts a public tag.
 tg --token $alice.token group create put
 tg --token $alice.token tag put --public put/1.0.0 $file
+
+# Alice puts two public tags that create their ancestors.
+tg --token $alice.token tag put --public --create-ancestors created/nested/1.0.0 $file
+tg --token $alice.token tag put --public --create-ancestors created/nested/2.0.0 $file
 tg --token $alice.token index
 
 with-env { TANGRAM_CONFIG: $config } {
@@ -27,4 +31,9 @@ with-env { TANGRAM_CONFIG: $config } {
 	let specifiers = tg --url $local.url list | from json | get specifier
 	assert ('granted' in $specifiers) "the parent of a tag granted to the public should be listed"
 	assert ('put' in $specifiers) "the parent of a tag put publicly should be listed"
+
+	# An anonymous client gets the tags that created their ancestors and lists the ancestor at the root.
+	assert equal (tg --url $local.url tag get created/nested/1.0.0 | from json | get target.id) $file
+	assert equal (tg --url $local.url tag get created/nested/2.0.0 | from json | get target.id) $file
+	assert ('created' in $specifiers) "the created ancestor of a tag put publicly should be listed"
 }

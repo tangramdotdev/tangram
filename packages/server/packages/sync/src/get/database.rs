@@ -1448,6 +1448,8 @@ impl Component {
 						id: message.id.clone(),
 						name: message.name.clone(),
 						parent: message.parent.clone(),
+						groups: Vec::new(),
+						permissions: Vec::new(),
 						specifier: message.specifier.clone(),
 						target,
 						touched_at,
@@ -1462,14 +1464,27 @@ impl Component {
 					}))
 				},
 			};
-			batch.items.push(item);
 
-			if created.contains(&id)
-				&& let Some(arg) = Self::sync_get_create_permission(session, &id, None)?
-			{
-				batch
-					.items
-					.push(tangram_index::Item::PutPermission(Box::new(arg)));
+			// Put the create permission with a tag in one item, so that the index finds the tag's ancestors when it puts their visibility entries.
+			let permission = if created.contains(&id) {
+				Self::sync_get_create_permission(session, &id, None)?
+			} else {
+				None
+			};
+			match (item, permission) {
+				(tangram_index::Item::PutTag(mut arg), Some(permission)) => {
+					arg.permissions.push(permission);
+					batch.items.push(tangram_index::Item::PutTag(arg));
+				},
+				(item, Some(permission)) => {
+					batch.items.push(item);
+					batch
+						.items
+						.push(tangram_index::Item::PutPermission(Box::new(permission)));
+				},
+				(item, None) => {
+					batch.items.push(item);
+				},
 			}
 		}
 		Ok(batch)

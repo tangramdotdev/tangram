@@ -73,6 +73,8 @@ async fn deleting_replaced_nodes_preserves_the_replacement() {
 					id: tag.clone(),
 					name: "test".to_owned(),
 					parent: None,
+					groups: Vec::new(),
+					permissions: Vec::new(),
 					specifier: specifier.clone(),
 					target: tg::Either::Left(tg::file::Id::new(b"target").into()),
 					touched_at: 0,

@@ -108,6 +108,8 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 			))),
 			tangram_index::Item::PutTag(Box::new(tangram_index::tag::put::Arg {
 				captures: tangram_index::permission::capture::Captures::default(),
+				groups: Vec::new(),
+				permissions: Vec::new(),
 				touched_at: 0,
 				version: "initial".into(),
 				account: None,
