@@ -189,7 +189,8 @@ export const installDev = async (...args: Array<string>) => {
 
 export const release = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
-	await tg.run`tg build ./build.tg.ts#release --arg-value "{\\"commit\\":\\"$(python3 scripts/version.py)\\"}" --checkout=release --checkout-force "$@"`
+	// Sign and notarize the macOS archives outside the sandbox, so that the credentials never enter the store.
+	await tg.run`tg build ./build.tg.ts#release --arg-value "{\\"commit\\":\\"$(python3 scripts/version.py)\\"}" --checkout=release --checkout-force "$@" && nu scripts/release/sign.nu release`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
