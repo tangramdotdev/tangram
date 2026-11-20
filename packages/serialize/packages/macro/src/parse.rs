@@ -99,8 +99,19 @@ impl<'a> Struct<'a> {
 			.map(Field::parse)
 			.collect::<syn::Result<Vec<_>>>()?;
 
-		// Sort the fields by ID.
+		// Sort the fields by ID, and reject two fields with the same ID.
 		fields.sort_by_key(|field| field.id);
+		let duplicate = fields
+			.iter()
+			.filter(|field| !field.skip && field.id.is_some())
+			.collect::<Vec<_>>()
+			.windows(2)
+			.find(|pair| pair[0].id == pair[1].id)
+			.map(|pair| pair[1].id.unwrap());
+		if let Some(id) = duplicate {
+			let message = format!("two fields have the id {id}");
+			return Err(syn::Error::new_spanned(input, message));
+		}
 
 		// Create the struct.
 		let struct_ = Struct {
@@ -353,9 +364,17 @@ impl<'a> Enum<'a> {
 			.map(Variant::parse)
 			.collect::<syn::Result<Vec<_>>>()?;
 
-		// Sort the variants by ID if not untagged.
+		// Sort the variants by ID if not untagged, and reject two variants with the same ID.
 		if !untagged {
 			variants.sort_by_key(|field| field.id);
+			let duplicate = variants
+				.windows(2)
+				.find(|pair| pair[0].id.is_some() && pair[0].id == pair[1].id)
+				.map(|pair| pair[1].id.unwrap());
+			if let Some(id) = duplicate {
+				let message = format!("two variants have the id {id}");
+				return Err(syn::Error::new_spanned(input, message));
+			}
 		}
 
 		// Create the enum.
