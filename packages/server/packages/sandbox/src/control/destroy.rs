@@ -22,6 +22,8 @@ impl Component {
 			.await;
 		Self::warn_missing_sandbox_usage(session, &arg.data.data);
 
+		let boot = arg.data.data.boot;
+		let error = arg.data.data.error.clone();
 		let account = session
 			.server
 			.components
@@ -60,6 +62,18 @@ impl Component {
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to put the destroyed sandbox in the index"),
 			)?;
+
+		// Finish the sandbox's queued processes, which can never start now that the boot has ended.
+		if let Err(error) = session
+			.server
+			.components
+			.process
+			.finish_queued_sandbox_processes(&session.server, id, boot, error)
+			.await
+		{
+			tracing::warn!(error = %error.trace(), %id, "failed to finish the queued processes of the destroyed sandbox");
+		}
+
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.destroy.submitted", sandbox = %id).await;
 
 		Ok(tg::sandbox::control::DestroyServerResponseOutput {})

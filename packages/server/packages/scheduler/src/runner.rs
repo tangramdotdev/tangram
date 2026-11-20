@@ -824,11 +824,17 @@ impl Component {
 			};
 			let process = process.clone();
 			let mut data = data.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
-			let queued = data.status.is_queued();
-			let finish = data.status.is_started() || queued;
-			if finish {
+			if data.status.is_queued() {
+				let error = tg::Either::Left(process_error.clone());
+				server
+					.components
+					.process
+					.finish_queued_process(server, &process, data, error, registration.cloned())
+					.boxed()
+					.await?;
+			} else if data.status.is_started() {
 				let recover_log =
-					!queued && data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log());
+					data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log());
 				if recover_log {
 					match self
 						.finish_expired_process_log(server, &process)
