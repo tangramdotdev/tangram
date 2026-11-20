@@ -463,6 +463,11 @@ impl Scheduler {
 		request: RemoveRunnerRequestArg,
 		queued: Vec<tg::sandbox::Id>,
 	) -> tg::Result<RemoveRunnerResponseOutput> {
+		// Await indexing, so that the runner's sandboxes are read with every write that was acknowledged before the runner was removed, and read the index as it is if indexing cannot be awaited.
+		if let Err(error) = self.index().await {
+			tracing::warn!(error = %error.trace(), "failed to await indexing");
+		}
+
 		// Stop the runner's sandboxes only while this registration still owns the runner.
 		let registration = tangram_index::runner::Registration {
 			index: request.registration_index,

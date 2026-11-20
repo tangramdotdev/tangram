@@ -54,10 +54,10 @@ checkpoint wait $accepted | ignore
 
 # Hold the index writes, so that the scheduler keeps the ended boot's entry, and advance the remote's clock past the runner ttl, so that the scheduler expires the runner and ends the boot as stopped.
 let index = checkpoint watch index.write --token $root_token --url $remote.url
-let expired = checkpoint watch scheduler.runner.expired --params { runner: $created.data.id } --token $root_token --url $remote.url
+let ended = checkpoint watch scheduler.sandbox.end --params { sandbox: $sandbox } --token $root_token --url $remote.url
 advance_time $remote 4sec
-checkpoint pass $expired | ignore
-checkpoint unwatch $expired
+checkpoint pass $ended | ignore
+checkpoint unwatch $ended
 
 # Let the runner answer the offer, and advance the remote's clock past the runner's scheduler ttl, so that the runner's control connection ends and the runner registers again while the scheduler keeps the ended boot's entry.
 let register = checkpoint watch scheduler.runner.register --params { runner: $created.data.id } --token $root_token --url $remote.url
