@@ -39,15 +39,12 @@ let read = tg --url $remote.url --token $root_token build $'($id)#read' | str tr
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 success (tg --url $remote.url --token $root_token run $'--sandbox=($sandbox)' $write | complete) "the write should succeed"
 
-# Kill the runner, then start it again and wait for it to stop the sandbox.
-let stopped = checkpoint watch runner.control.stop_sandbox --params { sandbox: $sandbox } --token $root_token --url $remote.url
+# Kill the runner, then start it again and wait for its registration to stop the sandbox.
 let runner_pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 let runner = server start $runner
-checkpoint pass $stopped
-checkpoint unwatch $stopped
-tg --url $remote.url --token $root_token index
+success (timeout 30s tg --url $remote.url --token $root_token sandbox status --until stopped $sandbox | complete) "the sandbox should stop"
 
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) stopped "the sandbox should be stopped after the runner restarts"
 tg --url $remote.url --token $root_token sandbox start $sandbox

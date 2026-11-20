@@ -6,6 +6,11 @@ let local = server spawn --config {
 	indexer: { request: { timeout: 0.05 } },
 }
 let url = $local.url
+
+# Start a sandbox, which waits for the server's runner to register, so that the waits for indexing at startup are done.
+tg --url $url sandbox create --wait --no-tokens | ignore
+tg --url $url index
+
 let receive_watch = tg --url $url checkpoint watch indexer.request.receive | from json | get watch
 let wait_watch = tg --url $url checkpoint watch indexer.request.wait | from json | get watch
 let request = job spawn {

@@ -634,6 +634,11 @@ pub struct StopSandboxServerResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
+	/// The sandboxes that the runner has directories for, which it reports when it registers for the first time after it starts, so that the scheduler ends the sandboxes that the runner no longer holds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
+	pub directories: Option<Vec<tg::sandbox::Id>>,
+
 	#[tangram_serialize(id = 0)]
 	pub heartbeat: HeartbeatClientNotification,
 
@@ -684,6 +689,16 @@ pub struct ArgSandbox {
 	tangram_serialize::Serialize,
 )]
 pub struct Header {
+	/// The sandboxes with directories that the runner reported when it registered for the first time after it started, which the registration destroyed.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Vec::is_empty")]
+	pub destroyed: Vec<tg::sandbox::Id>,
+
+	/// The sandboxes with directories that the runner reported when it registered for the first time after it started, whose directories the runner keeps, because the sandboxes are stopped on the runner or their boots wait in the scheduler's queue. The runner removes every other directory that it reported.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
+	pub kept: Vec<tg::sandbox::Id>,
+
 	/// How long the scheduler keeps the runner after its last heartbeat, after which the scheduler no longer sends the runner a request again.
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	#[tangram_serialize(id = 2)]
@@ -697,6 +712,11 @@ pub struct Header {
 
 	#[tangram_serialize(id = 1)]
 	pub scheduler: tg::scheduler::Id,
+
+	/// The sandboxes with directories that the runner reported when it registered for the first time after it started, which the registration stopped. The runner keeps their directories, which `kept` also lists.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Vec::is_empty")]
+	pub stopped: Vec<tg::sandbox::Id>,
 }
 
 impl tg::Session {

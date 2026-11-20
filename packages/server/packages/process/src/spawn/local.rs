@@ -89,6 +89,18 @@ impl Component {
 		parent: Option<&tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
 	) -> Option<tangram_server_runner_core::capacity::Allocation> {
+		// Leave the sandbox to the scheduler until the runner has registered for the first time after it starts, because the registration ends the sandboxes that the index records on the runner and that the runner does not report.
+		if session
+			.server
+			.components
+			.runner
+			.state()
+			.scheduler_connection()
+			== 0
+		{
+			return None;
+		}
+
 		if let Some(parent) = parent
 			&& let Some(sandbox) = session
 				.server

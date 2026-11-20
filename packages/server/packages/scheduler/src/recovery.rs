@@ -158,6 +158,18 @@ impl SchedulerState {
 		})
 	}
 
+	/// Get the sandboxes whose requests are held for recovery.
+	pub(super) fn get_recovering_sandboxes(&self) -> Vec<tg::sandbox::Id> {
+		self.recovery.as_ref().map_or_else(Vec::new, |recovery| {
+			recovery
+				.claimed
+				.keys()
+				.chain(recovery.requests.keys())
+				.cloned()
+				.collect()
+		})
+	}
+
 	/// Get a request that is held for recovery.
 	pub(super) fn try_get_recovering_request_mut(
 		&mut self,
