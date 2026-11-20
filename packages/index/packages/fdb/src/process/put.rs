@@ -27,6 +27,20 @@ impl Index {
 				return Ok(ControlFlow::Break(Err(error)));
 			}
 		}
+
+		// Reject a conditional finish unless the process's sandbox is still at the boot that the put names.
+		if let Some(expected) = &arg.sandbox_boot {
+			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(expected.sandbox.clone()));
+			let key = Self::pack(subspace, &key);
+			let result = txn.get(&key, false).await;
+			let sandbox = crate::retry!(result)
+				.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
+				.transpose()?;
+			if let Err(error) = arg.validate_sandbox_boot(sandbox.as_ref()) {
+				return Ok(ControlFlow::Break(Err(error)));
+			}
+		}
+
 		let id = &arg.id;
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);

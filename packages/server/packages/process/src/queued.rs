@@ -65,6 +65,7 @@ impl Component {
 			principal: tg::Principal::Process(id),
 			registration: None,
 			sandbox: Some(sandbox.clone()),
+			sandbox_boot: None,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,
@@ -131,11 +132,13 @@ impl Component {
 		let Some(id) = process.id.clone() else {
 			return Ok(());
 		};
-		self.finish_queued_process(server, &id, process.data.clone(), error, None)
-			.await
+		self.finish_queued_process(server, &id, process.data.clone(), error, None, None)
+			.await?;
+
+		Ok(())
 	}
 
-	/// Finish the queued processes of a sandbox whose boot ended, which can never start, with the sandbox's error, or with a cancellation if the sandbox ended without one. Leave the processes alone if the index records a later boot of the sandbox, whose processes they may be. A process that another finisher, such as its spawner, finished first keeps that record, because the index rejects a second terminal record that differs.
+	/// Finish the queued processes of a sandbox whose boot ended, which can never start, with the sandbox's error, or with a cancellation if the sandbox ended without one. Each finish is a conditional index write that applies only while the sandbox is at the boot that ended, so that a process queued for a later boot is never finished. A process that another finisher, such as its spawner, finished first keeps that record, because the index rejects a second terminal record that differs.
 	pub(crate) async fn finish_queued_sandbox_processes(
 		&self,
 		server: &Server,
@@ -143,7 +146,7 @@ impl Component {
 		boot: u64,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 	) -> tg::Result<()> {
-		// Leave the processes of a later boot alone.
+		// Skip the reads if the index already records a later boot, whose conditional finishes would all be rejected.
 		let later = server
 			.index
 			.try_get_sandbox(sandbox)
@@ -189,8 +192,19 @@ impl Component {
 			if !data.status.is_queued() {
 				continue;
 			}
+			let sandbox_boot = tangram_index::process::put::SandboxBoot {
+				boot,
+				sandbox: sandbox.clone(),
+			};
 			if let Err(error) = self
-				.finish_queued_process(server, &process, data, error.clone(), None)
+				.finish_queued_process(
+					server,
+					&process,
+					data,
+					error.clone(),
+					Some(sandbox_boot),
+					None,
+				)
 				.await
 			{
 				tracing::debug!(error = %error.trace(), %process, "failed to finish the queued process");
@@ -200,13 +214,14 @@ impl Component {
 		Ok(())
 	}
 
-	/// Record the failure of a queued process that will never start, with the registration that must still own the runner if one is given.
+	/// Record the failure of a queued process that will never start, only while its sandbox is at the boot that ended if one is given, and with the registration that must still own the runner if one is given. Run the follow-up work only if the index applies the record.
 	pub(crate) async fn finish_queued_process(
 		&self,
 		server: &Server,
 		id: &tg::process::Id,
 		mut data: tg::process::Data,
 		error: tg::Either<tg::error::Data, tg::error::Id>,
+		sandbox_boot: Option<tangram_index::process::put::SandboxBoot>,
 		registration: Option<tangram_index::runner::Registration>,
 	) -> tg::Result<()> {
 		data.cacheable = false;
@@ -230,6 +245,7 @@ impl Component {
 			location: None,
 			outcome_sync: None,
 			registration,
+			sandbox_boot,
 			store_data: true,
 		};
 		self.put_process_local(&session, id, entry, options)

@@ -27,6 +27,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 			principal: tg::Principal::Process(id.clone()),
 			registration: None,
 			sandbox: None,
+			sandbox_boot: None,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: std::time::Duration::from_secs(60),
 			touched_at: 1,

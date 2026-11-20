@@ -65,6 +65,7 @@ fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::
 		principal: tg::Principal::Process(id.clone()),
 		registration: None,
 		sandbox: None,
+		sandbox_boot: None,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,
@@ -518,6 +519,7 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 					principal: tg::Principal::Root,
 					registration: Some(registration.clone()),
 					sandbox: None,
+					sandbox_boot: None,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
@@ -726,6 +728,165 @@ async fn a_write_cannot_change_the_sandbox_of_a_process() {
 			.unwrap();
 		assert_eq!(process.status, Some(tg::process::Status::Started));
 		assert_eq!(process.sandbox, Some(sandbox));
+	})
+	.await;
+}
+
+fn sandbox_put_arg(
+	id: &tg::sandbox::Id,
+	boot: u64,
+	status: tg::sandbox::Status,
+) -> tangram_index::sandbox::put::Arg {
+	let data = tg::sandbox::get::Output {
+		data: tg::sandbox::Data {
+			boot,
+			cpu: None,
+			creator: tg::Principal::Root,
+			error: None,
+			expires_at: None,
+			hostname: None,
+			id: id.clone(),
+			memory: None,
+			mounts: Vec::new(),
+			network: None,
+			owner: tg::Principal::Root,
+			status,
+			stopped_at: status.is_stopped().then_some(1),
+			storage: None,
+			time_to_live: None,
+			time_to_stop: None,
+			usage: None,
+		},
+		location: None,
+		tokens: tg::authorization::Tokens::default(),
+	};
+	tangram_index::sandbox::put::Arg {
+		account: None,
+		created_at: 1,
+		data: Some(data),
+		id: id.clone(),
+		location: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Sandbox(id.clone()),
+		process: None,
+		processes: None,
+		registration: None,
+		runner: None,
+		stopped_boot: None,
+		stopped_usage: None,
+		touched_at: 1,
+	}
+}
+
+/// Create the arg of a finish of a queued process in a sandbox that applies only while the sandbox is at the boot.
+fn conditional_finish_arg(
+	id: &tg::process::Id,
+	sandbox: &tg::sandbox::Id,
+	boot: u64,
+) -> tangram_index::process::put::Arg {
+	let mut data = process_data(tg::process::Status::Finished, String::new());
+	data.exit = Some(1);
+	data.sandbox = Some(sandbox.clone());
+	data.started_at = None;
+	let mut arg = process_arg(id, data);
+	arg.sandbox_boot = Some(tangram_index::process::put::SandboxBoot {
+		boot,
+		sandbox: sandbox.clone(),
+	});
+	arg
+}
+
+/// Create the arg of a queued process in a sandbox.
+fn queued_process_arg(
+	id: &tg::process::Id,
+	sandbox: &tg::sandbox::Id,
+) -> tangram_index::process::put::Arg {
+	let mut data = process_data(tg::process::Status::Queued, String::new());
+	data.sandbox = Some(sandbox.clone());
+	data.started_at = None;
+	process_arg(id, data)
+}
+
+async fn process_status(index: &Index, id: &tg::process::Id) -> Option<tg::process::Status> {
+	index
+		.try_get_processes(std::slice::from_ref(id))
+		.await
+		.unwrap()
+		.pop()
+		.unwrap()
+		.unwrap()
+		.status
+}
+
+async fn write_items(index: &Index, items: Vec<tangram_index::Item>) -> tg::Result<()> {
+	let arg = tangram_index::write::Arg { items };
+	index.write(arg).await.unwrap()
+}
+
+#[tokio::test]
+async fn a_conditional_finish_of_a_queued_process_applies_while_the_sandbox_is_at_the_boot() {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
+		for status in [
+			tg::sandbox::Status::Started,
+			tg::sandbox::Status::Stopped,
+			tg::sandbox::Status::Destroyed,
+		] {
+			// Queue a process in a sandbox at boot 1.
+			let sandbox = tg::sandbox::Id::new();
+			let id = tg::process::Id::new();
+			let item =
+				tangram_index::Item::PutSandbox(Box::new(sandbox_put_arg(&sandbox, 1, status)));
+			write_items(index, vec![item]).await.unwrap();
+			put_process(index, queued_process_arg(&id, &sandbox)).await;
+
+			// Finish the process on the condition that the sandbox is at boot 1, and verify that the finish is applied.
+			let item =
+				tangram_index::Item::PutProcess(Box::new(conditional_finish_arg(&id, &sandbox, 1)));
+			write_items(index, vec![item]).await.unwrap();
+			assert_eq!(
+				process_status(index, &id).await,
+				Some(tg::process::Status::Finished)
+			);
+		}
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn a_conditional_finish_of_a_queued_process_does_not_apply_at_a_later_boot() {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
+		// Queue a process in a sandbox that is starting its second boot.
+		let sandbox = tg::sandbox::Id::new();
+		let id = tg::process::Id::new();
+		let item = tangram_index::Item::PutSandbox(Box::new(sandbox_put_arg(
+			&sandbox,
+			2,
+			tg::sandbox::Status::Starting,
+		)));
+		write_items(index, vec![item]).await.unwrap();
+		put_process(index, queued_process_arg(&id, &sandbox)).await;
+
+		// Finish the process on the condition that the sandbox is at boot 1 in the same write as another process, and verify that the finish is rejected and the other process is put.
+		let other = tg::process::Id::new();
+		let items = vec![
+			tangram_index::Item::PutProcess(Box::new(conditional_finish_arg(&id, &sandbox, 1))),
+			tangram_index::Item::PutProcess(Box::new(queued_process_arg(&other, &sandbox))),
+		];
+		assert!(write_items(index, items).await.is_err());
+		assert_eq!(
+			process_status(index, &id).await,
+			Some(tg::process::Status::Queued)
+		);
+		assert_eq!(
+			process_status(index, &other).await,
+			Some(tg::process::Status::Queued)
+		);
 	})
 	.await;
 }

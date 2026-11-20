@@ -84,6 +84,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 9)]
 	pub sandbox: Option<tg::sandbox::Id>,
 
+	/// The boot that the process's sandbox must still be at when this put is applied, which makes the put a conditional finish of a queued process of a boot that ended, so that a process queued for a later boot is not finished.
+	#[tangram_serialize(default, id = 22, skip_serializing_if = "Option::is_none")]
+	pub sandbox_boot: Option<SandboxBoot>,
+
 	#[tangram_serialize(id = 10)]
 	pub storage: Set,
 
@@ -92,6 +96,16 @@ pub struct Arg {
 
 	#[tangram_serialize(id = 12)]
 	pub touched_at: i64,
+}
+
+/// A sandbox's boot that a conditional process put requires.
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct SandboxBoot {
+	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub sandbox: tg::sandbox::Id,
 }
 
 impl Arg {
@@ -112,6 +126,30 @@ impl Arg {
 			if !ids.insert(&child.process.node) {
 				return Err(tg::error!("the process children must be unique"));
 			}
+		}
+
+		Ok(())
+	}
+
+	/// Reject a conditional put unless the sandbox is at the boot that the put names, in any state, because a later boot's queued processes are not the ended boot's.
+	pub fn validate_sandbox_boot(
+		&self,
+		sandbox: Option<&crate::sandbox::Sandbox>,
+	) -> tg::Result<()> {
+		let Some(expected) = &self.sandbox_boot else {
+			return Ok(());
+		};
+		let boot = sandbox
+			.and_then(|sandbox| sandbox.data.as_ref())
+			.map(|data| data.data.boot);
+		if boot != Some(expected.boot) {
+			let boot = expected.boot;
+			return Err(tg::error!(
+				id = %self.id,
+				sandbox = %expected.sandbox,
+				%boot,
+				"the process's sandbox is not at the boot"
+			));
 		}
 
 		Ok(())

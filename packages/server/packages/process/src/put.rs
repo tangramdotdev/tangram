@@ -34,6 +34,7 @@ impl Component {
 					location: None,
 					outcome_sync: None,
 					registration: None,
+					sandbox_boot: None,
 					store_data: true,
 				};
 				(
@@ -138,6 +139,7 @@ impl Component {
 			location,
 			outcome_sync,
 			registration,
+			sandbox_boot,
 			store_data,
 		} = options;
 		let now = session.server.clock.unix_timestamp();
@@ -224,6 +226,7 @@ impl Component {
 			principal: principal.clone(),
 			registration,
 			sandbox: None,
+			sandbox_boot,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,

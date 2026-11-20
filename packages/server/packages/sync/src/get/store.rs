@@ -318,6 +318,7 @@ impl Component {
 					principal: session.context.principal.clone(),
 					registration: None,
 					sandbox: None,
+					sandbox_boot: None,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: session.server.config.process.time_to_touch,
 					touched_at: now,
