@@ -4,6 +4,9 @@ use ../../util/test.nu *
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux namespaces'
 }
+if not ([/bin/cat /usr/bin/cat] | any { path exists }) {
+	skip_test 'this test requires the host programs in /bin or /usr/bin'
+}
 let backends = if (which bwrap | is-empty) { [builtin] } else { [builtin bubblewrap] }
 let mounts = [/usr /lib /lib64 /bin] | where { path exists } | each {|path| [--mount $'($path | path expand):($path),ro'] } | flatten
 for backend in $backends {

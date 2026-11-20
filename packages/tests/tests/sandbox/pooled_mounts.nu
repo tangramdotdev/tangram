@@ -4,6 +4,9 @@ use ../../util/test.nu *
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux namespaces'
 }
+if not ([/bin/cat /usr/bin/cat] | any { path exists }) {
+	skip_test 'this test requires the host programs in /bin or /usr/bin'
+}
 let local = server spawn --config {
 	advanced: { checkpoints: true },
 	runner: { backend: { kind: builtin }, sandbox_pool_size: 1 },
