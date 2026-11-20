@@ -21,6 +21,9 @@ mod tests;
 
 /// The sandboxes of a runner that a registration ends.
 struct EndRunnerSandboxesArg {
+	/// The checkpoint that the routine hits once it has read the runner's sandboxes.
+	checkpoint: &'static str,
+
 	/// The sandboxes that the runner has directories for, or `None` if they are unknown.
 	directories: Option<BTreeSet<tg::sandbox::Id>>,
 
@@ -32,6 +35,18 @@ struct EndRunnerSandboxesArg {
 
 	/// The sandboxes whose current boot the scheduler holds.
 	queued: Vec<tg::sandbox::Id>,
+}
+
+/// The reported sandboxes with directories that a registration ended or leaves to the runner.
+struct EndRunnerSandboxesOutput {
+	/// The reported sandboxes that the registration destroyed.
+	destroyed: Vec<tg::sandbox::Id>,
+
+	/// The reported sandboxes whose directories the runner keeps, because the sandboxes are stopped on the runner or their boots wait in the scheduler's queue.
+	kept: Vec<tg::sandbox::Id>,
+
+	/// The reported sandboxes that the registration stopped, which `kept` also lists.
+	stopped: Vec<tg::sandbox::Id>,
 }
 
 pub(super) struct Runners {
@@ -166,11 +181,17 @@ impl SchedulerState {
 		}
 		self.queue.wake();
 
+		// Get the sandboxes whose current boot this scheduler holds if the runner registers for the first time after it starts, which the runner's registration leaves to this scheduler.
+		let queued = request
+			.directories
+			.is_some()
+			.then(|| self.get_held_sandboxes());
+
 		let scheduler = scheduler.clone();
 		let runner = request.runner.clone();
 		self.operations.push(
 			async move {
-				let result = scheduler.add_runner(request).await;
+				let result = scheduler.add_runner(request, queued).await;
 				Operation::AddRunner {
 					registration_index,
 					id,
@@ -336,6 +357,20 @@ impl SchedulerState {
 		true
 	}
 
+	/// Get the sandboxes whose current boot this scheduler holds, which are the ones that it queued, offered, or ended and holds until the index has recorded the end, and the ones that it holds for recovery.
+	fn get_held_sandboxes(&self) -> Vec<tg::sandbox::Id> {
+		let mut sandboxes = self
+			.sandboxes
+			.entries
+			.iter()
+			.filter(|(_, sandbox)| !matches!(sandbox.state, State::Accepted { .. }))
+			.map(|(id, _)| id.clone())
+			.collect::<Vec<_>>();
+		sandboxes.extend(self.get_recovering_sandboxes());
+
+		sandboxes
+	}
+
 	/// Forget the sandboxes that a runner accepted, except the ones that it reports when it registers again, and queue the ones again whose control connections were not established, if their keys remain.
 	pub(super) fn forget_accepted_sandboxes(
 		&mut self,
@@ -427,6 +462,7 @@ impl Scheduler {
 	async fn add_runner(
 		&self,
 		request: AddRunnerRequestArg,
+		queued: Option<Vec<tg::sandbox::Id>>,
 	) -> tg::Result<(AddRunnerResponseOutput, Option<tg::Id>)> {
 		let session = self.server.session(&self.server.context);
 		let runner = self
@@ -463,10 +499,49 @@ impl Scheduler {
 				request.registration_index,
 			)
 			.await?;
+
+		// End the sandboxes that the index records on a runner that registers for the first time after it starts, and that neither the runner nor this scheduler holds, and decide which of its directories the runner keeps, after pending indexing so that no acknowledged write is missed, or with the index as it is if indexing cannot be awaited.
+		let ended = if let (Some(directories), Some(queued)) = (&request.directories, queued) {
+			if let Err(error) = self.index().await {
+				tracing::warn!(error = %error.trace(), "failed to await indexing");
+			}
+			let registration = tangram_index::runner::Registration {
+				index: request.registration_index,
+				runner: request.runner.clone(),
+				scheduler: self.id.clone(),
+			};
+			let error = tg::error::Data {
+				code: Some(tg::error::Code::Internal),
+				message: Some("runner restarted".to_owned()),
+				..Default::default()
+			};
+			let arg = EndRunnerSandboxesArg {
+				checkpoint: "scheduler.runner.restarted",
+				directories: Some(directories.iter().cloned().collect()),
+				error,
+				held: request.sandboxes.clone(),
+				queued,
+			};
+			let output = self
+				.component
+				.end_runner_sandboxes(&self.server, &registration, arg)
+				.boxed()
+				.await?;
+			Some(output)
+		} else {
+			None
+		};
+
 		tangram_server_core::checkpoint!(self.server, "scheduler.runner.added", runner = %request.runner).await;
+		let (destroyed, kept, stopped) = ended.map_or_else(Default::default, |output| {
+			(output.destroyed, output.kept, output.stopped)
+		});
 		let output = AddRunnerResponseOutput {
+			destroyed,
+			kept,
 			runner: request.runner,
 			scheduler: self.id.clone(),
+			stopped,
 		};
 
 		Ok((output, owner))
@@ -534,22 +609,26 @@ impl Component {
 			..Default::default()
 		};
 		let arg = EndRunnerSandboxesArg {
+			checkpoint: "scheduler.runner.expired",
 			directories: None,
 			error,
 			held: Vec::new(),
 			queued: queued.to_vec(),
 		};
-		self.end_runner_sandboxes(server, registration, arg).await
+		self.end_runner_sandboxes(server, registration, arg).await?;
+
+		Ok(())
 	}
 
-	/// End the sandboxes that the index records on a runner and that neither the runner nor the scheduler holds, with writes that only the registration may make.
+	/// End the sandboxes that the index records on a runner and that neither the runner nor the scheduler holds, with writes that only the registration may make, and decide which of the sandboxes with directories that the runner reports keep their directories.
 	async fn end_runner_sandboxes(
 		&self,
 		server: &Server,
 		registration: &tangram_index::runner::Registration,
 		arg: EndRunnerSandboxesArg,
-	) -> tg::Result<()> {
+	) -> tg::Result<EndRunnerSandboxesOutput> {
 		let EndRunnerSandboxesArg {
+			checkpoint,
 			directories,
 			error,
 			held,
@@ -579,12 +658,14 @@ impl Component {
 			.into_iter()
 			.filter(|sandbox| !queued.contains(sandbox))
 			.collect::<Vec<_>>();
-		tracing::warn!(%runner, sandboxes = sandboxes.len(), "stopping the expired runner sandboxes");
-		tangram_server_core::checkpoint!(server, "scheduler.runner.expired", %runner).await;
+		tracing::warn!(%runner, sandboxes = sandboxes.len(), reason = error.message.as_deref(), "ending the runner sandboxes");
+		tangram_server_core::checkpoint!(server, checkpoint, %runner).await;
 		let indexed =
 			server.index.try_get_sandboxes(&sandboxes).await.map_err(
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
 			)?;
+		let mut destroyed = Vec::new();
+		let mut stopped = Vec::new();
 		for (sandbox, indexed) in std::iter::zip(sandboxes, indexed) {
 			// Skip a sandbox whose recorded boot the runner holds.
 			let data = indexed
@@ -618,9 +699,47 @@ impl Component {
 			)
 			.boxed()
 			.await?;
+			if directories
+				.as_ref()
+				.is_some_and(|directories| directories.contains(&sandbox))
+			{
+				if status.is_destroyed() {
+					destroyed.push(sandbox);
+				} else {
+					stopped.push(sandbox);
+				}
+			}
 		}
 
-		Ok(())
+		// Keep the directory of each reported sandbox that the index now records as stopped on the runner, or whose boot the scheduler holds, so that the runner removes every other directory.
+		let mut kept = Vec::new();
+		if let Some(directories) = directories {
+			let directories = directories.into_iter().collect::<Vec<_>>();
+			let indexed = server.index.try_get_sandboxes(&directories).await.map_err(
+				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
+			)?;
+			for (sandbox, indexed) in std::iter::zip(directories, indexed) {
+				let Some(indexed) = indexed else {
+					continue;
+				};
+				let stopped = indexed
+					.data
+					.as_ref()
+					.is_some_and(|data| data.data.status.is_stopped());
+				if indexed.runner.as_ref() == Some(runner) && (stopped || queued.contains(&sandbox))
+				{
+					kept.push(sandbox);
+				}
+			}
+		}
+		stopped.retain(|sandbox| kept.contains(sandbox));
+		let output = EndRunnerSandboxesOutput {
+			destroyed,
+			kept,
+			stopped,
+		};
+
+		Ok(output)
 	}
 
 	pub(crate) async fn destroy_runner_sandbox(

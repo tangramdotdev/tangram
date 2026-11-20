@@ -80,6 +80,7 @@ async fn an_older_registration_cannot_replace_a_newer_registration_index() -> tg
 
 fn control_arg(id: tg::runner::Id) -> tg::runner::control::Arg {
 	tg::runner::control::Arg {
+		directories: None,
 		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
 		host: "test".to_owned(),
 		id,

@@ -124,6 +124,7 @@ impl Component {
 		let request = tangram_server_scheduler_core::RequestArg::AddRunner(
 			tangram_server_scheduler_core::AddRunnerRequestArg {
 				capacity: arg.heartbeat.capacity,
+				directories: arg.directories.clone(),
 				host: arg.host,
 				runner: id.clone(),
 				registration_index,
@@ -214,9 +215,12 @@ impl Component {
 
 		let runner_time_to_live = session.server.config.scheduler.runner_time_to_live;
 		let header = tg::runner::control::Header {
+			destroyed: output.destroyed,
+			kept: output.kept,
 			runner_time_to_live,
 			sandboxes,
 			scheduler: scheduler.clone(),
+			stopped: output.stopped,
 		};
 		let heartbeat_subject =
 			tangram_server_scheduler_core::runner_heartbeat_subject(&scheduler, &id);

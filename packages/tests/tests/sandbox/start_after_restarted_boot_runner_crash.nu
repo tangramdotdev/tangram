@@ -21,13 +21,11 @@ tg --url $url --token $root_token sandbox stop --wait $sandbox
 tg --url $url --token $root_token sandbox start --wait $sandbox
 
 # Kill the runner, then start it again and wait for it to stop the sandbox.
-let stopped = checkpoint watch runner.control.stop_sandbox --params { sandbox: $sandbox } --token $root_token --url $url
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 wait_for_exit $pid
 let runner = server start $runner
-checkpoint pass $stopped
-checkpoint unwatch $stopped
+success (timeout 30s tg --url $url --token $root_token sandbox status --until stopped $sandbox | complete) "the sandbox should stop"
 tg --url $url --token $root_token sandbox stop --wait $sandbox
 
 # The sandbox starts again.

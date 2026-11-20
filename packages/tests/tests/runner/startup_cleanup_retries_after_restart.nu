@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner that restarts during startup cleanup retries using the indexed sandboxes.
+# A runner that restarts while its registration ends the sandboxes that it no longer holds has them ended by its next registration.
 let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
@@ -27,23 +27,22 @@ let path = artifact {
 let id = tg --url $local.url build --wait --no-tokens --remote --detach $path | referent node
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
 
-let sandbox = tg --url $remote.url --token $root_token get $id | from json | get sandbox
-let params = { sandbox: $sandbox } | to json --raw
-let watch = tg --url $remote.url --token $root_token checkpoint watch runner.control.destroy_sandbox --params $params | from json | get watch
+# Kill the runner, start it again, and hold its registration once it has read the sandboxes that it no longer holds.
+let restarted = checkpoint watch scheduler.runner.restarted --params { runner: $created.data.id } --token $root_token --url $remote.url
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 wait_for_exit $pid "the runner must exit"
 let runner = server start $runner
-success (tg --url $remote.url --token $root_token checkpoint wait --timeout 10s runner.control.destroy_sandbox $watch 0 | complete) "startup must clean up the old sandbox"
+checkpoint wait $restarted 0 | ignore
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
 
-# Interrupt the runner before cleanup is acknowledged, so startup must retry using the index.
+# Kill the runner again before its registration ends the sandbox, start it again, and let both registrations continue, so that the newer registration ends the sandbox.
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 wait_for_exit $pid "the runner must exit"
-tg --url $remote.url --token $root_token checkpoint continue runner.control.destroy_sandbox $watch 0
-tg --url $remote.url --token $root_token checkpoint unwatch runner.control.destroy_sandbox $watch
 let runner = server start $runner
+checkpoint wait $restarted 1 | ignore
+checkpoint unwatch $restarted
 let trivial = artifact { tangram.ts: 'export default () => 42' }
 success (timeout 30s tg --url $local.url build --remote $trivial | complete) "new work must succeed after cleanup"
 success (timeout 10s tg --url $local.url process wait $id | complete) "the previous process must finish"

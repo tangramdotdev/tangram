@@ -3049,7 +3049,9 @@ impl Component {
 	}
 
 	/// Get the IDs of the sandboxes with directories on this runner.
-	async fn sandbox_directory_ids(session: &Session) -> tg::Result<Vec<tg::sandbox::Id>> {
+	pub(crate) async fn sandbox_directory_ids(
+		session: &Session,
+	) -> tg::Result<Vec<tg::sandbox::Id>> {
 		let path = session.server.path.join("sandboxes");
 		let mut ids = Vec::new();
 		let mut entries = match tokio::fs::read_dir(&path).await {

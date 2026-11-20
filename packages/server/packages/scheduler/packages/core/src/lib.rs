@@ -181,6 +181,11 @@ pub struct AddRunnerRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub capacity: tg::runner::control::Capacity,
 
+	/// The sandboxes that the runner has directories for, if the runner registers for the first time after it starts, in which case the scheduler ends the sandboxes that the runner no longer holds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
+	pub directories: Option<Vec<tg::sandbox::Id>>,
+
 	#[tangram_serialize(id = 1)]
 	pub host: String,
 
@@ -205,11 +210,26 @@ pub struct AddRunnerRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct AddRunnerResponseOutput {
+	/// The reported sandboxes with directories that the registration destroyed.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Vec::is_empty")]
+	pub destroyed: Vec<tg::sandbox::Id>,
+
+	/// The reported sandboxes with directories whose directories the runner keeps, because the sandboxes are stopped on the runner or their boots wait in the scheduler's queue.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Vec::is_empty")]
+	pub kept: Vec<tg::sandbox::Id>,
+
 	#[tangram_serialize(id = 0)]
 	pub runner: tg::runner::Id,
 
 	#[tangram_serialize(id = 1)]
 	pub scheduler: tg::scheduler::Id,
+
+	/// The reported sandboxes with directories that the registration stopped, which `kept` also lists.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
+	pub stopped: Vec<tg::sandbox::Id>,
 }
 
 #[derive(

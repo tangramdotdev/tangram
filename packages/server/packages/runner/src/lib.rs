@@ -1094,8 +1094,16 @@ impl Component {
 			.into_iter()
 			.map(|(id, boot)| tg::runner::control::ArgSandbox { boot, id })
 			.collect();
+
+		// Report the sandboxes with directories on the first registration after the runner starts, so that the scheduler ends the sandboxes that the runner no longer holds.
+		let directories = if cleanup {
+			Some(Self::sandbox_directory_ids(session).await?)
+		} else {
+			None
+		};
 		let scheduler_time_to_live = session.server.config.runner.scheduler_time_to_live;
 		let arg = tg::runner::control::Arg {
+			directories,
 			heartbeat,
 			host,
 			id: id.clone(),
