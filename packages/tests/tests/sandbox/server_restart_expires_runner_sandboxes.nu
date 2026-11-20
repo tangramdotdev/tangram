@@ -23,7 +23,7 @@ wait_for_exit $runner_pid
 kill --signal 9 $remote.pid
 wait_for_exit $remote.pid
 let remote = server start $remote
-tg --url $remote.url --token $root_token index
+success (timeout 30s tg --url $remote.url --token $root_token sandbox status --until stopped $sandbox | complete) "the sandbox should stop"
 
 let data = tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data
 assert equal $data.status stopped "the restarted server should stop the dead runner's sandbox"

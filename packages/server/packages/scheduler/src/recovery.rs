@@ -1,8 +1,10 @@
 use {
 	super::{Operation, RemoveRunnerRequestArg, Scheduler, SchedulerState},
+	crate::Component,
 	futures::FutureExt as _,
 	std::collections::HashMap,
 	tangram_client::prelude::*,
+	tangram_server_core::Server,
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 };
 
@@ -27,7 +29,7 @@ struct Claim {
 pub(super) type Statuses = HashMap<tg::sandbox::Id, tg::sandbox::Data, tg::id::BuildHasher>;
 
 impl Scheduler {
-	/// Reload the accepted requests from the index. A single server does not recover, because its index writes are not durable when it acknowledges them, and it stops its unfinished sandboxes when it starts.
+	/// Reload the accepted requests from the index. A single server does not reload them, because its index writes are not durable when it acknowledges them and its clients do not survive its restart, and it ends what its previous run left when it starts instead.
 	pub(super) async fn recover(&self, state: &mut SchedulerState) -> tg::Result<()> {
 		if !self.server.config.advanced.multi_server {
 			return Ok(());
@@ -306,5 +308,101 @@ impl SchedulerState {
 				self.handle_enqueue_sandbox_request(scheduler, None, request, true);
 			}
 		}
+	}
+}
+
+impl Component {
+	/// End the boots in this single server's queue, and the sandboxes of the runners other than this server's that registered with it, whose registrations can no longer expire after the restart. Stop each, or destroy it if its ttl is zero. This server's runner ends its own sandboxes when it registers.
+	pub(super) async fn end_previous_run(&self, server: &Server) -> tg::Result<()> {
+		// Get the scheduler's ID. A single server applies its index writes in its own process, so none of its previous run's writes are pending.
+		let id = Self::scheduler_id(&server.config.scheduler)?;
+		let error = tg::error::Data {
+			code: Some(tg::error::Code::Internal),
+			message: Some("server restarted".to_owned()),
+			..Default::default()
+		};
+
+		// End the running boots in the queue, which also removes them from the queue.
+		let ids = server
+			.index
+			.get_scheduler_sandboxes(&id)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the scheduler's sandboxes"))?
+			.into_iter()
+			.map(|sandbox| sandbox.id)
+			.collect::<Vec<_>>();
+		let sandboxes = server
+			.index
+			.try_get_sandboxes(&ids)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the scheduler's sandboxes"))?;
+		for (id, sandbox) in std::iter::zip(ids, sandboxes) {
+			let Some(data) = sandbox
+				.and_then(|sandbox| sandbox.data)
+				.map(|data| data.data)
+			else {
+				continue;
+			};
+			if data.status.is_stopped_or_destroyed() {
+				continue;
+			}
+			let result = if data
+				.time_to_live
+				.is_some_and(|time_to_live| time_to_live.is_zero())
+			{
+				self.destroy_runner_sandbox(server, &id, Some(error.clone()))
+					.boxed()
+					.await
+			} else {
+				self.stop_runner_sandbox(server, &id, error.clone())
+					.boxed()
+					.await
+			};
+			if let Err(error) = result {
+				tracing::error!(sandbox = %id, error = %error.trace(), "failed to end the queued sandbox");
+			}
+		}
+
+		// End the sandboxes of the other runners with their registrations.
+		let local = server.components.runner.local_runner_id(server);
+		let runners = server
+			.index
+			.get_scheduler_runners(&id)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the scheduler's runners"))?;
+		for runner in runners {
+			if local.as_ref() == Some(&runner) {
+				continue;
+			}
+			let Some(indexed) = server
+				.index
+				.try_get_runner(&runner)
+				.await
+				.map_err(|error| tg::error!(!error, %runner, "failed to get the runner"))?
+			else {
+				continue;
+			};
+			let registration = tangram_index::runner::Registration {
+				index: indexed.registration,
+				runner: runner.clone(),
+				scheduler: id.clone(),
+			};
+			let arg = super::runner::EndRunnerSandboxesArg {
+				checkpoint: "scheduler.runner.recovered",
+				directories: None,
+				error: error.clone(),
+				held: Vec::new(),
+				queued: Vec::new(),
+			};
+			let result = self
+				.end_runner_sandboxes(server, &registration, arg)
+				.boxed()
+				.await;
+			if let Err(error) = result {
+				tracing::error!(%runner, error = %error.trace(), "failed to end the runner's sandboxes");
+			}
+		}
+
+		Ok(())
 	}
 }
