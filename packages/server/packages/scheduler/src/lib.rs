@@ -994,6 +994,16 @@ impl tangram_server_core::component::Lifecycle for Component {
 			// Register the scheduler as unavailable until it recovers.
 			Self::register_scheduler(server).await?;
 
+			// End what a single server's previous run left before the server accepts requests, because a single server does not recover its requests.
+			if !server.config.advanced.multi_server
+				&& server
+					.config
+					.roles
+					.contains(&tangram_server_core::config::Role::Scheduler)
+			{
+				self.end_previous_run(server).await?;
+			}
+
 			// Spawn the scheduler task.
 			let task = self.spawn_scheduler_task(server);
 			*self.task.lock().unwrap() = task;

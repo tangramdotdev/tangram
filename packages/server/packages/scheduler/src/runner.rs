@@ -20,25 +20,25 @@ use {
 mod tests;
 
 /// The sandboxes of a runner that a registration ends.
-struct EndRunnerSandboxesArg {
+pub(super) struct EndRunnerSandboxesArg {
 	/// The checkpoint that the routine hits once it has read the runner's sandboxes.
-	checkpoint: &'static str,
+	pub checkpoint: &'static str,
 
 	/// The sandboxes that the runner has directories for, or `None` if they are unknown.
-	directories: Option<BTreeSet<tg::sandbox::Id>>,
+	pub directories: Option<BTreeSet<tg::sandbox::Id>>,
 
 	/// The error that the ended sandboxes and their processes record.
-	error: tg::error::Data,
+	pub error: tg::error::Data,
 
 	/// The boots that the runner holds.
-	held: Vec<tg::runner::control::ArgSandbox>,
+	pub held: Vec<tg::runner::control::ArgSandbox>,
 
 	/// The sandboxes whose current boot the scheduler holds.
-	queued: Vec<tg::sandbox::Id>,
+	pub queued: Vec<tg::sandbox::Id>,
 }
 
 /// The reported sandboxes with directories that a registration ended or leaves to the runner.
-struct EndRunnerSandboxesOutput {
+pub(super) struct EndRunnerSandboxesOutput {
 	/// The reported sandboxes that the registration destroyed.
 	destroyed: Vec<tg::sandbox::Id>,
 
@@ -621,7 +621,7 @@ impl Component {
 	}
 
 	/// End the sandboxes that the index records on a runner and that neither the runner nor the scheduler holds, with writes that only the registration may make, and decide which of the sandboxes with directories that the runner reports keep their directories.
-	async fn end_runner_sandboxes(
+	pub(super) async fn end_runner_sandboxes(
 		&self,
 		server: &Server,
 		registration: &tangram_index::runner::Registration,

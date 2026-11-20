@@ -149,20 +149,6 @@ impl std::ops::Deref for Component {
 }
 
 impl tangram_server_core::component::Lifecycle for Component {
-	fn start<'a>(&'a self, server: &'a Server) -> BoxFuture<'a, tg::Result<()>> {
-		async move {
-			// Expire the unfinished sandboxes of other runners if multi-server mode is disabled.
-			if !server.config.advanced.multi_server {
-				let result = self.expire_unfinished_sandboxes(server).await;
-				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), "failed to expire the unfinished sandboxes");
-				}
-			}
-			Ok(())
-		}
-		.boxed()
-	}
-
 	fn stop<'a>(&'a self, _server: &'a Server) -> BoxFuture<'a, ()> {
 		async move {
 			// Stop the control client and drain the control service tasks.
