@@ -8,6 +8,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_index::prelude::*,
 	tangram_server_core::Session,
 };
 
@@ -80,7 +81,20 @@ impl Component {
 			)
 			.await?
 			.check_exhaustion()?;
-		if !authorized.permissions.contains(permission) {
+
+		// Get the organization if the principal may read it or it is visible to the principal, because its data is only its ID and name.
+		let visible = authorized.permissions.contains(permission)
+			|| session
+				.server
+				.index
+				.visible(
+					std::slice::from_ref(&id.clone().into()),
+					&session.context.principal,
+				)
+				.await?
+				.pop()
+				.unwrap();
+		if !visible {
 			return Ok(None);
 		}
 		let id = id.clone();

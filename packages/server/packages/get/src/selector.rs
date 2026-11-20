@@ -3,6 +3,7 @@ use {
 	futures::{FutureExt as _, StreamExt as _},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
+	tangram_index::prelude::*,
 	tangram_server_core::{
 		Session,
 		location::{
@@ -204,17 +205,36 @@ impl Component {
 			.check_exhaustion()?
 			.permissions
 			.contains(permission);
-		if !authorized {
+
+		// Resolve a named node that the principal may not read if it is visible to the principal, which reveals nothing more than the node's ID and name.
+		let named = matches!(
+			id.kind(),
+			tg::id::Kind::Group
+				| tg::id::Kind::Organization
+				| tg::id::Kind::Tag
+				| tg::id::Kind::User
+		);
+		let visible = !authorized
+			&& named
+			&& session
+				.server
+				.index
+				.visible(std::slice::from_ref(&id), &session.context.principal)
+				.await?
+				.pop()
+				.unwrap();
+		if !authorized && !visible {
 			return Ok(None);
 		}
 
-		// Create the output.
+		// Create the output, with a read token only if the principal may read the node.
 		let mut tokens = tg::authorization::Tokens::with_authorization(tokens.to_vec());
-		if let Some(token) = session
-			.server
-			.components
-			.authorization
-			.create_read_token(session, &id)?
+		if authorized
+			&& let Some(token) = session
+				.server
+				.components
+				.authorization
+				.create_read_token(session, &id)?
 		{
 			tokens.insert_local_authorization(token);
 		}
