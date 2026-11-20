@@ -63,7 +63,8 @@ let failure_watch = tg --url $local.url checkpoint watch push.attempt.failed | f
 let pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 15 $pid
 success (tg --url $local.url checkpoint wait --timeout 30s push.attempt.failed $failure_watch 0 | complete) "the command push attempt must fail when the remote terminates"
-kill --signal 9 $pid
+# Kill the remote, which may already have exited from its graceful shutdown.
+try { kill --signal 9 $pid }
 wait_for_exit $pid "the remote must exit after it is killed"
 let remote = server start $remote
 tg --url $local.url checkpoint unwatch push.attempt.failed $failure_watch
