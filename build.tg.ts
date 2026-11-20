@@ -366,7 +366,7 @@ export type IntegrationOutput = {
 	skipped: Record<string, Array<string>>;
 };
 
-/** Run each integration test in its own sandbox, with Tangram, the test runner, and the test supervisor built on the host in the repository's target/integration directory. Run it from the repository with `tg run ./build.tg.ts#testIntegration`. Each test is a cached process, so run with --retry to run failed tests again. */
+/** Run each integration test in its own sandbox, with Tangram, the test runner, and the test supervisor built on the host in the repository's target/integration directory. Run it from the repository with `tg run ./build.tg.ts#testIntegration`. Each test is a cached process, so a test runs again only when its inputs change. */
 export const testIntegration = async (
 	arg: IntegrationArg = {},
 ): Promise<IntegrationOutput> => {
