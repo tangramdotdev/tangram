@@ -15,10 +15,7 @@ use {
 		},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{
-		stream::TryExt as _,
-		task::{Stopper, Task},
-	},
+	tangram_futures::task::{Stopper, Task},
 	tangram_server_runner_core::{
 		process::ConnectedEvent,
 		sandbox::{Event, ReadyEvent, SpawnSandboxTaskArg, SpawnSandboxTaskOutput},
@@ -2628,121 +2625,20 @@ impl Component {
 		}
 	}
 
-	/// Decide what happens to each sandbox that the previous run left a directory for, using the local index, and remove the directories of the sandboxes to destroy.
-	pub(crate) async fn finish_previous_sandboxes(
+	/// Keep the directory of a previous sandbox that stays stopped, reserving its storage and counting the directory in the storage budget.
+	pub(crate) fn keep_stopped_sandbox_directory(
 		&self,
 		session: &Session,
-	) -> tg::Result<Vec<(tg::sandbox::Id, Teardown)>> {
-		// Get the sandboxes with directories.
-		let ids = Self::sandbox_directory_ids(session).await?;
-
-		// Get the sandboxes' local records after pending indexing, so that a record is not stale.
-		session
-			.index(tg::index::Arg::default())
-			.await?
-			.try_last()
-			.await?;
-		let indexed = session.server.index.try_get_sandboxes(&ids).await?;
-
-		// Destroy each sandbox that the index records as running on this runner without a directory, in this server's location, and without a boot that a scheduler holds, such as a sandbox whose spawn recorded it before a crash left the runner without its directory, because nothing can start it again.
-		let mut sandboxes = self
-			.get_previous_sandboxes_without_directories(session, &ids)
-			.await?
-			.into_iter()
-			.map(|id| (id, Teardown::Destroy))
-			.collect::<Vec<_>>();
-
-		// Stop each sandbox that was running with a nonzero ttl, keep each stopped sandbox, destroy the others once their destruction is reported, and remove now the directories of sandboxes that are destroyed or not recorded.
-		for (id, indexed) in std::iter::zip(ids, indexed) {
-			let teardown = match indexed.map(|indexed| indexed.data) {
-				None => None,
-				Some(None) => Some(Teardown::Destroy),
-				Some(Some(data)) => {
-					let teardown = match data.data.status {
-						tg::sandbox::Status::Destroyed => None,
-						tg::sandbox::Status::Destroying => Some(Teardown::Destroy),
-						tg::sandbox::Status::Started
-						| tg::sandbox::Status::Starting
-						| tg::sandbox::Status::Stopping => Some(Teardown::with_time_to_live(data.data.time_to_live)),
-						tg::sandbox::Status::Stopped => Some(Teardown::Stop),
-					};
-
-					// Keep the storage of each sandbox that stays or becomes stopped reserved, and count its directory in the storage budget.
-					if let Some(Teardown::Stop) = teardown {
-						self.reserve_stopped_sandbox_storage(
-							&id,
-							data.data.storage.unwrap_or_default(),
-						);
-						#[cfg(target_os = "linux")]
-						if let Some(storage) = data.data.storage {
-							self.adopt_stopped_sandbox_storage(session, &id, storage);
-						}
-					}
-
-					// Keep a sandbox that was already stopped without reporting it.
-					if data.data.status.is_stopped() {
-						continue;
-					}
-
-					teardown
-				},
-			};
-			let Some(teardown) = teardown else {
-				self.remove_stopped_sandbox_directory(session, &id).await?;
-				continue;
-			};
-			sandboxes.push((id, teardown));
+		id: &tg::sandbox::Id,
+		storage: Option<tg::sandbox::Resource<u64>>,
+	) {
+		self.reserve_stopped_sandbox_storage(id, storage.unwrap_or_default());
+		#[cfg(target_os = "linux")]
+		if let Some(storage) = storage {
+			self.adopt_stopped_sandbox_storage(session, id, storage);
 		}
-
-		Ok(sandboxes)
-	}
-
-	async fn get_previous_sandboxes_without_directories(
-		&self,
-		session: &Session,
-		directories: &[tg::sandbox::Id],
-	) -> tg::Result<Vec<tg::sandbox::Id>> {
-		let Some(runner) = self.state.id() else {
-			return Ok(Vec::new());
-		};
-		let ids = session
-			.server
-			.index
-			.get_runner_sandboxes(&runner)
-			.await?
-			.into_iter()
-			.filter(|id| !directories.contains(id) && self.state.sandboxes.get_by_id(id).is_none())
-			.collect::<Vec<_>>();
-		let indexed = session.server.index.try_get_sandboxes(&ids).await?;
-		let mut sandboxes = Vec::new();
-		for (id, indexed) in std::iter::zip(ids, indexed) {
-			// Leave a sandbox in a remote to the remote, whose scheduler may hold its boot.
-			let Some(indexed) = indexed else {
-				continue;
-			};
-			let remote = indexed
-				.location
-				.as_ref()
-				.is_some_and(tg::Location::is_remote);
-			let running = indexed
-				.data
-				.is_some_and(|data| !data.data.status.is_stopped_or_destroyed());
-			if remote || !running {
-				continue;
-			}
-			let held = session
-				.server
-				.index
-				.try_get_sandbox_scheduler(&id)
-				.await?
-				.is_some();
-			if held {
-				continue;
-			}
-			sandboxes.push(id);
-		}
-
-		Ok(sandboxes)
+		#[cfg(not(target_os = "linux"))]
+		let _ = session;
 	}
 
 	/// Report the storage usage of this runner's stopped sandboxes, and destroy those whose ttl has expired, at each interval, until the stopper stops.
