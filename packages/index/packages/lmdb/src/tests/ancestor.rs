@@ -25,11 +25,13 @@ async fn try_get_ancestors() {
 			tangram_index::Item::PutGroup(Box::new(tangram_index::group::put::Arg {
 				id: parent.clone(),
 				parent: Some(organization.clone().into()),
+				permissions: Vec::new(),
 				specifier: tg::Specifier::from_str("organization/parent").unwrap(),
 			})),
 			tangram_index::Item::PutGroup(Box::new(tangram_index::group::put::Arg {
 				id: child.clone(),
 				parent: Some(parent.clone().into()),
+				permissions: Vec::new(),
 				specifier: tg::Specifier::from_str("organization/parent/child").unwrap(),
 			})),
 		],

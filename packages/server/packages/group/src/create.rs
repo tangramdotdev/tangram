@@ -457,13 +457,9 @@ impl Component {
 			)
 			.await;
 		tangram_server_core::database::retry!(result, "failed to execute the statement");
-		batch.items.push(tangram_index::Item::PutGroup(Box::new(
-			tangram_index::group::put::Arg {
-				id: id.clone(),
-				parent: parent.cloned(),
-				specifier: specifier.clone(),
-			},
-		)));
+
+		// Grant the creator admin on the group, collecting the permissions that the grant puts.
+		let mut grants = tangram_index::write::Arg::default();
 		if !matches!(
 			session.context.principal,
 			tg::Principal::Anonymous | tg::Principal::Root
@@ -484,13 +480,32 @@ impl Component {
 				.server
 				.components
 				.grant
-				.grant_with_transaction(session, transaction, arg, batch)
+				.grant_with_transaction(session, transaction, arg, &mut grants)
 				.await?
 			{
 				ControlFlow::Break(_) => (),
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			}
 		}
+
+		// Put the group and its permissions in the index in one item, so that the index puts the permissions after the group.
+		let mut permissions = Vec::new();
+		for item in grants.items {
+			match item {
+				tangram_index::Item::PutPermission(arg) => permissions.push(*arg),
+				item => batch.items.push(item),
+			}
+		}
+		let arg = tangram_index::group::put::Arg {
+			id: id.clone(),
+			parent: parent.cloned(),
+			permissions,
+			specifier: specifier.clone(),
+		};
+		batch
+			.items
+			.push(tangram_index::Item::PutGroup(Box::new(arg)));
+
 		let group = tg::group::Data {
 			id,
 			name,

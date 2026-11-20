@@ -615,6 +615,7 @@ async fn preserves_order_and_transaction_boundary() {
 	let put_arg = tangram_index::group::put::Arg {
 		id: id.clone(),
 		parent: None,
+		permissions: Vec::new(),
 		specifier: tg::Specifier::from_str("test").unwrap(),
 	};
 

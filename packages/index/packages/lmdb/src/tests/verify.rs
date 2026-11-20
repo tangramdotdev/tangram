@@ -739,6 +739,7 @@ async fn verify_new_specifier_with_parent_write_permission() {
 		&[tangram_index::group::put::Arg {
 			id: group,
 			parent: Some(alice.clone().into()),
+			permissions: Vec::new(),
 			specifier: "alice/taken".parse().unwrap(),
 		}],
 	)

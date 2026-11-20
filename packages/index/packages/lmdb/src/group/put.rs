@@ -27,7 +27,11 @@ impl Index {
 			let value = tg::Id::from(arg.id.clone()).to_bytes();
 			db.put(transaction, &key, value.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to put the node"))?;
+
+			// Put the permissions, which put the visibility entries of the group and its ancestors.
+			Self::put_permissions_with_transaction(db, subspace, transaction, &arg.permissions)?;
 		}
+
 		Ok(())
 	}
 

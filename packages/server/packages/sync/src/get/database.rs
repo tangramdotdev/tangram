@@ -1393,6 +1393,7 @@ impl Component {
 					tangram_index::Item::PutGroup(Box::new(tangram_index::group::put::Arg {
 						id: message.id.clone(),
 						parent: message.parent.clone(),
+						permissions: Vec::new(),
 						specifier: message.specifier.clone(),
 					}))
 				},

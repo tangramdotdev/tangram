@@ -218,11 +218,15 @@ impl Index {
 					);
 				},
 				tangram_index::Item::PutGroup(arg) => {
-					crate::propagate!(Self::put_groups_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(arg),
-					));
+					crate::propagate!(
+						Self::put_groups_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(arg),
+							partition_totals,
+						)
+						.await
+					);
 				},
 				tangram_index::Item::PutGroupMember(arg) => {
 					crate::propagate!(Self::put_group_members_with_transaction(

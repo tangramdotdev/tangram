@@ -13,12 +13,11 @@ impl Index {
 		partition_totals: crate::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
-			// Put the groups, which are the tag's ancestors that were created with it.
-			crate::propagate!(Self::put_groups_with_transaction(
-				txn,
-				subspace,
-				&arg.groups
-			));
+			// Put the groups, which are the tag's ancestors that were created with it, and their permissions.
+			crate::propagate!(
+				Self::put_groups_with_transaction(txn, subspace, &arg.groups, partition_totals)
+					.await
+			);
 
 			crate::propagate!(Self::put_tag(txn, subspace, arg, partition_totals).await);
 
