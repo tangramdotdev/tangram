@@ -46,7 +46,7 @@ fn process_arg(
 		output: None,
 		owner: tg::Principal::Root,
 		retry: false,
-		sandbox: Some(tg::sandbox::Id::new()),
+		sandbox: None,
 		started_at: Some(0),
 		status,
 		stderr: tg::process::Stdio::default(),

@@ -688,3 +688,44 @@ async fn a_write_cannot_change_the_creator_or_the_owner_of_a_process() {
 	})
 	.await;
 }
+
+#[tokio::test]
+async fn a_write_cannot_change_the_sandbox_of_a_process() {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
+		let id = tg::process::Id::new();
+		let sandbox = tg::sandbox::Id::new();
+
+		// Queue the process in a sandbox.
+		let mut data = process_data(tg::process::Status::Queued, String::new());
+		data.sandbox = Some(sandbox.clone());
+		put_process(index, process_arg(&id, data.clone())).await;
+
+		// Start the process in another sandbox, and verify that the write is rejected.
+		let mut changed = data.clone();
+		changed.sandbox = Some(tg::sandbox::Id::new());
+		changed.status = tg::process::Status::Started;
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutProcess(Box::new(process_arg(
+				&id, changed,
+			)))],
+		};
+		assert!(index.write(arg).await.unwrap().is_err());
+
+		// Start the process in its sandbox, and verify that the write is accepted.
+		data.status = tg::process::Status::Started;
+		put_process(index, process_arg(&id, data)).await;
+		let process = index
+			.try_get_processes(std::slice::from_ref(&id))
+			.await
+			.unwrap()
+			.pop()
+			.unwrap()
+			.unwrap();
+		assert_eq!(process.status, Some(tg::process::Status::Started));
+		assert_eq!(process.sandbox, Some(sandbox));
+	})
+	.await;
+}

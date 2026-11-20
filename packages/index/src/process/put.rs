@@ -133,6 +133,17 @@ impl Arg {
 			)));
 		}
 
+		// Reject a write that changes the sandbox of a process whose record has one.
+		if existing.sandbox.is_some()
+			&& let Some(data) = &self.data
+			&& data.sandbox != existing.sandbox
+		{
+			return Ok(Err(tg::error!(
+				id = %self.id,
+				"cannot change the sandbox of an existing process"
+			)));
+		}
+
 		if self.principal == tg::Principal::Process(self.id.clone())
 			&& existing.status.is_none_or(|status| !status.is_finished())
 		{
