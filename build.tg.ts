@@ -23,6 +23,7 @@ import * as std from "std";
 import { $ } from "std";
 
 import source from "." with { type: "directory" };
+import { context } from "./scripts/context.tg.ts";
 
 export type Arg = cargo.Arg & {
 	foundationdb?: boolean;
@@ -365,31 +366,15 @@ export type IntegrationOutput = {
 	skipped: Record<string, Array<string>>;
 };
 
-/** Run each integration test in its own sandbox, with only the artifacts that this module builds. Each test is a cached process, so run with --retry to run failed tests again. */
+/** Run each integration test in its own sandbox, with Tangram, the test runner, and the test supervisor built on the host in the repository's target/integration directory. Run it from the repository with `tg run ./build.tg.ts#testIntegration`. Each test is a cached process, so run with --retry to run failed tests again. */
 export const testIntegration = async (
 	arg: IntegrationArg = {},
 ): Promise<IntegrationOutput> => {
 	const { filters = [], offline = false } = arg;
 	const host = std.triple.host();
 
-	// Remove this module, its lock, the integration tests, and their utilities from the source that Tangram is built from, so that changing them does not rebuild Tangram. The runner reads the tests at run time from the repository that each test mounts over that source.
-	const buildSource = await tg.directory(source, {
-		"build.tg.lock": null,
-		"build.tg.ts": null,
-		"packages/tests/tests": null,
-		"packages/tests/util": null,
-	});
-
-	// Start building Tangram, the test runner, and the test supervisor without Tangram wrappers, because a test server runs Tangram in its sandboxes, which do not contain the artifacts that a wrapper loads.
-	const tangramPromise = standalone({
-		features: ["fjall", "quickjs", "rocksdb", "turso"],
-		packages: [
-			"tangram_cli",
-			"tangram_tests_runner",
-			"tangram_tests_supervisor",
-		],
-		source: buildSource,
-	});
+	// Find the repository, where the host build runs, and where the test runner that it builds finds the tests.
+	const { cwd: root } = await context();
 
 	// Configure PyO3 for the test interpreter instead of the embedded runtime that the repository configures, as packages/clients/python/build.py does. The Python extension does not link libpython, because the interpreter that imports it provides the symbols.
 	const pythonArtifact = python({ enableOptimizations: false });
@@ -399,22 +384,11 @@ export const testIntegration = async (
 		.env(pythonArtifact)
 		.then(tg.File.expect);
 
-	// Build the native extensions of the JavaScript and Python clients.
-	const extensions = await cargo
-		.build({
-			env: {
-				PYO3_BUILD_EXTENSION_MODULE: "1",
-				PYO3_CONFIG_FILE: pyo3Config,
-			},
-			packages: ["tangram_javascript_native", "tangram_python_native"],
-			source: buildSource,
-			useCargoVendor: true,
-		})
-		.then((output) => output.get("bin"))
-		.then(tg.Directory.expect);
+	// Build Tangram, the test runner, the test supervisor, and the native extensions of the JavaScript and Python clients on the host.
+	const tangram = await buildIntegration({ host, pyo3Config, root });
+	const extensions = await tangram.get("lib").then(tg.Directory.expect);
 
-	// Get the dynamic loader that the standalone executables request, and std's loader and libraries to install for them.
-	const tangram = await tangramPromise;
+	// Get the dynamic loader that the executables request, and std's loader and libraries to install for them.
 	const metadata = await tangram
 		.get("bin/tangram")
 		.then(tg.File.expect)
@@ -565,12 +539,13 @@ export const testIntegration = async (
 					unset "$name"
 				done
 
-				# Run the test in a user and mount namespace. The runner finds the test in the source that it was built from, so mount the repository with the clients over that source, and mount the writable copy over the test's directory, where the test writes its snapshots. The namespace also lets fusermount3 mount the test server's VFS.
+				# Run the test in a user and mount namespace. The runner finds the test in the repository that it was built from, so mount the repository with the clients at that path, and mount the writable copy over the test's directory, where the test writes its snapshots. The namespace also lets fusermount3 mount the test server's VFS.
 				export PATH="${tangram}/bin:$PATH"
+				mkdir -p '${root}'
 				status=0
 				unshare --user --map-current-user --mount --keep-caps \\
 					sh -c 'mount --bind "$1" "$2" && mount --bind "$3" "$4" && shift 4 && exec tangram_tests_runner "$@"' \\
-					sh ${repository} ${buildSource} "$PWD/copy" ${buildSource}/packages/tests/tests/${directory} \\
+					sh ${repository} '${root}' "$PWD/copy" '${root}/packages/tests/tests/${directory}' \\
 					run --jobs 1 --no-progress-details ${offline ? "--offline" : ""} -- '${filter}' 2> log || status=$?
 				cat log >&2
 				if [ "$status" -ne 0 ]; then
@@ -655,6 +630,52 @@ export const testRust = async (...args: tg.Args<Arg>) => {
 };
 
 // Internal helpers.
+
+/** Build Tangram, the test runner, the test supervisor, and the native extensions of the JavaScript and Python clients on the host, in target directories of their own in the repository, and output the executables in bin and the extensions in lib. */
+const buildIntegration = async (arg: {
+	host: string;
+	pyo3Config: tg.File;
+	root: string;
+}) => {
+	const { host, pyo3Config, root } = arg;
+	const linker = `CARGO_TARGET_${rustTriple(host).toUpperCase().replaceAll("-", "_")}_LINKER`;
+
+	// Link with std's SDK and compile C with it, so that the executables and extensions run with std's libraries in the test sandboxes. Link without Tangram wrappers, because the servers run Tangram in their sandboxes, which do not contain the artifacts that a wrapper loads. Build in target directories of their own, because the linker is part of every crate's fingerprint, and because the extensions configure PyO3 for the test interpreter.
+	const pre = tg`
+		export TANGRAM_LINKER_PASSTHROUGH=1
+		export CC="$TGRUSTC_SANDBOX_SDK/bin/cc"
+		export CXX="$TGRUSTC_SANDBOX_SDK/bin/c++"
+		export ${linker}="$TGRUSTC_SANDBOX_SDK/bin/cc"
+		CARGO_TARGET_DIR="$PWD/target/integration" cargo build --features fjall,quickjs,rocksdb,turso --package tangram_cli --package tangram_tests_runner --package tangram_tests_supervisor
+		CARGO_TARGET_DIR="$PWD/target/integration-extensions" PYO3_BUILD_EXTENSION_MODULE=1 PYO3_CONFIG_FILE=${pyo3Config} cargo build --package tangram_javascript_native --package tangram_python_native
+		mkdir -p "$TANGRAM_OUTPUT/bin" "$TANGRAM_OUTPUT/lib"
+		cp target/integration/debug/tangram target/integration/debug/tangram_tests_runner target/integration/debug/tangram_tests_supervisor "$TANGRAM_OUTPUT/bin"
+		ln -s tangram "$TANGRAM_OUTPUT/bin/tg"
+		cp target/integration-extensions/debug/libtangram_javascript_native.so target/integration-extensions/debug/libtangram_python_native.so "$TANGRAM_OUTPUT/lib"
+		exit
+	`;
+
+	// Link the dependencies that the proxy compiles in sandboxes with mold, so that rustflags that select mold, such as those in a user's Cargo configuration, also work there.
+	const sdk = { linker: "mold" as const };
+
+	// Link libcap-ng, libseccomp, and OpenSSL statically from Tangram's builds, because std's SDK does not search the host's libraries, and the test sandboxes do not contain them.
+	const capNg = libcapNg({ build: host, host });
+	const seccomp = libseccomp({ build: host, host });
+	const env = await std.env.arg(bunEnvArg(host), {
+		LIBCAPNG_LIB_PATH: tg`${capNg}/lib`,
+		LIBCAPNG_LINK_TYPE: "static",
+		LIBSECCOMP_LIB_PATH: tg`${seccomp}/lib`,
+		LIBSECCOMP_LINK_TYPE: "static",
+		OPENSSL_DIR: openssl({ build: host, host }),
+		OPENSSL_STATIC: "1",
+	});
+
+	// Run the build on the host in the repository.
+	const command = await cargo.run({ env, host, pre, sdk, source });
+	const output = await tg.run(command).cwd(root).then(tg.Directory.expect);
+
+	return output;
+};
 
 const mergeArgs = async (args: tg.Args<Arg>) =>
 	std.args.apply<Arg, Arg>({
