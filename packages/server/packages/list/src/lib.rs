@@ -468,7 +468,8 @@ impl Component {
 			.await?;
 		let mut output = Vec::new();
 		for ((id, mut item), visible) in std::iter::zip(items, visible) {
-			let authorized = if visible {
+			// Authorize the item, unless it is a visible tag, which the principal may read because it holds a permission on the tag itself.
+			let authorized = if visible && id.kind() == tg::id::Kind::Tag {
 				true
 			} else {
 				let permission = tangram_server_grant_common::read_permission_for_resource(&id)?;
@@ -483,6 +484,11 @@ impl Component {
 					.permissions
 					.contains(permission)
 			};
+			if !visible && !authorized {
+				continue;
+			}
+
+			// Add a read token only if the principal may read the item.
 			if authorized {
 				let tokens = tg::authorization::Tokens::with_authorization(
 					session
@@ -495,8 +501,8 @@ impl Component {
 					target.options.tokens = tokens.clone();
 				}
 				item.set_tokens(tokens);
-				output.push(item);
 			}
+			output.push(item);
 		}
 
 		Ok(output)
