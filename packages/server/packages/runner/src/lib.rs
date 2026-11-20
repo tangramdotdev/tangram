@@ -494,9 +494,20 @@ impl Component {
 			let run_future =
 				self.runner_task_inner(session, &id, &previous, &mut cleanup, stopper.clone());
 			let run_future = pin!(run_future);
-			let future::Either::Right((result, _)) = future::select(stop_future, run_future).await
-			else {
-				break;
+			let (result, _) = match future::select(stop_future, run_future).await {
+				future::Either::Left(((), _)) => {
+					// End the control stream with a message that tells the server that the runner shuts down gracefully, so that the server removes the runner at once, before the stream closes. A runner that terminates leaves its removal to its ttl and its next registration.
+					let interrupt =
+						matches!(*session.server.shutdown.borrow(), Some(Shutdown::Interrupt));
+					if interrupt && let Some(sender) = self.control.borrow().clone() {
+						let message = tg::runner::control::ClientMessage::Notification(
+							tg::runner::control::ClientNotification::End,
+						);
+						sender.try_send_untracked(message);
+					}
+					break;
+				},
+				future::Either::Right(output) => output,
 			};
 			session.server.components.runner.state().set_scheduler(None);
 
