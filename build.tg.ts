@@ -509,80 +509,106 @@ export const testIntegration = async (
 		},
 	);
 
-	// Run each test in its own sandbox, with a limited number at once, so that the sandboxes fit in the scheduler's queue, which holds 1024 by default. Each test writes whether it passed or why it was skipped.
-	const limit = 512;
+	// Group the selected tests by directory, and split each directory into batches of at most 16 tests, so that the cost of a sandbox is paid once per batch rather than once per test, and no large directory runs alone at the end.
+	const directories = new Map<string, Array<string>>();
+	for (const test of selected) {
+		const directory = test.includes("/")
+			? test.slice(0, test.lastIndexOf("/"))
+			: "";
+		const tests = directories.get(directory) ?? [];
+		tests.push(test);
+		directories.set(directory, tests);
+	}
+	const batchSize = 16;
+	const batches: Array<{ directory: string; tests: Array<string> }> = [];
+	for (const [directory, tests] of directories) {
+		for (let start = 0; start < tests.length; start += batchSize) {
+			batches.push({ directory, tests: tests.slice(start, start + batchSize) });
+		}
+	}
+
+	// Run each batch in its own sandbox. The runner runs one test at a time, so that the server runs about one test per CPU at once, as running the tests on the host does, and writes a line for each test, which the sandbox writes as its output.
 	const failed: Record<string, string> = {};
 	let passed = 0;
 	const skipped: Record<string, Array<string>> = {};
-	const remaining = selected.values();
-	const runTests = async () => {
-		for (const test of remaining) {
-			const directory = test.includes("/")
-				? test.slice(0, test.lastIndexOf("/"))
-				: "";
-			const filter = `/packages/tests/tests/${test.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
-			const output = await std.build`
-				# Install std's loader at the path that the standalone executables request, and its libraries in /lib, where the loader searches.
-				mkdir -p /lib "$(dirname ${interpreter})"
-				ln -s ${ldso} ${interpreter}
-				for library in ${libDir}/*; do
-					[ -e "/lib/$(basename "$library")" ] || ln -s "$library" /lib/
-				done
+	const runBatch = async (batch: {
+		directory: string;
+		tests: Array<string>;
+	}) => {
+		const { directory, tests } = batch;
+		const filters = tests
+			.map(
+				(test) =>
+					`'/packages/tests/tests/${test.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$'`,
+			)
+			.join(" ");
+		const output = await std.build`
+			# Install std's loader at the path that the standalone executables request, and its libraries in /lib, where the loader searches, keeping the files that /lib already has.
+			mkdir -p /lib "$(dirname ${interpreter})"
+			ln -s ${ldso} ${interpreter}
+			ln -s ${libDir}/* /lib/ 2> /dev/null || true
 
-				# Copy the test's directory, where the test writes its snapshots, to a writable directory.
-				cp -R ${source}/packages/tests/tests/${directory}/. copy
-				chmod -R u+w copy
+			# Copy the directory, where the tests write their snapshots, to a writable directory.
+			cp -R ${source}/packages/tests/tests/${directory}/. copy
+			chmod -R u+w copy
 
-				# Remove the connection to this server and the environment values that refer to its store.
-				unset TANGRAM_OUTPUT TANGRAM_TOKEN TANGRAM_URL
-				for name in $(env | grep -o '^TANGRAM_ENV_[^=]*'); do
-					unset "$name"
-				done
+			# Remove the connection to this server and the environment values that refer to its store.
+			unset TANGRAM_OUTPUT TANGRAM_TOKEN TANGRAM_URL
+			for name in $(env | grep -o '^TANGRAM_ENV_[^=]*'); do
+				unset "$name"
+			done
 
-				# Run the test in a user and mount namespace. The runner finds the test in the repository that it was built from, so mount the repository with the clients at that path, and mount the writable copy over the test's directory, where the test writes its snapshots. The namespace also lets fusermount3 mount the test server's VFS.
-				export PATH="${tangram}/bin:$PATH"
-				mkdir -p '${root}'
-				status=0
-				unshare --user --map-current-user --mount --keep-caps \\
-					sh -c 'mount --bind "$1" "$2" && mount --bind "$3" "$4" && shift 4 && exec tangram_tests_runner "$@"' \\
-					sh ${repository} '${root}' "$PWD/copy" '${root}/packages/tests/tests/${directory}' \\
-					run --jobs 1 --no-progress-details ${offline ? "--offline" : ""} -- '${filter}' 2> log || status=$?
-				cat log >&2
-				if [ "$status" -ne 0 ]; then
-					exit "$status"
-				fi
+			# Run the tests in a user and mount namespace. The runner finds the tests in the repository that it was built from, so mount the repository with the clients at that path, and mount the writable copy over the directory, where the tests write their snapshots. The namespace also lets fusermount3 mount the test servers' VFS.
+			export PATH="${tangram}/bin:$PATH"
+			mkdir -p '${root}'
+			unshare --user --map-current-user --mount --keep-caps \\
+				sh -c 'mount --bind "$1" "$2" && mount --bind "$3" "$4" && shift 4 && exec tangram_tests_runner "$@"' \\
+				sh ${repository} '${root}' "$PWD/copy" '${root}/packages/tests/tests/${directory}' \\
+				run --jobs 1 --no-progress-details ${offline ? "--offline" : ""} -- ${filters} 2> log || true
+			cat log >&2
+			cp log ${tg.output}
+		`
+			.named(directory === "" ? "tests" : directory)
+			.network(!offline)
+			.checksum(offline ? null : "sha256:any")
+			.env(env)
+			.then(tg.File.expect)
+			.then((file) => file.text)
+			.then(
+				(text) => ({ text }),
+				async (error: unknown) => ({ error: await describeError(error) }),
+			);
 
-				# Write the reason that the test was skipped, or that it passed.
-				reason=$(sed -n 's/^.* skipped: //p' log)
-				if [ -n "$reason" ]; then
-					printf 'skipped: %s\\n' "$reason" > ${tg.output}
-				else
-					echo passed > ${tg.output}
-				fi
-			`
-				.named(test)
-				.network(!offline)
-				.checksum(offline ? null : "sha256:any")
-				.env(env)
-				.then(tg.File.expect)
-				.then((file) => file.text)
-				.then(
-					(text) => ({ text }),
-					async (error: unknown) => ({ error: await describeError(error) }),
-				);
-
-			// Record the test's error with the time it failed, so that it can be matched with the server's log.
-			if ("error" in output) {
-				failed[test] = `${new Date().toISOString()} ${output.error}`;
-			} else if (output.text.startsWith("skipped: ")) {
-				const reason = output.text.slice("skipped: ".length).trim();
-				(skipped[reason] ??= []).push(test);
+		// Record each test's result, with the time that a failed test was recorded, so that it can be matched with the server's log.
+		const time = new Date().toISOString();
+		if ("error" in output) {
+			for (const test of tests) {
+				failed[test] = `${time} ${output.error}`;
+			}
+			return;
+		}
+		const text = removeColors(output.text);
+		const results = readResults(text);
+		const lastLine =
+			text
+				.split("\n")
+				.map((line) => line.trim())
+				.filter((line) => line !== "")
+				.at(-1) ?? "";
+		for (const test of tests) {
+			const result = results.get(test);
+			if (result === undefined) {
+				failed[test] = `${time} the runner reported no result: ${lastLine}`;
+			} else if (result.kind === "failed") {
+				failed[test] = `${time} ${result.message}`;
+			} else if (result.kind === "skipped") {
+				(skipped[result.reason] ??= []).push(test);
 			} else {
 				passed += 1;
 			}
 		}
 	};
-	await Promise.all(Array.from({ length: limit }, runTests));
+	await Promise.all(batches.map(runBatch));
 
 	// Report the failed tests with their errors.
 	const failedTests = Object.keys(failed).sort();
@@ -707,6 +733,48 @@ const featureList = (arg: Arg) => {
 		features.push("lmdb");
 	}
 	return features;
+};
+
+// Remove the colors that the runner writes around the symbol of each result.
+const removeColors = (text: string): string =>
+	text.replaceAll(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
+
+type TestResult =
+	| { kind: "failed"; message: string }
+	| { kind: "passed" }
+	| { kind: "skipped"; reason: string };
+
+// Read each test's result from the runner's output: a line that starts with ✓ for a test that passed, ⊘ for a test that was skipped, followed by the reason, and ✗ for a test that failed, followed by its output. The runner lists the failed tests again at the end, so keep each test's first result.
+const readResults = (text: string): Map<string, TestResult> => {
+	const results = new Map<string, TestResult>();
+	const lines = text.split("\n");
+	const marker = /^([✓⊘✗]) (\S+\.nu) /;
+	for (const [index, line] of lines.entries()) {
+		const match = marker.exec(line);
+		if (match === null) {
+			continue;
+		}
+		const [, symbol, test] = match;
+		if (test === undefined || results.has(test)) {
+			continue;
+		}
+		if (symbol === "✓") {
+			results.set(test, { kind: "passed" });
+		} else if (symbol === "⊘") {
+			const reason = lines[index + 1]?.trim() ?? "";
+			results.set(test, { kind: "skipped", reason });
+		} else {
+			const rest = lines.slice(index + 1);
+			const end = rest.findIndex((line) => marker.test(line));
+			const block = end === -1 ? rest : rest.slice(0, end);
+			const message =
+				block
+					.map((line) => line.trim())
+					.find((line) => line.startsWith("x ")) ?? "the test failed";
+			results.set(test, { kind: "failed", message });
+		}
+	}
+	return results;
 };
 
 // Describe an error and the errors that caused it on one line.
