@@ -79,8 +79,7 @@ impl Component {
 				),
 				permission,
 			)
-			.await?
-			.check_exhaustion()?;
+			.await?;
 
 		// Get the group if the principal may read it or it is visible to the principal, because its data is only its ID and name.
 		let visible = authorized.permissions.contains(permission)
@@ -95,6 +94,7 @@ impl Component {
 				.pop()
 				.unwrap();
 		if !visible {
+			authorized.check_exhaustion()?;
 			return Ok(None);
 		}
 		let id = id.clone();

@@ -199,14 +199,12 @@ impl Component {
 		let permission = tangram_server_grant_common::read_permission_for_resource(&id)?;
 		let resource =
 			tg::Referent::with_node_and_local_tokens(tg::Selector::Id(id.clone()), tokens.to_vec());
-		let authorized = session
+		let output = session
 			.authorize_with_exhaustive(resource, permission, exhaustive)
-			.await?
-			.check_exhaustion()?
-			.permissions
-			.contains(permission);
+			.await?;
+		let authorized = output.permissions.contains(permission);
 
-		// Resolve a named node that the principal may not read if it is visible to the principal, which reveals nothing more than the node's ID and name.
+		// Once the search has finished, resolve a named node that the principal may not read if it is visible to the principal, which reveals nothing more than the node's ID and name.
 		let named = matches!(
 			id.kind(),
 			tg::id::Kind::Group
@@ -215,6 +213,7 @@ impl Component {
 				| tg::id::Kind::User
 		);
 		let visible = !authorized
+			&& exhaustive
 			&& named
 			&& session
 				.server
@@ -224,6 +223,7 @@ impl Component {
 				.pop()
 				.unwrap();
 		if !authorized && !visible {
+			output.check_exhaustion()?;
 			return Ok(None);
 		}
 
