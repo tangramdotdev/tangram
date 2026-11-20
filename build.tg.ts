@@ -630,7 +630,8 @@ const libpython = async (source: tg.Directory, build: string, host: string) => {
 		packages=$(${python} -I ${script} ${workspace} "$PWD/packages" ${python})
 		cp -R "$packages" ${tg.output}
 	`
-		.host(build)
+		// A process host uses the arch and OS form, so accept a full build triple as well.
+		.host(std.triple.archAndOs(build))
 		.checksum("sha256:any")
 		.network(true)
 		.then(tg.Directory.expect);
