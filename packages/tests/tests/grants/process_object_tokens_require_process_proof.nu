@@ -31,11 +31,12 @@ for id in [$file $command $error] {
 }
 failure (tg --token $eve.token cat $log | complete) "Eve should not read Alice's log before the exploit."
 
-# Eve builds a process whose output names Alice's file by ID.
+# Eve builds a process whose output names Alice's file by ID, and waits for the index to record everything that the process proved.
 let source = 'export default function () { return tg.File.withId("FILE_ID"); }' | str replace "FILE_ID" $file
 let leak_path = artifact { tangram.ts: $source }
 let leak_process = tg --token $eve.token build --detach $leak_path | str trim | referent node
 tg --token $eve.token wait $leak_process | ignore
+tg --token $eve.token index
 
 # The output of the process get must not carry a token that reads Alice's file.
 let got = tg --token $eve.token process get --metadata $leak_process | from json
@@ -47,11 +48,12 @@ let cached = tg --token $eve.token build $leak_path | str trim
 failure (read $stranger.token $cached) "the cache hit output must not carry a token for an object the process did not prove"
 failure (tg --token $eve.token get $cached | complete) "Eve must not read the output of a cache hit"
 
-# The output of a child process, reached through its parent, must not carry a token that reads Alice's file.
+# The output of a child process, reached through its parent, must not carry a token that reads Alice's file, once the index has recorded everything that the processes proved.
 let source = 'export default async function () { return await tg.build(leak); }; export function leak() { return tg.File.withId("FILE_ID"); }' | str replace "FILE_ID" $file
 let parent_path = artifact { tangram.ts: $source }
 let parent = tg --token $eve.token build --detach $parent_path | str trim | referent node
 tg --token $eve.token wait $parent | ignore
+tg --token $eve.token index
 let parent_data = tg --token $eve.token process get --metadata $parent | from json
 failure (read $stranger.token $parent_data.output.node.value) "the parent output must not carry a token for an object the parent did not prove"
 let child = $parent_data.children.0.process
@@ -88,20 +90,22 @@ for id in [$file $command $error] {
 }
 failure (tg --token $eve.token cat $log | complete) "Eve must not read Alice's log after the exploit."
 
-# A process's output that the process created itself carries a token that reads it, through a process get and a cache hit.
+# A process's output that the process created itself carries a token that reads it, through a process get and a cache hit, once the index has recorded the process's permission on the object.
 let own_path = artifact { tangram.ts: 'export default function () { return tg.directory({ "file": tg.file("evefile") }); }' }
 let own_process = tg --token $eve.token build --detach $own_path | str trim | referent node
 tg --token $eve.token wait $own_process | ignore
+tg --token $eve.token index
 let got = tg --token $eve.token process get --metadata $own_process | from json
 success (read $stranger.token $got.output.node.value) "the process get output must carry a token for an object the process created"
 let cached = tg --token $eve.token build $own_path | str trim
 success (read $stranger.token $cached) "the cache hit output must carry a token for an object the process created"
 
-# A process's output that was passed into the process carries a token that reads it.
+# A process's output that was passed into the process carries a token that reads it, once the index has recorded the process's permission on the object.
 let input = tg --token $eve.token put --no-tokens 'tg.file("eveinput")' | referent node
 let identity_path = artifact { tangram.ts: 'export default function (file: tg.File) { return file; }' }
 let identity_process = tg --token $eve.token build --detach $identity_path --arg-value $input | str trim | referent node
 tg --token $eve.token wait $identity_process | ignore
+tg --token $eve.token index
 let got = tg --token $eve.token process get --metadata $identity_process | from json
 assert equal ($got.output.node.value | referent node) $input
 success (read $stranger.token $got.output.node.value) "the process get output must carry a token for an object passed into the process"
