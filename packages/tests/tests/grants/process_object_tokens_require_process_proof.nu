@@ -88,20 +88,22 @@ for id in [$file $command $error] {
 }
 failure (tg --token $eve.token cat $log | complete) "Eve must not read Alice's log after the exploit."
 
-# A process's output that the process created itself carries a token that reads it, through a process get and a cache hit.
+# A process's output that the process created itself carries a token that reads it, through a process get and a cache hit, once the index has recorded the process's permission on the object.
 let own_path = artifact { tangram.ts: 'export default function () { return tg.directory({ "file": tg.file("evefile") }); }' }
 let own_process = tg --token $eve.token build --detach $own_path | str trim | referent node
 tg --token $eve.token wait $own_process | ignore
+tg --token $eve.token index
 let got = tg --token $eve.token process get --metadata $own_process | from json
 success (read $stranger.token $got.output.node.value) "the process get output must carry a token for an object the process created"
 let cached = tg --token $eve.token build $own_path | str trim
 success (read $stranger.token $cached) "the cache hit output must carry a token for an object the process created"
 
-# A process's output that was passed into the process carries a token that reads it.
+# A process's output that was passed into the process carries a token that reads it, once the index has recorded the process's permission on the object.
 let input = tg --token $eve.token put --no-tokens 'tg.file("eveinput")' | referent node
 let identity_path = artifact { tangram.ts: 'export default function (file: tg.File) { return file; }' }
 let identity_process = tg --token $eve.token build --detach $identity_path --arg-value $input | str trim | referent node
 tg --token $eve.token wait $identity_process | ignore
+tg --token $eve.token index
 let got = tg --token $eve.token process get --metadata $identity_process | from json
 assert equal ($got.output.node.value | referent node) $input
 success (read $stranger.token $got.output.node.value) "the process get output must carry a token for an object passed into the process"
