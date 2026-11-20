@@ -204,7 +204,7 @@ impl Component {
 			.await?;
 		let authorized = output.permissions.contains(permission);
 
-		// Once the search has finished, resolve a named node that the principal may not read if it is visible to the principal, which reveals nothing more than the node's ID and name.
+		// Once the search has finished, resolve a named node that the principal may not read if it is visible to the principal, which reveals only the node's ID.
 		let named = matches!(
 			id.kind(),
 			tg::id::Kind::Group

@@ -81,7 +81,7 @@ impl Component {
 			)
 			.await?;
 
-		// Get the group if the principal may read it or it is visible to the principal, because its data is only its ID and name.
+		// Get the group if the principal may read it or it is visible to the principal, because its data is only its ID, name, parent, and specifier, which a list of its visible children already reveals.
 		let visible = authorized.permissions.contains(permission)
 			|| session
 				.server
