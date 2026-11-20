@@ -563,7 +563,7 @@ export const testIntegration = async (
 
 	// Run each test in its own sandbox, with a limited number at once, so that the sandboxes fit in the scheduler's queue, which holds 1024 by default. Each test writes whether it passed or why it was skipped.
 	const limit = 512;
-	const failed: Array<string> = [];
+	const failed: Record<string, string> = {};
 	let passed = 0;
 	const skipped: Record<string, Array<string>> = {};
 	const remaining = selected.values();
@@ -617,11 +617,16 @@ export const testIntegration = async (
 				.env(env)
 				.then(tg.File.expect)
 				.then((file) => file.text)
-				.then(undefined, () => undefined);
-			if (output === undefined) {
-				failed.push(test);
-			} else if (output.startsWith("skipped: ")) {
-				const reason = output.slice("skipped: ".length).trim();
+				.then(
+					(text) => ({ text }),
+					async (error: unknown) => ({ error: await describeError(error) }),
+				);
+
+			// Record the test's error with the time it failed, so that it can be matched with the server's log.
+			if ("error" in output) {
+				failed[test] = `${new Date().toISOString()} ${output.error}`;
+			} else if (output.text.startsWith("skipped: ")) {
+				const reason = output.text.slice("skipped: ".length).trim();
 				(skipped[reason] ??= []).push(test);
 			} else {
 				passed += 1;
@@ -630,11 +635,13 @@ export const testIntegration = async (
 	};
 	await Promise.all(Array.from({ length: limit }, runTests));
 
-	// Report the failed tests.
+	// Report the failed tests with their errors.
+	const failedTests = Object.keys(failed).sort();
 	const skippedCount = Object.values(skipped).flat().length;
-	const summary = `${passed} passed, ${skippedCount} skipped, ${failed.length} failed`;
-	if (failed.length > 0) {
-		throw new Error(`${summary}:\n${failed.sort().join("\n")}`);
+	const summary = `${passed} passed, ${skippedCount} skipped, ${failedTests.length} failed`;
+	if (failedTests.length > 0) {
+		const lines = failedTests.map((test) => `${test}: ${failed[test]}`);
+		throw new Error(`${summary}:\n${lines.join("\n")}`);
 	}
 
 	return { passed, skipped };
@@ -719,6 +726,24 @@ const featureList = (arg: Arg) => {
 		features.push("lmdb");
 	}
 	return features;
+};
+
+// Describe an error and the errors that caused it on one line.
+const describeError = async (error: unknown): Promise<string> => {
+	const messages: Array<string> = [];
+	let current: unknown = error;
+	while (current instanceof tg.Error) {
+		const message = await current.message;
+		const values = await current.values;
+		const valuesText =
+			Object.keys(values).length > 0 ? ` ${JSON.stringify(values)}` : "";
+		messages.push(`${message ?? "an error occurred"}${valuesText}`);
+		current = (await current.source)?.node;
+	}
+	if (current !== undefined) {
+		messages.push(current instanceof Error ? current.message : String(current));
+	}
+	return messages.join(" -> ");
 };
 
 const assertHelp = async (env: tg.Unresolved<std.env.Arg>) => {
