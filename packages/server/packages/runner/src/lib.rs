@@ -465,11 +465,11 @@ impl Component {
 			.unwrap()
 			.replace(id.clone());
 
-		// Decide what happens to the previous run's sandboxes before accepting work.
-		let previous = match self.finish_previous_sandboxes(session).await {
+		// Get the sandboxes that the previous run left directories for, before the pool starts, which the first registration reports.
+		let previous = match Self::sandbox_directory_ids(session).await {
 			Ok(previous) => previous,
 			Err(error) => {
-				tracing::error!(error = %error.trace(), "failed to finish the previous sandboxes");
+				tracing::error!(error = %error.trace(), "failed to get the previous sandboxes");
 				Vec::new()
 			},
 		};
@@ -638,7 +638,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::runner::Id,
-		previous: &[(tg::sandbox::Id, crate::sandbox::Teardown)],
+		previous: &[tg::sandbox::Id],
 		cleanup: &mut bool,
 		stopper: Stopper,
 	) -> tg::Result<ControlFlow<(), tg::Error>> {
@@ -654,8 +654,8 @@ impl Component {
 		);
 
 		// Get the runner control stream, continuing if the scheduler could not be reached.
-		let (header, mut control) = match self
-			.run_get_runner_control_stream(session, id, &location, *cleanup)
+		let (header, control) = match self
+			.run_get_runner_control_stream(session, id, &location, cleanup.then_some(previous))
 			.boxed()
 			.await?
 		{
@@ -669,11 +669,10 @@ impl Component {
 		self.offers
 			.set_time_to_live(header.runner_time_to_live.saturating_mul(2));
 
-		// Report the previous sandboxes' stops and destructions before accepting work, or, after a reconnection, give up the sandboxes that the server took over when the runner's heartbeat expired.
-		let mut index = 1;
+		// Keep or remove the previous sandboxes' directories as the registration decided before accepting work, or, after a reconnection, give up the sandboxes that the server took over when the runner's heartbeat expired.
+		let index = 1;
 		if *cleanup {
-			self.cleanup_runner_sandboxes(session, previous.to_vec(), &mut control, &mut index)
-				.boxed()
+			self.finish_previous_sandbox_directories(session, previous, &header)
 				.await?;
 			*cleanup = false;
 		} else {
@@ -695,116 +694,26 @@ impl Component {
 		Ok(ControlFlow::Break(()))
 	}
 
-	async fn cleanup_runner_sandboxes(
+	/// Keep the directory of each previous sandbox that the registration keeps, reserving its storage, and record the stop of each one in a remote that the registration stopped in this runner's local index. Remove every other previous directory.
+	async fn finish_previous_sandbox_directories(
 		&self,
 		session: &Session,
-		sandboxes: Vec<(tg::sandbox::Id, crate::sandbox::Teardown)>,
-		control: &mut tangram_server_core::control::Stream<
-			tg::runner::control::ServerMessage,
-			tg::runner::control::ClientMessage,
-		>,
-		index: &mut u64,
+		previous: &[tg::sandbox::Id],
+		header: &tg::runner::control::Header,
 	) -> tg::Result<()> {
-		let sender = control.sender();
-		let destroy = self.finish_runner_sandboxes(session, sandboxes, sender.clone());
-		let mut destroy = pin!(destroy);
-		let mut interval = tokio::time::interval(session.server.config.runner.heartbeat_interval);
-		loop {
-			let message = tokio::select! {
-				result = &mut destroy => {
-					result?;
-					break;
-				},
-				_ = interval.tick() => {
-					let heartbeat = Self::create_runner_heartbeat(session, *index, true);
-					let message = tg::runner::control::ClientMessage::Notification(
-						tg::runner::control::ClientNotification::Heartbeat(heartbeat),
-					);
-					*index = index.wrapping_add(1);
-					sender.send(message).await?;
-					continue;
-				},
-				message = control.recv_with_ack() => message?,
-			};
-			let Some(message) = message else {
-				return Err(tg::error!(
-					"the runner control stream ended during startup cleanup"
-				));
-			};
-			let request = match message {
-				tg::runner::control::ServerMessage::Ack(_) => unreachable!(),
-
-				tg::runner::control::ServerMessage::Request(request) => request,
-
-				// The control stream has already acknowledged duplicate responses.
-				tg::runner::control::ServerMessage::Response(_) => continue,
-			};
-			let result = match request.arg {
-				tg::runner::control::ServerRequestArg::OfferSandbox(_) => {
-					let output =
-						tg::runner::control::OfferSandboxClientResponseOutput { accepted: false };
-					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
-						output,
-					))
-				},
-				tg::runner::control::ServerRequestArg::DestroySandbox(arg) => {
-					self.spawn_destroy_stopped_sandbox_task(session, request.id, arg, &sender);
-					continue;
-				},
-			};
-			let message = Self::create_runner_control_response(request.id, result);
-			sender.send(message).await?;
-		}
-
-		Ok(())
-	}
-
-	async fn finish_runner_sandboxes(
-		&self,
-		session: &Session,
-		sandboxes: Vec<(tg::sandbox::Id, crate::sandbox::Teardown)>,
-		sender: RunnerSender,
-	) -> tg::Result<()> {
-		for (sandbox, teardown) in sandboxes {
-			// Report the previous sandbox's stop or destruction, and remove the directory of a destroyed sandbox once its destruction is reported.
-			let result = match teardown {
-				crate::sandbox::Teardown::Destroy => {
-					let error = tg::error::Data {
-						code: Some(tg::error::Code::Internal),
-						message: Some("runner restarted".to_owned()),
-						..Default::default()
-					};
-					let arg = tg::runner::control::DestroySandboxClientRequestArg {
-						error: Some(tg::Either::Left(error)),
-						sandbox: sandbox.clone(),
-					};
-					let result = Self::request_runner_sandbox_destroy(&sender, arg).await?;
-					if result.is_break() {
-						self.remove_stopped_sandbox_directory(session, &sandbox)
-							.await?;
-					}
-					result
-				},
-				crate::sandbox::Teardown::Stop => {
-					let arg = tg::runner::control::StopSandboxClientRequestArg {
-						error: None,
-						sandbox: sandbox.clone(),
-					};
-					let result = Self::request_runner_sandbox_stop(&sender, arg).await?;
-					if result.is_break() {
-						self.record_previous_sandbox_stop(session, &sandbox).await?;
-					}
-					result
-				},
-			};
-			match result {
-				ControlFlow::Break(()) => (),
-				ControlFlow::Continue(error) => {
-					return Err(tg::error!(
-						!error,
-						"failed to finish the previous runner sandbox"
-					));
-				},
+		let indexed = session.server.index.try_get_sandboxes(previous).await?;
+		for (sandbox, indexed) in std::iter::zip(previous, indexed) {
+			if !header.kept.contains(sandbox) {
+				self.remove_stopped_sandbox_directory(session, sandbox)
+					.await?;
+				continue;
+			}
+			let storage = indexed
+				.and_then(|indexed| indexed.data)
+				.and_then(|data| data.data.storage);
+			self.keep_stopped_sandbox_directory(session, sandbox, storage);
+			if header.stopped.contains(sandbox) {
+				self.record_previous_sandbox_stop(session, sandbox).await?;
 			}
 		}
 
@@ -1054,7 +963,7 @@ impl Component {
 		session: &Session,
 		id: &tg::runner::Id,
 		location: &tg::Location,
-		cleanup: bool,
+		directories: Option<&[tg::sandbox::Id]>,
 	) -> tg::Result<
 		ControlFlow<
 			(
@@ -1073,6 +982,7 @@ impl Component {
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
 			.map(Ok)
 			.boxed();
+		let cleanup = directories.is_some();
 		let heartbeat = Self::create_runner_heartbeat(session, 0, cleanup);
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
@@ -1095,12 +1005,8 @@ impl Component {
 			.map(|(id, boot)| tg::runner::control::ArgSandbox { boot, id })
 			.collect();
 
-		// Report the sandboxes with directories on the first registration after the runner starts, so that the scheduler ends the sandboxes that the runner no longer holds.
-		let directories = if cleanup {
-			Some(Self::sandbox_directory_ids(session).await?)
-		} else {
-			None
-		};
+		// Report the previous sandboxes with directories on the first registration after the runner starts, so that the scheduler ends the sandboxes that the runner no longer holds and decides which directories the runner keeps.
+		let directories = directories.map(<[tg::sandbox::Id]>::to_vec);
 		let scheduler_time_to_live = session.server.config.runner.scheduler_time_to_live;
 		let arg = tg::runner::control::Arg {
 			directories,

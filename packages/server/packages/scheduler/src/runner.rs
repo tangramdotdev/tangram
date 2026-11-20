@@ -679,13 +679,17 @@ impl Component {
 				continue;
 			}
 
-			// Destroy a sandbox with a zero ttl, because its processes are lost, and a sandbox without a directory, because it cannot start again, and stop the others.
+			// Destroy a sandbox with a zero ttl, because its processes are lost, a sandbox without a directory, because it cannot start again, and a sandbox that is being destroyed on a runner that reports its directories, which removes the directory, and stop the others.
+			let destroying = directories.is_some()
+				&& data
+					.as_ref()
+					.is_some_and(|data| data.status.is_destroying());
 			let time_to_live = data.and_then(|data| data.time_to_live);
 			let zero = time_to_live.is_some_and(|time_to_live| time_to_live.is_zero());
 			let missing = directories
 				.as_ref()
 				.is_some_and(|directories| !directories.contains(&sandbox));
-			let status = if zero || missing {
+			let status = if destroying || zero || missing {
 				tg::sandbox::Status::Destroyed
 			} else {
 				tg::sandbox::Status::Stopped
