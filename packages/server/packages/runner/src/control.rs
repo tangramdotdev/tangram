@@ -375,6 +375,7 @@ impl Component {
 			move |_| async move {
 				let mut control = control;
 				let mut requests = JoinSet::<tg::Result<()>>::new();
+				let mut ended = false;
 				loop {
 					let message = tokio::select! {
 						message = control.recv_without_ack() => message?,
@@ -391,6 +392,12 @@ impl Component {
 									.publish_runner_control_ack(&session, &runner, ack)
 									.await?;
 							}
+						},
+						tg::runner::control::ClientMessage::Notification(
+							tg::runner::control::ClientNotification::End,
+						) => {
+							ended = true;
+							break;
 						},
 						tg::runner::control::ClientMessage::Notification(
 							tg::runner::control::ClientNotification::Heartbeat(heartbeat),
@@ -458,7 +465,8 @@ impl Component {
 						},
 					}
 				}
-				if !scheduler_unavailable.load(Ordering::Acquire) {
+				// Remove the runner at once only if it ended the stream because it shut down, and leave a stream that ended otherwise to the runner's ttl and its next registration.
+				if ended && !scheduler_unavailable.load(Ordering::Acquire) {
 					let request = tangram_server_scheduler_core::RequestArg::RemoveRunner(
 						tangram_server_scheduler_core::RemoveRunnerRequestArg {
 							registration_index,
@@ -473,6 +481,8 @@ impl Component {
 						.boxed()
 						.await??;
 				}
+				tangram_server_core::checkpoint!(session.server, "runner.control.ended", %runner)
+					.await;
 				Ok::<_, tg::Error>(())
 			}
 		});

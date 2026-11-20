@@ -1,9 +1,11 @@
 use {
-	futures::StreamExt as _,
+	futures::{SinkExt as _, StreamExt as _},
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_tests_util::{Config, cli::Server},
 };
+
+const ROOT_TOKEN: &str = "root";
 
 /// Destroy sandbox requests on a runner control connection enforce runner ownership and are idempotent.
 #[cfg(target_os = "linux")]
@@ -152,6 +154,113 @@ async fn sandbox_control_requires_proof() -> tg::Result<()> {
 	Ok(())
 }
 
+/// A runner whose control stream ends with an end message is removed at once, and its sandbox stops.
+#[tokio::test]
+async fn a_runner_control_stream_that_ends_with_an_end_message_removes_the_runner() -> tg::Result<()>
+{
+	// Start a scheduler, connect a runner, and connect a sandbox on the runner.
+	let (server, runner, sandbox, sender) = start_runner_with_sandbox().await?;
+	let token = Some(ROOT_TOKEN);
+	let watch = watch_checkpoint(&server, "runner.control.ended").await?;
+
+	// End the control stream with an end message, and wait for the server to handle its end.
+	let mut sender = sender;
+	sender
+		.send(Ok(tg::runner::control::ClientMessage::Notification(
+			tg::runner::control::ClientNotification::End,
+		)))
+		.await
+		.map_err(|error| tg::error!(!error, "failed to send the end message"))?;
+	drop(sender);
+	server
+		.tg(
+			token,
+			[
+				"checkpoint",
+				"wait",
+				"--timeout",
+				"30s",
+				"runner.control.ended",
+				&watch,
+				"0",
+			],
+		)
+		.await?;
+	server
+		.tg(
+			token,
+			["checkpoint", "unwatch", "runner.control.ended", &watch],
+		)
+		.await?;
+
+	// The runner is removed at once, which stops its sandbox.
+	let sandbox = sandbox.to_string();
+	server
+		.tg(token, ["sandbox", "status", "--until", "stopped", &sandbox])
+		.await?;
+	let data = sandbox_data(&server, &sandbox).await?;
+	assert_eq!(data["status"], "stopped");
+	assert_eq!(data["error"]["message"], "heartbeat expired");
+
+	drop(runner);
+	server.stop().await?;
+
+	Ok(())
+}
+
+/// A runner whose control stream ends without an end message is not removed, so that its sandbox keeps running until the runner's ttl expires.
+#[tokio::test]
+async fn a_runner_control_stream_that_ends_without_an_end_message_keeps_the_runner()
+-> tg::Result<()> {
+	// Start a scheduler, connect a runner, and connect a sandbox on the runner.
+	let (server, runner, sandbox, sender) = start_runner_with_sandbox().await?;
+	let token = Some(ROOT_TOKEN);
+	let watch = watch_checkpoint(&server, "runner.control.ended").await?;
+
+	// End the control stream cleanly without an end message, and wait for the server to handle its end.
+	drop(sender);
+	server
+		.tg(
+			token,
+			[
+				"checkpoint",
+				"wait",
+				"--timeout",
+				"30s",
+				"runner.control.ended",
+				&watch,
+				"0",
+			],
+		)
+		.await?;
+	server
+		.tg(
+			token,
+			["checkpoint", "unwatch", "runner.control.ended", &watch],
+		)
+		.await?;
+
+	// The sandbox keeps running.
+	let sandbox = sandbox.to_string();
+	server.tg(token, ["index"]).await?;
+	let data = sandbox_data(&server, &sandbox).await?;
+	assert_eq!(data["status"], "started");
+
+	// The sandbox stops once the runner's ttl expires.
+	server.tg(token, ["clock", "advance", "4000ms"]).await?;
+	server
+		.tg(token, ["sandbox", "status", "--until", "stopped", &sandbox])
+		.await?;
+	let data = sandbox_data(&server, &sandbox).await?;
+	assert_eq!(data["status"], "stopped");
+	assert_eq!(data["error"]["message"], "heartbeat expired");
+
+	drop(runner);
+	server.stop().await?;
+
+	Ok(())
+}
+
 /// Open a runner control connection as the runner, and request that the sandbox be destroyed twice. Return whether each request destroyed it.
 #[cfg(target_os = "linux")]
 async fn destroy_sandbox(
@@ -159,8 +268,6 @@ async fn destroy_sandbox(
 	runner: &tg::runner::create::Output,
 	sandbox: &tg::sandbox::Id,
 ) -> tg::Result<(bool, bool)> {
-	use futures::SinkExt as _;
-
 	// Open the connection.
 	let token = runner
 		.token
@@ -254,6 +361,105 @@ async fn sandbox_status(
 		.to_owned();
 
 	Ok(status)
+}
+
+/// Start a scheduler with a virtual clock and checkpoints, connect a runner to it, and connect a sandbox on the runner. Return the server, the runner's control stream, the sandbox, and the sender of the runner's control messages.
+async fn start_runner_with_sandbox() -> tg::Result<(
+	Server,
+	futures::stream::BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
+	tg::sandbox::Id,
+	futures::channel::mpsc::UnboundedSender<tg::Result<tg::runner::control::ClientMessage>>,
+)> {
+	// Start the scheduler with a virtual clock at the current time, so that the runner's proofs of the sandbox IDs that it derives are recent.
+	let output = std::process::Command::new("date")
+		.args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+		.output()
+		.map_err(|error| tg::error!(!error, "failed to get the current time"))?;
+	let now = String::from_utf8(output.stdout)
+		.map_err(|error| tg::error!(!error, "failed to read the current time"))?
+		.trim()
+		.to_owned();
+	let mut config = Config::new();
+	config.merge(serde_json::json!({
+		"advanced": {
+			"checkpoints": true,
+			"clock": { "start": now },
+			"multi_server": true,
+		},
+		"authentication": { "root": { "token": ROOT_TOKEN } },
+		"roles": ["api", "indexer", "scheduler"],
+		"scheduler": { "runner_time_to_live": 3 },
+	}));
+	let server = Server::start(env!("CARGO_BIN_EXE_tangram"), config).await?;
+	let runner = server.create_runner(ROOT_TOKEN, None).await?;
+	let token = runner
+		.token
+		.token
+		.clone()
+		.ok_or_else(|| tg::error!("expected the runner's token"))?;
+
+	// Open the runner's control connection.
+	let session = server
+		.client()?
+		.session(&tg::Context::new(Some(token.clone())));
+	let (sender, receiver) =
+		futures::channel::mpsc::unbounded::<tg::Result<tg::runner::control::ClientMessage>>();
+	let arg = tg::runner::control::Arg {
+		directories: None,
+		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
+		host: "test".to_owned(),
+		id: runner.data.id.clone(),
+		location: None,
+		sandboxes: Vec::new(),
+		scheduler_time_to_live: std::time::Duration::from_secs(300),
+	};
+	let (_, stream) = match session
+		.get_runner_control_stream(arg, receiver.boxed())
+		.await?
+	{
+		ControlFlow::Break(output) => output,
+		ControlFlow::Continue(error) => return Err(error),
+	};
+
+	// Connect a sandbox on the runner, and wait for the index to record it.
+	let arg = sandbox_control_arg(&runner.data.id, Some(&runner.data.id));
+	let sandbox = arg
+		.id
+		.clone()
+		.ok_or_else(|| tg::error!("expected the sandbox's id"))?;
+	connect_sandbox(&server, &token, arg).await?;
+	server.tg(Some(ROOT_TOKEN), ["index"]).await?;
+	let data = sandbox_data(&server, &sandbox.to_string()).await?;
+	assert_eq!(data["status"], "started");
+
+	Ok((server, stream.boxed(), sandbox, sender))
+}
+
+/// Watch a checkpoint, and return the watch.
+async fn watch_checkpoint(server: &Server, checkpoint: &str) -> tg::Result<String> {
+	let output = server
+		.tg(Some(ROOT_TOKEN), ["checkpoint", "watch", checkpoint])
+		.await?;
+	let output = serde_json::from_str::<serde_json::Value>(&output)
+		.map_err(|error| tg::error!(!error, "failed to deserialize the watch"))?;
+	let watch = match &output["watch"] {
+		serde_json::Value::String(watch) => watch.clone(),
+		watch => watch.to_string(),
+	};
+
+	Ok(watch)
+}
+
+/// Get a sandbox's data.
+async fn sandbox_data(server: &Server, sandbox: &str) -> tg::Result<serde_json::Value> {
+	let output = server
+		.tg(Some(ROOT_TOKEN), ["sandbox", "get", sandbox])
+		.await?;
+	let mut output = serde_json::from_str::<serde_json::Value>(&output)
+		.map_err(|error| tg::error!(!error, "failed to deserialize the sandbox"))?;
+	let data = output["data"].take();
+
+	Ok(data)
 }
 
 /// Create the arg for a new local sandbox on the runner, with an ID that the deriving runner derives if one is given, and a new ID otherwise.

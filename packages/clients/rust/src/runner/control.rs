@@ -76,6 +76,10 @@ pub struct ClientAck {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientNotification {
+	/// The last message of a runner that shuts down, after which the server removes the runner at once.
+	#[tangram_serialize(id = 2)]
+	End,
+
 	#[tangram_serialize(id = 0)]
 	Heartbeat(HeartbeatClientNotification),
 
