@@ -737,6 +737,7 @@ async fn verify_new_specifier_with_parent_write_permission() {
 		&index.subspace,
 		&mut txn,
 		&[tangram_index::group::put::Arg {
+			groups: Vec::new(),
 			id: group,
 			parent: Some(alice.clone().into()),
 			permissions: Vec::new(),

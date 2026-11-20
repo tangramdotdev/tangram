@@ -323,9 +323,17 @@ impl Component {
 			}
 			return Err(tg::error!("specifier is already in use"));
 		}
+
+		// Create the group, collecting the index items of the group and of the ancestors that are created separately.
+		let mut items = tangram_index::write::Arg::default();
 		let parent = if arg.ancestors.create {
 			match self
-				.create_parent_groups_with_transaction(session, transaction, &arg.specifier, batch)
+				.create_parent_groups_with_transaction(
+					session,
+					transaction,
+					&arg.specifier,
+					&mut items,
+				)
 				.await?
 			{
 				ControlFlow::Break(parent) => parent,
@@ -345,13 +353,31 @@ impl Component {
 				transaction,
 				&arg.specifier,
 				parent.as_ref(),
-				batch,
+				&mut items,
 			)
 			.await?
 		{
 			ControlFlow::Break(group) => group,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
+
+		// Put the ancestors that were created in the group's index item, so that the index puts them before the group.
+		let mut groups = Vec::new();
+		for item in items.items {
+			match item {
+				tangram_index::Item::PutGroup(arg) => groups.push(*arg),
+				item => batch.items.push(item),
+			}
+		}
+		let mut arg = groups
+			.pop()
+			.ok_or_else(|| tg::error!("expected the group's index item"))?;
+		arg.groups = groups;
+		batch
+			.items
+			.push(tangram_index::Item::PutGroup(Box::new(arg)));
+
+		// Create the output.
 		let mut tokens = tg::authorization::Tokens::default();
 		if let Some(token) = session
 			.server
@@ -497,6 +523,7 @@ impl Component {
 			}
 		}
 		let arg = tangram_index::group::put::Arg {
+			groups: Vec::new(),
 			id: id.clone(),
 			parent: parent.cloned(),
 			permissions,

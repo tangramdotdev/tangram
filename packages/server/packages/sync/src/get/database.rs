@@ -1385,17 +1385,53 @@ impl Component {
 		tag_permissions: &BTreeMap<tg::tag::Id, (Vec<tg::authorization::Permission>, String)>,
 		touched_at: i64,
 	) -> tg::Result<tangram_index::write::Arg> {
+		// Create the index args of the groups that were created, each with its create permission.
+		let mut groups = BTreeMap::new();
+		for node in nodes {
+			let tg::sync::PutNodeMessage::Group(message) = node else {
+				continue;
+			};
+			let id = tg::Id::from(message.id.clone());
+			if !created.contains(&id) {
+				continue;
+			}
+			let permissions = Self::sync_get_create_permission(session, &id, None)?
+				.into_iter()
+				.collect();
+			let arg = tangram_index::group::put::Arg {
+				groups: Vec::new(),
+				id: message.id.clone(),
+				parent: message.parent.clone(),
+				permissions,
+				specifier: message.specifier.clone(),
+			};
+			groups.insert(id, arg);
+		}
+
+		// Create the items. A group or a tag carries its ancestors that were created and its create permission, so that its item does not depend on another item.
 		let mut batch = tangram_index::write::Arg::default();
 		for node in nodes {
 			let id = Self::sync_get_database_node_id(node)?;
-			let item = match node {
+			let permission = if created.contains(&id) {
+				Self::sync_get_create_permission(session, &id, None)?
+			} else {
+				None
+			};
+			match node {
 				tg::sync::PutNodeMessage::Group(message) => {
-					tangram_index::Item::PutGroup(Box::new(tangram_index::group::put::Arg {
+					let arg = tangram_index::group::put::Arg {
+						groups: Self::sync_get_database_created_ancestors(
+							&groups,
+							message.parent.as_ref(),
+						),
 						id: message.id.clone(),
 						parent: message.parent.clone(),
-						permissions: Vec::new(),
+						permissions: permission.into_iter().collect(),
 						specifier: message.specifier.clone(),
-					}))
+					};
+					batch
+						.items
+						.push(tangram_index::Item::PutGroup(Box::new(arg)));
 				},
 				tg::sync::PutNodeMessage::Object(_)
 				| tg::sync::PutNodeMessage::Process(_)
@@ -1403,13 +1439,19 @@ impl Component {
 					return Err(tg::error!("invalid sync node kind"));
 				},
 				tg::sync::PutNodeMessage::Organization(message) => {
-					tangram_index::Item::PutOrganization(Box::new(
-						tangram_index::organization::put::Arg {
-							billing_ready: None,
-							id: message.id.clone(),
-							specifier: message.specifier.clone(),
-						},
-					))
+					let arg = tangram_index::organization::put::Arg {
+						billing_ready: None,
+						id: message.id.clone(),
+						specifier: message.specifier.clone(),
+					};
+					batch
+						.items
+						.push(tangram_index::Item::PutOrganization(Box::new(arg)));
+					if let Some(permission) = permission {
+						batch
+							.items
+							.push(tangram_index::Item::PutPermission(Box::new(permission)));
+					}
 				},
 				tg::sync::PutNodeMessage::Tag(message) => {
 					let (permissions, version) = tag_permissions
@@ -1443,52 +1485,58 @@ impl Component {
 							session.context.principal.clone(),
 							touched_at,
 						)?;
-					tangram_index::Item::PutTag(Box::new(tangram_index::tag::put::Arg {
+					let arg = tangram_index::tag::put::Arg {
 						account: tag_accounts.get(&message.id).cloned().flatten(),
 						captures,
+						groups: Self::sync_get_database_created_ancestors(
+							&groups,
+							message.parent.as_ref(),
+						),
 						id: message.id.clone(),
 						name: message.name.clone(),
 						parent: message.parent.clone(),
-						groups: Vec::new(),
-						permissions: Vec::new(),
+						permissions: permission.into_iter().collect(),
 						specifier: message.specifier.clone(),
 						target,
 						touched_at,
 						version,
-					}))
+					};
+					batch.items.push(tangram_index::Item::PutTag(Box::new(arg)));
 				},
 				tg::sync::PutNodeMessage::User(message) => {
-					tangram_index::Item::PutUser(Box::new(tangram_index::user::put::Arg {
+					let arg = tangram_index::user::put::Arg {
 						billing_ready: None,
 						id: message.id.clone(),
 						specifier: message.specifier.clone(),
-					}))
-				},
-			};
-
-			// Put the create permission with a tag in one item, so that the index finds the tag's ancestors when it puts their visibility entries.
-			let permission = if created.contains(&id) {
-				Self::sync_get_create_permission(session, &id, None)?
-			} else {
-				None
-			};
-			match (item, permission) {
-				(tangram_index::Item::PutTag(mut arg), Some(permission)) => {
-					arg.permissions.push(permission);
-					batch.items.push(tangram_index::Item::PutTag(arg));
-				},
-				(item, Some(permission)) => {
-					batch.items.push(item);
+					};
 					batch
 						.items
-						.push(tangram_index::Item::PutPermission(Box::new(permission)));
-				},
-				(item, None) => {
-					batch.items.push(item);
+						.push(tangram_index::Item::PutUser(Box::new(arg)));
+					if let Some(permission) = permission {
+						batch
+							.items
+							.push(tangram_index::Item::PutPermission(Box::new(permission)));
+					}
 				},
 			}
 		}
+
 		Ok(batch)
+	}
+
+	/// Get the index args of the created groups that are ancestors of a node, from the outermost to the node's parent.
+	fn sync_get_database_created_ancestors(
+		groups: &BTreeMap<tg::Id, tangram_index::group::put::Arg>,
+		parent: Option<&tg::Id>,
+	) -> Vec<tangram_index::group::put::Arg> {
+		let mut ancestors = Vec::new();
+		let mut parent = parent;
+		while let Some(group) = parent.and_then(|id| groups.get(id)) {
+			ancestors.push(group.clone());
+			parent = group.parent.as_ref();
+		}
+		ancestors.reverse();
+		ancestors
 	}
 
 	fn sync_get_database_tag_target(

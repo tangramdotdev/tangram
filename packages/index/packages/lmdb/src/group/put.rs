@@ -11,7 +11,13 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		args: &[tangram_index::group::put::Arg],
 	) -> tg::Result<()> {
+		// Put each group after the ancestor groups that it carries.
+		let mut groups = Vec::new();
 		for arg in args {
+			groups.extend(&arg.groups);
+			groups.push(arg);
+		}
+		for arg in groups {
 			let key = Key::Group(crate::group::Key::Group(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
 			let value = tangram_index::group::Group {

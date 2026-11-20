@@ -46,6 +46,7 @@ async fn deleting_replaced_nodes_preserves_the_replacement() {
 		let nodes = vec![
 			(
 				tangram_index::Item::PutGroup(Box::new(tangram_index::group::put::Arg {
+					groups: Vec::new(),
 					id: group.clone(),
 					parent: None,
 					permissions: Vec::new(),
@@ -102,6 +103,7 @@ async fn deleting_replaced_nodes_preserves_the_replacement() {
 				items: vec![
 					put,
 					tangram_index::Item::PutGroup(Box::new(tangram_index::group::put::Arg {
+						groups: Vec::new(),
 						id: replacement.clone(),
 						parent: None,
 						permissions: Vec::new(),

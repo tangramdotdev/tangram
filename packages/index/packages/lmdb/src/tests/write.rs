@@ -613,6 +613,7 @@ async fn preserves_order_and_transaction_boundary() {
 	let (_dir, index) = new_index();
 	let id = tg::group::Id::new();
 	let put_arg = tangram_index::group::put::Arg {
+		groups: Vec::new(),
 		id: id.clone(),
 		parent: None,
 		permissions: Vec::new(),
