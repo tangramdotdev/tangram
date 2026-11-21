@@ -33,8 +33,12 @@ pub struct Component(Arc<State>);
 pub struct State {
 	pub(crate) control: Control,
 
-	/// The replies that the holders that this server serves recently sent, so that a duplicate request is answered without acting on it again.
+	/// The replies that the runners' holders that this server serves recently sent, so that a duplicate request is answered without acting on it again.
 	pub(crate) holder_replies:
+		tangram_server_core::holder::Replies<tg::sandbox::control::ClientResponse>,
+
+	/// The replies that this server's scheduler recently sent as a holder, which it remembers apart from the runners' replies, because the scheduler and a runner both serve requests for a sandbox.
+	pub(crate) scheduler_holder_replies:
 		tangram_server_core::holder::Replies<tg::sandbox::control::ClientResponse>,
 }
 
@@ -79,9 +83,15 @@ impl Component {
 			arg.config.control.reply_time_to_live,
 			arg.config.control.request_timeout,
 		);
+		let scheduler_holder_replies = tangram_server_core::holder::Replies::new(
+			arg.config.control.reply_capacity,
+			arg.config.control.reply_time_to_live,
+			arg.config.control.request_timeout,
+		);
 		let state = State {
 			control,
 			holder_replies,
+			scheduler_holder_replies,
 		};
 		let component = Self(Arc::new(state));
 
@@ -226,18 +236,21 @@ impl tangram_server_core::sandbox::Component for Component {
 		&'a self,
 		server: &'a Server,
 		id: &'a tg::sandbox::Id,
+		holder: tangram_server_core::sandbox::Holder,
 		ack: tg::sandbox::control::ClientAck,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.publish_sandbox_holder_ack(server, id, ack).boxed()
+		self.publish_sandbox_holder_ack(server, id, holder, ack)
+			.boxed()
 	}
 
 	fn publish_sandbox_holder_response<'a>(
 		&'a self,
 		server: &'a Server,
 		id: &'a tg::sandbox::Id,
+		holder: tangram_server_core::sandbox::Holder,
 		response: tg::sandbox::control::ClientResponse,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.publish_sandbox_holder_response(server, id, response)
+		self.publish_sandbox_holder_response(server, id, holder, response)
 			.boxed()
 	}
 
@@ -255,9 +268,11 @@ impl tangram_server_core::sandbox::Component for Component {
 		&'a self,
 		server: &'a Server,
 		id: &'a tg::sandbox::Id,
+		holder: tangram_server_core::sandbox::Holder,
 		handle: tangram_server_core::sandbox::HolderHandle,
 	) -> BoxFuture<'a, tg::Result<tangram_futures::task::Task<tg::Result<()>>>> {
-		self.serve_sandbox_holder(server, id, handle).boxed()
+		self.serve_sandbox_holder(server, id, holder, handle)
+			.boxed()
 	}
 
 	fn spawn_publish_sandbox_status_task(&self, server: &Server, id: &tg::sandbox::Id) {

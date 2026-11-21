@@ -4,124 +4,153 @@ use {super::new_index, tangram_client::prelude::*};
 async fn registration_indices_fence_delayed_updates_and_cleanup() {
 	let (_directory, index) = new_index();
 
-	for same_scheduler in [false, true] {
-		let first = tangram_index::runner::put::Arg {
-			id: tg::runner::Id::new(),
-			registration: 1,
-			scheduler: tg::scheduler::Id::new(),
-		};
-		let current = tangram_index::runner::put::Arg {
-			registration: 2,
-			scheduler: if same_scheduler {
-				first.scheduler.clone()
-			} else {
-				tg::scheduler::Id::new()
-			},
-			..first.clone()
-		};
-		for runner_arg in [&first, &current, &current] {
-			let arg = tangram_index::write::Arg {
-				items: vec![tangram_index::Item::PutRunner(Box::new(runner_arg.clone()))],
-			};
-			index.write(arg).await.unwrap().unwrap();
-		}
+	let first = tangram_index::runner::put::Arg {
+		id: tg::runner::Id::new(),
+		registration: 1,
+		scheduler: tg::scheduler::Id::new(),
+	};
+	let current = tangram_index::runner::put::Arg {
+		registration: 2,
+		..first.clone()
+	};
+	for runner_arg in [&first, &current, &current] {
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutRunner(Box::new(first.clone()))],
+			items: vec![tangram_index::Item::PutRunner(Box::new(runner_arg.clone()))],
 		};
-		assert!(index.write(arg).await.unwrap().is_err());
+		index.write(arg).await.unwrap().unwrap();
+	}
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutRunner(Box::new(first.clone()))],
+	};
+	assert!(index.write(arg).await.unwrap().is_err());
+	assert_eq!(
+		index
+			.next_runner_registration_index(&current.id)
+			.await
+			.unwrap(),
+		3
+	);
+	let conflicting = tangram_index::runner::put::Arg {
+		scheduler: tg::scheduler::Id::new(),
+		..current.clone()
+	};
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutRunner(Box::new(conflicting))],
+	};
+	assert!(index.write(arg).await.unwrap().is_err());
+	let process = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	for arg in [&first, &current] {
+		let registration = tangram_index::runner::Registration {
+			index: arg.registration,
+			runner: arg.id.clone(),
+			scheduler: arg.scheduler.clone(),
+		};
+		let process_arg = tangram_index::process::put::Arg {
+			account: None,
+			boot: None,
+			cached: false,
+			captures: tangram_index::permission::capture::Captures::default(),
+			children: None,
+			command: None,
+			command_id: tg::command::Id::new(b"command").into(),
+			data: None,
+			error: None,
+			id: process.clone(),
+			location: None,
+			log: None,
+			metadata: tg::process::Metadata::default(),
+			options: tg::referent::Options::default(),
+			output: None,
+			parent: None,
+			permissions: vec![],
+			principal: tg::Principal::Root,
+			registration: Some(registration.clone()),
+			sandbox: None,
+			sandbox_boot: None,
+			sequence: 0,
+			storage: tg::process::storage::Set::NODE,
+			time_to_touch: std::time::Duration::ZERO,
+			touched_at: 0,
+		};
+		let sandbox_arg = tangram_index::sandbox::put::Arg {
+			account: None,
+			created_at: 0,
+			data: None,
+			id: sandbox.clone(),
+			location: None,
+			permissions: vec![],
+			principal: tg::Principal::Root,
+			process: None,
+			processes: None,
+			registration: Some(registration.clone()),
+			runner: None,
+			scheduler: None,
+			sequence: 0,
+			stopped_boot: None,
+			stopped_usage: None,
+			touched_at: 0,
+		};
+		for item in [
+			tangram_index::Item::PutProcess(Box::new(process_arg)),
+			tangram_index::Item::PutSandbox(Box::new(sandbox_arg)),
+		] {
+			let arg = tangram_index::write::Arg { items: vec![item] };
+			let accepted = index.write(arg).await.unwrap().is_ok();
+			assert_eq!(accepted, registration.index == current.registration);
+		}
 		assert_eq!(
 			index
-				.next_runner_registration_index(&current.id)
+				.try_get_processes(std::slice::from_ref(&process))
 				.await
-				.unwrap(),
-			3
+				.unwrap()[0]
+				.is_some(),
+			registration.index == current.registration
 		);
-		let conflicting = tangram_index::runner::put::Arg {
-			scheduler: tg::scheduler::Id::new(),
-			..current.clone()
-		};
-		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutRunner(Box::new(conflicting))],
-		};
-		assert!(index.write(arg).await.unwrap().is_err());
-		let process = tg::process::Id::new();
-		let sandbox = tg::sandbox::Id::new();
-		for arg in [&first, &current] {
-			let registration = tangram_index::runner::Registration {
-				index: arg.registration,
-				runner: arg.id.clone(),
-				scheduler: arg.scheduler.clone(),
-			};
-			let process_arg = tangram_index::process::put::Arg {
-				account: None,
-				boot: None,
-				cached: false,
-				captures: tangram_index::permission::capture::Captures::default(),
-				children: None,
-				command: None,
-				command_id: tg::command::Id::new(b"command").into(),
-				data: None,
-				error: None,
-				id: process.clone(),
-				location: None,
-				log: None,
-				metadata: tg::process::Metadata::default(),
-				options: tg::referent::Options::default(),
-				output: None,
-				parent: None,
-				permissions: vec![],
-				principal: tg::Principal::Root,
-				registration: Some(registration.clone()),
-				sandbox: None,
-				sandbox_boot: None,
-				sequence: 0,
-				storage: tg::process::storage::Set::NODE,
-				time_to_touch: std::time::Duration::ZERO,
-				touched_at: 0,
-			};
-			let sandbox_arg = tangram_index::sandbox::put::Arg {
-				account: None,
-				created_at: 0,
-				data: None,
-				id: sandbox.clone(),
-				location: None,
-				permissions: vec![],
-				principal: tg::Principal::Root,
-				process: None,
-				processes: None,
-				registration: Some(registration.clone()),
-				runner: None,
-				sequence: 0,
-				stopped_boot: None,
-				stopped_usage: None,
-				touched_at: 0,
-			};
-			for item in [
-				tangram_index::Item::PutProcess(Box::new(process_arg)),
-				tangram_index::Item::PutSandbox(Box::new(sandbox_arg)),
-			] {
-				let arg = tangram_index::write::Arg { items: vec![item] };
-				let accepted = index.write(arg).await.unwrap().is_ok();
-				assert_eq!(accepted, registration.index == current.registration);
-			}
-			assert_eq!(
-				index
-					.try_get_processes(std::slice::from_ref(&process))
-					.await
-					.unwrap()[0]
-					.is_some(),
-				registration.index == current.registration
-			);
-			assert_eq!(
-				index
-					.try_get_sandboxes(std::slice::from_ref(&sandbox))
-					.await
-					.unwrap()[0]
-					.is_some(),
-				registration.index == current.registration
-			);
-		}
+		assert_eq!(
+			index
+				.try_get_sandboxes(std::slice::from_ref(&sandbox))
+				.await
+				.unwrap()[0]
+				.is_some(),
+			registration.index == current.registration
+		);
 	}
+}
+
+#[tokio::test]
+async fn a_runner_belongs_to_the_scheduler_that_it_first_registers_with() {
+	let (_directory, index) = new_index();
+	let first = tangram_index::runner::put::Arg {
+		id: tg::runner::Id::new(),
+		registration: 1,
+		scheduler: tg::scheduler::Id::new(),
+	};
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutRunner(Box::new(first.clone()))],
+	};
+	index.write(arg).await.unwrap().unwrap();
+
+	// A later registration with another scheduler is rejected, and one with the same scheduler is accepted.
+	let other = tangram_index::runner::put::Arg {
+		registration: 2,
+		scheduler: tg::scheduler::Id::new(),
+		..first.clone()
+	};
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutRunner(Box::new(other))],
+	};
+	assert!(index.write(arg).await.unwrap().is_err());
+	let same = tangram_index::runner::put::Arg {
+		registration: 2,
+		..first.clone()
+	};
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutRunner(Box::new(same))],
+	};
+	index.write(arg).await.unwrap().unwrap();
+	let runner = index.try_get_runner(&first.id).await.unwrap().unwrap();
+	assert_eq!(runner.scheduler, Some(first.scheduler));
 }
 
 #[tokio::test]
@@ -170,10 +199,11 @@ async fn registration_index_allocations_are_unique_and_survive_reopen() {
 			.unwrap(),
 		1
 	);
+	let scheduler = tg::scheduler::Id::new();
 	let runner_arg = tangram_index::runner::put::Arg {
 		id: runner.clone(),
 		registration: 1,
-		scheduler: tg::scheduler::Id::new(),
+		scheduler: scheduler.clone(),
 	};
 	let arg = tangram_index::write::Arg {
 		items: vec![tangram_index::Item::PutRunner(Box::new(runner_arg))],
@@ -186,7 +216,7 @@ async fn registration_index_allocations_are_unique_and_survive_reopen() {
 	let runner_arg = tangram_index::runner::put::Arg {
 		id: runner.clone(),
 		registration: 100,
-		scheduler: tg::scheduler::Id::new(),
+		scheduler,
 	};
 	let arg = tangram_index::write::Arg {
 		items: vec![tangram_index::Item::PutRunner(Box::new(runner_arg.clone()))],
@@ -218,21 +248,21 @@ async fn a_scheduler_lists_its_runners() {
 	let first = tg::scheduler::Id::new();
 	let second = tg::scheduler::Id::new();
 	let runner = tg::runner::Id::new();
-	for (registration, scheduler) in [(1, &first), (2, &second)] {
+	for registration in [1, 2] {
 		let arg = tangram_index::runner::put::Arg {
 			id: runner.clone(),
 			registration,
-			scheduler: scheduler.clone(),
+			scheduler: first.clone(),
 		};
 		let arg = tangram_index::write::Arg {
 			items: vec![tangram_index::Item::PutRunner(Box::new(arg))],
 		};
 		index.write(arg).await.unwrap().unwrap();
 	}
-	let runners = index.get_scheduler_runners(&first).await.unwrap();
-	assert_eq!(runners.len(), 0);
 	assert_eq!(
-		index.get_scheduler_runners(&second).await.unwrap(),
+		index.get_scheduler_runners(&first).await.unwrap(),
 		vec![runner]
 	);
+	let runners = index.get_scheduler_runners(&second).await.unwrap();
+	assert_eq!(runners.len(), 0);
 }

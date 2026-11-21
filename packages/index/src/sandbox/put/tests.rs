@@ -201,6 +201,17 @@ fn the_permissions_of_a_write_whose_data_loses_apply() {
 	);
 }
 
+#[test]
+fn a_sandbox_keeps_the_scheduler_that_first_queued_it() {
+	let first = tg::scheduler::Id::new();
+	let mut existing = sandbox(data(0, tg::sandbox::Status::Stopped, None));
+	existing.scheduler = Some(first.clone());
+	let mut start = arg(data(1, tg::sandbox::Status::Starting, None));
+	start.scheduler = Some(tg::scheduler::Id::new());
+	let merge = start.merge(Some(&existing), None).unwrap().unwrap();
+	assert_eq!(merge.sandbox.scheduler, Some(first));
+}
+
 /// Apply the writes in every order, and assert that every order leaves the same record and rejects the same writes. Return the record of the last order.
 fn assert_every_order_converges(args: &[Arg]) -> Option<super::super::Sandbox> {
 	let mut expected = None;
@@ -258,6 +269,7 @@ fn arg(data: tg::sandbox::get::Output) -> Arg {
 		process: None,
 		processes: None,
 		runner: None,
+		scheduler: None,
 		sequence: 0,
 		stopped_boot: None,
 		stopped_usage: None,
@@ -304,6 +316,7 @@ fn sandbox(data: tg::sandbox::get::Output) -> super::super::Sandbox {
 		location: None,
 		reference_count: 0,
 		runner: None,
+		scheduler: None,
 		sequence: 0,
 		set: super::super::Set::default(),
 		stopped_usages: BTreeMap::new(),

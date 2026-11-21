@@ -9,6 +9,16 @@ use {
 
 pub type ConnectionFuture = BoxFuture<'static, tg::Result<()>>;
 
+/// The kind of a sandbox's holder that a server serves, each of which remembers its own replies, because a sandbox's scheduler and its runner both serve requests for the sandbox.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Holder {
+	/// The runner that holds the sandbox's boot, which a sandbox control connection serves.
+	Runner,
+
+	/// The sandbox's scheduler, which holds a queued boot and sends the spawns into the sandbox to its runner.
+	Scheduler,
+}
+
 /// The arg of a request to a sandbox's holder.
 pub type HolderArg<'a> = crate::holder::Arg<'a, tg::sandbox::control::ServerRequestArg>;
 
@@ -162,6 +172,7 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		server: &'a Server,
 		id: &'a tg::sandbox::Id,
+		holder: Holder,
 		ack: tg::sandbox::control::ClientAck,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
@@ -169,6 +180,7 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		server: &'a Server,
 		id: &'a tg::sandbox::Id,
+		holder: Holder,
 		response: tg::sandbox::control::ClientResponse,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
@@ -183,6 +195,7 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		server: &'a Server,
 		id: &'a tg::sandbox::Id,
+		holder: Holder,
 		handle: HolderHandle,
 	) -> BoxFuture<'a, tg::Result<tangram_futures::task::Task<tg::Result<()>>>>;
 
