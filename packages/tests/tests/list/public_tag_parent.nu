@@ -36,4 +36,8 @@ with-env { TANGRAM_CONFIG: $config } {
 	assert equal (tg --url $local.url tag get created/nested/1.0.0 | from json | get target.id) $file
 	assert equal (tg --url $local.url tag get created/nested/2.0.0 | from json | get target.id) $file
 	assert ('created' in $specifiers) "the created ancestor of a tag put publicly should be listed"
+
+	# An anonymous client lists the created ancestors down to the tags.
+	assert equal (tg --url $local.url list created | from json | get specifier) [created/nested]
+	assert equal (tg --url $local.url list created/nested | from json | get specifier | sort) [created/nested/1.0.0 created/nested/2.0.0]
 }

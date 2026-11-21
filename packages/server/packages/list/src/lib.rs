@@ -466,23 +466,41 @@ impl Component {
 			.index
 			.visible(&ids, &session.context.principal)
 			.await?;
+
+		// Authorize the items in one batch, except the visible tags, which the principal may read because it holds a permission on each tag itself.
+		let mut args = Vec::new();
+		for ((id, _), visible) in std::iter::zip(&items, &visible) {
+			if *visible && id.kind() == tg::id::Kind::Tag {
+				continue;
+			}
+			let permission = tangram_server_grant_common::read_permission_for_resource(id)?;
+			let permissions = tg::authorization::permission::Set::from_permission(permission);
+			let resource =
+				tg::Referent::with_node_and_tokens(tg::Selector::Id(id.clone()), tokens.clone());
+			args.push((resource, permissions));
+		}
+		let mut authorizations = session.authorize_batch(args, None).await?.into_iter();
+
 		let mut output = Vec::new();
 		for ((id, mut item), visible) in std::iter::zip(items, visible) {
-			let authorized = if visible {
+			// Skip an item that is neither visible nor readable, and fail if the search for an item that is not visible exhausted.
+			let authorized = if visible && id.kind() == tg::id::Kind::Tag {
 				true
 			} else {
 				let permission = tangram_server_grant_common::read_permission_for_resource(&id)?;
-				let resource = tg::Referent::with_node_and_tokens(
-					tg::Selector::Id(id.clone()),
-					tokens.clone(),
-				);
-				session
-					.authorize(resource, permission)
-					.await?
-					.check_exhaustion()?
-					.permissions
-					.contains(permission)
+				let permissions = tg::authorization::permission::Set::from_permission(permission);
+				let authorization = authorizations
+					.next()
+					.ok_or_else(|| tg::error!("expected an authorization"))?;
+				let authorized = authorization.permissions.contains(permissions);
+				if !authorized && !visible {
+					authorization.check_exhaustion()?;
+					continue;
+				}
+				authorized
 			};
+
+			// Add a read token only if the principal may read the item.
 			if authorized {
 				let tokens = tg::authorization::Tokens::with_authorization(
 					session
@@ -495,8 +513,8 @@ impl Component {
 					target.options.tokens = tokens.clone();
 				}
 				item.set_tokens(tokens);
-				output.push(item);
 			}
+			output.push(item);
 		}
 
 		Ok(output)
