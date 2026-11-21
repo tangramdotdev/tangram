@@ -110,6 +110,7 @@ fn runner() -> Runner {
 		owner: None,
 		reservations: HashMap::default(),
 		reserved: tg::runner::Capacity::default(),
+		restarting: false,
 	}
 }
 

@@ -33,9 +33,14 @@ pub(super) struct RunProcessControlTaskArg {
 	pub local: tokio::sync::mpsc::Receiver<local::Message>,
 	pub location: tg::Location,
 	pub outcome_sync: tokio::sync::oneshot::Receiver<()>,
+
+	/// The process, which the control task finishes as failed through its spawner if no server accepts its finish.
+	pub process: tg::runner::control::Process,
+
 	pub retention_stopper: Stopper,
 	pub sandbox: tangram_sandbox::Sandbox,
 	pub sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
+	pub spawner: crate::sandbox::Spawner,
 	pub stderr: tg::process::Stdio,
 	pub stderr_buffered: tokio::sync::oneshot::Sender<tg::Result<()>>,
 	pub stderr_progress: Option<BoxStream<'static, tg::Result<Bytes>>>,
@@ -196,9 +201,11 @@ impl Component {
 			local,
 			location,
 			outcome_sync,
+			process,
 			retention_stopper,
 			sandbox,
 			sandbox_process,
+			spawner,
 			stderr,
 			stderr_buffered,
 			stderr_progress,
@@ -276,18 +283,28 @@ impl Component {
 			},
 		);
 
-		let receiver = finish
-			.await
-			.map_err(|_| tg::error!("failed to receive the process finish response receiver"))?;
-		let started = std::time::Instant::now();
-		tracing::debug!(process = %session.context.principal, "waiting for the process finish response");
-		let output = Self::receive_process_control_client_response(receiver)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to receive the finish process response"))?;
-		output
-			.try_unwrap_finish()
-			.map_err(|_| tg::error!("expected a finish process response"))?;
-		tracing::info!(elapsed = ?started.elapsed(), process = %session.context.principal, "received the process finish response");
+		// Wait for a server to accept the process's finish. If no server accepts it, finish the process as failed through its spawner, whose finish counts as unaccepted until a server accepts it, so that the end of the boot still waits for a finish of the process.
+		let result = async {
+			let receiver = finish.await.map_err(|_| {
+				tg::error!("failed to receive the process finish response receiver")
+			})?;
+			let started = std::time::Instant::now();
+			tracing::debug!(process = %session.context.principal, "waiting for the process finish response");
+			let output = Self::receive_process_control_client_response(receiver)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to receive the finish process response"))?;
+			output
+				.try_unwrap_finish()
+				.map_err(|_| tg::error!("expected a finish process response"))?;
+			tracing::info!(elapsed = ?started.elapsed(), process = %session.context.principal, "received the process finish response");
+			Ok::<_, tg::Error>(())
+		}
+		.await;
+		if let Err(error) = result {
+			self.finish_accepted_process(session, process, spawner, &error);
+			drop(finished);
+			return Err(error);
+		}
 		drop(finished);
 
 		tangram_server_core::checkpoint!(session.server, "runner.process.control.finish.succeeded")

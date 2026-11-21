@@ -48,6 +48,24 @@ pub(super) struct EndRunnerSandboxesArg {
 	pub written: Vec<tg::sandbox::Id>,
 }
 
+/// A boot of a runner that this scheduler declared dead, which the scheduler ends.
+pub(super) struct EndDeadRunnerBootArg<'a> {
+	pub boot: u64,
+
+	/// Whether the sandbox cannot stay stopped once the boot ends, such as a sandbox with a zero ttl, a sandbox whose runner has no directory for it, or a sandbox that a dequeue or a destroy waits for, which the end then destroys.
+	pub destroy: bool,
+
+	/// The error that the ended sandbox and its processes record.
+	pub error: tg::error::Data,
+
+	pub runner: &'a tg::runner::Id,
+
+	pub sandbox: &'a tg::sandbox::Id,
+
+	/// The scheduling task, which the end tells of the boot that it ends, so that the task remembers the boot as ended, or `None` if the caller is the scheduling task, which remembers the boot itself, or if no scheduling task runs.
+	pub task: Option<&'a tokio::sync::mpsc::UnboundedSender<super::HolderMessage>>,
+}
+
 /// The output of a runner's connection.
 pub(super) struct AddRunnerOutput {
 	/// The reported boots and processes that the index does not have on the runner's first report to this restarted scheduler, which this scheduler cancels.
@@ -76,6 +94,15 @@ pub(super) struct UnansweredOffer {
 	pub offer: Option<String>,
 
 	pub sandbox: tg::sandbox::Id,
+}
+
+/// Why this scheduler declares a runner dead, with the ID of the request to answer.
+enum Removal {
+	/// The runner was deleted, and never returns.
+	Deleted { id: String },
+
+	/// The runner's connection expired or its stream ended because it shut down.
+	Removed { id: Option<String> },
 }
 
 pub(super) struct Runners {
@@ -113,12 +140,18 @@ pub(super) struct Runner {
 
 	/// The sum of the reservations.
 	pub reserved: tg::runner::Capacity,
+
+	/// Whether the runner restarted and this scheduler has not finished handling its first connection, until which the runner is sent nothing and every connection of the runner is handled as a first connection.
+	pub restarting: bool,
 }
 
 impl Runner {
-	/// Whether the runner's connection succeeded, and the runner has sent a heartbeat and takes sandboxes.
+	/// Whether the runner's connection succeeded, this scheduler handled the runner's restart, and the runner has sent a heartbeat and takes sandboxes.
 	pub fn ready(&self) -> bool {
-		!self.connection_failed && self.heartbeat_index > 0 && self.capacity.total.sandboxes != 0
+		!self.connection_failed
+			&& !self.restarting
+			&& self.heartbeat_index > 0
+			&& self.capacity.total.sandboxes != 0
 	}
 
 	/// The capacity that the runner has now, which is what its last heartbeat reported without what the scheduler has reserved and committed since.
@@ -163,12 +196,20 @@ impl SchedulerState {
 		&mut self,
 		scheduler: &Scheduler,
 		id: String,
-		request: AddRunnerRequestArg,
+		mut request: AddRunnerRequestArg,
 	) {
 		// Number the runner's connection.
 		let connection = self.runners.next_connection;
 		self.runners.next_connection = connection.wrapping_add(1);
 		tracing::info!(runner = %request.runner, connection, "connecting the runner");
+
+		// Handle a connection of a runner whose restart this scheduler is still handling as a first connection, so that the runner is sent nothing until its restart is handled.
+		let restarting = self
+			.runners
+			.entries
+			.get(&request.runner)
+			.is_some_and(|runner| runner.restarting);
+		request.first = request.first || restarting;
 
 		// Record the runner's report for the recovery of a restarted scheduler, and get the boots that the scheduler rebuilt from the index on the runner. On the runner's first report to the restarted scheduler, the boots and processes that the runner reports and that the index does not have were lost before the scheduler's first write of them.
 		let recovering = self
@@ -192,7 +233,10 @@ impl SchedulerState {
 					.get(&sandbox.id, sandbox.boot)
 					.is_some_and(|ended| ended.runner == request.runner)
 			})
-			.map(|sandbox| sandbox.id.clone())
+			.map(|sandbox| tg::runner::control::EndedSandbox {
+				boot: sandbox.boot,
+				id: sandbox.id.clone(),
+			})
 			.collect::<Vec<_>>();
 
 		let accepted =
@@ -201,7 +245,9 @@ impl SchedulerState {
 			self.sandboxes.ended.forget_runner(&request.runner);
 			self.sandboxes.ended.forget_declared(&request.runner);
 		}
-		let offers = self.remove_runner(scheduler, &request.runner, true);
+		let offers = self
+			.remove_runner_entry(&request.runner)
+			.map_or_default(|runner| runner.reservations);
 		let runner = Runner {
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
@@ -214,22 +260,45 @@ impl SchedulerState {
 			owner: None,
 			reservations: HashMap::default(),
 			reserved: tg::runner::Capacity::default(),
+			restarting: request.first,
 		};
 		self.runners.entries.insert(request.runner.clone(), runner);
 
-		// Track the sandboxes that the runner reports, except the ones that a restarted scheduler holds for recovery, which the runner's report claims and which the end of the recovery accepts.
+		// Track the reported boots that this scheduler authorizes, which are the ones that it gave to the runner, the ones that it rebuilt from the index on the runner after it restarted, and the ones whose IDs the runner proves that it derived, and act on no other reported boot. Leave the ones that a restarted scheduler holds for recovery, which the runner's report claims and which the end of the recovery accepts, and the ones that ended.
 		for sandbox in &request.sandboxes {
-			if self.is_recovering(&sandbox.id) || ended.contains(&sandbox.id) {
+			let ended = ended
+				.iter()
+				.any(|ended| ended.id == sandbox.id && ended.boot == sandbox.boot);
+			if self.is_recovering(&sandbox.id) || ended {
+				continue;
+			}
+			let recovered = recovered.iter().find(|recovered| {
+				recovered.sandbox == sandbox.id && recovered.boot == sandbox.boot
+			});
+			let report = super::report::Report {
+				boot: Some(sandbox.boot),
+				processes: Vec::new(),
+				proof: sandbox.proof.as_ref(),
+				runner: &request.runner,
+				sandbox: &sandbox.id,
+			};
+			let authorized = recovered.is_some()
+				|| matches!(
+					self.authorize_runner_report(&report),
+					super::report::Authorization::Authorized(super::report::Authorized {
+						held: super::report::Held::Accepted | super::report::Held::Derived,
+						..
+					})
+				);
+			if !authorized {
+				tracing::warn!(sandbox = %sandbox.id, boot = sandbox.boot, runner = %request.runner, "ignoring a reported boot that the scheduler did not give to the runner");
 				continue;
 			}
 			let runner = super::placement::RunnerRef {
 				connection,
 				id: request.runner.clone(),
 			};
-			let processes = recovered
-				.iter()
-				.find(|recovered| recovered.sandbox == sandbox.id && recovered.boot == sandbox.boot)
-				.map_or_default(|recovered| recovered.processes.clone());
+			let processes = recovered.map_or_default(|recovered| recovered.processes.clone());
 			self.track_accepted_sandbox(
 				scheduler,
 				&sandbox.id,
@@ -313,7 +382,7 @@ impl SchedulerState {
 			.get(&request.runner)
 			.is_some_and(|runner| runner.connection == request.connection);
 		let report = super::report::Report {
-			boot: request.boot,
+			boot: Some(request.boot),
 			processes: Vec::new(),
 			proof: Some(&request.proof),
 			runner: &request.runner,
@@ -348,70 +417,187 @@ impl SchedulerState {
 			super::report::Authorization::Refused(error) => Err(error),
 		};
 		let response = super::request::Response::new(id, result);
-		scheduler.send_response(self, response);
+		scheduler.send_response(response);
 	}
 
+	/// Carry out the removal of a destroying sandbox's directory, which this scheduler carries out until the runner confirms it or is declared dead, and reply at once.
 	pub(super) fn handle_destroy_runner_sandbox_request(
 		&mut self,
 		scheduler: &Scheduler,
 		id: String,
 		request: super::DestroyRunnerSandboxRequestArg,
 	) {
-		// Fail if the runner is not connected, because only the runner can destroy the sandbox.
-		let Some(connection) = self
+		self.remove_destroying_sandbox(scheduler, request.sandbox, request.runner, request.error);
+		let output = super::DestroyRunnerSandboxResponseOutput {};
+		let response = super::request::Response::new(
+			id,
+			Ok(super::ResponseOutput::DestroyRunnerSandbox(output)),
+		);
+		scheduler.send_response(response);
+	}
+
+	/// Ask a runner to remove the directory of a destroying sandbox, whose report records the destruction. Record the destruction if the runner is declared dead, because the runner never removes the directory, and the runner's next connection removes it if the runner returns. Wait for a runner that is connected but not ready, or that this scheduler waits for after a restart.
+	pub(super) fn remove_destroying_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: tg::sandbox::Id,
+		runner: tg::runner::Id,
+		error: Option<tg::error::Data>,
+	) {
+		let connection = self
 			.runners
 			.entries
-			.get(&request.runner)
-			.filter(|runner| !runner.connection_failed)
-			.map(|runner| runner.connection)
-		else {
-			let error = tg::error!(sandbox = %request.sandbox, runner = %request.runner, "the sandbox's runner is unavailable");
-			let response = super::request::Response::new(id, Err(error));
-			scheduler.send_response(self, response);
-			return;
-		};
+			.get(&runner)
+			.filter(|runner| runner.ready())
+			.map(|runner| runner.connection);
+		let waiting = self
+			.recovery
+			.as_ref()
+			.is_some_and(|recovery| recovery.has_runner(&runner))
+			|| self.runners.entries.contains_key(&runner);
 
-		// Ask the runner to destroy the sandbox.
-		let session = scheduler.server.session(&scheduler.server.context);
-		let scheduler_id = scheduler.id.clone();
-		let retry = scheduler.server.config.control.request_retry.clone().into();
-		let timeout = scheduler.server.config.control.request_timeout;
-		let options = tangram_server_core::control::Options { retry, timeout };
+		// Remember that this scheduler asks the runner to remove the directory, so that the runner's report of the removal is authorized.
+		if connection.is_some() {
+			self.sandboxes
+				.removing
+				.insert(sandbox.clone(), runner.clone());
+		}
+		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
-				let arg = tg::runner::control::ServerRequestArg::DestroySandbox(
-					tg::runner::control::DestroySandboxServerRequestArg {
-						error: request.error.clone(),
-						sandbox: request.sandbox.clone(),
+				let result = match connection {
+					// Ask the runner to remove the directory.
+					Some(connection) => {
+						let session = scheduler.server.session(&scheduler.server.context);
+						let retry = tangram_futures::retry::Options {
+							max_retries: 0,
+							..scheduler.server.config.control.request_retry.clone().into()
+						};
+						let timeout = scheduler.server.config.control.request_timeout;
+						let options = tangram_server_core::control::Options { retry, timeout };
+						let arg = tg::runner::control::ServerRequestArg::DestroySandbox(
+							tg::runner::control::DestroySandboxServerRequestArg {
+								error: error.clone(),
+								sandbox: sandbox.clone(),
+							},
+						);
+						session
+							.server
+							.components
+							.runner
+							.send_runner_control_request(
+								&session,
+								&runner,
+								&scheduler.id,
+								connection,
+								tangram_server_core::control::id(),
+								arg,
+								options,
+							)
+							.await
+							.and_then(std::convert::identity)
+							.and_then(|output| {
+								output
+									.try_unwrap_destroy_sandbox()
+									.map_err(|_| tg::error!("expected a destroy sandbox response"))
+									.map(|output| output.destroyed)
+							})
 					},
-				);
-				let result = session
-					.server
-					.components
-					.runner
-					.send_runner_control_request(
-						&session,
-						&request.runner,
-						&scheduler_id,
-						connection,
-						tangram_server_core::control::id(),
-						arg,
-						options,
-					)
-					.await
-					.and_then(std::convert::identity)
-					.and_then(|output| {
-						output
-							.try_unwrap_destroy_sandbox()
-							.map_err(|_| tg::error!("expected a destroy sandbox response"))
-							.map(|output| output.destroyed)
-					});
-				super::Operation::DestroyRunnerSandbox { id, result }
+
+					// Wait for a runner that is not ready.
+					None if waiting => {
+						Err(tg::error!(%sandbox, %runner, "the sandbox's runner is unavailable"))
+					},
+
+					// Report that a runner that is declared dead did not remove the directory.
+					None => Ok(false),
+				};
+				if result.is_err() {
+					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+				}
+				Operation::RemoveDestroyingSandbox {
+					error,
+					result,
+					runner,
+					sandbox,
+				}
 			}
 			.boxed(),
 		);
 	}
 
+	/// Finish the removal of a destroying sandbox's directory. A runner that removed the directory recorded the destruction, a runner that did not have the directory or that is declared dead never will, so this scheduler records it, and a removal that failed is tried again.
+	pub(super) fn handle_remove_destroying_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: tg::sandbox::Id,
+		runner: tg::runner::Id,
+		error: Option<tg::error::Data>,
+		result: tg::Result<bool>,
+	) {
+		if result.is_ok() && self.sandboxes.removing.get(&sandbox) == Some(&runner) {
+			self.sandboxes.removing.remove(&sandbox);
+		}
+		match result {
+			Ok(true) => {},
+			Ok(false) => {
+				let scheduler = scheduler.clone();
+				self.operations.push(
+					async move {
+						let result = scheduler
+							.component
+							.destroy_runner_sandbox(&scheduler.server, &sandbox, error)
+							.await;
+						Operation::Finished {
+							context: "failed to record the destroyed sandbox",
+							result,
+						}
+					}
+					.boxed(),
+				);
+			},
+			Err(error_) => {
+				tracing::warn!(error = %error_.trace(), %sandbox, %runner, "failed to remove the destroying sandbox's directory");
+				self.remove_destroying_sandbox(scheduler, sandbox, runner, error);
+			},
+		}
+	}
+
+	/// Read the destroying sandboxes whose directories a runner that connected has, so that this scheduler removes their directories, which it may not have finished before the runner or this scheduler restarted.
+	pub(super) fn read_destroying_sandboxes(
+		&mut self,
+		scheduler: &Scheduler,
+		runner: &tg::runner::Id,
+	) {
+		let scheduler = scheduler.clone();
+		let runner = runner.clone();
+		self.operations.push(
+			async move {
+				let result = async {
+					let ids = scheduler.server.index.get_runner_sandboxes(&runner).await?;
+					let indexed = scheduler.server.index.try_get_sandboxes(&ids).await?;
+					let sandboxes = std::iter::zip(ids, indexed)
+						.filter_map(|(id, indexed)| {
+							let data = indexed?.data?.data;
+							data.status
+								.is_destroying()
+								.then(|| (id, data.error.and_then(tg::Either::left)))
+						})
+						.collect::<Vec<_>>();
+					Ok::<_, tg::Error>(sandboxes)
+				}
+				.await;
+				let sandboxes = result.unwrap_or_else(|error| {
+					tracing::error!(error = %error.trace(), %runner, "failed to read the runner's destroying sandboxes");
+					Vec::new()
+				});
+				Operation::DestroyingSandboxes { runner, sandboxes }
+			}
+			.boxed(),
+		);
+	}
+
+	/// Declare a runner dead whose connection expired or whose stream ended because it shut down, unless the request is for a connection that a newer connection of the runner replaced.
 	pub(super) fn handle_remove_runner_request(
 		&mut self,
 		scheduler: &Scheduler,
@@ -432,56 +618,57 @@ impl SchedulerState {
 					id,
 					Ok(super::ResponseOutput::RemoveRunner(output)),
 				);
-				scheduler.send_response(self, response);
+				scheduler.send_response(response);
 			}
 			return;
 		}
 		tracing::info!(runner = %request.runner, connection = request.connection, "removing the runner");
-		let accepted = self.forget_accepted_sandboxes(scheduler, &request.runner, &[]);
-		self.remove_runner(scheduler, &request.runner, false);
-
-		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later. This scheduler holds those boots, so their discard alone records their end, and the runner's cleanup leaves them alone.
-		let mut queued = Vec::new();
-		for discarded in self.discard_pinned_sandboxes(scheduler, &request.runner) {
-			queued.push(discarded.sandbox.clone());
-			scheduler.publish_sandbox_discarded(self, discarded);
-		}
-		let scheduler = scheduler.clone();
-		self.operations.push(
-			async move {
-				let result = scheduler
-					.remove_runner(request, queued, accepted)
-					.boxed()
-					.await;
-				Operation::RemoveRunner { id, result }
-			}
-			.boxed(),
-		);
+		self.declare_runner_dead(scheduler, &request.runner, Removal::Removed { id });
 	}
 
-	/// Declare a deleted runner dead, and end its boots as on the expiry of its ttl. Destroy its stopped sandboxes too, because the runner never returns to destroy them.
+	/// Declare a deleted runner dead.
 	pub(super) fn handle_delete_runner_request(
 		&mut self,
 		scheduler: &Scheduler,
 		id: String,
-		request: tangram_server_scheduler_core::DeleteRunnerRequestArg,
+		request: &tangram_server_scheduler_core::DeleteRunnerRequestArg,
 	) {
 		tracing::info!(runner = %request.runner, "deleting the runner");
-		let accepted = self.forget_accepted_sandboxes(scheduler, &request.runner, &[]);
-		self.remove_runner(scheduler, &request.runner, false);
+		self.declare_runner_dead(scheduler, &request.runner, Removal::Deleted { id });
+	}
+
+	/// Declare a runner dead. Forget the sandboxes that it accepted, end its unanswered offers, and discard the starts pinned to it, so that a boot that the runner's sandboxes are stopped for never starts later. This scheduler holds those boots, so their discard alone records their end, and the end of the runner's boots leaves them alone. Then, in an operation, end the runner's boots.
+	fn declare_runner_dead(
+		&mut self,
+		scheduler: &Scheduler,
+		runner: &tg::runner::Id,
+		removal: Removal,
+	) {
+		let accepted = self.forget_accepted_sandboxes(scheduler, runner, &[]);
+		if let Some(entry) = self.remove_runner_entry(runner) {
+			self.end_runner_offers(scheduler, runner, entry);
+		}
 		let mut queued = Vec::new();
-		for discarded in self.discard_pinned_sandboxes(scheduler, &request.runner) {
+		for discarded in self.discard_pinned_sandboxes(scheduler, runner) {
 			queued.push(discarded.sandbox.clone());
 			scheduler.publish_sandbox_discarded(self, discarded);
 		}
 		let scheduler = scheduler.clone();
+		let runner = runner.clone();
 		self.operations.push(
 			async move {
+				let deleted = matches!(removal, Removal::Deleted { .. });
 				let result = scheduler
-					.delete_runner(&request.runner, queued, accepted)
+					.end_dead_runner(&runner, queued, accepted, deleted)
 					.boxed()
 					.await;
-				Operation::DeleteRunner { id, result }
+				match removal {
+					Removal::Deleted { id } => Operation::DeleteRunner { id, result },
+					Removal::Removed { id } => {
+						let result = result.map(|()| RemoveRunnerResponseOutput { runner });
+						Operation::RemoveRunner { id, result }
+					},
+				}
 			}
 			.boxed(),
 		);
@@ -664,20 +851,11 @@ impl SchedulerState {
 		}
 	}
 
-	/// Remove a runner, and return the capacity that each of its unanswered offers reserves if the runner connects again, whose caller decides what becomes of the offers. End the unanswered offers of a runner that is declared dead, which leaves their sandboxes stopped on the runner, because the runner may have accepted them, so that a boot is never offered to a second runner while the first may hold it, and destroy the sandboxes that a dequeue waits for. The sandboxes that the runner accepted stay until the runner connects again or expires.
-	pub(super) fn remove_runner(
-		&mut self,
-		scheduler: &Scheduler,
-		id: &tg::runner::Id,
-		reconnected: bool,
-	) -> HashMap<tg::sandbox::Id, tg::runner::Capacity, tg::id::BuildHasher> {
-		let Some(runner) = self.runners.entries.remove(id) else {
-			return HashMap::default();
-		};
-
-		// Forget the capacity that the runner's sandboxes lend.
-		for parent_id in runner.borrowable {
-			let Some(parent) = self.parents.0.get_mut(&parent_id) else {
+	/// Remove a runner's entry and forget the capacity that its sandboxes lend, and return the entry, whose reservations are the capacity that each of its unanswered offers reserves.
+	pub(super) fn remove_runner_entry(&mut self, id: &tg::runner::Id) -> Option<Runner> {
+		let runner = self.runners.entries.remove(id)?;
+		for parent_id in &runner.borrowable {
+			let Some(parent) = self.parents.0.get_mut(parent_id) else {
 				continue;
 			};
 			let remove = parent.borrowable.as_ref().is_some_and(|borrowable| {
@@ -686,63 +864,109 @@ impl SchedulerState {
 			if remove {
 				parent.borrowable = None;
 				if parent.is_empty() {
-					self.parents.0.remove(&parent_id);
+					self.parents.0.remove(parent_id);
 				}
 			}
 		}
 
-		// Return the unanswered offers of a runner that connects again.
-		if reconnected {
-			return runner.reservations;
-		}
+		Some(runner)
+	}
 
-		// End the boots that the runner reported to this restarted scheduler and then lost by restarting.
+	/// End the unanswered offers of a runner that is declared dead, and the boots that it reported to this restarted scheduler and then lost by restarting. The sandboxes that the runner accepted are ended by the end of the runner's boots.
+	fn end_runner_offers(&mut self, scheduler: &Scheduler, id: &tg::runner::Id, runner: Runner) {
 		self.fail_restarted_claims(scheduler, id);
-
-		// End the unanswered offers of a runner that is declared dead, and record the runner as the sandbox's runner, because the runner may have accepted the offer, so that a later boot is offered only to it.
 		for sandbox in runner.reservations.into_keys() {
-			let entry = self.sandboxes.entries.get_mut(&sandbox).unwrap();
-			if let Some(request) = &mut entry.request {
-				request.runner.get_or_insert_with(|| id.clone());
-			}
-
-			// Remember the boot as ended, so that this scheduler tells the runner when it connects again.
-			let ended = super::report::EndedBoot {
-				processes: std::collections::BTreeSet::new(),
-				runner: id.clone(),
-			};
-			let boot = entry.boot;
-			self.sandboxes
-				.ended
-				.insert_declared(sandbox.clone(), boot, ended);
-			let entry = self.sandboxes.entries.get_mut(&sandbox).unwrap();
-			let dequeue_requests = std::mem::take(&mut entry.dequeue_requests);
-			if dequeue_requests.is_empty() {
-				let error =
-					tg::error!(%sandbox, runner = %id, "the sandbox's runner is unavailable")
-						.to_data_or_id();
-				let request = entry.request().clone();
-				let write = self.end_sandbox(
-					scheduler,
-					&sandbox,
-					tg::sandbox::Status::Stopped,
-					Some(error.clone()),
-				);
-				let discarded = super::sandbox::DiscardedSandbox {
-					error,
-					request,
-					sandbox: sandbox.clone(),
-					write,
-				};
-				scheduler.publish_sandbox_discarded(self, discarded);
-				continue;
-			}
-			self.end_sandbox_and_log(scheduler, &sandbox, tg::sandbox::Status::Destroyed, None);
-			self.send_dequeue_responses(scheduler, dequeue_requests, true);
+			self.end_unanswered_offer(scheduler, &sandbox, id);
 		}
 		self.queue.wake();
+	}
 
-		HashMap::default()
+	/// End the boot of a sandbox whose offer to a runner that this scheduler declared dead is unanswered, because the runner may have accepted the offer, so that the boot is never offered to a second runner while the first may hold it. Remember the boot as ended, so that this scheduler tells the runner when it connects again, and record the runner as the sandbox's runner, so that a later boot is offered only to it. Keep the sandbox's entry until the index has recorded the end, and destroy a sandbox that a dequeue waits for or whose ttl is zero.
+	fn end_unanswered_offer(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: &tg::sandbox::Id,
+		runner: &tg::runner::Id,
+	) {
+		// Record the runner as the sandbox's runner, and decide whether the sandbox can stay stopped.
+		let entry = self.sandboxes.entries.get_mut(sandbox).unwrap();
+		let request = entry.request_mut();
+		request.runner.get_or_insert_with(|| runner.clone());
+		let zero = request
+			.arg
+			.time_to_live
+			.is_some_and(|time_to_live| time_to_live.is_zero());
+		let boot = entry.boot;
+		let dequeue_requests = std::mem::take(&mut entry.dequeue_requests);
+		let destroy = zero || !dequeue_requests.is_empty();
+		self.remember_ended_boot(sandbox, boot, runner);
+
+		// End the boot.
+		let error = tg::error!(%sandbox, %runner, "the sandbox's runner is unavailable")
+			.to_data_or_id()
+			.left()
+			.unwrap_or_default();
+		let status = if destroy {
+			tg::sandbox::Status::Destroyed
+		} else {
+			tg::sandbox::Status::Stopped
+		};
+		let write = {
+			let scheduler = scheduler.clone();
+			let error = error.clone();
+			let runner = runner.clone();
+			let sandbox = sandbox.clone();
+			async move {
+				tangram_server_core::checkpoint!(scheduler.server, "scheduler.sandbox.end", %sandbox, status = %status)
+					.await;
+				let arg = EndDeadRunnerBootArg {
+					boot,
+					destroy,
+					error,
+					runner: &runner,
+					sandbox: &sandbox,
+					task: None,
+				};
+				scheduler
+					.component
+					.end_dead_runner_boot(&scheduler.server, arg)
+					.await
+			}
+			.boxed()
+		};
+		let request = self.sandboxes.entries[sandbox].request().clone();
+		let error = tg::Either::Left(error);
+		let write =
+			self.end_sandbox_with_write(scheduler, sandbox, status, Some(error.clone()), write);
+
+		// Reply to the waiting dequeues that the sandbox was dequeued, and tell the waiting callers of the end otherwise.
+		if dequeue_requests.is_empty() {
+			let discarded = super::sandbox::DiscardedSandbox {
+				error,
+				request,
+				sandbox: sandbox.clone(),
+				write,
+			};
+			scheduler.publish_sandbox_discarded(self, discarded);
+		} else {
+			scheduler.send_dequeue_responses(dequeue_requests, true);
+		}
+	}
+
+	/// Remember a boot that this scheduler ended for a runner that it declared dead, so that it tells the runner from its memory when the runner connects again.
+	pub(super) fn remember_ended_boot(
+		&mut self,
+		sandbox: &tg::sandbox::Id,
+		boot: u64,
+		runner: &tg::runner::Id,
+	) {
+		let ended = super::report::EndedBoot {
+			processes: BTreeSet::new(),
+			runner: runner.clone(),
+		};
+		self.sandboxes
+			.ended
+			.insert_declared(sandbox.clone(), boot, ended);
 	}
 
 	/// Return a sandbox whose offer the runner lost to the queue, and end it as destroyed if a dequeue waits for it.
@@ -754,7 +978,7 @@ impl SchedulerState {
 			return;
 		}
 		self.end_sandbox_and_log(scheduler, sandbox, tg::sandbox::Status::Destroyed, None);
-		self.send_dequeue_responses(scheduler, dequeue_requests, true);
+		scheduler.send_dequeue_responses(dequeue_requests, true);
 	}
 
 	/// Keep the unanswered offers to a runner that restarted reserved on the runner, and get them for the runner's first connection to decide.
@@ -827,7 +1051,7 @@ impl SchedulerState {
 			self.remove_queued_sandbox(&offer.sandbox);
 			self.remove_sandbox(scheduler, &offer.sandbox);
 			self.stop_serving_sandbox_holder(&offer.sandbox);
-			self.send_dequeue_responses(scheduler, dequeue_requests, false);
+			scheduler.send_dequeue_responses(dequeue_requests, false);
 		}
 		self.queue.wake();
 	}
@@ -846,7 +1070,7 @@ impl Scheduler {
 		accepted: Vec<tg::sandbox::Id>,
 		unanswered: &[UnansweredOffer],
 		recovering: bool,
-		ended: Vec<tg::sandbox::Id>,
+		ended: Vec<tg::runner::control::EndedSandbox>,
 	) -> tg::Result<AddRunnerOutput> {
 		let session = self.server.session(&self.server.context);
 		let runner = self
@@ -1053,27 +1277,33 @@ impl Scheduler {
 		Ok(written)
 	}
 
-	/// End the boots of a deleted runner, and destroy its stopped sandboxes.
-	async fn delete_runner(
+	/// End the boots of a runner that this scheduler declared dead, and destroy the stopped and destroying sandboxes of a deleted runner, whose directories are gone with the runner. The queued sandboxes are the ones whose current boot this scheduler holds, which the runner never held.
+	pub(super) async fn end_dead_runner(
 		&self,
 		runner: &tg::runner::Id,
 		queued: Vec<tg::sandbox::Id>,
 		accepted: Vec<tg::sandbox::Id>,
+		deleted: bool,
 	) -> tg::Result<()> {
-		// Await indexing, so that the runner's sandboxes are read with every write that was acknowledged before the deletion.
+		// Await indexing, so that the runner's sandboxes are read with every write that was acknowledged before the runner was declared dead, and read the index as it is if indexing cannot be awaited.
 		if let Err(error) = self.index().await {
 			tracing::warn!(error = %error.trace(), "failed to await indexing");
 		}
 
 		// End the runner's boots.
+		let (checkpoint, message) = if deleted {
+			("scheduler.runner.deleted", "the runner was deleted")
+		} else {
+			("scheduler.runner.expired", "heartbeat expired")
+		};
 		let error = tg::error::Data {
 			code: Some(tg::error::Code::Internal),
-			message: Some("the runner was deleted".to_owned()),
+			message: Some(message.to_owned()),
 			..Default::default()
 		};
 		let arg = EndRunnerSandboxesArg {
 			accepted,
-			checkpoint: "scheduler.runner.deleted",
+			checkpoint,
 			directories: None,
 			error: error.clone(),
 			held: Vec::new(),
@@ -1087,87 +1317,28 @@ impl Scheduler {
 			.boxed()
 			.await?;
 
-		// Destroy the runner's stopped and destroying sandboxes, whose directories are gone with the runner.
-		let sandboxes = self.server.index.get_runner_sandboxes(runner).await?;
-		for sandbox in sandboxes {
-			if queued.contains(&sandbox) {
-				continue;
+		// Destroy the stopped and destroying sandboxes of a deleted runner.
+		if deleted {
+			let sandboxes = self.server.index.get_runner_sandboxes(runner).await?;
+			for sandbox in sandboxes {
+				if queued.contains(&sandbox) {
+					continue;
+				}
+				self.component
+					.destroy_runner_sandbox(&self.server, &sandbox, Some(error.clone()))
+					.boxed()
+					.await?;
 			}
-			self.component
-				.destroy_runner_sandbox(&self.server, &sandbox, Some(error.clone()))
-				.boxed()
-				.await?;
+		} else {
+			tangram_server_core::checkpoint!(self.server, "scheduler.runner.removed", %runner)
+				.await;
 		}
 
 		Ok(())
-	}
-
-	/// End the boots of a removed runner. The queued sandboxes are the ones whose current boot this scheduler holds, which the runner never held.
-	pub(super) async fn remove_runner(
-		&self,
-		request: RemoveRunnerRequestArg,
-		queued: Vec<tg::sandbox::Id>,
-		accepted: Vec<tg::sandbox::Id>,
-	) -> tg::Result<RemoveRunnerResponseOutput> {
-		// Await indexing, so that the runner's sandboxes are read with every write that was acknowledged before the runner was removed, and read the index as it is if indexing cannot be awaited.
-		if let Err(error) = self.index().await {
-			tracing::warn!(error = %error.trace(), "failed to await indexing");
-		}
-
-		// End the runner's boots.
-		self.component
-			.handle_expired_runner(
-				&self.server,
-				&self.id,
-				&request.runner,
-				&queued,
-				accepted,
-				&self.holder_sender,
-			)
-			.boxed()
-			.await?;
-
-		tangram_server_core::checkpoint!(self.server, "scheduler.runner.removed", runner = %request.runner).await;
-
-		let output = RemoveRunnerResponseOutput {
-			runner: request.runner,
-		};
-
-		Ok(output)
 	}
 }
 
 impl Component {
-	pub(crate) async fn handle_expired_runner(
-		&self,
-		server: &Server,
-		scheduler: &tg::scheduler::Id,
-		runner: &tg::runner::Id,
-		queued: &[tg::sandbox::Id],
-		accepted: Vec<tg::sandbox::Id>,
-		task: &tokio::sync::mpsc::UnboundedSender<super::HolderMessage>,
-	) -> tg::Result<()> {
-		let error = tg::error::Data {
-			code: Some(tg::error::Code::Internal),
-			message: Some("heartbeat expired".to_owned()),
-			..Default::default()
-		};
-		let arg = EndRunnerSandboxesArg {
-			accepted,
-			checkpoint: "scheduler.runner.expired",
-			directories: None,
-			error,
-			held: Vec::new(),
-			queued: queued.to_vec(),
-			runner: runner.clone(),
-			scheduler: Some(task.clone()),
-			written: Vec::new(),
-		};
-		self.end_runner_sandboxes(server, scheduler, arg).await?;
-
-		Ok(())
-	}
-
 	/// End the boots that the index records on a runner and that neither the runner reports nor the scheduler holds or has in its saved queue, each with the end numbered zero, which leaves the sandbox stopped and which the index applies only if the boot has not ended. Destroy a sandbox that cannot stay stopped. Return the sandboxes with directories that the runner reports and that keep their directories.
 	pub(super) async fn end_runner_sandboxes(
 		&self,
@@ -1241,25 +1412,19 @@ impl Component {
 				.is_some_and(|directories| !directories.contains(&sandbox));
 			let destroy = destroying || zero || missing;
 
-			// Remember the boot that this scheduler ends, so that it tells the runner from its memory when the runner connects again.
-			if let (Some(task), Some(boot)) = (&task, boot) {
-				let message = super::HolderMessage::Ended {
-					boot,
-					runner: runner.clone(),
-					sandbox: sandbox.clone(),
-				};
-				task.send(message).ok();
-			}
-
 			// End the boot, and destroy a sandbox that cannot stay stopped.
-			self.end_runner_sandbox(server, &sandbox, boot, Some(runner), Some(error.clone()))
-				.boxed()
-				.await?;
-			if destroy {
-				self.destroy_runner_sandbox(server, &sandbox, Some(error.clone()))
-					.boxed()
-					.await?;
-			}
+			let Some(boot) = boot else {
+				continue;
+			};
+			let arg = EndDeadRunnerBootArg {
+				boot,
+				destroy,
+				error: error.clone(),
+				runner,
+				sandbox: &sandbox,
+				task: task.as_ref(),
+			};
+			self.end_dead_runner_boot(server, arg).boxed().await?;
 			if destroy
 				&& directories
 					.as_ref()
@@ -1279,6 +1444,59 @@ impl Component {
 		kept.retain(|sandbox| !destroyed.contains(sandbox));
 
 		Ok(kept)
+	}
+
+	/// End a boot of a runner that this scheduler declared dead, which every end of a dead runner's boot by this scheduler goes through. Tell the scheduling task of the boot, so that it remembers the boot as ended. Write the end numbered zero, which leaves the sandbox stopped, records the runner as the sandbox's runner, and removes the boot from the scheduler's queue, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Then destroy a sandbox that cannot stay stopped with the destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at the boot or is destroying, so that a start that reserved the next boot wins.
+	pub(super) async fn end_dead_runner_boot(
+		&self,
+		server: &Server,
+		arg: EndDeadRunnerBootArg<'_>,
+	) -> tg::Result<()> {
+		let EndDeadRunnerBootArg {
+			boot,
+			destroy,
+			error,
+			runner,
+			sandbox,
+			task,
+		} = arg;
+
+		// Remember the boot as ended.
+		if let Some(task) = task {
+			let message = super::HolderMessage::Ended {
+				boot,
+				runner: runner.clone(),
+				sandbox: sandbox.clone(),
+			};
+			task.send(message).ok();
+		}
+
+		// End the boot.
+		self.end_runner_sandbox(
+			server,
+			sandbox,
+			Some(boot),
+			Some(runner),
+			Some(error.clone()),
+		)
+		.boxed()
+		.await?;
+
+		// Destroy a sandbox that cannot stay stopped.
+		if destroy {
+			self.put_runner_sandbox_status(
+				server,
+				sandbox,
+				Some(boot),
+				None,
+				Some(error),
+				tg::sandbox::Status::Destroyed,
+			)
+			.boxed()
+			.await?;
+		}
+
+		Ok(())
 	}
 
 	/// Get the reported directories that the runner keeps, which are the ones of the sandboxes that the index records as stopped on the runner, whose boot the scheduler holds, or that the scheduler's saved queue has, and, if `destroying` is set, the ones of the sandboxes that the index records as destroying on the runner, whose directories this scheduler has the runner remove. The runner removes every other directory.

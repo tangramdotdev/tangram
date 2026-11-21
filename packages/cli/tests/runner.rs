@@ -63,7 +63,7 @@ async fn destroy_sandbox_requires_ownership() -> tg::Result<()> {
 
 	// Another runner cannot destroy the sandbox.
 	let other = remote.create_runner(root_token, None).await?;
-	let destroyed = destroy_sandbox(&remote, &other, &sandbox).await?;
+	let destroyed = destroy_sandbox(&remote, &other, &sandbox, false).await?;
 	assert!(
 		!destroyed.0,
 		"another runner should not destroy the sandbox"
@@ -75,9 +75,20 @@ async fn destroy_sandbox_requires_ownership() -> tg::Result<()> {
 	let status = sandbox_status(&remote, root_token, &sandbox).await?;
 	assert_eq!(status, "started");
 
-	// The runner that hosts the sandbox destroys it once, after it crashes.
+	// Stop the sandbox, crash the runner, and destroy the stopped sandbox, which records it as destroying until its runner removes the directory.
+	let id = sandbox.to_string();
+	remote
+		.tg(Some(root_token), ["sandbox", "stop", "--wait", &id])
+		.await?;
 	runner.kill().await?;
-	let destroyed = destroy_sandbox(&remote, &created, &sandbox).await?;
+	remote
+		.tg(Some(root_token), ["sandbox", "destroy", &id])
+		.await?;
+	let status = sandbox_status(&remote, root_token, &sandbox).await?;
+	assert_eq!(status, "destroying");
+
+	// The runner that hosts the sandbox reports its destruction once, after the scheduler asks it to remove the directory.
+	let destroyed = destroy_sandbox(&remote, &created, &sandbox, true).await?;
 	assert!(
 		destroyed.0,
 		"the sandbox's runner should destroy the sandbox"
@@ -391,12 +402,13 @@ async fn a_runner_control_stream_that_ends_without_an_end_message_keeps_the_runn
 	Ok(())
 }
 
-/// Open a runner control connection as the runner, and request that the sandbox be destroyed twice. Return whether each request destroyed it.
+/// Open a runner control connection as the runner, wait for the scheduler to ask the runner to remove the sandbox's directory if `asked` is set, and report the sandbox's destruction twice. Return whether each report destroyed it.
 #[cfg(target_os = "linux")]
 async fn destroy_sandbox(
 	server: &Server,
 	runner: &tg::runner::create::Output,
 	sandbox: &tg::sandbox::Id,
+	asked: bool,
 ) -> tg::Result<(bool, bool)> {
 	// Open the connection.
 	let token = runner
@@ -426,7 +438,36 @@ async fn destroy_sandbox(
 	};
 	let mut stream = std::pin::pin!(stream);
 
-	// Request that the sandbox be destroyed twice.
+	// Send a heartbeat, so that the scheduler considers the runner ready, and wait for the scheduler to ask the runner to remove the sandbox's directory.
+	if asked {
+		let mut capacity = tg::runner::control::Capacity::default();
+		capacity.total.sandboxes = 1;
+		let heartbeat = tg::runner::control::HeartbeatClientNotification {
+			capacity,
+			index: 1,
+			sandboxes: std::collections::BTreeSet::new(),
+		};
+		sender
+			.send(Ok(tg::runner::control::ClientMessage::Notification(
+				tg::runner::control::ClientNotification::Heartbeat(heartbeat),
+			)))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the heartbeat"))?;
+		loop {
+			let message = stream
+				.next()
+				.await
+				.ok_or_else(|| tg::error!("the control stream ended"))??;
+			if let tg::runner::control::ServerMessage::Request(request) = message
+				&& let tg::runner::control::ServerRequestArg::DestroySandbox(arg) = request.arg
+				&& arg.sandbox == *sandbox
+			{
+				break;
+			}
+		}
+	}
+
+	// Report the sandbox's destruction twice.
 	let mut destroyed = Vec::new();
 	for id in ["destroy", "repeat"] {
 		let request = tg::runner::control::ClientRequest {

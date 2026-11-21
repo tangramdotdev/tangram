@@ -116,6 +116,9 @@ pub enum ClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxClientRequestArg),
 
+	#[tangram_serialize(id = 6)]
+	DestroyStoppedSandbox(DestroyStoppedSandboxClientRequestArg),
+
 	#[tangram_serialize(id = 5)]
 	EndSandbox(EndSandboxClientRequestArg),
 
@@ -250,6 +253,9 @@ pub enum ServerResponseOutput {
 
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxServerResponseOutput),
+
+	#[tangram_serialize(id = 6)]
+	DestroyStoppedSandbox(DestroyStoppedSandboxServerResponseOutput),
 
 	#[tangram_serialize(id = 5)]
 	EndSandbox(EndSandboxServerResponseOutput),
@@ -482,6 +488,37 @@ pub struct DestroySandboxServerRequestArg {
 pub struct DestroySandboxClientResponseOutput {
 	#[tangram_serialize(id = 0)]
 	pub destroyed: bool,
+}
+
+/// A runner's request to destroy a sandbox that is stopped at a boot on the runner, such as one whose ttl expired, which the index applies only while the sandbox is still stopped at the boot.
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct DestroyStoppedSandboxClientRequestArg {
+	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub sandbox: tg::sandbox::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct DestroyStoppedSandboxServerResponseOutput {
+	/// Whether the index recorded the sandbox as destroying, which hands the removal of its directory to its scheduler.
+	#[tangram_serialize(id = 0)]
+	pub destroying: bool,
 }
 
 /// A runner's report of a sandbox that it started on the shortcut path, so that the runner's scheduler knows the sandbox and sends the spawns into it.
@@ -817,7 +854,7 @@ pub struct Header {
 	/// The reported boots that the scheduler ended because it declared the runner dead, which the runner gives up without writing anything more for them.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
-	pub ended: Vec<tg::sandbox::Id>,
+	pub ended: Vec<EndedSandbox>,
 
 	/// The reported sandboxes whose directories the runner keeps, because the sandboxes are stopped on the runner or their boots wait in the scheduler's queue. The runner removes every other directory that it reported, except the directories of the boots that it still holds.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -832,6 +869,23 @@ pub struct Header {
 
 	#[tangram_serialize(id = 1)]
 	pub scheduler: tg::scheduler::Id,
+}
+
+/// A boot of a sandbox that the scheduler ended because it declared the runner dead.
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct EndedSandbox {
+	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub id: tg::sandbox::Id,
 }
 
 impl tg::Session {

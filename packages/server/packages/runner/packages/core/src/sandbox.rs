@@ -77,6 +77,21 @@ pub struct State {
 	pub yielded: bool,
 }
 
+/// A boot whose task runs on the runner, from the runner's yes until the task ends.
+pub struct Starting {
+	pub boot: u64,
+
+	/// How the runner gives up the boot, if the scheduler ended it while the boot was starting, which the boot's task carries out once the boot's state is stored, starting no process.
+	pub yielded: Option<Yield>,
+}
+
+/// How the runner gives up a boot that its scheduler ended, which keeps the sandbox's directory if the scheduler keeps it.
+#[derive(Clone, Copy, Debug)]
+pub enum Yield {
+	Destroy,
+	Stop,
+}
+
 impl Sandboxes {
 	#[must_use]
 	pub fn get(&self, index: u64) -> Option<dashmap::mapref::one::Ref<'_, u64, State>> {

@@ -71,6 +71,15 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::sandbox::destroy::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
 
+	/// Destroy a sandbox that is stopped at a boot on a runner, with the write that the index applies only while the sandbox is still stopped at the boot, and return whether it applied.
+	fn destroy_stopped_sandbox_at_boot<'a>(
+		&'a self,
+		session: &'a Session,
+		id: &'a tg::sandbox::Id,
+		runner: &'a tg::runner::Id,
+		boot: u64,
+	) -> BoxFuture<'a, tg::Result<bool>>;
+
 	fn try_stop_sandbox<'a>(
 		&'a self,
 		session: &'a Session,

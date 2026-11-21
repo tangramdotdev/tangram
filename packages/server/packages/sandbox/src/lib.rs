@@ -352,6 +352,17 @@ impl tangram_server_core::sandbox::Component for Component {
 		self.try_destroy_sandbox(session, id, arg).boxed()
 	}
 
+	fn destroy_stopped_sandbox_at_boot<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		id: &'a tg::sandbox::Id,
+		runner: &'a tg::runner::Id,
+		boot: u64,
+	) -> BoxFuture<'a, tg::Result<bool>> {
+		self.destroy_stopped_sandbox_at_boot(session, id, runner, boot)
+			.boxed()
+	}
+
 	fn try_stop_sandbox<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,

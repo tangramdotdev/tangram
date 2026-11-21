@@ -176,7 +176,7 @@ pub(crate) struct Unaccepted {
 
 /// The spawner of a process that the runner accepted, which decides where its finish goes, with the writes of the process's boot, which number its finish.
 #[derive(Clone)]
-enum Spawner {
+pub(crate) enum Spawner {
 	/// This server spawned the process and recorded it, so this server finishes it.
 	Local { writes: Writes },
 
@@ -437,6 +437,70 @@ impl Component {
 		}
 	}
 
+	/// Get how the runner gives up a boot whose task runs, if the scheduler ended the boot while it was starting.
+	fn starting_sandbox_yielded(
+		&self,
+		id: &tg::sandbox::Id,
+		boot: u64,
+	) -> Option<tangram_server_runner_core::sandbox::Yield> {
+		self.state
+			.starting
+			.get(id)
+			.filter(|starting| starting.boot == boot)
+			.and_then(|starting| starting.yielded)
+	}
+
+	/// Give up a boot whose state is stored and that the scheduler ended, without writing anything more for it, unless the runner gave it up already. Stop a boot that has not ended locally, or destroy it, which removes its directory.
+	pub(crate) fn yield_sandbox_boot(
+		&self,
+		id: &tg::sandbox::Id,
+		boot: u64,
+		yielded: tangram_server_runner_core::sandbox::Yield,
+	) {
+		// Stop answering the servers and writing for the boot at once, because the scheduler ended the boot and may already hold the sandbox's next boot.
+		let (control_sender, request) = {
+			let Some(mut sandbox) = self.state.sandboxes.get_mut_by_id(id) else {
+				return;
+			};
+			if sandbox.boot != boot || sandbox.yielded {
+				return;
+			}
+			sandbox.yielded = true;
+			if sandbox.status.is_stopped_or_destroyed() {
+				return;
+			}
+			let request = match yielded {
+				tangram_server_runner_core::sandbox::Yield::Destroy => {
+					tg::sandbox::control::ServerRequestArg::Destroy(
+						tg::sandbox::control::DestroyServerRequestArg {
+							ended: false,
+							error: None,
+						},
+					)
+				},
+				tangram_server_runner_core::sandbox::Yield::Stop => {
+					tg::sandbox::control::ServerRequestArg::Stop(
+						tg::sandbox::control::StopServerRequestArg { ended: false },
+					)
+				},
+			};
+			(sandbox.control_sender.clone(), request)
+		};
+
+		// Stop or destroy the boot locally in a task.
+		let id = id.clone();
+		tokio::spawn(async move {
+			let result = async {
+				let _response = control_sender.send_request(request).await?.await??;
+				Ok::<_, tg::Error>(())
+			}
+			.await;
+			if let Err(error) = result {
+				tracing::error!(error = %error.trace(), sandbox = %id, "failed to give up the sandbox");
+			}
+		});
+	}
+
 	/// Reply that the runner does not hold the boot, which asks the request's sender to send the request again.
 	async fn send_sandbox_not_holder_response(message: Message) -> tg::Result<()> {
 		message
@@ -617,7 +681,7 @@ impl Component {
 	}
 
 	/// Finish a process that the runner accepted and that cannot run as failed with the error in a sandbox task, which the runner's drain waits for. Report a process that the sandbox's scheduler offered to the scheduler, and finish a process that this server spawned on this server.
-	fn finish_accepted_process(
+	pub(crate) fn finish_accepted_process(
 		&self,
 		session: &Session,
 		process: tg::runner::control::Process,
@@ -786,9 +850,11 @@ impl Component {
 				.await
 				.unwrap_or_else(|_| Err(tg::error!("the sandbox task panicked")))
 		};
-		self.state
+		let yielded = self
+			.state
 			.starting
-			.remove_if(&id, |_, starting| *starting == boot);
+			.remove_if(&id, |_, starting| starting.boot == boot)
+			.is_some_and(|(_, starting)| starting.yielded.is_some());
 		self.held.remove_if(&id, |_, held| held.boot == boot);
 		self.state.sandboxes.notify_updated();
 
@@ -807,7 +873,9 @@ impl Component {
 			},
 			Err(error) => (Err(error), None),
 		};
-		self.end_sandbox_boot(session, end, result).boxed().await;
+		self.end_sandbox_boot(session, end, result, yielded)
+			.boxed()
+			.await;
 
 		// Retain the ended boot's state and control stream, and then discard them.
 		if let Some((guard, retain, session)) = retained {
@@ -824,6 +892,7 @@ impl Component {
 		session: &Session,
 		arg: EndSandboxBootArg,
 		result: tg::Result<EndedSandbox>,
+		yielded: bool,
 	) {
 		let EndSandboxBootArg {
 			accepted,
@@ -888,7 +957,9 @@ impl Component {
 			let (unfinished, local) = accepted.unfinished();
 			(unfinished, local, accepted.writes.clone())
 		};
-		if Self::sandbox_yielded(session, &id) || !(scheduled || connected.load(Ordering::Acquire))
+		if yielded
+			|| Self::sandbox_yielded(session, &id)
+			|| !(scheduled || connected.load(Ordering::Acquire))
 		{
 			return;
 		}
@@ -1173,10 +1244,15 @@ impl Component {
 			Ok(output) => output,
 			Err(error) => {
 				tracing::error!(error = %error.trace(), sandbox = %id, "failed to create the sandbox");
+				// Write nothing for a boot that the runner gave up while it was starting.
+				if self.starting_sandbox_yielded(&id, boot).is_some() {
+					return Err(error);
+				}
 				let connection = match connection {
 					Some(connection) => connection,
 					None => connect_future.await?,
 				};
+
 				// Finish the initial process, and wait for a server to accept every finish of the boot's processes before writing the boot's end.
 				self.finish_initial_process(session, &accepted, &id, boot, &error);
 				let writes = accepted.lock().unwrap().writes.clone();
@@ -1308,6 +1384,12 @@ impl Component {
 		tangram_server_core::checkpoint!(session.server, "runner.sandbox.state.inserted", index, sandbox = %id)
 			.await;
 
+		// Give up a boot that the scheduler ended while it was starting, once its state is stored, and start no process in a boot that the runner gave up.
+		if let Some(yielded) = self.starting_sandbox_yielded(&id, boot) {
+			self.yield_sandbox_boot(&id, boot, yielded);
+		}
+		let process = process.filter(|_| !Self::sandbox_yielded(&session, &id));
+
 		// Bind the pooled VFS to this sandbox before starting any processes.
 		if let Some(vfs) = &create_output.vfs {
 			vfs.provider()
@@ -1323,6 +1405,7 @@ impl Component {
 		let (sandbox_ready_sender, sandbox_ready_receiver) = tokio::sync::oneshot::channel();
 		let writes = accepted.lock().unwrap().writes.clone();
 		let process_task_output = process.map(|process| {
+			let spawner = accepted.lock().unwrap().spawner(&process, &id, boot);
 			let arg = SpawnProcessTaskArg {
 				boot,
 				guest_url: &create_output.guest_url,
@@ -1336,6 +1419,7 @@ impl Component {
 				sandbox: &create_output.sandbox,
 				sandbox_create,
 				sandbox_ready_receiver: Some(sandbox_ready_receiver),
+				spawner,
 				writes,
 			};
 			self.spawn_process_task(&session, arg)
@@ -2253,6 +2337,7 @@ impl Component {
 								};
 								tangram_server_core::checkpoint!(session.server, "runner.process.accepted", sandbox = %id).await;
 								let spawned = process.clone();
+								let spawner = accepted.lock().unwrap().spawner(&process, &id, boot);
 								let arg = SpawnProcessTaskArg {
 									boot,
 									guest_url: &guest_url,
@@ -2266,6 +2351,7 @@ impl Component {
 									sandbox: &sandbox,
 									sandbox_create: None,
 									sandbox_ready_receiver: None,
+									spawner,
 									writes,
 								};
 								let task = self.spawn_process_task(session, arg);
@@ -2591,7 +2677,7 @@ impl Component {
 							.state
 							.starting
 							.get(&id)
-							.is_some_and(|starting| *starting > boot);
+							.is_some_and(|starting| starting.boot > boot);
 						if let Some(storage) = stopped_storage
 							&& !newer
 						{
@@ -3021,10 +3107,11 @@ impl Component {
 		let control_sender = loop {
 			let updated = self.state.sandboxes.updated();
 			let sandbox = self.state.sandboxes.get_by_id(&id);
-			let starting =
-				self.state.starting.get(&id).is_some_and(|boot| {
-					sandbox.as_ref().is_none_or(|sandbox| sandbox.boot != *boot)
-				});
+			let starting = self.state.starting.get(&id).is_some_and(|starting| {
+				sandbox
+					.as_ref()
+					.is_none_or(|sandbox| sandbox.boot != starting.boot)
+			});
 			let control_sender = sandbox
 				.filter(|sandbox| !sandbox.status.is_stopped_or_destroyed())
 				.map(|sandbox| sandbox.control_sender.clone());
@@ -3079,6 +3166,29 @@ impl Component {
 		let output = tg::runner::control::DestroySandboxClientResponseOutput { destroyed: true };
 
 		Ok(output)
+	}
+
+	/// Ask that a stopped sandbox whose ttl expired be destroyed, which the index decides with a write that applies only while the sandbox is still stopped at its boot. If it applies, the sandbox's scheduler has this runner remove the directory, and otherwise a start won, and this runner keeps the directory.
+	async fn destroy_expired_sandbox(
+		id: &tg::sandbox::Id,
+		boot: u64,
+		sender: &crate::RunnerSender,
+	) -> tg::Result<()> {
+		let arg = tg::runner::control::DestroyStoppedSandboxClientRequestArg {
+			boot,
+			sandbox: id.clone(),
+		};
+		let destroying = match Self::request_runner_stopped_sandbox_destroy(sender, arg).await? {
+			std::ops::ControlFlow::Break(destroying) => destroying,
+			std::ops::ControlFlow::Continue(error) => {
+				return Err(tg::error!(!error, %id, "failed to request the sandbox's destruction"));
+			},
+		};
+		if !destroying {
+			tracing::debug!(sandbox = %id, boot, "the expired sandbox is no longer stopped at its boot");
+		}
+
+		Ok(())
 	}
 
 	/// Remove a stopped sandbox's directory, release its filesystem project ID, and report its destruction, which marks the sandbox destroyed.
@@ -3307,7 +3417,7 @@ impl Component {
 				.ok()
 				.flatten();
 			if expires_at.is_some_and(|expires_at| now >= expires_at) {
-				expired.push(id.clone());
+				expired.push((id.clone(), data.data.boot));
 			}
 			let report = tg::runner::control::ReportSandboxUsageClientRequestSandbox {
 				boot: data.data.boot,
@@ -3361,15 +3471,12 @@ impl Component {
 			}
 		}
 
-		// Destroy each expired sandbox, checking again that no boot started while the usage was reported.
-		for id in expired {
+		// Ask that each expired sandbox be destroyed, checking again that no boot started while the usage was reported. The index decides the destroy of a stopped sandbox, which applies only while the sandbox is still stopped at its boot, and the sandbox's scheduler then has this runner remove the directory.
+		for (id, boot) in expired {
 			if removed.contains(&id) || self.sandbox_is_starting_or_running(&id) {
 				continue;
 			}
-			if let Err(error) = self
-				.remove_stopped_sandbox(session, &id, None, &sender)
-				.await
-			{
+			if let Err(error) = Self::destroy_expired_sandbox(&id, boot, &sender).await {
 				tracing::error!(error = %error.trace(), sandbox = %id, "failed to destroy the expired sandbox");
 			}
 		}
@@ -3380,11 +3487,11 @@ impl Component {
 	/// Get whether a boot of the sandbox is starting or running on this runner.
 	fn sandbox_is_starting_or_running(&self, id: &tg::sandbox::Id) -> bool {
 		let sandbox = self.state.sandboxes.get_by_id(id);
-		let starting = self
-			.state
-			.starting
-			.get(id)
-			.is_some_and(|boot| sandbox.as_ref().is_none_or(|sandbox| sandbox.boot != *boot));
+		let starting = self.state.starting.get(id).is_some_and(|starting| {
+			sandbox
+				.as_ref()
+				.is_none_or(|sandbox| sandbox.boot != starting.boot)
+		});
 		let running = sandbox.is_some_and(|sandbox| !sandbox.status.is_stopped_or_destroyed());
 		starting || running
 	}

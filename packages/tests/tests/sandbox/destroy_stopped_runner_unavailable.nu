@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A destroy of a stopped sandbox whose runner is unavailable is recorded, and the runner removes the sandbox's directory once it is available again.
+# A destroy of a stopped sandbox whose runner is declared dead finishes, because the sandbox's scheduler records the destruction, and the runner removes the sandbox's directory once it connects again.
 
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
@@ -24,12 +24,11 @@ kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 advance_time $remote 4sec
 
-let output = tg --url $remote.url --token $root_token sandbox destroy $sandbox | complete
-success $output "the destroy should be recorded while the runner is unavailable"
-assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) destroying
-
-# Start the runner again. The sandbox is destroyed once the runner removes its directory.
-let runner = server start $runner
 let output = timeout 30s tg --url $remote.url --token $root_token sandbox destroy --wait $sandbox | complete
-success $output "the destroy should finish once the runner is available"
+success $output "the destroy should finish while the runner is declared dead"
+assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) destroyed
+
+# Start the runner again. It connects, and the destroyed sandbox stays destroyed.
+let runner = server start $runner
+success (timeout 30s tg --url $remote.url --token $root_token sandbox create --wait --no-tokens | complete) "the runner should take a sandbox after it connects again"
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) destroyed
