@@ -43,6 +43,9 @@ type ControlConnection = (
 );
 
 pub(super) struct SpawnProcessTaskArg<'a> {
+	/// The boot of the process's sandbox, which the process belongs to.
+	pub boot: u64,
+
 	pub guest_url: &'a tangram_uri::Uri,
 	pub location: tg::Location,
 	pub process: tg::runner::control::Process,
@@ -62,6 +65,7 @@ pub(super) struct SpawnProcessTaskOutput {
 }
 
 struct ProcessTaskArg {
+	boot: u64,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 	guest_url: tangram_uri::Uri,
 	location: tg::Location,
@@ -241,6 +245,7 @@ impl Component {
 		let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
 		let component = self.clone();
 		let session = session.clone();
+		let boot = arg.boot;
 		let process = arg.process;
 		let processes = arg.processes;
 		let public = arg.public;
@@ -254,6 +259,7 @@ impl Component {
 		arg.process_tasks.spawn(
 			async move {
 				let arg = ProcessTaskArg {
+					boot,
 					event_sender: event_sender.clone(),
 					guest_url,
 					location,
@@ -286,6 +292,7 @@ impl Component {
 	#[tracing::instrument(name = "process.lifecycle", level = "info", skip_all, fields(parent = arg.process.parent.as_ref().map(ToString::to_string), process = arg.process.id.as_ref().map(ToString::to_string), runner = self.state.id().as_ref().map(ToString::to_string), sandbox = tracing::field::Empty), err(level = "debug"))]
 	async fn process_task(&self, session: &Session, arg: ProcessTaskArg) -> tg::Result<()> {
 		let ProcessTaskArg {
+			boot,
 			event_sender,
 			guest_url,
 			location,
@@ -943,6 +950,7 @@ impl Component {
 		let shortcut_start = shortcut.is_some();
 		let (proof, shortcut) = shortcut.unzip();
 		let start = tg::process::control::StartClientRequestArg {
+			boot,
 			data: data.clone(),
 			lease,
 			options: options.clone(),
@@ -2008,6 +2016,7 @@ impl Component {
 
 		let put_process_arg = tangram_index::process::put::Arg {
 			account: None,
+			boot: None,
 			cached: false,
 			captures,
 			children: None,
@@ -2033,6 +2042,7 @@ impl Component {
 			registration: None,
 			sandbox: Some(sandbox.clone()),
 			sandbox_boot: None,
+			sequence: 1,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,

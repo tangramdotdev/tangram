@@ -14,6 +14,10 @@ pub mod put;
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Process {
+	/// The boot of the process's sandbox that the process belongs to, which its holder records.
+	#[tangram_serialize(default, id = 12, skip_serializing_if = "Option::is_none")]
+	pub boot: Option<u64>,
+
 	/// The command identity, which need not identify a stored object.
 	#[tangram_serialize(id = 8)]
 	pub command_id: tg::object::Id,
@@ -35,6 +39,10 @@ pub struct Process {
 
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub sandbox: Option<tg::sandbox::Id>,
+
+	/// The sequence of the holder's write that the stored data is from, which orders the holders' writes of the process.
+	#[tangram_serialize(default, id = 13, skip_serializing_if = "is_default")]
+	pub sequence: u64,
 
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_default")]
 	pub set: Set,

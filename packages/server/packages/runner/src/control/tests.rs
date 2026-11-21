@@ -35,8 +35,10 @@ fn indexed(
 		location: None,
 		reference_count: 0,
 		runner: runner.cloned(),
+		sequence: 0,
 		set: tangram_index::sandbox::Set::default(),
 		stopped_usages: std::collections::BTreeMap::new(),
+		taken_over: std::collections::BTreeSet::new(),
 		touched_at: 0,
 		usages: std::collections::BTreeMap::new(),
 	}

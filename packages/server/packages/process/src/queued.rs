@@ -7,11 +7,12 @@ use {
 };
 
 impl Component {
-	/// Create the queued record of a process, which is visible until its runner connects, with the permissions of its creator and the public permission of a public process if requested.
+	/// Create the queued record of a process, which is visible until its runner connects, with the permissions of its creator and the public permission of a public process if requested. The boot is the boot of the sandbox that the process belongs to, if its holder knows it.
 	pub(crate) fn create_queued_process_arg(
 		session: &Session,
 		process: &tg::runner::control::Process,
 		sandbox: &tg::sandbox::Id,
+		boot: Option<u64>,
 		now: i64,
 		permissions: bool,
 		public: bool,
@@ -41,6 +42,7 @@ impl Component {
 		});
 		let arg = tangram_index::process::put::Arg {
 			account: None,
+			boot,
 			cached: false,
 			captures,
 			children: None,
@@ -66,6 +68,7 @@ impl Component {
 			registration: None,
 			sandbox: Some(sandbox.clone()),
 			sandbox_boot: None,
+			sequence: 0,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,

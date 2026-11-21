@@ -1,6 +1,7 @@
 use {
 	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
+	tangram_util::serde::is_default,
 };
 
 #[cfg(test)]
@@ -24,7 +25,7 @@ pub struct Arg {
 	#[tangram_serialize(id = 6)]
 	pub location: Option<tg::Location>,
 
-	/// Permissions granted after validation if the sandbox is new or both `data` and `processes` are `Some`.
+	/// Permissions granted after validation. A put by root or the sandbox itself grants them even if its data loses, so that permissions merge as a union, and another principal's put grants them only if the sandbox is new or both `data` and `processes` are `Some`.
 	#[tangram_serialize(id = 8)]
 	pub permissions: Vec<crate::permission::put::Arg>,
 
@@ -44,6 +45,10 @@ pub struct Arg {
 
 	#[tangram_serialize(id = 4)]
 	pub runner: Option<tg::runner::Id>,
+
+	/// The position of the write among its holder's writes of the boot, which starts at zero for each boot, so that the index applies a holder's lagging writes in order.
+	#[tangram_serialize(default, id = 15, skip_serializing_if = "is_default")]
+	pub sequence: u64,
 
 	/// The boot that the sandbox must be stopped at when this put is applied, which makes the put a conditional change of a stopped sandbox, such as a start that reserves the next boot or a destroy, so that of several such changes only the first is applied.
 	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]
@@ -68,7 +73,15 @@ pub struct Merge {
 /// The merged sandbox data and per-boot usage that a put records.
 struct DataMerge {
 	data: Option<tg::sandbox::get::Output>,
+
+	/// The sequence of the write that the merged data is from.
+	sequence: u64,
+
 	stopped_usages: BTreeMap<u64, tg::sandbox::Usage>,
+
+	/// Whether the arg's data superseded the existing data, so that the record takes the arg's account, location, and runner.
+	superseded: bool,
+
 	usages: BTreeMap<u64, tg::sandbox::Usage>,
 }
 
@@ -198,8 +211,11 @@ impl Arg {
 			}
 		}
 
-		// Put the permissions if the sandbox is new or the put carries both its data and its processes.
-		let permissions = existing.is_none() || (self.data.is_some() && self.processes.is_some());
+		// Put the permissions of every accepted put of root or the sandbox itself, even one whose data loses, so that permissions merge as a union. Another principal's put proves what it grants only if the sandbox is new or the put carries both its data and its processes.
+		let permissions = self.principal.is_root()
+			|| self.principal == tg::Principal::Sandbox(self.id.clone())
+			|| existing.is_none()
+			|| (self.data.is_some() && self.processes.is_some());
 
 		// Keep the existing data, account, and runner for another principal's put.
 		let mut arg = std::borrow::Cow::Borrowed(self);
@@ -217,37 +233,51 @@ impl Arg {
 		// Keep the data that is latest in the sandbox lifecycle, because writes may be applied out of order.
 		let DataMerge {
 			mut data,
+			sequence,
 			stopped_usages,
+			superseded,
 			usages,
 		} = arg.merge_data(existing);
-		let location = arg
-			.location
-			.clone()
-			.or_else(|| existing.and_then(|sandbox| sandbox.location.clone()));
+
+		// Take the account, the location, and the runner with the data that wins, and keep the other's location and runner where the winner has none.
+		let existing_account = existing.and_then(|sandbox| sandbox.account.clone());
+		let existing_location = existing.and_then(|sandbox| sandbox.location.clone());
+		let existing_runner = existing.and_then(|sandbox| sandbox.runner.clone());
+		let (account, location, runner) = if superseded {
+			(
+				arg.account.clone(),
+				arg.location.clone().or(existing_location),
+				arg.runner.clone().or(existing_runner),
+			)
+		} else {
+			(
+				existing_account,
+				existing_location.or_else(|| arg.location.clone()),
+				existing_runner.or_else(|| arg.runner.clone()),
+			)
+		};
 		if let Some(data) = &mut data {
 			data.location.clone_from(&location);
 		}
-		let runner = arg
-			.runner
-			.clone()
-			.or_else(|| existing.and_then(|sandbox| sandbox.runner.clone()));
 		let touched_at = existing.map_or(arg.touched_at, |sandbox| {
 			sandbox.touched_at.max(arg.touched_at)
 		});
 
 		// Create the record.
 		let sandbox = super::Sandbox {
-			account: arg.account.clone(),
+			account,
 			created_at: existing.map_or(arg.created_at, |sandbox| sandbox.created_at),
 			data,
 			location,
 			reference_count: existing.map_or(0, |sandbox| sandbox.reference_count),
 			runner,
+			sequence,
 			set: super::Set {
 				processes: arg.processes.is_some()
 					|| existing.is_some_and(|sandbox| sandbox.set.processes),
 			},
 			stopped_usages,
+			taken_over: existing.map_or_default(|sandbox| sandbox.taken_over.clone()),
 			touched_at,
 			usages,
 		};
@@ -274,18 +304,19 @@ impl Arg {
 			usages.insert(data.data.boot, usage);
 		}
 
-		// Keep the existing data when the arg's data is earlier in the lifecycle.
+		// Keep the existing data unless the arg's data supersedes it.
 		let existing_data = existing.and_then(|sandbox| sandbox.data.clone());
-		let mut data = match (self.data.clone(), existing_data) {
+		let existing_sequence = existing.map_or(0, |sandbox| sandbox.sequence);
+		let (mut data, sequence, superseded) = match (self.data.clone(), existing_data) {
 			(Some(data), Some(existing)) => {
-				if position(&data.data) < position(&existing.data) {
-					Some(existing)
+				if self.supersedes(&data.data, &existing.data, existing_sequence) {
+					(Some(data), self.sequence, true)
 				} else {
-					Some(data)
+					(Some(existing), existing_sequence, false)
 				}
 			},
-			(Some(data), None) => Some(data),
-			(None, existing) => existing,
+			(Some(data), None) => (Some(data), self.sequence, true),
+			(None, existing) => (existing, existing_sequence, false),
 		};
 
 		// Record the storage usage of the arg's stopped boot, which only grows, unless the sandbox is destroyed, because its destruction billed its usage.
@@ -312,22 +343,41 @@ impl Arg {
 
 		DataMerge {
 			data,
+			sequence,
 			stopped_usages,
+			superseded,
 			usages,
 		}
 	}
-}
 
-/// The position of the sandbox data in its lifecycle, which orders writes that may be applied out of order. A destroying or destroyed sandbox is after every boot.
-#[must_use]
-fn position(data: &tg::sandbox::Data) -> (u64, u8) {
-	match data.status {
-		tg::sandbox::Status::Starting => (data.boot, 0),
-		tg::sandbox::Status::Started => (data.boot, 1),
-		tg::sandbox::Status::Stopping => (data.boot, 2),
-		tg::sandbox::Status::Stopped => (data.boot, 3),
-		tg::sandbox::Status::Destroying => (u64::MAX, 4),
-		tg::sandbox::Status::Destroyed => (u64::MAX, 5),
+	/// Whether the arg's data supersedes the existing data. A conditional change of a stopped sandbox, whose condition the merge checked, always applies. A destroyed sandbox is final, and a destroying sandbox only becomes destroyed. Otherwise a later boot supersedes an earlier one, the first end of a boot to arrive is final for the boot, an end supersedes the boot's unended data, and a holder's write supersedes the boot's writes with lower sequences.
+	fn supersedes(
+		&self,
+		data: &tg::sandbox::Data,
+		existing: &tg::sandbox::Data,
+		existing_sequence: u64,
+	) -> bool {
+		if self.stopped_boot.is_some() {
+			return true;
+		}
+		match existing.status {
+			tg::sandbox::Status::Destroyed => false,
+			tg::sandbox::Status::Destroying => data.status.is_destroyed(),
+			tg::sandbox::Status::Started
+			| tg::sandbox::Status::Starting
+			| tg::sandbox::Status::Stopped
+			| tg::sandbox::Status::Stopping => {
+				if data.boot != existing.boot {
+					data.boot > existing.boot
+				} else if existing.status.is_stopped() {
+					false
+				} else if data.status.is_stopped_or_destroyed() {
+					true
+				} else {
+					self.sequence > existing_sequence
+				}
+			},
+		}
 	}
 }
 

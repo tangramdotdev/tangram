@@ -633,7 +633,7 @@ impl Component {
 		// Create the queued record with the creator's permissions, the public permission, and the command captures.
 		let now = session.server.clock.unix_timestamp();
 		let process_arg =
-			Self::create_queued_process_arg(session, &process, &sandbox, now, true, public)?;
+			Self::create_queued_process_arg(session, &process, &sandbox, None, now, true, public)?;
 		let id = process_arg.id.clone();
 
 		// Carry the queued record in the record of a new sandbox in the starting state, so that the two are written together.
