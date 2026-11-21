@@ -37,7 +37,10 @@ async fn local_requests_do_not_cancel_remote_acknowledgments() {
 
 	// A local request completes while the remote request waits to send its receipt.
 	let arg = tg::sandbox::control::ServerRequestArg::Destroy(
-		tg::sandbox::control::DestroyServerRequestArg { error: None },
+		tg::sandbox::control::DestroyServerRequestArg {
+			ended: false,
+			error: None,
+		},
 	);
 	let mut response = local.request(arg).boxed();
 	assert!(response.as_mut().now_or_never().is_none());
@@ -99,7 +102,10 @@ async fn local_requests_survive_remote_end_and_abandoned_callers() {
 	let mut control = Control::new(stream, receiver);
 	assert!(control.recv().await.unwrap().is_none());
 	let arg = tg::sandbox::control::ServerRequestArg::Destroy(
-		tg::sandbox::control::DestroyServerRequestArg { error: None },
+		tg::sandbox::control::DestroyServerRequestArg {
+			ended: false,
+			error: None,
+		},
 	);
 	let mut response = local.request(arg).boxed();
 	assert!(response.as_mut().now_or_never().is_none());

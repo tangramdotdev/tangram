@@ -340,11 +340,11 @@ impl Component {
 			))
 			.boxed(),
 			Source::Pipe(streams) => {
-				let start = output
-					.data
-					.status
-					.is_queued()
-					.then(|| self.create_wait_process_start_future(session, id));
+				// Wait for the start of a process that has not started, so that the read of a process that finishes without starting ends, because no runner will write to it.
+				let status = output.data.status;
+				let unstarted = status.is_queued()
+					|| (status.is_finished() && output.data.started_at.is_none());
+				let start = unstarted.then(|| self.create_wait_process_start_future(session, id));
 				self.try_read_process_stdio_pipe_local(
 					session, id, &arg, streams, acks, open, start,
 				)

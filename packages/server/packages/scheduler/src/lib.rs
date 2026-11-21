@@ -20,19 +20,22 @@ use {
 		AddRunnerRequestArg, AddRunnerResponseOutput, AddSandboxParentRequestArg,
 		AddSandboxParentResponseOutput, BorrowableCapacityNotification, DequeueSandboxRequestArg,
 		DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
-		DestroyRunnerSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
-		HeartbeatAcknowledgement, HeartbeatNotification, Notification, RemoveRunnerRequestArg,
-		RemoveRunnerResponseOutput, RequestArg, ResponseOutput, SandboxEndedNotification,
-		runner_heartbeat_subject, scheduler_notification_subject,
+		DestroyRunnerSandboxResponseOutput, EndRunnerSandboxRequestArg,
+		EndRunnerSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
+		FinishRunnerProcessesResponseOutput, HeartbeatAcknowledgement, HeartbeatNotification,
+		Notification, RemoveRunnerRequestArg, RemoveRunnerResponseOutput, RequestArg,
+		ResponseOutput, runner_heartbeat_subject, scheduler_notification_subject,
 	},
 };
 
+mod end;
 mod holder;
 mod offer;
 mod placement;
 mod queue;
 mod record;
 mod recovery;
+mod report;
 mod request;
 mod runner;
 mod sandbox;
@@ -121,9 +124,17 @@ enum Operation {
 		destroy: sandbox::DestroySandbox,
 		result: tg::Result<bool>,
 	},
+	EndRunnerSandbox {
+		id: String,
+		result: tg::Result<EndRunnerSandboxResponseOutput>,
+	},
 	Finished {
 		context: &'static str,
 		result: tg::Result<()>,
+	},
+	FinishRunnerProcesses {
+		id: String,
+		result: tg::Result<FinishRunnerProcessesResponseOutput>,
 	},
 	IndexTerminalSandboxes {
 		sandboxes: Vec<(tg::sandbox::Id, u64)>,
@@ -743,9 +754,6 @@ impl Scheduler {
 					self.publish_runner_heartbeat_ack(state, &notification);
 				}
 			},
-			Notification::SandboxEnded(notification) => {
-				state.handle_sandbox_ended(self, &notification);
-			},
 		}
 	}
 
@@ -772,8 +780,14 @@ impl Scheduler {
 			RequestArg::DestroyRunnerSandbox(request) => {
 				state.handle_destroy_runner_sandbox_request(self, id, request);
 			},
+			RequestArg::EndRunnerSandbox(request) => {
+				state.handle_end_runner_sandbox_request(self, id, request);
+			},
 			RequestArg::EnqueueSandbox(request) => {
 				state.handle_enqueue_sandbox_request(self, Some(id), request, false);
+			},
+			RequestArg::FinishRunnerProcesses(request) => {
+				state.handle_finish_runner_processes_request(self, id, request);
 			},
 			RequestArg::RemoveRunner(request) => {
 				state.handle_remove_runner_request(self, Some(id), request);
@@ -823,10 +837,20 @@ impl Scheduler {
 			Operation::DestroySandbox { destroy, result } => {
 				state.handle_destroy_sandbox(self, destroy, result);
 			},
+			Operation::EndRunnerSandbox { id, result } => {
+				let result = result.map(ResponseOutput::EndRunnerSandbox);
+				let response = request::Response::new(id, result);
+				self.send_response(state, response);
+			},
 			Operation::Finished { context, result } => {
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "{context}");
 				}
+			},
+			Operation::FinishRunnerProcesses { id, result } => {
+				let result = result.map(ResponseOutput::FinishRunnerProcesses);
+				let response = request::Response::new(id, result);
+				self.send_response(state, response);
 			},
 			Operation::IndexTerminalSandboxes { sandboxes } => {
 				state.handle_index_terminal_sandboxes(self, sandboxes);
@@ -889,6 +913,10 @@ impl Scheduler {
 	fn handle_cleaner_tick(&self, state: &mut SchedulerState) {
 		state.prune_sandbox_holders();
 		let now = self.server.clock.instant();
+		state
+			.sandboxes
+			.ended
+			.rotate(now, self.config.runner_time_to_live);
 		let expired = state.runners.expired(now, self.config.runner_time_to_live);
 		for (runner, registration_index) in expired {
 			tracing::warn!(%runner, registration_index, time_to_live_ms = self.config.runner_time_to_live.as_millis(), "the runner heartbeat expired");
@@ -1085,8 +1113,10 @@ impl tangram_server_core::scheduler::Component for Component {
 		server: &'a tangram_server_core::Server,
 		id: &'a tg::sandbox::Id,
 		error: Option<tg::error::Data>,
+		processes: bool,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.destroy_runner_sandbox(server, id, error).boxed()
+		self.destroy_runner_sandbox(server, id, error, processes)
+			.boxed()
 	}
 
 	fn destroy_stopped_runner_sandbox<'a>(
@@ -1144,15 +1174,6 @@ impl tangram_server_core::scheduler::Component for Component {
 
 	fn started(&self) -> BoxFuture<'_, ()> {
 		self.started().boxed()
-	}
-
-	fn stop_runner_sandbox<'a>(
-		&'a self,
-		server: &'a tangram_server_core::Server,
-		id: &'a tg::sandbox::Id,
-		error: tg::error::Data,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.stop_runner_sandbox(server, id, error).boxed()
 	}
 
 	fn try_enqueue_sandbox<'a>(

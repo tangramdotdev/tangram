@@ -219,7 +219,6 @@ fn process_arg(
 		principal: tg::Principal::Process(id),
 		registration: None,
 		sandbox: None,
-		sandbox_boot: None,
 		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,

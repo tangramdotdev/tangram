@@ -26,7 +26,6 @@ impl Component {
 			location: Some(location),
 			outcome_sync,
 			registration: None,
-			sandbox_boot: None,
 			store_data: true,
 		};
 		self.put_finished_process_local(session, id, arg.data, options)

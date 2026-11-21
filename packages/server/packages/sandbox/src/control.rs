@@ -318,7 +318,7 @@ impl Component {
 					}
 				}
 
-				// Ask the runner to destroy a sandbox that the index records as destroying or destroyed, and to stop any other, which keeps its directory for its next start. A runner that already ended the sandbox has nothing left to do.
+				// Ask the runner to give up the boot, destroying a sandbox that the index records as destroying or destroyed, and stopping any other, which keeps its directory for its next start, and writing nothing more for the boot. A runner that already ended the sandbox has nothing left to do.
 				let destroyed = indexed
 					.as_ref()
 					.and_then(|sandbox| sandbox.data.as_ref())
@@ -327,11 +327,14 @@ impl Component {
 					});
 				let arg = if destroyed {
 					tg::sandbox::control::ServerRequestArg::Destroy(
-						tg::sandbox::control::DestroyServerRequestArg { error: None },
+						tg::sandbox::control::DestroyServerRequestArg {
+							ended: true,
+							error: None,
+						},
 					)
 				} else {
 					tg::sandbox::control::ServerRequestArg::Stop(
-						tg::sandbox::control::StopServerRequestArg {},
+						tg::sandbox::control::StopServerRequestArg { ended: true },
 					)
 				};
 				let request = tg::sandbox::control::ServerRequest {

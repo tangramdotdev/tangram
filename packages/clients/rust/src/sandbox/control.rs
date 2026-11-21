@@ -275,6 +275,11 @@ pub struct DestroyClientRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct DestroyServerRequestArg {
+	/// Whether the index records that the boot ended, in which case the runner gives the boot up and writes nothing more for it.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "tangram_util::serde::is_false")]
+	pub ended: bool,
+
 	#[tangram_serialize(id = 0)]
 	pub error: Option<tg::error::Data>,
 }
@@ -370,7 +375,7 @@ pub struct GetProcessesClientResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct SpawnProcessServerRequestArg {
-	/// The boot of the sandbox that the spawn is for, which only the sandbox's scheduler sets when it sends the spawn to the boot's runner, which refuses a spawn for a boot that it is not running.
+	/// The boot of the sandbox that the spawn is for, which only the sandbox's scheduler sets when it sends the spawn to the boot's runner, which accepts a spawn for a boot that it is not running and finishes its process as failed.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub boot: Option<u64>,
@@ -450,7 +455,12 @@ pub struct StopClientRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct StopServerRequestArg {}
+pub struct StopServerRequestArg {
+	/// Whether the index records that the boot ended, in which case the runner gives the boot up and writes nothing more for it.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "tangram_util::serde::is_false")]
+	pub ended: bool,
+}
 
 #[derive(
 	Clone,
