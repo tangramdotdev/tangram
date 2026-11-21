@@ -391,6 +391,7 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 	};
 	let mut process_arg = tangram_index::process::put::Arg {
 		account: None,
+		boot: None,
 		cached: false,
 		captures: tangram_index::permission::capture::Captures::default(),
 		children: Some(vec![child.clone()]),
@@ -410,6 +411,7 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 		registration: None,
 		sandbox: None,
 		sandbox_boot: None,
+		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,

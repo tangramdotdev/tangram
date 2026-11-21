@@ -123,22 +123,88 @@ fn the_lifecycle_writes_of_a_sandbox_converge_in_every_order() {
 	let writes = [
 		tg::sandbox::Status::Starting,
 		tg::sandbox::Status::Started,
+		tg::sandbox::Status::Stopping,
 		tg::sandbox::Status::Stopped,
 	]
-	.map(|status| {
+	.into_iter()
+	.enumerate()
+	.map(|(sequence, status)| {
 		let mut data = starting.clone();
 		data.data.status = status;
 		let mut arg = arg(data);
 		arg.principal = tg::Principal::Sandbox(id.clone());
-		arg.runner = Some(runner.clone());
+		arg.runner = (sequence > 0).then(|| runner.clone());
+		arg.sequence = sequence as u64;
 		arg
-	});
-	assert_every_order_converges(&writes);
+	})
+	.collect::<Vec<_>>();
+	let sandbox = assert_every_order_converges(&writes).unwrap();
+	assert_eq!(
+		sandbox.data.unwrap().data.status,
+		tg::sandbox::Status::Stopped
+	);
+	assert_eq!(sandbox.runner, Some(runner));
 }
 
-/// Apply the writes in every order, and assert that every order leaves the same record and rejects the same writes.
-fn assert_every_order_converges(args: &[Arg]) {
+#[test]
+fn a_late_write_of_an_earlier_boot_leaves_a_later_boot_and_its_runner() {
+	let first = tg::runner::Id::new();
+	let second = tg::runner::Id::new();
+	let mut existing = sandbox(data(1, tg::sandbox::Status::Starting, None));
+	existing.runner = Some(second.clone());
+	for status in [tg::sandbox::Status::Started, tg::sandbox::Status::Destroyed] {
+		let mut late = arg(data(0, status, None));
+		late.runner = Some(first.clone());
+		let merge = late.merge(Some(&existing), None).unwrap().unwrap();
+		assert_eq!(
+			merge.sandbox.data.unwrap().data.status,
+			tg::sandbox::Status::Starting
+		);
+		assert_eq!(merge.sandbox.runner, Some(second.clone()));
+	}
+}
+
+#[test]
+fn the_first_end_of_a_boot_is_final() {
+	let existing = sandbox(data(0, tg::sandbox::Status::Stopped, None));
+	let mut late = arg(data(0, tg::sandbox::Status::Destroyed, None));
+	late.sequence = 5;
+	let merge = late.merge(Some(&existing), None).unwrap().unwrap();
+	assert_eq!(
+		merge.sandbox.data.unwrap().data.status,
+		tg::sandbox::Status::Stopped
+	);
+}
+
+#[test]
+fn the_permissions_of_a_write_whose_data_loses_apply() {
+	let existing = sandbox(data(0, tg::sandbox::Status::Stopped, None));
+	let mut late = arg(data(0, tg::sandbox::Status::Starting, None));
+	late.permissions = vec![crate::permission::put::Arg {
+		created_at: 0,
+		permissions: tg::authorization::permission::Set::Sandbox(
+			tg::authorization::permission::sandbox::Set::default(),
+		),
+		resource: late.id.clone().into(),
+		source: crate::permission::Source::Direct {
+			expires_at: Some(1),
+		},
+		subject: tg::authorization::Subject::Public,
+		time_to_touch: None,
+		version: None,
+	}];
+	let merge = late.merge(Some(&existing), None).unwrap().unwrap();
+	assert!(merge.permissions);
+	assert_eq!(
+		merge.sandbox.data.unwrap().data.status,
+		tg::sandbox::Status::Stopped
+	);
+}
+
+/// Apply the writes in every order, and assert that every order leaves the same record and rejects the same writes. Return the record of the last order.
+fn assert_every_order_converges(args: &[Arg]) -> Option<super::super::Sandbox> {
 	let mut expected = None;
+	let mut last = None;
 	for order in crate::tests::permutations(args.len()) {
 		// Apply the writes in the order.
 		let mut sandbox = None::<super::super::Sandbox>;
@@ -159,7 +225,7 @@ fn assert_every_order_converges(args: &[Arg]) {
 		}
 
 		// Compare the record with the first order's record.
-		let record = sandbox.map(|sandbox| sandbox.serialize().unwrap());
+		let record = sandbox.as_ref().map(|sandbox| sandbox.serialize().unwrap());
 		let outcome = (record, permissions, rejected);
 		match &expected {
 			None => {
@@ -172,7 +238,10 @@ fn assert_every_order_converges(args: &[Arg]) {
 				);
 			},
 		}
+		last = sandbox;
 	}
+
+	last
 }
 
 fn arg(data: tg::sandbox::get::Output) -> Arg {
@@ -189,6 +258,7 @@ fn arg(data: tg::sandbox::get::Output) -> Arg {
 		process: None,
 		processes: None,
 		runner: None,
+		sequence: 0,
 		stopped_boot: None,
 		stopped_usage: None,
 		touched_at: 0,
@@ -231,9 +301,11 @@ fn sandbox(data: tg::sandbox::get::Output) -> super::super::Sandbox {
 		account: None,
 		created_at: 0,
 		data: Some(data),
+		ends: BTreeMap::new(),
 		location: None,
 		reference_count: 0,
 		runner: None,
+		sequence: 0,
 		set: super::super::Set::default(),
 		stopped_usages: BTreeMap::new(),
 		touched_at: 0,

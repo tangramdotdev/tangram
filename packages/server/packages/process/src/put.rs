@@ -202,6 +202,7 @@ impl Component {
 		let data = store_data.then(|| arg.data.clone());
 		let mut put_process_arg = tangram_index::process::put::Arg {
 			account: None,
+			boot: None,
 			cached: false,
 			captures,
 			children,
@@ -228,6 +229,7 @@ impl Component {
 			registration,
 			sandbox: None,
 			sandbox_boot,
+			sequence: 0,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,

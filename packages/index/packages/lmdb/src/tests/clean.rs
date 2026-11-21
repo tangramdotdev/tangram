@@ -100,6 +100,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 				put_object(object.clone()),
 				tangram_index::Item::PutProcess(Box::new(tangram_index::process::put::Arg {
 					account: None,
+					boot: None,
 					cached: false,
 					captures: tangram_index::permission::capture::Captures::default(),
 					children: None,
@@ -119,6 +120,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 					registration: None,
 					sandbox: None,
 					sandbox_boot: None,
+					sequence: 0,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,

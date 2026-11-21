@@ -12,11 +12,19 @@ pub struct Sandbox {
 
 	pub data: Option<tg::sandbox::get::Output>,
 
+	/// The number of the first end of each ended boot, which is the number of its holder's end, or zero for the end that the sandbox's scheduler writes for a dead runner. A process write numbered at or above its boot's end is recorded as failed.
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub ends: BTreeMap<u64, u64>,
+
 	pub location: Option<tg::Location>,
 
 	pub reference_count: u64,
 
 	pub runner: Option<tg::runner::Id>,
+
+	/// The sequence of the holder's write that the data is from, which orders a holder's writes within a boot.
+	#[serde(default)]
+	pub sequence: u64,
 
 	pub set: Set,
 

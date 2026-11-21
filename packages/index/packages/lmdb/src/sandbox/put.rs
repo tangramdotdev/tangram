@@ -1,6 +1,7 @@
 use {
-	crate::{Db, Index, Key},
+	crate::{Db, Index, Key, Kind},
 	foundationdb_tuple as fdbt, heed as lmdb,
+	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
 
@@ -22,9 +23,26 @@ impl Index {
 				arg,
 				usage_partition_total,
 			)?;
-			if let Err(error) = result {
-				rejection.get_or_insert(error);
-				continue;
+			let zero_end = match result {
+				Ok(zero_end) => zero_end,
+				Err(error) => {
+					rejection.get_or_insert(error);
+					continue;
+				},
+			};
+
+			// Fail the unfinished processes of a boot that this put ended with the number zero, in the same transaction.
+			if let Some((boot, sandbox)) = zero_end {
+				Self::fail_sandbox_boot_processes_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&arg.id,
+					boot,
+					&sandbox,
+					process_data_fragment_size,
+					usage_partition_total,
+				)?;
 			}
 
 			// Put the process that the sandbox carries. A rejected process leaves the sandbox in place, because the sandbox is valid without it.
@@ -55,7 +73,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::sandbox::put::Arg,
 		usage_partition_total: u64,
-	) -> tg::Result<tg::Result<()>> {
+	) -> tg::Result<tg::Result<Option<(u64, tangram_index::sandbox::Sandbox)>>> {
 		if let Some(registration) = &arg.registration {
 			let result = Self::check_runner_registration_with_transaction(
 				db,
@@ -99,6 +117,7 @@ impl Index {
 			Self::put_permissions_with_transaction(db, subspace, transaction, &arg.permissions)?;
 		}
 		let sandbox = merge.sandbox;
+		let zero_end = merge.zero_end.map(|boot| (boot, sandbox.clone()));
 		let touched_at = sandbox.touched_at;
 		if let Some(processes) = &arg.processes {
 			Self::put_sandbox_processes_with_transaction(
@@ -234,6 +253,69 @@ impl Index {
 			db.put(transaction, &key, &[])
 				.map_err(|error| tg::error!(!error, "failed to put the sandbox runner"))?;
 		}
-		Ok(Ok(()))
+		Ok(Ok(zero_end))
+	}
+
+	/// Fail every unfinished process of a sandbox's boot, which the end of the boot by the sandbox's scheduler covers.
+	#[expect(clippy::too_many_arguments)]
+	fn fail_sandbox_boot_processes_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::sandbox::Id,
+		boot: u64,
+		sandbox: &tangram_index::sandbox::Sandbox,
+		process_data_fragment_size: usize,
+		usage_partition_total: u64,
+	) -> tg::Result<()> {
+		// Get the unfinished processes of the boot.
+		let id_bytes = id.to_bytes();
+		let prefix = (
+			Kind::SandboxBootProcess.to_i32().unwrap(),
+			id_bytes.as_ref(),
+			boot,
+		);
+		let prefix = Self::pack(subspace, &prefix);
+		let processes = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the processes of the boot"))?
+			.map(|entry| {
+				let (key, _) = entry.map_err(
+					|error| tg::error!(!error, %id, "failed to read a process of the boot"),
+				)?;
+				let Key::Sandbox(crate::sandbox::Key::SandboxBootProcess { process, .. }) =
+					Self::unpack(subspace, key)?
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(process)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		// Put each unfinished process as failed.
+		let mut args = Vec::new();
+		for process in processes {
+			let existing =
+				Self::try_get_process_with_transaction(db, subspace, transaction, &process)?;
+			let data =
+				Self::try_get_process_data_with_transaction(db, subspace, transaction, &process)?;
+			args.extend(tangram_index::process::put::Arg::failed(
+				&process,
+				existing.as_ref(),
+				data,
+				sandbox,
+			));
+		}
+		Self::put_processes_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&args,
+			process_data_fragment_size,
+			usage_partition_total,
+		)?
+		.map_err(|error| tg::error!(!error, %id, "failed to fail the processes of the boot"))?;
+
+		Ok(())
 	}
 }

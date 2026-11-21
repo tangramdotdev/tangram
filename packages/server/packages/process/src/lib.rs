@@ -545,11 +545,12 @@ impl tangram_server_core::process::Component for Component {
 		session: &tangram_server_core::Session,
 		process: &tg::runner::control::Process,
 		sandbox: &tg::sandbox::Id,
+		boot: Option<u64>,
 		now: i64,
 		permissions: bool,
 		public: bool,
 	) -> tg::Result<tangram_index::process::put::Arg> {
-		Self::create_queued_process_arg(session, process, sandbox, now, permissions, public)
+		Self::create_queued_process_arg(session, process, sandbox, boot, now, permissions, public)
 	}
 
 	fn expire_process_log_cache<'a>(

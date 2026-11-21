@@ -138,6 +138,7 @@ impl Component {
 				let parent_data = parent_data.without_location_and_tokens_except_sync();
 				Ok(tangram_index::process::put::Arg {
 					account: None,
+					boot: None,
 					cached: false,
 					captures: tangram_index::permission::capture::Captures::default(),
 					children: None,
@@ -164,6 +165,7 @@ impl Component {
 					registration: None,
 					sandbox: None,
 					sandbox_boot: None,
+					sequence: 0,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: session.server.config.process.time_to_touch,
 					touched_at: now,
@@ -178,6 +180,7 @@ impl Component {
 			.await?;
 		let child_arg = tangram_index::process::put::Arg {
 			account,
+			boot: None,
 			cached: child.cached,
 			captures: tangram_index::permission::capture::Captures::default(),
 			children: None,
@@ -197,6 +200,7 @@ impl Component {
 			registration: None,
 			sandbox: None,
 			sandbox_boot: None,
+			sequence: 0,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,

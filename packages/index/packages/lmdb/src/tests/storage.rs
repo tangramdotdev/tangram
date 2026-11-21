@@ -47,6 +47,7 @@ fn process_arg(
 		.collect();
 	tangram_index::process::put::Arg {
 		account: None,
+		boot: None,
 		cached: false,
 		captures: tangram_index::permission::capture::Captures::default(),
 		children: Some(children),
@@ -66,6 +67,7 @@ fn process_arg(
 		registration: None,
 		sandbox: None,
 		sandbox_boot: None,
+		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,
@@ -379,6 +381,7 @@ async fn account_storage_traverses_new_process_relationships() {
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
 	let partial_root = tangram_index::process::put::Arg {
 		account: None,
+		boot: None,
 		cached: false,
 		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
@@ -398,6 +401,7 @@ async fn account_storage_traverses_new_process_relationships() {
 		registration: None,
 		sandbox: None,
 		sandbox_boot: None,
+		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,

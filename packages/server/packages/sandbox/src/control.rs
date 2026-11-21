@@ -245,6 +245,7 @@ impl Component {
 		if let Some(data) = &mut sandbox.data {
 			data.data.boot = boot;
 		}
+		sandbox.sequence = 1;
 
 		// Remove the boot from its scheduler's queue in the same write as the connection's status, because the scheduler stops owning the sandbox once its runner connects.
 		let delete = tangram_index::scheduler::sandbox::delete::Arg {
@@ -563,6 +564,7 @@ impl Component {
 			processes: None,
 			registration: None,
 			runner,
+			sequence: 0,
 			stopped_boot: None,
 			stopped_usage: None,
 			touched_at: created_at,

@@ -1,6 +1,8 @@
 use {
-	crate::{Index, Key},
+	crate::{Index, Key, Kind},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	futures::TryStreamExt as _,
+	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
@@ -18,9 +20,28 @@ impl Index {
 			let result = crate::propagate!(
 				Self::put_sandbox_with_transaction(txn, subspace, arg, partition_totals).await
 			);
-			if let Err(error) = result {
-				rejection.get_or_insert(error);
-				continue;
+			let zero_end = match result {
+				Ok(zero_end) => zero_end,
+				Err(error) => {
+					rejection.get_or_insert(error);
+					continue;
+				},
+			};
+
+			// Fail the unfinished processes of a boot that this put ended with the number zero, in the same transaction.
+			if let Some((boot, sandbox)) = zero_end {
+				crate::propagate!(
+					Self::fail_sandbox_boot_processes_with_transaction(
+						txn,
+						subspace,
+						&arg.id,
+						boot,
+						&sandbox,
+						partition_totals,
+						process_data_fragment_size,
+					)
+					.await
+				);
 			}
 
 			// Put the process that the sandbox carries. A rejected process leaves the sandbox in place, because the sandbox is valid without it.
@@ -52,7 +73,9 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::sandbox::put::Arg,
 		partition_totals: crate::PartitionTotals,
-	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
+	) -> tg::Result<
+		ControlFlow<tg::Result<Option<(u64, tangram_index::sandbox::Sandbox)>>, fdb::FdbError>,
+	> {
 		let partition_total = partition_totals.cleaning;
 		let usage_partition_total = partition_totals.usage;
 		if let Some(registration) = &arg.registration {
@@ -104,6 +127,7 @@ impl Index {
 			);
 		}
 		let sandbox = merge.sandbox;
+		let zero_end = merge.zero_end.map(|boot| (boot, sandbox.clone()));
 		let touched_at = sandbox.touched_at;
 		if let Some(processes) = &arg.processes {
 			crate::propagate!(
@@ -234,6 +258,78 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 		}
-		Ok(ControlFlow::Break(Ok(())))
+		Ok(ControlFlow::Break(Ok(zero_end)))
+	}
+
+	/// Fail every unfinished process of a sandbox's boot, which the end of the boot by the sandbox's scheduler covers.
+	async fn fail_sandbox_boot_processes_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		id: &tg::sandbox::Id,
+		boot: u64,
+		sandbox: &tangram_index::sandbox::Sandbox,
+		partition_totals: crate::PartitionTotals,
+		process_data_fragment_size: usize,
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		// Get the unfinished processes of the boot.
+		let id_bytes = id.to_bytes();
+		let prefix = (
+			Kind::SandboxBootProcess.to_i32().unwrap(),
+			id_bytes.as_ref(),
+			boot,
+		);
+		let prefix = Self::pack(subspace, &prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
+		};
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let entries = crate::retry!(result);
+		let processes = entries
+			.iter()
+			.map(|entry| {
+				let Key::Sandbox(crate::sandbox::Key::SandboxBootProcess { process, .. }) =
+					Self::unpack(subspace, entry.key())?
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(process)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		drop(entries);
+
+		// Put each unfinished process as failed.
+		let mut args = Vec::new();
+		for process in processes {
+			let existing = crate::propagate!(
+				Self::try_get_process_with_transaction(txn, subspace, &process).await
+			);
+			let data = crate::propagate!(
+				Self::try_get_process_data_with_transaction(txn, subspace, &process).await
+			);
+			args.extend(tangram_index::process::put::Arg::failed(
+				&process,
+				existing.as_ref(),
+				data,
+				sandbox,
+			));
+		}
+		let result = crate::propagate!(
+			Self::put_processes_with_transaction(
+				txn,
+				subspace,
+				&args,
+				partition_totals,
+				process_data_fragment_size,
+			)
+			.await
+		);
+		result
+			.map_err(|error| tg::error!(!error, %id, "failed to fail the processes of the boot"))?;
+
+		Ok(ControlFlow::Break(()))
 	}
 }

@@ -210,6 +210,11 @@ pub struct FinishClientRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct StartClientRequestArg {
+	/// The boot of the process's sandbox that the runner runs the process in.
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_default")]
+	pub boot: u64,
+
 	#[tangram_serialize(id = 0)]
 	pub data: tg::process::Data,
 

@@ -13,6 +13,11 @@ pub enum Key {
 		status: tg::sandbox::Status,
 	},
 	Sandbox(tg::sandbox::Id),
+	SandboxBootProcess {
+		boot: u64,
+		process: tg::process::Id,
+		sandbox: tg::sandbox::Id,
+	},
 	SandboxProcess {
 		position: i64,
 		process: tg::process::Id,

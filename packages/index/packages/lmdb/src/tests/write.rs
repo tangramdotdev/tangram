@@ -56,6 +56,7 @@ fn process_arg(
 	};
 	tangram_index::process::put::Arg {
 		account: None,
+		boot: None,
 		cached: false,
 		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
@@ -75,6 +76,7 @@ fn process_arg(
 		registration: None,
 		sandbox: None,
 		sandbox_boot: None,
+		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,
@@ -120,6 +122,7 @@ fn sandbox_arg(
 		processes: None,
 		registration: None,
 		runner: None,
+		sequence: 0,
 		stopped_boot: None,
 		stopped_usage: None,
 		touched_at: 0,
@@ -234,6 +237,7 @@ async fn process_children_are_stored_separately_from_data() {
 		items: vec![tangram_index::Item::PutProcess(Box::new(
 			tangram_index::process::put::Arg {
 				account: None,
+				boot: None,
 				cached: false,
 				captures: tangram_index::permission::capture::Captures::default(),
 				children: Some(expected.clone()),
@@ -253,6 +257,7 @@ async fn process_children_are_stored_separately_from_data() {
 				registration: None,
 				sandbox: None,
 				sandbox_boot: None,
+				sequence: 0,
 				storage: tg::process::storage::Set::NODE,
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 0,
@@ -350,6 +355,7 @@ async fn incomplete_process_children_have_values() {
 		items: vec![
 			tangram_index::Item::PutProcess(Box::new(tangram_index::process::put::Arg {
 				account: None,
+				boot: None,
 				cached: false,
 				captures: tangram_index::permission::capture::Captures::default(),
 				children: None,
@@ -369,12 +375,14 @@ async fn incomplete_process_children_have_values() {
 				registration: None,
 				sandbox: None,
 				sandbox_boot: None,
+				sequence: 0,
 				storage: tg::process::storage::Set::NODE,
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 0,
 			})),
 			tangram_index::Item::PutProcess(Box::new(tangram_index::process::put::Arg {
 				account: None,
+				boot: None,
 				cached: child_data.cached,
 				captures: tangram_index::permission::capture::Captures::default(),
 				children: None,
@@ -394,6 +402,7 @@ async fn incomplete_process_children_have_values() {
 				registration: None,
 				sandbox: None,
 				sandbox_boot: None,
+				sequence: 0,
 				storage: tg::process::storage::Set::NODE,
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 0,
@@ -532,6 +541,7 @@ async fn process_children_must_be_unique() {
 		items: vec![tangram_index::Item::PutProcess(Box::new(
 			tangram_index::process::put::Arg {
 				account: None,
+				boot: None,
 				cached: false,
 				captures: tangram_index::permission::capture::Captures::default(),
 				children: Some(vec![child.clone(), child]),
@@ -551,6 +561,7 @@ async fn process_children_must_be_unique() {
 				registration: None,
 				sandbox: None,
 				sandbox_boot: None,
+				sequence: 0,
 				storage: tg::process::storage::Set::NODE,
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 0,
@@ -1081,12 +1092,16 @@ async fn process_put_preserves_existing_contents() {
 	let mut with_log = arg.clone();
 	with_log.data.as_mut().unwrap().log = Some(tg::Referent::with_node(tg::blob::Id::new(b"log")));
 	assert!(put_process(&index, with_log.clone()).await.is_err());
+
+	// The process's own later ends are accepted and ignored, because the first end to arrive is final.
 	with_log.principal = tg::Principal::Process(id.clone());
-	assert!(put_process(&index, with_log).await.is_err());
+	put_process(&index, with_log).await.unwrap();
 	changed.principal = tg::Principal::Process(id.clone());
-	assert!(put_process(&index, changed).await.is_err());
+	put_process(&index, changed).await.unwrap();
 	let (_, data) = index.try_get_process_with_data(&id).await.unwrap().unwrap();
-	assert_eq!(data.unwrap().exit, Some(0));
+	let data = data.unwrap();
+	assert_eq!(data.exit, Some(0));
+	assert!(data.log.is_none());
 }
 
 #[tokio::test]
@@ -1113,18 +1128,20 @@ async fn finished_process_data_is_immutable_for_every_principal() {
 		identical.data.as_mut().unwrap().command.options.location =
 			Some(tg::Location::Local(tg::location::Local::default()));
 		put_process(&index, identical).await.unwrap();
+		// The process's own changed writes are accepted and ignored, because the first end to arrive is final, and every other principal's are rejected.
+		let own = arg.principal == tg::Principal::Process(id.clone());
 		for replacement in [None, Some(tg::blob::Id::new(b"other log"))] {
 			let mut changed = arg.clone();
 			changed.data.as_mut().unwrap().log = replacement.clone().map(tg::Referent::with_node);
 			changed.log = Some(replacement.map(Into::into).into());
-			assert!(put_process(&index, changed).await.is_err());
+			assert_eq!(put_process(&index, changed).await.is_ok(), own);
 		}
 		let mut changed = arg.clone();
 		changed.data.as_mut().unwrap().exit = Some(1);
-		assert!(put_process(&index, changed).await.is_err());
+		assert_eq!(put_process(&index, changed).await.is_ok(), own);
 		let mut changed = arg.clone();
 		changed.data.as_mut().unwrap().status = tg::process::Status::Started;
-		assert!(put_process(&index, changed).await.is_err());
+		assert_eq!(put_process(&index, changed).await.is_ok(), own);
 	}
 	let (_, data) = index.try_get_process_with_data(&id).await.unwrap().unwrap();
 	let data = data.unwrap();

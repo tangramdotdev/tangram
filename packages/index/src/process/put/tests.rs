@@ -1,5 +1,11 @@
 use {super::*, std::collections::BTreeSet};
 
+/// A write of the process or of its sandbox.
+enum Write {
+	Process(Arg),
+	Sandbox(crate::sandbox::put::Arg),
+}
+
 /// The records that the index holds for one process, as the merge's effects leave them.
 #[derive(Default)]
 struct State {
@@ -14,21 +20,275 @@ fn the_lifecycle_writes_of_a_process_converge_in_every_order() {
 	let id = tg::process::Id::new();
 	let sandbox = tg::sandbox::Id::new();
 	let mut queued = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	queued.boot = Some(0);
 	queued.permissions = vec![permission(&id, 1)];
-	let started = arg(&id, data(&sandbox, tg::process::Status::Started));
+	let mut started = arg(&id, data(&sandbox, tg::process::Status::Started));
+	started.boot = Some(0);
+	started.sequence = 1;
 	let mut finished = arg(&id, data(&sandbox, tg::process::Status::Finished));
 	finished.children = Some(Vec::new());
-	assert_every_order_converges(&[queued, started, finished]);
+	finished.sequence = 2;
+	let state = assert_every_order_converges(&[queued, started, finished], None);
+	assert_eq!(state.process.as_ref().unwrap().boot, Some(0));
+	assert_eq!(
+		state.data.as_ref().unwrap().status,
+		tg::process::Status::Finished
+	);
+	assert_eq!(state.permissions.len(), 1);
 }
 
-/// Apply the writes in every order, and assert that every order leaves the same records and rejects the same writes.
-fn assert_every_order_converges(args: &[Arg]) {
+#[test]
+fn a_holder_write_supersedes_the_writes_with_lower_sequences() {
+	let id = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let queued = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	let mut started = arg(&id, data(&sandbox, tg::process::Status::Started));
+	started.sequence = 1;
+	let mut later = arg(&id, data(&sandbox, tg::process::Status::Started));
+	later.sequence = 2;
+	later.data.as_mut().unwrap().started_at = Some(5);
+	let state = assert_every_order_converges(&[queued, started, later], None);
+	assert_eq!(state.data.as_ref().unwrap().started_at, Some(5));
+}
+
+#[test]
+fn the_permissions_of_a_queued_record_apply_after_a_child_link() {
+	let id = tg::process::Id::new();
+	let parent = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let mut queued = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	queued.permissions = vec![permission(&id, 1)];
+	let mut link = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	link.data = None;
+	link.parent = Some(parent.clone());
+	link.principal = tg::Principal::Process(parent);
+	let state = assert_every_order_converges(&[queued, link], None);
+	assert_eq!(state.permissions.len(), 1);
+}
+
+#[test]
+fn the_first_end_to_arrive_is_final() {
+	let id = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let mut started = arg(&id, data(&sandbox, tg::process::Status::Started));
+	started.sequence = 1;
+	let mut holder = arg(&id, data(&sandbox, tg::process::Status::Finished));
+	holder.sequence = 2;
+	let mut other = arg(&id, data(&sandbox, tg::process::Status::Finished));
+	other.data.as_mut().unwrap().exit = Some(1);
+	let ends = [&holder, &other].map(|end| serde_json::to_value(end.data.as_ref()).unwrap());
+	let args = [started, holder.clone(), other.clone()];
+	for order in crate::tests::permutations(args.len()) {
+		let mut state = State::default();
+		for &index in &order {
+			apply(&mut state, index, &args[index], None);
+		}
+		let first = order.iter().copied().find(|index| *index != 0).unwrap();
+		let data = serde_json::to_value(state.data.as_ref()).unwrap();
+		assert_eq!(
+			data,
+			ends[first - 1],
+			"the order {order:?} did not keep the first end"
+		);
+		assert!(state.rejected.is_empty());
+	}
+}
+
+#[test]
+fn a_process_write_at_or_above_its_boot_end_is_failed() {
+	let id = tg::process::Id::new();
+	let mut sandbox = sandbox_record(1, tg::sandbox::Status::Started);
+	sandbox.ends.insert(0, 3);
+	let sandbox_id = sandbox.data.as_ref().unwrap().data.id.clone();
+	for status in [
+		tg::process::Status::Queued,
+		tg::process::Status::Started,
+		tg::process::Status::Finished,
+	] {
+		let mut write = arg(&id, data(&sandbox_id, status));
+		write.boot = Some(0);
+		write.permissions = vec![permission(&id, 1)];
+		write.sequence = 3;
+		let mut state = State::default();
+		apply(&mut state, 0, &write, Some(&sandbox));
+		let data = state.data.unwrap();
+		assert_eq!(data.status, tg::process::Status::Finished);
+		assert_eq!(data.exit, Some(1));
+		assert!(data.error.is_some());
+		assert_eq!(state.permissions.len(), 1);
+	}
+}
+
+#[test]
+fn a_process_write_below_its_boot_end_applies() {
+	let id = tg::process::Id::new();
+	let mut sandbox = sandbox_record(1, tg::sandbox::Status::Started);
+	sandbox.ends.insert(0, 3);
+	let sandbox_id = sandbox.data.as_ref().unwrap().data.id.clone();
+	let mut started = arg(&id, data(&sandbox_id, tg::process::Status::Started));
+	started.boot = Some(0);
+	started.sequence = 2;
+	let mut state = State::default();
+	apply(&mut state, 0, &started, Some(&sandbox));
+	assert_eq!(state.data.unwrap().status, tg::process::Status::Started);
+}
+
+#[test]
+#[expect(
+	clippy::large_stack_arrays,
+	reason = "the test lists the writes that it applies in every order"
+)]
+fn the_end_of_a_boot_and_the_writes_of_its_processes_keep_the_first_end_in_every_order() {
+	let first = tg::process::Id::new();
+	let second = tg::process::Id::new();
+	let sandbox_id = tg::sandbox::Id::new();
+
+	// The first process is queued by the scheduler, then started and finished by the runner.
+	let mut queued = arg(&first, data(&sandbox_id, tg::process::Status::Queued));
+	queued.boot = Some(0);
+	queued.permissions = vec![permission(&first, 1)];
+	let mut started = arg(&first, data(&sandbox_id, tg::process::Status::Started));
+	started.boot = Some(0);
+	started.sequence = 1;
+	let mut finished = arg(&first, data(&sandbox_id, tg::process::Status::Finished));
+	finished.boot = Some(0);
+	finished.sequence = 2;
+
+	// The second process's first write carries no boot, such as a write of a parent by its child's spawn, and the runner's start sets its boot.
+	let mut unbooted = arg(&second, data(&sandbox_id, tg::process::Status::Started));
+	unbooted.principal = tg::Principal::Process(second.clone());
+	let mut booted = arg(&second, data(&sandbox_id, tg::process::Status::Started));
+	booted.boot = Some(0);
+	booted.sequence = 1;
+
+	let writes = [
+		(0, Write::Process(queued)),
+		(0, Write::Process(started)),
+		(0, Write::Process(finished)),
+		(1, Write::Process(unbooted)),
+		(1, Write::Process(booted)),
+		(2, Write::Sandbox(sandbox_arg(&sandbox_id, 0))),
+		(2, Write::Sandbox(sandbox_arg(&sandbox_id, 3))),
+	];
+	for order in crate::tests::permutations(writes.len()) {
+		// Apply the writes in the order, failing with a zero end every unfinished process that the index lists under the boot, as the index backends do.
+		let mut states = [State::default(), State::default()];
+		let mut sandbox = None::<crate::sandbox::Sandbox>;
+		for &index in &order {
+			match &writes[index] {
+				(process, Write::Process(arg)) => {
+					apply(&mut states[*process], index, arg, sandbox.as_ref());
+				},
+				(_, Write::Sandbox(arg)) => {
+					let merge = arg.merge(sandbox.as_ref(), None).unwrap().unwrap();
+					let sandbox = sandbox.insert(merge.sandbox);
+					let Some(boot) = merge.zero_end else {
+						continue;
+					};
+					for (state, id) in states.iter_mut().zip([&first, &second]) {
+						let listed = state
+							.process
+							.as_ref()
+							.is_some_and(|process| process.boot == Some(boot));
+						if !listed {
+							continue;
+						}
+						let failed =
+							Arg::failed(id, state.process.as_ref(), state.data.clone(), sandbox);
+						if let Some(failed) = failed {
+							apply(state, index, &failed, Some(sandbox));
+						}
+					}
+				},
+			}
+		}
+
+		// Each process keeps its own end if its finish or the holder's end of the boot arrived before the zero end, and is failed otherwise, with the same record in every such order.
+		let position = |index: usize| order.iter().position(|i| *i == index).unwrap();
+		let zero_first = position(5) < position(6);
+		let first_data = states[0].data.as_ref().unwrap();
+		assert_eq!(first_data.status, tg::process::Status::Finished);
+		let normal = !zero_first || position(2) < position(5);
+		assert_eq!(
+			first_data.exit,
+			Some(if normal { 0 } else { 1 }),
+			"the order {order:?} did not keep the first end of the first process"
+		);
+		let second_data = states[1].data.as_ref().unwrap();
+		let expected = if zero_first {
+			tg::process::Status::Finished
+		} else {
+			tg::process::Status::Started
+		};
+		assert_eq!(
+			second_data.status, expected,
+			"the order {order:?} did not keep the first end of the second process"
+		);
+		assert_eq!(states[0].permissions.len(), 1);
+		assert!(states.iter().all(|state| state.rejected.is_empty()));
+	}
+}
+
+#[test]
+fn a_process_of_a_boot_that_its_holder_ended_keeps_its_own_end_in_every_order() {
+	let id = tg::process::Id::new();
+	let mut sandbox = sandbox_record(1, tg::sandbox::Status::Started);
+	sandbox.ends.insert(0, 3);
+	let sandbox_id = sandbox.data.as_ref().unwrap().data.id.clone();
+	let mut started = arg(&id, data(&sandbox_id, tg::process::Status::Started));
+	started.boot = Some(0);
+	started.sequence = 1;
+	let mut finished = arg(&id, data(&sandbox_id, tg::process::Status::Finished));
+	finished.boot = Some(0);
+	finished.sequence = 2;
+	let state = assert_every_order_converges(&[started.clone(), finished], Some(&sandbox));
+	let data = state.data.unwrap();
+	assert_eq!(data.exit, Some(0));
+	assert!(data.error.is_none());
+
+	// A late start of a process of a boot that its holder ended stays unfinished until the process's end arrives.
+	let state = assert_every_order_converges(&[started], Some(&sandbox));
+	assert_eq!(state.data.unwrap().status, tg::process::Status::Started);
+}
+
+#[test]
+fn a_process_of_a_running_boot_is_not_finished() {
+	let id = tg::process::Id::new();
+	let sandbox = sandbox_record(0, tg::sandbox::Status::Started);
+	let sandbox_id = sandbox.data.as_ref().unwrap().data.id.clone();
+	let mut queued = arg(&id, data(&sandbox_id, tg::process::Status::Queued));
+	queued.boot = Some(0);
+	let mut started = arg(&id, data(&sandbox_id, tg::process::Status::Started));
+	started.boot = Some(0);
+	started.sequence = 1;
+	let state = assert_every_order_converges(&[queued, started], Some(&sandbox));
+	assert_eq!(state.data.unwrap().status, tg::process::Status::Started);
+}
+
+#[test]
+fn a_write_that_changes_the_boot_is_rejected() {
+	let id = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let mut queued = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	queued.boot = Some(0);
+	let mut started = arg(&id, data(&sandbox, tg::process::Status::Started));
+	started.boot = Some(1);
+	started.sequence = 1;
+	let mut state = State::default();
+	apply(&mut state, 0, &queued, None);
+	apply(&mut state, 1, &started, None);
+	assert!(state.rejected.contains(&1));
+}
+
+/// Apply the writes in every order with the sandbox's record, and assert that every order leaves the same records and rejects the same writes. Return the records of the last order.
+fn assert_every_order_converges(args: &[Arg], sandbox: Option<&crate::sandbox::Sandbox>) -> State {
 	let mut expected = None;
+	let mut last = None;
 	for order in crate::tests::permutations(args.len()) {
 		// Apply the writes in the order.
 		let mut state = State::default();
 		for &index in &order {
-			apply(&mut state, index, &args[index]);
+			apply(&mut state, index, &args[index], sandbox);
 		}
 
 		// Compare the records with the first order's records.
@@ -44,11 +304,15 @@ fn assert_every_order_converges(args: &[Arg]) {
 				);
 			},
 		}
+		last = Some(state);
 	}
+
+	last.unwrap()
 }
 
-fn apply(state: &mut State, index: usize, arg: &Arg) {
-	let data = if arg.compares_data(state.process.as_ref()) {
+fn apply(state: &mut State, index: usize, arg: &Arg, sandbox: Option<&crate::sandbox::Sandbox>) {
+	let sandbox = arg.context_sandbox(state.process.as_ref()).and(sandbox);
+	let data = if arg.reads_data(state.process.as_ref()) {
 		state.data.as_ref()
 	} else {
 		None
@@ -57,7 +321,7 @@ fn apply(state: &mut State, index: usize, arg: &Arg) {
 		accepts_child: None,
 		children: None,
 		data,
-		sandbox: None,
+		sandbox,
 	};
 	let Ok(merge) = arg.merge(state.process.as_ref(), context).unwrap() else {
 		state.rejected.insert(index);
@@ -100,6 +364,7 @@ fn outcome(
 fn arg(id: &tg::process::Id, data: tg::process::Data) -> Arg {
 	Arg {
 		account: None,
+		boot: None,
 		cached: false,
 		captures: crate::permission::capture::Captures::default(),
 		children: None,
@@ -119,6 +384,7 @@ fn arg(id: &tg::process::Id, data: tg::process::Data) -> Arg {
 		registration: None,
 		sandbox: None,
 		sandbox_boot: None,
+		sequence: 0,
 		storage: Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,
@@ -166,5 +432,72 @@ fn permission(id: &tg::process::Id, created_at: i64) -> crate::permission::put::
 		subject: tg::authorization::Subject::Public,
 		time_to_touch: None,
 		version: None,
+	}
+}
+
+fn sandbox_arg(id: &tg::sandbox::Id, sequence: u64) -> crate::sandbox::put::Arg {
+	let mut data = sandbox_data(0, tg::sandbox::Status::Stopped);
+	data.data.id = id.clone();
+	crate::sandbox::put::Arg {
+		account: None,
+		created_at: 0,
+		data: Some(data),
+		id: id.clone(),
+		location: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Root,
+		process: None,
+		processes: None,
+		registration: None,
+		runner: None,
+		sequence,
+		stopped_boot: None,
+		stopped_usage: None,
+		touched_at: 0,
+	}
+}
+
+fn sandbox_record(boot: u64, status: tg::sandbox::Status) -> crate::sandbox::Sandbox {
+	let data = sandbox_data(boot, status);
+	crate::sandbox::Sandbox {
+		account: None,
+		created_at: 0,
+		data: Some(data),
+		ends: std::collections::BTreeMap::new(),
+		location: None,
+		reference_count: 0,
+		runner: None,
+		sequence: 0,
+		set: crate::sandbox::Set::default(),
+		stopped_usages: std::collections::BTreeMap::new(),
+		touched_at: 0,
+		usages: std::collections::BTreeMap::new(),
+	}
+}
+
+fn sandbox_data(boot: u64, status: tg::sandbox::Status) -> tg::sandbox::get::Output {
+	let data = tg::sandbox::Data {
+		boot,
+		cpu: None,
+		creator: tg::Principal::Root,
+		error: None,
+		expires_at: None,
+		hostname: None,
+		id: tg::sandbox::Id::new(),
+		memory: None,
+		mounts: Vec::new(),
+		network: None,
+		owner: tg::Principal::Root,
+		status,
+		stopped_at: None,
+		storage: None,
+		time_to_live: None,
+		time_to_stop: None,
+		usage: None,
+	};
+	tg::sandbox::get::Output {
+		data,
+		location: None,
+		tokens: tg::authorization::Tokens::default(),
 	}
 }
