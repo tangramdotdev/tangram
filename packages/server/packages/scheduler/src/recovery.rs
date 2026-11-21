@@ -257,7 +257,6 @@ impl SchedulerState {
 		let Some(recovery) = self.recovery.take() else {
 			return;
 		};
-		let mut lost = Vec::new();
 		for (id, claim) in recovery.claimed {
 			let data = statuses.remove(&id);
 			if data
@@ -282,19 +281,32 @@ impl SchedulerState {
 				.get(&claim.runner)
 				.is_some_and(|runner| runner.registration_index == claim.registration_index)
 			{
+				// Treat the runner's report of the boot as its acceptance, and write the handoff, which this scheduler may not have written before it restarted.
 				let boot = claim.request.boot;
+				self.hand_off_sandbox(scheduler, claim.request.clone(), claim.runner.clone());
 				let runner = super::placement::RunnerRef {
 					registration_index: claim.registration_index,
 					id: claim.runner,
 				};
 				self.track_accepted_sandbox(scheduler, &id, boot, Some(claim.request), runner);
 			} else {
-				// Queue a sandbox again whose runner was removed since it claimed the sandbox, if the sandbox's key remains.
-				lost.push(claim.request);
+				// End a boot as failed whose runner accepted it and was removed since, because the boot is lost with the runner.
+				let scheduler = scheduler.clone();
+				let request = claim.request;
+				self.operations.push(
+					async move {
+						let error = tg::error!(sandbox = %request.sandbox, "the sandbox's runner is unavailable");
+						let result = scheduler
+							.fail_sandbox(&request, error.to_data_or_id())
+							.await;
+						Operation::Finished {
+							context: "failed to record the failed sandbox",
+							result,
+						}
+					}
+					.boxed(),
+				);
 			}
-		}
-		if !lost.is_empty() {
-			self.read_lost_sandboxes(scheduler, lost);
 		}
 		for (id, request) in recovery.requests {
 			let data = statuses.remove(&id);

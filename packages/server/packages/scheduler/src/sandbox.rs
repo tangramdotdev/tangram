@@ -8,7 +8,7 @@ use {
 		record::failed_sandbox_status,
 	},
 	futures::{FutureExt as _, future},
-	std::collections::{HashMap, HashSet},
+	std::collections::HashMap,
 	tangram_client::prelude::*,
 	tangram_server_core::control::accept::{Accept, Path},
 };
@@ -940,67 +940,6 @@ impl SchedulerState {
 		if ended {
 			self.remove_sandbox(scheduler, &notification.sandbox);
 			self.stop_serving_sandbox_holder(&notification.sandbox);
-		}
-	}
-
-	/// Read the sandboxes that this scheduler has keys for, to queue the sandboxes again that were lost with a runner before their control connections were established.
-	pub(super) fn read_lost_sandboxes(
-		&mut self,
-		scheduler: &Scheduler,
-		lost: Vec<EnqueueSandboxRequestArg>,
-	) {
-		let scheduler = scheduler.clone();
-		self.operations.push(
-			async move {
-				// Keep trying, because the lost sandboxes are gone if the read is given up.
-				let keys = loop {
-					match scheduler.read_scheduler_sandbox_keys().await {
-						Ok(keys) => break keys,
-						Err(error) => {
-							tracing::error!(error = %error.trace(), "failed to read the scheduler's sandboxes");
-							tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
-						},
-					}
-				};
-				Operation::LostSandboxes { keys, lost }
-			}
-			.boxed(),
-		);
-	}
-
-	/// Queue the sandboxes again that were lost with a runner and that still have keys, whose control connections were not established.
-	pub(super) fn handle_lost_sandboxes(
-		&mut self,
-		scheduler: &Scheduler,
-		keys: Vec<tg::sandbox::Id>,
-		lost: Vec<EnqueueSandboxRequestArg>,
-	) {
-		let keys = keys
-			.into_iter()
-			.collect::<HashSet<_, tg::id::BuildHasher>>();
-		for request in lost {
-			if !keys.contains(&request.sandbox) {
-				continue;
-			}
-
-			// A boot that must run on a runner that is gone cannot move, so it fails.
-			if let Some(runner) = request
-				.runner
-				.clone()
-				.filter(|runner| !self.runners.entries.contains_key(runner))
-			{
-				let sandbox = request.sandbox.clone();
-				let error = tg::error!(%sandbox, %runner, "the sandbox's runner is unavailable");
-				let discarded = DiscardedSandbox {
-					error: error.to_data_or_id(),
-					request,
-					sandbox,
-					write: None,
-				};
-				scheduler.publish_sandbox_discarded(self, discarded);
-				continue;
-			}
-			self.handle_enqueue_sandbox_request(scheduler, None, request, true);
 		}
 	}
 

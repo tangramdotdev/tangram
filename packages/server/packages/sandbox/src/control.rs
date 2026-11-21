@@ -228,6 +228,7 @@ impl Component {
 		};
 		let boot = arg.boot;
 		let runner = arg.runner;
+		let sequence = arg.sequence;
 
 		// Prepare and submit initialization before accepting subsequent requests.
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.connect", sandbox = %id)
@@ -245,18 +246,11 @@ impl Component {
 		if let Some(data) = &mut sandbox.data {
 			data.data.boot = boot;
 		}
-		sandbox.sequence = 1;
+		sandbox.sequence = sequence;
 
-		// Remove the boot from its scheduler's queue in the same write as the connection's status, because the scheduler stops owning the sandbox once its runner connects.
-		let delete = tangram_index::scheduler::sandbox::delete::Arg {
-			boot,
-			sandbox: id.clone(),
-		};
+		// Write the connection's status. The boot's scheduler removed the boot from its queue in its handoff write.
 		let arg = tangram_index::write::Arg {
-			items: vec![
-				tangram_index::Item::PutSandbox(Box::new(sandbox)),
-				tangram_index::Item::DeleteSchedulerSandbox(Box::new(delete)),
-			],
+			items: vec![tangram_index::Item::PutSandbox(Box::new(sandbox))],
 		};
 		session
 			.server

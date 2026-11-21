@@ -384,7 +384,6 @@ impl Component {
 			runner,
 			sandbox: id.clone(),
 			scheduler: Some(scheduler.clone()),
-			stop: false,
 			token: Some(token),
 		};
 
