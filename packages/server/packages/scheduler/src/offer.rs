@@ -114,10 +114,14 @@ impl SchedulerState {
 	) {
 		self.sandboxes.offers = self.sandboxes.offers.saturating_sub(1);
 
-		// Ignore the answer to an offer that is not the sandbox's current offer, such as an answer on a runner connection that the runner's reconnect replaced, after which the offer is sent to the new connection.
+		// Ignore the answer to an offer that is not the sandbox's current offer, such as an answer on a runner connection that the runner's reconnect replaced, after which the offer is sent to the new connection, and an answer on the connection of a runner that restarted since, whose first connection decides the offer from the index.
 		let current = self.sandboxes.entries.get(id).is_some_and(|sandbox| {
 			matches!(&sandbox.state, State::Offered { placement: current, .. } if current == placement)
-		});
+		}) && self
+			.runners
+			.entries
+			.get(&placement.runner().id)
+			.is_some_and(|runner| runner.connection == placement.runner().connection);
 		if !current {
 			return;
 		}
@@ -187,7 +191,7 @@ impl SchedulerState {
 				&& let Some(entry) = self.runners.entries.get(&runner.id)
 			{
 				let block = Block {
-					registration_index: entry.registration_index,
+					connection: entry.connection,
 					heartbeat_index: entry.heartbeat_index,
 				};
 				self.sandboxes
@@ -223,7 +227,7 @@ impl SchedulerState {
 		let Some(runner) = self.runners.entries.get_mut(&runner_ref.id) else {
 			return;
 		};
-		if runner.registration_index != runner_ref.registration_index {
+		if runner.connection != runner_ref.connection {
 			return;
 		}
 		let Some(reserved) = runner.reservations.remove(id) else {
@@ -240,6 +244,10 @@ impl SchedulerState {
 		scheduler: &Scheduler,
 		id: &tg::sandbox::Id,
 	) -> bool {
+		// Offer nothing while a restarted scheduler waits for its runners to report, because a runner may hold a boot that the scheduler would otherwise offer again.
+		if self.recovery.is_some() {
+			return false;
+		}
 		let Some(sandbox) = self.sandboxes.entries.get(id) else {
 			return false;
 		};
@@ -443,9 +451,11 @@ impl SchedulerState {
 				} => {
 					let runner = placement.runner();
 					current == offer
-						&& self.runners.entries.get(&runner.id).is_some_and(|entry| {
-							entry.registration_index == runner.registration_index
-						})
+						&& self
+							.runners
+							.entries
+							.get(&runner.id)
+							.is_some_and(|entry| entry.connection == runner.connection)
 				},
 				State::Accepted { .. } | State::Queued | State::Terminal { .. } => false,
 			});
@@ -454,7 +464,7 @@ impl SchedulerState {
 		}
 	}
 
-	/// Send the unanswered offers of a runner that reconnected again to its new registration, with the capacity that each one reserves. The runner is the same program and answers an offer that it already answered from its memory of its reply, so that no offer is returned to the queue and no boot is offered to a second runner while the first may hold it.
+	/// Send the unanswered offers of a runner that reconnected again to its new connection, with the capacity that each one reserves. The runner is the same program and answers an offer that it already answered from its memory of its reply, so that no offer is returned to the queue and no boot is offered to a second runner while the first may hold it.
 	pub(super) fn resend_runner_offers(
 		&mut self,
 		scheduler: &Scheduler,
@@ -462,7 +472,7 @@ impl SchedulerState {
 		offers: HashMap<tg::sandbox::Id, tg::runner::Capacity, tg::id::BuildHasher>,
 	) {
 		for (sandbox, reserved) in offers {
-			// Point the offer at the runner's new registration.
+			// Point the offer at the runner's new connection.
 			let entry = self.runners.entries.get_mut(runner).unwrap();
 			let Some(State::Offered {
 				placement, retries, ..
@@ -474,10 +484,10 @@ impl SchedulerState {
 			else {
 				continue;
 			};
-			placement.set_registration_index(entry.registration_index);
+			placement.set_connection(entry.connection);
 			*retries = 0;
 
-			// Reserve the offer's capacity on the new registration, and send the offer again.
+			// Reserve the offer's capacity on the new connection, and send the offer again.
 			add(&mut entry.reserved, reserved);
 			entry.reservations.insert(sandbox.clone(), reserved);
 			self.offer_sandbox(scheduler, &sandbox);
@@ -529,7 +539,7 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 			session,
 			&runner.id,
 			scheduler,
-			runner.registration_index,
+			runner.connection,
 			offer,
 			arg,
 			options,

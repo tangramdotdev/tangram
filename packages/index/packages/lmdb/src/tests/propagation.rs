@@ -217,7 +217,6 @@ fn process_arg(
 		parent: None,
 		permissions: Vec::new(),
 		principal: tg::Principal::Process(id),
-		registration: None,
 		sandbox: None,
 		sequence: 0,
 		storage: tg::process::storage::Set::NODE,

@@ -117,7 +117,6 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 					parent: None,
 					permissions: Vec::new(),
 					principal: tg::Principal::Process(process.clone()),
-					registration: None,
 					sandbox: None,
 					sequence: 0,
 					storage: tg::process::storage::Set::NODE,

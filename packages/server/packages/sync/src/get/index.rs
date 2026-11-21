@@ -1049,12 +1049,12 @@ impl Component {
 				principal: session.context.principal.clone(),
 				process: None,
 				processes: Some(message.processes),
-				registration: None,
 				runner: None,
 				scheduler: None,
 				sequence: 0,
 				stopped_boot: None,
 				stopped_usage: None,
+				takeover: None,
 				touched_at,
 			});
 		}
@@ -1389,7 +1389,6 @@ impl Component {
 							parent: None,
 							permissions: Vec::new(),
 							principal: session.context.principal.clone(),
-							registration: None,
 							sandbox: None,
 							sequence: 0,
 							storage,

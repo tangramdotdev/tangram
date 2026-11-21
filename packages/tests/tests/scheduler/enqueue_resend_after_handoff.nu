@@ -51,7 +51,7 @@ let statuses = $output.stdout | from json
 assert equal ($statuses | last) 'started'
 assert equal ($statuses | drop | uniq | where $it != 'starting') [] 'the sandbox should only be starting before it starts'
 
-# The sandbox stays started once the runner has registered with the restarted scheduler, which tracks the sandbox on the runner, because the runner does not boot it a second time.
+# The sandbox stays started once the runner has connected to the restarted scheduler, which tracks the sandbox on the runner, because the runner does not boot it a second time.
 let heartbeat = checkpoint watch runner.control.heartbeat.received --params { runner: $created.data.id } --token $root --url $scheduler.url
 checkpoint pass $heartbeat | ignore
 checkpoint unwatch $heartbeat

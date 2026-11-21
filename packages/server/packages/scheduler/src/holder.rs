@@ -118,6 +118,10 @@ impl SchedulerState {
 				}
 				return;
 			},
+			HolderMessage::Held { sender } => {
+				sender.send(self.get_held_sandboxes()).ok();
+				return;
+			},
 			HolderMessage::ProcessRequest { request, sandbox } => {
 				self.handle_process_holder_request(scheduler, &sandbox, request);
 				return;

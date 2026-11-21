@@ -165,12 +165,12 @@ impl Scheduler {
 			principal: tg::Principal::Sandbox(sandbox.clone()),
 			process: None,
 			processes: Some(processes),
-			registration: None,
 			runner: Some(runner.clone()),
 			scheduler: None,
 			sequence,
 			stopped_boot: None,
 			stopped_usage: None,
+			takeover: None,
 			touched_at: now,
 		};
 		let delete = tangram_index::scheduler::sandbox::delete::Arg {

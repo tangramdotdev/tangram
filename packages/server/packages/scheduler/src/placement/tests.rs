@@ -13,7 +13,7 @@ use {
 fn candidate(id: &tg::runner::Id, score: u128, siblings: usize) -> Candidate<'_> {
 	Candidate {
 		id,
-		registration_index: 0,
+		connection: 0,
 		score: (score, score),
 		siblings,
 	}
@@ -102,12 +102,12 @@ fn runner() -> Runner {
 			total: capacity,
 		},
 		committed: tg::runner::Capacity::default(),
+		connection: 0,
+		connection_failed: false,
 		heartbeat_at: tangram_server_core::clock::Clock::new(None, None).instant(),
 		heartbeat_index: 1,
 		host: String::new(),
 		owner: None,
-		registration_failed: false,
-		registration_index: 0,
 		reservations: HashMap::default(),
 		reserved: tg::runner::Capacity::default(),
 	}
@@ -144,7 +144,7 @@ fn lend(
 	parent: &tg::sandbox::Id,
 	runner: &tg::runner::Id,
 	available: bool,
-	registration_index: u64,
+	connection: u64,
 ) {
 	let borrowable = Borrowable {
 		available,
@@ -153,7 +153,7 @@ fn lend(
 			..Default::default()
 		},
 		heartbeat_index: 1,
-		registration_index: Some(registration_index),
+		connection: Some(connection),
 		runner: runner.clone(),
 	};
 	state.parents.0.get_mut(parent).unwrap().borrowable = Some(borrowable);
@@ -177,7 +177,7 @@ fn a_borrowed_placement_chooses_a_parent_whose_capacity_is_available() {
 	lend(&mut state, &lent, &runner_id, true, 0);
 	let placement = state.borrowed_placement(&state.sandboxes.entries[&id], 1);
 	let runner = RunnerRef {
-		registration_index: 0,
+		connection: 0,
 		id: runner_id.clone(),
 	};
 	let expected = Placement::Borrowed {
@@ -186,7 +186,7 @@ fn a_borrowed_placement_chooses_a_parent_whose_capacity_is_available() {
 	};
 	assert_eq!(placement, Some(expected));
 
-	// Skip a parent whose capacity is on an earlier registration of its runner.
+	// Skip a parent whose capacity is on an earlier connection of its runner.
 	lend(&mut state, &lent, &runner_id, true, 1);
 	assert_eq!(
 		state.borrowed_placement(&state.sandboxes.entries[&id], 1),

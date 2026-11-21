@@ -52,7 +52,7 @@ fn state(state: State) -> (SchedulerState, tg::sandbox::Id) {
 
 fn offered() -> State {
 	let runner = RunnerRef {
-		registration_index: 0,
+		connection: 0,
 		id: tg::runner::Id::new(),
 	};
 	State::Offered {
@@ -90,7 +90,7 @@ fn a_parent_is_added_to_a_queued_or_offered_sandbox_once() {
 fn a_sandbox_that_the_scheduler_does_not_hold_has_no_capacity_to_borrow() {
 	let parent = tg::sandbox::Id::new();
 	let runner = RunnerRef {
-		registration_index: 0,
+		connection: 0,
 		id: tg::runner::Id::new(),
 	};
 	let terminal = State::Terminal {
@@ -128,7 +128,7 @@ fn a_sandbox_that_the_scheduler_does_not_hold_has_no_capacity_to_borrow() {
 
 fn runner() -> RunnerRef {
 	RunnerRef {
-		registration_index: 1,
+		connection: 1,
 		id: tg::runner::Id::new(),
 	}
 }
@@ -244,7 +244,7 @@ fn a_report_of_a_sandbox_that_the_scheduler_ended_stops_or_destroys_it_on_its_ru
 		panic!("expected a destroy");
 	};
 	assert_eq!(destroy.runner, runner.id);
-	assert_eq!(destroy.registration_index, runner.registration_index);
+	assert_eq!(destroy.connection, runner.connection);
 	assert_eq!(destroy.sandbox, id);
 	assert!(matches!(
 		scheduler.sandboxes.entries[&id].state,

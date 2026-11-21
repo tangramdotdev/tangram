@@ -744,10 +744,15 @@ pub struct EndSandboxServerResponseOutput {}
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
-	/// The sandboxes that the runner has directories for, which it reports when it registers for the first time after it starts, so that the scheduler ends the sandboxes that the runner no longer holds.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
-	pub directories: Option<Vec<tg::sandbox::Id>>,
+	/// The sandboxes that the runner has directories for or is running, which it reports on every connection, so that the scheduler decides which directories the runner keeps.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
+	pub directories: Vec<tg::sandbox::Id>,
+
+	/// Whether this is the first connection of the runner's program since it started, in which case the scheduler takes over the boots that the runner no longer holds.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[tangram_serialize(default, id = 7, skip_serializing_if = "std::ops::Not::not")]
+	pub first: bool,
 
 	#[tangram_serialize(id = 0)]
 	pub heartbeat: HeartbeatClientNotification,
@@ -787,6 +792,16 @@ pub struct ArgSandbox {
 
 	#[tangram_serialize(id = 1)]
 	pub id: tg::sandbox::Id,
+
+	/// The processes that the sandbox's scheduler offered into the boot and that the runner holds, which a restarted scheduler cancels if the index does not have them.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Vec::is_empty")]
+	pub processes: Vec<tg::process::Id>,
+
+	/// The proof that the runner derived the sandbox's ID, for a boot that the runner started on the shortcut path, which a restarted scheduler does not cancel although the index may not have it yet.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
+	pub proof: Option<tg::sandbox::id::Proof>,
 }
 
 #[serde_as]
@@ -799,12 +814,17 @@ pub struct ArgSandbox {
 	tangram_serialize::Serialize,
 )]
 pub struct Header {
-	/// The sandboxes with directories that the runner reported when it registered for the first time after it started, which the registration destroyed.
+	/// The sandboxes with directories that the runner reported on its first connection after it started, which the connection's takeover destroyed.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Vec::is_empty")]
 	pub destroyed: Vec<tg::sandbox::Id>,
 
-	/// The sandboxes with directories that the runner reported when it registered for the first time after it started, whose directories the runner keeps, because the sandboxes are stopped on the runner or their boots wait in the scheduler's queue. The runner removes every other directory that it reported.
+	/// The reported boots that the index records as ended or replaced by a later boot, such as by a takeover, which the runner gives up without writing anything more for them.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
+	pub ended: Vec<tg::sandbox::Id>,
+
+	/// The reported sandboxes whose directories the runner keeps, because the sandboxes are stopped on the runner or their boots wait in the scheduler's queue. The runner removes every other directory that it reported, except the directories of the boots that it still holds.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
 	pub kept: Vec<tg::sandbox::Id>,
@@ -815,15 +835,10 @@ pub struct Header {
 	#[serde(alias = "runner_ttl")]
 	pub runner_time_to_live: Duration,
 
-	/// The sandboxes in the arg that the server stopped, destroyed, or started at another boot while the runner's heartbeat was expired.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
-	pub sandboxes: Vec<tg::sandbox::Id>,
-
 	#[tangram_serialize(id = 1)]
 	pub scheduler: tg::scheduler::Id,
 
-	/// The sandboxes with directories that the runner reported when it registered for the first time after it started, which the registration stopped. The runner keeps their directories, which `kept` also lists.
+	/// The sandboxes with directories that the runner reported on its first connection after it started, which the connection's takeover stopped. The runner keeps their directories, which `kept` also lists.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Vec::is_empty")]
 	pub stopped: Vec<tg::sandbox::Id>,

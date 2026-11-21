@@ -39,7 +39,7 @@ let read = tg --url $remote.url --token $root_token build $'($id)#read' | str tr
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 success (tg --url $remote.url --token $root_token run $'--sandbox=($sandbox)' $write | complete) "the write should succeed"
 
-# Kill the runner, then start it again and wait for its registration to stop the sandbox.
+# Kill the runner, then start it again and wait for its connection to stop the sandbox.
 let runner_pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid

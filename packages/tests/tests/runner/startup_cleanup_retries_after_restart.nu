@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner that restarts while its registration ends the sandboxes that it no longer holds has them ended by its next registration.
+# A runner that restarts while its first connection ends the sandboxes that it no longer holds has them ended by its next connection.
 let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
@@ -27,7 +27,7 @@ let path = artifact {
 let id = tg --url $local.url build --wait --no-tokens --remote --detach $path | referent node
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
 
-# Kill the runner, start it again, and hold its registration once it has read the sandboxes that it no longer holds.
+# Kill the runner, start it again, and hold its connection once it has read the sandboxes that it no longer holds.
 let restarted = checkpoint watch scheduler.runner.restarted --params { runner: $created.data.id } --token $root_token --url $remote.url
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
@@ -36,7 +36,7 @@ let runner = server start $runner
 checkpoint wait $restarted 0 | ignore
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
 
-# Kill the runner again before its registration ends the sandbox, start it again, and let both registrations continue, so that the newer registration ends the sandbox.
+# Kill the runner again before its connection ends the sandbox, start it again, and let both connections continue, so that the newer connection ends the sandbox.
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 wait_for_exit $pid "the runner must exit"

@@ -28,7 +28,7 @@ let start = job spawn {
 }
 checkpoint wait $connect | ignore
 
-# Crash the runner, start it again, and wait for the scheduler to finish its registration.
+# Crash the runner, start it again, and wait for the scheduler to finish its connection.
 let added = checkpoint watch scheduler.runner.added --params { runner: $created.data.id } --token $root_token --url $remote.url
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
@@ -37,7 +37,7 @@ let runner = server start $runner
 checkpoint wait $added | ignore
 checkpoint unwatch $added
 
-# The registration stops the sandbox with the restart's error, and the start fails.
+# The connection stops the sandbox with the restart's error, and the start fails.
 success (timeout 30s tg --url $remote.url --token $root_token sandbox status --until stopped $sandbox | complete) "the sandbox should stop"
 let data = tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data
 assert equal $data.boot 1 "the accepted boot should end"

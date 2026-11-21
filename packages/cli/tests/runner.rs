@@ -408,7 +408,8 @@ async fn destroy_sandbox(
 	let (mut sender, receiver) =
 		futures::channel::mpsc::unbounded::<tg::Result<tg::runner::control::ClientMessage>>();
 	let arg = tg::runner::control::Arg {
-		directories: None,
+		directories: Vec::new(),
+		first: false,
 		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
 		host: "test".to_owned(),
 		id: runner.data.id.clone(),
@@ -509,7 +510,8 @@ async fn send_runner_requests(
 	let (mut sender, receiver) =
 		futures::channel::mpsc::unbounded::<tg::Result<tg::runner::control::ClientMessage>>();
 	let arg = tg::runner::control::Arg {
-		directories: None,
+		directories: Vec::new(),
+		first: false,
 		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
 		host: "test".to_owned(),
 		id: runner.data.id.clone(),
@@ -636,7 +638,8 @@ async fn start_runner_with_sandbox() -> tg::Result<(
 	let (sender, receiver) =
 		futures::channel::mpsc::unbounded::<tg::Result<tg::runner::control::ClientMessage>>();
 	let arg = tg::runner::control::Arg {
-		directories: None,
+		directories: Vec::new(),
+		first: false,
 		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
 		host: "test".to_owned(),
 		id: runner.data.id.clone(),

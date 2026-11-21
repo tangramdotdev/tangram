@@ -171,6 +171,13 @@ enum Spawner {
 
 type SharedAccepted = Arc<std::sync::Mutex<Accepted>>;
 
+/// A boot whose task runs, which the runner reports when it connects to its scheduler.
+pub(crate) struct Held {
+	accepted: SharedAccepted,
+	pub(crate) boot: u64,
+	proof: Option<tg::sandbox::id::Proof>,
+}
+
 struct GetSandboxControlStreamArg<'a> {
 	boot: u64,
 	create: tg::sandbox::create::Arg,
@@ -379,17 +386,21 @@ impl Component {
 		}
 	}
 
-	/// Whether a message is from a server and is for a boot that the server took over.
+	/// Whether a message is from a server and is for a boot that the runner gave up.
 	fn sandbox_is_yielded(session: &Session, id: &tg::sandbox::Id, message: &Message) -> bool {
-		matches!(message.sender, Reply::Remote { .. })
-			&& session
-				.server
-				.components
-				.runner
-				.state()
-				.sandboxes
-				.get_by_id(id)
-				.is_some_and(|sandbox| sandbox.yielded)
+		matches!(message.sender, Reply::Remote { .. }) && Self::sandbox_yielded(session, id)
+	}
+
+	/// Whether the runner gave up the sandbox's boot because the index records it as ended, in which case the runner writes nothing more for the boot.
+	fn sandbox_yielded(session: &Session, id: &tg::sandbox::Id) -> bool {
+		session
+			.server
+			.components
+			.runner
+			.state()
+			.sandboxes
+			.get_by_id(id)
+			.is_some_and(|sandbox| sandbox.yielded)
 	}
 
 	/// Reply that the runner does not hold the boot, which asks the request's sender to send the request again.
@@ -621,7 +632,7 @@ impl Component {
 				.server
 				.components
 				.process
-				.finish_queued_process(&session.server, id, data, error.clone(), None)
+				.finish_queued_process(&session.server, id, data, error.clone())
 				.await;
 			if let Err(error) = result {
 				tracing::error!(error = %error.trace(), process = %id, "failed to finish the process");
@@ -652,6 +663,12 @@ impl Component {
 		if let Some(process) = &arg.process {
 			accepted.lock().unwrap().accept(process.clone(), false);
 		}
+		let held = Held {
+			accepted: accepted.clone(),
+			boot: arg.boot,
+			proof: proof.clone(),
+		};
+		self.held.insert(id.clone(), held);
 		let connected = Arc::new(AtomicBool::new(false));
 		let created_at = session.server.clock.unix_timestamp();
 		let kept = Arc::new(AtomicBool::new(false));
@@ -709,6 +726,7 @@ impl Component {
 		self.state
 			.starting
 			.remove_if(&id, |_, starting| *starting == boot);
+		self.held.remove_if(&id, |_, held| held.boot == boot);
 		self.state.sandboxes.notify_updated();
 
 		// End the boot.
@@ -737,7 +755,7 @@ impl Component {
 		}
 	}
 
-	/// End a boot that the runner held, which every end of a boot goes through, whether the boot stopped, was destroyed, or failed. Finish the processes that the boot accepted and that did not finish, from the runner's memory, record the end in this server's local copies of a sandbox whose home is remote, and report the end to the runner's scheduler. A failed boot is stopped if its task kept its directory, so that it can start again, and destroyed otherwise. Nothing is recorded or reported for a boot on the shortcut path whose control connection was never established, because no index has a record of it.
+	/// End a boot that the runner held, which every end of a boot goes through, whether the boot stopped, was destroyed, or failed. Finish the processes that the boot accepted and that did not finish, from the runner's memory, record the end in this server's local copies of a sandbox whose home is remote, and report the end to the runner's scheduler. A failed boot is stopped if its task kept its directory, so that it can start again, and destroyed otherwise. Nothing is recorded or reported for a boot on the shortcut path whose control connection was never established, because no index has a record of it, or for a boot that the runner gave up, whose end the index already records.
 	async fn end_sandbox_boot(
 		&self,
 		session: &Session,
@@ -802,9 +820,10 @@ impl Component {
 			},
 		};
 
-		// Get the processes that the boot accepted and that did not finish.
+		// Get the processes that the boot accepted and that did not finish. Record and report nothing for a boot that the runner gave up, whose end the index already records, or for a boot whose control connection was never established.
 		let (unfinished, local) = accepted.lock().unwrap().unfinished();
-		if !(scheduled || connected.load(Ordering::Acquire)) {
+		if Self::sandbox_yielded(session, &id) || !(scheduled || connected.load(Ordering::Acquire))
+		{
 			return;
 		}
 
@@ -2517,13 +2536,20 @@ impl Component {
 			};
 			drop(sandbox);
 
-			// Wait for the sandbox's control connection before reporting its stop or destruction.
+			// Wait for the sandbox's control connection before reporting its stop or destruction, and report nothing for a boot that the runner gave up.
 			connected.await?;
-
+			let yielded = Self::sandbox_yielded(session, &id);
 			match teardown {
 				Teardown::Destroy => {
-					Self::request_sandbox_destroy(&sender, &id, data.clone(), processes.clone())
+					if !yielded {
+						Self::request_sandbox_destroy(
+							&sender,
+							&id,
+							data.clone(),
+							processes.clone(),
+						)
 						.await?;
+					}
 					tangram_server_core::checkpoint!(
 						session.server,
 						"runner.sandbox.destroyed",
@@ -2533,8 +2559,10 @@ impl Component {
 					tracing::info!(sandbox = %id, "destroyed the sandbox");
 				},
 				Teardown::Stop => {
-					Self::request_sandbox_stop(&sender, &id, data.clone(), processes.clone())
-						.await?;
+					if !yielded {
+						Self::request_sandbox_stop(&sender, &id, data.clone(), processes.clone())
+							.await?;
+					}
 					tangram_server_core::checkpoint!(
 						session.server,
 						"runner.sandbox.stopped",
@@ -3372,7 +3400,7 @@ impl Component {
 				.server
 				.components
 				.process
-				.finish_queued_process(&session.server, process_id, data, error.clone(), None)
+				.finish_queued_process(&session.server, process_id, data, error.clone())
 				.await;
 			if let Err(error) = result {
 				tracing::warn!(error = %error.trace(), process = %process_id, "failed to finish the process locally");
@@ -3767,12 +3795,12 @@ impl Component {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes: processes.map(<[_]>::to_vec),
-			registration: None,
 			runner: None,
 			scheduler: None,
 			sequence,
 			stopped_boot: None,
 			stopped_usage: None,
+			takeover: None,
 			touched_at,
 		};
 		let arg = tangram_index::write::Arg {
@@ -3978,5 +4006,17 @@ impl Accepted {
 					.as_ref()
 					.is_none_or(|id| !self.local.contains(id))
 			})
+	}
+}
+
+impl Held {
+	/// Get what the runner reports about the boot when it connects to its scheduler, which is the processes that the scheduler offered into the boot and that did not finish, and the proof for a boot on the shortcut path.
+	pub(crate) fn report(&self) -> (Vec<tg::process::Id>, Option<tg::sandbox::id::Proof>) {
+		let (offered, _) = self.accepted.lock().unwrap().unfinished();
+		let processes = offered
+			.into_iter()
+			.filter_map(|process| process.id)
+			.collect();
+		(processes, self.proof.clone())
 	}
 }

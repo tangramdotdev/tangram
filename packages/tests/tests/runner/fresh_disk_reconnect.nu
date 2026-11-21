@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A remote runner that restarts on a fresh disk reconnects with the same ID, because the server that it connects to allocates its registration.
+# A remote runner that restarts on a fresh disk reconnects with the same ID, because the scheduler numbers the runner's connections only in its memory.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
@@ -22,7 +22,7 @@ let config = {
 let runner = server spawn --name runner --config $config
 tg --url $remote.url --token $root_token sandbox create --wait --no-tokens | referent node | ignore
 
-# Restart the runner, so that its registration advances.
+# Restart the runner, so that it connects again.
 server stop $runner
 let runner = server start $runner
 tg --url $remote.url --token $root_token sandbox create --wait --no-tokens | referent node | ignore

@@ -610,7 +610,6 @@ impl Component {
 			parent: parent.clone(),
 			permissions: Vec::new(),
 			principal: tg::Principal::Process(id.clone()),
-			registration: None,
 			sandbox: Some(sandbox_id.clone()),
 			sequence: 1,
 			storage: tg::process::storage::Set::NODE,

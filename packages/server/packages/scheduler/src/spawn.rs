@@ -320,7 +320,7 @@ async fn finish_spawn(
 	let result = server
 		.components
 		.process
-		.finish_queued_process(server, id, data, error.to_data_or_id(), None)
+		.finish_queued_process(server, id, data, error.to_data_or_id())
 		.await;
 	if let Err(error) = result {
 		tracing::error!(error = %error.trace(), process = %id, "failed to finish the process");

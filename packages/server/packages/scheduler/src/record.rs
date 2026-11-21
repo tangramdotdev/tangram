@@ -88,12 +88,12 @@ impl Scheduler {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes: None,
-			registration: None,
 			runner: request.runner.clone(),
 			scheduler: Some(self.id.clone()),
 			sequence: 0,
 			stopped_boot: Some(stopped_boot),
 			stopped_usage: None,
+			takeover: None,
 			touched_at: now,
 		};
 
@@ -157,6 +157,9 @@ impl Scheduler {
 		runner: &tg::runner::Id,
 		sequence: u64,
 	) -> tg::Result<()> {
+		tangram_server_core::checkpoint!(self.server, "scheduler.sandbox.handoff", sandbox = %request.sandbox, %runner)
+			.await;
+
 		// Create the record.
 		let session = self.server.session(&self.server.context);
 		let id = &request.sandbox;
@@ -187,12 +190,12 @@ impl Scheduler {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes: None,
-			registration: None,
 			runner: Some(runner.clone()),
 			scheduler: Some(self.id.clone()),
 			sequence: sequence + 1,
 			stopped_boot: None,
 			stopped_usage: None,
+			takeover: None,
 			touched_at: now,
 		};
 
@@ -282,12 +285,12 @@ impl Scheduler {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes,
-			registration: None,
 			runner: request.runner.clone(),
 			scheduler: Some(self.id.clone()),
 			sequence: 0,
 			stopped_boot: None,
 			stopped_usage: None,
+			takeover: None,
 			touched_at: now,
 		};
 
@@ -347,7 +350,6 @@ impl Scheduler {
 					process_id,
 					process.data.clone(),
 					process_error,
-					None,
 				)
 				.await?;
 		}

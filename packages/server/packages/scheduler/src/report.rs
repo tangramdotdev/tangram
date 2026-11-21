@@ -269,7 +269,7 @@ impl Scheduler {
 				.server
 				.components
 				.process
-				.finish_queued_process(&self.server, id, data, error.clone(), None)
+				.finish_queued_process(&self.server, id, data, error.clone())
 				.await;
 			if let Err(error) = result {
 				tracing::warn!(error = %error.trace(), process = %id, "failed to finish the reported process");
