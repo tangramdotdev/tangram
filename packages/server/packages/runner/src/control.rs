@@ -450,9 +450,16 @@ impl Component {
 							let component = component.clone();
 							let session = session.clone();
 							let runner = runner.clone();
+							let scheduler = scheduler.clone();
 							requests.spawn(async move {
 								let response = component
-									.handle_runner_control_request(&session, &runner, request)
+									.handle_runner_control_request(
+										&session,
+										&runner,
+										&scheduler,
+										registration_index,
+										request,
+									)
 									.await;
 								sender.send(response).await?;
 								Ok(())
@@ -505,9 +512,15 @@ impl Component {
 		&self,
 		session: &Session,
 		runner: &tg::runner::Id,
+		scheduler: &tg::scheduler::Id,
+		registration_index: u64,
 		request: tg::runner::control::ClientRequest,
 	) -> tg::runner::control::ServerMessage {
 		let result = match request.arg {
+			tg::runner::control::ClientRequestArg::AddSandbox(arg) => self
+				.add_runner_sandbox(session, runner, scheduler, registration_index, arg)
+				.await
+				.map(tg::runner::control::ServerResponseOutput::AddSandbox),
 			tg::runner::control::ClientRequestArg::DestroySandbox(arg) => self
 				.destroy_runner_sandbox(session, runner, arg)
 				.await
@@ -537,6 +550,37 @@ impl Component {
 			output,
 		};
 		tg::runner::control::ServerMessage::Response(response)
+	}
+
+	/// Report a sandbox that a runner started on the shortcut path to the runner's scheduler.
+	async fn add_runner_sandbox(
+		&self,
+		session: &Session,
+		runner: &tg::runner::Id,
+		scheduler: &tg::scheduler::Id,
+		registration_index: u64,
+		arg: tg::runner::control::AddSandboxClientRequestArg,
+	) -> tg::Result<tg::runner::control::AddSandboxServerResponseOutput> {
+		let request = tangram_server_scheduler_core::RequestArg::AddRunnerSandbox(
+			tangram_server_scheduler_core::AddRunnerSandboxRequestArg {
+				boot: arg.boot,
+				registration_index,
+				runner: runner.clone(),
+				sandbox: arg.sandbox,
+			},
+		);
+		session
+			.server
+			.components
+			.scheduler
+			.send_scheduler_request_to(session, scheduler, request)
+			.boxed()
+			.await??
+			.try_unwrap_add_runner_sandbox()
+			.map_err(|_| tg::error!("expected an add runner sandbox response"))?;
+		let output = tg::runner::control::AddSandboxServerResponseOutput {};
+
+		Ok(output)
 	}
 
 	async fn destroy_runner_sandbox(
@@ -625,6 +669,7 @@ impl Component {
 					processes: None,
 					registration: None,
 					runner: None,
+					scheduler: None,
 					sequence: 0,
 					stopped_boot: None,
 					stopped_usage: Some(stopped_usage),

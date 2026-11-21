@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A scheduler that crashes after a start reserved the next boot of a stopped sandbox and before the start enqueued the boot recovers the reserved boot when it starts again, so that the sandbox starts at its next boot with its files without another start.
+# A scheduler that crashes after it reserved the next boot of a stopped sandbox for a start and before it holds the boot recovers the reserved boot when it starts again, so that the sandbox starts at its next boot with its files without another start.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
@@ -43,8 +43,8 @@ let sandbox = tg --url $remote.url --token $root_token sandbox create --wait --n
 success (tg --url $remote.url --token $root_token run $'--sandbox=($sandbox)' $write | complete) "the write should succeed"
 tg --url $remote.url --token $root_token sandbox stop --wait $sandbox
 
-# Start the sandbox, and kill the scheduler's server after the start reserves the next boot and before it enqueues the boot.
-let enqueue = checkpoint watch sandbox.start.enqueue --params { sandbox: $sandbox } --token $root_token --url $remote.url
+# Start the sandbox, and kill the scheduler's server after the scheduler reserves the next boot and before it holds the boot.
+let enqueue = checkpoint watch scheduler.sandbox.reserved --params { sandbox: $sandbox } --token $root_token --url $remote.url
 let start = job spawn {
 	let id = job id
 	try { http post --allow-errors --max-time 30sec --headers { Authorization: $'Bearer ($root_token)' } --unix-socket $socket --content-type application/json $'http://localhost/sandboxes/($sandbox)/start' '{}' } catch { null } | ignore

@@ -1,7 +1,7 @@
 use {
 	super::{
 		EnqueueSandboxRequestArg, HolderMessage, Operation, Scheduler, SchedulerState,
-		sandbox::State,
+		sandbox::{HolderTasks, State},
 	},
 	futures::{FutureExt as _, StreamExt as _, future},
 	tangram_client::prelude::*,
@@ -9,7 +9,7 @@ use {
 };
 
 impl SchedulerState {
-	/// Serve the requests to the holder of a sandbox that this scheduler holds, and to the holder of the sandbox's queued process, until the sandbox's control connection is established.
+	/// Serve the requests to the holder of a sandbox that this scheduler holds, and to the holder of the sandbox's queued process, and keep serving the spawns into the sandbox for as long as this scheduler knows the sandbox.
 	pub(super) fn serve_sandbox_holder(
 		&mut self,
 		scheduler: &Scheduler,
@@ -20,7 +20,7 @@ impl SchedulerState {
 		if self.sandboxes.holders.contains_key(sandbox) {
 			return;
 		}
-		self.sandboxes.holders.insert(sandbox.clone(), Vec::new());
+		self.sandboxes.holders.insert(sandbox.clone(), None);
 		let scheduler = scheduler.clone();
 		let sandbox = sandbox.clone();
 		self.operations.push(
@@ -38,9 +38,9 @@ impl SchedulerState {
 	pub(super) fn handle_serve_sandbox_holder_completion(
 		&mut self,
 		sandbox: &tg::sandbox::Id,
-		result: tg::Result<Vec<tangram_futures::task::Task<tg::Result<()>>>>,
+		result: tg::Result<HolderTasks>,
 	) {
-		let tasks = match result {
+		let mut tasks = match result {
 			Ok(tasks) => tasks,
 			Err(error) => {
 				tracing::error!(error = %error.trace(), %sandbox, "failed to serve the sandbox's holder");
@@ -48,8 +48,23 @@ impl SchedulerState {
 				return;
 			},
 		};
+		let accepted = self
+			.sandboxes
+			.entries
+			.get(sandbox)
+			.is_some_and(|entry| matches!(entry.state, State::Accepted { .. }));
+		if accepted {
+			tasks.process = None;
+		}
 		if let Some(holder) = self.sandboxes.holders.get_mut(sandbox) {
-			*holder = tasks;
+			*holder = Some(tasks);
+		}
+	}
+
+	/// Stop serving the requests to the holder of a sandbox's queued process once a runner holds the process.
+	pub(super) fn stop_serving_process_holder(&mut self, sandbox: &tg::sandbox::Id) {
+		if let Some(Some(tasks)) = self.sandboxes.holders.get_mut(sandbox) {
+			tasks.process = None;
 		}
 	}
 
@@ -58,19 +73,15 @@ impl SchedulerState {
 		self.sandboxes.holders.remove(sandbox);
 	}
 
-	/// Stop serving the holders of the sandboxes that this scheduler neither has a request for nor holds for recovery.
+	/// Stop serving the holders of the sandboxes that this scheduler neither knows nor holds for recovery.
 	pub(super) fn prune_sandbox_holders(&mut self) {
 		let sandboxes = self
 			.sandboxes
 			.holders
 			.keys()
 			.filter(|sandbox| {
-				let held = self
-					.sandboxes
-					.entries
-					.get(*sandbox)
-					.is_some_and(|entry| entry.request.is_some());
-				!(held || self.is_recovering(sandbox))
+				let known = self.sandboxes.entries.contains_key(*sandbox);
+				!(known || self.is_recovering(sandbox))
 			})
 			.cloned()
 			.collect::<Vec<_>>();
@@ -87,12 +98,13 @@ impl SchedulerState {
 	) {
 		let (request, sandbox) = match message {
 			HolderMessage::Connected { sandbox } => {
-				// Drop the request of a sandbox whose runner serves it, and stop serving the sandbox's holder, unless this scheduler awaits the runner's answer to the sandbox's offer or holds a later boot of the sandbox.
+				// Drop the request of a sandbox whose runner serves it, and keep serving the spawns into the sandbox, which this scheduler sends to the sandbox's runner. Stop serving a sandbox that this scheduler does not know.
 				let entry = self.sandboxes.entries.get_mut(&sandbox);
 				let held = match entry.map(|entry| (&mut entry.state, &mut entry.request)) {
 					Some((State::Accepted { .. }, request)) => {
 						*request = None;
-						false
+						self.stop_serving_process_holder(&sandbox);
+						true
 					},
 					Some((State::Offered { connected, .. }, _)) => {
 						*connected = true;
@@ -118,14 +130,44 @@ impl SchedulerState {
 		if !self.sandboxes.holders.contains_key(&sandbox) {
 			return;
 		}
+		// Leave a spawn that this scheduler sends to a runner with the boot to the runner.
+		if let tg::sandbox::control::ServerRequestArg::SpawnProcess(arg) = &arg
+			&& arg.boot.is_some()
+		{
+			return;
+		}
 		let state = self
 			.sandboxes
 			.entries
 			.get(&sandbox)
-			.map(|entry| &entry.state);
+			.map(|entry| (&entry.state, entry.boot));
 		match state {
+			// Send a spawn into a sandbox that a runner holds to the runner with the boot, which refuses a spawn for a boot that it is not running.
+			Some((State::Accepted { .. }, boot))
+				if matches!(arg, tg::sandbox::control::ServerRequestArg::SpawnProcess(_)) =>
+			{
+				let tg::sandbox::control::ServerRequestArg::SpawnProcess(arg) = arg else {
+					unreachable!()
+				};
+				self.send_sandbox_spawn(scheduler, sandbox, id, arg, boot);
+				return;
+			},
+
+			// Reply that this scheduler is not ready for a spawn into a sandbox that it has offered to a runner, which it sends to the runner once the runner accepts it.
+			Some((State::Offered { .. }, _))
+				if matches!(arg, tg::sandbox::control::ServerRequestArg::SpawnProcess(_)) =>
+			{
+				self.publish_sandbox_holder_retry(
+					scheduler,
+					sandbox,
+					id,
+					tg::control::Retry::NotReady,
+				);
+				return;
+			},
+
 			// Reply that this scheduler does not hold a sandbox that it has offered to a runner, whether or not the runner has accepted it, because the offer carries the boot's pending stop.
-			None | Some(State::Accepted { .. } | State::Offered { .. }) => {
+			None | Some((State::Accepted { .. } | State::Offered { .. }, _)) => {
 				self.publish_sandbox_holder_retry(
 					scheduler,
 					sandbox,
@@ -135,10 +177,10 @@ impl SchedulerState {
 				return;
 			},
 
-			Some(State::Queued) => (),
+			Some((State::Queued, _)) => (),
 
 			// Answer a request for a sandbox that this scheduler ended with the sandbox's terminal state, which the index may not have recorded yet.
-			Some(State::Terminal { .. }) => {
+			Some((State::Terminal { .. }, _)) => {
 				self.handle_terminal_sandbox_holder_request(scheduler, sandbox, id, &arg);
 				return;
 			},
@@ -239,6 +281,87 @@ impl SchedulerState {
 				self.publish_sandbox_holder_response(scheduler, sandbox, id, Some(write), output);
 			},
 		}
+	}
+
+	/// Send a spawn into a sandbox that a runner holds to the runner with the boot, by sending it to the sandbox's holder, and answer the spawn's sender with the runner's reply. The request carries an ID that derives from the spawn's, so that a copy of the spawn that reaches this scheduler again is answered once.
+	fn send_sandbox_spawn(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: tg::sandbox::Id,
+		id: String,
+		mut arg: tg::sandbox::control::SpawnProcessServerRequestArg,
+		boot: u64,
+	) {
+		arg.boot = Some(boot);
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let component = &scheduler.server.components.sandbox;
+				let result = async {
+					// Send the spawn to the sandbox's holder, and send it again on each status wakeup.
+					let session = scheduler.server.session(&scheduler.server.context);
+					let mut wakeups = component
+						.create_sandbox_status_wakeup_stream(&session, &sandbox, None, None)
+						.await?;
+					let retry = scheduler.server.config.control.request_retry.clone().into();
+					let timeout = scheduler.server.config.control.request_timeout;
+					let options = tangram_server_core::control::Options { retry, timeout };
+					let request = tg::sandbox::control::ServerRequestArg::SpawnProcess(arg);
+					let holder_arg = tangram_server_core::sandbox::HolderArg {
+						checkpoint: None,
+						deadline: scheduler.server.control_read_deadline(),
+						exhaustive: true,
+						id: format!("{id}.{boot}"),
+						mode: tangram_server_core::holder::Mode::Write,
+						options,
+						request,
+						wakeups: &mut wakeups,
+					};
+					let output = component
+						.request_sandbox_holder(&session, &sandbox, holder_arg)
+						.await?;
+
+					// Answer the spawn's sender with the runner's reply.
+					let response = match output.and_then(|output| output.reply) {
+						Some(Ok(output)) => tg::sandbox::control::ClientResponse {
+							error: None,
+							id,
+							output: Some(output),
+							retry: None,
+						},
+						Some(Err(error)) => tg::sandbox::control::ClientResponse {
+							error: Some(error.to_data_or_id().left().unwrap_or_else(|| {
+								tg::error::Data {
+									message: Some(error.to_string()),
+									..Default::default()
+								}
+							})),
+							id,
+							output: None,
+							retry: None,
+						},
+						None => tg::sandbox::control::ClientResponse::with_retry(
+							id,
+							tg::control::Retry::NotHolder,
+						),
+					};
+					component
+						.publish_sandbox_holder_response(
+							&scheduler.server,
+							&sandbox,
+							tangram_server_core::sandbox::Holder::Scheduler,
+							response,
+						)
+						.await
+				}
+				.await;
+				Operation::Finished {
+					context: "failed to send the spawn to the sandbox's runner",
+					result,
+				}
+			}
+			.boxed(),
+		);
 	}
 
 	/// Answer a request to the holder of a sandbox that this scheduler ended. A get, a get of the processes, and a start are answered with the sandbox's terminal state, so that a start of a stopped sandbox reserves the next boot, and a stop of a stopped sandbox and a destroy of a destroyed sandbox have nothing left to do. Any other request waits for the index, which answers it once it has recorded the terminal state.
@@ -489,7 +612,12 @@ impl SchedulerState {
 					if let Some(write) = write {
 						let ack = tg::sandbox::control::ClientAck { id: id.clone() };
 						component
-							.publish_sandbox_holder_ack(&scheduler.server, &sandbox, ack)
+							.publish_sandbox_holder_ack(
+								&scheduler.server,
+								&sandbox,
+								tangram_server_core::sandbox::Holder::Scheduler,
+								ack,
+							)
 							.await?;
 						if let Err(source) = write.await {
 							error = Some(tg::error::Data {
@@ -506,7 +634,12 @@ impl SchedulerState {
 						retry: None,
 					};
 					component
-						.publish_sandbox_holder_response(&scheduler.server, &sandbox, response)
+						.publish_sandbox_holder_response(
+							&scheduler.server,
+							&sandbox,
+							tangram_server_core::sandbox::Holder::Scheduler,
+							response,
+						)
 						.await
 				}
 				.await;
@@ -535,7 +668,12 @@ impl SchedulerState {
 					.server
 					.components
 					.sandbox
-					.publish_sandbox_holder_response(&scheduler.server, &sandbox, response)
+					.publish_sandbox_holder_response(
+						&scheduler.server,
+						&sandbox,
+						tangram_server_core::sandbox::Holder::Scheduler,
+						response,
+					)
 					.await;
 				Operation::Finished {
 					context: "failed to answer the request to the sandbox's holder",
@@ -661,9 +799,7 @@ impl Scheduler {
 		&self,
 		sandbox: &tg::sandbox::Id,
 		process: Option<&tg::process::Id>,
-	) -> tg::Result<Vec<tangram_futures::task::Task<tg::Result<()>>>> {
-		let mut tasks = Vec::new();
-
+	) -> tg::Result<HolderTasks> {
 		// Serve the requests to the sandbox's holder.
 		let handle = {
 			let sender = self.holder_sender.clone();
@@ -682,12 +818,16 @@ impl Scheduler {
 			.server
 			.components
 			.sandbox
-			.serve_sandbox_holder(&self.server, sandbox, Box::new(handle))
+			.serve_sandbox_holder(
+				&self.server,
+				sandbox,
+				tangram_server_core::sandbox::Holder::Scheduler,
+				Box::new(handle),
+			)
 			.await?;
-		tasks.push(requests);
 
 		// Serve the requests to the holder of the sandbox's queued process.
-		if let Some(process) = process {
+		let process = if let Some(process) = process {
 			let handle = {
 				let sender = self.holder_sender.clone();
 				let sandbox = sandbox.clone();
@@ -707,8 +847,10 @@ impl Scheduler {
 				.process
 				.serve_process_holder(&self.server, process, Box::new(handle))
 				.await?;
-			tasks.push(requests);
-		}
+			Some(requests)
+		} else {
+			None
+		};
 
 		// Observe the sandbox's control connection.
 		let subject = tangram_server_sandbox_common::control::connected_subject(sandbox);
@@ -731,7 +873,11 @@ impl Scheduler {
 				Ok(())
 			}
 		});
-		tasks.push(connected);
+		let tasks = HolderTasks {
+			connected,
+			process,
+			requests,
+		};
 
 		Ok(tasks)
 	}

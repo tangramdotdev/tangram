@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A start of a stopped sandbox whose runner restarts after the start reserves the next boot and before the start enqueues the boot starts the sandbox on the restarted runner with its files.
+# A start of a stopped sandbox whose runner restarts after the scheduler reserves the next boot and before the scheduler holds the boot starts the sandbox on the restarted runner with its files.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
@@ -42,8 +42,8 @@ let sandbox = tg --url $remote.url --token $root_token sandbox create --wait --n
 success (tg --url $remote.url --token $root_token run $'--sandbox=($sandbox)' $write | complete) "the write should succeed"
 tg --url $remote.url --token $root_token sandbox stop --wait $sandbox
 
-# Start the sandbox, and hold the start after it reserves the next boot and before it enqueues the boot.
-let enqueue = checkpoint watch sandbox.start.enqueue --params { sandbox: $sandbox } --token $root_token --url $remote.url
+# Start the sandbox, and hold the scheduler after it reserves the next boot and before it holds the boot.
+let enqueue = checkpoint watch scheduler.sandbox.reserved --params { sandbox: $sandbox } --token $root_token --url $remote.url
 let url = $remote.url
 let start = job spawn {
 	let id = job id

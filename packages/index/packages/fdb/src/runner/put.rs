@@ -23,6 +23,17 @@ impl Index {
 			.map_err(|error| tg::error!(!error, "failed to decode the runner registration"))?
 			.unwrap_or_default();
 
+		// Reject a registration with another scheduler, because a runner belongs to the scheduler that it first registers with for its whole life.
+		if existing
+			.scheduler
+			.as_ref()
+			.is_some_and(|scheduler| *scheduler != arg.scheduler)
+		{
+			return Ok(ControlFlow::Break(Err(tg::error!(
+				"the runner belongs to another scheduler"
+			))));
+		}
+
 		// Accept an identical retry or a strictly newer ownership claim.
 		let accepted = existing.scheduler.as_ref() == Some(&arg.scheduler)
 			&& existing.registration == arg.registration

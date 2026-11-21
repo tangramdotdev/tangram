@@ -123,6 +123,9 @@ pub enum RequestArg {
 	#[tangram_serialize(id = 1)]
 	AddRunner(AddRunnerRequestArg),
 
+	#[tangram_serialize(id = 10)]
+	AddRunnerSandbox(AddRunnerSandboxRequestArg),
+
 	#[tangram_serialize(id = 9)]
 	AddSandboxParent(AddSandboxParentRequestArg),
 
@@ -152,6 +155,9 @@ pub enum RequestArg {
 pub enum ResponseOutput {
 	#[tangram_serialize(id = 1)]
 	AddRunner(AddRunnerResponseOutput),
+
+	#[tangram_serialize(id = 10)]
+	AddRunnerSandbox(AddRunnerSandboxResponseOutput),
 
 	#[tangram_serialize(id = 9)]
 	AddSandboxParent(AddSandboxParentResponseOutput),
@@ -319,6 +325,39 @@ pub struct DequeueSandboxResponseOutput {
 	pub dequeued: bool,
 }
 
+/// A runner's report of a sandbox that it started on the shortcut path, which the scheduler then knows.
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct AddRunnerSandboxRequestArg {
+	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub registration_index: u64,
+
+	#[tangram_serialize(id = 2)]
+	pub runner: tg::runner::Id,
+
+	#[tangram_serialize(id = 3)]
+	pub sandbox: tg::sandbox::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct AddRunnerSandboxResponseOutput {}
+
 #[derive(
 	Clone,
 	Debug,
@@ -436,6 +475,10 @@ pub enum EnqueueSandboxResponseOutput {
 	/// The scheduler accepted the sandbox.
 	#[tangram_serialize(id = 0)]
 	Enqueued,
+
+	/// The scheduler did not start the sandbox's next boot, because the sandbox is no longer stopped at the boot before it.
+	#[tangram_serialize(id = 2)]
+	Superseded,
 
 	/// The scheduler does not accept the sandbox's host, so it did nothing, and the sender may ask another scheduler.
 	#[tangram_serialize(id = 1)]
