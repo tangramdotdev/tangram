@@ -319,6 +319,7 @@ impl Component {
 						public,
 						id.as_ref(),
 					)
+					.boxed()
 					.await
 			}
 			.boxed()
@@ -343,8 +344,8 @@ impl Component {
 		public: bool,
 		id: Option<&tg::process::Id>,
 	) -> tg::Result<tangram_server_runner_core::process::ConnectedEvent> {
-		// Carry the public flag only to a runner that derives the process's ID, because the spawn writes the public permission of a process whose ID it created.
-		let public = public && process.id.is_none();
+		// Send the spawn with the public flag, so that the spawn's holder writes the public permission of a process whose ID the spawn created, and a runner that derives the process's ID carries it to the process's home.
+		let queued = process.clone();
 		let arg = tg::sandbox::control::SpawnProcessServerRequestArg {
 			boot: None,
 			process,
@@ -361,6 +362,19 @@ impl Component {
 			.runner
 			.try_get_sandbox_control_runner(sandbox, location)
 		{
+			// Write the queued record of a process whose ID the spawn created before this server's runner holds the process, because this server is the runner's server.
+			if id.is_some() {
+				let boot = session
+					.server
+					.components
+					.runner
+					.state()
+					.sandboxes
+					.get_by_id(sandbox)
+					.map(|state| state.boot);
+				self.write_queued_process(session, &queued, sandbox, boot, public)
+					.await?;
+			}
 			let response = control_sender.request(request).await.map_err(
 				|error| tg::error!(!error, %sandbox, process = ?id, "the spawn process request failed"),
 			)?;
@@ -446,12 +460,39 @@ impl Component {
 				"the runner returned an invalid process"
 			));
 		}
+
 		let connected_event = tangram_server_runner_core::process::ConnectedEvent {
 			lease: output.lease,
 			process: output.process,
 		};
 
 		Ok(connected_event)
+	}
+
+	/// Write the queued record of a process with its creator's permissions and the public permission of a public process.
+	async fn write_queued_process(
+		&self,
+		session: &Session,
+		process: &tg::runner::control::Process,
+		sandbox: &tg::sandbox::Id,
+		boot: Option<u64>,
+		public: bool,
+	) -> tg::Result<()> {
+		let now = session.server.clock.unix_timestamp();
+		let record =
+			Self::create_queued_process_arg(session, process, sandbox, boot, now, true, public)?;
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutProcess(Box::new(record))],
+		};
+		session
+			.server
+			.components
+			.indexer
+			.write(&session.server, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %sandbox, "failed to write the process"))?;
+
+		Ok(())
 	}
 
 	#[tracing::instrument(name = "process.spawn_new", level = "debug", skip_all, fields(process = output.id.as_ref().map(ToString::to_string), sandbox = output.data.sandbox.as_ref().map(ToString::to_string)), err(level = "debug"))]
@@ -635,7 +676,7 @@ impl Component {
 		} = arg;
 		let sandbox = sandbox.ok_or_else(|| tg::error!("expected the process's sandbox"))?;
 
-		// Create the queued record with the creator's permissions, the public permission, and the command captures.
+		// Create the queued record of a process in a new sandbox with the creator's permissions, the public permission, and the command captures. The holder of a spawn into an existing sandbox writes the process's record.
 		let now = session.server.clock.unix_timestamp();
 		let process_arg =
 			Self::create_queued_process_arg(session, &process, &sandbox, None, now, true, public)?;
@@ -656,24 +697,21 @@ impl Component {
 		} else {
 			None
 		};
-		let item = if let Some(sandbox_arg) = sandbox_arg.clone() {
+		// Write the records of a new sandbox.
+		if let Some(sandbox_arg) = sandbox_arg.clone() {
 			let mut sandbox_arg = sandbox_arg;
 			sandbox_arg.process = Some(Box::new(process_arg));
-			tangram_index::Item::PutSandbox(Box::new(sandbox_arg))
-		} else {
-			tangram_index::Item::PutProcess(Box::new(process_arg))
-		};
-
-		// Write the records.
-		let arg = tangram_index::write::Arg { items: vec![item] };
-		session
-			.server
-			.components
-			.indexer
-			.write(&session.server, arg)
-			.await
-			.map_err(|error| tg::error!(!error, process = %id, "failed to write the process"))?;
-		if sandbox_arg.is_some() {
+			let item = tangram_index::Item::PutSandbox(Box::new(sandbox_arg));
+			let arg = tangram_index::write::Arg { items: vec![item] };
+			session
+				.server
+				.components
+				.indexer
+				.write(&session.server, arg)
+				.await
+				.map_err(
+					|error| tg::error!(!error, process = %id, "failed to write the process"),
+				)?;
 			session
 				.server
 				.components

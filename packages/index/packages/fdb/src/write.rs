@@ -158,6 +158,11 @@ impl Index {
 						.await
 					);
 				},
+				tangram_index::Item::DeleteSchedulerProcess(arg) => {
+					crate::propagate!(
+						Self::delete_scheduler_process_with_transaction(txn, subspace, arg).await
+					);
+				},
 				tangram_index::Item::DeleteSchedulerSandbox(arg) => {
 					crate::propagate!(
 						Self::delete_scheduler_sandbox_with_transaction(txn, subspace, arg).await
@@ -323,6 +328,11 @@ impl Index {
 					if let Err(error) = result {
 						rejection.get_or_insert(error);
 					}
+				},
+				tangram_index::Item::PutSchedulerProcess(arg) => {
+					crate::propagate!(
+						Self::put_scheduler_process_with_transaction(txn, subspace, arg).await
+					);
 				},
 				tangram_index::Item::PutSchedulerSandbox(arg) => {
 					crate::propagate!(
