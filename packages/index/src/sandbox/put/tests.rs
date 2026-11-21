@@ -3,33 +3,33 @@ use super::*;
 #[test]
 fn a_late_write_does_not_overwrite_a_later_status() {
 	let existing = sandbox(data(0, tg::sandbox::Status::Stopped, None));
-	let merge = arg(data(0, tg::sandbox::Status::Started, None)).merge(Some(&existing));
+	let merge = arg(data(0, tg::sandbox::Status::Started, None)).merge_data(Some(&existing));
 	assert_eq!(status(&merge), tg::sandbox::Status::Stopped);
 }
 
 #[test]
 fn a_start_overwrites_the_previous_stop() {
 	let existing = sandbox(data(0, tg::sandbox::Status::Stopped, None));
-	let merge = arg(data(1, tg::sandbox::Status::Starting, None)).merge(Some(&existing));
+	let merge = arg(data(1, tg::sandbox::Status::Starting, None)).merge_data(Some(&existing));
 	assert_eq!(status(&merge), tg::sandbox::Status::Starting);
 }
 
 #[test]
 fn a_destroy_is_not_overwritten_by_a_later_boot() {
 	let existing = sandbox(data(0, tg::sandbox::Status::Destroyed, None));
-	let merge = arg(data(1, tg::sandbox::Status::Starting, None)).merge(Some(&existing));
+	let merge = arg(data(1, tg::sandbox::Status::Starting, None)).merge_data(Some(&existing));
 	assert_eq!(status(&merge), tg::sandbox::Status::Destroyed);
 }
 
 #[test]
 fn a_destroying_status_is_after_every_boot_and_before_destroyed() {
 	let existing = sandbox(data(0, tg::sandbox::Status::Destroying, None));
-	let merge = arg(data(1, tg::sandbox::Status::Started, None)).merge(Some(&existing));
+	let merge = arg(data(1, tg::sandbox::Status::Started, None)).merge_data(Some(&existing));
 	assert_eq!(status(&merge), tg::sandbox::Status::Destroying);
-	let merge = arg(data(0, tg::sandbox::Status::Destroyed, None)).merge(Some(&existing));
+	let merge = arg(data(0, tg::sandbox::Status::Destroyed, None)).merge_data(Some(&existing));
 	assert_eq!(status(&merge), tg::sandbox::Status::Destroyed);
 	let existing = sandbox(data(0, tg::sandbox::Status::Destroyed, None));
-	let merge = arg(data(0, tg::sandbox::Status::Destroying, None)).merge(Some(&existing));
+	let merge = arg(data(0, tg::sandbox::Status::Destroying, None)).merge_data(Some(&existing));
 	assert_eq!(status(&merge), tg::sandbox::Status::Destroyed);
 }
 
@@ -39,14 +39,16 @@ fn the_usage_of_every_boot_is_summed() {
 	existing.usages = BTreeMap::from([(1, usage(5))]);
 
 	// A late report for an earlier boot keeps the later status but records its usage.
-	let merge = arg(data(0, tg::sandbox::Status::Stopped, Some(usage(3)))).merge(Some(&existing));
+	let merge =
+		arg(data(0, tg::sandbox::Status::Stopped, Some(usage(3)))).merge_data(Some(&existing));
 	assert_eq!(status(&merge), tg::sandbox::Status::Started);
 	assert_eq!(total(&merge), 8);
 
 	// A later report within a boot replaces the boot's usage.
 	existing.data = merge.data;
 	existing.usages = merge.usages;
-	let merge = arg(data(1, tg::sandbox::Status::Stopped, Some(usage(7)))).merge(Some(&existing));
+	let merge =
+		arg(data(1, tg::sandbox::Status::Stopped, Some(usage(7)))).merge_data(Some(&existing));
 	assert_eq!(status(&merge), tg::sandbox::Status::Stopped);
 	assert_eq!(total(&merge), 10);
 }
@@ -63,7 +65,7 @@ fn the_stopped_usage_of_every_boot_is_summed_and_only_grows() {
 		boot: 0,
 		usage: usage(3),
 	});
-	let merge = report.merge(Some(&existing));
+	let merge = report.merge_data(Some(&existing));
 	assert_eq!(status(&merge), tg::sandbox::Status::Stopped);
 	assert_eq!(total(&merge), 8);
 
@@ -74,7 +76,7 @@ fn the_stopped_usage_of_every_boot_is_summed_and_only_grows() {
 		boot: 0,
 		usage: usage(4),
 	});
-	let merge = report.merge(Some(&existing));
+	let merge = report.merge_data(Some(&existing));
 	assert_eq!(total(&merge), 9);
 	existing.data = merge.data;
 	existing.stopped_usages = merge.stopped_usages;
@@ -82,7 +84,7 @@ fn the_stopped_usage_of_every_boot_is_summed_and_only_grows() {
 		boot: 0,
 		usage: usage(2),
 	});
-	let merge = report.merge(Some(&existing));
+	let merge = report.merge_data(Some(&existing));
 	assert_eq!(total(&merge), 9);
 }
 
@@ -111,6 +113,69 @@ fn a_reservation_of_the_next_boot_requires_the_sandbox_to_be_stopped_at_its_boot
 	// A put that reserves no boot is not checked.
 	reservation.stopped_boot = None;
 	assert!(reservation.validate_stopped_boot(None).is_ok());
+}
+
+#[test]
+fn the_lifecycle_writes_of_a_sandbox_converge_in_every_order() {
+	let runner = tg::runner::Id::new();
+	let starting = data(0, tg::sandbox::Status::Starting, None);
+	let id = starting.data.id.clone();
+	let writes = [
+		tg::sandbox::Status::Starting,
+		tg::sandbox::Status::Started,
+		tg::sandbox::Status::Stopped,
+	]
+	.map(|status| {
+		let mut data = starting.clone();
+		data.data.status = status;
+		let mut arg = arg(data);
+		arg.principal = tg::Principal::Sandbox(id.clone());
+		arg.runner = Some(runner.clone());
+		arg
+	});
+	assert_every_order_converges(&writes);
+}
+
+/// Apply the writes in every order, and assert that every order leaves the same record and rejects the same writes.
+fn assert_every_order_converges(args: &[Arg]) {
+	let mut expected = None;
+	for order in crate::tests::permutations(args.len()) {
+		// Apply the writes in the order.
+		let mut sandbox = None::<super::super::Sandbox>;
+		let mut permissions = BTreeSet::new();
+		let mut rejected = BTreeSet::new();
+		for &index in &order {
+			let arg = &args[index];
+			let merge = match arg.merge(sandbox.as_ref(), None).unwrap() {
+				Ok(merge) => merge,
+				Err(_) => {
+					rejected.insert(index);
+					continue;
+				},
+			};
+			if merge.permissions {
+				for permission in &arg.permissions {
+					permissions.insert(format!("{permission:?}"));
+				}
+			}
+			sandbox = Some(merge.sandbox);
+		}
+
+		// Compare the record with the first order's record.
+		let record = sandbox.map(|sandbox| sandbox.serialize().unwrap());
+		let outcome = (record, permissions, rejected);
+		match &expected {
+			None => {
+				expected = Some((order, outcome));
+			},
+			Some((first, expected)) => {
+				assert_eq!(
+					&outcome, expected,
+					"the order {order:?} produced a different record than the order {first:?}"
+				);
+			},
+		}
+	}
 }
 
 fn arg(data: tg::sandbox::get::Output) -> Arg {
@@ -179,11 +244,11 @@ fn sandbox(data: tg::sandbox::get::Output) -> super::super::Sandbox {
 	}
 }
 
-fn status(merge: &Merge) -> tg::sandbox::Status {
+fn status(merge: &DataMerge) -> tg::sandbox::Status {
 	merge.data.as_ref().unwrap().data.status
 }
 
-fn total(merge: &Merge) -> u64 {
+fn total(merge: &DataMerge) -> u64 {
 	merge
 		.data
 		.as_ref()

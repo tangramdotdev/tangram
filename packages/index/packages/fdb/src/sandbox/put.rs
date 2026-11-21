@@ -55,9 +55,6 @@ impl Index {
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
 		let usage_partition_total = partition_totals.usage;
-		if let Err(error) = arg.validate() {
-			return Ok(ControlFlow::Break(Err(error)));
-		}
 		if let Some(registration) = &arg.registration {
 			let result = crate::propagate!(
 				Self::check_runner_registration_with_transaction(txn, subspace, registration).await
@@ -73,45 +70,29 @@ impl Index {
 			.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
 			.transpose()?;
 
-		// Reject a reservation of the next boot unless the sandbox is stopped at the boot that the put names, in this write transaction.
-		if let Err(error) = arg.validate_stopped_boot(existing.as_ref()) {
-			return Ok(ControlFlow::Break(Err(error)));
-		}
-
-		// Validate sandbox data and processes against the existing record in this write transaction.
-		if let Some(existing) = &existing {
-			if let Err(error) = arg.validate_existing(existing)? {
-				return Ok(ControlFlow::Break(Err(error)));
-			}
-			if !arg.principal.is_root()
-				&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
-				&& let Some(processes) = &arg.processes
-			{
-				if !existing.set.processes {
-					return Ok(ControlFlow::Break(Err(tg::error!(
-						"cannot verify the existing sandbox processes"
-					))));
-				}
-				let existing = crate::propagate!(
-					Self::try_get_sandbox_processes_page_with_transaction(
-						txn,
-						subspace,
-						&arg.id,
-						std::io::SeekFrom::Start(0),
-						processes.len() as u64 + 1
-					)
-					.await
+		// Get the existing processes when the merge compares them.
+		let existing_processes = if arg.compares_processes(existing.as_ref()) {
+			let length = arg.processes.as_ref().map_or(0, Vec::len) as u64 + 1;
+			crate::propagate!(
+				Self::try_get_sandbox_processes_page_with_transaction(
+					txn,
+					subspace,
+					&arg.id,
+					std::io::SeekFrom::Start(0),
+					length
 				)
-				.unwrap_or_default();
-				if *processes != existing {
-					return Ok(ControlFlow::Break(Err(tg::error!(
-						"cannot replace the existing sandbox processes"
-					))));
-				}
-			}
-		}
+				.await
+			)
+		} else {
+			None
+		};
 
-		if existing.is_none() || (arg.data.is_some() && arg.processes.is_some()) {
+		// Merge the put with the existing record in this write transaction.
+		let merge = match arg.merge(existing.as_ref(), existing_processes.as_deref())? {
+			Ok(merge) => merge,
+			Err(error) => return Ok(ControlFlow::Break(Err(error))),
+		};
+		if merge.permissions {
 			crate::propagate!(
 				Self::put_permissions_with_transaction(
 					txn,
@@ -122,62 +103,8 @@ impl Index {
 				.await
 			);
 		}
-
-		let mut arg = std::borrow::Cow::Borrowed(arg);
-		if let Some(existing) = &existing
-			&& !arg.principal.is_root()
-			&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
-		{
-			let arg = arg.to_mut();
-			arg.account.clone_from(&existing.account);
-			arg.data = None;
-			arg.runner.clone_from(&existing.runner);
-		}
-		let arg = arg.as_ref();
-
-		// Keep the data that is latest in the sandbox lifecycle, because writes may be applied out of order.
-		let tangram_index::sandbox::put::Merge {
-			mut data,
-			stopped_usages,
-			usages,
-		} = arg.merge(existing.as_ref());
-		let location = arg.location.clone().or_else(|| {
-			existing
-				.as_ref()
-				.and_then(|sandbox| sandbox.location.clone())
-		});
-		let account = arg.account.clone();
-		if let Some(data) = &mut data {
-			data.location.clone_from(&location);
-		}
-		let runner = arg
-			.runner
-			.clone()
-			.or_else(|| existing.as_ref().and_then(|sandbox| sandbox.runner.clone()));
-		let touched_at = existing.as_ref().map_or(arg.touched_at, |sandbox| {
-			sandbox.touched_at.max(arg.touched_at)
-		});
-		let sandbox = tangram_index::sandbox::Sandbox {
-			account,
-			created_at: existing
-				.as_ref()
-				.map_or(arg.created_at, |sandbox| sandbox.created_at),
-			data,
-			location,
-			reference_count: existing
-				.as_ref()
-				.map_or(0, |sandbox| sandbox.reference_count),
-			runner,
-			set: tangram_index::sandbox::Set {
-				processes: arg.processes.is_some()
-					|| existing
-						.as_ref()
-						.is_some_and(|sandbox| sandbox.set.processes),
-			},
-			stopped_usages,
-			touched_at,
-			usages,
-		};
+		let sandbox = merge.sandbox;
+		let touched_at = sandbox.touched_at;
 		if let Some(processes) = &arg.processes {
 			crate::propagate!(
 				Self::put_sandbox_processes_with_transaction(txn, subspace, &arg.id, processes)
