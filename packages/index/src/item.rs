@@ -26,6 +26,9 @@ pub enum Item {
 	#[tangram_serialize(id = 5)]
 	DeleteSandbox(Box<crate::sandbox::delete::Arg>),
 
+	#[tangram_serialize(id = 35)]
+	DeleteSchedulerProcess(Box<crate::scheduler::process::delete::Arg>),
+
 	#[tangram_serialize(id = 33)]
 	DeleteSchedulerSandbox(Box<crate::scheduler::sandbox::delete::Arg>),
 
@@ -77,6 +80,9 @@ pub enum Item {
 	#[tangram_serialize(id = 17)]
 	PutSandbox(Box<crate::sandbox::put::Arg>),
 
+	#[tangram_serialize(id = 36)]
+	PutSchedulerProcess(Box<crate::scheduler::process::put::Arg>),
+
 	#[tangram_serialize(id = 34)]
 	PutSchedulerSandbox(Box<crate::scheduler::sandbox::put::Arg>),
 
@@ -97,16 +103,18 @@ pub enum Affinity {
 }
 
 impl Item {
-	/// Get the affinity of this item, which is the sandbox that a sandbox put changes, or the sandbox of the process that a process put changes if the put knows it.
+	/// Get the affinity of this item, which is the sandbox that a sandbox put changes, the sandbox of the process that a process put changes if the put knows it, or the sandbox of the process whose entry in a scheduler's queue the item changes.
 	#[must_use]
 	pub fn affinity(&self) -> Option<Affinity> {
 		match self {
+			Self::DeleteSchedulerProcess(arg) => Some(Affinity::Sandbox(arg.sandbox.clone())),
 			Self::PutProcess(arg) => arg
 				.sandbox
 				.clone()
 				.or_else(|| arg.data.as_ref().and_then(|data| data.sandbox.clone()))
 				.map(Affinity::Sandbox),
 			Self::PutSandbox(arg) => Some(Affinity::Sandbox(arg.id.clone())),
+			Self::PutSchedulerProcess(arg) => Some(Affinity::Sandbox(arg.sandbox.clone())),
 			_ => None,
 		}
 	}

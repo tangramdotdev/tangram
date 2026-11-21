@@ -5,6 +5,7 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod process;
 mod sandbox;
 
 #[derive(Clone, Debug)]

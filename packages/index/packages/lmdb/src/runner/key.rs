@@ -14,6 +14,10 @@ pub enum Key {
 	SandboxScheduler {
 		sandbox: tg::sandbox::Id,
 	},
+	SchedulerProcess {
+		process: tg::process::Id,
+		scheduler: tg::scheduler::Id,
+	},
 	SchedulerSandbox {
 		sandbox: tg::sandbox::Id,
 		scheduler: tg::scheduler::Id,

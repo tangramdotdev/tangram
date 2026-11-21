@@ -256,6 +256,15 @@ impl Index {
 				)?;
 				tangram_index::read::Response::GetSchedulerRunners(output)
 			},
+			tangram_index::read::Request::GetSchedulerProcesses { scheduler } => {
+				let output = Self::get_scheduler_processes_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&scheduler,
+				)?;
+				tangram_index::read::Response::GetSchedulerProcesses(output)
+			},
 			tangram_index::read::Request::GetSchedulerSandboxes { scheduler } => {
 				let output = Self::get_scheduler_sandboxes_with_transaction(
 					db,

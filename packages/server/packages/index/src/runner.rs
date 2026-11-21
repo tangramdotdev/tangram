@@ -13,6 +13,18 @@ impl Index {
 		}
 	}
 
+	pub async fn get_scheduler_processes(
+		&self,
+		scheduler: &tg::scheduler::Id,
+	) -> tg::Result<Vec<tangram_index::scheduler::process::QueuedProcess>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_scheduler_processes(scheduler).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_scheduler_processes(scheduler).await,
+		}
+	}
+
 	pub async fn get_scheduler_sandboxes(
 		&self,
 		scheduler: &tg::scheduler::Id,

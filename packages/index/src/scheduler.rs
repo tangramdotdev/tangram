@@ -1,6 +1,7 @@
 use tangram_client::prelude::*;
 
 pub mod get;
+pub mod process;
 pub mod put;
 pub mod sandbox;
 

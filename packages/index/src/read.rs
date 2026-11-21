@@ -20,6 +20,9 @@ pub enum Request {
 	GetSchedulerRunners {
 		scheduler: tg::scheduler::Id,
 	},
+	GetSchedulerProcesses {
+		scheduler: tg::scheduler::Id,
+	},
 	GetSchedulerSandboxes {
 		scheduler: tg::scheduler::Id,
 	},
@@ -146,6 +149,7 @@ pub enum Response {
 	GetPermissions(Vec<Vec<tg::authorization::Permission>>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSchedulerRunners(Vec<tg::runner::Id>),
+	GetSchedulerProcesses(Vec<crate::scheduler::process::QueuedProcess>),
 	GetSchedulerSandboxes(Vec<crate::runner::SchedulerSandbox>),
 	GetSubjectsForPrincipal(Vec<tg::authorization::Subject>),
 	GetTransactionId(u64),

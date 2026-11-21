@@ -146,10 +146,12 @@ impl SchedulerState {
 			Some((State::Accepted { .. }, boot))
 				if matches!(arg, tg::sandbox::control::ServerRequestArg::SpawnProcess(_)) =>
 			{
-				let tg::sandbox::control::ServerRequestArg::SpawnProcess(arg) = arg else {
+				let tg::sandbox::control::ServerRequestArg::SpawnProcess(mut arg) = arg else {
 					unreachable!()
 				};
-				self.send_sandbox_spawn(scheduler, sandbox, id, arg, boot);
+				arg.boot = Some(boot);
+				let spawn = super::spawn::Spawn { arg, id, sandbox };
+				self.spawn_process(scheduler, spawn, true);
 				return;
 			},
 
@@ -272,87 +274,6 @@ impl SchedulerState {
 				self.publish_sandbox_holder_response(scheduler, sandbox, id, Some(write), output);
 			},
 		}
-	}
-
-	/// Send a spawn into a sandbox that a runner holds to the runner with the boot, by sending it to the sandbox's holder, and answer the spawn's sender with the runner's reply. The request carries an ID that derives from the spawn's, so that a copy of the spawn that reaches this scheduler again is answered once.
-	fn send_sandbox_spawn(
-		&mut self,
-		scheduler: &Scheduler,
-		sandbox: tg::sandbox::Id,
-		id: String,
-		mut arg: tg::sandbox::control::SpawnProcessServerRequestArg,
-		boot: u64,
-	) {
-		arg.boot = Some(boot);
-		let scheduler = scheduler.clone();
-		self.operations.push(
-			async move {
-				let component = &scheduler.server.components.sandbox;
-				let result = async {
-					// Send the spawn to the sandbox's holder, and send it again on each status wakeup.
-					let session = scheduler.server.session(&scheduler.server.context);
-					let mut wakeups = component
-						.create_sandbox_status_wakeup_stream(&session, &sandbox, None, None)
-						.await?;
-					let retry = scheduler.server.config.control.request_retry.clone().into();
-					let timeout = scheduler.server.config.control.request_timeout;
-					let options = tangram_server_core::control::Options { retry, timeout };
-					let request = tg::sandbox::control::ServerRequestArg::SpawnProcess(arg);
-					let holder_arg = tangram_server_core::sandbox::HolderArg {
-						checkpoint: None,
-						deadline: scheduler.server.control_read_deadline(),
-						exhaustive: true,
-						id: format!("{id}.{boot}"),
-						mode: tangram_server_core::holder::Mode::Write,
-						options,
-						request,
-						wakeups: &mut wakeups,
-					};
-					let output = component
-						.request_sandbox_holder(&session, &sandbox, holder_arg)
-						.await?;
-
-					// Answer the spawn's sender with the runner's reply.
-					let response = match output.and_then(|output| output.reply) {
-						Some(Ok(output)) => tg::sandbox::control::ClientResponse {
-							error: None,
-							id,
-							output: Some(output),
-							retry: None,
-						},
-						Some(Err(error)) => tg::sandbox::control::ClientResponse {
-							error: Some(error.to_data_or_id().left().unwrap_or_else(|| {
-								tg::error::Data {
-									message: Some(error.to_string()),
-									..Default::default()
-								}
-							})),
-							id,
-							output: None,
-							retry: None,
-						},
-						None => tg::sandbox::control::ClientResponse::with_retry(
-							id,
-							tg::control::Retry::NotHolder,
-						),
-					};
-					component
-						.publish_sandbox_holder_response(
-							&scheduler.server,
-							&sandbox,
-							tangram_server_core::sandbox::Holder::Scheduler,
-							response,
-						)
-						.await
-				}
-				.await;
-				Operation::Finished {
-					context: "failed to send the spawn to the sandbox's runner",
-					result,
-				}
-			}
-			.boxed(),
-		);
 	}
 
 	/// Answer a request to the holder of a sandbox that this scheduler ended. A get, a get of the processes, and a start are answered with the sandbox's terminal state, so that a start of a stopped sandbox reserves the next boot, and a stop of a stopped sandbox and a destroy of a destroyed sandbox have nothing left to do. Any other request waits for the index, which answers it once it has recorded the terminal state.
