@@ -119,7 +119,6 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 					principal: tg::Principal::Process(process.clone()),
 					registration: None,
 					sandbox: None,
-					sandbox_boot: None,
 					sequence: 0,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: std::time::Duration::ZERO,

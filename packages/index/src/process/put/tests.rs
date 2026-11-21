@@ -266,7 +266,6 @@ fn arg(id: &tg::process::Id, data: tg::process::Data) -> Arg {
 		principal: tg::Principal::Process(id.clone()),
 		registration: None,
 		sandbox: None,
-		sandbox_boot: None,
 		sequence: 0,
 		storage: Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,

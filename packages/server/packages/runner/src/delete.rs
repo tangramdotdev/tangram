@@ -102,7 +102,7 @@ impl Component {
 				.server
 				.components
 				.scheduler
-				.destroy_runner_sandbox(&session.server, &sandbox, Some(error))
+				.destroy_runner_sandbox(&session.server, &sandbox, Some(error), true)
 				.await
 				.map_err(|error| tg::error!(!error, %sandbox, "failed to destroy the sandbox"))?;
 		}

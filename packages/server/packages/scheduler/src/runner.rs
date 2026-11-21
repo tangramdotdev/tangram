@@ -762,6 +762,7 @@ impl Component {
 				Some(error.clone()),
 				status,
 				Some(registration),
+				true,
 			)
 			.boxed()
 			.await?;
@@ -819,6 +820,7 @@ impl Component {
 		server: &Server,
 		id: &tg::sandbox::Id,
 		error: Option<tg::error::Data>,
+		processes: bool,
 	) -> tg::Result<()> {
 		self.finish_runner_sandbox(
 			server,
@@ -827,6 +829,7 @@ impl Component {
 			error,
 			tg::sandbox::Status::Destroyed,
 			None,
+			processes,
 		)
 		.boxed()
 		.await
@@ -837,6 +840,7 @@ impl Component {
 		server: &Server,
 		id: &tg::sandbox::Id,
 		error: tg::error::Data,
+		processes: bool,
 	) -> tg::Result<()> {
 		self.finish_runner_sandbox(
 			server,
@@ -845,6 +849,7 @@ impl Component {
 			Some(error),
 			tg::sandbox::Status::Stopped,
 			None,
+			processes,
 		)
 		.boxed()
 		.await
@@ -874,6 +879,10 @@ impl Component {
 		Ok(reserved)
 	}
 
+	#[expect(
+		clippy::too_many_arguments,
+		reason = "the end of a runner's sandbox has this many inputs"
+	)]
 	async fn finish_runner_sandbox(
 		&self,
 		server: &Server,
@@ -882,6 +891,7 @@ impl Component {
 		error: Option<tg::error::Data>,
 		status: tg::sandbox::Status,
 		registration: Option<&tangram_index::runner::Registration>,
+		processes: bool,
 	) -> tg::Result<()> {
 		// Leave a sandbox that is already stopped or destroyed alone, or that moved past the boot that the caller read, and get the boot that ends.
 		let data = server
@@ -916,16 +926,20 @@ impl Component {
 			..Default::default()
 		});
 		let now = server.clock.unix_timestamp();
-		let length = server
-			.index
-			.try_get_sandbox_processes_count(id)
-			.await?
-			.unwrap_or_default();
-		let processes = server
-			.index
-			.get_sandbox_processes(id, std::io::SeekFrom::Start(0), length)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox processes"))?;
+		let processes = if processes {
+			let length = server
+				.index
+				.try_get_sandbox_processes_count(id)
+				.await?
+				.unwrap_or_default();
+			server
+				.index
+				.get_sandbox_processes(id, std::io::SeekFrom::Start(0), length)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox processes"))?
+		} else {
+			Vec::new()
+		};
 		let indexed = server
 			.index
 			.try_get_processes_with_data(&processes)
@@ -936,25 +950,19 @@ impl Component {
 				continue;
 			};
 			let process = process.clone();
+
+			// Finish exactly the ending boot's processes, and leave a process of another boot to that boot.
+			if indexed.boot.is_some() && indexed.boot != boot {
+				continue;
+			}
 			let mut data = data.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
 			if data.status.is_queued() {
-				// Finish the queued process only while the sandbox is at the boot that ends, and leave a process that is not finished, because the sandbox moved to a later boot or another finisher finished it first, to the later boot or that finisher. A superseded registration ends the routine.
+				// Finish the queued process. A superseded registration ends the routine.
 				let error = tg::Either::Left(process_error.clone());
-				let sandbox_boot = boot.map(|boot| tangram_index::process::put::SandboxBoot {
-					boot,
-					sandbox: id.clone(),
-				});
 				let result = server
 					.components
 					.process
-					.finish_queued_process(
-						server,
-						&process,
-						data,
-						error,
-						sandbox_boot,
-						registration.cloned(),
-					)
+					.finish_queued_process(server, &process, data, error, registration.cloned())
 					.boxed()
 					.await;
 				if let Err(error) = result {
@@ -978,7 +986,6 @@ impl Component {
 						},
 					}
 				}
-				data.children.get_or_insert_default();
 				data.cacheable = false;
 				data.set_error(Some(tg::Either::Left(process_error.clone())));
 				data.exit = Some(1);
@@ -998,14 +1005,10 @@ impl Component {
 					location: None,
 					outcome_sync: None,
 					registration: registration.cloned(),
-					sandbox_boot: boot.map(|boot| tangram_index::process::put::SandboxBoot {
-						boot,
-						sandbox: id.clone(),
-					}),
 					store_data: true,
 				};
 
-				// Leave a process that is not finished, because the sandbox moved to a later boot or another finisher finished it first, to the later boot or that finisher. A superseded registration ends the routine.
+				// Finish the started process. A superseded registration ends the routine.
 				let result = session
 					.server
 					.components
@@ -1079,7 +1082,6 @@ impl Component {
 							principal: tg::Principal::Process(process.clone()),
 							registration: registration.cloned(),
 							sandbox: None,
-							sandbox_boot: None,
 							sequence: 0,
 							storage: indexed.storage,
 							time_to_touch: server.config.process.time_to_touch,

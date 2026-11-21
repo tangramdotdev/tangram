@@ -362,11 +362,11 @@ impl Component {
 				.time_to_live
 				.is_some_and(|time_to_live| time_to_live.is_zero())
 			{
-				self.destroy_runner_sandbox(server, &id, Some(error.clone()))
+				self.destroy_runner_sandbox(server, &id, Some(error.clone()), true)
 					.boxed()
 					.await
 			} else {
-				self.stop_runner_sandbox(server, &id, error.clone())
+				self.stop_runner_sandbox(server, &id, error.clone(), true)
 					.boxed()
 					.await
 			};

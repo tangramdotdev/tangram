@@ -882,11 +882,12 @@ impl Component {
 		}
 	}
 
-	/// Report a sandbox's stop or destruction through the runner control stream, waiting for a runner control stream and retrying after the stream is lost.
+	/// Report a sandbox's stop or destruction through the runner control stream, with the processes of the boot that the runner held and did not finish, waiting for a runner control stream and retrying after the stream is lost.
 	pub(crate) async fn report_sandbox_with_runner_control(
 		&self,
 		sandbox: &tg::sandbox::Id,
 		error: tg::Either<tg::error::Data, tg::error::Id>,
+		processes: &[tg::runner::control::Process],
 		teardown: crate::sandbox::Teardown,
 		stopper: &Stopper,
 	) -> tg::Result<()> {
@@ -905,6 +906,7 @@ impl Component {
 				crate::sandbox::Teardown::Destroy => {
 					let arg = tg::runner::control::DestroySandboxClientRequestArg {
 						error: Some(error.clone()),
+						processes: processes.to_vec(),
 						sandbox: sandbox.clone(),
 					};
 					Self::request_runner_sandbox_destroy(&sender, arg).await?
@@ -912,6 +914,7 @@ impl Component {
 				crate::sandbox::Teardown::Stop => {
 					let arg = tg::runner::control::StopSandboxClientRequestArg {
 						error: Some(error.clone()),
+						processes: processes.to_vec(),
 						sandbox: sandbox.clone(),
 					};
 					Self::request_runner_sandbox_stop(&sender, arg).await?

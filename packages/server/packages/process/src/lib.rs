@@ -568,31 +568,9 @@ impl tangram_server_core::process::Component for Component {
 		id: &'a tg::process::Id,
 		data: tg::process::Data,
 		error: tg::Either<tg::error::Data, tg::error::Id>,
-		sandbox_boot: Option<tangram_index::process::put::SandboxBoot>,
 		registration: Option<tangram_index::runner::Registration>,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.finish_queued_process(server, id, data, error, sandbox_boot, registration)
-			.boxed()
-	}
-
-	fn finish_queued_sandbox_processes<'a>(
-		&'a self,
-		server: &'a tangram_server_core::Server,
-		sandbox: &'a tg::sandbox::Id,
-		boot: u64,
-		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.finish_queued_sandbox_processes(server, sandbox, boot, error)
-			.boxed()
-	}
-
-	fn finish_unstarted_process<'a>(
-		&'a self,
-		server: &'a tangram_server_core::Server,
-		process: &'a tg::runner::control::Process,
-		error: tg::Either<tg::error::Data, tg::error::Id>,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.finish_unstarted_process(server, process, error)
+		self.finish_queued_process(server, id, data, error, registration)
 			.boxed()
 	}
 

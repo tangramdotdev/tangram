@@ -94,10 +94,6 @@ pub struct Arg {
 	#[tangram_serialize(id = 9)]
 	pub sandbox: Option<tg::sandbox::Id>,
 
-	/// The boot that the process's sandbox must still be at when this put is applied, which makes the put a conditional finish of a queued process of a boot that ended, so that a process queued for a later boot is not finished.
-	#[tangram_serialize(default, id = 22, skip_serializing_if = "Option::is_none")]
-	pub sandbox_boot: Option<SandboxBoot>,
-
 	/// The position of the write among the writes of the process's holders, so that the index applies their lagging writes in order.
 	#[tangram_serialize(default, id = 25, skip_serializing_if = "is_default")]
 	pub sequence: u64,
@@ -154,16 +150,6 @@ pub struct Update {
 	pub process: super::Process,
 }
 
-/// A sandbox's boot that a conditional process put requires.
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct SandboxBoot {
-	#[tangram_serialize(id = 0)]
-	pub boot: u64,
-
-	#[tangram_serialize(id = 1)]
-	pub sandbox: tg::sandbox::Id,
-}
-
 impl Arg {
 	pub fn validate(&self) -> tg::Result<()> {
 		if self.principal != tg::Principal::Process(self.id.clone())
@@ -182,30 +168,6 @@ impl Arg {
 			if !ids.insert(&child.process.node) {
 				return Err(tg::error!("the process children must be unique"));
 			}
-		}
-
-		Ok(())
-	}
-
-	/// Reject a conditional put unless the sandbox is at the boot that the put names, in any state, because a later boot's queued processes are not the ended boot's.
-	pub fn validate_sandbox_boot(
-		&self,
-		sandbox: Option<&crate::sandbox::Sandbox>,
-	) -> tg::Result<()> {
-		let Some(expected) = &self.sandbox_boot else {
-			return Ok(());
-		};
-		let boot = sandbox
-			.and_then(|sandbox| sandbox.data.as_ref())
-			.map(|data| data.data.boot);
-		if boot != Some(expected.boot) {
-			let boot = expected.boot;
-			return Err(tg::error!(
-				id = %self.id,
-				sandbox = %expected.sandbox,
-				%boot,
-				"the process's sandbox is not at the boot"
-			));
 		}
 
 		Ok(())
@@ -241,12 +203,9 @@ impl Arg {
 			&& self.children.is_some()
 	}
 
-	/// The sandbox whose record the merge reads, which is the sandbox of a conditional finish, or the sandbox of a process with a known boot that the put leaves unfinished, whose boot a takeover may have ended. The read is skipped when the put finishes the process or the index already has it finished.
+	/// The sandbox whose record the merge reads, which is the sandbox of a process with a known boot that the put leaves unfinished, whose boot a takeover may have ended. The read is skipped when the put finishes the process or the index already has it finished.
 	#[must_use]
 	pub fn context_sandbox(&self, existing: Option<&super::Process>) -> Option<tg::sandbox::Id> {
-		if let Some(expected) = &self.sandbox_boot {
-			return Some(expected.sandbox.clone());
-		}
 		let finished = self
 			.data
 			.as_ref()
@@ -294,11 +253,6 @@ impl Arg {
 	) -> tg::Result<tg::Result<Merge>> {
 		// Validate the arg.
 		if let Err(error) = self.validate() {
-			return Ok(Err(error));
-		}
-
-		// Reject a conditional finish unless the process's sandbox is still at the boot that the put names.
-		if let Err(error) = self.validate_sandbox_boot(context.sandbox) {
 			return Ok(Err(error));
 		}
 

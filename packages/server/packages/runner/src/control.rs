@@ -590,6 +590,8 @@ impl Component {
 		arg: tg::runner::control::DestroySandboxClientRequestArg,
 	) -> tg::Result<tg::runner::control::DestroySandboxServerResponseOutput> {
 		let sandbox = &arg.sandbox;
+		self.finish_reported_processes(session, &arg.processes, arg.error.clone())
+			.await?;
 		let indexed = session.server.index.try_get_sandbox(sandbox).await?;
 		let destroyed = if indexed.as_ref().is_some_and(|indexed| {
 			indexed.runner.as_ref() == Some(runner)
@@ -614,7 +616,7 @@ impl Component {
 				.server
 				.components
 				.scheduler
-				.destroy_runner_sandbox(&session.server, sandbox, error)
+				.destroy_runner_sandbox(&session.server, sandbox, error, false)
 				.await?;
 			true
 		} else {
@@ -703,6 +705,8 @@ impl Component {
 		arg: tg::runner::control::StopSandboxClientRequestArg,
 	) -> tg::Result<tg::runner::control::StopSandboxServerResponseOutput> {
 		let sandbox = &arg.sandbox;
+		self.finish_reported_processes(session, &arg.processes, arg.error.clone())
+			.await?;
 		let indexed = session.server.index.try_get_sandbox(sandbox).await?;
 		let stopped = if indexed.as_ref().is_some_and(|indexed| {
 			indexed.runner.as_ref() == Some(runner)
@@ -727,7 +731,7 @@ impl Component {
 				.server
 				.components
 				.scheduler
-				.stop_runner_sandbox(&session.server, sandbox, error)
+				.stop_runner_sandbox(&session.server, sandbox, error, false)
 				.await?;
 			tangram_server_core::checkpoint!(session.server, "runner.control.stop_sandbox", %runner, %sandbox)
 				.await;
@@ -737,6 +741,42 @@ impl Component {
 		};
 		let output = tg::runner::control::StopSandboxServerResponseOutput { stopped };
 		Ok(output)
+	}
+
+	/// Finish as failed the processes that a runner accepted for a boot that failed and that did not finish, from the runner's report of its memory, with the boot's error, without reading the index.
+	async fn finish_reported_processes(
+		&self,
+		session: &Session,
+		processes: &[tg::runner::control::Process],
+		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	) -> tg::Result<()> {
+		let error = error.unwrap_or_else(|| {
+			tg::Either::Left(tg::error::Data {
+				code: Some(tg::error::Code::Cancellation),
+				message: Some("the sandbox ended".to_owned()),
+				..Default::default()
+			})
+		});
+		for process in processes {
+			let Some(id) = &process.id else {
+				continue;
+			};
+			let data = process
+				.data
+				.clone()
+				.without_location_and_tokens_except_sync();
+			let result = session
+				.server
+				.components
+				.process
+				.finish_queued_process(&session.server, id, data, error.clone(), None)
+				.await;
+			if let Err(error) = result {
+				tracing::warn!(error = %error.trace(), process = %id, "failed to finish the reported process");
+			}
+		}
+
+		Ok(())
 	}
 
 	async fn publish_runner_control_ack(

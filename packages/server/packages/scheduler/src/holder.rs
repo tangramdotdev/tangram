@@ -800,12 +800,18 @@ impl Scheduler {
 			)),
 		};
 		if let Err(error) = &reply
-			&& process.id.is_some()
+			&& let Some(process_id) = &process.id
 		{
 			self.server
 				.components
 				.process
-				.finish_unstarted_process(&self.server, &process, error.to_data_or_id())
+				.finish_queued_process(
+					&self.server,
+					process_id,
+					process.data.clone(),
+					error.to_data_or_id(),
+					None,
+				)
 				.await?;
 		}
 
