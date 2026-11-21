@@ -1,4 +1,8 @@
-use {futures::FutureExt as _, std::collections::BTreeMap, tangram_client::prelude::*};
+use {
+	futures::FutureExt as _,
+	std::collections::{BTreeMap, BTreeSet},
+	tangram_client::prelude::*,
+};
 
 pub mod delete;
 pub mod list;
@@ -18,11 +22,19 @@ pub struct Sandbox {
 
 	pub runner: Option<tg::runner::Id>,
 
+	/// The sequence of the holder's write that the data is from, which orders a holder's writes within a boot.
+	#[serde(default)]
+	pub sequence: u64,
+
 	pub set: Set,
 
 	/// The storage usage of each boot's stopped directory, which the usage in `data` includes.
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub stopped_usages: BTreeMap<u64, tg::sandbox::Usage>,
+
+	/// The boots that a takeover ended, whose processes' late unfinished writes the index records as finished, because no holder will finish them.
+	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+	pub taken_over: BTreeSet<u64>,
 
 	pub touched_at: i64,
 

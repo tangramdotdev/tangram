@@ -9,6 +9,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 		let location = location.parse::<tg::Location>().unwrap();
 		let mut process = tangram_index::process::put::Arg {
 			account: None,
+			boot: None,
 			cached: false,
 			captures: tangram_index::permission::capture::Captures::default(),
 			children: None,
@@ -28,6 +29,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 			registration: None,
 			sandbox: None,
 			sandbox_boot: None,
+			sequence: 0,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: std::time::Duration::from_secs(60),
 			touched_at: 1,
@@ -91,6 +93,7 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 			processes: None,
 			registration: None,
 			runner: None,
+			sequence: 0,
 			stopped_boot: None,
 			stopped_usage: None,
 			touched_at: 1,

@@ -1051,6 +1051,7 @@ impl Component {
 				processes: Some(message.processes),
 				registration: None,
 				runner: None,
+				sequence: 0,
 				stopped_boot: None,
 				stopped_usage: None,
 				touched_at,
@@ -1370,6 +1371,7 @@ impl Component {
 						}
 						let arg = tangram_index::process::put::Arg {
 							account: None,
+							boot: None,
 							cached: false,
 							captures: tangram_index::permission::capture::Captures::default(),
 							children: Some(children),
@@ -1389,6 +1391,7 @@ impl Component {
 							registration: None,
 							sandbox: None,
 							sandbox_boot: None,
+							sequence: 0,
 							storage,
 							time_to_touch: session.server.config.process.time_to_touch,
 							touched_at,

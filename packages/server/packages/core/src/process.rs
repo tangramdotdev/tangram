@@ -263,11 +263,16 @@ pub trait Component: crate::component::Lifecycle {
 		timeout: Option<Duration>,
 	) -> BoxFuture<'a, tg::Result<BoxStream<'static, ()>>>;
 
+	#[expect(
+		clippy::too_many_arguments,
+		reason = "the queued record has this many inputs"
+	)]
 	fn create_queued_process_arg(
 		&self,
 		session: &Session,
 		process: &tg::runner::control::Process,
 		sandbox: &tg::sandbox::Id,
+		boot: Option<u64>,
 		now: i64,
 		permissions: bool,
 		public: bool,

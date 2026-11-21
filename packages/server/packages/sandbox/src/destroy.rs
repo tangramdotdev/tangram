@@ -369,6 +369,7 @@ impl Component {
 			processes: None,
 			registration: None,
 			runner: runner.clone(),
+			sequence: 0,
 			stopped_boot: Some(stopped_boot),
 			stopped_usage: None,
 			touched_at: now,

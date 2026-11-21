@@ -112,6 +112,7 @@ async fn start_requires_a_successful_response_before_resume() {
 		});
 		let lease = tg::process::Lease::new();
 		let start = StartClientRequestArg {
+			boot: 0,
 			data: serde_json::from_value(value).unwrap(),
 			lease,
 			options: tg::referent::Options::default(),
@@ -174,6 +175,7 @@ async fn a_rejected_start_ends_the_connection_and_fails_pending_requests() {
 		"status": "started",
 	});
 	let start = StartClientRequestArg {
+		boot: 0,
 		data: serde_json::from_value(value).unwrap(),
 		lease: tg::process::Lease::new(),
 		options: tg::referent::Options::default(),

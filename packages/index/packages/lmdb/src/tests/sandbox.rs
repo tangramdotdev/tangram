@@ -45,6 +45,7 @@ fn put_arg(
 		processes: None,
 		registration: None,
 		runner: None,
+		sequence: 0,
 		stopped_boot,
 		stopped_usage: None,
 		touched_at: 1,
