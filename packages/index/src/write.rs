@@ -123,6 +123,7 @@ mod tests {
 					processes: None,
 					registration: None,
 					runner: None,
+					scheduler: None,
 					sequence: 0,
 					stopped_boot: None,
 					stopped_usage: None,

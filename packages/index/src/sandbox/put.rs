@@ -46,6 +46,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 4)]
 	pub runner: Option<tg::runner::Id>,
 
+	/// The scheduler that queues the sandbox, which the record keeps from the first put that names one.
+	#[tangram_serialize(default, id = 17, skip_serializing_if = "Option::is_none")]
+	pub scheduler: Option<tg::scheduler::Id>,
+
 	/// The position of the write among its holder's writes of the boot, which starts at zero for each boot, so that the index applies a holder's lagging writes in order.
 	#[tangram_serialize(default, id = 15, skip_serializing_if = "is_default")]
 	pub sequence: u64,
@@ -271,6 +275,9 @@ impl Arg {
 			location,
 			reference_count: existing.map_or(0, |sandbox| sandbox.reference_count),
 			runner,
+			scheduler: existing
+				.and_then(|sandbox| sandbox.scheduler.clone())
+				.or_else(|| arg.scheduler.clone()),
 			sequence,
 			set: super::Set {
 				processes: arg.processes.is_some()

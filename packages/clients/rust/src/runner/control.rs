@@ -113,6 +113,9 @@ pub struct ClientRequest {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientRequestArg {
+	#[tangram_serialize(id = 3)]
+	AddSandbox(AddSandboxClientRequestArg),
+
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxClientRequestArg),
 
@@ -236,6 +239,9 @@ pub struct ServerResponse {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerResponseOutput {
+	#[tangram_serialize(id = 3)]
+	AddSandbox(AddSandboxServerResponseOutput),
+
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxServerResponseOutput),
 
@@ -481,6 +487,33 @@ pub struct DestroySandboxClientResponseOutput {
 	#[tangram_serialize(id = 0)]
 	pub destroyed: bool,
 }
+
+/// A runner's report of a sandbox that it started on the shortcut path, so that the runner's scheduler knows the sandbox and sends the spawns into it.
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct AddSandboxClientRequestArg {
+	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub sandbox: tg::sandbox::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct AddSandboxServerResponseOutput {}
 
 #[derive(
 	Clone,

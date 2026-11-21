@@ -350,6 +350,7 @@ fn sandbox_record(boot: u64, status: tg::sandbox::Status) -> crate::sandbox::San
 		location: None,
 		reference_count: 0,
 		runner: None,
+		scheduler: None,
 		sequence: 0,
 		set: crate::sandbox::Set::default(),
 		stopped_usages: std::collections::BTreeMap::new(),

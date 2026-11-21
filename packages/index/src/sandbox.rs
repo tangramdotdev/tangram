@@ -22,6 +22,10 @@ pub struct Sandbox {
 
 	pub runner: Option<tg::runner::Id>,
 
+	/// The scheduler that first queued the sandbox, which the sandbox belongs to for its whole life.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub scheduler: Option<tg::scheduler::Id>,
+
 	/// The sequence of the holder's write that the data is from, which orders a holder's writes within a boot.
 	#[serde(default)]
 	pub sequence: u64,

@@ -19,6 +19,9 @@ pub struct SpawnSandboxTaskArg {
 	/// Whether the spawn made the process public, which the runner carries to the process's home in the start of a process whose ID it derives.
 	pub public: bool,
 
+	/// Whether a scheduler offered the boot, in which case the scheduler sends the spawns into the sandbox, and otherwise the runner's server created the sandbox on the shortcut path.
+	pub scheduled: bool,
+
 	pub token: Option<String>,
 }
 

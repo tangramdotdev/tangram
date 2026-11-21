@@ -829,6 +829,59 @@ impl Component {
 		});
 	}
 
+	/// Report a sandbox that this runner started on the shortcut path to its scheduler through the runner control stream, waiting for a runner control stream and retrying after the stream is lost.
+	pub(crate) async fn report_shortcut_sandbox_with_runner_control(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		boot: u64,
+		stopper: &Stopper,
+	) -> tg::Result<()> {
+		let mut control = self.control.subscribe();
+		loop {
+			let sender = tokio::select! {
+				result = control.wait_for(Option::is_some) => result
+					.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?
+					.clone()
+					.unwrap(),
+				() = stopper.wait() => {
+					return Err(tg::error!("the runner stopped before the sandbox was reported"));
+				},
+			};
+			let request = tg::runner::control::ClientRequest {
+				arg: tg::runner::control::ClientRequestArg::AddSandbox(
+					tg::runner::control::AddSandboxClientRequestArg {
+						boot,
+						sandbox: sandbox.clone(),
+					},
+				),
+				id: tangram_server_core::control::id(),
+			};
+			let response = sender
+				.request(
+					tg::runner::control::ClientMessage::Request(request),
+					tangram_server_core::control::Priority::High,
+				)
+				.await;
+			let response = match response {
+				Ok(response) => response.await.ok(),
+				Err(_) => None,
+			};
+			if let Some(tg::runner::control::ServerMessage::Response(response)) = response
+				&& response.error.is_none()
+			{
+				return Ok(());
+			}
+			tracing::warn!(%sandbox, "failed to report the sandbox to the scheduler");
+			control.mark_unchanged();
+			tokio::select! {
+				result = control.changed() => result.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?,
+				() = stopper.wait() => {
+					return Err(tg::error!("the runner stopped before the sandbox was reported"));
+				},
+			}
+		}
+	}
+
 	/// Report a sandbox's stop or destruction through the runner control stream, waiting for a runner control stream and retrying after the stream is lost.
 	pub(crate) async fn report_sandbox_with_runner_control(
 		&self,
@@ -1275,6 +1328,7 @@ impl Component {
 					owner: request.owner,
 					process: request.process,
 					public: false,
+					scheduled: true,
 					token: Some(token),
 				},
 			);

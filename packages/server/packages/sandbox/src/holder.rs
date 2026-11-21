@@ -61,6 +61,7 @@ impl Component {
 		&self,
 		server: &Server,
 		id: &tg::sandbox::Id,
+		holder: tangram_server_core::sandbox::Holder,
 		mut handle: F,
 	) -> tg::Result<Task<tg::Result<()>>>
 	where
@@ -86,12 +87,12 @@ impl Component {
 				// Answer a duplicate of a request from the replies that the holder sent, without passing it to the holder again, and drop a duplicate of a request that the holder is acting on, whose reply will reach its sender.
 				let message = message.payload.0;
 				if let tg::sandbox::control::ServerMessage::Request(request) = &message {
-					match component.0.holder_replies.begin(&request.id) {
+					match component.holder_replies(holder).begin(&request.id) {
 						tangram_server_core::holder::Begin::New => (),
 						tangram_server_core::holder::Begin::Pending => continue,
 						tangram_server_core::holder::Begin::Replied(response) => {
 							component
-								.publish_sandbox_holder_response(&server, &id, response)
+								.publish_sandbox_holder_response(&server, &id, holder, response)
 								.await?;
 							continue;
 						},
@@ -105,14 +106,26 @@ impl Component {
 		Ok(task)
 	}
 
+	/// Get the replies that a kind of holder recently sent.
+	fn holder_replies(
+		&self,
+		holder: tangram_server_core::sandbox::Holder,
+	) -> &tangram_server_core::holder::Replies<tg::sandbox::control::ClientResponse> {
+		match holder {
+			tangram_server_core::sandbox::Holder::Runner => &self.0.holder_replies,
+			tangram_server_core::sandbox::Holder::Scheduler => &self.0.scheduler_holder_replies,
+		}
+	}
+
 	/// Publish a holder's acknowledgement of a request to the server that sent the request.
 	pub(crate) async fn publish_sandbox_holder_ack(
 		&self,
 		server: &Server,
 		id: &tg::sandbox::Id,
+		holder: tangram_server_core::sandbox::Holder,
 		ack: tg::sandbox::control::ClientAck,
 	) -> tg::Result<()> {
-		self.0.holder_replies.acknowledge(&ack.id);
+		self.holder_replies(holder).acknowledge(&ack.id);
 		let subject = format!("sandboxes.{id}.control.client.{}", ack.id);
 		let payload = ClientMessage(tg::sandbox::control::ClientMessage::Ack(ack));
 		server
@@ -134,13 +147,15 @@ impl Component {
 		&self,
 		server: &Server,
 		id: &tg::sandbox::Id,
+		holder: tangram_server_core::sandbox::Holder,
 		response: tg::sandbox::control::ClientResponse,
 	) -> tg::Result<()> {
 		// Remember the reply, so that a duplicate of the request is answered with it, unless the reply asks the sender to send the request again, after which a copy of the request is acted on again.
+		let replies = self.holder_replies(holder);
 		if response.retry.is_some() {
-			self.0.holder_replies.forget(&response.id);
+			replies.forget(&response.id);
 		} else {
-			self.0.holder_replies.finish(&response.id, response.clone());
+			replies.finish(&response.id, response.clone());
 		}
 		let kind = match (response.retry, response.output.as_ref()) {
 			(Some(tg::control::Retry::NotHolder), _) => "not_holder",

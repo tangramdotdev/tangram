@@ -212,6 +212,35 @@ impl SchedulerState {
 		);
 	}
 
+	/// Track a sandbox that a runner started on the shortcut path, so that this scheduler knows the sandbox and sends the spawns into it to the runner.
+	pub(super) fn handle_add_runner_sandbox_request(
+		&mut self,
+		scheduler: &Scheduler,
+		id: String,
+		request: tangram_server_scheduler_core::AddRunnerSandboxRequestArg,
+	) {
+		let current = self
+			.runners
+			.entries
+			.get(&request.runner)
+			.is_some_and(|runner| runner.registration_index == request.registration_index);
+		let result = if current {
+			let runner = super::placement::RunnerRef {
+				id: request.runner,
+				registration_index: request.registration_index,
+			};
+			self.track_accepted_sandbox(scheduler, &request.sandbox, request.boot, None, runner);
+			let output = tangram_server_scheduler_core::AddRunnerSandboxResponseOutput {};
+			Ok(super::ResponseOutput::AddRunnerSandbox(output))
+		} else {
+			Err(
+				tg::error!(sandbox = %request.sandbox, runner = %request.runner, "the runner's connection is not current"),
+			)
+		};
+		let response = super::request::Response::new(id, result);
+		scheduler.send_response(self, response);
+	}
+
 	pub(super) fn handle_destroy_runner_sandbox_request(
 		&mut self,
 		scheduler: &Scheduler,
@@ -1134,6 +1163,7 @@ impl Component {
 					processes: Some(processes),
 					registration: registration.cloned(),
 					runner: indexed.runner,
+					scheduler: None,
 					sequence: 0,
 					stopped_boot,
 					stopped_usage: None,
