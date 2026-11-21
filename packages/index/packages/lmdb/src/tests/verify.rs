@@ -737,8 +737,10 @@ async fn verify_new_specifier_with_parent_write_permission() {
 		&index.subspace,
 		&mut txn,
 		&[tangram_index::group::put::Arg {
+			groups: Vec::new(),
 			id: group,
 			parent: Some(alice.clone().into()),
+			permissions: Vec::new(),
 			specifier: "alice/taken".parse().unwrap(),
 		}],
 	)
@@ -2873,6 +2875,8 @@ async fn verify_descendant_node_proof_can_walk_upward() {
 		&[
 			tangram_index::tag::put::Arg {
 				captures: tangram_index::permission::capture::Captures::default(),
+				groups: Vec::new(),
+				permissions: Vec::new(),
 				touched_at: 0,
 				version: "initial".into(),
 				account: None,
@@ -2884,6 +2888,8 @@ async fn verify_descendant_node_proof_can_walk_upward() {
 			},
 			tangram_index::tag::put::Arg {
 				captures: tangram_index::permission::capture::Captures::default(),
+				groups: Vec::new(),
+				permissions: Vec::new(),
 				touched_at: 0,
 				version: "initial".into(),
 				account: None,

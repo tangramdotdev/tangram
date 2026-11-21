@@ -8,12 +8,19 @@ use {
 };
 
 impl Index {
-	pub(crate) fn put_groups_with_transaction(
+	pub(crate) async fn put_groups_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::group::put::Arg],
+		partition_totals: crate::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		// Put each group after the ancestor groups that it carries.
+		let mut groups = Vec::new();
 		for arg in args {
+			groups.extend(&arg.groups);
+			groups.push(arg);
+		}
+		for arg in groups {
 			let key = Key::Group(crate::group::Key::Group(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
 			let value = tangram_index::group::Group {
@@ -27,7 +34,19 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			let value = tg::Id::from(arg.id.clone()).to_bytes();
 			txn.set(&key, value.as_ref());
+
+			// Put the permissions, which put the visibility entries of the group and its ancestors.
+			crate::propagate!(
+				Self::put_permissions_with_transaction(
+					txn,
+					subspace,
+					&arg.permissions,
+					partition_totals
+				)
+				.await
+			);
 		}
+
 		Ok(ControlFlow::Break(()))
 	}
 

@@ -10,8 +10,10 @@ async fn deleting_replaced_nodes_preserves_the_replacement() {
 	let nodes = vec![
 		(
 			tangram_index::Item::PutGroup(Box::new(tangram_index::group::put::Arg {
+				groups: Vec::new(),
 				id: group.clone(),
 				parent: None,
+				permissions: Vec::new(),
 				specifier: specifier.clone(),
 			})),
 			tangram_index::Item::DeleteGroup(Box::new(tangram_index::group::delete::Arg {
@@ -35,6 +37,8 @@ async fn deleting_replaced_nodes_preserves_the_replacement() {
 				id: tag.clone(),
 				name: "test".to_owned(),
 				parent: None,
+				groups: Vec::new(),
+				permissions: Vec::new(),
 				specifier: specifier.clone(),
 				target: tg::Either::Left(tg::file::Id::new(b"target").into()),
 				touched_at: 0,
@@ -60,8 +64,10 @@ async fn deleting_replaced_nodes_preserves_the_replacement() {
 			items: vec![
 				put,
 				tangram_index::Item::PutGroup(Box::new(tangram_index::group::put::Arg {
+					groups: Vec::new(),
 					id: replacement.clone(),
 					parent: None,
+					permissions: Vec::new(),
 					specifier: specifier.clone(),
 				})),
 				delete,
