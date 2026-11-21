@@ -449,11 +449,6 @@ pub struct EnqueueSandboxRequestArg {
 	#[tangram_serialize(default, id = 9, skip_serializing_if = "Option::is_none")]
 	pub scheduler: Option<tg::scheduler::Id>,
 
-	/// Whether to stop the sandbox as soon as it starts.
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
-	#[tangram_serialize(default, id = 10, skip_serializing_if = "std::ops::Not::not")]
-	pub stop: bool,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,

@@ -128,7 +128,6 @@ fn sandbox(id: &tg::sandbox::Id) -> Sandbox {
 		runner: None,
 		sandbox: id.clone(),
 		scheduler: None,
-		stop: false,
 		token: None,
 	};
 	let mut sandbox = Sandbox::new(0, None, Some(request), State::Queued);

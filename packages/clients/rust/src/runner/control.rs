@@ -405,10 +405,14 @@ pub struct OfferSandboxServerRequestArg {
 	#[tangram_serialize(id = 6)]
 	pub sandbox: tg::sandbox::Id,
 
-	/// Whether a stop of the boot arrived while it was queued, so that the runner stops the boot once it starts, unless a start arrives first.
-	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
-	#[tangram_serialize(id = 10, default, skip_serializing_if = "std::ops::Not::not")]
-	pub stop: bool,
+	/// The sequence of the scheduler's last write of the boot before the offer, after which the scheduler's handoff write and then the runner's writes follow.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_default")]
+	#[tangram_serialize(
+		id = 11,
+		default,
+		skip_serializing_if = "tangram_util::serde::is_default"
+	)]
+	pub sequence: u64,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 7, default, skip_serializing_if = "Option::is_none")]
