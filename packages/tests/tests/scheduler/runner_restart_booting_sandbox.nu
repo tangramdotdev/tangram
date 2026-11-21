@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A sandbox that a runner lost when it restarted is placed again when the runner reconnects, without waiting for the runner's heartbeat to expire.
+# A sandbox whose offer a runner did not answer before it restarted, and for which it wrote nothing, is placed again when the runner reconnects, without waiting for the runner's heartbeat to expire.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
@@ -11,6 +11,7 @@ let remote = server spawn --name remote --config {
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
+	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	runner: {
 		cpus: 1,
@@ -22,14 +23,13 @@ let runner = server spawn --name runner --config {
 }
 wait_for_log $runner 'the runner is ready to accept work'
 
-# Hold the sandbox's connection, and crash the runner while the sandbox is booting.
-let connect = checkpoint watch sandbox.control.connect --token $root_token --url $remote.url
+# Hold the runner once it receives the offer, and crash it before it answers.
+let offer = checkpoint watch runner.control.offer_sandbox --url $runner.url
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens --cpu 1 | referent node
-checkpoint wait $connect | ignore
+checkpoint wait $offer | ignore
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 wait_for_exit $pid
-checkpoint unwatch $connect
 
 # The runner restarts within its heartbeat ttl, and the sandbox starts on it.
 let runner = server start $runner

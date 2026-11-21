@@ -7,7 +7,7 @@ let local = server spawn --config {
 }
 let url = $local.url
 
-# Start a sandbox, which waits for the server's runner to register, so that the waits for indexing at startup are done.
+# Start a sandbox, which waits for the server's runner to connect, so that the waits for indexing at startup are done.
 tg --url $url sandbox create --wait --no-tokens | ignore
 tg --url $url index
 

@@ -45,6 +45,7 @@ struct IndexProcessControlArg {
 	parent: Option<tg::process::Id>,
 	public: bool,
 	sandbox: Option<tg::process::control::SandboxCreate>,
+	sequence: u64,
 }
 
 /// The parent and the sandbox that a start's shortcut proof proves, and whether the start makes the process public.
@@ -218,6 +219,7 @@ impl Component {
 					mut data,
 					lease: _,
 					mut options,
+					sequence,
 					shortcut: shortcut_arg,
 				} = start;
 
@@ -257,6 +259,7 @@ impl Component {
 					parent: start_parent,
 					public,
 					sandbox,
+					sequence,
 				};
 				// Enqueue initialization before acknowledging the start or accepting subsequent requests. Continue if the index cannot accept the batch, so that the client retries the start, and reject the start for any other error.
 				let result = self
@@ -507,6 +510,7 @@ impl Component {
 			parent,
 			public,
 			sandbox,
+			sequence,
 		} = arg;
 		tangram_server_core::checkpoint!(session.server, "process.control.index.started", process = %id).await;
 		let command_objects = data.command.objects();
@@ -522,7 +526,7 @@ impl Component {
 				.sandbox
 				.prepare_sandbox_control_index_arg(session, sandbox_id, sandbox)
 				.await?;
-			sandbox.sequence = 1;
+			sandbox.sequence = sequence;
 			Some(sandbox)
 		} else {
 			None
@@ -610,9 +614,8 @@ impl Component {
 			parent: parent.clone(),
 			permissions: Vec::new(),
 			principal: tg::Principal::Process(id.clone()),
-			registration: None,
 			sandbox: Some(sandbox_id.clone()),
-			sequence: 1,
+			sequence,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at,

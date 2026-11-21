@@ -121,7 +121,6 @@ mod tests {
 					principal: tg::Principal::Sandbox(sandbox.clone()),
 					process: None,
 					processes: None,
-					registration: None,
 					runner: None,
 					scheduler: None,
 					sequence: 0,

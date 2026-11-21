@@ -10,7 +10,7 @@ use {
 };
 
 impl SchedulerState {
-	/// Handle a runner's report that a boot that it held ended. Authorize the report, and act on nothing in a report that is not authorized. Treat a report of a boot whose offer to the runner is unanswered as the runner's yes. Forget the boot, which frees its capacity, or remember a boot on the shortcut path that this scheduler did not know as ended, so that a late report of the sandbox does not track it again. Then, in an operation, finish the processes that the runner reports as unfinished and that this scheduler offered into the boot, and record the end.
+	/// Handle a runner's report that a boot that it held ended, which the runner sends after it finished every process of the boot. Authorize the report, and act on nothing in a report that is not authorized. Treat a report of a boot whose offer to the runner is unanswered as the runner's yes. Forget the boot, which frees its capacity, or remember a boot on the shortcut path that this scheduler did not know as ended, so that a late report of the sandbox does not track it again. Then, in an operation, record the end.
 	pub(super) fn handle_end_runner_sandbox_request(
 		&mut self,
 		scheduler: &Scheduler,
@@ -21,15 +21,8 @@ impl SchedulerState {
 		let boot = end.boot;
 		let sandbox = end.sandbox.clone();
 
-		// Authorize the report, which names the boot's processes and its unfinished processes.
-		let processes = end
-			.unfinished
-			.iter()
-			.filter_map(|process| process.id.as_ref())
-			.chain(&end.processes)
-			.collect::<BTreeSet<_>>()
-			.into_iter()
-			.collect();
+		// Authorize the report, which names the boot's processes.
+		let processes = end.processes.iter().collect();
 		let report = Report {
 			boot,
 			processes,
@@ -77,7 +70,7 @@ impl SchedulerState {
 			Held::Ended => {},
 		}
 
-		// Finish the unfinished processes and record the end in an operation.
+		// Record the end in an operation.
 		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
@@ -90,7 +83,7 @@ impl SchedulerState {
 }
 
 impl Scheduler {
-	/// Finish as failed the processes of an authorized report that the runner accepted for the boot and that did not finish, and that this scheduler offered into the boot, with the boot's error, and then, if the runner did not record the end through the boot's control stream, record the end of the boot with the runner's data and with only the boot's processes that this scheduler offered into it at the runner's boot and sequence and remove the boot from this scheduler's queue in one write, and publish the sandbox's status.
+	/// Record the end of the boot of an authorized report, unless the runner recorded the end through the boot's control stream, with the runner's data and with only the boot's processes that this scheduler offered into it, at the runner's boot and sequence, and remove the boot from this scheduler's queue in one write, and publish the sandbox's status.
 	async fn end_runner_sandbox(
 		&self,
 		runner: &tg::runner::Id,
@@ -106,28 +99,8 @@ impl Scheduler {
 			recorded,
 			sandbox,
 			sequence,
-			unfinished,
 		} = end;
 		let session = self.server.session(&self.server.context);
-
-		// Finish the unfinished processes that this scheduler offered into the boot.
-		let error = data.data.error.clone().unwrap_or_else(|| {
-			tg::Either::Left(tg::error::Data {
-				code: Some(tg::error::Code::Cancellation),
-				message: Some("the sandbox ended".to_owned()),
-				..Default::default()
-			})
-		});
-		let unfinished = unfinished
-			.into_iter()
-			.filter(|process| {
-				process
-					.id
-					.as_ref()
-					.is_some_and(|id| authorized.contains(id))
-			})
-			.collect();
-		self.finish_reported_processes(unfinished, error).await;
 
 		// Record only the boot's processes that this scheduler offered into the boot.
 		let processes = processes
@@ -165,7 +138,6 @@ impl Scheduler {
 			principal: tg::Principal::Sandbox(sandbox.clone()),
 			process: None,
 			processes: Some(processes),
-			registration: None,
 			runner: Some(runner.clone()),
 			scheduler: None,
 			sequence,

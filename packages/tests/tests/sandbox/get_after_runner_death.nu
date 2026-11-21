@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A sandbox get issued after its runner dies must observe destruction without waiting for the control read timeout.
+# A sandbox get issued after its runner dies must observe the end of the sandbox's boot without waiting for the control read timeout, and the sandbox is then destroyed.
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true, multi_server: true },
@@ -44,7 +44,10 @@ checkpoint unwatch $index
 advance_time $remote 4sec
 let output = job recv --tag $get --timeout 15sec
 success $output "the sandbox get must complete before the control read timeout"
-assert equal ($output.stdout | from json | get data.status) "destroyed" "the pending get must observe destruction once the runner expires"
+assert (($output.stdout | from json | get data.status) in [stopped destroyed]) "the pending get must observe the end of the boot once the runner expires"
+
+# The sandbox, whose zero ttl lets it not stay stopped, is then destroyed.
+success (timeout 30s tg --url $remote.url --token $root_token sandbox status --until destroyed $sandbox | complete) "the sandbox should be destroyed"
 
 # Waiting for the sandbox returns the error that destroyed it.
 let output = tg --url $remote.url --token $root_token sandbox wait $sandbox | complete

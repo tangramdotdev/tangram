@@ -25,7 +25,7 @@ wait_for_exit $pid
 rm --recursive --force ($runner.directory | path join 'sandboxes' $sandbox)
 let runner = server start $runner
 
-# The restarted runner's registration destroys the sandbox with the restart's error.
+# The restarted runner's first connection destroys the sandbox with the restart's error.
 success (timeout 30s tg --url $remote.url --token $root_token sandbox status --until destroyed $sandbox | complete) 'the sandbox should be destroyed'
 let data = tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data
 assert equal $data.status destroyed

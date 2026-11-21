@@ -26,7 +26,6 @@ fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::
 		parent: None,
 		permissions: Vec::new(),
 		principal: tg::Principal::Process(id.clone()),
-		registration: None,
 		sandbox: None,
 		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
@@ -621,7 +620,6 @@ fn sandbox_put_arg(
 		principal: tg::Principal::Sandbox(id.clone()),
 		process: None,
 		processes: None,
-		registration: None,
 		runner: None,
 		scheduler: None,
 		sequence: 0,
@@ -676,4 +674,58 @@ async fn a_queued_process_of_a_boot_that_its_holder_ended_stays_queued() {
 			Some(tg::process::Status::Queued)
 		);
 	}
+}
+
+#[tokio::test]
+async fn a_zero_end_fails_the_unfinished_processes_of_exactly_its_boot() {
+	let (_dir, index) = super::new_index();
+	let index = &index;
+	// Record a sandbox at boot 0 with an unfinished and a finished process of the boot, and an unfinished process of the next boot.
+	let sandbox = tg::sandbox::Id::new();
+	let started = sandbox_put_arg(&sandbox, 0, tg::sandbox::Status::Started);
+	let item = tangram_index::Item::PutSandbox(Box::new(started));
+	write_items(index, vec![item]).await.unwrap();
+	let unfinished = tg::process::Id::new();
+	let finished = tg::process::Id::new();
+	let other = tg::process::Id::new();
+	let mut arg = queued_process_arg(&unfinished, &sandbox);
+	arg.boot = Some(0);
+	let mut items = vec![tangram_index::Item::PutProcess(Box::new(arg))];
+	let mut data = process_data(tg::process::Status::Finished, String::new());
+	data.sandbox = Some(sandbox.clone());
+	let mut arg = process_arg(&finished, data);
+	arg.boot = Some(0);
+	items.push(tangram_index::Item::PutProcess(Box::new(arg)));
+	let mut arg = queued_process_arg(&other, &sandbox);
+	arg.boot = Some(1);
+	items.push(tangram_index::Item::PutProcess(Box::new(arg)));
+	write_items(index, items).await.unwrap();
+
+	// End the boot with the number zero, and verify that only the unfinished process of the boot is finished.
+	let end = sandbox_put_arg(&sandbox, 0, tg::sandbox::Status::Stopped);
+	let item = tangram_index::Item::PutSandbox(Box::new(end));
+	write_items(index, vec![item]).await.unwrap();
+	assert_eq!(
+		process_status(index, &unfinished).await,
+		Some(tg::process::Status::Finished)
+	);
+	assert_eq!(
+		process_status(index, &finished).await,
+		Some(tg::process::Status::Finished)
+	);
+	assert_eq!(
+		process_status(index, &other).await,
+		Some(tg::process::Status::Queued)
+	);
+
+	// Put a late queued process of the boot, and verify that it is finished, because its write is numbered at the boot's end.
+	let late = tg::process::Id::new();
+	let mut arg = queued_process_arg(&late, &sandbox);
+	arg.boot = Some(0);
+	let item = tangram_index::Item::PutProcess(Box::new(arg));
+	write_items(index, vec![item]).await.unwrap();
+	assert_eq!(
+		process_status(index, &late).await,
+		Some(tg::process::Status::Finished)
+	);
 }

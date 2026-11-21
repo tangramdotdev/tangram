@@ -64,7 +64,6 @@ impl Component {
 			parent: None,
 			permissions,
 			principal: tg::Principal::Process(id),
-			registration: None,
 			sandbox: Some(sandbox.clone()),
 			sequence: 0,
 			storage: tg::process::storage::Set::NODE,
@@ -123,14 +122,14 @@ impl Component {
 		Ok(output)
 	}
 
-	/// Record the failure of a queued process that will never start, which its holder does from its own memory, with the registration that must still own the runner if one is given. Run the follow-up work only if the index applies the record.
+	/// Record the failure of a queued process that will never start, which its holder does from its own memory. Run the follow-up work only if the index applies the record.
 	pub(crate) async fn finish_queued_process(
 		&self,
 		server: &Server,
 		id: &tg::process::Id,
 		mut data: tg::process::Data,
 		error: tg::Either<tg::error::Data, tg::error::Id>,
-		registration: Option<tangram_index::runner::Registration>,
+		sequence: u64,
 	) -> tg::Result<()> {
 		data.cacheable = false;
 		data.children.get_or_insert_default();
@@ -152,7 +151,7 @@ impl Component {
 			defer_index: false,
 			location: None,
 			outcome_sync: None,
-			registration,
+			sequence,
 			store_data: true,
 		};
 		self.put_process_local(&session, id, entry, options)

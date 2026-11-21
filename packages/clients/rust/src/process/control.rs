@@ -199,6 +199,15 @@ pub enum ClientRequestArg {
 pub struct FinishClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub data: tg::process::Data,
+
+	/// The number of the finish among the runner's writes of the process's boot.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_default")]
+	#[tangram_serialize(
+		default,
+		id = 1,
+		skip_serializing_if = "tangram_util::serde::is_default"
+	)]
+	pub sequence: u64,
 }
 
 #[derive(
@@ -224,6 +233,11 @@ pub struct StartClientRequestArg {
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
 	pub options: tg::referent::Options,
+
+	/// The number of the start among the runner's writes of the process's boot.
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "is_default")]
+	pub sequence: u64,
 
 	/// The proof that the runner that starts a process on the shortcut path runs its parent and hosts its sandbox.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

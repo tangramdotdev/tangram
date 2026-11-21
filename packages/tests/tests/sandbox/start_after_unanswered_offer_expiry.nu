@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner that starts a boot whose offer's answer the scheduler never receives, and whose heartbeat then expires while it keeps running, stops the boot when it registers again, so the sandbox stays stopped and starts again with its files.
+# A runner that starts a boot whose offer's answer the scheduler never receives, and whose heartbeat then expires while it keeps running, stops the boot when it connects again, so the sandbox stays stopped and starts again with its files.
 
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
@@ -59,12 +59,12 @@ advance_time $remote 4sec
 checkpoint pass $ended | ignore
 checkpoint unwatch $ended
 
-# Let the runner answer the offer, and advance the remote's clock past the runner's scheduler ttl, so that the runner's control connection ends and the runner registers again while the scheduler keeps the ended boot's entry.
-let register = checkpoint watch scheduler.runner.register --params { runner: $created.data.id } --token $root_token --url $remote.url
+# Let the runner answer the offer, and advance the remote's clock past the runner's scheduler ttl, so that the runner's control connection ends and the runner connects again while the scheduler keeps the ended boot's entry.
+let connect = checkpoint watch scheduler.runner.connect --params { runner: $created.data.id } --token $root_token --url $remote.url
 checkpoint unwatch $accepted
 advance_time $remote 2sec
-checkpoint wait $register | ignore
-checkpoint unwatch $register
+checkpoint wait $connect | ignore
+checkpoint unwatch $connect
 checkpoint unwatch $index
 
 # Wait for the first start, which succeeds or fails depending on whether it saw the boot start before the runner expired.

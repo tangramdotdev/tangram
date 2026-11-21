@@ -78,14 +78,6 @@ impl Index {
 	> {
 		let partition_total = partition_totals.cleaning;
 		let usage_partition_total = partition_totals.usage;
-		if let Some(registration) = &arg.registration {
-			let result = crate::propagate!(
-				Self::check_runner_registration_with_transaction(txn, subspace, registration).await
-			);
-			if let Err(error) = result {
-				return Ok(ControlFlow::Break(Err(error)));
-			}
-		}
 		let key = Key::Sandbox(crate::sandbox::Key::Sandbox(arg.id.clone()));
 		let key = Self::pack(subspace, &key);
 		let result = txn.get(&key, false).await;

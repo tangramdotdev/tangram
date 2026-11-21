@@ -116,6 +116,7 @@ async fn start_requires_a_successful_response_before_resume() {
 			data: serde_json::from_value(value).unwrap(),
 			lease,
 			options: tg::referent::Options::default(),
+			sequence: 0,
 			shortcut: None,
 		};
 		let request = ClientRequest {
@@ -179,6 +180,7 @@ async fn a_rejected_start_ends_the_connection_and_fails_pending_requests() {
 		data: serde_json::from_value(value).unwrap(),
 		lease: tg::process::Lease::new(),
 		options: tg::referent::Options::default(),
+		sequence: 0,
 		shortcut: None,
 	};
 	let start = ClientMessage::Request(ClientRequest {
@@ -243,6 +245,7 @@ fn request(id: &str) -> ClientMessage {
 	});
 	let finish = FinishClientRequestArg {
 		data: serde_json::from_value(value).unwrap(),
+		sequence: 0,
 	};
 	ClientMessage::Request(ClientRequest {
 		arg: ClientRequestArg::Finish(finish),

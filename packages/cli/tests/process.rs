@@ -343,6 +343,7 @@ fn start_arg(
 		data: data.clone(),
 		lease: *lease,
 		options: tg::referent::Options::default(),
+		sequence: 0,
 		shortcut,
 	}
 }

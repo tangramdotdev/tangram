@@ -271,7 +271,7 @@ impl Component {
 		);
 		let control_sender = control.sender();
 
-		// Watch for the index to record that the connection's sandbox ended, and then ask the runner to end the sandbox, because the runner may not have learned that the sandbox ended, such as when a stop or destroy ended a queued sandbox whose enqueue was sent again and started it.
+		// Watch for the index to record that the connection's boot ended, and then ask the runner to end the boot, so that a runner that still runs a boot that the index ended without it, such as a boot that the sandbox's scheduler ended for a runner that it declared dead, does not keep running it.
 		let ended = Arc::new(AtomicBool::new(false));
 		let ended_request_id = tangram_server_core::control::id();
 		let indexed = session
@@ -579,7 +579,6 @@ impl Component {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes: None,
-			registration: None,
 			runner,
 			scheduler: None,
 			sequence: 0,

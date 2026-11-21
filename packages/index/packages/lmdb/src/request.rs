@@ -20,7 +20,6 @@ pub(super) enum Request {
 		now: jiff::Timestamp,
 		period: tangram_index::usage::Period,
 	},
-	NextRunnerRegistrationIndex(tg::runner::Id),
 	PutIndexer(tangram_index::indexer::put::Arg),
 	PutScheduler(tangram_index::scheduler::put::Arg),
 	TouchCheckouts(TouchCheckouts),
@@ -149,7 +148,6 @@ impl Request {
 			| Self::ExpireUsage(_)
 			| Self::Update(_) => Priority::Low,
 			Self::GetUsage { .. }
-			| Self::NextRunnerRegistrationIndex(_)
 			| Self::PutIndexer(_)
 			| Self::PutScheduler(_)
 			| Self::TouchCheckouts(_)

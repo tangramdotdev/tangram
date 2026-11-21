@@ -918,7 +918,7 @@ impl Component {
 			defer_index: false,
 			location: location.and_then(|location| location.to_location()),
 			outcome_sync: None,
-			registration: None,
+			sequence: 0,
 			store_data: true,
 		};
 		self.put_process_local(session, id, arg, options)

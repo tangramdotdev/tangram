@@ -118,6 +118,22 @@ impl SchedulerState {
 				}
 				return;
 			},
+			HolderMessage::Ended {
+				boot,
+				runner,
+				sandbox,
+			} => {
+				let ended = super::report::EndedBoot {
+					processes: std::collections::BTreeSet::new(),
+					runner,
+				};
+				self.sandboxes.ended.insert_declared(sandbox, boot, ended);
+				return;
+			},
+			HolderMessage::Held { sender } => {
+				sender.send(self.get_held_sandboxes()).ok();
+				return;
+			},
 			HolderMessage::ProcessRequest { request, sandbox } => {
 				self.handle_process_holder_request(scheduler, &sandbox, request);
 				return;

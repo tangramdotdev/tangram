@@ -52,7 +52,7 @@ pub struct BorrowableCapacityNotification {
 )]
 pub struct HeartbeatAcknowledgement {
 	#[tangram_serialize(id = 0)]
-	pub registration_index: u64,
+	pub connection: u64,
 
 	#[tangram_serialize(id = 1)]
 	pub heartbeat_index: u64,
@@ -71,7 +71,7 @@ pub struct HeartbeatNotification {
 	pub capacity: tg::runner::control::Capacity,
 
 	#[tangram_serialize(id = 1)]
-	pub registration_index: u64,
+	pub connection: u64,
 
 	#[tangram_serialize(id = 2)]
 	pub heartbeat_index: u64,
@@ -103,19 +103,22 @@ pub enum RequestArg {
 	#[tangram_serialize(id = 9)]
 	AddSandboxParent(AddSandboxParentRequestArg),
 
+	#[tangram_serialize(id = 11)]
+	DeleteRunner(DeleteRunnerRequestArg),
+
 	#[tangram_serialize(id = 3)]
 	DequeueSandbox(DequeueSandboxRequestArg),
 
 	#[tangram_serialize(id = 4)]
 	DestroyRunnerSandbox(DestroyRunnerSandboxRequestArg),
 
-	#[tangram_serialize(id = 11)]
+	#[tangram_serialize(id = 12)]
 	EndRunnerSandbox(EndRunnerSandboxRequestArg),
 
 	#[tangram_serialize(id = 6)]
 	EnqueueSandbox(EnqueueSandboxRequestArg),
 
-	#[tangram_serialize(id = 12)]
+	#[tangram_serialize(id = 13)]
 	FinishRunnerProcesses(FinishRunnerProcessesRequestArg),
 
 	#[tangram_serialize(id = 8)]
@@ -142,19 +145,22 @@ pub enum ResponseOutput {
 	#[tangram_serialize(id = 9)]
 	AddSandboxParent(AddSandboxParentResponseOutput),
 
+	#[tangram_serialize(id = 11)]
+	DeleteRunner(DeleteRunnerResponseOutput),
+
 	#[tangram_serialize(id = 3)]
 	DequeueSandbox(DequeueSandboxResponseOutput),
 
 	#[tangram_serialize(id = 4)]
 	DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput),
 
-	#[tangram_serialize(id = 11)]
+	#[tangram_serialize(id = 12)]
 	EndRunnerSandbox(EndRunnerSandboxResponseOutput),
 
 	#[tangram_serialize(id = 6)]
 	EnqueueSandbox(EnqueueSandboxResponseOutput),
 
-	#[tangram_serialize(id = 12)]
+	#[tangram_serialize(id = 13)]
 	FinishRunnerProcesses(FinishRunnerProcessesResponseOutput),
 
 	#[tangram_serialize(id = 8)]
@@ -173,16 +179,18 @@ pub struct AddRunnerRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub capacity: tg::runner::control::Capacity,
 
-	/// The sandboxes that the runner has directories for, if the runner registers for the first time after it starts, in which case the scheduler ends the sandboxes that the runner no longer holds.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
-	pub directories: Option<Vec<tg::sandbox::Id>>,
+	/// The sandboxes that the runner has directories for or is running, which the runner reports on every connection, so that the scheduler decides which directories the runner keeps.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Vec::is_empty")]
+	pub directories: Vec<tg::sandbox::Id>,
+
+	/// Whether this is the first connection of the runner's program since it started, in which case the scheduler ends the boots that the index records on the runner and that the runner does not report, and decides the unanswered offers to the runner from the index.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "std::ops::Not::not")]
+	pub first: bool,
 
 	#[tangram_serialize(id = 1)]
 	pub host: String,
-
-	#[tangram_serialize(id = 2)]
-	pub registration_index: u64,
 
 	#[tangram_serialize(id = 3)]
 	pub runner: tg::runner::Id,
@@ -202,10 +210,14 @@ pub struct AddRunnerRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct AddRunnerResponseOutput {
-	/// The reported sandboxes with directories that the registration destroyed.
+	/// The number that the scheduler gave the runner's connection, which it keeps only in memory and which the runner's messages carry.
+	#[tangram_serialize(id = 5)]
+	pub connection: u64,
+
+	/// The reported boots that the scheduler ended because it declared the runner dead, which the runner gives up without writing anything more for them.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Vec::is_empty")]
-	pub destroyed: Vec<tg::sandbox::Id>,
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
+	pub ended: Vec<tg::sandbox::Id>,
 
 	/// The reported sandboxes with directories whose directories the runner keeps, because the sandboxes are stopped on the runner or their boots wait in the scheduler's queue.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -217,11 +229,6 @@ pub struct AddRunnerResponseOutput {
 
 	#[tangram_serialize(id = 1)]
 	pub scheduler: tg::scheduler::Id,
-
-	/// The reported sandboxes with directories that the registration stopped, which `kept` also lists.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
-	pub stopped: Vec<tg::sandbox::Id>,
 }
 
 #[derive(
@@ -234,7 +241,7 @@ pub struct AddRunnerResponseOutput {
 )]
 pub struct RemoveRunnerRequestArg {
 	#[tangram_serialize(id = 0)]
-	pub registration_index: u64,
+	pub connection: u64,
 
 	#[tangram_serialize(id = 1)]
 	pub runner: tg::runner::Id,
@@ -329,7 +336,7 @@ pub struct AddRunnerSandboxRequestArg {
 	pub proof: tg::sandbox::id::Proof,
 
 	#[tangram_serialize(id = 1)]
-	pub registration_index: u64,
+	pub connection: u64,
 
 	#[tangram_serialize(id = 2)]
 	pub runner: tg::runner::Id,
@@ -347,6 +354,30 @@ pub struct AddRunnerSandboxRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct AddRunnerSandboxResponseOutput {}
+
+/// A deletion of a runner, which its scheduler declares dead, and whose boots it ends.
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct DeleteRunnerRequestArg {
+	#[tangram_serialize(id = 0)]
+	pub runner: tg::runner::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct DeleteRunnerResponseOutput {}
 
 #[derive(
 	Clone,

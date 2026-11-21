@@ -371,7 +371,6 @@ impl Component {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes: None,
-			registration: None,
 			runner: runner.clone(),
 			scheduler: None,
 			sequence: 0,

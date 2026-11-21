@@ -42,6 +42,7 @@ impl Scheduler {
 			None,
 			Some(stored),
 			first,
+			0,
 		)
 		.await
 	}
@@ -88,7 +89,6 @@ impl Scheduler {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes: None,
-			registration: None,
 			runner: request.runner.clone(),
 			scheduler: Some(self.id.clone()),
 			sequence: 0,
@@ -178,17 +178,6 @@ impl Scheduler {
 		Ok(())
 	}
 
-	/// Record a failure after acceptance in the sandbox's error field. A new sandbox is destroyed, and a sandbox that was starting again is stopped.
-	pub(super) async fn fail_sandbox(
-		&self,
-		request: &EnqueueSandboxRequestArg,
-		error: tg::Either<tg::error::Data, tg::error::Id>,
-	) -> tg::Result<()> {
-		let status = failed_sandbox_status(request);
-		self.put_sandbox_status(request, status, Some(error), None, false)
-			.await
-	}
-
 	pub(super) async fn put_sandbox_status(
 		&self,
 		request: &EnqueueSandboxRequestArg,
@@ -196,6 +185,7 @@ impl Scheduler {
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 		stored: Option<Vec<u8>>,
 		permissions: bool,
+		sequence: u64,
 	) -> tg::Result<()> {
 		// Create the sandbox's data.
 		let session = self.server.session(&self.server.context);
@@ -243,10 +233,9 @@ impl Scheduler {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes,
-			registration: None,
 			runner: request.runner.clone(),
 			scheduler: Some(self.id.clone()),
-			sequence: 0,
+			sequence,
 			stopped_boot: None,
 			stopped_usage: None,
 			touched_at: now,
@@ -308,7 +297,7 @@ impl Scheduler {
 					process_id,
 					process.data.clone(),
 					process_error,
-					None,
+					0,
 				)
 				.await?;
 		}

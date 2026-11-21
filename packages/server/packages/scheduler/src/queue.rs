@@ -144,8 +144,11 @@ impl List {
 }
 
 impl SchedulerState {
+	/// Whether the scheduler can offer a sandbox, which a restarted scheduler does only once each of its runners has reported or been declared dead.
 	pub(super) fn can_schedule(&self, scheduler: &Scheduler) -> bool {
-		self.sandboxes.offers < scheduler.config.max_offers && self.queue.passing()
+		self.recovery.is_none()
+			&& self.sandboxes.offers < scheduler.config.max_offers
+			&& self.queue.passing()
 	}
 
 	pub(super) fn schedule_one(&mut self, scheduler: &Scheduler) {

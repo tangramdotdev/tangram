@@ -57,6 +57,9 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub sandbox: &'a tangram_sandbox::Sandbox,
 	pub sandbox_create: Option<tg::process::control::SandboxCreate>,
 	pub sandbox_ready_receiver: Option<tokio::sync::oneshot::Receiver<()>>,
+
+	/// The writes of the process's boot, which number the process's start and finish.
+	pub writes: crate::sandbox::Writes,
 }
 
 #[must_use]
@@ -77,6 +80,7 @@ struct ProcessTaskArg {
 	sandbox_create: Option<tg::process::control::SandboxCreate>,
 	sandbox_ready_receiver: Option<tokio::sync::oneshot::Receiver<()>>,
 	sandbox_stopper: Stopper,
+	writes: crate::sandbox::Writes,
 }
 
 struct FinishProcessRunArg {
@@ -94,6 +98,7 @@ struct FinishProcessRunArg {
 	run_task: Task<tg::Result<RunProcessOutcome>>,
 	sandbox: tangram_sandbox::Sandbox,
 	state: tg::process::State,
+	writes: crate::sandbox::Writes,
 }
 
 struct FinishProcessRunOutput {
@@ -256,6 +261,7 @@ impl Component {
 		let sandbox_ready_receiver = arg.sandbox_ready_receiver;
 		let sandbox_stopper = arg.process_stopper.clone();
 		let retention_stopper = arg.retention_stopper;
+		let writes = arg.writes;
 		arg.process_tasks.spawn(
 			async move {
 				let arg = ProcessTaskArg {
@@ -271,6 +277,7 @@ impl Component {
 					sandbox_create,
 					sandbox_ready_receiver,
 					sandbox_stopper,
+					writes,
 				};
 				let result = if session.server.shutdown.borrow().is_some() {
 					Err(tg::error!("the server is shutting down"))
@@ -304,7 +311,11 @@ impl Component {
 			sandbox_create,
 			mut sandbox_ready_receiver,
 			sandbox_stopper,
+			writes,
 		} = arg;
+
+		// Count the process's finish as unaccepted until a server accepts it, so that the end of the boot waits for it.
+		let unaccepted = writes.begin();
 		let tg::runner::control::Process {
 			mut data,
 			id,
@@ -863,6 +874,7 @@ impl Component {
 			run_task,
 			sandbox: sandbox.clone(),
 			state: state.clone(),
+			writes: writes.clone(),
 		};
 		let finish_span = tracing::Span::current();
 		let finish_task = Task::spawn({
@@ -897,6 +909,7 @@ impl Component {
 						control,
 						exited,
 						finish: finish_receiver,
+						finished: unaccepted,
 						local: control_receiver,
 						location,
 						outcome_sync: outcome_sync_receiver,
@@ -954,6 +967,7 @@ impl Component {
 			data: data.clone(),
 			lease,
 			options: options.clone(),
+			sequence: writes.next(),
 			shortcut,
 		};
 		let arg = tg::process::control::Arg {
@@ -1175,6 +1189,7 @@ impl Component {
 			run_task,
 			sandbox,
 			state,
+			writes,
 		} = arg;
 		let result = run_task
 			.wait()
@@ -1401,7 +1416,10 @@ impl Component {
 		let mut finish_data = data.clone();
 		Self::inherit_process_control_tokens(&mut finish_data, &location);
 		let arg = tg::process::control::ClientRequestArg::Finish(
-			tg::process::control::FinishClientRequestArg { data: finish_data },
+			tg::process::control::FinishClientRequestArg {
+				data: finish_data,
+				sequence: writes.next(),
+			},
 		);
 		let response = Self::send_process_control_client_request_inner(
 			&control,
@@ -1611,7 +1629,7 @@ impl Component {
 			defer_index: false,
 			location: Some(location.clone()),
 			outcome_sync: None,
-			registration: None,
+			sequence: 0,
 			store_data: location.is_remote(),
 		};
 		let arg = tg::process::put::Arg {
@@ -2038,7 +2056,6 @@ impl Component {
 			parent: parent.cloned(),
 			permissions: Vec::new(),
 			principal: tg::Principal::Process(id.clone()),
-			registration: None,
 			sandbox: Some(sandbox.clone()),
 			sequence: 1,
 			storage: tg::process::storage::Set::NODE,

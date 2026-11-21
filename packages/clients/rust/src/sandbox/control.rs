@@ -264,6 +264,15 @@ pub struct DestroyClientRequestArg {
 
 	#[tangram_serialize(id = 1)]
 	pub processes: Vec<tg::process::Id>,
+
+	/// The number of the end among the runner's writes of the boot.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_default")]
+	#[tangram_serialize(
+		default,
+		id = 2,
+		skip_serializing_if = "tangram_util::serde::is_default"
+	)]
+	pub sequence: u64,
 }
 
 #[derive(
@@ -444,6 +453,15 @@ pub struct StopClientRequestArg {
 
 	#[tangram_serialize(id = 1)]
 	pub processes: Vec<tg::process::Id>,
+
+	/// The number of the end among the runner's writes of the boot.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_default")]
+	#[tangram_serialize(
+		default,
+		id = 2,
+		skip_serializing_if = "tangram_util::serde::is_default"
+	)]
+	pub sequence: u64,
 }
 
 #[derive(
@@ -538,7 +556,7 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
 	pub runner: Option<tg::runner::Id>,
 
-	/// The sequence of the runner's write of the connection, which follows the writes of the boot's scheduler.
+	/// The number of the runner's write of the connection among its writes of the boot, which follows the writes of the boot's scheduler.
 	#[serde(default, skip_serializing_if = "tangram_util::serde::is_default")]
 	#[tangram_serialize(
 		default,
