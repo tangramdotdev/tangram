@@ -16,9 +16,6 @@ impl Index {
 		process_data_fragment_size: usize,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
-		if let Err(error) = arg.validate() {
-			return Ok(ControlFlow::Break(Err(error)));
-		}
 		if let Some(registration) = &arg.registration {
 			let result = crate::propagate!(
 				Self::check_runner_registration_with_transaction(txn, subspace, registration).await
@@ -28,24 +25,11 @@ impl Index {
 			}
 		}
 
-		// Reject a conditional finish unless the process's sandbox is still at the boot that the put names.
-		if let Some(expected) = &arg.sandbox_boot {
-			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(expected.sandbox.clone()));
-			let key = Self::pack(subspace, &key);
-			let result = txn.get(&key, false).await;
-			let sandbox = crate::retry!(result)
-				.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
-				.transpose()?;
-			if let Err(error) = arg.validate_sandbox_boot(sandbox.as_ref()) {
-				return Ok(ControlFlow::Break(Err(error)));
-			}
-		}
-
 		let id = &arg.id;
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		// Get the existing process, the existing data when the validation compares another principal's data, and whether the parent accepts the process as a child concurrently.
+		// Get the existing process, the existing data when the validation compares another principal's data, whether the parent accepts the process as a child, and the sandbox that the merge reads concurrently.
 		let compare = arg.data.is_some() && arg.principal != tg::Principal::Process(id.clone());
 		let process = Self::try_get_process_with_transaction(txn, subspace, id);
 		let data = async {
@@ -60,7 +44,20 @@ impl Index {
 			};
 			Self::try_get_process_accepts_child_with_transaction(txn, subspace, parent, id).await
 		};
-		let (existing, existing_data, accepted) = futures::try_join!(process, data, accepted)?;
+		let sandbox = async {
+			let Some(sandbox) = arg.context_sandbox() else {
+				return Ok(ControlFlow::Break(None));
+			};
+			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(sandbox.clone()));
+			let key = Self::pack(subspace, &key);
+			let result = txn.get(&key, false).await;
+			let sandbox = crate::retry!(result)
+				.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
+				.transpose()?;
+			Ok::<_, tg::Error>(ControlFlow::Break(sandbox))
+		};
+		let (existing, existing_data, accepted, sandbox) =
+			futures::try_join!(process, data, accepted, sandbox)?;
 		let existing = match existing {
 			ControlFlow::Break(existing) => existing,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
@@ -73,73 +70,47 @@ impl Index {
 			ControlFlow::Break(accepted) => accepted,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
+		let sandbox = match sandbox {
+			ControlFlow::Break(sandbox) => sandbox,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 
-		// Ignore a queued record that arrives after the process started, except for its permissions, because writes may be applied out of order.
-		if arg
-			.data
-			.as_ref()
-			.is_some_and(|data| data.status.is_queued())
-			&& existing
-				.as_ref()
-				.is_some_and(|existing| existing.status.is_some())
-		{
-			crate::propagate!(
-				Self::put_permissions_with_transaction(
-					txn,
-					subspace,
-					&arg.permissions,
-					partition_totals
-				)
-				.await
-			);
-			return Ok(ControlFlow::Break(Ok(())));
-		}
-
-		// Get the existing data when the process rewrites its own finished data, which the validation compares.
-		if arg.data.is_some()
-			&& !compare
-			&& existing
-				.as_ref()
-				.and_then(|existing| existing.status)
-				.is_some_and(|status| status.is_finished())
-		{
+		// Get the existing data when the merge compares it and it was not read, which is when the process rewrites its own finished data.
+		if !compare && arg.compares_data(existing.as_ref()) {
 			existing_data = crate::propagate!(
 				Self::try_get_process_data_with_transaction(txn, subspace, id).await
 			);
 		}
 
-		// Validate process data and children against the existing record in this write transaction.
-		if let Some(existing) = &existing {
-			if let Err(error) = arg.validate_existing(existing, existing_data.as_ref())? {
-				return Ok(ControlFlow::Break(Err(error)));
-			}
-			if !arg.principal.is_root()
-				&& arg.principal != tg::Principal::Process(id.clone())
-				&& let Some(children) = &arg.children
-			{
-				if !existing.set.children {
-					return Ok(ControlFlow::Break(Err(tg::error!(
-						"cannot verify the existing process children"
-					))));
-				}
-				let children = crate::propagate!(
-					Self::try_get_process_children_page_with_transaction(
-						txn,
-						subspace,
-						id,
-						std::io::SeekFrom::Start(0),
-						children.len() as u64 + 1
-					)
-					.await
+		// Get the existing children when the merge compares them.
+		let existing_children = if arg.compares_children(existing.as_ref()) {
+			let length = arg.children.as_ref().map_or(0, Vec::len) as u64 + 1;
+			crate::propagate!(
+				Self::try_get_process_children_page_with_transaction(
+					txn,
+					subspace,
+					id,
+					std::io::SeekFrom::Start(0),
+					length
 				)
-				.unwrap_or_default();
-				if let Err(error) = arg.validate_children(&children)? {
-					return Ok(ControlFlow::Break(Err(error)));
-				}
-			}
-		}
+				.await
+			)
+		} else {
+			None
+		};
 
-		if existing.is_none() || (arg.data.is_some() && arg.children.is_some()) {
+		// Merge the put with the existing record in this write transaction.
+		let context = tangram_index::process::put::Context {
+			accepts_child: accepted,
+			children: existing_children.as_deref(),
+			data: existing_data.as_ref(),
+			sandbox: sandbox.as_ref(),
+		};
+		let merge = match arg.merge(existing.as_ref(), context)? {
+			Ok(merge) => merge,
+			Err(error) => return Ok(ControlFlow::Break(Err(error))),
+		};
+		if merge.permissions {
 			crate::propagate!(
 				Self::put_permissions_with_transaction(
 					txn,
@@ -150,136 +121,20 @@ impl Index {
 				.await
 			);
 		}
-
-		// Preserve the stored data after validating an identical write.
-		let mut arg = std::borrow::Cow::Borrowed(arg);
-		if let Some(status) = existing.as_ref().and_then(|existing| existing.status)
-			&& (arg.principal != tg::Principal::Process(id.clone()) || status.is_finished())
-		{
-			arg.to_mut().data = None;
-		}
-
-		let arg = arg.as_ref();
-		let merge = !arg.complete();
-
-		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
-		let touch = existing.as_ref().is_none_or(|existing| {
-			arg.touched_at.saturating_sub(existing.touched_at) >= time_to_touch
-		});
-		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
-			if touch {
-				existing.touched_at.max(arg.touched_at)
-			} else {
-				existing.touched_at
-			}
-		});
-		let children_changed = arg.children.is_some()
-			&& existing
-				.as_ref()
-				.is_none_or(|existing| !existing.set.children);
-		let command_changed = arg.command.is_some()
-			&& existing
-				.as_ref()
-				.is_none_or(|existing| !existing.set.command_objects);
-		let error_changed = arg.error.is_some()
-			&& existing
-				.as_ref()
-				.is_none_or(|existing| !existing.set.error_objects);
-		let log_changed = arg.log.is_some()
-			&& existing
-				.as_ref()
-				.is_none_or(|existing| !existing.set.log_objects);
-		let output_changed = arg.output.is_some()
-			&& existing
-				.as_ref()
-				.is_none_or(|existing| !existing.set.output_objects);
-		// A child relationship belongs to the indexed parent, which accepts it unless the parent finished without listing it.
-		let parent_changed = accepted == Some(true);
-		let sandbox_changed = arg.sandbox.is_some();
-		let mut set = arg.set();
-		if merge && let Some(ref existing) = existing {
-			set.merge(&existing.set);
-		}
-
-		let mut storage = arg.storage;
-		if merge && let Some(ref existing) = existing {
-			storage.insert(existing.storage);
-		}
-
-		let mut metadata = arg.metadata.clone();
-		if merge && let Some(ref existing) = existing {
-			metadata.merge(&existing.metadata);
-		}
-
-		let mut data = arg.data.clone();
-		if let Some(data) = &mut data {
-			data.children = None;
-		}
-		let status = data
-			.as_ref()
-			.map(|data| data.status)
-			.or_else(|| existing.as_ref().and_then(|existing| existing.status));
-		let creator = data.as_ref().map_or_else(
-			|| {
-				existing
-					.as_ref()
-					.map_or_default(|existing| existing.creator.clone())
-			},
-			|data| data.creator.clone(),
-		);
-		let owner = data.as_ref().map_or_else(
-			|| {
-				existing
-					.as_ref()
-					.map_or_default(|existing| existing.owner.clone())
-			},
-			|data| data.owner.clone(),
-		);
-
-		let location = arg.location.clone().or_else(|| {
-			existing
-				.as_ref()
-				.and_then(|existing| existing.location.clone())
-		});
-		let sandbox = arg.data.as_ref().map_or_else(
-			|| {
-				arg.sandbox.clone().or_else(|| {
-					existing
-						.as_ref()
-						.and_then(|existing| existing.sandbox.clone())
-				})
-			},
-			|data| data.sandbox.clone(),
-		);
-		let changed = parent_changed
-			|| sandbox_changed
-			|| arg.data.is_some()
-			|| existing.as_ref().is_none_or(|existing| {
-				existing.location != location
-					|| existing.metadata != metadata
-					|| existing.sandbox != sandbox
-					|| existing.set != set
-					|| existing.storage != storage
-			});
-		if !changed && !touch {
+		let Some(update) = merge.update else {
 			return Ok(ControlFlow::Break(Ok(())));
-		}
-
-		let process = tangram_index::process::Process {
-			command_id: arg.command_id.clone(),
-			creator: creator.clone(),
-			location,
-			metadata,
-			owner: owner.clone(),
-			reference_count: existing
-				.as_ref()
-				.map_or(0, |existing| existing.reference_count),
-			sandbox,
-			set,
-			status,
-			storage,
-			touched_at,
 		};
+		let tangram_index::process::put::Update {
+			added,
+			changed,
+			data,
+			parent: parent_changed,
+			process,
+		} = update;
+		let touched_at = process.touched_at;
+		let status = process.status;
+		let creator = process.creator.clone();
+		let owner = process.owner.clone();
 		let complete = process.complete();
 		let value = process.serialize()?;
 		txn.set(&key, &value);
@@ -313,7 +168,9 @@ impl Index {
 			Self::put_process_data(txn, subspace, id, &bytes, process_data_fragment_size);
 		}
 
-		if children_changed && let Some(children) = &arg.children {
+		if added.children
+			&& let Some(children) = &arg.children
+		{
 			let id_bytes = id.to_bytes();
 			let prefix = (Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
 			let prefix = Self::pack(subspace, &prefix);
@@ -506,10 +363,10 @@ impl Index {
 		for ((object, kind, key), result) in objects.into_iter().zip(results) {
 			let previous = crate::retry!(result);
 			let added = match kind {
-				tangram_index::process::object::Kind::Command => command_changed,
-				tangram_index::process::object::Kind::Error => error_changed,
-				tangram_index::process::object::Kind::Log => log_changed,
-				tangram_index::process::object::Kind::Output => output_changed,
+				tangram_index::process::object::Kind::Command => added.command_objects,
+				tangram_index::process::object::Kind::Error => added.error_objects,
+				tangram_index::process::object::Kind::Log => added.log_objects,
+				tangram_index::process::object::Kind::Output => added.output_objects,
 			};
 			if previous.is_some() || !added || !added_keys.insert(key.clone()) {
 				continue;

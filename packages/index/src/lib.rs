@@ -1,6 +1,8 @@
 use {futures::FutureExt as _, tangram_client::prelude::*};
 
 mod item;
+#[cfg(test)]
+mod tests;
 
 pub use self::item::{Affinity, Item};
 
