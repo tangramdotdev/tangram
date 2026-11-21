@@ -35,18 +35,12 @@ checkpoint unwatch $end
 # Hold the connection of any later boot of the sandbox, so that a boot that the scheduler started again would keep the runner's capacity.
 let connect = checkpoint watch sandbox.control.connect --params { sandbox: $sandbox } --token $root_token --url $url
 
-# Start the sandbox while the index still records the destroyed boot as starting, so that the start sends the boot's enqueue again, and let the scheduler answer the enqueue and the start before the index records the destruction.
-let resume = checkpoint watch sandbox.start.resume --params { sandbox: $sandbox } --token $root_token --url $url
-let enqueued = checkpoint watch scheduler.sandbox.enqueued --params { sandbox: $sandbox } --token $root_token --url $url
+# Start the sandbox while the index still records the destroyed boot as starting, so that the start's request reaches the scheduler, which holds the ended boot, and let the scheduler answer the start before the index records the destruction.
 let reply = checkpoint watch sandbox.control.response.publish --params { kind: start, sandbox: $sandbox } --token $root_token --url $url
 let start = job spawn {
 	let id = job id
 	timeout 30s tg --url $url --token $root_token sandbox start $sandbox | complete | job send --tag $id 0
 }
-checkpoint pass $resume | ignore
-checkpoint unwatch $resume
-checkpoint pass $enqueued | ignore
-checkpoint unwatch $enqueued
 checkpoint pass $reply | ignore
 checkpoint unwatch $reply
 checkpoint unwatch $write

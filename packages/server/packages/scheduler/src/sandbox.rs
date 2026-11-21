@@ -25,12 +25,8 @@ pub(super) struct Sandboxes {
 	/// The sandboxes that the scheduler tracks, from their enqueues until the index has recorded their ends or their runners report their ends.
 	pub(super) entries: Entries,
 
-	/// The tasks that serve the requests to the holders of the sandboxes that this scheduler holds or has offered to a runner, and of their queued processes, until their control connections are established.
-	pub(super) holders: HashMap<
-		tg::sandbox::Id,
-		Vec<tangram_futures::task::Task<tg::Result<()>>>,
-		tg::id::BuildHasher,
-	>,
+	/// The tasks that serve the requests to the holders of the sandboxes that this scheduler knows, and of their queued processes until a runner holds them, which are absent until the subscriptions are established.
+	pub(super) holders: HashMap<tg::sandbox::Id, Option<HolderTasks>, tg::id::BuildHasher>,
 
 	/// Whether the scheduler awaits indexing for sandboxes that it ended.
 	pub(super) indexing: bool,
@@ -40,6 +36,20 @@ pub(super) struct Sandboxes {
 
 	/// The sandboxes that the scheduler ended, with their boots, whose terminal states are written and which the next await of indexing covers.
 	pub(super) written: Vec<(tg::sandbox::Id, u64)>,
+}
+
+/// The tasks that serve the requests to the holders of a sandbox and of its queued process, and observe its control connection.
+#[expect(
+	dead_code,
+	reason = "the tasks run until they are dropped, so the scheduler keeps them without reading them"
+)]
+pub(super) struct HolderTasks {
+	pub(super) connected: tangram_futures::task::Task<tg::Result<()>>,
+
+	/// The task that serves the requests to the holder of the sandbox's queued process, which stops once a runner holds the process.
+	pub(super) process: Option<tangram_futures::task::Task<tg::Result<()>>>,
+
+	pub(super) requests: tangram_futures::task::Task<tg::Result<()>>,
 }
 
 /// What remains to be sent after the state is updated for a sandbox that a runner holds.
@@ -273,6 +283,23 @@ impl SchedulerState {
 			self.finish_enqueue(scheduler, ids, &sandbox, Err(error));
 			return;
 		}
+
+		// Start the next boot of a stopped sandbox with a write that the index applies only while the sandbox is stopped at the boot before it, and hold the boot only once the write applies, so that of several starts only one creates the boot.
+		if !recovered && request.boot > 0 {
+			let scheduler = scheduler.clone();
+			self.operations.push(
+				async move {
+					let result = scheduler.reserve_sandbox_boot(&request).await;
+					Operation::ReserveSandbox {
+						ids,
+						request,
+						result,
+					}
+				}
+				.boxed(),
+			);
+			return;
+		}
 		let sandbox = request.sandbox.clone();
 		let result = self.enqueue_sandbox(scheduler, request, recovered);
 
@@ -288,6 +315,38 @@ impl SchedulerState {
 		}
 
 		self.finish_enqueue(scheduler, ids, &sandbox, result.map(|_| ()));
+	}
+
+	/// Hold the boot that the start's write reserved, whose record and queue entry the write recorded, or reply that the sandbox is no longer stopped at the boot before it. A write that failed did not apply, because the reservation reads the index after a failed write and reports a write that applied as reserved.
+	pub(super) fn handle_reserve_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		ids: Vec<String>,
+		request: EnqueueSandboxRequestArg,
+		result: tg::Result<bool>,
+	) {
+		match result {
+			Ok(true) if self.sandboxes.entries.contains_key(&request.sandbox) => {
+				let sandbox = request.sandbox;
+				self.finish_enqueue(scheduler, ids, &sandbox, Ok(()));
+			},
+			Ok(true) => {
+				let sandbox = request.sandbox.clone();
+				let result = self.enqueue_sandbox(scheduler, request, true);
+				self.finish_enqueue(scheduler, ids, &sandbox, result.map(|_| ()));
+			},
+			Ok(false) => {
+				for id in ids {
+					let output =
+						ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput::Superseded);
+					let response = super::request::Response::new(id, Ok(output));
+					scheduler.send_response(self, response);
+				}
+			},
+			Err(error) => {
+				self.send_enqueue_responses(scheduler, ids, Err(error));
+			},
+		}
 	}
 
 	/// Respond to enqueue requests. A request that the scheduling task accepted responds once either its index write is enqueued or a runner accepts the sandbox, whichever is first.
@@ -789,6 +848,9 @@ impl SchedulerState {
 			Tracked::Inserted { ids } => {
 				let error = tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
 				self.send_enqueue_responses(scheduler, ids, Err(error));
+
+				// Serve the spawns into the sandbox, which this scheduler sends to its runner.
+				self.serve_sandbox_holder(scheduler, id, None);
 			},
 		}
 	}

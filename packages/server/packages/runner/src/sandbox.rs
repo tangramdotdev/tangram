@@ -78,6 +78,7 @@ struct SandboxTaskArg {
 	process: Option<tg::runner::control::Process>,
 	proof: Option<tg::sandbox::id::Proof>,
 	public: bool,
+	scheduled: bool,
 	stopper: Stopper,
 	token: Option<String>,
 }
@@ -125,6 +126,7 @@ struct SandboxTaskInnerArg {
 	process_task_output: Option<SpawnProcessTaskOutput>,
 	process_tasks: JoinSet<tg::Result<()>>,
 	processes: Arc<tangram_server_process_core::Processes>,
+	scheduled: bool,
 	state: tg::sandbox::get::Output,
 	stopper: Stopper,
 }
@@ -141,6 +143,7 @@ struct RunSandboxTaskArg {
 	process_tasks: JoinSet<tg::Result<()>>,
 	processes: Arc<tangram_server_process_core::Processes>,
 	sandbox: tangram_sandbox::Sandbox,
+	scheduled: bool,
 	serve_task: Task<()>,
 	state: tg::sandbox::get::Output,
 	stopper: Stopper,
@@ -426,6 +429,7 @@ impl Component {
 			process: arg.process,
 			proof,
 			public: arg.public,
+			scheduled: arg.scheduled,
 			stopper: stopper.clone(),
 			token,
 		};
@@ -530,6 +534,7 @@ impl Component {
 			process,
 			proof,
 			public,
+			scheduled,
 			stopper,
 			token,
 		} = arg;
@@ -912,6 +917,7 @@ impl Component {
 			process_task_output,
 			process_tasks,
 			processes,
+			scheduled,
 			state,
 			stopper,
 		};
@@ -1453,6 +1459,7 @@ impl Component {
 			process_task_output,
 			process_tasks,
 			processes,
+			scheduled,
 			state,
 			stopper,
 		} = arg;
@@ -1476,6 +1483,7 @@ impl Component {
 			process_tasks,
 			processes,
 			sandbox,
+			scheduled,
 			serve_task,
 			state,
 			stopper,
@@ -1545,6 +1553,7 @@ impl Component {
 			mut process_tasks,
 			processes,
 			sandbox,
+			scheduled,
 			serve_task,
 			state,
 			stopper,
@@ -1552,6 +1561,27 @@ impl Component {
 
 		let sender = control.sender();
 		let process_stopper = std::mem::DropGuard::new(process_stopper, |stopper| stopper.stop());
+
+		// Report a sandbox that this runner started on the shortcut path to the runner's scheduler in a task, so that the scheduler knows the sandbox and sends the spawns into it, and nothing on the shortcut's path waits for the report.
+		let reported = Arc::new(AtomicBool::new(scheduled));
+		let _report_task = (!scheduled).then(|| {
+			let boot = state.data.boot;
+			let component = self.clone();
+			let id = id.clone();
+			let reported = reported.clone();
+			let stopper = stopper.clone();
+			Task::spawn(move |_| async move {
+				match component
+					.report_shortcut_sandbox_with_runner_control(&id, boot, &stopper)
+					.await
+				{
+					Ok(()) => reported.store(true, Ordering::Release),
+					Err(error) => {
+						tracing::error!(error = %error.trace(), sandbox = %id, "failed to report the sandbox to the scheduler");
+					},
+				}
+			})
+		});
 
 		// Create the process events.
 		let mut process_events = StreamMap::new();
@@ -1696,6 +1726,37 @@ impl Component {
 								.map(|sandbox| tg::sandbox::control::ClientResponseOutput::GetProcesses(sandbox.processes(arg.position, arg.length)))
 								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
 							tg::sandbox::control::ServerRequestArg::SpawnProcess(request) => {
+								// Reply to a server's spawn that the runner does not hold the sandbox, because the sandbox's scheduler sends the spawn to the runner with the boot, or that the runner is not ready until the scheduler has acknowledged the report of a sandbox that the runner started on the shortcut path, and refuse a spawn for a boot that the runner is not running.
+								let remote = matches!(message.sender, Reply::Remote { .. });
+								match request.boot {
+									None if remote => {
+										let retry = if reported.load(Ordering::Acquire) {
+											tg::control::Retry::NotHolder
+										} else {
+											tg::control::Retry::NotReady
+										};
+										message.sender
+											.send_retry(retry)
+											.await
+											.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))?;
+										continue;
+									},
+									Some(requested) if requested != boot => {
+										let error = tg::error!(
+											code = tg::error::Code::Cancellation,
+											%id,
+											%boot,
+											%requested,
+											"the spawn is for another boot of the sandbox"
+										);
+										message.sender
+											.send(Err(error))
+											.await
+											.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))?;
+										continue;
+									},
+									None | Some(_) => {},
+								}
 								timer_future.take();
 
 								// Spawn the process task.
@@ -3224,6 +3285,7 @@ impl Component {
 			processes: processes.map(<[_]>::to_vec),
 			registration: None,
 			runner: None,
+			scheduler: None,
 			sequence,
 			stopped_boot: None,
 			stopped_usage: None,

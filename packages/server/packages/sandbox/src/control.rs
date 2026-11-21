@@ -375,7 +375,12 @@ impl Component {
 							tg::control::Retry::NotHolder,
 						);
 						component
-							.publish_sandbox_holder_response(&server, &id, response)
+							.publish_sandbox_holder_response(
+								&server,
+								&id,
+								tangram_server_core::sandbox::Holder::Runner,
+								response,
+							)
 							.await?;
 						return Ok(());
 					}
@@ -396,7 +401,12 @@ impl Component {
 			}
 		};
 		let server_messages_task = self
-			.serve_sandbox_holder(&session.server, &id, handle)
+			.serve_sandbox_holder(
+				&session.server,
+				&id,
+				tangram_server_core::sandbox::Holder::Runner,
+				handle,
+			)
 			.await?;
 
 		// Publish the sandbox's status only now that the connection serves the sandbox's holder, so that a request sent again on the status change reaches the holder.
@@ -416,7 +426,12 @@ impl Component {
 						tg::sandbox::control::ClientMessage::Ack(ack) => {
 							if forwarded_requests.contains(&ack.id) {
 								component
-									.publish_sandbox_holder_ack(&session.server, &id, ack)
+									.publish_sandbox_holder_ack(
+										&session.server,
+										&id,
+										tangram_server_core::sandbox::Holder::Runner,
+										ack,
+									)
 									.await?;
 							}
 						},
@@ -471,7 +486,12 @@ impl Component {
 								continue;
 							}
 							component
-								.publish_sandbox_holder_response(&session.server, &id, response)
+								.publish_sandbox_holder_response(
+									&session.server,
+									&id,
+									tangram_server_core::sandbox::Holder::Runner,
+									response,
+								)
 								.await?;
 						},
 					}
@@ -564,6 +584,7 @@ impl Component {
 			processes: None,
 			registration: None,
 			runner,
+			scheduler: None,
 			sequence: 0,
 			stopped_boot: None,
 			stopped_usage: None,
