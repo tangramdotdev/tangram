@@ -157,7 +157,7 @@ impl SchedulerState {
 				&& let Some(entry) = self.runners.entries.get(&runner.id)
 			{
 				let block = Block {
-					registration_index: entry.registration_index,
+					connection: entry.connection,
 					heartbeat_index: entry.heartbeat_index,
 				};
 				self.sandboxes
@@ -193,7 +193,7 @@ impl SchedulerState {
 		let Some(runner) = self.runners.entries.get_mut(&runner_ref.id) else {
 			return;
 		};
-		if runner.registration_index != runner_ref.registration_index {
+		if runner.connection != runner_ref.connection {
 			return;
 		}
 		let Some(reserved) = runner.reservations.remove(id) else {
@@ -210,6 +210,10 @@ impl SchedulerState {
 		scheduler: &Scheduler,
 		id: &tg::sandbox::Id,
 	) -> bool {
+		// Offer nothing while a restarted scheduler waits for its runners to report, because a runner may hold a boot that the scheduler would otherwise offer again.
+		if self.recovery.is_some() {
+			return false;
+		}
 		let Some(sandbox) = self.sandboxes.entries.get(id) else {
 			return false;
 		};
@@ -415,9 +419,11 @@ impl SchedulerState {
 				} => {
 					let runner = placement.runner();
 					current == offer
-						&& self.runners.entries.get(&runner.id).is_some_and(|entry| {
-							entry.registration_index == runner.registration_index
-						})
+						&& self
+							.runners
+							.entries
+							.get(&runner.id)
+							.is_some_and(|entry| entry.connection == runner.connection)
 				},
 				State::Accepted { .. } | State::Queued | State::Terminal { .. } => false,
 			});
@@ -470,7 +476,7 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 			session,
 			&runner.id,
 			scheduler,
-			runner.registration_index,
+			runner.connection,
 			offer,
 			arg,
 			options,

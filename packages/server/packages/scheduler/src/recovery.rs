@@ -21,7 +21,7 @@ pub(super) struct Recovery {
 
 #[derive(Clone)]
 struct Claim {
-	registration_index: u64,
+	connection: u64,
 	request: EnqueueSandboxRequestArg,
 	runner: tg::runner::Id,
 }
@@ -73,8 +73,8 @@ impl Scheduler {
 				self.server.index.try_get_runner(&id).await.map_err(
 					|error| tg::error!(!error, runner = %id, "failed to get the runner"),
 				)?;
-			if let Some(runner) = runner {
-				runners.insert(id, runner.registration);
+			if runner.is_some() {
+				runners.insert(id, 0);
 			}
 		}
 		tracing::info!(
@@ -126,7 +126,7 @@ impl SchedulerState {
 		&mut self,
 		scheduler: &Scheduler,
 		runner: &tg::runner::Id,
-		registration_index: u64,
+		connection: u64,
 		sandboxes: &[tg::runner::control::ArgSandbox],
 	) {
 		let Some(recovery) = &mut self.recovery else {
@@ -140,7 +140,7 @@ impl SchedulerState {
 			{
 				let request = recovery.requests.remove(&sandbox.id).unwrap();
 				let claim = Claim {
-					registration_index,
+					connection,
 					request,
 					runner: runner.clone(),
 				};
@@ -190,7 +190,7 @@ impl SchedulerState {
 			return;
 		};
 		let runners = std::mem::take(&mut recovery.runners);
-		for (runner, registration_index) in runners {
+		for (runner, connection) in runners {
 			tracing::warn!(%runner, "the runner did not report after the scheduler restarted");
 
 			// Leave the restarts that are queued for the runner to this scheduler, which holds them.
@@ -200,10 +200,7 @@ impl SchedulerState {
 				.filter(|(_, request)| request.boot > 0 && request.runner.as_ref() == Some(&runner))
 				.map(|(id, _)| id.clone())
 				.collect::<Vec<_>>();
-			let request = RemoveRunnerRequestArg {
-				registration_index,
-				runner,
-			};
+			let request = RemoveRunnerRequestArg { connection, runner };
 			let scheduler = scheduler.clone();
 			self.operations.push(
 				async move {
@@ -269,7 +266,7 @@ impl SchedulerState {
 					.unwrap_or_default();
 				let destroy = super::sandbox::DestroySandbox {
 					error,
-					registration_index: claim.registration_index,
+					connection: claim.connection,
 					request: Some(claim.request),
 					runner: claim.runner,
 					sandbox: id,
@@ -279,13 +276,13 @@ impl SchedulerState {
 				.runners
 				.entries
 				.get(&claim.runner)
-				.is_some_and(|runner| runner.registration_index == claim.registration_index)
+				.is_some_and(|runner| runner.connection == claim.connection)
 			{
 				// Treat the runner's report of the boot as its acceptance, and write the handoff, which this scheduler may not have written before it restarted.
 				let boot = claim.request.boot;
 				self.hand_off_sandbox(scheduler, claim.request.clone(), claim.runner.clone());
 				let runner = super::placement::RunnerRef {
-					registration_index: claim.registration_index,
+					connection: claim.connection,
 					id: claim.runner,
 				};
 				self.track_accepted_sandbox(scheduler, &id, boot, Some(claim.request), runner);
@@ -320,6 +317,9 @@ impl SchedulerState {
 				self.handle_enqueue_sandbox_request(scheduler, None, request, true);
 			}
 		}
+
+		// Offer the sandboxes, which waited for the runners to report.
+		self.queue.wake();
 	}
 }
 
@@ -362,7 +362,7 @@ impl Component {
 				.time_to_live
 				.is_some_and(|time_to_live| time_to_live.is_zero())
 			{
-				self.destroy_runner_sandbox(server, &id, Some(error.clone()), true)
+				self.destroy_runner_sandbox(server, &id, Some(error.clone()), None, true)
 					.boxed()
 					.await
 			} else {
@@ -375,7 +375,7 @@ impl Component {
 			}
 		}
 
-		// End the sandboxes of the other runners with their registrations.
+		// Take over the boots of the other runners.
 		let local = server.components.runner.local_runner_id(server);
 		let runners = server
 			.index
@@ -386,31 +386,16 @@ impl Component {
 			if local.as_ref() == Some(&runner) {
 				continue;
 			}
-			let Some(indexed) = server
-				.index
-				.try_get_runner(&runner)
-				.await
-				.map_err(|error| tg::error!(!error, %runner, "failed to get the runner"))?
-			else {
-				continue;
-			};
-			let registration = tangram_index::runner::Registration {
-				index: indexed.registration,
-				runner: runner.clone(),
-				scheduler: id.clone(),
-			};
 			let arg = super::runner::EndRunnerSandboxesArg {
-				accepted: None,
 				checkpoint: "scheduler.runner.recovered",
 				directories: None,
 				error: error.clone(),
+				fence: None,
 				held: Vec::new(),
 				queued: Vec::new(),
+				runner: runner.clone(),
 			};
-			let result = self
-				.end_runner_sandboxes(server, &registration, arg)
-				.boxed()
-				.await;
+			let result = self.end_runner_sandboxes(server, &id, arg).boxed().await;
 			if let Err(error) = result {
 				tracing::error!(%runner, error = %error.trace(), "failed to end the runner's sandboxes");
 			}

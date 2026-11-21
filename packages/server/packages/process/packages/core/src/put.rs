@@ -9,7 +9,5 @@ pub struct Options {
 
 	pub outcome_sync: Option<tg::Referent<tg::sync::Id>>,
 
-	pub registration: Option<tangram_index::runner::Registration>,
-
 	pub store_data: bool,
 }

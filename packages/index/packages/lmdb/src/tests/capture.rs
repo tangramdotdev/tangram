@@ -406,7 +406,6 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 		parent: None,
 		permissions: Vec::new(),
 		principal: tg::Principal::Process(process.clone()),
-		registration: None,
 		sandbox: None,
 		sequence: 0,
 		storage: tg::process::storage::Set::NODE,

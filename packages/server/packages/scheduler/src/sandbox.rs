@@ -70,7 +70,7 @@ pub(super) enum Tracked {
 /// A destroy of a sandbox on a runner. The request is present if the sandbox has a record to finish.
 pub(super) struct DestroySandbox {
 	pub(super) error: tg::error::Data,
-	pub(super) registration_index: u64,
+	pub(super) connection: u64,
 	pub(super) request: Option<EnqueueSandboxRequestArg>,
 	pub(super) runner: tg::runner::Id,
 	pub(super) sandbox: tg::sandbox::Id,
@@ -752,7 +752,7 @@ impl SchedulerState {
 						&session,
 						&destroy.runner,
 						&scheduler_id,
-						destroy.registration_index,
+						destroy.connection,
 						tangram_server_core::control::id(),
 						arg,
 						options,
@@ -788,11 +788,11 @@ impl SchedulerState {
 			.runners
 			.entries
 			.get(&destroy.runner)
-			.map(|runner| runner.registration_index);
+			.map(|runner| runner.connection);
 		match (result, current) {
 			(Ok(true), _) => (),
-			(Err(_), Some(registration_index)) => {
-				destroy.registration_index = registration_index;
+			(Err(_), Some(connection)) => {
+				destroy.connection = connection;
 				self.send_destroy_sandbox(scheduler, destroy);
 			},
 			(Ok(false), _) | (Err(_), None) => {
@@ -890,7 +890,7 @@ impl SchedulerState {
 					let error = error.clone().and_then(tg::Either::left).unwrap_or_default();
 					let destroy = DestroySandbox {
 						error,
-						registration_index: runner.registration_index,
+						connection: runner.connection,
 						request: None,
 						runner: runner.id,
 						sandbox: id.clone(),
@@ -934,7 +934,7 @@ impl SchedulerState {
 						&entry.state,
 						State::Accepted { runner }
 							if runner.id == notification.runner
-								&& runner.registration_index == notification.registration_index
+								&& runner.connection == notification.connection
 					)
 			});
 		if ended {

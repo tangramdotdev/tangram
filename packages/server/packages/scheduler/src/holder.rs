@@ -810,7 +810,6 @@ impl Scheduler {
 					process_id,
 					process.data.clone(),
 					error.to_data_or_id(),
-					None,
 				)
 				.await?;
 		}

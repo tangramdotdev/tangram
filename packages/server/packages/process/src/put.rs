@@ -33,7 +33,6 @@ impl Component {
 					defer_index: false,
 					location: None,
 					outcome_sync: None,
-					registration: None,
 					store_data: true,
 				};
 				(
@@ -137,7 +136,6 @@ impl Component {
 			defer_index,
 			location,
 			outcome_sync,
-			registration,
 			store_data,
 		} = options;
 		let now = session.server.clock.unix_timestamp();
@@ -223,7 +221,6 @@ impl Component {
 			parent: None,
 			permissions: Vec::new(),
 			principal: principal.clone(),
-			registration,
 			sandbox: None,
 			sequence: 0,
 			storage: tg::process::storage::Set::NODE,

@@ -426,11 +426,9 @@ impl Component {
 		session: &Session,
 		runner: &tg::runner::Id,
 		scheduler: &tg::scheduler::Id,
-		registration_index: u64,
 	) -> tg::Result<()> {
 		let arg = tangram_index::runner::put::Arg {
 			id: runner.clone(),
-			registration: registration_index,
 			scheduler: scheduler.clone(),
 		};
 		let arg = tangram_index::write::Arg {
@@ -1548,9 +1546,8 @@ impl tangram_server_core::runner::Component for Component {
 		session: &'a tangram_server_core::Session,
 		runner: &'a tg::runner::Id,
 		scheduler: &'a tg::scheduler::Id,
-		registration_index: u64,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.set_runner_scheduler(session, runner, scheduler, registration_index)
+		self.set_runner_scheduler(session, runner, scheduler)
 			.boxed()
 	}
 
@@ -1595,21 +1592,13 @@ impl tangram_server_core::runner::Component for Component {
 		session: &'a tangram_server_core::Session,
 		runner: &'a tg::runner::Id,
 		scheduler: &'a tg::scheduler::Id,
-		registration_index: u64,
+		connection: u64,
 		id: String,
 		arg: tg::runner::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::runner::control::ClientResponseOutput>>> {
-		self.send_runner_control_request(
-			session,
-			runner,
-			scheduler,
-			registration_index,
-			id,
-			arg,
-			options,
-		)
-		.boxed()
+		self.send_runner_control_request(session, runner, scheduler, connection, id, arg, options)
+			.boxed()
 	}
 
 	fn spawn_sandbox_task<'a>(

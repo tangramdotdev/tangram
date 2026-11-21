@@ -397,7 +397,6 @@ impl Component {
 							.clone()
 							.without_location_and_tokens_except_sync(),
 						error.to_data_or_id(),
-						None,
 					)
 					.await
 			{
@@ -754,7 +753,7 @@ impl Component {
 				tracing::error!(error = %error.trace(), %sandbox, "failed to destroy the new sandbox");
 			}
 			if let Err(error) = self
-				.finish_queued_process(&session.server, &id, process.data.clone(), error, None)
+				.finish_queued_process(&session.server, &id, process.data.clone(), error)
 				.await
 			{
 				tracing::error!(error = %error.trace(), process = %id, "failed to finish the unstarted process");

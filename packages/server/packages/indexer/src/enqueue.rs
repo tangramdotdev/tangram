@@ -258,12 +258,12 @@ mod tests {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes: None,
-			registration: None,
 			runner: None,
 			scheduler: None,
 			sequence: 0,
 			stopped_boot: None,
 			stopped_usage: None,
+			takeover: None,
 			touched_at: 0,
 		};
 		tangram_index::Item::PutSandbox(Box::new(arg))

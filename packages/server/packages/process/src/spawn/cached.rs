@@ -752,7 +752,6 @@ impl Component {
 			defer_index: false,
 			location: Some(location),
 			outcome_sync: None,
-			registration: None,
 			store_data: true,
 		};
 		let output = self
