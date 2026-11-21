@@ -334,33 +334,22 @@ impl Scheduler {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the sandbox in the index"))?;
 
-		// Finish a process that never started, because no runner will report it.
+		// Finish the boot's queued process, which this scheduler holds and which never started, from this scheduler's memory.
 		if !status.is_starting()
 			&& let Some(process) = &request.process
+			&& let Some(process_id) = &process.id
 		{
 			self.server
 				.components
 				.process
-				.finish_unstarted_process(&self.server, process, process_error.clone())
-				.await?;
-		}
-
-		// Finish the other queued processes of a sandbox whose boot ended, which can never start.
-		if status.is_stopped() || status.is_destroyed() {
-			let result = self
-				.server
-				.components
-				.process
-				.finish_queued_sandbox_processes(
+				.finish_queued_process(
 					&self.server,
-					id,
-					request.boot,
-					Some(process_error),
+					process_id,
+					process.data.clone(),
+					process_error,
+					None,
 				)
-				.await;
-			if let Err(error) = result {
-				tracing::warn!(error = %error.trace(), %id, "failed to finish the queued processes of the ended sandbox");
-			}
+				.await?;
 		}
 		self.server
 			.components

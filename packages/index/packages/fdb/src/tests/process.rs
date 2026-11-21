@@ -66,7 +66,6 @@ fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::
 		principal: tg::Principal::Process(id.clone()),
 		registration: None,
 		sandbox: None,
-		sandbox_boot: None,
 		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
@@ -522,7 +521,6 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 					principal: tg::Principal::Root,
 					registration: Some(registration.clone()),
 					sandbox: None,
-					sandbox_boot: None,
 					sequence: 0,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: std::time::Duration::ZERO,
@@ -786,24 +784,6 @@ fn sandbox_put_arg(
 	}
 }
 
-/// Create the arg of a finish of a queued process in a sandbox that applies only while the sandbox is at the boot.
-fn conditional_finish_arg(
-	id: &tg::process::Id,
-	sandbox: &tg::sandbox::Id,
-	boot: u64,
-) -> tangram_index::process::put::Arg {
-	let mut data = process_data(tg::process::Status::Finished, String::new());
-	data.exit = Some(1);
-	data.sandbox = Some(sandbox.clone());
-	data.started_at = None;
-	let mut arg = process_arg(id, data);
-	arg.sandbox_boot = Some(tangram_index::process::put::SandboxBoot {
-		boot,
-		sandbox: sandbox.clone(),
-	});
-	arg
-}
-
 /// Create the arg of a queued process in a sandbox.
 fn queued_process_arg(
 	id: &tg::process::Id,
@@ -832,69 +812,32 @@ async fn write_items(index: &Index, items: Vec<tangram_index::Item>) -> tg::Resu
 }
 
 #[tokio::test]
-async fn a_conditional_finish_of_a_queued_process_applies_while_the_sandbox_is_at_the_boot() {
+async fn a_queued_process_of_a_boot_that_its_holder_ended_stays_queued() {
 	let Some(options) = options() else {
 		return;
 	};
 	super::run(&options, async |index| {
-		for status in [
-			tg::sandbox::Status::Started,
-			tg::sandbox::Status::Stopped,
-			tg::sandbox::Status::Destroyed,
-		] {
-			// Queue a process in a sandbox at boot 1.
+		for boot in [0, 1] {
+			// Record a sandbox at boot 1, so that its holder ended boot 0.
 			let sandbox = tg::sandbox::Id::new();
 			let id = tg::process::Id::new();
-			let item =
-				tangram_index::Item::PutSandbox(Box::new(sandbox_put_arg(&sandbox, 1, status)));
+			let item = tangram_index::Item::PutSandbox(Box::new(sandbox_put_arg(
+				&sandbox,
+				1,
+				tg::sandbox::Status::Started,
+			)));
 			write_items(index, vec![item]).await.unwrap();
-			put_process(index, queued_process_arg(&id, &sandbox)).await;
 
-			// Finish the process on the condition that the sandbox is at boot 1, and verify that the finish is applied.
-			let item =
-				tangram_index::Item::PutProcess(Box::new(conditional_finish_arg(&id, &sandbox, 1)));
+			// Put a queued process of the boot, and verify that it stays queued, because a live holder finishes its own processes.
+			let mut arg = queued_process_arg(&id, &sandbox);
+			arg.boot = Some(boot);
+			let item = tangram_index::Item::PutProcess(Box::new(arg));
 			write_items(index, vec![item]).await.unwrap();
 			assert_eq!(
 				process_status(index, &id).await,
-				Some(tg::process::Status::Finished)
+				Some(tg::process::Status::Queued)
 			);
 		}
-	})
-	.await;
-}
-
-#[tokio::test]
-async fn a_conditional_finish_of_a_queued_process_does_not_apply_at_a_later_boot() {
-	let Some(options) = options() else {
-		return;
-	};
-	super::run(&options, async |index| {
-		// Queue a process in a sandbox that is starting its second boot.
-		let sandbox = tg::sandbox::Id::new();
-		let id = tg::process::Id::new();
-		let item = tangram_index::Item::PutSandbox(Box::new(sandbox_put_arg(
-			&sandbox,
-			2,
-			tg::sandbox::Status::Starting,
-		)));
-		write_items(index, vec![item]).await.unwrap();
-		put_process(index, queued_process_arg(&id, &sandbox)).await;
-
-		// Finish the process on the condition that the sandbox is at boot 1 in the same write as another process, and verify that the finish is rejected and the other process is put.
-		let other = tg::process::Id::new();
-		let items = vec![
-			tangram_index::Item::PutProcess(Box::new(conditional_finish_arg(&id, &sandbox, 1))),
-			tangram_index::Item::PutProcess(Box::new(queued_process_arg(&other, &sandbox))),
-		];
-		assert!(write_items(index, items).await.is_err());
-		assert_eq!(
-			process_status(index, &id).await,
-			Some(tg::process::Status::Queued)
-		);
-		assert_eq!(
-			process_status(index, &other).await,
-			Some(tg::process::Status::Queued)
-		);
 	})
 	.await;
 }

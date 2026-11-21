@@ -15,9 +15,6 @@ pub enum Notification {
 
 	#[tangram_serialize(id = 1)]
 	Heartbeat(HeartbeatNotification),
-
-	#[tangram_serialize(id = 2)]
-	SandboxEnded(SandboxEndedNotification),
 }
 
 #[derive(
@@ -86,29 +83,6 @@ pub struct HeartbeatNotification {
 	pub sandboxes: BTreeSet<tg::sandbox::Id>,
 }
 
-/// A runner's report that a boot of a sandbox ended.
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct SandboxEndedNotification {
-	#[tangram_serialize(id = 0)]
-	pub boot: u64,
-
-	#[tangram_serialize(id = 1)]
-	pub registration_index: u64,
-
-	#[tangram_serialize(id = 2)]
-	pub runner: tg::runner::Id,
-
-	#[tangram_serialize(id = 3)]
-	pub sandbox: tg::sandbox::Id,
-}
-
 #[derive(
 	Clone,
 	Debug,
@@ -135,8 +109,14 @@ pub enum RequestArg {
 	#[tangram_serialize(id = 4)]
 	DestroyRunnerSandbox(DestroyRunnerSandboxRequestArg),
 
+	#[tangram_serialize(id = 11)]
+	EndRunnerSandbox(EndRunnerSandboxRequestArg),
+
 	#[tangram_serialize(id = 6)]
 	EnqueueSandbox(EnqueueSandboxRequestArg),
+
+	#[tangram_serialize(id = 12)]
+	FinishRunnerProcesses(FinishRunnerProcessesRequestArg),
 
 	#[tangram_serialize(id = 8)]
 	RemoveRunner(RemoveRunnerRequestArg),
@@ -168,8 +148,14 @@ pub enum ResponseOutput {
 	#[tangram_serialize(id = 4)]
 	DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput),
 
+	#[tangram_serialize(id = 11)]
+	EndRunnerSandbox(EndRunnerSandboxResponseOutput),
+
 	#[tangram_serialize(id = 6)]
 	EnqueueSandbox(EnqueueSandboxResponseOutput),
+
+	#[tangram_serialize(id = 12)]
+	FinishRunnerProcesses(FinishRunnerProcessesResponseOutput),
 
 	#[tangram_serialize(id = 8)]
 	RemoveRunner(RemoveRunnerResponseOutput),
@@ -338,6 +324,10 @@ pub struct AddRunnerSandboxRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub boot: u64,
 
+	/// The proof that the runner derived the sandbox's ID.
+	#[tangram_serialize(id = 4)]
+	pub proof: tg::sandbox::id::Proof,
+
 	#[tangram_serialize(id = 1)]
 	pub registration_index: u64,
 
@@ -389,6 +379,70 @@ pub struct DestroyRunnerSandboxRequestArg {
 pub struct DestroyRunnerSandboxResponseOutput {
 	#[tangram_serialize(id = 0)]
 	pub destroyed: bool,
+}
+
+/// A runner's report that a boot that it held ended, which the scheduler authorizes from its memory of the boot and records.
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct EndRunnerSandboxRequestArg {
+	#[tangram_serialize(id = 0)]
+	pub end: tg::runner::control::EndSandboxClientRequestArg,
+
+	#[tangram_serialize(id = 1)]
+	pub runner: tg::runner::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct EndRunnerSandboxResponseOutput {
+	/// The scheduler's request that the runner send the report again later, because the scheduler cannot authorize it yet.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<tg::control::Retry>,
+}
+
+/// A runner's report of processes that it accepted for a boot and that cannot run, which the scheduler authorizes from its memory of the boot and of the processes that it offered into the boot.
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct FinishRunnerProcessesRequestArg {
+	#[tangram_serialize(id = 0)]
+	pub finish: tg::runner::control::FinishProcessesClientRequestArg,
+
+	#[tangram_serialize(id = 1)]
+	pub runner: tg::runner::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct FinishRunnerProcessesResponseOutput {
+	/// The scheduler's request that the runner send the report again later, because the scheduler cannot authorize it yet.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<tg::control::Retry>,
 }
 
 #[derive(

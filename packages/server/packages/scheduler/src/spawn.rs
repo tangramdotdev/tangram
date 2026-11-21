@@ -33,9 +33,15 @@ impl SchedulerState {
 		);
 	}
 
-	/// Offer the processes that this scheduler's saved queue holds again after a restart, and remove from the queue those whose runner already took them or that finished.
+	/// Offer the processes that this scheduler's saved queue holds again after a restart, and remove from the queue those whose runner already took them or that finished. Remember that this scheduler offered each process into its boot, so that the runner's reports of the boot may finish it.
 	pub(super) fn recover_spawns(&mut self, scheduler: &Scheduler, spawns: Vec<Spawn>) {
 		for spawn in spawns {
+			if let Some(process) = &spawn.arg.process.id
+				&& let Some(entry) = self.sandboxes.entries.get_mut(&spawn.sandbox)
+				&& Some(entry.boot) == spawn.arg.boot
+			{
+				entry.processes.insert(process.clone());
+			}
 			let scheduler = scheduler.clone();
 			self.operations.push(
 				async move {
@@ -160,7 +166,7 @@ impl Scheduler {
 		Ok(())
 	}
 
-	/// Offer a process to the runner with the boot by sending the spawn to the sandbox's holder, and send it again on each status wakeup. Return the output of the runner's yes, and an error for every other outcome.
+	/// Offer a process to the runner with the boot by sending the spawn to the sandbox's holder, and send it again on each status wakeup and after each timeout with no limit, because the holder helper's resends spend no retries, until the runner answers or the boot ends, such as when its runner is declared dead. Return the output of the runner's yes, and an error for every other outcome.
 	async fn offer_spawn(
 		&self,
 		spawn: &Spawn,
@@ -314,7 +320,7 @@ async fn finish_spawn(
 	let result = server
 		.components
 		.process
-		.finish_queued_process(server, id, data, error.to_data_or_id(), None, None)
+		.finish_queued_process(server, id, data, error.to_data_or_id(), None)
 		.await;
 	if let Err(error) = result {
 		tracing::error!(error = %error.trace(), process = %id, "failed to finish the process");

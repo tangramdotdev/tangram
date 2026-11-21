@@ -753,7 +753,6 @@ impl Component {
 			location: Some(location),
 			outcome_sync: None,
 			registration: None,
-			sandbox_boot: None,
 			store_data: true,
 		};
 		let output = self

@@ -285,9 +285,6 @@ impl SchedulerState {
 			return;
 		};
 
-		// Offer the saved spawns again.
-		self.recover_spawns(scheduler, recovery.spawns);
-
 		for (id, claim) in recovery.claimed {
 			let data = statuses.remove(&id);
 			let destroying = data
@@ -344,6 +341,9 @@ impl SchedulerState {
 				self.handle_enqueue_sandbox_request(scheduler, None, request, true);
 			}
 		}
+
+		// Offer the saved spawns again, once the boots that they are for are tracked.
+		self.recover_spawns(scheduler, recovery.spawns);
 	}
 
 	/// Accept a boot that a runner claimed, replacing an entry of an older boot.
@@ -426,11 +426,11 @@ impl Component {
 				.time_to_live
 				.is_some_and(|time_to_live| time_to_live.is_zero())
 			{
-				self.destroy_runner_sandbox(server, &id, Some(error.clone()))
+				self.destroy_runner_sandbox(server, &id, Some(error.clone()), true)
 					.boxed()
 					.await
 			} else {
-				self.stop_runner_sandbox(server, &id, error.clone())
+				self.stop_runner_sandbox(server, &id, error.clone(), true)
 					.boxed()
 					.await
 			};

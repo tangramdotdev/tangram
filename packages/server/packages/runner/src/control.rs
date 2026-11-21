@@ -416,34 +416,6 @@ impl Component {
 								tg::error!("failed to track the runner heartbeat acknowledgement")
 							})?;
 						},
-						tg::runner::control::ClientMessage::Notification(
-							tg::runner::control::ClientNotification::SandboxEnded(ended),
-						) => {
-							// Forward the end of the boot to the scheduler, which stops treating an enqueue of the boot as a duplicate.
-							let notification =
-								tangram_server_scheduler_core::Notification::SandboxEnded(
-									tangram_server_scheduler_core::SandboxEndedNotification {
-										boot: ended.boot,
-										registration_index,
-										runner: runner.clone(),
-										sandbox: ended.sandbox,
-									},
-								);
-							session
-								.server
-								.messenger
-								.publish(
-									tangram_server_scheduler_core::scheduler_notification_subject(
-										&scheduler,
-									),
-									notification,
-								)
-								.await
-								.inspect_err(|error| {
-									tracing::error!(%error, "failed to publish the sandbox end notification");
-								})
-								.ok();
-						},
 						tg::runner::control::ClientMessage::Request(request) => {
 							control.acknowledge(request.id.clone()).await?;
 							let sender = control.sender();
@@ -520,27 +492,48 @@ impl Component {
 			tg::runner::control::ClientRequestArg::AddSandbox(arg) => self
 				.add_runner_sandbox(session, runner, scheduler, registration_index, arg)
 				.await
-				.map(tg::runner::control::ServerResponseOutput::AddSandbox),
+				.map(|output| {
+					let output = tg::runner::control::ServerResponseOutput::AddSandbox(output);
+					(output, None)
+				}),
 			tg::runner::control::ClientRequestArg::DestroySandbox(arg) => self
 				.destroy_runner_sandbox(session, runner, arg)
 				.await
-				.map(tg::runner::control::ServerResponseOutput::DestroySandbox),
+				.map(|output| {
+					let output = tg::runner::control::ServerResponseOutput::DestroySandbox(output);
+					(output, None)
+				}),
+			tg::runner::control::ClientRequestArg::EndSandbox(arg) => self
+				.end_runner_sandbox(session, runner, scheduler, arg)
+				.await
+				.map(|(output, retry)| {
+					let output = tg::runner::control::ServerResponseOutput::EndSandbox(output);
+					(output, retry)
+				}),
+			tg::runner::control::ClientRequestArg::FinishProcesses(arg) => self
+				.finish_runner_processes(session, runner, scheduler, arg)
+				.await
+				.map(|(output, retry)| {
+					let output = tg::runner::control::ServerResponseOutput::FinishProcesses(output);
+					(output, retry)
+				}),
 			tg::runner::control::ClientRequestArg::ReportSandboxUsage(arg) => self
 				.report_runner_sandbox_usage(session, runner, arg)
 				.await
-				.map(tg::runner::control::ServerResponseOutput::ReportSandboxUsage),
-			tg::runner::control::ClientRequestArg::StopSandbox(arg) => self
-				.stop_runner_sandbox(session, runner, arg)
-				.await
-				.map(tg::runner::control::ServerResponseOutput::StopSandbox),
+				.map(|output| {
+					let output =
+						tg::runner::control::ServerResponseOutput::ReportSandboxUsage(output);
+					(output, None)
+				}),
 		};
-		let (error, output) = match result {
-			Ok(output) => (None, Some(output)),
+		let (error, output, retry) = match result {
+			Ok((output, retry)) => (None, Some(output), retry),
 			Err(error) => (
 				Some(tg::error::Data {
 					message: Some(error.to_string()),
 					..Default::default()
 				}),
+				None,
 				None,
 			),
 		};
@@ -548,6 +541,7 @@ impl Component {
 			error,
 			id: request.id,
 			output,
+			retry,
 		};
 		tg::runner::control::ServerMessage::Response(response)
 	}
@@ -564,6 +558,7 @@ impl Component {
 		let request = tangram_server_scheduler_core::RequestArg::AddRunnerSandbox(
 			tangram_server_scheduler_core::AddRunnerSandboxRequestArg {
 				boot: arg.boot,
+				proof: arg.proof,
 				registration_index,
 				runner: runner.clone(),
 				sandbox: arg.sandbox,
@@ -614,7 +609,7 @@ impl Component {
 				.server
 				.components
 				.scheduler
-				.destroy_runner_sandbox(&session.server, sandbox, error)
+				.destroy_runner_sandbox(&session.server, sandbox, error, false)
 				.await?;
 			true
 		} else {
@@ -622,6 +617,70 @@ impl Component {
 		};
 		let output = tg::runner::control::DestroySandboxServerResponseOutput { destroyed };
 		Ok(output)
+	}
+
+	/// Send a runner's report that a boot that it held ended to the runner's scheduler, which authorizes it from its memory of the boot and records it, and return the scheduler's request to send the report again if the scheduler cannot authorize it yet.
+	async fn end_runner_sandbox(
+		&self,
+		session: &Session,
+		runner: &tg::runner::Id,
+		scheduler: &tg::scheduler::Id,
+		arg: tg::runner::control::EndSandboxClientRequestArg,
+	) -> tg::Result<(
+		tg::runner::control::EndSandboxServerResponseOutput,
+		Option<tg::control::Retry>,
+	)> {
+		let request = tangram_server_scheduler_core::RequestArg::EndRunnerSandbox(
+			tangram_server_scheduler_core::EndRunnerSandboxRequestArg {
+				end: arg,
+				runner: runner.clone(),
+			},
+		);
+		let output = session
+			.server
+			.components
+			.scheduler
+			.send_scheduler_request_to(session, scheduler, request)
+			.boxed()
+			.await??
+			.try_unwrap_end_runner_sandbox()
+			.map_err(|_| tg::error!("expected an end runner sandbox response"))?;
+		let retry = output.retry;
+		let output = tg::runner::control::EndSandboxServerResponseOutput {};
+
+		Ok((output, retry))
+	}
+
+	/// Send a runner's report of processes that it accepted and that cannot run, such as a process for a boot that ended, to the runner's scheduler, which authorizes it from its memory of the boot and of the processes that it offered into the boot and finishes them, and return the scheduler's request to send the report again if the scheduler cannot authorize it yet.
+	async fn finish_runner_processes(
+		&self,
+		session: &Session,
+		runner: &tg::runner::Id,
+		scheduler: &tg::scheduler::Id,
+		arg: tg::runner::control::FinishProcessesClientRequestArg,
+	) -> tg::Result<(
+		tg::runner::control::FinishProcessesServerResponseOutput,
+		Option<tg::control::Retry>,
+	)> {
+		let request = tangram_server_scheduler_core::RequestArg::FinishRunnerProcesses(
+			tangram_server_scheduler_core::FinishRunnerProcessesRequestArg {
+				finish: arg,
+				runner: runner.clone(),
+			},
+		);
+		let output = session
+			.server
+			.components
+			.scheduler
+			.send_scheduler_request_to(session, scheduler, request)
+			.boxed()
+			.await??
+			.try_unwrap_finish_runner_processes()
+			.map_err(|_| tg::error!("expected a finish runner processes response"))?;
+		let retry = output.retry;
+		let output = tg::runner::control::FinishProcessesServerResponseOutput {};
+
+		Ok((output, retry))
 	}
 
 	async fn report_runner_sandbox_usage(
@@ -693,49 +752,6 @@ impl Component {
 		}
 		let output = tg::runner::control::ReportSandboxUsageServerResponseOutput { sandboxes };
 
-		Ok(output)
-	}
-
-	async fn stop_runner_sandbox(
-		&self,
-		session: &Session,
-		runner: &tg::runner::Id,
-		arg: tg::runner::control::StopSandboxClientRequestArg,
-	) -> tg::Result<tg::runner::control::StopSandboxServerResponseOutput> {
-		let sandbox = &arg.sandbox;
-		let indexed = session.server.index.try_get_sandbox(sandbox).await?;
-		let stopped = if indexed.as_ref().is_some_and(|indexed| {
-			indexed.runner.as_ref() == Some(runner)
-				&& indexed
-					.data
-					.as_ref()
-					.is_some_and(|data| !data.data.status.is_stopped_or_destroyed())
-		}) {
-			let error = match arg.error {
-				Some(tg::Either::Left(data)) => data,
-				Some(tg::Either::Right(id)) => tg::Error::with_id(id)
-					.data_with_instance(session)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
-				None => tg::error::Data {
-					code: Some(tg::error::Code::Internal),
-					message: Some("runner restarted".to_owned()),
-					..Default::default()
-				},
-			};
-			session
-				.server
-				.components
-				.scheduler
-				.stop_runner_sandbox(&session.server, sandbox, error)
-				.await?;
-			tangram_server_core::checkpoint!(session.server, "runner.control.stop_sandbox", %runner, %sandbox)
-				.await;
-			true
-		} else {
-			false
-		};
-		let output = tg::runner::control::StopSandboxServerResponseOutput { stopped };
 		Ok(output)
 	}
 

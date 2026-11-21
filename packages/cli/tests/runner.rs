@@ -94,6 +94,136 @@ async fn destroy_sandbox_requires_ownership() -> tg::Result<()> {
 	Ok(())
 }
 
+/// A runner cannot finish a process of a sandbox that another runner holds, with a report of the process's finish or of the end of the sandbox's boot.
+#[tokio::test]
+async fn reports_require_the_boot() -> tg::Result<()> {
+	let tangram = env!("CARGO_BIN_EXE_tangram");
+
+	// Start a scheduler and a runner.
+	let mut config = Config::new();
+	config.merge(serde_json::json!({
+		"authentication": { "root": { "token": ROOT_TOKEN } },
+		"roles": ["api", "indexer", "scheduler"],
+	}));
+	let remote = Server::start(tangram, config).await?;
+	let created = remote.create_runner(ROOT_TOKEN, None).await?;
+	let created_token = created
+		.token
+		.token
+		.clone()
+		.ok_or_else(|| tg::error!("expected the runner's token"))?;
+	let mut config = Config::new();
+	config.merge(serde_json::json!({
+		"remotes": { "default": { "token": created_token, "url": remote.client()?.url().to_string() } },
+		"roles": ["api", "indexer", "runner"],
+		"runner": { "id": created.data.id.to_string(), "remote": "default", "token": created_token },
+	}));
+	let runner = Server::start(tangram, config).await?;
+
+	// Spawn a process that keeps running in a new sandbox on the runner.
+	let contents = serde_json::to_string("#!/bin/sh\nwhile :; do :; done\n").unwrap();
+	let command = executable_command(&remote, &contents).await?;
+	let output = remote
+		.spawn(ROOT_TOKEN, ["--cached=false", "--sandbox", &command])
+		.await?;
+	let process = output
+		.process
+		.right()
+		.ok_or_else(|| tg::error!("expected the process's ID"))?;
+	let process_string = process.to_string();
+	remote
+		.tg(
+			Some(ROOT_TOKEN),
+			["process", "status", "--until", "started", &process_string],
+		)
+		.await?;
+	let session = remote
+		.client()?
+		.session(&tg::Context::new(Some(ROOT_TOKEN.to_owned())));
+	let data = session
+		.try_get_process(&process, tg::process::get::Arg::default())
+		.await?
+		.ok_or_else(|| tg::error!("expected the process"))?
+		.data;
+	let sandbox = data
+		.sandbox
+		.clone()
+		.ok_or_else(|| tg::error!("expected the process's sandbox"))?;
+	let sandbox_string = sandbox.to_string();
+	let sandbox_output = remote
+		.tg(Some(ROOT_TOKEN), ["sandbox", "get", &sandbox_string])
+		.await?;
+	let sandbox_output = serde_json::from_str::<tg::sandbox::get::Output>(&sandbox_output)
+		.map_err(|error| tg::error!(!error, "failed to deserialize the sandbox"))?;
+	let boot = sandbox_output.data.boot;
+
+	// Another runner reports that the process cannot run, and that the sandbox's boot ended with the process unfinished.
+	let other = remote.create_runner(ROOT_TOKEN, None).await?;
+	let reported = tg::runner::control::Process {
+		data,
+		id: Some(process.clone()),
+		lease: tg::process::Lease::new(),
+		leases: Vec::new(),
+		open: Vec::new(),
+		options: tg::referent::Options::default(),
+		parent: None,
+		token: None,
+	};
+	let error = tg::Either::Left(tg::error::Data {
+		message: Some("the process cannot run".to_owned()),
+		..Default::default()
+	});
+	let finish = tg::runner::control::ClientRequestArg::FinishProcesses(
+		tg::runner::control::FinishProcessesClientRequestArg {
+			boot,
+			error: error.clone(),
+			processes: vec![reported.clone()],
+			sandbox: sandbox.clone(),
+		},
+	);
+	let mut ended = sandbox_output;
+	ended.data.status = tg::sandbox::Status::Destroyed;
+	ended.data.error = Some(error);
+	let end = tg::runner::control::ClientRequestArg::EndSandbox(
+		tg::runner::control::EndSandboxClientRequestArg {
+			boot,
+			created_at: 0,
+			data: ended,
+			processes: vec![process.clone()],
+			proof: None,
+			recorded: false,
+			sandbox: sandbox.clone(),
+			sequence: u64::MAX,
+			unfinished: vec![reported],
+		},
+	);
+	let responses = send_runner_requests(&remote, &other, vec![finish, end]).await?;
+
+	// The process and its sandbox keep running.
+	remote.tg(Some(ROOT_TOKEN), ["index"]).await?;
+	let data = session
+		.try_get_process(&process, tg::process::get::Arg::default())
+		.await?
+		.ok_or_else(|| tg::error!("expected the process"))?
+		.data;
+	assert_eq!(data.status, tg::process::Status::Started);
+	let data = sandbox_data(&remote, &sandbox_string).await?;
+	assert_eq!(data["status"], "started");
+
+	// The scheduler refuses both reports.
+	for response in responses {
+		assert!(
+			response.error.is_some(),
+			"the scheduler should refuse the other runner's report"
+		);
+	}
+
+	runner.stop().await?;
+	remote.stop().await?;
+
+	Ok(())
+}
+
 /// Only a runner that proves that it derived a sandbox's ID may open a sandbox control connection for a new sandbox and receive its token.
 #[tokio::test]
 async fn sandbox_control_requires_proof() -> tg::Result<()> {
@@ -361,6 +491,107 @@ async fn sandbox_status(
 		.to_owned();
 
 	Ok(status)
+}
+
+/// Open a runner control connection as the runner, send the requests in order, and return the responses.
+async fn send_runner_requests(
+	server: &Server,
+	runner: &tg::runner::create::Output,
+	requests: Vec<tg::runner::control::ClientRequestArg>,
+) -> tg::Result<Vec<tg::runner::control::ServerResponse>> {
+	// Open the connection.
+	let token = runner
+		.token
+		.token
+		.clone()
+		.ok_or_else(|| tg::error!("expected the runner's token"))?;
+	let session = server.client()?.session(&tg::Context::new(Some(token)));
+	let (mut sender, receiver) =
+		futures::channel::mpsc::unbounded::<tg::Result<tg::runner::control::ClientMessage>>();
+	let arg = tg::runner::control::Arg {
+		directories: None,
+		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
+		host: "test".to_owned(),
+		id: runner.data.id.clone(),
+		location: None,
+		sandboxes: Vec::new(),
+		scheduler_time_to_live: std::time::Duration::from_secs(300),
+	};
+	let (_, stream) = match session
+		.get_runner_control_stream(arg, receiver.boxed())
+		.await?
+	{
+		ControlFlow::Break(output) => output,
+		ControlFlow::Continue(error) => return Err(error),
+	};
+	let mut stream = std::pin::pin!(stream);
+
+	// Send each request, and wait for its response.
+	let mut responses = Vec::new();
+	for (index, arg) in requests.into_iter().enumerate() {
+		let id = index.to_string();
+		let request = tg::runner::control::ClientRequest {
+			arg,
+			id: id.clone(),
+		};
+		sender
+			.send(Ok(tg::runner::control::ClientMessage::Request(request)))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+		let response = loop {
+			let message = stream
+				.next()
+				.await
+				.ok_or_else(|| tg::error!("the control stream ended"))??;
+			if let tg::runner::control::ServerMessage::Response(response) = message
+				&& response.id == id
+			{
+				break response;
+			}
+		};
+		let ack = tg::runner::control::ClientAck { id };
+		sender
+			.send(Ok(tg::runner::control::ClientMessage::Ack(ack)))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the ack"))?;
+		responses.push(response);
+	}
+
+	Ok(responses)
+}
+
+/// Create a command whose executable is a file with the contents, for the host.
+async fn executable_command(server: &Server, contents: &str) -> tg::Result<String> {
+	let token = Some(ROOT_TOKEN);
+	let blob = server
+		.tg(
+			token,
+			["put", "--no-tokens", &format!("tg.blob({contents})")],
+		)
+		.await?;
+	let blob = blob.split('?').next().unwrap_or(&blob).to_owned();
+	let file = server
+		.tg(
+			token,
+			[
+				"put",
+				"--no-tokens",
+				&format!(r#"tg.file({{"contents":{blob},"executable":true}})"#),
+			],
+		)
+		.await?;
+	let file = file.split('?').next().unwrap_or(&file).to_owned();
+	let os = if std::env::consts::OS == "macos" {
+		"darwin"
+	} else {
+		std::env::consts::OS
+	};
+	let host = format!("{}-{os}", std::env::consts::ARCH);
+	let value = format!(r#"tg.command({{"executable":{{"artifact":{file}}},"host":"{host}"}})"#);
+	let command = server.tg(token, ["put", "--no-tokens", &value]).await?;
+	let command = command.split('?').next().unwrap_or(&command).to_owned();
+
+	Ok(command)
 }
 
 /// Start a scheduler with a virtual clock and checkpoints, connect a runner to it, and connect a sandbox on the runner. Return the server, the runner's control stream, the sandbox, and the sender of the runner's control messages.

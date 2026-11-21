@@ -370,7 +370,7 @@ pub struct GetProcessesClientResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct SpawnProcessServerRequestArg {
-	/// The boot of the sandbox that the spawn is for, which only the sandbox's scheduler sets when it sends the spawn to the boot's runner, which refuses a spawn for a boot that it is not running.
+	/// The boot of the sandbox that the spawn is for, which only the sandbox's scheduler sets when it sends the spawn to the boot's runner, which accepts a spawn for a boot that it is not running and finishes its process as failed.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub boot: Option<u64>,
