@@ -49,6 +49,26 @@ impl SchedulerState {
 		self.stop_serving_process_holder(id);
 	}
 
+	/// Write the handoff of a boot that a runner accepted, which records the runner and removes the boot from this scheduler's queue, and which is this scheduler's last write of the boot.
+	pub(super) fn hand_off_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		request: EnqueueSandboxRequestArg,
+		runner: tg::runner::Id,
+	) {
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let result = scheduler.write_sandbox_handoff(&request, &runner).await;
+				Operation::Finished {
+					context: "failed to record the handoff of the sandbox",
+					result,
+				}
+			}
+			.boxed(),
+		);
+	}
+
 	/// Handle a runner's answer to an offer of a sandbox.
 	pub(super) fn handle_offer_outcome(
 		&mut self,
@@ -79,7 +99,9 @@ impl SchedulerState {
 					}
 				);
 				let dequeue_requests = std::mem::take(&mut sandbox.dequeue_requests);
+				let request = sandbox.request().clone();
 				self.remove_reservation(id, placement, true);
+				self.hand_off_sandbox(scheduler, request, runner.id.clone());
 				self.accept_sandbox(id, runner);
 				self.send_dequeue_responses(scheduler, dequeue_requests, false);
 				self.finish_accept(scheduler, id, Path::Handled, Ok(()));
@@ -429,7 +451,7 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 			parent: request.parent.clone(),
 			process: request.process.clone(),
 			sandbox: request.sandbox.clone(),
-			stop: request.stop,
+			sequence: 0,
 			token: request.token.clone(),
 		},
 	);

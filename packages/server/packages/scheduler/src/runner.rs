@@ -164,7 +164,7 @@ impl SchedulerState {
 			.is_some()
 			.then(|| self.get_accepted_sandboxes(&request.runner));
 		self.forget_accepted_sandboxes(scheduler, &request.runner, &request.sandboxes);
-		self.remove_runner(scheduler, &request.runner);
+		self.remove_runner(scheduler, &request.runner, true);
 		let runner = Runner {
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
@@ -328,7 +328,7 @@ impl SchedulerState {
 		}
 		tracing::info!(runner = %request.runner, registration_index = request.registration_index, "removing the runner");
 		self.forget_accepted_sandboxes(scheduler, &request.runner, &[]);
-		self.remove_runner(scheduler, &request.runner);
+		self.remove_runner(scheduler, &request.runner, false);
 
 		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later. This scheduler holds those boots, so their discard alone records their end, and the runner's cleanup leaves them alone.
 		let mut queued = Vec::new();
@@ -424,7 +424,7 @@ impl SchedulerState {
 			.collect()
 	}
 
-	/// Forget the sandboxes that a runner accepted, except the ones that it reports when it registers again, and queue the ones again whose control connections were not established, if their keys remain.
+	/// Forget the sandboxes that a runner accepted, except the ones that it reports when it registers again. The runner held a boot from its acceptance, so a boot that it no longer reports is lost with the runner, and the runner's cleanup ends it.
 	pub(super) fn forget_accepted_sandboxes(
 		&mut self,
 		scheduler: &Scheduler,
@@ -445,17 +445,9 @@ impl SchedulerState {
 					.any(|reported| reported.id == *sandbox && reported.boot == *boot)
 			})
 			.collect::<Vec<_>>();
-		let mut lost = Vec::new();
 		for (sandbox, _) in accepted {
-			let entry = self.remove_sandbox(scheduler, &sandbox).unwrap();
-			if let Some(request) = entry.request {
-				lost.push(request);
-			} else {
-				self.stop_serving_sandbox_holder(&sandbox);
-			}
-		}
-		if !lost.is_empty() {
-			self.read_lost_sandboxes(scheduler, lost);
+			self.remove_sandbox(scheduler, &sandbox);
+			self.stop_serving_sandbox_holder(&sandbox);
 		}
 	}
 
@@ -472,8 +464,13 @@ impl SchedulerState {
 		}
 	}
 
-	/// Remove a runner, and return the sandboxes that are offered to it to the queue. The sandboxes that it accepted stay until the runner registers again or expires.
-	pub(super) fn remove_runner(&mut self, scheduler: &Scheduler, id: &tg::runner::Id) {
+	/// Remove a runner. If the runner registers again, return the sandboxes whose offers to it are unanswered to the queue, because the runner reports every boot that it holds, and the sandboxes that it reports are tracked as accepted. Otherwise end them as failed, because the runner is declared dead and may have accepted them. The sandboxes that it accepted stay until the runner registers again or expires.
+	pub(super) fn remove_runner(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::runner::Id,
+		registered: bool,
+	) {
 		let Some(runner) = self.runners.entries.remove(id) else {
 			return;
 		};
@@ -495,13 +492,21 @@ impl SchedulerState {
 			}
 		}
 
-		// Return the sandboxes that are offered to the runner to the queue, and end the ones that a dequeue waits for.
+		// Return the sandboxes whose offers to a runner that registers again are unanswered to the queue, and end the ones of a runner that is declared dead as failed, because the runner may have accepted them, so that a boot is never offered to a second runner while the first may hold it. End the ones that a dequeue waits for as destroyed.
 		let sandboxes = runner.reservations.into_keys().collect::<Vec<_>>();
 		for sandbox in sandboxes {
-			self.requeue_sandbox(&sandbox);
+			if registered {
+				self.requeue_sandbox(&sandbox);
+			}
 			let entry = self.sandboxes.entries.get_mut(&sandbox).unwrap();
 			let dequeue_requests = std::mem::take(&mut entry.dequeue_requests);
 			if dequeue_requests.is_empty() {
+				if !registered {
+					let error =
+						tg::error!(%sandbox, runner = %id, "the sandbox's runner is unavailable");
+					let discarded = self.discard_sandbox(scheduler, &sandbox, &error);
+					scheduler.publish_sandbox_discarded(self, discarded);
+				}
 				continue;
 			}
 			self.end_sandbox_and_log(scheduler, &sandbox, tg::sandbox::Status::Destroyed, None);

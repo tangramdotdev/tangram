@@ -153,9 +153,15 @@ impl SchedulerState {
 				return;
 			},
 
-			// Reply that this scheduler is not ready for a spawn into a sandbox that it has offered to a runner, which it sends to the runner once the runner accepts it.
+			// Reply that this scheduler is not ready for a change of a sandbox that it has offered to a runner, because the offer is unanswered and a change never rides with an offer. The runner carries out the change once it accepts the offer, and this scheduler does so if the runner declines it.
 			Some((State::Offered { .. }, _))
-				if matches!(arg, tg::sandbox::control::ServerRequestArg::SpawnProcess(_)) =>
+				if matches!(
+					arg,
+					tg::sandbox::control::ServerRequestArg::Destroy(_)
+						| tg::sandbox::control::ServerRequestArg::SpawnProcess(_)
+						| tg::sandbox::control::ServerRequestArg::Start(_)
+						| tg::sandbox::control::ServerRequestArg::Stop(_)
+				) =>
 			{
 				self.publish_sandbox_holder_retry(
 					scheduler,
@@ -166,7 +172,7 @@ impl SchedulerState {
 				return;
 			},
 
-			// Reply that this scheduler does not hold a sandbox that it has offered to a runner, whether or not the runner has accepted it, because the offer carries the boot's pending stop.
+			// Reply that this scheduler does not hold a sandbox that a runner accepted, and let the index answer a read of a sandbox that it has offered to a runner.
 			None | Some((State::Accepted { .. } | State::Offered { .. }, _)) => {
 				self.publish_sandbox_holder_retry(
 					scheduler,
@@ -246,38 +252,23 @@ impl SchedulerState {
 
 			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => unreachable!(),
 
-			// Answer a start of a queued boot with the boot, which is starting, and cancel its pending stop, because the start came after the stop.
+			// Answer a start of a queued boot with the boot, which is starting.
 			tg::sandbox::control::ServerRequestArg::Start(_) => {
-				let write = if std::mem::take(&mut request.stop) {
-					let request = request.clone();
-					let scheduler_ = scheduler.clone();
-					Some(async move { scheduler_.persist_sandbox(&request, false).await }.boxed())
-				} else {
-					None
-				};
 				let data = Self::queued_sandbox_get_output(scheduler, request);
 				let output = tg::sandbox::control::ClientResponseOutput::Start(
 					tg::sandbox::control::StartClientResponseOutput { data },
 				);
-				self.publish_sandbox_holder_response(scheduler, sandbox, id, write, output);
+				self.publish_sandbox_holder_response(scheduler, sandbox, id, None, output);
 			},
 
-			// Stop a queued restart by removing it, because the sandbox is already stopped, and record the stop of a first boot, which has nothing to stop until it starts.
+			// Stop a queued boot by ending it as stopped, because a stop never rides with an offer.
 			tg::sandbox::control::ServerRequestArg::Stop(_) => {
 				let output = tg::sandbox::control::ClientResponseOutput::Stop(
 					tg::sandbox::control::StopClientResponseOutput { stopped: true },
 				);
-				let scheduler_ = scheduler.clone();
-				let write = if request.boot > 0 {
-					let status = tg::sandbox::Status::Stopped;
-					let write = self.end_sandbox(scheduler, &sandbox, status, None).boxed();
-					self.queue.wake();
-					write
-				} else {
-					request.stop = true;
-					let request = request.clone();
-					async move { scheduler_.persist_sandbox(&request, false).await }.boxed()
-				};
+				let status = tg::sandbox::Status::Stopped;
+				let write = self.end_sandbox(scheduler, &sandbox, status, None).boxed();
+				self.queue.wake();
 				self.publish_sandbox_holder_response(scheduler, sandbox, id, Some(write), output);
 			},
 		}

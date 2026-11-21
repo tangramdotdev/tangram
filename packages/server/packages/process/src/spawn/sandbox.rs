@@ -491,6 +491,7 @@ impl Component {
 				process: Some(process.clone()),
 				public: public && process.id.is_none(),
 				scheduled: false,
+				sequence: 1,
 				token,
 			};
 
@@ -577,7 +578,6 @@ impl Component {
 			runner: None,
 			sandbox: sandbox.clone(),
 			scheduler: output.scheduler.clone(),
-			stop: false,
 			token: output.sandbox_token.clone(),
 		};
 		let scheduler = session

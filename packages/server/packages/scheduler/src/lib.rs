@@ -127,10 +127,6 @@ enum Operation {
 	IndexTerminalSandboxes {
 		sandboxes: Vec<(tg::sandbox::Id, u64)>,
 	},
-	LostSandboxes {
-		keys: Vec<tg::sandbox::Id>,
-		lost: Vec<EnqueueSandboxRequestArg>,
-	},
 	OfferSandbox {
 		outcome: offer::Outcome,
 		placement: placement::Placement,
@@ -833,9 +829,6 @@ impl Scheduler {
 			},
 			Operation::IndexTerminalSandboxes { sandboxes } => {
 				state.handle_index_terminal_sandboxes(self, sandboxes);
-			},
-			Operation::LostSandboxes { keys, lost } => {
-				state.handle_lost_sandboxes(self, keys, lost);
 			},
 			Operation::OfferSandbox {
 				outcome,
