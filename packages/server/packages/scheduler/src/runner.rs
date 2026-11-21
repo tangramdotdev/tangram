@@ -240,62 +240,168 @@ impl SchedulerState {
 		scheduler.send_response(self, response);
 	}
 
+	/// Take over the removal of a destroying sandbox's directory, which this scheduler carries out until the runner confirms it or is declared dead, and reply at once.
 	pub(super) fn handle_destroy_runner_sandbox_request(
 		&mut self,
 		scheduler: &Scheduler,
 		id: String,
 		request: super::DestroyRunnerSandboxRequestArg,
 	) {
-		// Fail if the runner is not connected, because only the runner can destroy the sandbox.
-		let Some(connection) = self
+		self.remove_destroying_sandbox(scheduler, request.sandbox, request.runner, request.error);
+		let output = super::DestroyRunnerSandboxResponseOutput { destroyed: true };
+		let response = super::request::Response::new(
+			id,
+			Ok(super::ResponseOutput::DestroyRunnerSandbox(output)),
+		);
+		scheduler.send_response(self, response);
+	}
+
+	/// Ask a runner to remove the directory of a destroying sandbox, whose report records the destruction. Record the destruction if the runner is declared dead, because the runner never removes the directory, and the runner's next registration removes it if the runner returns. Wait for a runner that is registered but not ready, or that this scheduler waits for after a restart.
+	pub(super) fn remove_destroying_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: tg::sandbox::Id,
+		runner: tg::runner::Id,
+		error: Option<tg::error::Data>,
+	) {
+		let connection = self
 			.runners
 			.entries
-			.get(&request.runner)
-			.filter(|runner| !runner.registration_failed)
-			.map(|runner| runner.connection)
-		else {
-			let error = tg::error!(sandbox = %request.sandbox, runner = %request.runner, "the sandbox's runner is unavailable");
-			let response = super::request::Response::new(id, Err(error));
-			scheduler.send_response(self, response);
-			return;
-		};
-
-		// Ask the runner to destroy the sandbox.
-		let session = scheduler.server.session(&scheduler.server.context);
-		let scheduler_id = scheduler.id.clone();
-		let retry = scheduler.server.config.control.request_retry.clone().into();
-		let timeout = scheduler.server.config.control.request_timeout;
-		let options = tangram_server_core::control::Options { retry, timeout };
+			.get(&runner)
+			.filter(|runner| runner.ready())
+			.map(|runner| runner.connection);
+		let waiting = self
+			.recovery
+			.as_ref()
+			.is_some_and(|recovery| recovery.has_runner(&runner))
+			|| self.runners.entries.contains_key(&runner);
+		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
-				let arg = tg::runner::control::ServerRequestArg::DestroySandbox(
-					tg::runner::control::DestroySandboxServerRequestArg {
-						error: request.error.clone(),
-						sandbox: request.sandbox.clone(),
+				let result = match connection {
+					// Ask the runner to remove the directory.
+					Some(connection) => {
+						let session = scheduler.server.session(&scheduler.server.context);
+						let retry = tangram_futures::retry::Options {
+							max_retries: 0,
+							..scheduler.server.config.control.request_retry.clone().into()
+						};
+						let timeout = scheduler.server.config.control.request_timeout;
+						let options = tangram_server_core::control::Options { retry, timeout };
+						let arg = tg::runner::control::ServerRequestArg::DestroySandbox(
+							tg::runner::control::DestroySandboxServerRequestArg {
+								error: error.clone(),
+								sandbox: sandbox.clone(),
+							},
+						);
+						session
+							.server
+							.components
+							.runner
+							.send_runner_control_request(
+								&session,
+								&runner,
+								&scheduler.id,
+								connection,
+								tangram_server_core::control::id(),
+								arg,
+								options,
+							)
+							.await
+							.and_then(std::convert::identity)
+							.and_then(|output| {
+								output
+									.try_unwrap_destroy_sandbox()
+									.map_err(|_| tg::error!("expected a destroy sandbox response"))
+									.map(|output| output.destroyed)
+							})
 					},
+
+					// Wait for a runner that is not ready.
+					None if waiting => {
+						Err(tg::error!(%sandbox, %runner, "the sandbox's runner is unavailable"))
+					},
+
+					// Report that a runner that is declared dead did not remove the directory.
+					None => Ok(false),
+				};
+				if result.is_err() {
+					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+				}
+				Operation::RemoveDestroyingSandbox {
+					error,
+					result,
+					runner,
+					sandbox,
+				}
+			}
+			.boxed(),
+		);
+	}
+
+	/// Finish the removal of a destroying sandbox's directory. A runner that removed the directory recorded the destruction, a runner that did not have the directory or that is declared dead never will, so this scheduler records it, and a removal that failed is tried again.
+	pub(super) fn handle_remove_destroying_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: tg::sandbox::Id,
+		runner: tg::runner::Id,
+		error: Option<tg::error::Data>,
+		result: tg::Result<bool>,
+	) {
+		match result {
+			Ok(true) => {},
+			Ok(false) => {
+				let scheduler = scheduler.clone();
+				self.operations.push(
+					async move {
+						let result = scheduler
+							.component
+							.destroy_runner_sandbox(&scheduler.server, &sandbox, error, None, false)
+							.await;
+						Operation::Finished {
+							context: "failed to record the destroyed sandbox",
+							result,
+						}
+					}
+					.boxed(),
 				);
-				let result = session
-					.server
-					.components
-					.runner
-					.send_runner_control_request(
-						&session,
-						&request.runner,
-						&scheduler_id,
-						connection,
-						tangram_server_core::control::id(),
-						arg,
-						options,
-					)
-					.await
-					.and_then(std::convert::identity)
-					.and_then(|output| {
-						output
-							.try_unwrap_destroy_sandbox()
-							.map_err(|_| tg::error!("expected a destroy sandbox response"))
-							.map(|output| output.destroyed)
-					});
-				super::Operation::DestroyRunnerSandbox { id, result }
+			},
+			Err(error_) => {
+				tracing::warn!(error = %error_.trace(), %sandbox, %runner, "failed to remove the destroying sandbox's directory");
+				self.remove_destroying_sandbox(scheduler, sandbox, runner, error);
+			},
+		}
+	}
+
+	/// Read the destroying sandboxes whose directories a runner that registered has, so that this scheduler removes their directories, which it may not have finished before the runner or this scheduler restarted.
+	pub(super) fn read_destroying_sandboxes(
+		&mut self,
+		scheduler: &Scheduler,
+		runner: &tg::runner::Id,
+	) {
+		let scheduler = scheduler.clone();
+		let runner = runner.clone();
+		self.operations.push(
+			async move {
+				let result = async {
+					let ids = scheduler.server.index.get_runner_sandboxes(&runner).await?;
+					let indexed = scheduler.server.index.try_get_sandboxes(&ids).await?;
+					let sandboxes = std::iter::zip(ids, indexed)
+						.filter_map(|(id, indexed)| {
+							let data = indexed?.data?.data;
+							data.status
+								.is_destroying()
+								.then(|| (id, data.error.and_then(tg::Either::left)))
+						})
+						.collect::<Vec<_>>();
+					Ok::<_, tg::Error>(sandboxes)
+				}
+				.await;
+				let sandboxes = result.unwrap_or_else(|error| {
+					tracing::error!(error = %error.trace(), %runner, "failed to read the runner's destroying sandboxes");
+					Vec::new()
+				});
+				Operation::DestroyingSandboxes { runner, sandboxes }
 			}
 			.boxed(),
 		);

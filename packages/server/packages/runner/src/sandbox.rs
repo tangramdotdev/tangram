@@ -2586,6 +2586,31 @@ impl Component {
 		Ok(output)
 	}
 
+	/// Record the destruction of a stopped sandbox whose ttl expired, and remove its directory once the server recorded it, which it does only while the sandbox is stopped at its boot.
+	async fn destroy_expired_sandbox(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		sender: &crate::RunnerSender,
+	) -> tg::Result<()> {
+		let arg = tg::runner::control::DestroySandboxClientRequestArg {
+			error: None,
+			processes: Vec::new(),
+			sandbox: id.clone(),
+		};
+		let destroyed = match Self::request_runner_sandbox_destroy(sender, arg).await? {
+			std::ops::ControlFlow::Break(destroyed) => destroyed,
+			std::ops::ControlFlow::Continue(error) => {
+				return Err(tg::error!(!error, %id, "failed to record the sandbox's destruction"));
+			},
+		};
+		if destroyed {
+			self.remove_stopped_sandbox_directory(session, id).await?;
+		}
+
+		Ok(())
+	}
+
 	/// Remove a stopped sandbox's directory, release its filesystem project ID, and report its destruction, which marks the sandbox destroyed.
 	async fn remove_stopped_sandbox(
 		&self,
@@ -2871,15 +2896,12 @@ impl Component {
 			}
 		}
 
-		// Destroy each expired sandbox, checking again that no boot started while the usage was reported.
+		// Destroy each expired sandbox, checking again that no boot started while the usage was reported. The expiry is a destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at its boot, so the runner removes the directory only once the destroy is recorded.
 		for id in expired {
 			if removed.contains(&id) || self.sandbox_is_starting_or_running(&id) {
 				continue;
 			}
-			if let Err(error) = self
-				.remove_stopped_sandbox(session, &id, None, &sender)
-				.await
-			{
+			if let Err(error) = self.destroy_expired_sandbox(session, &id, &sender).await {
 				tracing::error!(error = %error.trace(), sandbox = %id, "failed to destroy the expired sandbox");
 			}
 		}

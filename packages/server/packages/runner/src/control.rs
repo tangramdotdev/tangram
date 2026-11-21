@@ -605,7 +605,15 @@ impl Component {
 				.scheduler
 				.destroy_runner_sandbox(&session.server, sandbox, error, None, false)
 				.await?;
-			true
+
+			// Report whether the index recorded the destruction, which a destroy of a stopped sandbox does only while the sandbox is stopped at its boot.
+			session
+				.server
+				.index
+				.try_get_sandbox(sandbox)
+				.await?
+				.and_then(|indexed| indexed.data)
+				.is_some_and(|data| data.data.status.is_destroyed())
 		} else {
 			false
 		};
