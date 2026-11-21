@@ -302,6 +302,7 @@ async fn destroy_sandbox(
 			arg: tg::runner::control::ClientRequestArg::DestroySandbox(
 				tg::runner::control::DestroySandboxClientRequestArg {
 					error: None,
+					processes: Vec::new(),
 					sandbox: sandbox.clone(),
 				},
 			),

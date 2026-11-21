@@ -445,6 +445,11 @@ pub struct DestroySandboxClientRequestArg {
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 
+	/// The processes that the runner accepted for the boot and did not finish, from the runner's memory, which the server finishes as failed with the error.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Vec::is_empty")]
+	pub processes: Vec<Process>,
+
 	#[tangram_serialize(id = 0)]
 	pub sandbox: tg::sandbox::Id,
 }
@@ -647,6 +652,11 @@ pub struct StopSandboxClientRequestArg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+
+	/// The processes that the runner accepted for the boot and did not finish, from the runner's memory, which the server finishes as failed with the error.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Vec::is_empty")]
+	pub processes: Vec<Process>,
 
 	#[tangram_serialize(id = 0)]
 	pub sandbox: tg::sandbox::Id,

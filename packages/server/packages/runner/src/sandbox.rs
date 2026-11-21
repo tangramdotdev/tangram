@@ -66,6 +66,7 @@ struct SpawnSandboxArg {
 }
 
 struct SandboxTaskArg {
+	accepted: SharedAccepted,
 	allocation: tangram_server_runner_core::capacity::Allocation,
 	arg: tg::sandbox::create::Arg,
 	boot: u64,
@@ -83,6 +84,15 @@ struct SandboxTaskArg {
 	stopper: Stopper,
 	token: Option<String>,
 }
+
+/// The processes that a boot accepted, and the ones of them that finished, which the runner keeps in memory.
+#[derive(Default)]
+struct Accepted {
+	finished: BTreeSet<tg::process::Id>,
+	processes: Vec<tg::runner::control::Process>,
+}
+
+type SharedAccepted = Arc<std::sync::Mutex<Accepted>>;
 
 struct GetSandboxControlStreamArg<'a> {
 	boot: u64,
@@ -117,6 +127,7 @@ struct DestroyFailedSandboxArg<'a> {
 }
 
 struct SandboxTaskInnerArg {
+	accepted: SharedAccepted,
 	connected: ConnectionReady,
 	control: control::Control,
 	create_output: CreateSandboxOutput,
@@ -134,6 +145,7 @@ struct SandboxTaskInnerArg {
 }
 
 struct RunSandboxTaskArg {
+	accepted: SharedAccepted,
 	connected: ConnectionReady,
 	control: control::Control,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
@@ -415,10 +427,18 @@ impl Component {
 			},
 		};
 
-		// Run the sandbox task.
+		// Remember the sandbox's location, whose local copy a failed boot records when the location is remote.
+		let location = arg.location.clone();
+
+		// Run the sandbox task, and keep the processes that the runner accepts for the boot in memory, beginning with the boot's initial process, so that a failed boot finishes every one that did not finish.
+		let accepted = Arc::new(std::sync::Mutex::new(Accepted::default()));
+		if let Some(process) = &arg.process {
+			accepted.lock().unwrap().accept(process.clone());
+		}
 		let kept = Arc::new(AtomicBool::new(false));
 		let storage = arg.allocation.capacity().storage;
 		let task_arg = SandboxTaskArg {
+			accepted: accepted.clone(),
 			allocation: arg.allocation,
 			arg: arg.arg,
 			boot: arg.boot,
@@ -485,10 +505,26 @@ impl Component {
 			self.reserve_stopped_sandbox_storage(&id, storage);
 		}
 
-		// Report the failed sandbox.
+		// Report the failed sandbox with the processes that it accepted and did not finish.
 		let error = Self::sandbox_error_data(session, &error);
+		let processes = accepted.lock().unwrap().unfinished();
+
+		// Record the failure in this server's local copies of a sandbox whose home is remote, so that no local record stays unfinished while the home records the report.
 		if let Err(error) = self
-			.report_sandbox_with_runner_control(&id, error, teardown, &stopper)
+			.record_failed_sandbox_local(
+				session,
+				&id,
+				&location,
+				error.clone(),
+				&processes,
+				teardown,
+			)
+			.await
+		{
+			tracing::error!(error = %error.trace(), sandbox = %id, "failed to record the failed sandbox locally");
+		}
+		if let Err(error) = self
+			.report_sandbox_with_runner_control(&id, error, &processes, teardown, &stopper)
 			.await
 		{
 			tracing::error!(error = %error.trace(), sandbox = %id, "failed to report the failed sandbox");
@@ -525,6 +561,7 @@ impl Component {
 
 	async fn sandbox_task_with_id(&self, session: &Session, arg: SandboxTaskArg) -> tg::Result<()> {
 		let SandboxTaskArg {
+			accepted,
 			allocation,
 			arg,
 			boot,
@@ -911,6 +948,7 @@ impl Component {
 			.expect("the sandbox state was not found")
 			.data();
 		let arg = SandboxTaskInnerArg {
+			accepted,
 			connected,
 			control,
 			create_output,
@@ -1453,6 +1491,7 @@ impl Component {
 		arg: SandboxTaskInnerArg,
 	) -> tg::Result<()> {
 		let SandboxTaskInnerArg {
+			accepted,
 			connected,
 			control,
 			create_output,
@@ -1477,6 +1516,7 @@ impl Component {
 		} = create_output;
 
 		let arg = RunSandboxTaskArg {
+			accepted,
 			connected,
 			control,
 			event_sender,
@@ -1547,6 +1587,7 @@ impl Component {
 		vfs: &mut Option<Box<dyn tangram_server_vfs_core::Server>>,
 	) -> tg::Result<RetainSandboxTaskArg> {
 		let RunSandboxTaskArg {
+			accepted,
 			connected,
 			mut control,
 			event_sender,
@@ -1746,8 +1787,9 @@ impl Component {
 								}
 								timer_future.take();
 
-								// Spawn the process task.
+								// Spawn the process task, and remember that the boot accepted the process.
 								let process = Self::prepare_process(request.process, &id)?;
+								accepted.lock().unwrap().accept(process.clone());
 								let arg = SpawnProcessTaskArg {
 									boot,
 									guest_url: &guest_url,
@@ -1816,6 +1858,7 @@ impl Component {
 						};
 						match event? {
 							ProcessEvent::Buffered | ProcessEvent::Released => {
+								accepted.lock().unwrap().finish(&process);
 								process_events.remove(&process);
 								if process_events.is_empty() && pending.is_empty() {
 									last_used_at = session.server.clock.unix_timestamp();
@@ -1955,6 +1998,7 @@ impl Component {
 			while let Some((process, event)) = process_events.next().await {
 				match event? {
 					ProcessEvent::Buffered | ProcessEvent::Released => {
+						accepted.lock().unwrap().finish(&process);
 						process_events.remove(&process);
 					},
 					ProcessEvent::Connected(_) => {
@@ -2553,6 +2597,7 @@ impl Component {
 		self.remove_stopped_sandbox_directory(session, id).await?;
 		let arg = tg::runner::control::DestroySandboxClientRequestArg {
 			error: error.map(tg::Either::Left),
+			processes: Vec::new(),
 			sandbox: id.clone(),
 		};
 		if let std::ops::ControlFlow::Continue(error) =
@@ -2955,6 +3000,77 @@ impl Component {
 		_id: &tg::sandbox::Id,
 	) -> tg::Result<Option<u64>> {
 		Ok(None)
+	}
+
+	/// Record a failed boot in this server's local copies of a sandbox whose home is remote: finish the boot's processes that the runner accepted and that did not finish as failed, and record the sandbox as stopped or destroyed with the error, as the home records the runner's report.
+	async fn record_failed_sandbox_local(
+		&self,
+		session: &Session,
+		id: &tg::sandbox::Id,
+		location: &tg::Location,
+		error: tg::Either<tg::error::Data, tg::error::Id>,
+		processes: &[tg::runner::control::Process],
+		teardown: Teardown,
+	) -> tg::Result<()> {
+		if !location.is_remote() {
+			return Ok(());
+		}
+
+		// Finish the processes.
+		for process in processes {
+			let Some(process_id) = &process.id else {
+				continue;
+			};
+			let data = process
+				.data
+				.clone()
+				.without_location_and_tokens_except_sync();
+			let result = session
+				.server
+				.components
+				.process
+				.finish_queued_process(&session.server, process_id, data, error.clone(), None)
+				.await;
+			if let Err(error) = result {
+				tracing::warn!(error = %error.trace(), process = %process_id, "failed to finish the process locally");
+			}
+		}
+
+		// Record the sandbox's end in its local copy, if this server has one.
+		let Some(indexed) = session
+			.server
+			.index
+			.try_get_sandboxes(std::slice::from_ref(id))
+			.await?
+			.pop()
+			.flatten()
+		else {
+			return Ok(());
+		};
+		let Some(mut data) = indexed.data else {
+			return Ok(());
+		};
+		if data.data.status.is_destroyed() || data.data.status.is_stopped() {
+			return Ok(());
+		}
+		let now = session.server.clock.unix_timestamp();
+		data.data.error = Some(error);
+		match teardown {
+			Teardown::Destroy => {
+				data.data.status = tg::sandbox::Status::Destroyed;
+			},
+			Teardown::Stop => {
+				data.data.expires_at = data.data.time_to_live.map(|time_to_live| {
+					now.saturating_add(time_to_live.as_secs().try_into().unwrap_or(i64::MAX))
+				});
+				data.data.status = tg::sandbox::Status::Stopped;
+			},
+		}
+		data.data.stopped_at = Some(now);
+		self.index_remote_sandbox(session, id, location, indexed.created_at, Some(&data), None)
+			.await?;
+
+		Ok(())
 	}
 
 	/// Record a previous run's sandbox as stopped in this runner's local index when its location is remote, because the remote records the stop, and the local record is the one this runner reads.
@@ -3402,4 +3518,30 @@ fn wait_for_process_control_connection(
 		(result, events, sender)
 	}
 	.boxed()
+}
+
+impl Accepted {
+	/// Remember that the boot accepted a process.
+	fn accept(&mut self, process: tg::runner::control::Process) {
+		self.processes.push(process);
+	}
+
+	/// Remember that a process of the boot finished.
+	fn finish(&mut self, process: &tg::process::Id) {
+		self.finished.insert(process.clone());
+	}
+
+	/// Get the processes that the boot accepted, whose IDs are known, and that did not finish.
+	fn unfinished(&self) -> Vec<tg::runner::control::Process> {
+		self.processes
+			.iter()
+			.filter(|process| {
+				process
+					.id
+					.as_ref()
+					.is_some_and(|id| !self.finished.contains(id))
+			})
+			.cloned()
+			.collect()
+	}
 }

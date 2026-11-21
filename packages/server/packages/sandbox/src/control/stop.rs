@@ -23,8 +23,6 @@ impl Component {
 		Self::warn_missing_sandbox_usage(session, &arg.data.data);
 
 		// Submit the stopped sandbox with the processes of its boot, which the index merges with those of earlier boots.
-		let boot = arg.data.data.boot;
-		let error = arg.data.data.error.clone();
 		let account = session
 			.server
 			.components
@@ -65,17 +63,6 @@ impl Component {
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to put the stopped sandbox in the index"),
 			)?;
-
-		// Finish the sandbox's queued processes, which can never start now that the boot has ended.
-		if let Err(error) = session
-			.server
-			.components
-			.process
-			.finish_queued_sandbox_processes(&session.server, id, boot, error)
-			.await
-		{
-			tracing::warn!(error = %error.trace(), %id, "failed to finish the queued processes of the stopped sandbox");
-		}
 
 		let output = tg::sandbox::control::StopServerResponseOutput {};
 

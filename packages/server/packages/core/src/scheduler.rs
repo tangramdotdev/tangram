@@ -14,11 +14,13 @@ pub trait Component: crate::component::Lifecycle {
 		scheduler: &'a tg::scheduler::Id,
 	) -> BoxFuture<'a, tg::Result<Option<tg::runner::Capacity>>>;
 
+	/// End a sandbox of a runner as destroyed, finishing the processes of its boot if the caller takes the boot over, rather than its runner reporting it.
 	fn destroy_runner_sandbox<'a>(
 		&'a self,
 		server: &'a Server,
 		id: &'a tg::sandbox::Id,
 		error: Option<tg::error::Data>,
+		processes: bool,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn destroy_stopped_runner_sandbox<'a>(
@@ -70,11 +72,13 @@ pub trait Component: crate::component::Lifecycle {
 
 	fn started(&self) -> BoxFuture<'_, ()>;
 
+	/// End a sandbox of a runner as stopped, finishing the processes of its boot if the caller takes the boot over, rather than its runner reporting it.
 	fn stop_runner_sandbox<'a>(
 		&'a self,
 		server: &'a Server,
 		id: &'a tg::sandbox::Id,
 		error: tg::error::Data,
+		processes: bool,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	/// Enqueue a sandbox with a scheduler that accepts its host, returning `None` if every scheduler declines it.

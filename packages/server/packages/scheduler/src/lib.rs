@@ -1084,8 +1084,10 @@ impl tangram_server_core::scheduler::Component for Component {
 		server: &'a tangram_server_core::Server,
 		id: &'a tg::sandbox::Id,
 		error: Option<tg::error::Data>,
+		processes: bool,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.destroy_runner_sandbox(server, id, error).boxed()
+		self.destroy_runner_sandbox(server, id, error, processes)
+			.boxed()
 	}
 
 	fn destroy_stopped_runner_sandbox<'a>(
@@ -1150,8 +1152,10 @@ impl tangram_server_core::scheduler::Component for Component {
 		server: &'a tangram_server_core::Server,
 		id: &'a tg::sandbox::Id,
 		error: tg::error::Data,
+		processes: bool,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.stop_runner_sandbox(server, id, error).boxed()
+		self.stop_runner_sandbox(server, id, error, processes)
+			.boxed()
 	}
 
 	fn try_enqueue_sandbox<'a>(

@@ -291,23 +291,7 @@ pub trait Component: crate::component::Lifecycle {
 		id: &'a tg::process::Id,
 		data: tg::process::Data,
 		error: tg::Either<tg::error::Data, tg::error::Id>,
-		sandbox_boot: Option<tangram_index::process::put::SandboxBoot>,
 		registration: Option<tangram_index::runner::Registration>,
-	) -> BoxFuture<'a, tg::Result<()>>;
-
-	fn finish_queued_sandbox_processes<'a>(
-		&'a self,
-		server: &'a Server,
-		sandbox: &'a tg::sandbox::Id,
-		boot: u64,
-		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
-	) -> BoxFuture<'a, tg::Result<()>>;
-
-	fn finish_unstarted_process<'a>(
-		&'a self,
-		server: &'a Server,
-		process: &'a tg::runner::control::Process,
-		error: tg::Either<tg::error::Data, tg::error::Id>,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn get_process_local<'a>(

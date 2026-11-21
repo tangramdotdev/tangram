@@ -1391,7 +1391,6 @@ impl Component {
 							principal: session.context.principal.clone(),
 							registration: None,
 							sandbox: None,
-							sandbox_boot: None,
 							sequence: 0,
 							storage,
 							time_to_touch: session.server.config.process.time_to_touch,
