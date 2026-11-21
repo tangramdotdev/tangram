@@ -29,7 +29,7 @@ impl Index {
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		// Get the existing process, the existing data when the validation compares another principal's data, whether the parent accepts the process as a child, and the sandbox that the merge reads concurrently.
+		// Get the existing process, the existing data when the validation compares another principal's data, and whether the parent accepts the process as a child concurrently.
 		let compare = arg.data.is_some() && arg.principal != tg::Principal::Process(id.clone());
 		let process = Self::try_get_process_with_transaction(txn, subspace, id);
 		let data = async {
@@ -44,20 +44,7 @@ impl Index {
 			};
 			Self::try_get_process_accepts_child_with_transaction(txn, subspace, parent, id).await
 		};
-		let sandbox = async {
-			let Some(sandbox) = arg.context_sandbox() else {
-				return Ok(ControlFlow::Break(None));
-			};
-			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(sandbox.clone()));
-			let key = Self::pack(subspace, &key);
-			let result = txn.get(&key, false).await;
-			let sandbox = crate::retry!(result)
-				.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
-				.transpose()?;
-			Ok::<_, tg::Error>(ControlFlow::Break(sandbox))
-		};
-		let (existing, existing_data, accepted, sandbox) =
-			futures::try_join!(process, data, accepted, sandbox)?;
+		let (existing, existing_data, accepted) = futures::try_join!(process, data, accepted)?;
 		let existing = match existing {
 			ControlFlow::Break(existing) => existing,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
@@ -70,13 +57,21 @@ impl Index {
 			ControlFlow::Break(accepted) => accepted,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
-		let sandbox = match sandbox {
-			ControlFlow::Break(sandbox) => sandbox,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+
+		// Get the sandbox that the merge reads.
+		let sandbox = if let Some(sandbox) = arg.context_sandbox(existing.as_ref()) {
+			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(sandbox));
+			let key = Self::pack(subspace, &key);
+			let result = txn.get(&key, false).await;
+			crate::retry!(result)
+				.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
+				.transpose()?
+		} else {
+			None
 		};
 
-		// Get the existing data when the merge compares it and it was not read, which is when the process rewrites its own finished data.
-		if !compare && arg.compares_data(existing.as_ref()) {
+		// Get the existing data when the merge reads it and it was not read.
+		if !compare && arg.reads_data(existing.as_ref(), sandbox.as_ref()) {
 			existing_data = crate::propagate!(
 				Self::try_get_process_data_with_transaction(txn, subspace, id).await
 			);

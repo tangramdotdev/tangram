@@ -36,8 +36,8 @@ impl Index {
 			.transpose()?;
 
 		// Get the records that the merge reads.
-		let sandbox = if let Some(sandbox) = arg.context_sandbox() {
-			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(sandbox.clone()));
+		let sandbox = if let Some(sandbox) = arg.context_sandbox(existing.as_ref()) {
+			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(sandbox));
 			let key = Self::pack(subspace, &key);
 			db.get(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
@@ -46,7 +46,7 @@ impl Index {
 		} else {
 			None
 		};
-		let existing_data = if arg.compares_data(existing.as_ref()) {
+		let existing_data = if arg.reads_data(existing.as_ref(), sandbox.as_ref()) {
 			Self::try_get_process_data_with_transaction(db, subspace, transaction, id)?
 		} else {
 			None

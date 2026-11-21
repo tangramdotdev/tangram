@@ -1,4 +1,7 @@
-use {super::storage::Set, std::collections::BTreeSet, tangram_client::prelude::*};
+use {
+	super::storage::Set, std::collections::BTreeSet, tangram_client::prelude::*,
+	tangram_util::serde::is_default,
+};
 
 #[cfg(test)]
 mod tests;
@@ -8,6 +11,10 @@ pub struct Arg {
 	/// The account for which to put a storage entry for the process, after the process is accepted.
 	#[tangram_serialize(default, id = 23, skip_serializing_if = "Option::is_none")]
 	pub account: Option<crate::usage::Account>,
+
+	/// The boot of the process's sandbox that the process belongs to, which only its holder sets and which never changes.
+	#[tangram_serialize(default, id = 24, skip_serializing_if = "Option::is_none")]
+	pub boot: Option<u64>,
 
 	#[tangram_serialize(id = 13)]
 	pub cached: bool,
@@ -72,7 +79,7 @@ pub struct Arg {
 	#[tangram_serialize(id = 8)]
 	pub parent: Option<tg::process::Id>,
 
-	/// Permissions granted after validation if the process is new, if both `data` and `children` are `Some`, or if the put is a queued record that arrives after the process started.
+	/// Permissions granted after validation. The process's own put grants them even if its data loses, so that permissions merge as a union, and another principal's put grants them only if the process is new or the put carries both its data and its children.
 	#[tangram_serialize(id = 18)]
 	pub permissions: Vec<crate::permission::put::Arg>,
 
@@ -90,6 +97,10 @@ pub struct Arg {
 	/// The boot that the process's sandbox must still be at when this put is applied, which makes the put a conditional finish of a queued process of a boot that ended, so that a process queued for a later boot is not finished.
 	#[tangram_serialize(default, id = 22, skip_serializing_if = "Option::is_none")]
 	pub sandbox_boot: Option<SandboxBoot>,
+
+	/// The position of the write among the writes of the process's holders, so that the index applies their lagging writes in order.
+	#[tangram_serialize(default, id = 25, skip_serializing_if = "is_default")]
+	pub sequence: u64,
 
 	#[tangram_serialize(id = 10)]
 	pub storage: Set,
@@ -110,7 +121,7 @@ pub struct Context<'a> {
 	/// The first children of the existing process, when `compares_children` is true.
 	pub children: Option<&'a [tg::process::data::Child]>,
 
-	/// The existing process's data, when `compares_data` is true.
+	/// The existing process's data, when `reads_data` is true.
 	pub data: Option<&'a tg::process::Data>,
 
 	/// The record of the sandbox that `context_sandbox` names.
@@ -200,16 +211,25 @@ impl Arg {
 		Ok(())
 	}
 
-	/// Whether the merge compares the arg's data with the existing data, which the index reads for it.
+	/// Whether the merge reads the existing data, which it compares with the arg's data and finishes if a takeover ended the process's boot, given the record of the sandbox that `context_sandbox` names.
 	#[must_use]
-	pub fn compares_data(&self, existing: Option<&super::Process>) -> bool {
-		self.data.is_some()
-			&& existing
-				.and_then(|existing| existing.status)
-				.is_some_and(|status| {
-					self.principal != tg::Principal::Process(self.id.clone())
-						|| status.is_finished()
-				})
+	pub fn reads_data(
+		&self,
+		existing: Option<&super::Process>,
+		sandbox: Option<&crate::sandbox::Sandbox>,
+	) -> bool {
+		let status = existing.and_then(|existing| existing.status);
+		let compares = self.data.is_some()
+			&& status.is_some_and(|status| {
+				self.principal != tg::Principal::Process(self.id.clone()) || status.is_finished()
+			});
+		let finishes = status.is_some_and(|status| !status.is_finished())
+			&& !self.supersedes(existing)
+			&& self
+				.boot
+				.or_else(|| existing.and_then(|existing| existing.boot))
+				.is_some_and(|boot| boot_taken_over(sandbox, boot));
+		compares || finishes
 	}
 
 	/// Whether the merge compares the arg's children with the existing children, which the index reads for it.
@@ -221,10 +241,49 @@ impl Arg {
 			&& self.children.is_some()
 	}
 
-	/// The sandbox whose record the merge reads, if any.
+	/// The sandbox whose record the merge reads, which is the sandbox of a conditional finish, or the sandbox of a process with a known boot that the put leaves unfinished, whose boot a takeover may have ended. The read is skipped when the put finishes the process or the index already has it finished.
 	#[must_use]
-	pub fn context_sandbox(&self) -> Option<&tg::sandbox::Id> {
-		self.sandbox_boot.as_ref().map(|expected| &expected.sandbox)
+	pub fn context_sandbox(&self, existing: Option<&super::Process>) -> Option<tg::sandbox::Id> {
+		if let Some(expected) = &self.sandbox_boot {
+			return Some(expected.sandbox.clone());
+		}
+		let finished = self
+			.data
+			.as_ref()
+			.is_some_and(|data| data.status.is_finished())
+			|| existing
+				.and_then(|existing| existing.status)
+				.is_some_and(|status| status.is_finished());
+		let boot = self
+			.boot
+			.or_else(|| existing.and_then(|existing| existing.boot));
+		if finished || boot.is_none() {
+			return None;
+		}
+		self.data
+			.as_ref()
+			.and_then(|data| data.sandbox.clone())
+			.or_else(|| self.sandbox.clone())
+			.or_else(|| existing.and_then(|existing| existing.sandbox.clone()))
+	}
+
+	/// Whether the arg's data supersedes the existing record's data. The first end to arrive is final, an end supersedes unfinished data, and otherwise a write supersedes the writes with lower sequences, and at an equal sequence a later status.
+	#[must_use]
+	fn supersedes(&self, existing: Option<&super::Process>) -> bool {
+		let Some(data) = &self.data else {
+			return false;
+		};
+		let Some(status) = existing.and_then(|existing| existing.status) else {
+			return true;
+		};
+		if status.is_finished() {
+			return false;
+		}
+		if data.status.is_finished() {
+			return true;
+		}
+		let sequence = existing.map_or(0, |existing| existing.sequence);
+		(self.sequence, rank(data.status)) > (sequence, rank(status))
 	}
 
 	/// Merge the put with the existing record, which is the one rule that every index backend applies, so that writes applied in any order produce the same record.
@@ -241,20 +300,6 @@ impl Arg {
 		// Reject a conditional finish unless the process's sandbox is still at the boot that the put names.
 		if let Err(error) = self.validate_sandbox_boot(context.sandbox) {
 			return Ok(Err(error));
-		}
-
-		// Ignore a queued record that arrives after the process started, except for its permissions, because writes may be applied out of order.
-		if self
-			.data
-			.as_ref()
-			.is_some_and(|data| data.status.is_queued())
-			&& existing.is_some_and(|existing| existing.status.is_some())
-		{
-			let merge = Merge {
-				permissions: true,
-				update: None,
-			};
-			return Ok(Ok(merge));
 		}
 
 		// Validate the process data and children against the existing record.
@@ -277,17 +322,35 @@ impl Arg {
 			}
 		}
 
-		// Put the permissions if the process is new or the put carries both its data and its children.
-		let permissions = existing.is_none() || (self.data.is_some() && self.children.is_some());
-
-		// Preserve the stored data after validating an identical write.
-		let mut arg = std::borrow::Cow::Borrowed(self);
-		if let Some(status) = existing.and_then(|existing| existing.status)
-			&& (arg.principal != tg::Principal::Process(arg.id.clone()) || status.is_finished())
+		// Reject a write that changes the boot of a process whose record has one.
+		let existing_boot = existing.and_then(|existing| existing.boot);
+		if let (Some(existing_boot), Some(boot)) = (existing_boot, self.boot)
+			&& existing_boot != boot
 		{
+			return Ok(Err(tg::error!(
+				id = %self.id,
+				"cannot change the boot of an existing process"
+			)));
+		}
+		let boot = existing_boot.or(self.boot);
+
+		// Put the permissions of every accepted put of the process itself, even one whose data loses, so that permissions merge as a union. Another principal's put proves what it grants only if the process is new or the put carries both its data and its children.
+		let permissions = self.principal == tg::Principal::Process(self.id.clone())
+			|| existing.is_none()
+			|| (self.data.is_some() && self.children.is_some());
+
+		// Keep the stored data unless the arg's data supersedes it.
+		let superseded = self.supersedes(existing);
+		let mut arg = std::borrow::Cow::Borrowed(self);
+		if !superseded {
 			arg.to_mut().data = None;
 		}
 		let arg = arg.as_ref();
+		let sequence = if superseded {
+			arg.sequence
+		} else {
+			existing.map_or(arg.sequence, |existing| existing.sequence)
+		};
 		let merge = !arg.complete();
 
 		// Touch the process unless it was touched within the time to touch.
@@ -337,6 +400,41 @@ impl Arg {
 		if let Some(data) = &mut data {
 			data.children = None;
 		}
+
+		// Record a process whose boot a takeover ended as finished, because no holder will finish it. A boot that its live holder ended is left alone, because the holder sends the process's end itself.
+		let unfinished = data.as_ref().map_or_else(
+			|| {
+				existing
+					.and_then(|existing| existing.status)
+					.is_some_and(|status| !status.is_finished())
+			},
+			|data| !data.status.is_finished(),
+		);
+		if unfinished
+			&& let Some(boot) = boot
+			&& boot_taken_over(context.sandbox, boot)
+			&& let Some(mut finished) = data.clone().or_else(|| context.data.cloned())
+		{
+			let error = context
+				.sandbox
+				.and_then(|sandbox| sandbox.data.as_ref())
+				.and_then(|data| data.data.error.clone())
+				.unwrap_or_else(|| {
+					tg::Either::Left(tg::error::Data {
+						code: Some(tg::error::Code::Cancellation),
+						message: Some("the process's sandbox ended".to_owned()),
+						..Default::default()
+					})
+				})
+				.map_right(tg::Referent::with_node);
+			finished.cacheable = false;
+			finished.children = None;
+			finished.exit = Some(1);
+			finished.finished_at = Some(arg.touched_at);
+			finished.set_error(Some(error));
+			finished.status = tg::process::Status::Finished;
+			data = Some(finished);
+		}
 		let status = data
 			.as_ref()
 			.map(|data| data.status)
@@ -365,9 +463,10 @@ impl Arg {
 		// Leave the record as it is if nothing changed and the process is not touched.
 		let changed = parent
 			|| arg.sandbox.is_some()
-			|| arg.data.is_some()
+			|| data.is_some()
 			|| existing.is_none_or(|existing| {
-				existing.location != location
+				existing.boot != boot
+					|| existing.location != location
 					|| existing.metadata != metadata
 					|| existing.sandbox != sandbox
 					|| existing.set != set
@@ -383,6 +482,7 @@ impl Arg {
 
 		// Create the record.
 		let process = super::Process {
+			boot,
 			command_id: arg.command_id.clone(),
 			creator,
 			location,
@@ -390,6 +490,7 @@ impl Arg {
 			owner,
 			reference_count: existing.map_or(0, |existing| existing.reference_count),
 			sandbox,
+			sequence,
 			set,
 			status,
 			storage,
@@ -437,28 +538,14 @@ impl Arg {
 			)));
 		}
 
-		if self.principal == tg::Principal::Process(self.id.clone())
-			&& existing.status.is_none_or(|status| !status.is_finished())
-		{
+		// Accept the process's own writes in any order, which the merge orders, keeping the first end that arrives.
+		if self.principal == tg::Principal::Process(self.id.clone()) {
 			return Ok(Ok(()));
 		}
 		if self.command_id != existing.command_id {
 			return Ok(Err(
 				tg::error!(id = %self.id, "cannot replace an existing process"),
 			));
-		}
-
-		// Accept the process's own write of its unfinished data after its finished data, which the index can receive out of order, because the put preserves the finished data.
-		if self.principal == tg::Principal::Process(self.id.clone())
-			&& self.data.as_ref().is_some_and(|data| {
-				!data.status.is_finished()
-					&& data.error.is_none()
-					&& data.exit.is_none()
-					&& data.finished_at.is_none()
-					&& data.log.is_none()
-					&& data.output.is_none()
-			}) {
-			return Ok(Ok(()));
 		}
 
 		if let (Some(data), Some(existing)) = (&self.data, existing_data) {
@@ -528,5 +615,19 @@ impl Arg {
 			log_objects: self.log.is_some(),
 			output_objects: self.output.is_some(),
 		}
+	}
+}
+
+/// Whether a sandbox's record shows that a takeover ended the boot.
+fn boot_taken_over(sandbox: Option<&crate::sandbox::Sandbox>, boot: u64) -> bool {
+	sandbox.is_some_and(|sandbox| sandbox.taken_over.contains(&boot))
+}
+
+/// The rank of a status, which orders writes at an equal sequence.
+fn rank(status: tg::process::Status) -> u8 {
+	match status {
+		tg::process::Status::Finished => 2,
+		tg::process::Status::Queued => 0,
+		tg::process::Status::Started => 1,
 	}
 }

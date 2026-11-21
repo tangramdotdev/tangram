@@ -47,6 +47,7 @@ fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::
 	let command = tg::command::Id::new(b"command");
 	tangram_index::process::put::Arg {
 		account: None,
+		boot: None,
 		cached: false,
 		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
@@ -66,6 +67,7 @@ fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::
 		registration: None,
 		sandbox: None,
 		sandbox_boot: None,
+		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,
@@ -501,6 +503,7 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 				};
 				let process_arg = tangram_index::process::put::Arg {
 					account: None,
+					boot: None,
 					cached: false,
 					captures: tangram_index::permission::capture::Captures::default(),
 					children: None,
@@ -520,6 +523,7 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 					registration: Some(registration.clone()),
 					sandbox: None,
 					sandbox_boot: None,
+					sequence: 0,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
@@ -536,6 +540,7 @@ async fn registration_indices_fence_delayed_updates_and_cleanup() {
 					processes: None,
 					registration: Some(registration.clone()),
 					runner: None,
+					sequence: 0,
 					stopped_boot: None,
 					stopped_usage: None,
 					touched_at: 0,
@@ -772,6 +777,7 @@ fn sandbox_put_arg(
 		processes: None,
 		registration: None,
 		runner: None,
+		sequence: 0,
 		stopped_boot: None,
 		stopped_usage: None,
 		touched_at: 1,
