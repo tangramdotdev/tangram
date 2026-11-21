@@ -274,7 +274,7 @@ impl SchedulerState {
 		}
 	}
 
-	/// Send a spawn into a sandbox that a runner holds to the runner with the boot, by sending it to the sandbox's holder, and answer the spawn's sender with the runner's reply. The request carries an ID that derives from the spawn's, so that a copy of the spawn that reaches this scheduler again is answered once.
+	/// Send a spawn into a sandbox that a runner holds to the runner with the boot, by sending it to the sandbox's holder, and answer the spawn's sender with the runner's reply. Write the process's queued record with its permissions first, as the process's first holder, and finish the process as failed if the runner refuses it or does not answer. The request carries an ID that derives from the spawn's, so that a copy of the spawn that reaches this scheduler again is answered once.
 	fn send_sandbox_spawn(
 		&mut self,
 		scheduler: &Scheduler,
@@ -287,65 +287,7 @@ impl SchedulerState {
 		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
-				let component = &scheduler.server.components.sandbox;
-				let result = async {
-					// Send the spawn to the sandbox's holder, and send it again on each status wakeup.
-					let session = scheduler.server.session(&scheduler.server.context);
-					let mut wakeups = component
-						.create_sandbox_status_wakeup_stream(&session, &sandbox, None, None)
-						.await?;
-					let retry = scheduler.server.config.control.request_retry.clone().into();
-					let timeout = scheduler.server.config.control.request_timeout;
-					let options = tangram_server_core::control::Options { retry, timeout };
-					let request = tg::sandbox::control::ServerRequestArg::SpawnProcess(arg);
-					let holder_arg = tangram_server_core::sandbox::HolderArg {
-						checkpoint: None,
-						deadline: scheduler.server.control_read_deadline(),
-						exhaustive: true,
-						id: format!("{id}.{boot}"),
-						mode: tangram_server_core::holder::Mode::Write,
-						options,
-						request,
-						wakeups: &mut wakeups,
-					};
-					let output = component
-						.request_sandbox_holder(&session, &sandbox, holder_arg)
-						.await?;
-
-					// Answer the spawn's sender with the runner's reply.
-					let response = match output.and_then(|output| output.reply) {
-						Some(Ok(output)) => tg::sandbox::control::ClientResponse {
-							error: None,
-							id,
-							output: Some(output),
-							retry: None,
-						},
-						Some(Err(error)) => tg::sandbox::control::ClientResponse {
-							error: Some(error.to_data_or_id().left().unwrap_or_else(|| {
-								tg::error::Data {
-									message: Some(error.to_string()),
-									..Default::default()
-								}
-							})),
-							id,
-							output: None,
-							retry: None,
-						},
-						None => tg::sandbox::control::ClientResponse::with_retry(
-							id,
-							tg::control::Retry::NotHolder,
-						),
-					};
-					component
-						.publish_sandbox_holder_response(
-							&scheduler.server,
-							&sandbox,
-							tangram_server_core::sandbox::Holder::Scheduler,
-							response,
-						)
-						.await
-				}
-				.await;
+				let result = scheduler.send_sandbox_spawn(&sandbox, id, arg).await;
 				Operation::Finished {
 					context: "failed to send the spawn to the sandbox's runner",
 					result,
@@ -785,6 +727,123 @@ impl SchedulerState {
 }
 
 impl Scheduler {
+	/// Send a spawn into a sandbox that a runner holds to the runner, and answer the spawn's sender with the runner's reply.
+	async fn send_sandbox_spawn(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		id: String,
+		arg: tg::sandbox::control::SpawnProcessServerRequestArg,
+	) -> tg::Result<()> {
+		let component = &self.server.components.sandbox;
+		let session = self.server.session(&self.server.context);
+		let boot = arg.boot.unwrap_or_default();
+		let process = arg.process.clone();
+
+		// Write the process's queued record with its permissions, if the spawn created the process's ID.
+		if process.id.is_some() {
+			let now = self.server.clock.unix_timestamp();
+			let record = self.server.components.process.create_queued_process_arg(
+				&session,
+				&process,
+				sandbox,
+				Some(boot),
+				now,
+				true,
+				arg.public,
+			)?;
+			let arg = tangram_index::write::Arg {
+				items: vec![tangram_index::Item::PutProcess(Box::new(record))],
+			};
+			self.server
+				.components
+				.indexer
+				.write(&self.server, arg)
+				.await
+				.map_err(|error| tg::error!(!error, %sandbox, "failed to write the process"))?;
+		}
+
+		// Send the spawn to the sandbox's holder, and send it again on each status wakeup.
+		let mut wakeups = component
+			.create_sandbox_status_wakeup_stream(&session, sandbox, None, None)
+			.await?;
+		let retry = self.server.config.control.request_retry.clone().into();
+		let timeout = self.server.config.control.request_timeout;
+		let options = tangram_server_core::control::Options { retry, timeout };
+		let request = tg::sandbox::control::ServerRequestArg::SpawnProcess(arg);
+		let holder_arg = tangram_server_core::sandbox::HolderArg {
+			checkpoint: None,
+			deadline: self.server.control_read_deadline(),
+			exhaustive: true,
+			id: format!("{id}.{boot}"),
+			mode: tangram_server_core::holder::Mode::Write,
+			options,
+			request,
+			wakeups: &mut wakeups,
+		};
+		tangram_server_core::checkpoint!(self.server, "scheduler.process.spawn", %sandbox).await;
+		let reply = component
+			.request_sandbox_holder(&session, sandbox, holder_arg)
+			.await?
+			.and_then(|output| output.reply);
+
+		// Finish the process as failed if the runner refused it or did not answer, because no runner holds it.
+		let reply = match reply {
+			Some(Ok(output @ tg::sandbox::control::ClientResponseOutput::SpawnProcess(_))) => {
+				Ok(output)
+			},
+			Some(Ok(_)) => Err(tg::error!(%sandbox, "expected a spawn process response")),
+			Some(Err(error)) => Err(error),
+			None => Err(tg::error!(
+				code = tg::error::Code::Cancellation,
+				%sandbox,
+				"the sandbox is not started"
+			)),
+		};
+		if let Err(error) = &reply
+			&& process.id.is_some()
+		{
+			self.server
+				.components
+				.process
+				.finish_unstarted_process(&self.server, &process, error.to_data_or_id())
+				.await?;
+		}
+
+		// Answer the spawn's sender with the runner's reply.
+		let response = match reply {
+			Ok(output) => tg::sandbox::control::ClientResponse {
+				error: None,
+				id,
+				output: Some(output),
+				retry: None,
+			},
+			Err(error) => tg::sandbox::control::ClientResponse {
+				error: Some(
+					error
+						.to_data_or_id()
+						.left()
+						.unwrap_or_else(|| tg::error::Data {
+							message: Some(error.to_string()),
+							..Default::default()
+						}),
+				),
+				id,
+				output: None,
+				retry: None,
+			},
+		};
+		component
+			.publish_sandbox_holder_response(
+				&self.server,
+				sandbox,
+				tangram_server_core::sandbox::Holder::Scheduler,
+				response,
+			)
+			.await?;
+
+		Ok(())
+	}
+
 	/// Subscribe to the requests to the holder of a sandbox and of its queued process, and to the sandbox's control connection, and send each to the scheduling task.
 	pub(super) async fn serve_sandbox_holder(
 		&self,

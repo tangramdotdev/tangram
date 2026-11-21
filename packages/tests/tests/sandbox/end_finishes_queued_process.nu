@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A process that is queued in a sandbox when a user stops or destroys the sandbox finishes failed, because it can never start.
+# A process that is queued in a sandbox when a user stops or destroys the sandbox finishes failed, because its holder, the sandbox's scheduler, finishes it once the boot that it was for ended.
 
 for command in [stop destroy] {
 	let root_token = random chars
@@ -33,8 +33,8 @@ for command in [stop destroy] {
 	let sandbox = tg --url $remote.url --token $root_token sandbox create --wait --no-tokens | referent node
 	tg --url $remote.url --token $root_token spawn --no-tokens $'--sandbox=($sandbox)' $loop | ignore
 
-	# Spawn a second process in the sandbox, and hold its request to the sandbox's holder.
-	let request = checkpoint watch sandbox.control.request --params { kind: spawn_process } --token $root_token --url $remote.url
+	# Spawn a second process in the sandbox, and hold the scheduler after it records the process and before it sends the process to the sandbox's runner.
+	let request = checkpoint watch scheduler.process.spawn --params { sandbox: $sandbox } --token $root_token --url $remote.url
 	let url = $remote.url
 	job spawn {
 		tg --url $url --token $root_token spawn --no-tokens $'--sandbox=($sandbox)' $finish | complete | ignore
@@ -45,15 +45,15 @@ for command in [stop destroy] {
 	assert equal ($queued | length) 1 'the process should be queued'
 	let process = $queued | first | get node
 
-	# End the sandbox.
+	# End the sandbox, and let the scheduler send the process to the runner of the boot that ended.
 	tg --url $remote.url --token $root_token sandbox $command --wait $sandbox
+	checkpoint unwatch $request
 
 	# The queued process finishes failed.
-	tg --url $remote.url --token $root_token index
+	let outcome = tg --url $remote.url --token $root_token wait $process | from json
+	assert equal $outcome.exit 1 "the queued process should finish when the sandbox ends"
 	let data = tg --url $remote.url --token $root_token process get $process | from json
-	assert equal $data.status finished "the queued process should finish when the sandbox ends"
-	assert equal $data.exit 1
-	checkpoint unwatch $request
+	assert equal $data.status finished
 	server stop $runner
 	server stop $remote
 }
