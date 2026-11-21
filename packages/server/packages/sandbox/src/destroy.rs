@@ -217,11 +217,15 @@ impl Component {
 				},
 				(_, Some(tg::sandbox::Status::Destroyed)) => break false,
 
-				// Remove the directory of a sandbox that an earlier destroy recorded as destroying while it was stopped, because that destroy's removal may not have finished.
+				// Hand the removal of the directory of a sandbox that an earlier destroy recorded as destroying while it was stopped to its scheduler again, because that destroy's request may not have arrived.
 				(_, Some(tg::sandbox::Status::Destroying)) if destroying => {
 					let runner = output.indexed.and_then(|sandbox| sandbox.runner);
-					if let Some(runner) = runner {
-						self.spawn_remove_stopped_sandbox_task(session, id, error.clone(), runner);
+					if let Some(runner) = runner
+						&& let Err(error) = self
+							.remove_stopped_sandbox(session, id, error.clone(), &runner)
+							.await
+					{
+						tracing::warn!(error = %error.trace(), sandbox = %id, %runner, "failed to hand the removal of the stopped sandbox's directory to its scheduler");
 					}
 					break false;
 				},
@@ -393,58 +397,19 @@ impl Component {
 		}
 		Self::spawn_publish_sandbox_status_task(&session.server, id);
 
-		// Remove the sandbox's directory.
-		if let Some(runner) = runner {
-			self.spawn_remove_stopped_sandbox_task(session, id, error, runner);
+		// Hand the removal of the sandbox's directory to the scheduler of the runner that has it, which removes the directory and records the destruction. A runner's next registration resumes the removal if the request does not arrive.
+		if let Some(runner) = runner
+			&& let Err(error) = self
+				.remove_stopped_sandbox(session, id, error, &runner)
+				.await
+		{
+			tracing::warn!(error = %error.trace(), sandbox = %id, %runner, "failed to hand the removal of the stopped sandbox's directory to its scheduler");
 		}
 
 		Ok(true)
 	}
 
-	/// Remove the directory of a stopped sandbox that the index records as destroying, retrying until the runner that has the directory removes it.
-	fn spawn_remove_stopped_sandbox_task(
-		&self,
-		session: &Session,
-		id: &tg::sandbox::Id,
-		error: Option<tg::error::Data>,
-		runner: tg::runner::Id,
-	) {
-		let component = self.clone();
-		let session = session.server.session(&session.server.context);
-		let id = id.clone();
-		let retry = tangram_futures::retry::Options {
-			max_retries: u64::MAX,
-			..session.server.config.control.request_retry.clone().into()
-		};
-		tokio::spawn(async move {
-			let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
-			while retries.next().await.is_some() {
-				let result = component
-					.remove_stopped_sandbox(&session, &id, error.clone(), &runner)
-					.await;
-				let Err(error) = result else {
-					return;
-				};
-				tracing::warn!(error = %error.trace(), sandbox = %id, %runner, "failed to remove the stopped sandbox's directory");
-
-				// Stop once the sandbox is destroyed, because another destroy removed the directory.
-				let destroyed = session
-					.server
-					.index
-					.try_get_sandbox(&id)
-					.await
-					.ok()
-					.flatten()
-					.and_then(|sandbox| sandbox.data)
-					.is_some_and(|data| data.data.status.is_destroyed());
-				if destroyed {
-					return;
-				}
-			}
-		});
-	}
-
-	/// Ask the runner of a stopped sandbox to remove its directory. The runner's report marks the sandbox destroyed.
+	/// Ask the scheduler of the runner of a stopped sandbox to remove its directory, which records the destruction.
 	async fn remove_stopped_sandbox(
 		&self,
 		session: &Session,
@@ -461,7 +426,7 @@ impl Component {
 			.destroy_stopped_runner_sandbox(session, runner, id, error)
 			.await?;
 		if !destroyed {
-			return Err(tg::error!(%id, "the sandbox's runner did not destroy the sandbox"));
+			return Err(tg::error!(%id, "the sandbox's scheduler did not take the removal"));
 		}
 
 		Ok(())

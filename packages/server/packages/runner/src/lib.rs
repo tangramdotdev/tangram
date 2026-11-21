@@ -907,7 +907,9 @@ impl Component {
 						processes: processes.to_vec(),
 						sandbox: sandbox.clone(),
 					};
-					Self::request_runner_sandbox_destroy(&sender, arg).await?
+					Self::request_runner_sandbox_destroy(&sender, arg)
+						.await?
+						.map_break(|_| ())
 				},
 				crate::sandbox::Teardown::Stop => {
 					let arg = tg::runner::control::StopSandboxClientRequestArg {
@@ -934,10 +936,11 @@ impl Component {
 		}
 	}
 
+	/// Report a sandbox's destruction to the server, and return whether the server recorded the sandbox as destroyed.
 	pub(crate) async fn request_runner_sandbox_destroy(
 		sender: &RunnerSender,
 		arg: tg::runner::control::DestroySandboxClientRequestArg,
-	) -> tg::Result<ControlFlow<(), tg::Error>> {
+	) -> tg::Result<ControlFlow<bool, tg::Error>> {
 		let request = tg::runner::control::ClientRequest {
 			arg: tg::runner::control::ClientRequestArg::DestroySandbox(arg),
 			id: tangram_server_core::control::id(),
@@ -965,12 +968,13 @@ impl Component {
 			})?;
 			return Err(tg::error!(!error, "the destroy sandbox request failed"));
 		}
-		let Some(tg::runner::control::ServerResponseOutput::DestroySandbox(_)) = response.output
+		let Some(tg::runner::control::ServerResponseOutput::DestroySandbox(output)) =
+			response.output
 		else {
 			return Err(tg::error!("expected a destroy sandbox response"));
 		};
 
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(output.destroyed))
 	}
 
 	async fn request_runner_sandbox_stop(

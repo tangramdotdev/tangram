@@ -120,6 +120,13 @@ impl Scheduler {
 	}
 }
 
+impl Recovery {
+	/// Whether this scheduler waits for a runner to report after it restarted.
+	pub(super) fn has_runner(&self, runner: &tg::runner::Id) -> bool {
+		self.runners.contains_key(runner)
+	}
+}
+
 impl SchedulerState {
 	/// Record the sandboxes that a runner reports, and release the held requests once every runner has reported or expired.
 	pub(super) fn handle_recovery_report(
