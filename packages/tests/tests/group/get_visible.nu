@@ -57,3 +57,9 @@ with-env { TANGRAM_CONFIG: $config } { check $local.url }
 
 # A user without a grant sees only the public tag.
 check $local.url $eve.token
+
+# After Alice grants Eve read on the group, Eve lists both tags.
+tg --token $alice.token grant $eve.user.id read team
+tg --token $alice.token index
+let items = tg --url $local.url --token $eve.token list team | from json
+assert equal ($items | get specifier) [team/1.0.0 team/2.0.0]
