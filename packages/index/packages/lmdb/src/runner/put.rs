@@ -11,16 +11,16 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::runner::put::Arg,
 	) -> tg::Result<tg::Result<()>> {
-		// Read the current registration in the mutation transaction.
+		// Read the runner record in the mutation transaction.
 		let key = Key::Runner(crate::runner::Key::Runner(arg.id.clone()));
 		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to get the runner registration"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the runner record"))?;
 		let mut existing = bytes
 			.map(tangram_serialize::from_slice::<tangram_index::runner::Runner>)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to decode the runner registration"))?
+			.map_err(|error| tg::error!(!error, "failed to decode the runner record"))?
 			.unwrap_or_default();
 
 		// Reject a registration with another scheduler, because a runner belongs to the scheduler that it first registers with for its whole life.
@@ -32,28 +32,7 @@ impl Index {
 			return Ok(Err(tg::error!("the runner belongs to another scheduler")));
 		}
 
-		// Accept an identical retry or a strictly newer ownership claim.
-		let accepted = existing.scheduler.as_ref() == Some(&arg.scheduler)
-			&& existing.registration == arg.registration
-			|| existing.scheduler.is_none()
-			|| arg.registration > existing.registration;
-		if !accepted {
-			return Ok(Err(tg::error!(
-				code = tg::error::Code::Cancellation,
-				"the runner registration was superseded"
-			)));
-		}
-
-		// Move the runner to its scheduler.
-		if let Some(scheduler) = &existing.scheduler {
-			let key = Key::Runner(crate::runner::Key::SchedulerRunner {
-				runner: arg.id.clone(),
-				scheduler: scheduler.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete the scheduler runner"))?;
-		}
+		// Record the runner under its scheduler.
 		let scheduler_key = Key::Runner(crate::runner::Key::SchedulerRunner {
 			runner: arg.id.clone(),
 			scheduler: arg.scheduler.clone(),
@@ -62,14 +41,12 @@ impl Index {
 		db.put(transaction, &scheduler_key, &[])
 			.map_err(|error| tg::error!(!error, "failed to put the scheduler runner"))?;
 
-		// Store the accepted registration.
-		existing.next = existing.next.max(arg.registration.saturating_add(1));
-		existing.registration = arg.registration;
+		// Store the runner's scheduler.
 		existing.scheduler = Some(arg.scheduler.clone());
 		let bytes = tangram_serialize::to_vec(&existing)
-			.map_err(|error| tg::error!(!error, "failed to encode the runner registration"))?;
+			.map_err(|error| tg::error!(!error, "failed to encode the runner record"))?;
 		db.put(transaction, &key, &bytes)
-			.map_err(|error| tg::error!(!error, "failed to put the runner registration"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the runner record"))?;
 
 		Ok(Ok(()))
 	}

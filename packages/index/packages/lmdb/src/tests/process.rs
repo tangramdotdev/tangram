@@ -26,7 +26,6 @@ fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::
 		parent: None,
 		permissions: Vec::new(),
 		principal: tg::Principal::Process(id.clone()),
-		registration: None,
 		sandbox: None,
 		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
@@ -619,12 +618,12 @@ fn sandbox_put_arg(
 		principal: tg::Principal::Sandbox(id.clone()),
 		process: None,
 		processes: None,
-		registration: None,
 		runner: None,
 		scheduler: None,
 		sequence: 0,
 		stopped_boot: None,
 		stopped_usage: None,
+		takeover: None,
 		touched_at: 1,
 	}
 }
@@ -674,4 +673,32 @@ async fn a_queued_process_of_a_boot_that_its_holder_ended_stays_queued() {
 			Some(tg::process::Status::Queued)
 		);
 	}
+}
+
+#[tokio::test]
+async fn a_queued_process_of_a_boot_that_a_takeover_ended_is_finished() {
+	let (_dir, index) = super::new_index();
+	let index = &index;
+	// Record a sandbox at boot 0 on a runner, and take the boot over.
+	let runner = tg::runner::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let id = tg::process::Id::new();
+	let mut started = sandbox_put_arg(&sandbox, 0, tg::sandbox::Status::Started);
+	started.runner = Some(runner.clone());
+	let mut takeover = sandbox_put_arg(&sandbox, 0, tg::sandbox::Status::Stopped);
+	takeover.takeover = Some(tangram_index::sandbox::put::Takeover { boot: 0, runner });
+	for arg in [started, takeover] {
+		let item = tangram_index::Item::PutSandbox(Box::new(arg));
+		write_items(index, vec![item]).await.unwrap();
+	}
+
+	// Put a queued process of the boot, and verify that it is finished, because no holder will finish it.
+	let mut arg = queued_process_arg(&id, &sandbox);
+	arg.boot = Some(0);
+	let item = tangram_index::Item::PutProcess(Box::new(arg));
+	write_items(index, vec![item]).await.unwrap();
+	assert_eq!(
+		process_status(index, &id).await,
+		Some(tg::process::Status::Finished)
+	);
 }

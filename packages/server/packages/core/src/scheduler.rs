@@ -14,12 +14,13 @@ pub trait Component: crate::component::Lifecycle {
 		scheduler: &'a tg::scheduler::Id,
 	) -> BoxFuture<'a, tg::Result<Option<tg::runner::Capacity>>>;
 
-	/// End a sandbox of a runner as destroyed, finishing the processes of its boot if the caller takes the boot over, rather than its runner reporting it.
+	/// End a sandbox of a runner as destroyed, as a takeover of the runner's boot if a runner is given, and finishing the processes of its boot if the caller holds them, rather than its runner reporting it.
 	fn destroy_runner_sandbox<'a>(
 		&'a self,
 		server: &'a Server,
 		id: &'a tg::sandbox::Id,
 		error: Option<tg::error::Data>,
+		takeover: Option<&'a tg::runner::Id>,
 		processes: bool,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
@@ -30,6 +31,13 @@ pub trait Component: crate::component::Lifecycle {
 		sandbox: &'a tg::sandbox::Id,
 		error: Option<tg::error::Data>,
 	) -> BoxFuture<'a, tg::Result<bool>>;
+
+	/// Ask the scheduler that a deleted runner belongs to to declare the runner dead and take over its boots.
+	fn delete_runner<'a>(
+		&'a self,
+		session: &'a Session,
+		runner: &'a tg::runner::Id,
+	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn dequeue_sandbox<'a>(
 		&'a self,

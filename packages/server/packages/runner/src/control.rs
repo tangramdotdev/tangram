@@ -30,7 +30,7 @@ pub(crate) struct ClientMessage(pub(crate) tg::runner::control::ClientMessage);
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub(crate) struct ServerMessage {
-	registration_index: u64,
+	connection: u64,
 	message: tg::runner::control::ServerMessage,
 	scheduler: tg::scheduler::Id,
 }
@@ -98,16 +98,6 @@ impl Component {
 		let id = arg.id.clone();
 		let scheduler_time_to_live = arg.scheduler_time_to_live;
 
-		// Allocate the registration in the index that enforces it, so that a runner does not need to keep it.
-		let registration_index = session
-			.server
-			.index
-			.next_runner_registration_index(&id)
-			.await
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to allocate the runner registration"),
-			)?;
-
 		let server_messages = session
 			.server
 			.messenger
@@ -120,19 +110,19 @@ impl Component {
 				)
 			})?;
 
-		tangram_server_core::checkpoint!(session.server, "runner.registration.start", runner = %id, registration_index).await;
+		tangram_server_core::checkpoint!(session.server, "runner.registration.start", runner = %id)
+			.await;
 		let request = tangram_server_scheduler_core::RequestArg::AddRunner(
 			tangram_server_scheduler_core::AddRunnerRequestArg {
 				capacity: arg.heartbeat.capacity,
 				directories: arg.directories.clone(),
 				host: arg.host,
 				runner: id.clone(),
-				registration_index,
 				sandboxes: arg.sandboxes.clone(),
 			},
 		);
 
-		// Register with the scheduler that owns the runner, or with any scheduler on the first registration.
+		// Register with the scheduler that the runner belongs to, or with any scheduler on the runner's first registration, which binds the runner to that scheduler for its whole life.
 		let owner = session
 			.server
 			.index
@@ -169,8 +159,9 @@ impl Component {
 				"the scheduler returned an invalid ID"
 			));
 		}
+		let connection = output.connection;
 
-		tangram_server_core::checkpoint!(session.server, "runner.registration.accept", runner = %id, registration_index).await;
+		tangram_server_core::checkpoint!(session.server, "runner.registration.accept", runner = %id, connection).await;
 
 		// Get the sandboxes that the runner is running and that the index records as stopped, destroyed, or at another boot, after pending indexing so that a start that is not indexed yet is not mistaken for a sandbox that the server stopped.
 		let sandboxes = if arg.sandboxes.is_empty() {
@@ -254,7 +245,7 @@ impl Component {
 					tg::error!(!source, "failed to get a runner server message")
 				})? {
 					if message.payload.scheduler != scheduler
-						|| message.payload.registration_index != registration_index
+						|| message.payload.connection != connection
 					{
 						continue;
 					}
@@ -297,7 +288,7 @@ impl Component {
 							let Some(heartbeat) = heartbeat else {
 								break;
 							};
-							tracing::debug!(registration_index, index = heartbeat.heartbeat_index, "forwarding the runner heartbeat");
+							tracing::debug!(connection, index = heartbeat.heartbeat_index, "forwarding the runner heartbeat");
 							outstanding.insert(heartbeat.heartbeat_index);
 							unacknowledged_at.get_or_insert_with(|| server.clock.instant());
 							if heartbeat_acks_ended {
@@ -324,8 +315,8 @@ impl Component {
 							match result {
 								Ok(Some(message)) => {
 									let acknowledgement = message.payload;
-									tracing::debug!(registration_index, index = acknowledgement.heartbeat_index, "received the scheduler heartbeat acknowledgement");
-									if acknowledgement.registration_index == registration_index
+									tracing::debug!(connection, index = acknowledgement.heartbeat_index, "received the scheduler heartbeat acknowledgement");
+									if acknowledgement.connection == connection
 										&& outstanding.contains(&acknowledgement.heartbeat_index)
 									{
 										outstanding.clear();
@@ -356,7 +347,7 @@ impl Component {
 					return;
 				}
 				tracing::warn!(
-					registration_index,
+					connection,
 					outstanding = outstanding.len(),
 					"the scheduler heartbeat acknowledgement expired"
 				);
@@ -402,12 +393,12 @@ impl Component {
 						tg::runner::control::ClientMessage::Notification(
 							tg::runner::control::ClientNotification::Heartbeat(heartbeat),
 						) => {
-							tracing::debug!(%runner, registration_index, index = heartbeat.index, "received the runner heartbeat");
+							tracing::debug!(%runner, connection, index = heartbeat.index, "received the runner heartbeat");
 							tangram_server_core::checkpoint!(session.server, "runner.control.heartbeat.received", %runner).await;
 							let notification =
 								tangram_server_scheduler_core::HeartbeatNotification {
 									capacity: heartbeat.capacity,
-									registration_index,
+									connection,
 									heartbeat_index: heartbeat.index,
 									runner: runner.clone(),
 									sandboxes: heartbeat.sandboxes,
@@ -424,7 +415,7 @@ impl Component {
 								tangram_server_scheduler_core::Notification::SandboxEnded(
 									tangram_server_scheduler_core::SandboxEndedNotification {
 										boot: ended.boot,
-										registration_index,
+										connection,
 										runner: runner.clone(),
 										sandbox: ended.sandbox,
 									},
@@ -454,11 +445,7 @@ impl Component {
 							requests.spawn(async move {
 								let response = component
 									.handle_runner_control_request(
-										&session,
-										&runner,
-										&scheduler,
-										registration_index,
-										request,
+										&session, &runner, &scheduler, connection, request,
 									)
 									.await;
 								sender.send(response).await?;
@@ -476,7 +463,7 @@ impl Component {
 				if ended && !scheduler_unavailable.load(Ordering::Acquire) {
 					let request = tangram_server_scheduler_core::RequestArg::RemoveRunner(
 						tangram_server_scheduler_core::RemoveRunnerRequestArg {
-							registration_index,
+							connection,
 							runner: runner.clone(),
 						},
 					);
@@ -513,12 +500,12 @@ impl Component {
 		session: &Session,
 		runner: &tg::runner::Id,
 		scheduler: &tg::scheduler::Id,
-		registration_index: u64,
+		connection: u64,
 		request: tg::runner::control::ClientRequest,
 	) -> tg::runner::control::ServerMessage {
 		let result = match request.arg {
 			tg::runner::control::ClientRequestArg::AddSandbox(arg) => self
-				.add_runner_sandbox(session, runner, scheduler, registration_index, arg)
+				.add_runner_sandbox(session, runner, scheduler, connection, arg)
 				.await
 				.map(tg::runner::control::ServerResponseOutput::AddSandbox),
 			tg::runner::control::ClientRequestArg::DestroySandbox(arg) => self
@@ -558,13 +545,13 @@ impl Component {
 		session: &Session,
 		runner: &tg::runner::Id,
 		scheduler: &tg::scheduler::Id,
-		registration_index: u64,
+		connection: u64,
 		arg: tg::runner::control::AddSandboxClientRequestArg,
 	) -> tg::Result<tg::runner::control::AddSandboxServerResponseOutput> {
 		let request = tangram_server_scheduler_core::RequestArg::AddRunnerSandbox(
 			tangram_server_scheduler_core::AddRunnerSandboxRequestArg {
 				boot: arg.boot,
-				registration_index,
+				connection,
 				runner: runner.clone(),
 				sandbox: arg.sandbox,
 			},
@@ -616,7 +603,7 @@ impl Component {
 				.server
 				.components
 				.scheduler
-				.destroy_runner_sandbox(&session.server, sandbox, error, false)
+				.destroy_runner_sandbox(&session.server, sandbox, error, None, false)
 				.await?;
 			true
 		} else {
@@ -669,12 +656,12 @@ impl Component {
 					principal: tg::Principal::Sandbox(sandbox.clone()),
 					process: None,
 					processes: None,
-					registration: None,
 					runner: None,
 					scheduler: None,
 					sequence: 0,
 					stopped_boot: None,
 					stopped_usage: Some(stopped_usage),
+					takeover: None,
 					touched_at,
 				};
 				items.push(tangram_index::Item::PutSandbox(Box::new(put_sandbox)));
@@ -769,7 +756,7 @@ impl Component {
 				.server
 				.components
 				.process
-				.finish_queued_process(&session.server, id, data, error.clone(), None)
+				.finish_queued_process(&session.server, id, data, error.clone())
 				.await;
 			if let Err(error) = result {
 				tracing::warn!(error = %error.trace(), process = %id, "failed to finish the reported process");
@@ -1033,7 +1020,7 @@ impl Component {
 		session: &Session,
 		runner: &tg::runner::Id,
 		scheduler: &tg::scheduler::Id,
-		registration_index: u64,
+		connection: u64,
 		id: String,
 		arg: tg::runner::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
@@ -1044,7 +1031,7 @@ impl Component {
 				id: id.clone(),
 			});
 		let request = ServerMessage {
-			registration_index,
+			connection,
 			message: request,
 			scheduler: scheduler.clone(),
 		};
@@ -1058,7 +1045,7 @@ impl Component {
 							id,
 						});
 					ServerMessage {
-						registration_index,
+						connection,
 						message,
 						scheduler: scheduler.clone(),
 					}

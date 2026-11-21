@@ -212,6 +212,57 @@ fn a_sandbox_keeps_the_scheduler_that_first_queued_it() {
 	assert_eq!(merge.sandbox.scheduler, Some(first));
 }
 
+#[test]
+fn a_takeover_ends_only_a_running_boot_on_its_runner() {
+	let runner = tg::runner::Id::new();
+	let other = tg::runner::Id::new();
+	let takeover = |boot: u64, runner: &tg::runner::Id| {
+		let mut arg = arg(data(boot, tg::sandbox::Status::Stopped, None));
+		arg.takeover = Some(Takeover {
+			boot,
+			runner: runner.clone(),
+		});
+		arg
+	};
+	let mut existing = sandbox(data(1, tg::sandbox::Status::Started, None));
+	existing.runner = Some(runner.clone());
+
+	// The takeover of the running boot on its runner applies, stops the sandbox, and records that a takeover ended the boot.
+	let merge = takeover(1, &runner)
+		.merge(Some(&existing), None)
+		.unwrap()
+		.unwrap();
+	assert!(merge.sandbox.taken_over.contains(&1));
+	assert_eq!(
+		merge.sandbox.data.unwrap().data.status,
+		tg::sandbox::Status::Stopped
+	);
+
+	// A takeover of another boot or on another runner is rejected.
+	assert!(
+		takeover(0, &runner)
+			.merge(Some(&existing), None)
+			.unwrap()
+			.is_err()
+	);
+	assert!(
+		takeover(1, &other)
+			.merge(Some(&existing), None)
+			.unwrap()
+			.is_err()
+	);
+
+	// A takeover of a boot that its holder ended is rejected.
+	let mut stopped = sandbox(data(1, tg::sandbox::Status::Stopped, None));
+	stopped.runner = Some(runner.clone());
+	assert!(
+		takeover(1, &runner)
+			.merge(Some(&stopped), None)
+			.unwrap()
+			.is_err()
+	);
+}
+
 /// Apply the writes in every order, and assert that every order leaves the same record and rejects the same writes. Return the record of the last order.
 fn assert_every_order_converges(args: &[Arg]) -> Option<super::super::Sandbox> {
 	let mut expected = None;
@@ -258,7 +309,6 @@ fn assert_every_order_converges(args: &[Arg]) -> Option<super::super::Sandbox> {
 fn arg(data: tg::sandbox::get::Output) -> Arg {
 	let id = data.data.id.clone();
 	Arg {
-		registration: None,
 		account: None,
 		created_at: 0,
 		data: Some(data),
@@ -273,6 +323,7 @@ fn arg(data: tg::sandbox::get::Output) -> Arg {
 		sequence: 0,
 		stopped_boot: None,
 		stopped_usage: None,
+		takeover: None,
 		touched_at: 0,
 	}
 }

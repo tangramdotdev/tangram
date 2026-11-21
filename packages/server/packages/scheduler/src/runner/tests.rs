@@ -27,7 +27,7 @@ fn capacity() -> tg::runner::control::Capacity {
 }
 
 /// Create a scheduler's state with a runner that registered at an instant and has not sent a heartbeat.
-fn state(id: &tg::runner::Id, registration_index: u64, now: Instant) -> SchedulerState {
+fn state(id: &tg::runner::Id, connection: u64, now: Instant) -> SchedulerState {
 	let mut state = SchedulerState::new();
 	let runner = Runner {
 		borrowable: HashSet::default(),
@@ -38,7 +38,7 @@ fn state(id: &tg::runner::Id, registration_index: u64, now: Instant) -> Schedule
 		host: String::new(),
 		owner: None,
 		registration_failed: false,
-		registration_index,
+		connection,
 		reservations: HashMap::default(),
 		reserved: tg::runner::Capacity::default(),
 	};
@@ -47,15 +47,11 @@ fn state(id: &tg::runner::Id, registration_index: u64, now: Instant) -> Schedule
 }
 
 /// Create a heartbeat of a runner's registration.
-fn heartbeat(
-	id: &tg::runner::Id,
-	registration_index: u64,
-	heartbeat_index: u64,
-) -> HeartbeatNotification {
+fn heartbeat(id: &tg::runner::Id, connection: u64, heartbeat_index: u64) -> HeartbeatNotification {
 	HeartbeatNotification {
 		capacity: capacity(),
 		heartbeat_index,
-		registration_index,
+		connection,
 		runner: id.clone(),
 		sandboxes: BTreeSet::new(),
 	}

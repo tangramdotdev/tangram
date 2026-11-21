@@ -36,13 +36,4 @@ impl Index {
 			Self::Lmdb(index) => index.try_get_runner(runner).await,
 		}
 	}
-
-	pub async fn next_runner_registration_index(&self, runner: &tg::runner::Id) -> tg::Result<u64> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.next_runner_registration_index(runner).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.next_runner_registration_index(runner).await,
-		}
-	}
 }

@@ -43,12 +43,12 @@ fn put_arg(
 		principal: tg::Principal::Sandbox(id.clone()),
 		process: None,
 		processes: None,
-		registration: None,
 		runner: None,
 		scheduler: None,
 		sequence: 0,
 		stopped_boot,
 		stopped_usage: None,
+		takeover: None,
 		touched_at: 1,
 	}
 }

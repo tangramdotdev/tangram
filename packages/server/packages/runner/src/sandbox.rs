@@ -3029,7 +3029,7 @@ impl Component {
 				.server
 				.components
 				.process
-				.finish_queued_process(&session.server, process_id, data, error.clone(), None)
+				.finish_queued_process(&session.server, process_id, data, error.clone())
 				.await;
 			if let Err(error) = result {
 				tracing::warn!(error = %error.trace(), process = %process_id, "failed to finish the process locally");
@@ -3386,12 +3386,12 @@ impl Component {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes: processes.map(<[_]>::to_vec),
-			registration: None,
 			runner: None,
 			scheduler: None,
 			sequence,
 			stopped_boot: None,
 			stopped_usage: None,
+			takeover: None,
 			touched_at,
 		};
 		let arg = tangram_index::write::Arg {

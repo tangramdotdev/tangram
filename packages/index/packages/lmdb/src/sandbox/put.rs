@@ -56,17 +56,6 @@ impl Index {
 		arg: &tangram_index::sandbox::put::Arg,
 		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
-		if let Some(registration) = &arg.registration {
-			let result = Self::check_runner_registration_with_transaction(
-				db,
-				subspace,
-				transaction,
-				registration,
-			)?;
-			if let Err(error) = result {
-				return Ok(Err(error));
-			}
-		}
 		let key = Key::Sandbox(crate::sandbox::Key::Sandbox(arg.id.clone()));
 		let key = Self::pack(subspace, &key);
 		let existing = db

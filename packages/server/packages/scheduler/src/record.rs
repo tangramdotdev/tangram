@@ -88,12 +88,12 @@ impl Scheduler {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes: None,
-			registration: None,
 			runner: request.runner.clone(),
 			scheduler: Some(self.id.clone()),
 			sequence: 0,
 			stopped_boot: Some(stopped_boot),
 			stopped_usage: None,
+			takeover: None,
 			touched_at: now,
 		};
 
@@ -172,12 +172,12 @@ impl Scheduler {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes: None,
-			registration: None,
 			runner: Some(runner.clone()),
 			scheduler: Some(self.id.clone()),
 			sequence: 1,
 			stopped_boot: None,
 			stopped_usage: None,
+			takeover: None,
 			touched_at: now,
 		};
 
@@ -267,12 +267,12 @@ impl Scheduler {
 			principal: tg::Principal::Sandbox(id.clone()),
 			process: None,
 			processes,
-			registration: None,
 			runner: request.runner.clone(),
 			scheduler: Some(self.id.clone()),
 			sequence: 0,
 			stopped_boot: None,
 			stopped_usage: None,
+			takeover: None,
 			touched_at: now,
 		};
 
@@ -332,7 +332,6 @@ impl Scheduler {
 					process_id,
 					process.data.clone(),
 					process_error,
-					None,
 				)
 				.await?;
 		}

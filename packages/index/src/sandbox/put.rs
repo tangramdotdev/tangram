@@ -39,10 +39,6 @@ pub struct Arg {
 	#[tangram_serialize(id = 7)]
 	pub processes: Option<Vec<tg::process::Id>>,
 
-	/// The registration that must still own the runner when this mutation is applied.
-	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
-	pub registration: Option<crate::runner::Registration>,
-
 	#[tangram_serialize(id = 4)]
 	pub runner: Option<tg::runner::Id>,
 
@@ -61,6 +57,10 @@ pub struct Arg {
 	/// The storage usage of a boot's stopped directory so far, which only grows.
 	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
 	pub stopped_usage: Option<StoppedUsage>,
+
+	/// The boot and the runner that the sandbox must be at, with the boot not ended, when this put is applied, which makes the put the takeover of a dead runner's boot, so that a takeover never ends a boot that its holder ended or a later boot.
+	#[tangram_serialize(default, id = 16, skip_serializing_if = "Option::is_none")]
+	pub takeover: Option<Takeover>,
 
 	#[tangram_serialize(id = 5)]
 	pub touched_at: i64,
@@ -87,6 +87,16 @@ struct DataMerge {
 	superseded: bool,
 
 	usages: BTreeMap<u64, tg::sandbox::Usage>,
+}
+
+/// The boot and the runner that a takeover requires.
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct Takeover {
+	#[tangram_serialize(id = 0)]
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub runner: tg::runner::Id,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -131,6 +141,33 @@ impl Arg {
 			.is_some_and(|data| data.data.status.is_stopped() && data.data.boot == boot);
 		if !stopped {
 			return Err(tg::error!(id = %self.id, %boot, "the sandbox is not stopped at the boot"));
+		}
+		Ok(())
+	}
+
+	/// Reject a takeover unless the sandbox is at the boot and on the runner that it names, and the boot has not ended.
+	pub fn validate_takeover(&self, existing: Option<&super::Sandbox>) -> tg::Result<()> {
+		let Some(takeover) = &self.takeover else {
+			return Ok(());
+		};
+		let applies = existing.is_some_and(|sandbox| {
+			sandbox.runner.as_ref() == Some(&takeover.runner)
+				&& sandbox.data.as_ref().is_some_and(|data| {
+					data.data.boot == takeover.boot
+						&& matches!(
+							data.data.status,
+							tg::sandbox::Status::Started
+								| tg::sandbox::Status::Starting
+								| tg::sandbox::Status::Stopping
+						)
+				})
+		});
+		if !applies {
+			let boot = takeover.boot;
+			let runner = &takeover.runner;
+			return Err(
+				tg::error!(id = %self.id, %boot, %runner, "the sandbox's boot is not running on the runner"),
+			);
 		}
 		Ok(())
 	}
@@ -190,6 +227,11 @@ impl Arg {
 
 		// Reject a reservation of the next boot unless the sandbox is stopped at the boot that the put names.
 		if let Err(error) = self.validate_stopped_boot(existing) {
+			return Ok(Err(error));
+		}
+
+		// Reject a takeover unless the sandbox is at the boot and on the runner that the takeover names, and the boot has not ended.
+		if let Err(error) = self.validate_takeover(existing) {
 			return Ok(Err(error));
 		}
 
@@ -267,6 +309,12 @@ impl Arg {
 			sandbox.touched_at.max(arg.touched_at)
 		});
 
+		// Record the boot that a takeover ended, whose processes' late unfinished writes the index records as finished.
+		let mut taken_over = existing.map_or_default(|sandbox| sandbox.taken_over.clone());
+		if let Some(takeover) = &arg.takeover {
+			taken_over.insert(takeover.boot);
+		}
+
 		// Create the record.
 		let sandbox = super::Sandbox {
 			account,
@@ -284,7 +332,7 @@ impl Arg {
 					|| existing.is_some_and(|sandbox| sandbox.set.processes),
 			},
 			stopped_usages,
-			taken_over: existing.map_or_default(|sandbox| sandbox.taken_over.clone()),
+			taken_over,
 			touched_at,
 			usages,
 		};
@@ -357,14 +405,14 @@ impl Arg {
 		}
 	}
 
-	/// Whether the arg's data supersedes the existing data. A conditional change of a stopped sandbox, whose condition the merge checked, always applies. A destroyed sandbox is final, and a destroying sandbox only becomes destroyed. Otherwise a later boot supersedes an earlier one, the first end of a boot to arrive is final for the boot, an end supersedes the boot's unended data, and a holder's write supersedes the boot's writes with lower sequences.
+	/// Whether the arg's data supersedes the existing data. A conditional change of a stopped sandbox or a takeover, whose condition the merge checked, always applies. A destroyed sandbox is final, and a destroying sandbox only becomes destroyed. Otherwise a later boot supersedes an earlier one, the first end of a boot to arrive is final for the boot, an end supersedes the boot's unended data, and a holder's write supersedes the boot's writes with lower sequences.
 	fn supersedes(
 		&self,
 		data: &tg::sandbox::Data,
 		existing: &tg::sandbox::Data,
 		existing_sequence: u64,
 	) -> bool {
-		if self.stopped_boot.is_some() {
+		if self.stopped_boot.is_some() || self.takeover.is_some() {
 			return true;
 		}
 		match existing.status {

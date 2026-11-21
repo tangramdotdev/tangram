@@ -264,7 +264,6 @@ fn arg(id: &tg::process::Id, data: tg::process::Data) -> Arg {
 		parent: None,
 		permissions: Vec::new(),
 		principal: tg::Principal::Process(id.clone()),
-		registration: None,
 		sandbox: None,
 		sequence: 0,
 		storage: Set::NODE,
