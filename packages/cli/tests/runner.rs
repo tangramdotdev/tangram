@@ -485,6 +485,7 @@ fn sandbox_control_arg(
 		owner: tg::Principal::Root,
 		proof,
 		runner: Some(runner.clone()),
+		sequence: 1,
 	}
 }
 

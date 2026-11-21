@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A stop that arrives while the scheduler has offered the sandbox to a runner, and the runner has not accepted it yet, still stops the sandbox once the runner holds it.
+# A stop that arrives while the scheduler has offered the sandbox to a runner, and the runner has not answered the offer yet, waits for the answer, because a stop never rides with an offer, and stops the sandbox once the runner holds it.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
@@ -20,15 +20,15 @@ let create = checkpoint watch runner.control.offer_sandbox --url $runner.url
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 checkpoint wait $create | ignore
 
-# Stop the sandbox, and wait for the scheduler to reply that it does not hold the sandbox.
-let not_holder = checkpoint watch sandbox.control.response.publish --params { kind: not_holder, sandbox: $sandbox } --token $root_token --url $remote.url
+# Stop the sandbox, and wait for the scheduler to reply that it is not ready for the stop.
+let not_ready = checkpoint watch sandbox.control.response.publish --params { kind: not_ready, sandbox: $sandbox } --token $root_token --url $remote.url
 let url = $remote.url
 let stop = job spawn {
 	let id = job id
 	timeout 30s tg --url $url --token $root_token sandbox stop --wait $sandbox | complete | job send --tag $id 0
 }
-checkpoint wait $not_holder | ignore
-checkpoint unwatch $not_holder
+checkpoint wait $not_ready | ignore
+checkpoint unwatch $not_ready
 
 # Let the runner accept the sandbox. The stop reaches the runner once the sandbox connects.
 checkpoint unwatch $create

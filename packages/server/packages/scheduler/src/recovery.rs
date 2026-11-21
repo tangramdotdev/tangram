@@ -19,9 +19,9 @@ pub(super) struct Recovery {
 	runners: HashMap<tg::runner::Id, u64, tg::id::BuildHasher>,
 }
 
+/// A held request whose boot a runner reported, which belongs to the runner and not to the runner's connection, because a runner that reconnects still holds the boot.
 #[derive(Clone)]
 struct Claim {
-	registration_index: u64,
 	request: EnqueueSandboxRequestArg,
 	runner: tg::runner::Id,
 }
@@ -121,14 +121,36 @@ impl Scheduler {
 }
 
 impl SchedulerState {
-	/// Record the sandboxes that a runner reports, and release the held requests once every runner has reported or expired.
+	/// Record the sandboxes that a runner reports, and release the held requests once every runner has reported or expired. A runner that restarted lost the boots that it claimed before, so they end as failed.
 	pub(super) fn handle_recovery_report(
 		&mut self,
 		scheduler: &Scheduler,
 		runner: &tg::runner::Id,
-		registration_index: u64,
+		restarted: bool,
 		sandboxes: &[tg::runner::control::ArgSandbox],
 	) {
+		let Some(recovery) = &mut self.recovery else {
+			return;
+		};
+
+		// End the boots that a runner that restarted claimed before.
+		if restarted {
+			let lost = recovery
+				.claimed
+				.iter()
+				.filter(|(_, claim)| claim.runner == *runner)
+				.map(|(id, _)| id.clone())
+				.collect::<Vec<_>>();
+			let lost = lost
+				.into_iter()
+				.map(|id| recovery.claimed.remove(&id).unwrap().request)
+				.collect::<Vec<_>>();
+			for request in lost {
+				self.fail_claimed_sandbox(scheduler, request);
+			}
+		}
+
+		// Claim the held requests whose boots the runner reports.
 		let Some(recovery) = &mut self.recovery else {
 			return;
 		};
@@ -140,7 +162,6 @@ impl SchedulerState {
 			{
 				let request = recovery.requests.remove(&sandbox.id).unwrap();
 				let claim = Claim {
-					registration_index,
 					request,
 					runner: runner.clone(),
 				};
@@ -257,44 +278,49 @@ impl SchedulerState {
 		let Some(recovery) = self.recovery.take() else {
 			return;
 		};
-		let mut lost = Vec::new();
 		for (id, claim) in recovery.claimed {
 			let data = statuses.remove(&id);
-			if data
+			let destroying = data
 				.as_ref()
-				.is_some_and(|data| data.status.is_destroying())
-			{
-				let error = data
-					.and_then(|data| data.error)
-					.and_then(tg::Either::left)
-					.unwrap_or_default();
-				let destroy = super::sandbox::DestroySandbox {
-					error,
-					registration_index: claim.registration_index,
-					request: Some(claim.request),
-					runner: claim.runner,
-					sandbox: id,
-				};
-				self.send_destroy_sandbox(scheduler, destroy);
-			} else if self
+				.is_some_and(|data| data.status.is_destroying());
+			let error = data.and_then(|data| data.error);
+			let registration_index = self
 				.runners
 				.entries
 				.get(&claim.runner)
-				.is_some_and(|runner| runner.registration_index == claim.registration_index)
-			{
-				let boot = claim.request.boot;
-				let runner = super::placement::RunnerRef {
-					registration_index: claim.registration_index,
-					id: claim.runner,
-				};
-				self.track_accepted_sandbox(scheduler, &id, boot, Some(claim.request), runner);
-			} else {
-				// Queue a sandbox again whose runner was removed since it claimed the sandbox, if the sandbox's key remains.
-				lost.push(claim.request);
+				.map(|runner| runner.registration_index);
+			match registration_index {
+				// Destroy a boot that is being destroyed on its runner.
+				Some(registration_index) if destroying => {
+					let destroy = super::sandbox::DestroySandbox {
+						error: error.and_then(tg::Either::left).unwrap_or_default(),
+						registration_index,
+						request: Some(claim.request),
+						runner: claim.runner,
+						sandbox: id,
+					};
+					self.send_destroy_sandbox(scheduler, destroy);
+				},
+
+				// Treat the runner's report of the boot as its yes, which writes the handoff that this scheduler may not have written before it restarted.
+				Some(registration_index) => {
+					let runner = super::placement::RunnerRef {
+						id: claim.runner,
+						registration_index,
+					};
+					self.accept_claimed_sandbox(scheduler, &id, claim.request, runner);
+				},
+
+				// Record the destruction of a boot that is being destroyed and whose runner was declared dead since its report.
+				None if destroying => {
+					self.finish_destroy_sandbox(scheduler, claim.request, error);
+				},
+
+				// End a boot as failed whose runner was declared dead since its report, because the boot is lost with the runner.
+				None => {
+					self.fail_claimed_sandbox(scheduler, claim.request);
+				},
 			}
-		}
-		if !lost.is_empty() {
-			self.read_lost_sandboxes(scheduler, lost);
 		}
 		for (id, request) in recovery.requests {
 			let data = statuses.remove(&id);
@@ -308,6 +334,46 @@ impl SchedulerState {
 				self.handle_enqueue_sandbox_request(scheduler, None, request, true);
 			}
 		}
+	}
+
+	/// Accept a boot that a runner claimed, replacing an entry of an older boot.
+	fn accept_claimed_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::sandbox::Id,
+		request: EnqueueSandboxRequestArg,
+		runner: super::placement::RunnerRef,
+	) {
+		if self.sandboxes.entries.contains_key(id) {
+			self.remove_sandbox(scheduler, id);
+		}
+		let boot = request.boot;
+		let parent = request.parent.clone();
+		let state = super::sandbox::State::Accepted {
+			runner: runner.clone(),
+		};
+		let sandbox = super::sandbox::Sandbox::new(boot, parent, Some(request), state);
+		self.sandboxes.entries.insert(id.clone(), sandbox);
+		self.accept_sandbox(scheduler, id, runner);
+	}
+
+	/// End a boot as failed that a runner claimed and lost.
+	fn fail_claimed_sandbox(&mut self, scheduler: &Scheduler, request: EnqueueSandboxRequestArg) {
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let error =
+					tg::error!(sandbox = %request.sandbox, "the sandbox's runner is unavailable");
+				let result = scheduler
+					.fail_sandbox(&request, error.to_data_or_id())
+					.await;
+				Operation::Finished {
+					context: "failed to record the failed sandbox",
+					result,
+				}
+			}
+			.boxed(),
+		);
 	}
 }
 

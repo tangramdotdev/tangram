@@ -79,6 +79,7 @@ struct SandboxTaskArg {
 	proof: Option<tg::sandbox::id::Proof>,
 	public: bool,
 	scheduled: bool,
+	sequence: u64,
 	stopper: Stopper,
 	token: Option<String>,
 }
@@ -93,6 +94,7 @@ struct GetSandboxControlStreamArg<'a> {
 	location: &'a tg::Location,
 	owner: tg::Principal,
 	proof: Option<tg::sandbox::id::Proof>,
+	sequence: u64,
 }
 
 struct ConnectedSandboxControl {
@@ -430,6 +432,7 @@ impl Component {
 			proof,
 			public: arg.public,
 			scheduled: arg.scheduled,
+			sequence: arg.sequence,
 			stopper: stopper.clone(),
 			token,
 		};
@@ -535,6 +538,7 @@ impl Component {
 			proof,
 			public,
 			scheduled,
+			sequence,
 			stopper,
 			token,
 		} = arg;
@@ -669,6 +673,7 @@ impl Component {
 					location: &location,
 					owner,
 					proof,
+					sequence,
 				};
 				let connection = component
 					.get_sandbox_control_stream(&connection_session, connect_arg)
@@ -1617,25 +1622,7 @@ impl Component {
 		// Run the sandbox until it should be stopped or destroyed, destroying it with the error if the loop fails.
 		let result = async {
 			loop {
-				// Stop a boot whose stop arrived while it was queued, once it is ready, unless a start arrived after the stop.
-				if ready
-					&& session
-						.server
-						.components
-						.runner
-						.state()
-						.pending_stops
-						.remove(&id)
-						.is_some()
-				{
-					tangram_server_core::checkpoint!(session.server, "runner.sandbox.pending_stop", sandbox = %id).await;
-					Self::cancel_sandbox_processes(session, &id, None)?;
-					Self::set_sandbox_status(session, &id, tg::sandbox::Status::Stopping);
-					teardown = Teardown::Stop;
-					break;
-				}
-
-				// Hit a checkpoint the first time that the sandbox is ready without a pending stop.
+				// Hit a checkpoint the first time that the sandbox is ready.
 				if ready && !ready_reported {
 					ready_reported = true;
 					tangram_server_core::checkpoint!(session.server, "runner.sandbox.ready", sandbox = %id).await;
@@ -1780,8 +1767,6 @@ impl Component {
 								continue;
 							},
 							tg::sandbox::control::ServerRequestArg::Start(_) => {
-								// Cancel a stop that arrived while the boot was queued, because the start came after it.
-								session.server.components.runner.state().pending_stops.remove(&id);
 								let data = session
 									.server
 									.components
@@ -3140,6 +3125,7 @@ impl Component {
 			location,
 			owner,
 			proof,
+			sequence,
 		} = arg;
 		let runner = session
 			.server
@@ -3181,6 +3167,7 @@ impl Component {
 			owner,
 			proof,
 			runner: Some(runner),
+			sequence,
 		};
 		let (header, control) = self
 			.connect_sandbox_control(session, arg, input_stream)

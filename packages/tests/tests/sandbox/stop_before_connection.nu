@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A stop of a queued sandbox returns once it is accepted, and the sandbox is stopped as soon as it starts.
+# A stop of a queued sandbox ends the queued boot, because a stop never rides with an offer, so that the sandbox is stopped without starting and keeps no runner's capacity.
 
 let local = server spawn --config {
 	runner: { cpus: 1, overcommit: { cpu: 1 } },
@@ -12,20 +12,12 @@ let running = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let queued = tg sandbox create --no-tokens --cpu 1 | referent node
 assert equal (tg sandbox get $queued | from json | get data.status) starting
 
-# The stop returns while the sandbox is queued, and a repeated stop is also accepted.
-success (tg sandbox stop $queued | complete) "the stop should return on acceptance"
-assert equal (tg sandbox get $queued | from json | get data.status) starting
+# The stop ends the queued boot, and a repeated stop is also accepted.
+success (timeout 30s tg sandbox stop --wait $queued | complete) "the stop should end the queued boot"
+assert equal (tg sandbox get $queued | from json | get data.status) stopped
 success (tg sandbox stop $queued | complete) "a repeated stop should be accepted"
 
-# A stop with a wait does not finish while the sandbox is queued.
-let url = $local.url
-let stop = job spawn {
-	let id = job id
-	tg --url $url sandbox stop --wait $queued | complete | job send --tag $id 0
-}
-assert equal (try { job recv --tag $stop --timeout 500ms } catch { null }) null
-
-# Releasing the capacity lets the sandbox start, and the sandbox is then stopped.
+# Releasing the capacity does not start the stopped sandbox, so another sandbox gets the capacity.
 tg sandbox destroy --wait $running
-success (job recv --tag $stop --timeout 30sec) "the stop should finish once the sandbox stops"
+success (timeout 30s tg sandbox create --wait --no-tokens --cpu 1 | complete) "another sandbox should get the capacity"
 assert equal (tg sandbox get $queued | from json | get data.status) stopped

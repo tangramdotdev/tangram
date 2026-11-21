@@ -114,6 +114,15 @@ impl Placement {
 			Self::Borrowed { runner, .. } | Self::Regular { runner } => runner,
 		}
 	}
+
+	/// Point the placement at a new registration of its runner.
+	pub(super) fn set_registration_index(&mut self, registration_index: u64) {
+		match self {
+			Self::Borrowed { runner, .. } | Self::Regular { runner } => {
+				runner.registration_index = registration_index;
+			},
+		}
+	}
 }
 
 impl SchedulerState {

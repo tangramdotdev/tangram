@@ -8,7 +8,7 @@ use {
 		record::failed_sandbox_status,
 	},
 	futures::{FutureExt as _, future},
-	std::collections::{HashMap, HashSet},
+	std::collections::HashMap,
 	tangram_client::prelude::*,
 	tangram_server_core::control::accept::{Accept, Path},
 };
@@ -54,9 +54,6 @@ pub(super) struct HolderTasks {
 
 /// What remains to be sent after the state is updated for a sandbox that a runner holds.
 pub(super) enum Tracked {
-	/// The runner accepted the queued sandbox, so its acceptance finishes.
-	Accepted,
-
 	/// The scheduler ended the sandbox as destroyed, so its runner destroys it.
 	Destroy(DestroySandbox),
 
@@ -116,6 +113,9 @@ pub(super) struct Sandbox {
 	pub(super) request: Option<EnqueueSandboxRequestArg>,
 
 	pub(super) retrying: bool,
+
+	/// The sequence of this scheduler's writes of the boot, which the offer carries, and after which the scheduler's handoff write and then the runner's writes follow.
+	pub(super) sequence: u64,
 
 	pub(super) state: State,
 
@@ -201,6 +201,7 @@ impl Sandbox {
 			persisted: false,
 			request,
 			retrying: false,
+			sequence: 0,
 			state,
 			unplaceable_since: None,
 		}
@@ -842,7 +843,6 @@ impl SchedulerState {
 		runner: RunnerRef,
 	) {
 		match self.track_accepted_sandbox_inner(id, boot, request, runner) {
-			Tracked::Accepted => self.finish_accept(scheduler, id, Path::Handled, Ok(())),
 			Tracked::Destroy(destroy) => self.send_destroy_sandbox(scheduler, destroy),
 			Tracked::Ignored => {},
 			Tracked::Inserted { ids } => {
@@ -871,13 +871,7 @@ impl SchedulerState {
 				return Tracked::Ignored;
 			}
 			match &entry.state {
-				// Record that the runner accepted a queued sandbox that it holds, whose offer's answer the scheduler did not receive.
-				State::Queued if entry.boot == boot => {
-					self.accept_sandbox(id, runner);
-					return Tracked::Accepted;
-				},
-
-				// Leave a sandbox that the scheduler offered to a runner to the offer's answer, and a queued later boot alone.
+				// Leave a sandbox that the scheduler offered to a runner to the offer's answer, and a queued boot to its offer, because only a runner's answer to an offer is its yes.
 				State::Offered { .. } | State::Queued => return Tracked::Ignored,
 
 				// Leave a boot that the scheduler ended as stopped to its runner, which stops the boots that the index records as stopped when it registers, so that the sandbox's directory stays for its next start.
@@ -940,67 +934,6 @@ impl SchedulerState {
 		if ended {
 			self.remove_sandbox(scheduler, &notification.sandbox);
 			self.stop_serving_sandbox_holder(&notification.sandbox);
-		}
-	}
-
-	/// Read the sandboxes that this scheduler has keys for, to queue the sandboxes again that were lost with a runner before their control connections were established.
-	pub(super) fn read_lost_sandboxes(
-		&mut self,
-		scheduler: &Scheduler,
-		lost: Vec<EnqueueSandboxRequestArg>,
-	) {
-		let scheduler = scheduler.clone();
-		self.operations.push(
-			async move {
-				// Keep trying, because the lost sandboxes are gone if the read is given up.
-				let keys = loop {
-					match scheduler.read_scheduler_sandbox_keys().await {
-						Ok(keys) => break keys,
-						Err(error) => {
-							tracing::error!(error = %error.trace(), "failed to read the scheduler's sandboxes");
-							tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
-						},
-					}
-				};
-				Operation::LostSandboxes { keys, lost }
-			}
-			.boxed(),
-		);
-	}
-
-	/// Queue the sandboxes again that were lost with a runner and that still have keys, whose control connections were not established.
-	pub(super) fn handle_lost_sandboxes(
-		&mut self,
-		scheduler: &Scheduler,
-		keys: Vec<tg::sandbox::Id>,
-		lost: Vec<EnqueueSandboxRequestArg>,
-	) {
-		let keys = keys
-			.into_iter()
-			.collect::<HashSet<_, tg::id::BuildHasher>>();
-		for request in lost {
-			if !keys.contains(&request.sandbox) {
-				continue;
-			}
-
-			// A boot that must run on a runner that is gone cannot move, so it fails.
-			if let Some(runner) = request
-				.runner
-				.clone()
-				.filter(|runner| !self.runners.entries.contains_key(runner))
-			{
-				let sandbox = request.sandbox.clone();
-				let error = tg::error!(%sandbox, %runner, "the sandbox's runner is unavailable");
-				let discarded = DiscardedSandbox {
-					error: error.to_data_or_id(),
-					request,
-					sandbox,
-					write: None,
-				};
-				scheduler.publish_sandbox_discarded(self, discarded);
-				continue;
-			}
-			self.handle_enqueue_sandbox_request(scheduler, None, request, true);
 		}
 	}
 

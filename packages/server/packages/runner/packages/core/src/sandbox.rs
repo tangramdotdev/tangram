@@ -22,6 +22,9 @@ pub struct SpawnSandboxTaskArg {
 	/// Whether a scheduler offered the boot, in which case the scheduler sends the spawns into the sandbox, and otherwise the runner's server created the sandbox on the shortcut path.
 	pub scheduled: bool,
 
+	/// The sequence of the runner's first write of the boot, which follows the writes of the boot's scheduler.
+	pub sequence: u64,
+
 	pub token: Option<String>,
 }
 
