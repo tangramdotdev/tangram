@@ -707,14 +707,13 @@ impl SchedulerState {
 					sandbox: &request.sandbox,
 					task: None,
 				};
-				let result = scheduler
+				scheduler
 					.component
 					.end_dead_runner_boot(&scheduler.server, arg)
-					.await
-					.map(|_| ());
+					.await;
 				Operation::Finished {
 					context: "failed to record the failed sandbox",
-					result,
+					result: Ok(()),
 				}
 			}
 			.boxed(),
