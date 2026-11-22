@@ -200,6 +200,42 @@ async fn a_write_larger_than_a_batch_is_split_and_answers_once() {
 	));
 }
 
+#[tokio::test]
+async fn a_write_with_a_conditional_put_is_never_split() {
+	let mut lanes = Lanes::new(4, 8, 1);
+	let (a, b) = sandboxes_on_different_lanes(&lanes);
+	let mut conditional = sandbox_put(&a);
+	if let tangram_index::Item::PutSandbox(arg) = &mut conditional {
+		arg.stopped_boot = Some(0);
+	}
+	let receiver = dispatch(&mut lanes, vec![conditional, sandbox_put(&b), tag_delete()]);
+
+	// The write runs whole in one transaction on its first affinity's lane, although its items have other affinities and do not fit in a batch.
+	let batches = lanes.next();
+	assert_eq!(
+		batches.len(),
+		1,
+		"the conditional write was split across lanes"
+	);
+	let (lane, batch) = &batches[0];
+	assert_eq!(*lane, lanes.lane(&tangram_index::Affinity::Sandbox(a)));
+	let sizes = batch
+		.requests
+		.iter()
+		.map(operation_count)
+		.collect::<Vec<_>>();
+	assert_eq!(
+		sizes,
+		[3],
+		"the conditional write was split across transactions"
+	);
+	complete(batch, &Ok(Response::Mutation(Ok(()))));
+	assert!(matches!(
+		receiver.await.unwrap().unwrap(),
+		Response::Mutation(Ok(()))
+	));
+}
+
 #[test]
 fn an_update_runs_alone() {
 	let mut lanes = Lanes::new(1, 8_000, 1_000);

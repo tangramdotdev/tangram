@@ -117,8 +117,17 @@ impl Lanes {
 	}
 
 	fn write_parts(&mut self, arg: tangram_index::write::Arg) -> Vec<(usize, Request)> {
-		// Send a write that has an affinity to its affinities' lanes, and its items without an affinity with its first affinity's items, so that a write of one affinity stays whole.
+		// Send a write with a conditional put whole to its first affinity's lane, because it applies whole or not at all.
 		let first = arg.items.iter().find_map(tangram_index::Item::affinity);
+		if tangram_index::write::conditional_sandbox_puts(&arg.items)
+			.next()
+			.is_some()
+		{
+			let lane = first.map_or_else(|| self.least_loaded(), |first| self.lane(&first));
+			return vec![(lane, Request::Write(arg))];
+		}
+
+		// Send a write that has an affinity to its affinities' lanes, and its items without an affinity with its first affinity's items, so that a write of one affinity stays whole.
 		if let Some(first) = first {
 			let first = self.lane(&first);
 			let mut parts = Vec::<(usize, Vec<tangram_index::Item>)>::new();
@@ -199,7 +208,7 @@ impl Lanes {
 			return Some((batch, count));
 		}
 
-		// Add whole parts while they fit, and split a part that does not fit in an empty batch.
+		// Add whole parts while they fit, and split a part that does not fit in an empty batch, unless it may not be split, which the batch then takes whole.
 		while let Some(part) = queue.front() {
 			if matches!(part.request, Request::Clean(_) | Request::Update(_)) {
 				break;
@@ -211,7 +220,7 @@ impl Lanes {
 			};
 			let size = operation_count(&part.request);
 			let space = limit.saturating_sub(count);
-			if size <= space {
+			if size <= space || (batch.requests.is_empty() && !part.request.splittable()) {
 				let part = queue.pop_front().unwrap();
 				count += size;
 				batch.requests.push(part.request);

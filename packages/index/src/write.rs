@@ -1,6 +1,6 @@
 use tangram_client::prelude::*;
 
-/// A collection of independent index items, which may execute in any order across multiple transactions.
+/// A collection of independent index items, which may execute in any order across multiple transactions, except that a write with a conditional put applies whole in one transaction or not at all.
 #[derive(Clone, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
