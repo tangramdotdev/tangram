@@ -846,8 +846,11 @@ pub(crate) async fn spawn_inner(
 						options.sandbox.arg.storage_min,
 						options.sandbox.arg.storage,
 					),
-					time_to_live: Some(options.sandbox.time_to_live.get()),
-					time_to_stop: Some(options.sandbox.time_to_stop.get()),
+					time_to_live: Some(options.sandbox.time_to_live.get().map_or(
+						tg::process::SandboxExpiration::Disabled,
+						tg::process::SandboxExpiration::After,
+					)),
+					time_to_stop: options.sandbox.time_to_stop.get(),
 				},
 			))
 		}

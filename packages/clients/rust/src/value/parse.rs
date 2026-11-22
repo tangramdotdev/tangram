@@ -1456,7 +1456,7 @@ fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
 						tg::Value::Object(object) => tg::graph::Edge::Object(object.clone()),
 						_ => return Err(tg::error!("expected a graph edge")),
 					};
-					node = Some(Some(edge));
+					node = Some(edge);
 				}
 			},
 			"options" => {
@@ -1470,7 +1470,6 @@ fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
 			},
 		}
 	}
-	let node = node.flatten();
 	Ok(tg::graph::Dependency(tg::Referent { node, options }))
 }
 

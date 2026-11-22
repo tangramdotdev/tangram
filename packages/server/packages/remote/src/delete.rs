@@ -34,6 +34,7 @@ impl Component {
 			return Ok(None);
 		};
 		let remote = remote.clone();
+		let principal = Some(principal).filter(|principal| *principal != tg::Principal::Root);
 		let principal = principal.as_ref().map(ToString::to_string);
 		let name = session
 			.server

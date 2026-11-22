@@ -72,6 +72,7 @@ impl Component {
 		else {
 			return Ok(None);
 		};
+		let principal = Some(principal).filter(|principal| *principal != tg::Principal::Root);
 		let row = self.try_get_remote_row(session, remote, principal).await?;
 
 		Ok(row)

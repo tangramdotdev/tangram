@@ -26,6 +26,12 @@ struct Row {
 	owner: Option<tg::Id>,
 }
 
+#[derive(Clone)]
+enum Owner {
+	Id(tg::Id),
+	Root,
+}
+
 impl Component {
 	pub(crate) async fn list_runners(
 		&self,
@@ -111,11 +117,11 @@ impl Component {
 			let owner = self.resolve_runner_owner(session, &owner).await?;
 			let owner = owner.to_id().unwrap();
 			self.authorize_runner_owner(session, Some(&owner)).await?;
-			Some(Some(owner))
+			Some(Owner::Id(owner))
 		} else {
 			match &session.context.principal {
-				tg::Principal::Root => Some(None),
-				tg::Principal::User(user) => Some(Some(user.clone().into())),
+				tg::Principal::Root => Some(Owner::Root),
+				tg::Principal::User(user) => Some(Owner::Id(user.clone().into())),
 				_ => return Err(tg::error!("unauthorized")),
 			}
 		};
@@ -190,7 +196,7 @@ impl Component {
 
 	async fn list_runners_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
-		owner: Option<&Option<tg::Id>>,
+		owner: Option<&Owner>,
 		after: Option<&tg::runner::Id>,
 		limit: u64,
 	) -> tg::Result<ControlFlow<Vec<Row>, tangram_server_core::database::Error>> {
@@ -199,8 +205,8 @@ impl Component {
 		let mut params = db::params![after, i64::try_from(limit).unwrap()];
 		let condition = match owner {
 			None => "true".to_owned(),
-			Some(None) => "owner is null".to_owned(),
-			Some(Some(owner)) => {
+			Some(Owner::Root) => "owner is null".to_owned(),
+			Some(Owner::Id(owner)) => {
 				params.extend(db::params![owner.to_string()]);
 				format!("owner = {p}3")
 			},

@@ -37,6 +37,7 @@ impl Component {
 		else {
 			return Err(tg::error!(missing, %remote, "failed to find the remote"));
 		};
+		let principal = Some(principal).filter(|principal| *principal != tg::Principal::Root);
 		let remote = remote.clone();
 		let trusted = arg.trusted;
 		let url = arg.url.to_string();

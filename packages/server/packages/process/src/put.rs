@@ -184,8 +184,9 @@ impl Component {
 			.output
 			.as_ref()
 			.map(|_| output_objects.into_iter().collect::<Vec<_>>());
-		let log_object: Option<Option<tg::object::Id>> =
-			Some(arg.data.log.clone().map(|log| log.node.into()));
+		let log_object = Some(tg::update::Update::from(
+			arg.data.log.clone().map(|log| log.node.into()),
+		));
 		let destination = id.clone().into();
 		let objects = Self::finished_process_objects(&token_data)
 			.into_iter()
@@ -214,13 +215,13 @@ impl Component {
 			),
 			command_id: arg.data.command.command_id()?.into(),
 			data,
-			error: Some(error_objects),
+			error: Some(error_objects.into()),
 			id: id.clone(),
 			location,
 			log: log_object,
 			metadata: tg::process::Metadata::default(),
 			options: tg::referent::Options::default(),
-			output: Some(output_objects),
+			output: Some(output_objects.into()),
 			parent: None,
 			permissions: Vec::new(),
 			principal: principal.clone(),

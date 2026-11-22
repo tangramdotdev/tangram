@@ -667,7 +667,7 @@ impl Index {
 				entry.materialized = None;
 				entry
 					.effective_expires_at()
-					.map(|expires_at| (entry.subject, expires_at))
+					.map(|expires_at| (entry.subject, expires_at.timestamp()))
 			})
 			.collect::<Vec<_>>();
 		nodes.extend(
@@ -806,10 +806,10 @@ impl Index {
 					&resource,
 					subject,
 				)?;
-				if entries
-					.iter()
-					.any(|entry| entry.direct == Some(None) && entry.permission.implies(node))
-				{
+				if entries.iter().any(|entry| {
+					entry.direct == Some(tangram_index::permission::Expiration::Never)
+						&& entry.permission.implies(node)
+				}) {
 					anchored = true;
 					break;
 				}
@@ -890,9 +890,13 @@ impl Index {
 			.iter()
 			.filter(|entry| managed.contains(&entry.permission))
 			.filter_map(|entry| {
-				entry
-					.materialized
-					.map(|expires_at| (entry.subject.clone(), entry.permission, expires_at))
+				entry.materialized.map(|expires_at| {
+					(
+						entry.subject.clone(),
+						entry.permission,
+						expires_at.timestamp(),
+					)
+				})
 			})
 			.collect::<BTreeSet<_>>();
 		for (subject, permission, expires_at) in current.difference(expected) {
@@ -1028,11 +1032,10 @@ impl Index {
 					.filter(|entry| entry.subject == subject && entry.permission == permission)
 					.find_map(|entry| entry.materialized);
 				let expires_at = match (current, expires_at) {
-					(Some(Some(current)), Some(expires_at))
-						if expires_at > current && expires_at - current < time_to_touch =>
-					{
-						Some(current)
-					},
+					(
+						Some(tangram_index::permission::Expiration::At(current)),
+						Some(expires_at),
+					) if expires_at > current && expires_at - current < time_to_touch => Some(current),
 					_ => expires_at,
 				};
 				(subject, permission, expires_at)
@@ -1079,7 +1082,9 @@ impl Index {
 				entry.materialized = None;
 				entry
 					.effective_expires_at()
-					.map(|expires_at| PermissionCover { expires_at })
+					.map(|expires_at| PermissionCover {
+						expires_at: expires_at.timestamp(),
+					})
 			})
 			.reduce(|left, right| PermissionCover {
 				expires_at: Self::max_expires_at(left.expires_at, right.expires_at),
@@ -1097,7 +1102,9 @@ impl Index {
 			.filter_map(|entry| {
 				entry
 					.effective_expires_at()
-					.map(|expires_at| PermissionCover { expires_at })
+					.map(|expires_at| PermissionCover {
+						expires_at: expires_at.timestamp(),
+					})
 			})
 			.reduce(|left, right| PermissionCover {
 				expires_at: Self::max_expires_at(left.expires_at, right.expires_at),

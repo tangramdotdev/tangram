@@ -6,6 +6,8 @@ use {
 	tokio::signal::unix::{Signal, SignalKind, signal},
 };
 
+const DEFAULT_CHECKOUT_VALUE: &str = "\0";
+
 /// Spawn and await a process.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -27,12 +29,15 @@ pub struct Args {
 pub struct Options {
 	/// Whether to check out the output.
 	#[arg(
+		default_missing_value = DEFAULT_CHECKOUT_VALUE,
 		id = "run.checkout",
 		long = "checkout",
+		num_args = 0..=1,
 		require_equals = true,
-		short = 'c'
+		short = 'c',
+		value_parser = checkout_parser()
 	)]
-	pub checkout: Option<Option<PathBuf>>,
+	pub checkout: Option<Checkout>,
 
 	/// Whether to overwrite an existing file system object at the path.
 	#[arg(
@@ -63,6 +68,12 @@ pub struct Options {
 	/// The view to display if the process's stdio is not attached.
 	#[arg(id = "run.view", long = "view")]
 	pub view: Option<View>,
+}
+
+#[derive(Clone, Debug)]
+pub enum Checkout {
+	Default,
+	Path(PathBuf),
 }
 
 #[derive(
@@ -470,11 +481,11 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 	let output = outcome.output.unwrap_or(tg::Value::Null);
 
 	// Check out the output if requested.
-	if let Some(path) = options.checkout.clone() {
+	if let Some(checkout) = options.checkout.clone() {
 		let artifact: tg::Artifact = output
 			.try_into()
 			.map_err(|_| tg::error!("expected an artifact"))?;
-		let path = if let Some(path) = path {
+		let path = if let Checkout::Path(path) = checkout {
 			let path = tangram_util::fs::canonicalize_parent(path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
@@ -670,5 +681,48 @@ async fn stop_view_task(view_task: Task<tg::Result<()>>) {
 			tracing::warn!(?error, "the viewer task panicked");
 			Cli::print_warning_message("failed to render the viewer");
 		},
+	}
+}
+
+fn checkout_parser() -> impl clap::builder::TypedValueParser<Value = Checkout> {
+	use clap::builder::TypedValueParser as _;
+	clap::builder::PathBufValueParser::new().map(|value| {
+		// Use an internal missing-value marker that cannot occur in a command-line argument.
+		if value.as_os_str() == DEFAULT_CHECKOUT_VALUE {
+			Checkout::Default
+		} else {
+			Checkout::Path(value)
+		}
+	})
+}
+
+#[cfg(test)]
+mod tests {
+	use {
+		super::{Checkout, Options},
+		clap::Parser as _,
+		std::path::Path,
+	};
+
+	#[test]
+	fn checkout_flag() {
+		#[derive(clap::Parser)]
+		struct Cli {
+			#[command(flatten)]
+			options: Options,
+		}
+
+		for args in [["tg", "--checkout"], ["tg", "-c"]] {
+			let cli = Cli::try_parse_from(args).unwrap();
+			assert!(matches!(cli.options.checkout, Some(Checkout::Default)));
+		}
+		let cli = Cli::try_parse_from(["tg"]).unwrap();
+		assert!(cli.options.checkout.is_none());
+		let cli = Cli::try_parse_from(["tg", "--checkout=output", "--checkout-force"]).unwrap();
+		assert!(
+			matches!(cli.options.checkout, Some(Checkout::Path(path)) if path == Path::new("output"))
+		);
+		assert!(Cli::try_parse_from(["tg", "--checkout="]).is_err());
+		assert!(Cli::try_parse_from(["tg", "--checkout-force"]).is_err());
 	}
 }

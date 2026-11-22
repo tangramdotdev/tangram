@@ -53,13 +53,13 @@ fn process_arg(
 		command: Some(vec![command.clone()]),
 		command_id: command,
 		data: None,
-		error: Some(None),
+		error: Some(tg::update::Update::Clear),
 		id: id.clone(),
 		location: None,
-		log: Some(None),
+		log: Some(tg::update::Update::Clear),
 		metadata: tg::process::Metadata::default(),
 		options: tg::referent::Options::default(),
-		output: Some(None),
+		output: Some(tg::update::Update::Clear),
 		parent: None,
 		permissions: Vec::new(),
 		principal: tg::Principal::Process(id),
@@ -523,7 +523,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 	let user = tg::user::Id::new();
 	let account = tangram_index::usage::Account::User(user.clone());
 	let mut process_arg = process_arg(process.clone(), Vec::new(), command.clone());
-	process_arg.log = Some(Some(log.clone()));
+	process_arg.log = Some(tg::update::Update::Set(log.clone()));
 	let arg = tangram_index::write::Arg {
 		items: vec![
 			tangram_index::Item::PutUser(Box::new(tangram_index::user::put::Arg {
@@ -1538,16 +1538,16 @@ async fn tag_storage_follows_captured_process_permissions() {
 					child_arg.command = Some(vec![child_output.clone()]);
 				},
 				tangram_index::process::object::Kind::Error => {
-					root_arg.error = Some(Some(vec![output.clone()]));
-					child_arg.error = Some(Some(vec![child_output.clone()]));
+					root_arg.error = Some(tg::update::Update::Set(vec![output.clone()]));
+					child_arg.error = Some(tg::update::Update::Set(vec![child_output.clone()]));
 				},
 				tangram_index::process::object::Kind::Log => {
-					root_arg.log = Some(Some(output.clone()));
-					child_arg.log = Some(Some(child_output.clone()));
+					root_arg.log = Some(tg::update::Update::Set(output.clone()));
+					child_arg.log = Some(tg::update::Update::Set(child_output.clone()));
 				},
 				tangram_index::process::object::Kind::Output => {
-					root_arg.output = Some(Some(vec![output.clone()]));
-					child_arg.output = Some(Some(vec![child_output.clone()]));
+					root_arg.output = Some(tg::update::Update::Set(vec![output.clone()]));
+					child_arg.output = Some(tg::update::Update::Set(vec![child_output.clone()]));
 				},
 			}
 			let arg = tangram_index::write::Arg {
@@ -1980,8 +1980,8 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 	let output_tag = tg::tag::Id::new();
 	let created_at = 3600;
 	let mut process_arg = process_arg(process.clone(), Vec::new(), command.clone());
-	process_arg.log = Some(Some(log.clone()));
-	process_arg.output = Some(Some(vec![output.clone()]));
+	process_arg.log = Some(tg::update::Update::Set(log.clone()));
+	process_arg.output = Some(tg::update::Update::Set(vec![output.clone()]));
 	let mut items = vec![
 		tangram_index::Item::PutObject(Box::new(object_arg(command, [], 1))),
 		tangram_index::Item::PutObject(Box::new(object_arg(log, [], 2))),
@@ -2107,7 +2107,7 @@ async fn tag_storage_expands_permissions_during_propagation() {
 			_ => Vec::new(),
 		};
 		let mut arg = process_arg((*id).clone(), children, command.clone());
-		arg.log = Some(Some(log.clone()));
+		arg.log = Some(tg::update::Update::Set(log.clone()));
 		items.push(tangram_index::Item::PutProcess(Box::new(arg)));
 		items.push(tangram_index::Item::PutObject(Box::new(object_arg(
 			log.clone(),

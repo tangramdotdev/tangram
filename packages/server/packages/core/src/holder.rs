@@ -1,5 +1,6 @@
 use {
 	futures::{FutureExt as _, StreamExt as _, future::BoxFuture, stream::BoxStream},
+	std::task::Poll,
 	tangram_client::prelude::*,
 };
 
@@ -135,7 +136,7 @@ pub async fn request<'c, I: Item>(
 		.boxed()
 	};
 	let mut index_future = Some(index());
-	let mut indexed: Option<Option<I::Indexed>> = None;
+	let mut indexed = Poll::Pending;
 
 	// Send the request to the holder, and send it again on each status wakeup, because the item may have a new holder.
 	let (resend_sender, resend_receiver) = tokio::sync::watch::channel(());
@@ -147,7 +148,7 @@ pub async fn request<'c, I: Item>(
 		// A read waits for the holder until the deadline, and a write does so only if the index does not have the item, because only a holder can then show that the item exists.
 		let missing = matches!(
 			&indexed,
-			Some(indexed) if item.state(indexed.as_ref()) == State::Missing,
+			Poll::Ready(indexed) if item.state(indexed.as_ref()) == State::Missing,
 		);
 		let wait_until_deadline = mode == Mode::Read || missing;
 
@@ -172,7 +173,7 @@ pub async fn request<'c, I: Item>(
 					return Ok(Some(output));
 				}
 
-				indexed = Some(result);
+				indexed = Poll::Ready(result);
 			},
 
 			reply = &mut request_future => {
@@ -184,7 +185,10 @@ pub async fn request<'c, I: Item>(
 						}
 						let indexed = match index_future.take() {
 							Some(index_future) => index_future.await?,
-							None => indexed.flatten(),
+							None => match indexed {
+								Poll::Pending => None,
+								Poll::Ready(indexed) => indexed,
+							},
 						};
 						let complete = match item.state(indexed.as_ref()) {
 							State::Final | State::Starting | State::StartingHeld => true,
@@ -197,7 +201,10 @@ pub async fn request<'c, I: Item>(
 						}
 					},
 
-					Ok(_) => indexed.flatten(),
+					Ok(_) => match indexed {
+						Poll::Pending => None,
+						Poll::Ready(indexed) => indexed,
+					},
 
 					// Read the item from the index again if the request failed, because the item may have reached a terminal state.
 					Err(_) => item.reindex(exhaustive).await?,
@@ -214,7 +221,10 @@ pub async fn request<'c, I: Item>(
 				// Answer a read from the index, and a write with the missing item.
 				let indexed = match mode {
 					Mode::Read => item.reindex(exhaustive).await?,
-					Mode::Write => indexed.flatten(),
+					Mode::Write => match indexed {
+						Poll::Pending => None,
+						Poll::Ready(indexed) => indexed,
+					},
 				};
 				let output = Output {
 					indexed,

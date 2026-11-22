@@ -510,9 +510,9 @@ pub struct VerificationIndex {
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
+		with = "serde_with::rust::unwrap_or_skip"
 	)]
-	pub delay: Option<Option<VerificationIndexDelay>>,
+	pub delay: Option<tg::update::Update<VerificationIndexDelay>>,
 }
 
 #[serde_as]
@@ -2235,9 +2235,9 @@ pub struct Scheduler {
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
+		with = "serde_with::rust::unwrap_or_skip"
 	)]
-	pub unplaceable_timeout: Option<Option<Seconds>>,
+	pub unplaceable_timeout: Option<tg::update::Update<Seconds>>,
 }
 
 #[serde_as]

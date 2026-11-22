@@ -128,7 +128,9 @@ impl Index {
 				|| Ok(PermissionValue::default()),
 				PermissionValue::deserialize,
 			)?;
-			let old_expires_at = value.source_expires_at(entry.permission, source).flatten();
+			let old_expires_at = value
+				.source_expires_at(entry.permission, source)
+				.and_then(tangram_index::permission::Expiration::timestamp);
 			if value.put(entry.permission, source, entry.expires_at, time_to_touch) {
 				let bytes = value.serialize()?;
 				txn.set(key, &bytes);

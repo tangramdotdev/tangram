@@ -1427,8 +1427,12 @@ fn normalize_sandbox_create_arg(
 		network: sandbox.network,
 		owner: sandbox.owner,
 		storage: sandbox.storage,
-		time_to_live: sandbox.time_to_live.unwrap_or(Some(Duration::ZERO)),
-		time_to_stop: sandbox.time_to_stop.flatten(),
+		time_to_live: match sandbox.time_to_live {
+			None => Some(Duration::ZERO),
+			Some(tg::process::SandboxExpiration::After(duration)) => Some(duration),
+			Some(tg::process::SandboxExpiration::Disabled) => None,
+		},
+		time_to_stop: sandbox.time_to_stop,
 		wait: false,
 	}
 }

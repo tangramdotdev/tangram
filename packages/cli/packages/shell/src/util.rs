@@ -280,7 +280,7 @@ pub(super) async fn build_shell_executable(
 	reference: &tg::Reference,
 ) -> tg::Result<PathBuf> {
 	let options = tangram_cli_process::build::Options {
-		checkout: Some(None),
+		checkout: Some(tangram_cli_process::run::Checkout::Default),
 		..Default::default()
 	};
 	let args = tangram_cli_process::build::Args {

@@ -31,6 +31,7 @@ impl Component {
 			else {
 				return Err(tg::error!("failed to resolve the remote principal"));
 			};
+			let principal = Some(principal).filter(|principal| *principal != tg::Principal::Root);
 			Self::authorize_remote_principal(session, principal.as_ref()).await?;
 			return Ok(principal);
 		}
@@ -59,23 +60,29 @@ impl Component {
 		session: &Session,
 		remote: &tg::remote::Selector,
 		principal: Option<tg::principal::Selector>,
-	) -> tg::Result<Option<Option<tg::Principal>>> {
+	) -> tg::Result<Option<tg::Principal>> {
 		// Resolve the principal from the arg or the session unless the remote is selected by ID alone.
 		let (tg::remote::Selector::Id(id), None) = (remote, &principal) else {
 			let principal = self
 				.resolve_remote_arg_principal(session, principal)
 				.await?;
-			return Ok(Some(principal));
+			return Ok(Some(principal.unwrap_or(tg::Principal::Root)));
 		};
 
 		// Get the principal of the remote, and treat a remote the session may not manage as absent.
 		let Some(principal) = Self::try_get_remote_principal(session, id).await? else {
 			return Ok(None);
 		};
-		let default = self.resolve_remote_arg_principal(session, None).await?;
+		let default = self
+			.resolve_remote_arg_principal(session, None)
+			.await?
+			.unwrap_or(tg::Principal::Root);
 		if principal != default {
-			let authorized =
-				Self::is_remote_principal_authorized(session, principal.as_ref()).await?;
+			let authorized = Self::is_remote_principal_authorized(
+				session,
+				Some(&principal).filter(|principal| **principal != tg::Principal::Root),
+			)
+			.await?;
 			if !authorized {
 				return Ok(None);
 			}
@@ -87,7 +94,7 @@ impl Component {
 	async fn try_get_remote_principal(
 		session: &Session,
 		remote: &tg::remote::Id,
-	) -> tg::Result<Option<Option<tg::Principal>>> {
+	) -> tg::Result<Option<tg::Principal>> {
 		let remote = remote.clone();
 		session
 			.server
@@ -105,8 +112,7 @@ impl Component {
 	async fn try_get_remote_principal_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		remote: &tg::remote::Id,
-	) -> tg::Result<ControlFlow<Option<Option<tg::Principal>>, tangram_server_core::database::Error>>
-	{
+	) -> tg::Result<ControlFlow<Option<tg::Principal>, tangram_server_core::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "Option<db::value::FromStr>")]
@@ -119,7 +125,7 @@ impl Component {
 			.query_optional_into::<Row>(statement.into(), db::params![remote.to_string()])
 			.await;
 		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
-		let principal = row.map(|row| row.principal);
+		let principal = row.map(|row| row.principal.unwrap_or(tg::Principal::Root));
 
 		Ok(ControlFlow::Break(principal))
 	}
@@ -166,7 +172,7 @@ impl Component {
 	async fn resolve_remote_principal_selector(
 		session: &Session,
 		principal: &tg::principal::Selector,
-	) -> tg::Result<Option<Option<tg::Principal>>> {
+	) -> tg::Result<Option<tg::Principal>> {
 		let principal = principal.clone();
 		session
 			.server
@@ -188,8 +194,7 @@ impl Component {
 	async fn resolve_remote_principal_selector_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		principal: &tg::principal::Selector,
-	) -> tg::Result<ControlFlow<Option<Option<tg::Principal>>, tangram_server_core::database::Error>>
-	{
+	) -> tg::Result<ControlFlow<Option<tg::Principal>, tangram_server_core::database::Error>> {
 		match principal {
 			tg::principal::Selector::Principal(principal) => match principal {
 				tg::Principal::Group(id) => {
@@ -204,7 +209,7 @@ impl Component {
 						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 					};
 					Ok(ControlFlow::Break(
-						specifier.map(|_| Some(tg::Principal::Group(id))),
+						specifier.map(|_| tg::Principal::Group(id)),
 					))
 				},
 				tg::Principal::Organization(id) => {
@@ -219,10 +224,10 @@ impl Component {
 						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 					};
 					Ok(ControlFlow::Break(
-						specifier.map(|_| Some(tg::Principal::Organization(id))),
+						specifier.map(|_| tg::Principal::Organization(id)),
 					))
 				},
-				tg::Principal::Root => Ok(ControlFlow::Break(Some(None))),
+				tg::Principal::Root => Ok(ControlFlow::Break(Some(tg::Principal::Root))),
 				tg::Principal::User(id) => {
 					let id = id.clone();
 					let specifier = match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
@@ -235,7 +240,7 @@ impl Component {
 						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 					};
 					Ok(ControlFlow::Break(
-						specifier.map(|_| Some(tg::Principal::User(id))),
+						specifier.map(|_| tg::Principal::User(id)),
 					))
 				},
 				tg::Principal::Process(_)
@@ -257,9 +262,9 @@ impl Component {
 					return Ok(ControlFlow::Break(None));
 				};
 				let principal = match id.kind() {
-					tg::id::Kind::Group => Some(tg::Principal::Group(id.try_into()?)),
-					tg::id::Kind::Organization => Some(tg::Principal::Organization(id.try_into()?)),
-					tg::id::Kind::User => Some(tg::Principal::User(id.try_into()?)),
+					tg::id::Kind::Group => tg::Principal::Group(id.try_into()?),
+					tg::id::Kind::Organization => tg::Principal::Organization(id.try_into()?),
+					tg::id::Kind::User => tg::Principal::User(id.try_into()?),
 					_ => return Err(tg::error!("invalid remote principal")),
 				};
 				Ok(ControlFlow::Break(Some(principal)))

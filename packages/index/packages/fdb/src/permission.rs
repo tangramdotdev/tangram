@@ -2,7 +2,10 @@ use {
 	crate::{Index, Request, Response},
 	std::collections::BTreeMap,
 	tangram_client::prelude::*,
-	tangram_index::permission::capture::{Entry, enqueue},
+	tangram_index::permission::{
+		Expiration,
+		capture::{Entry, enqueue},
+	},
 };
 
 mod capture;
@@ -48,7 +51,6 @@ pub(crate) struct PermissionValue {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[allow(clippy::option_option)]
 pub(crate) struct PermissionSources {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "tangram_util::serde::is_false")]
 	pub grant: bool,
@@ -59,7 +61,7 @@ pub(crate) struct PermissionSources {
 		skip_serializing_if = "Option::is_none",
 		with = "tangram_serialize::with::unwrap_or_skip"
 	)]
-	pub direct: Option<Option<i64>>,
+	pub direct: Option<Expiration>,
 
 	#[tangram_serialize(
 		default,
@@ -67,15 +69,14 @@ pub(crate) struct PermissionSources {
 		skip_serializing_if = "Option::is_none",
 		with = "tangram_serialize::with::unwrap_or_skip"
 	)]
-	pub materialized: Option<Option<i64>>,
+	pub materialized: Option<Expiration>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(clippy::option_option)]
 pub(crate) struct PermissionEntry {
 	pub grant: bool,
-	pub direct: Option<Option<i64>>,
-	pub materialized: Option<Option<i64>>,
+	pub direct: Option<Expiration>,
+	pub materialized: Option<Expiration>,
 	pub permission: tg::authorization::Permission,
 	pub subject: tg::authorization::Subject,
 }
@@ -196,12 +197,11 @@ impl PermissionValue {
 			.map_err(|error| tg::error!(!error, "failed to serialize the permission value"))
 	}
 
-	#[allow(clippy::option_option)]
 	pub(crate) fn source_expires_at(
 		&self,
 		permission: tg::authorization::Permission,
 		source: PermissionSource,
-	) -> Option<Option<i64>> {
+	) -> Option<Expiration> {
 		self.permissions
 			.get(&permission)
 			.and_then(|sources| sources.source_expires_at(source))
@@ -250,7 +250,7 @@ impl PermissionValue {
 				.into_iter()
 				.filter_map(|source| {
 					let expires_at = sources.source_expires_at(source)?;
-					Some((*permission, source, expires_at))
+					Some((*permission, source, expires_at.timestamp()))
 				})
 			})
 			.collect()
@@ -300,11 +300,10 @@ impl PermissionSources {
 		}
 	}
 
-	#[allow(clippy::option_option)]
-	pub(crate) fn source_expires_at(&self, source: PermissionSource) -> Option<Option<i64>> {
+	pub(crate) fn source_expires_at(&self, source: PermissionSource) -> Option<Expiration> {
 		match source {
 			PermissionSource::Direct => self.direct,
-			PermissionSource::Grant => self.grant.then_some(None),
+			PermissionSource::Grant => self.grant.then_some(Expiration::Never),
 			PermissionSource::Materialized => self.materialized,
 		}
 	}
@@ -317,17 +316,17 @@ impl PermissionSources {
 	) -> bool {
 		match source {
 			PermissionSource::Direct => {
-				if self.direct == Some(None) {
+				if self.direct == Some(Expiration::Never) {
 					return false;
 				}
 				let time_to_touch =
 					time_to_touch.map_or_default(|value| i64::try_from(value.as_secs()).unwrap());
-				if let (Some(Some(current)), Some(expires_at)) = (self.direct, expires_at)
+				if let (Some(Expiration::At(current)), Some(expires_at)) = (self.direct, expires_at)
 					&& (current >= expires_at || expires_at.saturating_sub(current) < time_to_touch)
 				{
 					return false;
 				}
-				self.direct = Some(expires_at);
+				self.direct = Some(expires_at.into());
 				true
 			},
 			PermissionSource::Grant => {
@@ -339,10 +338,10 @@ impl PermissionSources {
 				}
 			},
 			PermissionSource::Materialized => {
-				if self.materialized == Some(expires_at) {
+				if self.materialized == Some(expires_at.into()) {
 					false
 				} else {
-					self.materialized = Some(expires_at);
+					self.materialized = Some(expires_at.into());
 					true
 				}
 			},
@@ -352,7 +351,7 @@ impl PermissionSources {
 	pub(crate) fn delete(&mut self, source: PermissionSource, expires_at: Option<i64>) -> bool {
 		match source {
 			PermissionSource::Direct => {
-				if self.direct == Some(expires_at) {
+				if self.direct == Some(expires_at.into()) {
 					self.direct = None;
 					true
 				} else {
@@ -368,7 +367,7 @@ impl PermissionSources {
 				}
 			},
 			PermissionSource::Materialized => {
-				if self.materialized == Some(expires_at) {
+				if self.materialized == Some(expires_at.into()) {
 					self.materialized = None;
 					true
 				} else {
@@ -399,39 +398,18 @@ impl PermissionSource {
 }
 
 impl PermissionEntry {
-	#[allow(clippy::option_option)]
-	pub(crate) fn effective_expires_at(&self) -> Option<Option<i64>> {
-		let mut output = None;
-		if self.grant {
-			output = Some(None);
-		}
-		if let Some(expires_at) = self.direct {
-			output = Some(match output {
-				Some(output) => max_expires_at(output, expires_at),
-				None => expires_at,
-			});
-		}
-		if let Some(expires_at) = self.materialized {
-			output = Some(match output {
-				Some(output) => max_expires_at(output, expires_at),
-				None => expires_at,
-			});
-		}
-		output
+	pub(crate) fn effective_expires_at(&self) -> Option<Expiration> {
+		self.grant
+			.then_some(Expiration::Never)
+			.max(self.direct)
+			.max(self.materialized)
 	}
 
 	pub(crate) fn has_non_materialized_cover(&self, expires_at: Option<i64>) -> bool {
 		self.grant
 			|| self
 				.direct
-				.is_some_and(|direct| max_expires_at(direct, expires_at) == direct)
-	}
-}
-
-pub(crate) fn max_expires_at(left: Option<i64>, right: Option<i64>) -> Option<i64> {
-	match (left, right) {
-		(None, _) | (_, None) => None,
-		(Some(left), Some(right)) => Some(left.max(right)),
+				.is_some_and(|direct| direct >= Expiration::from(expires_at))
 	}
 }
 
@@ -484,7 +462,7 @@ impl tangram_index::permission::Index for Index {
 
 #[cfg(test)]
 mod tests {
-	use super::{PermissionSource, PermissionSources};
+	use super::{Expiration, PermissionSource, PermissionSources};
 
 	#[test]
 	fn permission_source_ids_are_stable() {
@@ -506,10 +484,10 @@ mod tests {
 	fn direct_permissions_upgrade_to_non_expiring() {
 		let mut value = PermissionSources::default();
 		assert!(value.put(PermissionSource::Direct, Some(10), None));
-		assert_eq!(value.direct, Some(Some(10)));
+		assert_eq!(value.direct, Some(Expiration::At(10)));
 		assert!(value.put(PermissionSource::Direct, None, None));
-		assert_eq!(value.direct, Some(None));
+		assert_eq!(value.direct, Some(Expiration::Never));
 		assert!(!value.put(PermissionSource::Direct, Some(20), None));
-		assert_eq!(value.direct, Some(None));
+		assert_eq!(value.direct, Some(Expiration::Never));
 	}
 }
