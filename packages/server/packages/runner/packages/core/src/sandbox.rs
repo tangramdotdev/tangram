@@ -92,6 +92,9 @@ pub struct Boot {
 	/// A change to the finishes of the boot's processes, which wakes the wait for every finish.
 	changed: tokio::sync::watch::Sender<()>,
 
+	/// The number of the runner's first write of the boot.
+	first: u64,
+
 	/// How the runner gave up the boot, once its scheduler ended it.
 	given_up: tokio::sync::watch::Sender<Option<Teardown>>,
 
@@ -336,6 +339,7 @@ impl Boot {
 		Self {
 			boot,
 			changed: tokio::sync::watch::Sender::new(()),
+			first: sequence,
 			given_up: tokio::sync::watch::Sender::new(None),
 			inner: std::sync::Mutex::new(inner),
 			location,
@@ -354,6 +358,13 @@ impl Boot {
 		let sequence = inner.sequence;
 		inner.sequence += 1;
 		Some(sequence)
+	}
+
+	/// Get whether the runner writes and reports the boot's end, which it does unless it gave the boot up, or the boot is on the shortcut path and the runner numbered no write of it, so that no index has a record of it.
+	#[must_use]
+	pub fn writes_end(&self) -> bool {
+		let inner = self.inner.lock().unwrap();
+		self.given_up.borrow().is_none() && (self.scheduled || inner.sequence > self.first)
 	}
 
 	/// Take the number of the boot's end once a server has answered every finish of the boot's processes, which is the only way to get the end's number. First finish each unfinished process from the runner's memory with the function, and again each process whose finish was dropped before a server answered it, so that every process of the boot has a finish before its end. Return the end's number and the processes that the function finished, or `None` once the runner gave the boot up, after which the boot takes no end.
@@ -610,6 +621,21 @@ mod tests {
 		assert_eq!(boot.end(), Some(1));
 		assert!(!boot.give_up(Teardown::Stop));
 		assert_eq!(boot.next(), Some(2));
+	}
+
+	#[test]
+	fn a_boot_on_the_shortcut_path_writes_its_end_once_it_numbered_a_write() {
+		let shortcut = Boot::new(0, tg::sandbox::Id::new(), local(), None, false, 1);
+		assert!(!shortcut.writes_end());
+		assert_eq!(shortcut.next(), Some(1));
+		assert!(
+			shortcut.writes_end(),
+			"a shortcut boot that numbered a write would write no end"
+		);
+		let scheduled = boot(1);
+		assert!(scheduled.writes_end());
+		assert!(scheduled.give_up(Teardown::Stop));
+		assert!(!scheduled.writes_end());
 	}
 
 	#[tokio::test]

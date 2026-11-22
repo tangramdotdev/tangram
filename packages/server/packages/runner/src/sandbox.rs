@@ -71,7 +71,6 @@ struct SandboxTaskArg {
 	allocation: tangram_server_runner_core::capacity::Allocation,
 	arg: tg::sandbox::create::Arg,
 	boot: Arc<Boot>,
-	connected: Arc<AtomicBool>,
 	created_at: i64,
 	creator: tg::Principal,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
@@ -107,10 +106,6 @@ struct Failed {
 /// What the end of a boot needs, which the boot's task gets before it runs.
 struct EndSandboxBootArg {
 	boot: Arc<Boot>,
-
-	/// Whether the boot's control connection was established, after which an index has a record of the sandbox.
-	connected: Arc<AtomicBool>,
-
 	create: tg::sandbox::create::Arg,
 	created_at: i64,
 	creator: tg::Principal,
@@ -920,12 +915,10 @@ impl Component {
 		let id = boot.sandbox.clone();
 
 		// Run the sandbox task.
-		let connected = Arc::new(AtomicBool::new(false));
 		let created_at = session.server.clock.unix_timestamp();
 		let kept = Arc::new(AtomicBool::new(false));
 		let end = EndSandboxBootArg {
 			boot: boot.clone(),
-			connected: connected.clone(),
 			create: arg.arg.clone(),
 			created_at,
 			creator: arg.creator.clone(),
@@ -940,7 +933,6 @@ impl Component {
 			allocation: arg.allocation,
 			arg: arg.arg,
 			boot: boot.clone(),
-			connected,
 			created_at,
 			creator: arg.creator,
 			event_sender,
@@ -1013,7 +1005,7 @@ impl Component {
 		}
 	}
 
-	/// End a boot that the runner held, which is the only function that writes a boot's end and reports it, whether the boot stopped, its sandbox was destroyed, or the boot failed. Write the end while serving the boot's control stream, and then report the end to the runner's scheduler, which records the end itself if the boot's control stream could not. Record and report nothing for a boot that the runner gave up, whose end the index already records, or for a boot on the shortcut path whose control connection was never established, because no index has a record of it.
+	/// End a boot that the runner held, which is the only function that writes a boot's end and reports it, whether the boot stopped, its sandbox was destroyed, or the boot failed. Write the end while serving the boot's control stream, and then report the end to the runner's scheduler, which records the end itself if the boot's control stream could not. Record and report nothing for a boot that the runner gave up, whose end the index already records, or for a boot on the shortcut path that numbered no write, because no index has a record of it.
 	async fn end_sandbox_boot(
 		&self,
 		session: &Session,
@@ -1025,9 +1017,8 @@ impl Component {
 		let boot = &arg.boot;
 		let id = &boot.sandbox;
 
-		// Write the end while serving the boot's control stream, unless the runner gave the boot up or its control connection was never established.
-		let write =
-			boot.given_up().is_none() && (boot.scheduled || arg.connected.load(Ordering::Acquire));
+		// Write the end while serving the boot's control stream, unless the runner gave the boot up or the boot is on the shortcut path and numbered no write.
+		let write = boot.writes_end();
 		let sender = control.as_ref().map(|control| control.sender());
 		let end = async {
 			let written = if write {
@@ -1264,7 +1255,6 @@ impl Component {
 			allocation,
 			arg,
 			boot: entry,
-			connected: connected_flag,
 			created_at,
 			creator,
 			event_sender,
@@ -1424,7 +1414,6 @@ impl Component {
 				let connection = component
 					.get_sandbox_control_stream(&connection_session, connect_arg)
 					.await?;
-				connected_flag.store(true, Ordering::Release);
 
 				// Send the token from the header, so that the sandbox's requests stop claiming the sandbox with the runner's token.
 				token_sender.send_replace(Some(connection.token.clone()));
