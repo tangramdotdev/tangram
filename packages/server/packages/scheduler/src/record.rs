@@ -212,12 +212,6 @@ impl Scheduler {
 			});
 			data.stopped_at = Some(now);
 		}
-		let account = self
-			.server
-			.components
-			.usage
-			.usage_account(&session, &request.owner)
-			.await?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: self.server.config.region.clone(),
 		});
@@ -225,6 +219,42 @@ impl Scheduler {
 			data,
 			location: Some(location.clone()),
 			tokens: tg::authorization::Tokens::default(),
+		};
+
+		// Get the account and create the item of a queued process, which is carried in the sandbox's item so that the two are written together, and do both again after a failure, so that the write that carries the process's permissions is not skipped.
+		let (account, process) = loop {
+			let result = async {
+				let account = self
+					.server
+					.components
+					.usage
+					.usage_account(&session, &request.owner)
+					.await?;
+				let process = match &request.process {
+					Some(process) if status.is_starting() => {
+						let process = self.server.components.process.create_queued_process_arg(
+							&session,
+							process,
+							id,
+							Some(request.boot),
+							now,
+							permissions,
+							request.public,
+						)?;
+						Some(Box::new(process))
+					},
+					_ => None,
+				};
+				Ok::<_, tg::Error>((account, process))
+			}
+			.await;
+			match result {
+				Ok(output) => break output,
+				Err(error) => {
+					tracing::error!(error = %error.trace(), %id, "failed to create the write of the sandbox's status");
+					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+				},
+			}
 		};
 
 		// Enqueue the write.
@@ -237,7 +267,7 @@ impl Scheduler {
 			location: Some(location),
 			permissions: Vec::new(),
 			principal: tg::Principal::Sandbox(id.clone()),
-			process: None,
+			process,
 			processes,
 			runner: request.runner.clone(),
 			scheduler: Some(self.id.clone()),
@@ -246,23 +276,6 @@ impl Scheduler {
 			stopped_usage: None,
 			touched_at: now,
 		};
-
-		// Carry a queued process in the sandbox's item, so that the two are written together.
-		let mut arg = arg;
-		if status.is_starting()
-			&& let Some(process) = &request.process
-		{
-			let process = self.server.components.process.create_queued_process_arg(
-				&session,
-				process,
-				id,
-				Some(request.boot),
-				now,
-				permissions,
-				request.public,
-			)?;
-			arg.process = Some(Box::new(process));
-		}
 		let mut items = vec![tangram_index::Item::PutSandbox(Box::new(arg))];
 
 		// Record the accepted request in the scheduler's queue with a starting sandbox, keep it while the scheduler destroys the sandbox, and remove it once the boot ends unplaced, in the same write as the sandbox's status.
