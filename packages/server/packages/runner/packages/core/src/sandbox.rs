@@ -90,7 +90,7 @@ pub struct Boot {
 	pub boot: u64,
 
 	/// How the runner gave up the boot, once its scheduler ended it.
-	given_up: tokio::sync::watch::Sender<Option<Yield>>,
+	given_up: tokio::sync::watch::Sender<Option<Teardown>>,
 
 	inner: std::sync::Mutex<BootInner>,
 
@@ -126,9 +126,9 @@ pub struct Unaccepted {
 	boot: Arc<Boot>,
 }
 
-/// How the runner gives up a boot that its scheduler ended, which keeps the sandbox's directory if the scheduler keeps it.
+/// How a boot ends locally, which stops its sandbox or destroys it. The runner gives up a boot that its scheduler ended with a stop if the scheduler keeps the sandbox's directory, and with a destroy otherwise.
 #[derive(Clone, Copy, Debug)]
-pub enum Yield {
+pub enum Teardown {
 	Destroy,
 	Stop,
 }
@@ -352,7 +352,7 @@ impl Boot {
 	}
 
 	/// Give up the boot because its scheduler ended it, so that the runner writes nothing more for it, unless the boot already took the number of its end or was given up. Return whether the boot was given up now.
-	pub fn give_up(&self, kind: Yield) -> bool {
+	pub fn give_up(&self, kind: Teardown) -> bool {
 		let inner = self.inner.lock().unwrap();
 		if inner.ending || self.given_up.borrow().is_some() {
 			return false;
@@ -365,17 +365,15 @@ impl Boot {
 
 	/// Get how the runner gave up the boot, if it did.
 	#[must_use]
-	pub fn given_up(&self) -> Option<Yield> {
+	pub fn given_up(&self) -> Option<Teardown> {
 		*self.given_up.borrow()
 	}
 
 	/// Wait until the runner gives up the boot, and get how.
-	pub async fn wait_given_up(&self) -> Yield {
+	pub async fn wait_given_up(&self) -> Teardown {
 		let mut given_up = self.given_up.subscribe();
-		given_up
-			.wait_for(Option::is_some)
-			.await
-			.map_or(Yield::Stop, |kind| kind.unwrap())
+		let kind = given_up.wait_for(Option::is_some).await.unwrap();
+		kind.unwrap()
 	}
 
 	/// Remember that the boot accepted a process, and whether this server spawned it.
@@ -457,6 +455,18 @@ impl Boot {
 	}
 }
 
+impl Teardown {
+	/// Get the teardown of a boot whose sandbox is left without processes or whose runner shuts down, which destroys a sandbox whose ttl is zero and stops any other.
+	#[must_use]
+	pub fn with_time_to_live(time_to_live: Option<std::time::Duration>) -> Self {
+		if time_to_live.is_some_and(|time_to_live| time_to_live.is_zero()) {
+			Self::Destroy
+		} else {
+			Self::Stop
+		}
+	}
+}
+
 impl<'a> IntoIterator for &'a Sandboxes {
 	type Item = dashmap::mapref::multiple::RefMulti<'a, u64, State>;
 	type IntoIter = dashmap::iter::Iter<'a, u64, State, fnv::FnvBuildHasher>;
@@ -488,18 +498,18 @@ mod tests {
 		let boot = boot(1);
 		assert_eq!(boot.next(), Some(1));
 		assert_eq!(boot.next(), Some(2));
-		assert!(boot.give_up(Yield::Stop));
+		assert!(boot.give_up(Teardown::Stop));
 		assert_eq!(boot.next(), None);
 		assert_eq!(boot.end(), None);
-		assert!(!boot.give_up(Yield::Destroy));
-		assert!(matches!(boot.given_up(), Some(Yield::Stop)));
+		assert!(!boot.give_up(Teardown::Destroy));
+		assert!(matches!(boot.given_up(), Some(Teardown::Stop)));
 	}
 
 	#[test]
 	fn a_boot_that_took_the_number_of_its_end_is_not_given_up() {
 		let boot = boot(1);
 		assert_eq!(boot.end(), Some(1));
-		assert!(!boot.give_up(Yield::Stop));
+		assert!(!boot.give_up(Teardown::Stop));
 		assert_eq!(boot.next(), Some(2));
 	}
 

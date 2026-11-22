@@ -18,7 +18,7 @@ use {
 	tangram_futures::task::{Stopper, Task},
 	tangram_server_runner_core::{
 		process::ConnectedEvent,
-		sandbox::{Boot, Event, ReadyEvent, SpawnSandboxTaskArg, SpawnSandboxTaskOutput, Yield},
+		sandbox::{Boot, Event, ReadyEvent, SpawnSandboxTaskArg, SpawnSandboxTaskOutput, Teardown},
 	},
 	tangram_server_sandbox_core::control::local::{Message, Reply},
 	tokio::task::JoinSet,
@@ -220,6 +220,9 @@ struct DestroyRequest {
 /// The phase of a boot in which the boot's control stream serves a request.
 #[derive(Clone, Copy)]
 enum Phase<'a> {
+	/// The boot's sandbox is being destroyed, or the boot ended locally.
+	Ended,
+
 	/// The boot runs. A boot on the shortcut path is reported once its scheduler acknowledged it.
 	Running { reported: bool },
 
@@ -227,9 +230,6 @@ enum Phase<'a> {
 	Stopping {
 		destroy: &'a std::sync::Mutex<Option<DestroyRequest>>,
 	},
-
-	/// The boot's sandbox is being destroyed, or the boot ended locally.
-	Ended,
 }
 
 /// What serving a request of a boot's control stream leaves for the boot's run loop.
@@ -261,12 +261,6 @@ enum Directory {
 
 	/// A new directory for a sandbox's first boot.
 	New { path: std::path::PathBuf },
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Teardown {
-	Destroy,
-	Stop,
 }
 
 impl Component {
@@ -416,10 +410,10 @@ impl Component {
 		// Give up a boot that the index records as ended, and reply that the runner does not hold a boot that it gave up.
 		match &message.arg {
 			tg::sandbox::control::ServerRequestArg::Destroy(request) if request.ended => {
-				boot.give_up(Yield::Destroy);
+				boot.give_up(Teardown::Destroy);
 			},
 			tg::sandbox::control::ServerRequestArg::Stop(request) if request.ended => {
-				boot.give_up(Yield::Stop);
+				boot.give_up(Teardown::Stop);
 			},
 			_ => {},
 		}
@@ -2328,13 +2322,13 @@ impl Component {
 
 					// If the runner gives up the boot because its scheduler ended it, then stop the sandbox, or destroy it if the scheduler does not keep its directory, writing nothing more for the boot.
 					kind = entry.wait_given_up() => {
-						let (status, end) = match kind {
-							Yield::Destroy => (tg::sandbox::Status::Destroying, Teardown::Destroy),
-							Yield::Stop => (tg::sandbox::Status::Stopping, Teardown::Stop),
+						let status = match kind {
+							Teardown::Destroy => tg::sandbox::Status::Destroying,
+							Teardown::Stop => tg::sandbox::Status::Stopping,
 						};
 						Self::cancel_sandbox_processes(session, &id, None)?;
 						Self::set_sandbox_status(session, &id, status);
-						teardown = end;
+						teardown = kind;
 						break;
 					},
 
@@ -2421,7 +2415,7 @@ impl Component {
 		let destroy_request = std::sync::Mutex::new(None::<DestroyRequest>);
 		let destroyed = || {
 			destroy_request.lock().unwrap().is_some()
-				|| matches!(entry.given_up(), Some(Yield::Destroy))
+				|| matches!(entry.given_up(), Some(Teardown::Destroy))
 		};
 
 		let destroy = async {
@@ -3829,17 +3823,6 @@ impl From<tg::Error> for Failed {
 		Self {
 			control: None,
 			error,
-		}
-	}
-}
-
-impl Teardown {
-	#[must_use]
-	pub(crate) fn with_time_to_live(time_to_live: Option<std::time::Duration>) -> Self {
-		if time_to_live.is_some_and(|time_to_live| time_to_live.is_zero()) {
-			Self::Destroy
-		} else {
-			Self::Stop
 		}
 	}
 }

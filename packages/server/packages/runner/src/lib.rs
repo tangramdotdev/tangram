@@ -818,9 +818,9 @@ impl Component {
 	fn yield_runner_sandboxes(&self, header: &tg::runner::control::Header) {
 		for ended in &header.ended {
 			let kind = if header.kept.contains(&ended.id) {
-				tangram_server_runner_core::sandbox::Yield::Stop
+				tangram_server_runner_core::sandbox::Teardown::Stop
 			} else {
-				tangram_server_runner_core::sandbox::Yield::Destroy
+				tangram_server_runner_core::sandbox::Teardown::Destroy
 			};
 			if let Some(boot) = self.state.boots.get(&ended.id, ended.boot) {
 				tracing::warn!(sandbox = %ended.id, boot = ended.boot, "giving up a sandbox whose boot the scheduler ended");
