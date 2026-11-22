@@ -5,7 +5,7 @@ use {
 		placement::RunnerRef,
 		recovery::{SavedBoot, tests::indexed},
 		report::EndedBoot,
-		sandbox::{Sandbox, State, Tracked},
+		sandbox::{DestroySandbox, Sandbox, State, Tracked},
 	},
 	std::{
 		collections::{BTreeSet, HashMap, HashSet},
@@ -335,4 +335,30 @@ fn a_runner_whose_connections_never_apply_expires_one_ttl_after_its_first_connec
 		vec![id],
 		"the connections that never applied kept the runner alive"
 	);
+}
+
+#[test]
+fn a_runner_that_restarted_is_sent_no_destroy_until_its_restart_is_handled() {
+	let id = tg::runner::Id::new();
+	let now = Clock::new(None, None).instant();
+	let mut state = state(&id, 1, now);
+	let destroy = DestroySandbox {
+		connection: 1,
+		error: tg::error::Data::default(),
+		request: None,
+		runner: id.clone(),
+		sandbox: tg::sandbox::Id::new(),
+	};
+
+	// While the scheduler has not finished handling the runner's restart, the destroy is not sent.
+	state.runners.entries.get_mut(&id).unwrap().restarting = true;
+	assert_eq!(
+		state.destroy_connection(&destroy),
+		None,
+		"the destroy would be sent to a runner whose restart is not handled"
+	);
+
+	// Once the runner's first connection is applied, the destroy is sent on the connection.
+	state.runners.entries.get_mut(&id).unwrap().restarting = false;
+	assert_eq!(state.destroy_connection(&destroy), Some(1));
 }

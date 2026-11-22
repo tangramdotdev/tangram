@@ -2,6 +2,7 @@ use {
 	super::{Sandbox, State, Tracked},
 	crate::{
 		AddSandboxParentRequestArg, SchedulerState,
+		offer::{Decision, Outcome, decide_offer_outcome},
 		placement::{Placement, RunnerRef},
 	},
 	tangram_client::prelude::*,
@@ -249,5 +250,25 @@ fn a_report_of_a_sandbox_that_the_scheduler_ended_stops_or_destroys_it_on_its_ru
 	assert!(matches!(
 		scheduler.sandboxes.entries[&id].state,
 		State::Terminal { .. }
+	));
+}
+
+#[test]
+fn an_answer_that_the_boot_ended_forgets_the_boot_without_offering_it_again() {
+	// A runner that answers that the boot ended held it, so the boot is ended and not returned to the queue, and no failure is counted.
+	assert!(
+		matches!(decide_offer_outcome(Outcome::Ended), Decision::End),
+		"the boot that the runner ended would be offered again"
+	);
+
+	// A runner's no returns the boot to the queue without a failure, and a failure to create the sandbox returns it with the failure.
+	assert!(matches!(
+		decide_offer_outcome(Outcome::Declined),
+		Decision::Requeue { failure: None }
+	));
+	let error = tg::error!("failed to create the sandbox");
+	assert!(matches!(
+		decide_offer_outcome(Outcome::Failed(error)),
+		Decision::Requeue { failure: Some(_) }
 	));
 }
