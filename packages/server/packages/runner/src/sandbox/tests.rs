@@ -90,3 +90,24 @@ fn a_boot_refuses_a_spawn_for_another_boot_and_accepts_a_spawn_for_itself() {
 		SpawnAnswer::Retry(tg::control::Retry::NotReady)
 	));
 }
+
+#[test]
+fn a_failed_boot_that_the_runner_gave_up_ends_as_the_scheduler_decided() {
+	// A failed boot that the runner gave up with a destroy is destroyed, even if its directory remains, because the scheduler destroyed the sandbox.
+	assert_eq!(
+		failed_teardown(Some(Teardown::Destroy), true, 1, true),
+		Teardown::Destroy
+	);
+
+	// A failed boot that the runner gave up with a stop is stopped, because the scheduler keeps the sandbox's directory.
+	assert_eq!(
+		failed_teardown(Some(Teardown::Stop), false, 0, false),
+		Teardown::Stop
+	);
+
+	// A failed boot that the runner holds is stopped if its directory remains for a later start, and destroyed otherwise.
+	assert_eq!(failed_teardown(None, true, 0, true), Teardown::Stop);
+	assert_eq!(failed_teardown(None, false, 1, true), Teardown::Stop);
+	assert_eq!(failed_teardown(None, false, 0, true), Teardown::Destroy);
+	assert_eq!(failed_teardown(None, false, 1, false), Teardown::Destroy);
+}

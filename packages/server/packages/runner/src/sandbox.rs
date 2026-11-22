@@ -1183,7 +1183,7 @@ impl Component {
 		Some(written)
 	}
 
-	/// Get how a boot whose task failed ended. Its sandbox is stopped if the sandbox's directory remains, so that it can start again, and destroyed otherwise.
+	/// Get how a boot whose task failed ended, as `failed_teardown` decides.
 	async fn failed_sandbox_ending(
 		&self,
 		session: &Session,
@@ -1195,20 +1195,28 @@ impl Component {
 		tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox task failed");
 		arg.event_sender.send(Err(error.clone())).ok();
 
-		// Keep the sandbox stopped if the failed boot's task kept its directory, or if the directory of a boot after the first remains, such as for a start that fails before it runs, and reserve the storage of a remaining directory again, which the failed boot's allocation released.
+		// Get how the failed boot ends. Reserve the storage of a stopped sandbox's remaining directory again, which the failed boot's allocation released, and remove the remaining directory of a sandbox that the scheduler destroyed when it ended the boot that the runner gave up.
 		let exists = tokio::fs::try_exists(Self::sandbox_path(session, id))
 			.await
 			.unwrap_or(false);
-		let kept = arg.kept.load(Ordering::Acquire) || (boot.boot > 0 && exists);
-		if kept && exists {
-			self.reserve_stopped_sandbox_storage(id, arg.storage);
+		let kept = arg.kept.load(Ordering::Acquire);
+		let teardown = failed_teardown(boot.given_up(), kept, boot.boot, exists);
+		match teardown {
+			Teardown::Destroy if exists && boot.given_up().is_some() => {
+				if let Err(error) = self.remove_stopped_sandbox_directory(session, id).await {
+					tracing::error!(error = %error.trace(), sandbox = %id, "failed to remove the sandbox directory");
+				}
+			},
+			Teardown::Stop if exists => {
+				self.reserve_stopped_sandbox_storage(id, arg.storage);
+			},
+			Teardown::Destroy | Teardown::Stop => {},
 		}
 
 		// Create the failed sandbox's data.
-		let (status, teardown) = if kept {
-			(tg::sandbox::Status::Stopped, Teardown::Stop)
-		} else {
-			(tg::sandbox::Status::Destroyed, Teardown::Destroy)
+		let status = match teardown {
+			Teardown::Destroy => tg::sandbox::Status::Destroyed,
+			Teardown::Stop => tg::sandbox::Status::Stopped,
 		};
 		let entry = EndedSandboxDataArg {
 			boot: boot.boot,
@@ -1320,6 +1328,7 @@ impl Component {
 			let arg = arg.clone();
 			let id = id.clone();
 			let kept = kept.clone();
+			let entry = entry.clone();
 			async move {
 				session
 					.server
@@ -1329,6 +1338,12 @@ impl Component {
 					.boots
 					.wait_ended_before(&id, boot)
 					.await;
+
+				// Create nothing for a boot that the runner gave up while it waited.
+				if entry.given_up().is_some() {
+					return Err(tg::error!(%id, "the runner gave up the boot"));
+				}
+
 				// Create a new sandbox if this runner has no directory for it, because the sandbox never booted here or its directory was lost.
 				let path = Self::sandbox_path(&session, &id);
 				if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
@@ -4013,6 +4028,15 @@ fn stopped_storage_usage(size: u64, seconds: i64) -> tg::sandbox::Usage {
 		cpu: tg::sandbox::ResourceUsage::default(),
 		memory: tg::sandbox::ResourceUsage::default(),
 		storage,
+	}
+}
+
+/// Get how a boot whose task failed ends: as the runner gave the boot up, because the scheduler's end decides whether the scheduler keeps the sandbox's directory, and otherwise with a stop if the failed task kept the sandbox's directory or a directory of a boot after the first remains, such as for a start that fails before it runs, so that the sandbox can start again, and with a destroy otherwise.
+fn failed_teardown(given_up: Option<Teardown>, kept: bool, boot: u64, exists: bool) -> Teardown {
+	match given_up {
+		Some(kind) => kind,
+		None if kept || (boot > 0 && exists) => Teardown::Stop,
+		None => Teardown::Destroy,
 	}
 }
 
