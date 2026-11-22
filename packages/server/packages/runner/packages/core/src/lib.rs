@@ -217,15 +217,29 @@ impl State {
 			.unwrap()
 	}
 
+	/// Get the state of a sandbox whose latest boot the runner did not give up, which is the lookup through which the runner answers and acts as the holder of a sandbox and of its processes, so that a boot that the runner gave up answers nothing.
+	#[must_use]
+	pub fn try_get_held_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> Option<dashmap::mapref::one::Ref<'_, u64, crate::sandbox::State>> {
+		let sandbox = self.sandboxes.get_by_id(id)?;
+		if sandbox.boot.given_up().is_some() {
+			return None;
+		}
+
+		Some(sandbox)
+	}
+
 	#[must_use]
 	pub fn try_get_sandbox(&self, id: &tg::sandbox::Id) -> Option<tg::sandbox::get::Output> {
-		Some(self.sandboxes.get_by_id(id)?.data())
+		Some(self.try_get_held_sandbox(id)?.data())
 	}
 
 	#[must_use]
 	pub fn try_get_process(&self, id: &tg::process::Id) -> Option<tg::process::Data> {
 		let sandbox = self.try_get_process_sandbox(id)?;
-		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+		let sandbox = self.try_get_held_sandbox(&sandbox)?;
 		let process = sandbox.processes.get(id)?;
 		Some(process.data())
 	}
@@ -238,7 +252,7 @@ impl State {
 		length: u64,
 	) -> Option<tg::process::control::GetChildrenClientResponseOutput> {
 		let sandbox = self.try_get_process_sandbox(id)?;
-		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+		let sandbox = self.try_get_held_sandbox(&sandbox)?;
 		let process = sandbox.processes.get(id)?;
 		let children_length = u64::try_from(process.children.len()).unwrap();
 		let start = usize::try_from(position.min(children_length)).unwrap();
@@ -263,7 +277,7 @@ impl State {
 		update: impl FnOnce(&mut tangram_server_process_core::State) -> T,
 	) -> Option<T> {
 		let sandbox = self.try_get_process_sandbox(id)?;
-		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+		let sandbox = self.try_get_held_sandbox(&sandbox)?;
 		let mut process = sandbox.processes.get_mut(id)?;
 		Some(update(&mut process))
 	}

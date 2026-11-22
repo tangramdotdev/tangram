@@ -485,11 +485,10 @@ impl Component {
 
 		let control_stopper = Stopper::new();
 		let mut first = true;
+		let mut drain = None::<BoxFuture<'_, ()>>;
 		let mut drained = false;
 		let mut retries = None::<BoxStream<'static, ()>>;
-		loop {
-			let stop_future = stopper.wait();
-			let stop_future = pin!(stop_future);
+		'connections: loop {
 			let started = tokio::time::Instant::now();
 			let run_future = self.runner_task_inner(
 				session,
@@ -500,22 +499,30 @@ impl Component {
 				control_stopper.clone(),
 			);
 			let mut run_future = pin!(run_future);
-			let (result, _) = match future::select(stop_future, run_future.as_mut()).await {
-				future::Either::Left(((), _)) => {
-					// Drain the sandbox tasks while the control stream keeps running, and then end the control stream with a message that tells the server that the runner shut down gracefully and holds nothing, so that the server removes the runner at once. A runner that terminates leaves its removal to its ttl and its next connection.
-					let shutdown = session
-						.server
-						.shutdown
-						.borrow()
-						.expect("the shutdown mode was not set");
-					if matches!(shutdown, Shutdown::Interrupt) {
-						let drain_future = self.shutdown_sandbox_tasks(shutdown);
-						let drain_future = pin!(drain_future);
-						if let future::Either::Right((_, drain_future)) =
-							future::select(drain_future, run_future).await
-						{
-							drain_future.await;
-						}
+
+			// Run the connection until it ends. Once the runner stops gracefully, drain the sandbox tasks while the connection keeps running, and then end the control stream with a message that tells the server that the runner shut down gracefully and holds nothing, so that the server removes the runner at once. A runner that terminates leaves its removal to its ttl and its next connection.
+			let result = loop {
+				let Some(drain_future) = &mut drain else {
+					let stop_future = pin!(stopper.wait());
+					match future::select(stop_future, run_future.as_mut()).await {
+						future::Either::Left(((), _)) => {
+							let shutdown = session
+								.server
+								.shutdown
+								.borrow()
+								.expect("the shutdown mode was not set");
+							if !matches!(shutdown, Shutdown::Interrupt) {
+								control_stopper.stop();
+								break 'connections;
+							}
+							drain = Some(self.shutdown_sandbox_tasks(shutdown).boxed());
+							continue;
+						},
+						future::Either::Right((output, _)) => break output,
+					}
+				};
+				match future::select(drain_future, run_future.as_mut()).await {
+					future::Either::Left(((), _)) => {
 						drained = true;
 						if let Some(sender) = self.control.borrow().clone() {
 							let message = tg::runner::control::ClientMessage::Notification(
@@ -523,11 +530,11 @@ impl Component {
 							);
 							sender.try_send_untracked(message);
 						}
-					}
-					control_stopper.stop();
-					break;
-				},
-				future::Either::Right(output) => output,
+						control_stopper.stop();
+						break 'connections;
+					},
+					future::Either::Right((output, _)) => break output,
+				}
 			};
 			session.server.components.runner.state().set_scheduler(None);
 
@@ -567,13 +574,20 @@ impl Component {
 						.boxed()
 				},
 			};
-			let stop_future = stopper.wait();
-			let stop_future = pin!(stop_future);
-			if matches!(
-				future::select(stop_future, delay).await,
-				future::Either::Left(_)
-			) {
-				break;
+
+			// Wait for the delay before the next connection. Connect at once if the runner stops during the delay, so that a graceful drain runs while connected, and end once a drain finishes during the delay.
+			match &mut drain {
+				None => {
+					let stop_future = pin!(stopper.wait());
+					future::select(stop_future, delay).await;
+				},
+				Some(drain_future) => {
+					if let future::Either::Left(_) = future::select(drain_future, delay).await {
+						drained = true;
+						control_stopper.stop();
+						break;
+					}
+				},
 			}
 		}
 
@@ -856,7 +870,7 @@ impl Component {
 		let mut control = self.control.subscribe();
 		loop {
 			control.mark_unchanged();
-			let error = match self.report_with_runner_control(arg.clone(), stopper).await {
+			let error = match self.report_with_runner_control(arg.clone()).await {
 				Ok(output) => {
 					output
 						.try_unwrap_add_sandbox()
@@ -880,11 +894,10 @@ impl Component {
 	pub(crate) async fn report_ended_sandbox_with_runner_control(
 		&self,
 		arg: tg::runner::control::EndSandboxClientRequestArg,
-		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let sandbox = arg.sandbox.clone();
 		let arg = tg::runner::control::ClientRequestArg::EndSandbox(arg);
-		self.report_with_runner_control(arg, stopper)
+		self.report_with_runner_control(arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, %sandbox, "failed to report the end of the sandbox"),
@@ -903,7 +916,6 @@ impl Component {
 		processes: &[tg::runner::control::Process],
 		error: tg::Either<tg::error::Data, tg::error::Id>,
 		sequence: u64,
-		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let arg = tg::runner::control::ClientRequestArg::FinishProcesses(
 			tg::runner::control::FinishProcessesClientRequestArg {
@@ -914,7 +926,7 @@ impl Component {
 				sequence,
 			},
 		);
-		self.report_with_runner_control(arg, stopper)
+		self.report_with_runner_control(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to report the finished processes"))?
 			.try_unwrap_finish_processes()
@@ -923,11 +935,10 @@ impl Component {
 		Ok(())
 	}
 
-	/// Send a report through the runner control stream, with one request ID that every copy of the report carries, and return the server's response, waiting for a runner control stream and sending the report again after the stream is lost, or after a backoff or a new stream if the server asks for the report again because it cannot decide it yet. Send the report on a stream that is connected even after the stopper is stopped, so that a report made during a graceful drain precedes the runner's `End`, and give up only if the stopper is stopped while no stream is connected. An error in the response is the server's refusal, after which the report is not sent again.
+	/// Send a report through the runner control stream, with one request ID that every copy of the report carries, and return the server's response, waiting for a runner control stream and sending the report again after the stream is lost, or after a backoff or a new stream if the server asks for the report again because it cannot decide it yet. Send the report until a server accepts it or refuses it, also during a graceful drain, which keeps the runner control stream connected until the runner holds no boot. An error in the response is the server's refusal, after which the report is not sent again.
 	async fn report_with_runner_control(
 		&self,
 		arg: tg::runner::control::ClientRequestArg,
-		stopper: &Stopper,
 	) -> tg::Result<tg::runner::control::ServerResponseOutput> {
 		let mut control = self.control.subscribe();
 		let retry = tangram_futures::retry::Options::default();
@@ -935,16 +946,12 @@ impl Component {
 		let id = tangram_server_core::control::id();
 		loop {
 			// Wait for a runner control stream.
-			let sender = tokio::select! {
-				biased;
-				result = control.wait_for(Option::is_some) => result
-					.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?
-					.clone()
-					.unwrap(),
-				() = stopper.wait() => {
-					return Err(tg::error!("the runner stopped without a runner control stream"));
-				},
-			};
+			let sender = control
+				.wait_for(Option::is_some)
+				.await
+				.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?
+				.clone()
+				.unwrap();
 
 			// Send the report, and return the response.
 			let request = tg::runner::control::ClientRequest {
@@ -994,13 +1001,10 @@ impl Component {
 			// Wait for the stream to change after it is lost.
 			tracing::warn!("failed to send the report through the runner control stream");
 			control.mark_unchanged();
-			tokio::select! {
-				biased;
-				result = control.changed() => result.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?,
-				() = stopper.wait() => {
-					return Err(tg::error!("the runner stopped without a runner control stream"));
-				},
-			}
+			control
+				.changed()
+				.await
+				.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?;
 		}
 	}
 

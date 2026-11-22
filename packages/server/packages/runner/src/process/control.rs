@@ -476,41 +476,32 @@ impl Component {
 							sender.send(response).await?;
 						},
 						tg::process::control::ServerRequestArg::Finish(finish) => {
-							let result = (|| match &session.context.principal {
-								tg::Principal::Process(process_id) => {
-									let sandbox = session
+							// Reply that the runner does not hold the process if the runner has released it or gave up its boot.
+							let result = match &session.context.principal {
+								tg::Principal::Process(process) => {
+									let finished = session
 										.server
 										.components
 										.runner
 										.state()
-										.try_get_process_sandbox(process_id)
-										.ok_or_else(
-											|| tg::error!(%process_id, "failed to find the process sandbox"),
-										)?;
-									let sandbox = session
-										.server
-										.components
-										.runner
-										.state()
-										.sandboxes
-										.get_by_id(&sandbox)
-										.ok_or_else(
-											|| tg::error!(%process_id, "failed to find the sandbox"),
-										)?;
-									let mut process =
-										sandbox.processes.get_mut(process_id).ok_or_else(
-											|| tg::error!(%process_id, "failed to find the process"),
-										)?;
-									if !process.data.status.is_finished() {
-										process.finish.get_or_insert(finish);
-										process.stopper.stop();
+										.try_update_process(process, |process| {
+											if !process.data.status.is_finished() {
+												process.finish.get_or_insert(finish);
+												process.stopper.stop();
+											}
+										});
+									if finished.is_none() {
+										let response =
+											Self::process_control_not_holder_response(request_id);
+										sender.send(response).await?;
+										continue;
 									}
 									Ok(tg::process::control::ClientResponseOutput::Finish(
 										tg::process::control::FinishClientResponseOutput {},
 									))
 								},
 								_ => Err(tg::error!("expected a process principal")),
-							})();
+							};
 							let response = Self::process_control_response(request_id, result);
 							sender.send(response).await?;
 						},
@@ -544,17 +535,29 @@ impl Component {
 							sender.send(response).await?;
 						},
 						tg::process::control::ServerRequestArg::GetChildren(arg) => {
+							// Reply that the runner does not hold the process if the runner has released it or gave up its boot.
 							let result = match &session.context.principal {
-								tg::Principal::Process(process) => session
-									.server
-									.components
-									.runner
-									.state()
-									.try_get_process_children(process, arg.position, arg.length)
-									.map(tg::process::control::ClientResponseOutput::GetChildren)
-									.ok_or_else(
-										|| tg::error!(%process, "failed to find the process"),
-									),
+								tg::Principal::Process(process) => {
+									let children = session
+										.server
+										.components
+										.runner
+										.state()
+										.try_get_process_children(
+											process,
+											arg.position,
+											arg.length,
+										);
+									let Some(children) = children else {
+										let response =
+											Self::process_control_not_holder_response(request_id);
+										sender.send(response).await?;
+										continue;
+									};
+									Ok(tg::process::control::ClientResponseOutput::GetChildren(
+										children,
+									))
+								},
 								_ => Err(tg::error!("expected a process principal")),
 							};
 							let response = Self::process_control_response(request_id, result);

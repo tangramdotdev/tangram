@@ -721,7 +721,7 @@ impl Component {
 		let boot = boot.clone();
 		let unaccepted = boot.begin_finish();
 		let task_id = tangram_server_core::control::id();
-		let mut task = self.sandbox_tasks.spawn(task_id, move |stopper| {
+		let mut task = self.sandbox_tasks.spawn(task_id, move |_| {
 			async move {
 				let id = process.id.clone();
 				let result = if boot.local(&process) {
@@ -735,7 +735,6 @@ impl Component {
 							&[process],
 							error,
 							sequence,
-							&stopper,
 						)
 						.await
 				} else {
@@ -975,10 +974,7 @@ impl Component {
 			sandbox: id.clone(),
 			sequence,
 		};
-		if let Err(error) = self
-			.report_ended_sandbox_with_runner_control(report, &arg.stopper)
-			.await
-		{
+		if let Err(error) = self.report_ended_sandbox_with_runner_control(report).await {
 			tracing::error!(error = %error.trace(), sandbox = %id, "failed to report the end of the sandbox");
 		}
 	}
@@ -1006,12 +1002,7 @@ impl Component {
 			&& let Some(sequence) = boot.next()
 			&& let Err(error) = self
 				.report_finished_processes_with_runner_control(
-					id,
-					boot.boot,
-					&offered,
-					error,
-					sequence,
-					&arg.stopper,
+					id, boot.boot, &offered, error, sequence,
 				)
 				.await
 		{
