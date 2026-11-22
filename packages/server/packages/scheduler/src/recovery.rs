@@ -698,7 +698,8 @@ impl SchedulerState {
 				let result = scheduler
 					.component
 					.end_dead_runner_boot(&scheduler.server, arg)
-					.await;
+					.await
+					.map(|_| ());
 				Operation::Finished {
 					context: "failed to record the failed sandbox",
 					result,

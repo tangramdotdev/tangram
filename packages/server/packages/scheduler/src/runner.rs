@@ -1023,7 +1023,7 @@ impl SchedulerState {
 		} else {
 			tg::sandbox::Status::Stopped
 		};
-		let write = {
+		let destroyed = {
 			let scheduler = scheduler.clone();
 			let error = error.clone();
 			let runner = runner.clone();
@@ -1045,13 +1045,15 @@ impl SchedulerState {
 					.await
 			}
 			.boxed()
+			.shared()
 		};
+		let write = destroyed.clone().map(|result| result.map(|_| ())).boxed();
 		let request = self.sandboxes.entries[sandbox].request().clone();
 		let error = tg::Either::Left(error);
 		let write =
 			self.end_sandbox_with_write(scheduler, sandbox, status, Some(error.clone()), write);
 
-		// Reply to the waiting dequeues that the sandbox was dequeued, and tell the waiting callers of the end otherwise.
+		// Reply to the waiting dequeues whether the write destroyed the sandbox, which a start that reserved the next boot first prevents, and tell the waiting callers of the end otherwise.
 		if dequeue_requests.is_empty() {
 			let discarded = super::sandbox::DiscardedSandbox {
 				error,
@@ -1061,7 +1063,19 @@ impl SchedulerState {
 			};
 			scheduler.publish_sandbox_discarded(self, discarded);
 		} else {
-			scheduler.send_dequeue_responses(dequeue_requests, true);
+			let scheduler = scheduler.clone();
+			self.operations.push(
+				async move {
+					let result = destroyed.await;
+					let dequeued = *result.as_ref().unwrap_or(&false);
+					scheduler.send_dequeue_responses(dequeue_requests, dequeued);
+					Operation::Finished {
+						context: "failed to record the ended sandbox",
+						result: result.map(|_| ()),
+					}
+				}
+				.boxed(),
+			);
 		}
 	}
 
@@ -1391,7 +1405,7 @@ impl Scheduler {
 		Ok(written)
 	}
 
-	/// End the boots of a runner that this scheduler declared dead, and destroy the stopped and destroying sandboxes of a deleted runner, whose directories are gone with the runner. The queued sandboxes are the ones whose current boot this scheduler holds, which the runner never held.
+	/// End the boots of a runner that this scheduler declared dead, and destroy the sandboxes of a deleted runner, which has no directories. The queued sandboxes are the ones whose current boot this scheduler holds, which the runner never held.
 	pub(super) async fn end_dead_runner(
 		&self,
 		runner: &tg::runner::Id,
@@ -1418,11 +1432,11 @@ impl Scheduler {
 		let arg = EndRunnerSandboxesArg {
 			accepted,
 			checkpoint,
-			directories: None,
+			directories: deleted.then(BTreeSet::new),
 			ended: (!deleted).then(|| self.holder_sender.clone()),
-			error: error.clone(),
+			error,
 			held: Vec::new(),
-			queued: queued.clone(),
+			queued,
 			runner: runner.clone(),
 			scheduler: Some(self.holder_sender.clone()),
 			written: Vec::new(),
@@ -1431,20 +1445,7 @@ impl Scheduler {
 			.end_runner_sandboxes(&self.server, &self.id, arg)
 			.boxed()
 			.await?;
-
-		// Destroy the stopped and destroying sandboxes of a deleted runner.
-		if deleted {
-			let sandboxes = self.server.index.get_runner_sandboxes(runner).await?;
-			for sandbox in sandboxes {
-				if queued.contains(&sandbox) {
-					continue;
-				}
-				self.component
-					.destroy_runner_sandbox(&self.server, &sandbox, Some(error.clone()))
-					.boxed()
-					.await?;
-			}
-		} else {
+		if !deleted {
 			tangram_server_core::checkpoint!(self.server, "scheduler.runner.removed", %runner)
 				.await;
 		}
@@ -1562,12 +1563,12 @@ impl Component {
 		Ok(kept)
 	}
 
-	/// End a boot of a runner that this scheduler declared dead, which every end of a dead runner's boot by this scheduler goes through. Tell the scheduling task of the boot, so that it remembers the boot as ended. Write the end numbered zero, which leaves the sandbox stopped, records the runner as the sandbox's runner, and removes the boot from the scheduler's queue, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Then destroy a sandbox that cannot stay stopped with the destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at the boot or is destroying, so that a start that reserved the next boot wins.
+	/// End a boot of a runner that this scheduler declared dead, which every end of a dead runner's boot by this scheduler goes through. Tell the scheduling task of the boot, so that it remembers the boot as ended. Write the end numbered zero, which leaves the sandbox stopped, records the runner as the sandbox's runner, and removes the boot from the scheduler's queue, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Then destroy a sandbox that cannot stay stopped with the destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at the boot or is destroying, so that a start that reserved the next boot wins. Return whether the destroy applied.
 	pub(super) async fn end_dead_runner_boot(
 		&self,
 		server: &Server,
 		arg: EndDeadRunnerBootArg<'_>,
-	) -> tg::Result<()> {
+	) -> tg::Result<bool> {
 		let EndDeadRunnerBootArg {
 			boot,
 			destroy,
@@ -1598,9 +1599,12 @@ impl Component {
 		.boxed()
 		.await?;
 
-		// Destroy a sandbox that cannot stay stopped.
-		if destroy {
-			self.put_runner_sandbox_status(
+		// Destroy a sandbox that cannot stay stopped, and return whether the write destroyed it.
+		if !destroy {
+			return Ok(false);
+		}
+		let destroyed = self
+			.put_runner_sandbox_status(
 				server,
 				sandbox,
 				Some(boot),
@@ -1609,10 +1613,10 @@ impl Component {
 				tg::sandbox::Status::Destroyed,
 			)
 			.boxed()
-			.await?;
-		}
+			.await?
+			.is_some();
 
-		Ok(())
+		Ok(destroyed)
 	}
 
 	/// Get the reported directories that the runner keeps, which are the ones of the sandboxes that the index records as stopped on the runner, whose boot the scheduler holds, or that the scheduler's saved queue has, and, if `destroying` is set, the ones of the sandboxes that the index records as destroying on the runner, whose directories this scheduler has the runner remove. The runner removes every other directory.
