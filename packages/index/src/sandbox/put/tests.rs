@@ -360,6 +360,91 @@ fn a_start_applies_only_after_the_first_end_of_its_boot_in_every_order() {
 	}
 }
 
+#[test]
+fn of_a_start_and_a_destroy_of_a_stopped_sandbox_only_the_first_after_an_end_applies_in_every_order()
+ {
+	let stopped = data(0, tg::sandbox::Status::Stopped, None);
+	let id = stopped.data.id.clone();
+	let mut holder = arg(stopped.clone());
+	holder.principal = tg::Principal::Sandbox(id.clone());
+	holder.sequence = 3;
+	let zero = arg(stopped);
+	let mut starting = data(1, tg::sandbox::Status::Starting, None);
+	starting.data.id = id.clone();
+	let mut start = arg(starting);
+	start.stopped_boot = Some(0);
+	let mut destroying = data(0, tg::sandbox::Status::Destroying, None);
+	destroying.data.id = id.clone();
+	let mut destroy = arg(destroying);
+	destroy.stopped_boot = Some(0);
+	let args = [holder, zero, start, destroy];
+	for order in crate::tests::permutations(args.len()) {
+		// Apply the writes in the order to a started sandbox.
+		let mut sandbox = Some(sandbox(data(0, tg::sandbox::Status::Started, None)));
+		sandbox.as_mut().unwrap().data.as_mut().unwrap().data.id = id.clone();
+		let mut rejected = BTreeSet::new();
+		for &index in &order {
+			let Ok(merge) = args[index].merge(sandbox.as_ref(), None).unwrap() else {
+				rejected.insert(index);
+				continue;
+			};
+			sandbox = Some(merge.sandbox);
+		}
+
+		// Of the start and the destroy, only the first to arrive after the first end of the boot applies.
+		let sandbox = sandbox.unwrap();
+		let position = |index: usize| order.iter().position(|i| *i == index).unwrap();
+		let end = position(0).min(position(1));
+		let applied = [2, 3]
+			.into_iter()
+			.filter(|index| position(*index) > end)
+			.min_by_key(|index| position(*index));
+		let expected = [2, 3]
+			.into_iter()
+			.filter(|index| Some(*index) != applied)
+			.collect::<BTreeSet<_>>();
+		assert_eq!(
+			rejected, expected,
+			"the order {order:?} applied the wrong conditional writes"
+		);
+		let status = sandbox.data.unwrap().data.status;
+		let expected = match applied {
+			Some(2) => tg::sandbox::Status::Starting,
+			Some(_) => tg::sandbox::Status::Destroying,
+			None => tg::sandbox::Status::Stopped,
+		};
+		assert_eq!(
+			status, expected,
+			"the order {order:?} left the wrong status"
+		);
+		let first_end = if position(0) < position(1) { 3 } else { 0 };
+		assert_eq!(
+			sandbox.ends.get(&0).map(|end| end.sequence),
+			Some(first_end),
+			"the order {order:?} did not record the first end"
+		);
+	}
+}
+
+#[test]
+fn a_write_with_a_conditional_put_whose_condition_fails_is_rejected_whole() {
+	let stopped = sandbox(data(0, tg::sandbox::Status::Stopped, None));
+	let started = sandbox(data(1, tg::sandbox::Status::Started, None));
+	let mut start = arg(data(1, tg::sandbox::Status::Starting, None));
+	start.stopped_boot = Some(0);
+	let other = arg(data(0, tg::sandbox::Status::Started, None));
+	let items = [
+		crate::Item::PutSandbox(Box::new(other)),
+		crate::Item::PutSandbox(Box::new(start)),
+	];
+	let result = crate::write::check_conditions(&items, |_| Ok(Some(stopped.clone()))).unwrap();
+	assert!(result.is_ok());
+	let result = crate::write::check_conditions(&items, |_| Ok(Some(started.clone()))).unwrap();
+	assert!(result.is_err());
+	let result = crate::write::check_conditions(&items, |_| Ok(None)).unwrap();
+	assert!(result.is_err());
+}
+
 /// Apply the writes in every order, and assert that every order leaves the same record and rejects the same writes. Return the record of the last order.
 fn assert_every_order_converges(args: &[Arg]) -> Option<super::super::Sandbox> {
 	let mut expected = None;
