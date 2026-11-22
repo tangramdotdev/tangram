@@ -217,7 +217,7 @@ fn a_connection_is_told_only_the_boots_that_the_scheduler_declared_ended() {
 	assert_eq!(told(&state), vec![declared.clone()]);
 
 	// Forgetting the runner forgets its declared boot, and leaves the other runner's.
-	state.sandboxes.ended.forget_runner(&id);
+	state.sandboxes.ended.forget_runner(&id, &[]);
 	assert_eq!(told(&state), Vec::<tg::sandbox::Id>::new());
 	assert!(state.sandboxes.ended.is_declared(&foreign, 0, &other));
 }

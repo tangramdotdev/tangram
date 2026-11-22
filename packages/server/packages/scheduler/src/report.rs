@@ -12,7 +12,7 @@ use {
 	},
 };
 
-type Key = (tg::sandbox::Id, u64);
+pub(super) type Key = (tg::sandbox::Id, u64);
 
 /// The boots that runners held and that ended or that a later boot replaced, which this scheduler remembers so that it authorizes a runner's late report of one, and the boots that this scheduler declared ended for a runner that it declared dead, which it tells the runner from its memory when the runner connects again. A runner's boots are forgotten on the runner's first connection that succeeds and when the runner is deleted, and a boot that this scheduler did not declare ended is also forgotten between one and two of the runner ttls after it ended.
 #[derive(Default)]
@@ -119,10 +119,13 @@ impl Ended {
 			.is_some_and(|ended| ended.declared && ended.runner == *runner)
 	}
 
-	/// Forget the boots of a runner whose first connection succeeded, which reports none of them again, or of a runner that was deleted.
-	pub(super) fn forget_runner(&mut self, runner: &tg::runner::Id) {
-		self.current.retain(|_, ended| ended.runner != *runner);
-		self.previous.retain(|_, ended| ended.runner != *runner);
+	/// Forget the boots of a runner whose first connection succeeded, which reports none of them again, or of a runner that was deleted, except the declared boots that are kept, which are the ones that the first connection reports and was not told, because this scheduler declared them ended after the connection arrived and tells the runner's next connection.
+	pub(super) fn forget_runner(&mut self, runner: &tg::runner::Id, kept: &[Key]) {
+		let forget = |key: &Key, ended: &EndedBoot| {
+			ended.runner == *runner && !(ended.declared && kept.contains(key))
+		};
+		self.current.retain(|key, ended| !forget(key, ended));
+		self.previous.retain(|key, ended| !forget(key, ended));
 	}
 
 	/// Forget the boots that this scheduler did not declare ended and that ended more than a runner ttl before the last rotation, because a runner that does not report within its ttl is removed.

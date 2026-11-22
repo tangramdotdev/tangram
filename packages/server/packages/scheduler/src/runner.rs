@@ -367,9 +367,18 @@ impl SchedulerState {
 		entry.owner = owner;
 		entry.restarting = false;
 
-		// Forget the ended boots of a runner that restarted, which reports none of them again, and the boots that the runner no longer reports.
+		// Forget the ended boots of a runner that restarted, which reports none of them again, except the reported boots that this scheduler declared ended after the connection arrived, which the connection was not told, and forget the boots that the runner no longer reports.
 		if first {
-			self.sandboxes.ended.forget_runner(&id);
+			let kept = sandboxes
+				.iter()
+				.filter(|sandbox| {
+					!ended
+						.iter()
+						.any(|ended| ended.id == sandbox.id && ended.boot == sandbox.boot)
+				})
+				.map(|sandbox| (sandbox.id.clone(), sandbox.boot))
+				.collect::<Vec<_>>();
+			self.sandboxes.ended.forget_runner(&id, &kept);
 		}
 		self.forget_accepted_sandboxes(scheduler, &id, &accepted);
 
@@ -760,7 +769,7 @@ impl SchedulerState {
 			scheduler.publish_sandbox_discarded(self, discarded);
 		}
 		if matches!(removal, Removal::Deleted { .. }) {
-			self.sandboxes.ended.forget_runner(runner);
+			self.sandboxes.ended.forget_runner(runner, &[]);
 		}
 		let scheduler = scheduler.clone();
 		let runner = runner.clone();
@@ -1579,7 +1588,7 @@ impl Component {
 		Ok(kept)
 	}
 
-	/// End a boot of a runner that this scheduler declared dead, which every end of a dead runner's boot by this scheduler goes through. Tell the scheduling task of the boot, so that it remembers the boot as ended. Write the end numbered zero, which leaves the sandbox stopped, records the runner as the sandbox's runner, and removes the boot from the scheduler's queue, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Then destroy a sandbox that cannot stay stopped with the destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at the boot or is destroying, so that a start that reserved the next boot wins. Write each again until the index answers it, because the boot is remembered as ended and its runner gives it up. Return whether the destroy applied.
+	/// End a boot of a runner that this scheduler declared dead, which every end of a dead runner's boot by this scheduler goes through. Write the end numbered zero, which leaves the sandbox stopped, records the runner as the sandbox's runner, and removes the boot from the scheduler's queue, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Then destroy a sandbox that cannot stay stopped with the destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at the boot or is destroying, so that a start that reserved the next boot wins. Write each again until the index answers it, because the scheduler may remember the boot as ended and its runner then gives it up. Tell the scheduling task of the boot once the end applied, so that it remembers the boot as ended. Return whether the destroy applied.
 	pub(super) async fn end_dead_runner_boot(
 		&self,
 		server: &Server,
@@ -1594,18 +1603,8 @@ impl Component {
 			task,
 		} = arg;
 
-		// Remember the boot as ended.
-		if let Some(task) = task {
-			let message = super::HolderMessage::Ended {
-				boot,
-				runner: runner.clone(),
-				sandbox: sandbox.clone(),
-			};
-			task.send(message).ok();
-		}
-
 		// End the boot.
-		loop {
+		let ended = loop {
 			let result = self
 				.end_runner_sandbox(
 					server,
@@ -1616,11 +1615,23 @@ impl Component {
 				)
 				.boxed()
 				.await;
-			let Err(error) = result else {
-				break;
+			match result {
+				Ok(ended) => break ended,
+				Err(error) => {
+					tracing::error!(error = %error.trace(), %sandbox, boot, %runner, "failed to end the boot of the dead runner");
+					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+				},
+			}
+		};
+
+		// Remember the boot as ended once the end applied.
+		if ended && let Some(task) = task {
+			let message = super::HolderMessage::Ended {
+				boot,
+				runner: runner.clone(),
+				sandbox: sandbox.clone(),
 			};
-			tracing::error!(error = %error.trace(), %sandbox, boot, %runner, "failed to end the boot of the dead runner");
-			tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+			task.send(message).ok();
 		}
 
 		// Destroy a sandbox that cannot stay stopped, and return whether the write destroyed it.
@@ -1739,7 +1750,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// End the running boot of a runner's sandbox with the end numbered zero, which leaves the sandbox stopped, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Record the runner, if one is given, as the sandbox's runner, because the runner may hold the boot without having written it. Leave a sandbox that moved past the boot that the caller read.
+	/// End the running boot of a runner's sandbox with the end numbered zero, which leaves the sandbox stopped, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Record the runner, if one is given, as the sandbox's runner, because the runner may hold the boot without having written it. Leave a sandbox that moved past the boot that the caller read. Return whether the end applied.
 	pub(crate) async fn end_runner_sandbox(
 		&self,
 		server: &Server,
@@ -1747,7 +1758,7 @@ impl Component {
 		boot: Option<u64>,
 		runner: Option<&tg::runner::Id>,
 		error: Option<tg::error::Data>,
-	) -> tg::Result<()> {
+	) -> tg::Result<bool> {
 		let ended = self
 			.put_runner_sandbox_status(
 				server,
@@ -1765,7 +1776,7 @@ impl Component {
 				.await;
 		}
 
-		Ok(())
+		Ok(ended.is_some())
 	}
 
 	/// Write the end of a runner's sandbox's boot numbered zero. A stop ends a running boot. A destroy applies only while the sandbox is stopped at its boot, because a stopped sandbox has no holder and the index decides its destroy, or while it is destroying. Return the boot that the write ended, if the index applied it.

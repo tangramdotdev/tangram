@@ -124,15 +124,17 @@ impl Scheduler {
 			}
 		}
 
-		// Rebuild the boots that the index records on the runners, with their processes, so that this scheduler authorizes the runners' reports of them as before the restart. Remember the ended boots at once, whose ends their runners may still report, and hold the running boots until their runners report.
+		// Rebuild the boots that the index records on the runners, with their processes, so that this scheduler authorizes the runners' reports of them as before the restart. Remember the ended boots at once, whose ends their runners may still report, as declared if this scheduler ended them with an end numbered zero, so that it tells their runners when they connect again, and hold the running boots until their runners report.
 		let mut boots = HashMap::<_, Vec<_>, tg::id::BuildHasher>::default();
 		for runner in &runners {
-			for (recovered, running) in self.get_recovered_boots(runner, &requests).await? {
+			for (recovered, running, declared) in
+				self.get_recovered_boots(runner, &requests).await?
+			{
 				if running {
 					boots.entry(runner.clone()).or_default().push(recovered);
 				} else {
 					let ended = super::report::EndedBoot {
-						declared: false,
+						declared,
 						processes: recovered.processes,
 						runner: runner.clone(),
 					};
@@ -197,12 +199,12 @@ impl Scheduler {
 		Ok(())
 	}
 
-	/// Get the boots that the index records on a runner, except the boots of the held requests, which the runner's report claims, each with its processes and whether it is running. Finish again the processes of a boot that this scheduler ended, whose statuses and logs it may not have finished before it restarted.
+	/// Get the boots that the index records on a runner, except the boots of the held requests, which the runner's report claims, each with its processes, whether it is running, and whether this scheduler ended it with an end numbered zero. Finish again the processes of a boot that this scheduler ended, whose statuses and logs it may not have finished before it restarted.
 	async fn get_recovered_boots(
 		&self,
 		runner: &tg::runner::Id,
 		requests: &HashMap<tg::sandbox::Id, EnqueueSandboxRequestArg, tg::id::BuildHasher>,
-	) -> tg::Result<Vec<(RecoveredBoot, bool)>> {
+	) -> tg::Result<Vec<(RecoveredBoot, bool, bool)>> {
 		let ids = self
 			.server
 			.index
@@ -231,7 +233,8 @@ impl Scheduler {
 			{
 				continue;
 			}
-			if indexed.ends.get(&boot).is_some_and(|end| end.sequence == 0) {
+			let declared = indexed.ends.get(&boot).is_some_and(|end| end.sequence == 0);
+			if declared {
 				self.component
 					.finish_ended_boot_processes(&self.server, &id, boot)
 					.await;
@@ -248,7 +251,7 @@ impl Scheduler {
 				processes,
 				sandbox: id,
 			};
-			boots.push((recovered, running));
+			boots.push((recovered, running, declared));
 		}
 
 		Ok(boots)
@@ -797,6 +800,7 @@ impl Component {
 				self.end_runner_sandbox(server, &id, None, None, Some(error.clone()))
 					.boxed()
 					.await
+					.map(|_| ())
 			};
 			if let Err(error) = result {
 				tracing::error!(sandbox = %id, error = %error.trace(), "failed to end the queued sandbox");
