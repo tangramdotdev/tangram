@@ -136,7 +136,7 @@ pub async fn request<'c, I: Item>(
 		.boxed()
 	};
 	let mut index_future = Some(index());
-	let mut indexed = Poll::Pending;
+	let mut indexed: Poll<Option<I::Indexed>> = Poll::Pending;
 
 	// Send the request to the holder, and send it again on each status wakeup, because the item may have a new holder.
 	let (resend_sender, resend_receiver) = tokio::sync::watch::channel(());
