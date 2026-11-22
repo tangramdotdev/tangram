@@ -3185,7 +3185,7 @@ impl Component {
 			reports.push(report);
 		}
 
-		// Report the stopped sandboxes in batches, and remove the directory of each sandbox that the index records as destroying or destroyed or as held by another runner, unless a boot of it is starting or running on this runner.
+		// Report the stopped sandboxes in batches, and remove the directory of each sandbox that the index records as destroying or destroyed, unless a boot of it is starting or running on this runner.
 		let batch_size = session
 			.server
 			.config

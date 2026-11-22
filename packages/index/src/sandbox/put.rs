@@ -7,6 +7,9 @@ use {
 #[cfg(test)]
 mod tests;
 
+/// The number of a holder's first write of a boot that a runner holds, which follows every write that the sandbox's scheduler numbers for the boot. The offer of a boot carries it, and a runner's boot on the shortcut path starts its counter with it, so that the number zero belongs only to a non-holder. The scheduler numbers its writes of a queued boot zero, and its end of a queued boot that it holds one, after which it offers the boot to no runner.
+pub const FIRST_HOLDER_WRITE: u64 = 1;
+
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
 	#[tangram_serialize(id = 0)]

@@ -1264,7 +1264,7 @@ impl Scheduler {
 		let written = std::iter::zip(unanswered, indexed)
 			.filter(|(offer, indexed)| {
 				indexed.as_ref().is_some_and(|indexed| {
-					indexed.sequence >= super::offer::FIRST_RUNNER_WRITE
+					indexed.sequence >= tangram_index::sandbox::put::FIRST_HOLDER_WRITE
 						&& indexed
 							.data
 							.as_ref()

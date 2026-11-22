@@ -118,6 +118,7 @@ struct FinishProcessTaskArg {
 }
 
 struct IndexProcessTaskArg<'a> {
+	boot: &'a Boot,
 	command: tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 	command_data: CommandFuture,
 	data: tg::process::Data,
@@ -1042,6 +1043,7 @@ impl Component {
 
 		// Index the remote process before reporting the connection.
 		let arg = IndexProcessTaskArg {
+			boot: &boot,
 			command: state.command.clone(),
 			command_data: command.clone(),
 			data,
@@ -1951,6 +1953,7 @@ impl Component {
 		arg: IndexProcessTaskArg<'_>,
 	) -> tg::Result<()> {
 		let IndexProcessTaskArg {
+			boot,
 			command,
 			command_data,
 			data,
@@ -2042,9 +2045,13 @@ impl Component {
 			)?;
 		captures.extend(command_captures);
 
+		// Number the local copy's write with the process's boot, and write nothing for a boot that the runner gave up.
+		let Some(sequence) = boot.next() else {
+			return Ok(());
+		};
 		let put_process_arg = tangram_index::process::put::Arg {
 			account: None,
-			boot: None,
+			boot: Some(boot.boot),
 			cached: false,
 			captures,
 			children: None,
@@ -2068,7 +2075,7 @@ impl Component {
 			permissions: Vec::new(),
 			principal: tg::Principal::Process(id.clone()),
 			sandbox: Some(sandbox.clone()),
-			sequence: 1,
+			sequence,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,

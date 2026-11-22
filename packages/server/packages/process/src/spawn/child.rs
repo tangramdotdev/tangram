@@ -15,6 +15,14 @@ pub(super) struct AddProcessChildArg<'a> {
 	pub tokens: &'a tg::authorization::Tokens,
 }
 
+/// The parent of a child that a spawn indexes, whose data the parent's holder writes with the child, numbered by the parent's boot.
+struct IndexProcessChildParent {
+	boot: u64,
+	data: tg::process::Data,
+	location: tg::Location,
+	sequence: u64,
+}
+
 impl Component {
 	pub(super) async fn add_process_child(
 		&self,
@@ -83,6 +91,7 @@ impl Component {
 		parent_process.changed.send_replace(());
 		let parent_data = parent_process.data.clone();
 		let parent_location = parent_sandbox.location.clone();
+		let parent_boot = parent_sandbox.boot.clone();
 		let control = parent_process.control.clone();
 		drop(parent_process);
 		drop(parent_sandbox);
@@ -97,16 +106,15 @@ impl Component {
 				|error| tg::error!(!error, %parent, "failed to send the child spawned notification"),
 			)?;
 
-		// Index the child.
-		self.index_process_child(
-			session,
-			&parent,
-			&data,
-			&command,
-			Some((parent_data, parent_location)),
-			arg.outcome,
-		)
-		.await?;
+		// Index the child, with the parent's data numbered by the parent's boot, which the runner holds, and without the parent's data if the runner gave the boot up.
+		let parent_entry = parent_boot.next().map(|sequence| IndexProcessChildParent {
+			boot: parent_boot.boot,
+			data: parent_data,
+			location: parent_location,
+			sequence,
+		});
+		self.index_process_child(session, &parent, &data, &command, parent_entry, arg.outcome)
+			.await?;
 
 		Ok(())
 	}
@@ -117,7 +125,7 @@ impl Component {
 		parent: &tg::process::Id,
 		child: &tg::process::data::Child,
 		command: &tg::command::Id,
-		parent_data: Option<(tg::process::Data, tg::Location)>,
+		parent_data: Option<IndexProcessChildParent>,
 		outcome: Option<&tg::process::outcome::Data>,
 	) -> tg::Result<()> {
 		let (error_objects, output_objects) = if child.cached {
@@ -134,11 +142,17 @@ impl Component {
 		let now = session.server.clock.unix_timestamp();
 		let child_id = &child.process.node;
 		let parent_arg = parent_data
-			.map(|(parent_data, location)| -> tg::Result<_> {
+			.map(|parent_data| -> tg::Result<_> {
+				let IndexProcessChildParent {
+					boot,
+					data: parent_data,
+					location,
+					sequence,
+				} = parent_data;
 				let parent_data = parent_data.without_location_and_tokens_except_sync();
 				Ok(tangram_index::process::put::Arg {
 					account: None,
-					boot: None,
+					boot: Some(boot),
 					cached: false,
 					captures: tangram_index::permission::capture::Captures::default(),
 					children: None,
@@ -163,7 +177,7 @@ impl Component {
 					permissions: Vec::new(),
 					principal: tg::Principal::Process(parent.clone()),
 					sandbox: None,
-					sequence: 0,
+					sequence,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: session.server.config.process.time_to_touch,
 					touched_at: now,
