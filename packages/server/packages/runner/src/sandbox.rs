@@ -1116,24 +1116,13 @@ impl Component {
 		let boot = &arg.boot;
 		let id = &boot.sandbox;
 
-		// Finish the unfinished processes from the runner's memory, and wait for a server to answer every finish of the boot's processes, until no process is unfinished, unless the runner gives the boot up meanwhile. Then take the number of the end in the same poll, so that no spawn is accepted in between.
+		// Finish the unfinished processes from the runner's memory, and take the number of the end once a server answered every finish of the boot's processes, unless the runner gives the boot up meanwhile.
 		let error = Self::ended_process_error(&ending.data);
-		let mut finished = Vec::new();
-		loop {
-			let unfinished = boot.unfinished();
-			if !unfinished.is_empty() {
-				self.finish_accepted_processes(session, boot, unfinished.clone(), error.clone());
-				finished.extend(unfinished);
-			}
-			tokio::select! {
-				() = boot.wait_finishes() => {},
-				_ = boot.wait_given_up() => return None,
-			}
-			if boot.unfinished().is_empty() {
-				break;
-			}
-		}
-		let sequence = boot.end()?;
+		let (sequence, finished) = boot
+			.end_after_finishes(|processes| {
+				self.finish_accepted_processes(session, boot, processes, error.clone());
+			})
+			.await?;
 
 		// Write the end on the boot's control stream once it is connected.
 		let Some((sender, connected)) = control else {

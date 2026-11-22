@@ -356,8 +356,33 @@ impl Boot {
 		Some(sequence)
 	}
 
+	/// Take the number of the boot's end once a server has answered every finish of the boot's processes, which is the only way to get the end's number. First finish each unfinished process from the runner's memory with the function, and again each process whose finish was dropped before a server answered it, so that every process of the boot has a finish before its end. Return the end's number and the processes that the function finished, or `None` once the runner gave the boot up, after which the boot takes no end.
+	pub async fn end_after_finishes(
+		&self,
+		mut finish: impl FnMut(Vec<tg::runner::control::Process>),
+	) -> Option<(u64, Vec<tg::runner::control::Process>)> {
+		let mut finished = Vec::new();
+		loop {
+			let unfinished = self.unfinished();
+			if !unfinished.is_empty() {
+				finish(unfinished.clone());
+				finished.extend(unfinished);
+			}
+			tokio::select! {
+				() = self.wait_finishes() => {},
+				_ = self.wait_given_up() => return None,
+			}
+
+			// Take the number of the end in the same poll as the check, so that no process is accepted in between.
+			if self.unfinished().is_empty() {
+				let sequence = self.end()?;
+				return Some((sequence, finished));
+			}
+		}
+	}
+
 	/// Get the number of the boot's end, or `None` once the runner gave the boot up. After this, the runner no longer gives the boot up, because its end is on the way to the index.
-	pub fn end(&self) -> Option<u64> {
+	fn end(&self) -> Option<u64> {
 		let mut inner = self.inner.lock().unwrap();
 		if self.given_up.borrow().is_some() {
 			return None;
@@ -585,6 +610,72 @@ mod tests {
 		assert_eq!(boot.end(), Some(1));
 		assert!(!boot.give_up(Teardown::Stop));
 		assert_eq!(boot.next(), Some(2));
+	}
+
+	#[tokio::test]
+	async fn a_boot_takes_its_end_only_after_a_server_answered_every_finish() {
+		let boot = boot(1);
+		let process = tg::process::Id::new();
+		boot.accept(self::process(&process), true);
+		let finish = boot.begin_finish(&process);
+
+		// The end waits while the process's finish is under way.
+		let mut end =
+			std::pin::pin!(boot.end_after_finishes(|_| panic!("the process is finishing")));
+		assert!(poll(&mut end).is_pending());
+
+		// The end takes its number once a server answered the finish.
+		finish.answered();
+		let std::task::Poll::Ready(Some((sequence, finished))) = poll(&mut end) else {
+			panic!("the end should take its number");
+		};
+		assert_eq!(sequence, 1);
+		assert!(finished.is_empty());
+	}
+
+	#[tokio::test]
+	async fn a_boot_finishes_from_memory_again_a_process_whose_finish_was_dropped_before_its_end() {
+		let boot = boot(1);
+		let process = tg::process::Id::new();
+		boot.accept(self::process(&process), true);
+		let finishes = std::cell::RefCell::new(Vec::new());
+		let calls = std::cell::Cell::new(0);
+
+		// The end finishes the unfinished process from memory and waits for the finish.
+		let mut end = std::pin::pin!(boot.end_after_finishes(|processes| {
+			calls.set(calls.get() + 1);
+			for process in processes {
+				let finish = boot.begin_finish(process.id.as_ref().unwrap());
+				finishes.borrow_mut().push(finish);
+			}
+		}));
+		assert!(poll(&mut end).is_pending());
+		assert_eq!(calls.get(), 1);
+
+		// A finish that is dropped before a server answered it is begun again.
+		finishes.borrow_mut().clear();
+		assert!(poll(&mut end).is_pending());
+		assert_eq!(calls.get(), 2);
+
+		// The end takes its number once a server answered the second finish.
+		finishes.borrow_mut().pop().unwrap().answered();
+		let std::task::Poll::Ready(Some((_, finished))) = poll(&mut end) else {
+			panic!("the end should take its number");
+		};
+		assert_eq!(finished.len(), 2);
+	}
+
+	#[tokio::test]
+	async fn a_boot_that_is_given_up_while_its_end_waits_takes_no_end() {
+		let boot = boot(1);
+		let process = tg::process::Id::new();
+		boot.accept(self::process(&process), true);
+		let finish = boot.begin_finish(&process);
+		let mut end = std::pin::pin!(boot.end_after_finishes(|_| {}));
+		assert!(poll(&mut end).is_pending());
+		assert!(boot.give_up(Teardown::Stop));
+		assert!(matches!(poll(&mut end), std::task::Poll::Ready(None)));
+		drop(finish);
 	}
 
 	#[tokio::test]

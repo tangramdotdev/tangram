@@ -37,7 +37,6 @@ fn a_request_that_says_that_the_index_records_the_end_gives_the_boot_up() {
 		assert_eq!(kind, expected);
 		assert!(boot.give_up(kind));
 		assert_eq!(boot.next(), None);
-		assert_eq!(boot.end(), None);
 	}
 
 	// A stop or a destroy that does not say so gives nothing up.
