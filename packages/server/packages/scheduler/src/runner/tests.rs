@@ -12,7 +12,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_server_core::clock::{Clock, Instant},
-	tangram_server_scheduler_core::HeartbeatNotification,
+	tangram_server_scheduler_core::{AddRunnerRequestArg, HeartbeatNotification},
 };
 
 const TIME_TO_LIVE: Duration = Duration::from_secs(10);
@@ -219,4 +219,52 @@ fn a_connection_is_told_only_the_boots_that_the_scheduler_declared_ended() {
 	state.sandboxes.ended.forget_runner(&id);
 	assert_eq!(told(&state), Vec::<tg::sandbox::Id>::new());
 	assert!(state.sandboxes.ended.is_declared(&foreign, 0, &other));
+}
+
+/// Create a connection of a runner that reports boots.
+pub(crate) fn request(
+	id: &tg::runner::Id,
+	first: bool,
+	sandboxes: Vec<tg::runner::control::ArgSandbox>,
+) -> AddRunnerRequestArg {
+	AddRunnerRequestArg {
+		capacity: capacity(),
+		directories: Vec::new(),
+		first,
+		host: String::new(),
+		runner: id.clone(),
+		sandboxes,
+	}
+}
+
+#[test]
+fn a_declared_end_is_told_again_after_a_first_connection_fails() {
+	let id = tg::runner::Id::new();
+	let now = Clock::new(None, None).instant();
+	let mut state = SchedulerState::new();
+
+	// The scheduler declared a boot of the runner ended, and the runner restarts and reports the boot.
+	let sandbox = tg::sandbox::Id::new();
+	state
+		.sandboxes
+		.ended
+		.insert(sandbox.clone(), 0, ended(&id, true));
+	let mut first = request(&id, true, vec![reported(&sandbox, 0)]);
+	let connection = state.connect_runner(&mut first, now);
+	assert_eq!(connection.ended.len(), 1);
+
+	// The connection fails, and the runner connects again, which is told that the boot ended.
+	state.fail_runner_connection(&id, connection.number);
+	let mut again = request(&id, false, vec![reported(&sandbox, 0)]);
+	let connection = state.connect_runner(&mut again, now);
+	assert!(connection.first);
+	assert_eq!(
+		connection
+			.ended
+			.iter()
+			.map(|ended| ended.id.clone())
+			.collect::<Vec<_>>(),
+		vec![sandbox],
+		"the second connection was not told that the boot ended"
+	);
 }

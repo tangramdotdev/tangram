@@ -125,11 +125,9 @@ struct SchedulerState {
 
 enum Operation {
 	AddRunner {
-		connection: u64,
+		connection: runner::Connection,
 		id: String,
 		result: tg::Result<runner::AddRunnerOutput>,
-		runner: tg::runner::Id,
-		unanswered: Vec<runner::UnansweredOffer>,
 	},
 	Checkpoint,
 	DeleteRunner {
@@ -883,34 +881,23 @@ impl Scheduler {
 				connection,
 				id,
 				result,
-				runner,
-				unanswered,
 			} => {
+				// Apply the connection only if it was added and is still the runner's current connection.
 				let current = state
 					.runners
 					.entries
-					.get(&runner)
-					.is_some_and(|runner| runner.connection == connection);
+					.get(&connection.runner)
+					.is_some_and(|runner| runner.connection == connection.number);
 				let result = match result {
 					Ok(output) => {
-						let runner::AddRunnerOutput {
-							lost,
-							output,
-							owner,
-							written,
-						} = output;
+						let response = output.output.clone();
 						if current {
-							let entry = state.runners.entries.get_mut(&runner).unwrap();
-							entry.owner = owner;
-							entry.restarting = false;
-							state.cancel_lost_sandboxes(self, &runner, connection, lost);
-							state.handle_unanswered_offers(self, &runner, unanswered, &written);
-							state.read_destroying_sandboxes(self, &runner);
+							state.apply_runner_connection(self, connection, output);
 						}
-						Ok(output)
+						Ok(response)
 					},
 					Err(error) => {
-						state.fail_runner_connection(&runner, connection);
+						state.fail_runner_connection(&connection.runner, connection.number);
 						Err(error)
 					},
 				};

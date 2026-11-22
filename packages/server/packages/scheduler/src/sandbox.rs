@@ -783,8 +783,26 @@ impl SchedulerState {
 		Ok(EnqueueSandboxResponseOutput::Enqueued)
 	}
 
-	/// Ask a runner to destroy a sandbox that it holds.
+	/// Ask a runner to destroy a sandbox that it holds. Wait while this scheduler has not finished handling the runner's restart, because a runner that restarted is sent nothing until then.
 	pub(super) fn send_destroy_sandbox(&mut self, scheduler: &Scheduler, destroy: DestroySandbox) {
+		let restarting = self
+			.runners
+			.entries
+			.get(&destroy.runner)
+			.is_some_and(|runner| runner.restarting);
+		if restarting {
+			self.operations.push(
+				async move {
+					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+					let result = Err(
+						tg::error!(sandbox = %destroy.sandbox, runner = %destroy.runner, "the runner is restarting"),
+					);
+					Operation::DestroySandbox { destroy, result }
+				}
+				.boxed(),
+			);
+			return;
+		}
 		let session = scheduler.server.session(&scheduler.server.context);
 		let scheduler_id = scheduler.id.clone();
 

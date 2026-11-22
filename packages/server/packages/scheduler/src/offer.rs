@@ -459,16 +459,20 @@ impl SchedulerState {
 		}
 	}
 
-	/// Send the unanswered offers of a runner that reconnected again to its new connection, with the capacity that each one reserves. The runner is the same program and answers an offer that it already answered from its memory of its reply, so that no offer is returned to the queue and no boot is offered to a second runner while the first may hold it.
+	/// Send the unanswered offers of a runner that reconnected again to its new connection, whose entry keeps their reservations. The runner is the same program and answers an offer that it already answered from its memory of its reply, so that no offer is returned to the queue and no boot is offered to a second runner while the first may hold it.
 	pub(super) fn resend_runner_offers(
 		&mut self,
 		scheduler: &Scheduler,
 		runner: &tg::runner::Id,
-		offers: HashMap<tg::sandbox::Id, tg::runner::Capacity, tg::id::BuildHasher>,
+		connection: u64,
 	) {
-		for (sandbox, reserved) in offers {
-			// Point the offer at the runner's new connection.
-			let entry = self.runners.entries.get_mut(runner).unwrap();
+		let sandboxes = self.runners.entries[runner]
+			.reservations
+			.keys()
+			.cloned()
+			.collect::<Vec<_>>();
+		for sandbox in sandboxes {
+			// Point the offer at the runner's new connection, unless it was made on the new connection.
 			let Some(State::Offered {
 				placement, retries, ..
 			}) = self
@@ -479,12 +483,13 @@ impl SchedulerState {
 			else {
 				continue;
 			};
-			placement.set_connection(entry.connection);
+			if placement.runner().connection == connection {
+				continue;
+			}
+			placement.set_connection(connection);
 			*retries = 0;
 
-			// Reserve the offer's capacity on the new connection, and send the offer again.
-			add(&mut entry.reserved, reserved);
-			entry.reservations.insert(sandbox.clone(), reserved);
+			// Send the offer again.
 			self.offer_sandbox(scheduler, &sandbox);
 		}
 	}

@@ -8,10 +8,14 @@ use {
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 };
 
+#[cfg(test)]
+mod tests;
+
 /// How long to wait before trying a read again that the scheduler must not give up.
 pub(super) const READ_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The requests that a restarted scheduler holds until its runners report what they have placed.
+#[derive(Default)]
 pub(super) struct Recovery {
 	/// The running boots that the index records on each runner, which this scheduler rebuilt from the index and which wait for the runner's report.
 	boots: HashMap<tg::runner::Id, Vec<RecoveredBoot>, tg::id::BuildHasher>,
@@ -24,9 +28,6 @@ pub(super) struct Recovery {
 	releasing: bool,
 
 	requests: HashMap<tg::sandbox::Id, EnqueueSandboxRequestArg, tg::id::BuildHasher>,
-
-	/// The held requests whose boots a runner reported and then lost by restarting, which wait for the index check of the runner's next first connection, and which the release of the recovery waits for.
-	restarted: HashMap<tg::sandbox::Id, Claim, tg::id::BuildHasher>,
 
 	runners: HashSet<tg::runner::Id, tg::id::BuildHasher>,
 
@@ -156,7 +157,6 @@ impl Scheduler {
 			processes,
 			releasing: false,
 			requests,
-			restarted: HashMap::default(),
 			runners,
 			spawns,
 		});
@@ -286,20 +286,21 @@ impl Recovery {
 }
 
 impl SchedulerState {
-	/// Record the sandboxes that a runner reports, and release the held requests once every runner has reported or expired. A runner that restarted lost the boots that it claimed before, which wait for the index check of its first connection, like the unanswered offers to a runner that restarted. Return the running boots that this scheduler rebuilt from the index on the runner, on the runner's first report.
+	/// Record the boots that a runner reports, once its connection is applied, and release the held requests once every runner has reported or expired. A runner that restarted lost the boots that it claimed before, which its first connection decided from the index: forget a boot that the runner wrote, which the connection ended, and return a boot that it did not write to the held requests, so that it is offered again. Return the running boots that this scheduler rebuilt from the index on the runner, on the runner's first report.
 	pub(super) fn handle_recovery_report(
 		&mut self,
 		scheduler: &Scheduler,
 		runner: &tg::runner::Id,
 		restarted: bool,
 		sandboxes: &[tg::runner::control::ArgSandbox],
+		written: &BTreeSet<tg::sandbox::Id>,
 	) -> Vec<RecoveredBoot> {
 		let Some(recovery) = &mut self.recovery else {
 			return Vec::new();
 		};
 		let boots = recovery.boots.remove(runner).unwrap_or_default();
 
-		// Hold the boots that a runner that restarted claimed before for the index check of its first connection.
+		// Decide the boots that a runner that restarted claimed before.
 		if restarted {
 			let lost = recovery
 				.claimed
@@ -309,7 +310,9 @@ impl SchedulerState {
 				.collect::<Vec<_>>();
 			for id in lost {
 				let claim = recovery.claimed.remove(&id).unwrap();
-				recovery.restarted.insert(id, claim);
+				if !written.contains(&id) {
+					recovery.requests.insert(id, claim.request);
+				}
 			}
 		}
 
@@ -329,19 +332,29 @@ impl SchedulerState {
 			}
 		}
 		recovery.runners.remove(runner);
-		if recovery.runners.is_empty() {
-			self.release_recovery(scheduler);
-		}
+		self.release_recovery(scheduler);
 
 		boots
+	}
+
+	/// Stop waiting for the report of a runner that is declared dead, whose boots the end of the runner's boots ends, and release the held requests if no other runner is waited for.
+	pub(super) fn forget_recovery_runner(
+		&mut self,
+		scheduler: &Scheduler,
+		runner: &tg::runner::Id,
+	) {
+		let Some(recovery) = &mut self.recovery else {
+			return;
+		};
+		recovery.boots.remove(runner);
+		recovery.runners.remove(runner);
+		self.release_recovery(scheduler);
 	}
 
 	/// Whether a sandbox's request is held for recovery.
 	pub(super) fn is_recovering(&self, sandbox: &tg::sandbox::Id) -> bool {
 		self.recovery.as_ref().is_some_and(|recovery| {
-			recovery.claimed.contains_key(sandbox)
-				|| recovery.requests.contains_key(sandbox)
-				|| recovery.restarted.contains_key(sandbox)
+			recovery.claimed.contains_key(sandbox) || recovery.requests.contains_key(sandbox)
 		})
 	}
 
@@ -352,7 +365,6 @@ impl SchedulerState {
 				.claimed
 				.keys()
 				.chain(recovery.requests.keys())
-				.chain(recovery.restarted.keys())
 				.cloned()
 				.collect()
 		})
@@ -367,19 +379,22 @@ impl SchedulerState {
 		if let Some(claim) = recovery.claimed.get_mut(sandbox) {
 			return Some(&mut claim.request);
 		}
-		if let Some(claim) = recovery.restarted.get_mut(sandbox) {
-			return Some(&mut claim.request);
-		}
 		recovery.requests.get_mut(sandbox)
 	}
 
-	/// Expire the runners that did not report in time, and release the held requests.
+	/// Expire the runners that did not report in time, and release the held requests. Keep waiting for a runner that connected and whose connection is not applied yet, which reports once its connection is applied, or expires as a connected runner.
 	pub(super) fn handle_recovery_expired(&mut self, scheduler: &Scheduler) {
 		let Some(recovery) = &mut self.recovery else {
 			return;
 		};
-		let runners = std::mem::take(&mut recovery.runners);
+		let (connected, runners) = std::mem::take(&mut recovery.runners)
+			.into_iter()
+			.partition::<HashSet<_, tg::id::BuildHasher>, _>(|runner| {
+				self.runners.entries.contains_key(runner)
+			});
+		recovery.runners = connected;
 		for runner in runners {
+			recovery.boots.remove(&runner);
 			tracing::warn!(%runner, "the runner did not report after the scheduler restarted");
 
 			// Leave the restarts that are queued for the runner to this scheduler, which holds them.
@@ -405,8 +420,8 @@ impl SchedulerState {
 		self.release_recovery(scheduler);
 	}
 
-	/// Get the boots that a runner reported and then lost by restarting, as unanswered offers for the index check of the runner's first connection.
-	pub(super) fn get_restarted_claims(
+	/// Get the boots that a runner claimed in its reports to this restarted scheduler, as unanswered offers for the index check of the runner's first connection after it restarted.
+	pub(super) fn get_claims(
 		&self,
 		runner: &tg::runner::Id,
 	) -> Vec<super::runner::UnansweredOffer> {
@@ -414,7 +429,7 @@ impl SchedulerState {
 			return Vec::new();
 		};
 		recovery
-			.restarted
+			.claimed
 			.iter()
 			.filter(|(_, claim)| claim.runner == *runner)
 			.map(|(id, claim)| super::runner::UnansweredOffer {
@@ -425,66 +440,29 @@ impl SchedulerState {
 			.collect()
 	}
 
-	/// Decide a boot that a runner reported and then lost by restarting, once the runner's first connection has read the index. Forget a boot that the runner wrote, whose boot the connection ended. Return a boot that the runner did not write to the held requests, so that it is offered again once the recovery ends.
-	pub(super) fn decide_restarted_claim(
-		&mut self,
-		scheduler: &Scheduler,
-		runner: &tg::runner::Id,
-		sandbox: &tg::sandbox::Id,
-		written: bool,
-	) {
-		let Some(recovery) = &mut self.recovery else {
-			return;
+	/// Whether the release waits, because a runner has not reported, or because a runner that claimed a boot restarted and its first connection is not applied yet.
+	fn is_recovery_waiting(&self) -> bool {
+		let Some(recovery) = &self.recovery else {
+			return false;
 		};
-		if recovery
-			.restarted
-			.get(sandbox)
-			.is_none_or(|claim| claim.runner != *runner)
-		{
-			return;
-		}
-		let claim = recovery.restarted.remove(sandbox).unwrap();
-		if !written {
-			recovery.requests.insert(sandbox.clone(), claim.request);
-		}
-		if recovery.runners.is_empty() {
-			self.release_recovery(scheduler);
-		}
+		!recovery.runners.is_empty()
+			|| recovery.claimed.values().any(|claim| {
+				self.runners
+					.entries
+					.get(&claim.runner)
+					.is_some_and(|runner| runner.restarting)
+			})
 	}
 
-	/// End the boots as failed that a runner that is declared dead reported and then lost by restarting, because no connection of the runner will check them.
-	pub(super) fn fail_restarted_claims(&mut self, scheduler: &Scheduler, runner: &tg::runner::Id) {
+	/// Release the held requests once no runner is waited for.
+	pub(super) fn release_recovery(&mut self, scheduler: &Scheduler) {
+		if self.is_recovery_waiting() {
+			return;
+		}
 		let Some(recovery) = &mut self.recovery else {
 			return;
 		};
-		let lost = recovery
-			.restarted
-			.iter()
-			.filter(|(_, claim)| claim.runner == *runner)
-			.map(|(id, _)| id.clone())
-			.collect::<Vec<_>>();
-		if lost.is_empty() {
-			return;
-		}
-		let lost = lost
-			.into_iter()
-			.map(|id| recovery.restarted.remove(&id).unwrap())
-			.collect::<Vec<_>>();
-		let release = recovery.runners.is_empty();
-		for claim in lost {
-			self.fail_claimed_sandbox(scheduler, claim);
-		}
-		if release {
-			self.release_recovery(scheduler);
-		}
-	}
-
-	/// Release the held requests, unless a boot that a runner lost by restarting waits for its index check.
-	fn release_recovery(&mut self, scheduler: &Scheduler) {
-		let Some(recovery) = &mut self.recovery else {
-			return;
-		};
-		if recovery.releasing || !recovery.restarted.is_empty() {
+		if recovery.releasing {
 			return;
 		}
 		recovery.releasing = true;
@@ -518,11 +496,11 @@ impl SchedulerState {
 
 	/// Tear down the requests that are being destroyed, and queue the rest of the requests that no runner claimed.
 	pub(super) fn handle_recovered(&mut self, scheduler: &Scheduler, mut statuses: Statuses) {
-		// Wait for the index checks of the boots that a runner lost by restarting during the release, whose decisions release the requests again.
-		if let Some(recovery) = &mut self.recovery
-			&& !recovery.restarted.is_empty()
-		{
-			recovery.releasing = false;
+		// Wait for the first connection of a runner that claimed a boot and restarted during the release, whose application releases the requests again.
+		if self.is_recovery_waiting() {
+			if let Some(recovery) = &mut self.recovery {
+				recovery.releasing = false;
+			}
 			return;
 		}
 		let Some(recovery) = self.recovery.take() else {
