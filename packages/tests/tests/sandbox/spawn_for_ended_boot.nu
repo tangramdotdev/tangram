@@ -53,7 +53,7 @@ let outcome = tg --url $url --token $root_token wait $process | from json
 assert equal $outcome.exit 1 "the process should fail"
 let process_data = tg --url $url --token $root_token process get $process | from json
 assert equal $process_data.status finished "the process should be finished"
-assert equal $process_data.error?.node?.message? "the spawn is for another boot of the sandbox" "the process should fail with the runner's no"
+assert equal $process_data.error?.node?.message? "the spawn is for an earlier boot of the sandbox" "the process should fail with the runner's no"
 assert equal $process_data.started_at? null "the process should not run in the sandbox's next boot"
 let data = tg --url $url --token $root_token sandbox get $sandbox | from json | get data
 assert equal $data.status started "the sandbox should be started"

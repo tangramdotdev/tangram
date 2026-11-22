@@ -253,6 +253,22 @@ struct Spawn {
 	reply: Reply,
 }
 
+/// The answer of a boot to a spawn before the boot accepts the spawn's process.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SpawnAnswer {
+	/// The boot runs, and says yes if it accepts the process and no otherwise.
+	Accept,
+
+	/// The boot says no, because the spawn is for an earlier boot of the sandbox, which is over.
+	Earlier,
+
+	/// The boot says no, because it is over.
+	Over,
+
+	/// The boot asks the sender to send the spawn again.
+	Retry(tg::control::Retry),
+}
+
 enum Directory {
 	/// The directory of a stopped sandbox, which starts again on its files.
 	Existing {
@@ -654,7 +670,7 @@ impl Component {
 		Ok(handled)
 	}
 
-	/// Serve a spawn into a boot, which is the one handler of a spawn on the runner. Reply to a server's spawn without a boot that the runner does not hold the sandbox, because the sandbox's scheduler sends the spawn to the runner with the boot, or that the runner is not ready until the scheduler has acknowledged the report of a boot on the shortcut path. Say yes to a spawn into the boot while the boot runs and accepts the process, which starts it, and say no, that the boot is over, to a spawn for another boot of the sandbox and to a spawn into a boot that is not running, ending, or given up, so that the spawn's holder ends the process. Refuse a spawn whose process is not in the sandbox.
+	/// Serve a spawn into a boot, which is the one handler of a spawn on the runner. Reply to a server's spawn without a boot that the runner does not hold the sandbox, because the sandbox's scheduler sends the spawn to the runner with the boot, or that the runner is not ready until the scheduler has acknowledged the report of a boot on the shortcut path. Say yes to a spawn into the boot while the boot runs and accepts the process, which starts it, reply that the runner does not hold the sandbox to a spawn for a later boot, so that the sender finds the later boot, and say no, that the boot is over, to a spawn for an earlier boot of the sandbox and to a spawn into a boot that is not running, ending, or given up, so that the spawn's holder ends the process. Refuse a spawn whose process is not in the sandbox.
 	async fn serve_spawn(
 		&self,
 		session: &Session,
@@ -665,14 +681,10 @@ impl Component {
 	) -> tg::Result<Handled> {
 		let id = &boot.sandbox;
 
-		// Reply to a server's spawn without a boot.
+		// Reply to a server's spawn without a boot, and to a spawn for a later boot.
 		let remote = matches!(reply, Reply::Remote { .. });
-		if request.boot.is_none() && remote {
-			let retry = if matches!(phase, Phase::Running { reported: false }) {
-				tg::control::Retry::NotReady
-			} else {
-				tg::control::Retry::NotHolder
-			};
+		let answer = spawn_answer(phase, remote, request.boot, boot.boot);
+		if let SpawnAnswer::Retry(retry) = answer {
 			reply.send_retry(retry).await.map_err(|error| {
 				tg::error!(!error, "failed to send the sandbox control response")
 			})?;
@@ -680,8 +692,7 @@ impl Component {
 		}
 
 		// Say yes to a spawn into a running boot that accepts the process, which starts the process.
-		let other = request.boot.is_some_and(|requested| requested != boot.boot);
-		if let (Phase::Running { .. }, false) = (phase, other) {
+		if answer == SpawnAnswer::Accept {
 			let process = match Self::prepare_process(request.process, id) {
 				Ok(process) => process,
 				Err(error) => {
@@ -703,12 +714,12 @@ impl Component {
 		}
 
 		// Say no to every other spawn, because the boot that it is for is over.
-		let error = if other {
+		let error = if answer == SpawnAnswer::Earlier {
 			tg::error!(
 				code = tg::error::Code::Cancellation,
 				%id,
 				boot = %boot.boot,
-				"the spawn is for another boot of the sandbox"
+				"the spawn is for an earlier boot of the sandbox"
 			)
 		} else if Self::sandbox_status(session, id).is_none_or(|status| status.is_destroyed()) {
 			tg::error!(
@@ -4012,6 +4023,23 @@ fn ended_teardown(arg: &tg::sandbox::control::ServerRequestArg) -> Option<Teardo
 			Some(Teardown::Stop)
 		},
 		_ => None,
+	}
+}
+
+/// Get the answer of a boot to a spawn. A server's spawn without a boot is sent again, because the sandbox's scheduler sends the spawn with the boot, and a spawn for a later boot is sent again, so that it reaches the later boot.
+fn spawn_answer(phase: Phase<'_>, remote: bool, requested: Option<u64>, boot: u64) -> SpawnAnswer {
+	match requested {
+		None if remote => {
+			if matches!(phase, Phase::Running { reported: false }) {
+				SpawnAnswer::Retry(tg::control::Retry::NotReady)
+			} else {
+				SpawnAnswer::Retry(tg::control::Retry::NotHolder)
+			}
+		},
+		Some(requested) if requested > boot => SpawnAnswer::Retry(tg::control::Retry::NotHolder),
+		Some(requested) if requested < boot => SpawnAnswer::Earlier,
+		_ if matches!(phase, Phase::Running { .. }) => SpawnAnswer::Accept,
+		_ => SpawnAnswer::Over,
 	}
 }
 
