@@ -24,15 +24,14 @@ impl Component {
 		&self,
 		session: &Session,
 		principal: Option<tg::principal::Selector>,
-	) -> tg::Result<Option<tg::Principal>> {
+	) -> tg::Result<tg::Principal> {
 		if let Some(principal) = principal {
 			let Some(principal) =
 				Self::resolve_remote_principal_selector(session, &principal).await?
 			else {
 				return Err(tg::error!("failed to resolve the remote principal"));
 			};
-			let principal = Some(principal).filter(|principal| *principal != tg::Principal::Root);
-			Self::authorize_remote_principal(session, principal.as_ref()).await?;
+			Self::authorize_remote_principal(session, &principal).await?;
 			return Ok(principal);
 		}
 		let principal = match &session.context.principal {
@@ -44,13 +43,13 @@ impl Component {
 		};
 		let principal = match principal {
 			tg::Principal::Anonymous => return Err(tg::error!("unauthorized")),
-			tg::Principal::Group(id) => Some(tg::Principal::Group(id)),
-			tg::Principal::Organization(id) => Some(tg::Principal::Organization(id)),
+			tg::Principal::Group(id) => tg::Principal::Group(id),
+			tg::Principal::Organization(id) => tg::Principal::Organization(id),
 			tg::Principal::Process(_) => return Err(tg::error!("unauthorized")),
-			tg::Principal::Root => None,
+			tg::Principal::Root => tg::Principal::Root,
 			tg::Principal::Runner(_) => return Err(tg::error!("unauthorized")),
 			tg::Principal::Sandbox(_) => return Err(tg::error!("unauthorized")),
-			tg::Principal::User(id) => Some(tg::Principal::User(id)),
+			tg::Principal::User(id) => tg::Principal::User(id),
 		};
 		Ok(principal)
 	}
@@ -66,23 +65,16 @@ impl Component {
 			let principal = self
 				.resolve_remote_arg_principal(session, principal)
 				.await?;
-			return Ok(Some(principal.unwrap_or(tg::Principal::Root)));
+			return Ok(Some(principal));
 		};
 
 		// Get the principal of the remote, and treat a remote the session may not manage as absent.
 		let Some(principal) = Self::try_get_remote_principal(session, id).await? else {
 			return Ok(None);
 		};
-		let default = self
-			.resolve_remote_arg_principal(session, None)
-			.await?
-			.unwrap_or(tg::Principal::Root);
+		let default = self.resolve_remote_arg_principal(session, None).await?;
 		if principal != default {
-			let authorized = Self::is_remote_principal_authorized(
-				session,
-				Some(&principal).filter(|principal| **principal != tg::Principal::Root),
-			)
-			.await?;
+			let authorized = Self::is_remote_principal_authorized(session, &principal).await?;
 			if !authorized {
 				return Ok(None);
 			}
@@ -132,7 +124,7 @@ impl Component {
 
 	async fn authorize_remote_principal(
 		session: &Session,
-		principal: Option<&tg::Principal>,
+		principal: &tg::Principal,
 	) -> tg::Result<()> {
 		let authorized = Self::is_remote_principal_authorized(session, principal).await?;
 		if !authorized {
@@ -150,14 +142,18 @@ impl Component {
 		}
 	}
 
+	pub(crate) fn remote_principal_parameter(principal: &tg::Principal) -> Option<String> {
+		(!matches!(principal, tg::Principal::Root)).then(|| principal.to_string())
+	}
+
 	async fn is_remote_principal_authorized(
 		session: &Session,
-		principal: Option<&tg::Principal>,
+		principal: &tg::Principal,
 	) -> tg::Result<bool> {
-		let Some(principal) = principal else {
+		if matches!(principal, tg::Principal::Root) {
 			let authorized = matches!(session.context.principal, tg::Principal::Root);
 			return Ok(authorized);
-		};
+		}
 		let id = Self::remote_principal_id(principal)?;
 		let permission = tangram_server_grant_common::write_permission_for_resource(&id)?;
 		let authorization = session
