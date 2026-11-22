@@ -2992,7 +2992,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// Destroy a stopped sandbox on this runner by removing its directory, releasing its filesystem project ID, and reporting its destruction, or destroy a boot of it that is running.
+	/// Destroy a stopped sandbox on this runner by removing its directory, releasing its filesystem project ID, and reporting its destruction, or destroy a running sandbox through the control of its boot.
 	pub(crate) async fn destroy_stopped_sandbox(
 		&self,
 		session: &Session,
@@ -3023,7 +3023,7 @@ impl Component {
 			updated.await;
 		};
 
-		// Destroy a boot that is running through its control, which reports its destruction.
+		// Destroy a running sandbox through the control of its boot, which reports its destruction.
 		if let Some(control_sender) = control_sender {
 			let request = tg::sandbox::control::ServerRequestArg::Destroy(
 				tg::sandbox::control::DestroyServerRequestArg {

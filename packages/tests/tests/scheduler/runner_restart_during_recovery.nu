@@ -1,7 +1,7 @@
 use ../../util/test.nu *
 use ../../util/nats.nu *
 
-# A boot that a runner reports to a restarted scheduler and then loses by restarting before the scheduler's recovery ends is decided from the index, like an unanswered offer to a runner that restarted. The runner wrote the boot, so the scheduler takes it over and leaves the sandbox stopped, and the sandbox can start again.
+# A boot that a runner reports to a restarted scheduler and then loses by restarting before the scheduler's recovery ends is decided from the index, like an unanswered offer to a runner that restarted. The runner wrote the boot, so the scheduler ends the boot and leaves the sandbox stopped, and the sandbox can start again.
 let nats = spawn_nats
 let root = random chars
 let common = {

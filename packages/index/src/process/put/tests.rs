@@ -101,15 +101,19 @@ fn a_process_write_at_or_above_its_boot_end_is_failed() {
 	let mut sandbox = sandbox_record(1, tg::sandbox::Status::Started);
 	sandbox.ends.insert(0, end(3));
 	let sandbox_id = sandbox.data.as_ref().unwrap().data.id.clone();
-	for status in [
+	let statuses = [
 		tg::process::Status::Queued,
 		tg::process::Status::Started,
 		tg::process::Status::Finished,
-	] {
+	];
+	for (status, sequence) in statuses
+		.into_iter()
+		.flat_map(|status| [(status, 3), (status, 4)])
+	{
 		let mut write = arg(&id, data(&sandbox_id, status));
 		write.boot = Some(0);
 		write.permissions = vec![permission(&id, 1)];
-		write.sequence = 3;
+		write.sequence = sequence;
 		let mut state = State::default();
 		apply(&mut state, 0, &write, Some(&sandbox));
 		let data = state.data.unwrap();

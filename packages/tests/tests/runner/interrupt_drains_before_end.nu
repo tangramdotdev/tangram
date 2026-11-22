@@ -37,7 +37,7 @@ let id = checkin push $remote $path --token $root_token
 let process = tg --url $remote.url --token $root_token spawn --sandbox --mount $'($directory):($directory)' --no-tokens --verbose $id | from json | get process
 tg --url $remote.url --token $root_token process status --until started $process | ignore
 
-# Interrupt the runner, and let two of its heartbeats reach the scheduler, which shows that its control stream stays open while the process runs.
+# Interrupt the runner, and let two of its heartbeats reach the scheduler, so that the test continues past the point where a runner that ended its boot at the interrupt would have done so. The process is still running.
 let heartbeat = checkpoint watch runner.control.heartbeat.received --params { runner: $created.data.id } --token $root_token --url $remote.url
 kill --signal 2 $runner.pid
 checkpoint pass $heartbeat 0 | ignore

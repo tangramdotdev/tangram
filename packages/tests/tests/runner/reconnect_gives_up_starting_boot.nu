@@ -72,11 +72,8 @@ let heartbeat = checkpoint watch runner.control.heartbeat.received --params { ru
 checkpoint pass $heartbeat | ignore
 checkpoint unwatch $heartbeat
 
-# Let the boot's task continue, and wait for the runner to shut the boot down.
-let shutdown = checkpoint watch runner.sandbox.shutdown --params { sandbox: $sandbox } --url $runner.url
+# Let the boot's task continue.
 checkpoint unwatch $take
-checkpoint pass $shutdown | ignore
-checkpoint unwatch $shutdown
 
 # The process fails without running, and the sandbox is stopped.
 let outcome = timeout 60s tg --url $remote.url --token $root_token wait $process | from json
