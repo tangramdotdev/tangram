@@ -279,7 +279,7 @@ impl SchedulerState {
 	) {
 		let ids = id.into_iter().collect::<Vec<_>>();
 
-		// Reply to an enqueue of a sandbox that the scheduler tracks without enqueueing it again. An enqueue of a later boot replaces a sandbox that a runner accepted or that the scheduler ended.
+		// Reply to an enqueue of a sandbox that the scheduler tracks without enqueueing it again. A recovered enqueue of a later boot replaces a sandbox that a runner accepted or that the scheduler ended, and a start of a later boot replaces it once its reservation applies.
 		if let Some(entry) = self.sandboxes.entries.get(&request.sandbox) {
 			match entry.state {
 				State::Offered { .. } | State::Queued => {
@@ -292,7 +292,9 @@ impl SchedulerState {
 					return;
 				},
 				State::Accepted { .. } | State::Terminal { .. } => {
-					self.remove_ended_sandbox(scheduler, &request.sandbox);
+					if recovered {
+						self.remove_ended_sandbox(scheduler, &request.sandbox);
+					}
 				},
 			}
 		}
