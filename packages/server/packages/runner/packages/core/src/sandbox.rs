@@ -97,6 +97,9 @@ pub struct Boot {
 
 	inner: std::sync::Mutex<BootInner>,
 
+	/// The location of the sandbox's home.
+	pub location: tg::Location,
+
 	/// The proof of a boot on the shortcut path, which the runner reports when it connects to its scheduler.
 	pub proof: Option<tg::sandbox::id::Proof>,
 
@@ -139,7 +142,7 @@ pub struct Unaccepted {
 }
 
 /// How a boot ends locally, which stops its sandbox or destroys it. The runner gives up a boot that its scheduler ended with a stop if the scheduler keeps the sandbox's directory, and with a destroy otherwise.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Teardown {
 	Destroy,
 	Stop,
@@ -318,6 +321,7 @@ impl Boot {
 	pub fn new(
 		boot: u64,
 		sandbox: tg::sandbox::Id,
+		location: tg::Location,
 		proof: Option<tg::sandbox::id::Proof>,
 		scheduled: bool,
 		sequence: u64,
@@ -334,6 +338,7 @@ impl Boot {
 			changed: tokio::sync::watch::Sender::new(()),
 			given_up: tokio::sync::watch::Sender::new(None),
 			inner: std::sync::Mutex::new(inner),
+			location,
 			proof,
 			sandbox,
 			scheduled,
@@ -438,16 +443,31 @@ impl Boot {
 			.collect()
 	}
 
+	/// Get the processes that the boot accepted and whose finish no server answered.
+	#[must_use]
+	pub fn unanswered(&self) -> Vec<tg::runner::control::Process> {
+		let inner = self.inner.lock().unwrap();
+		inner
+			.processes
+			.iter()
+			.filter(|process| {
+				process
+					.id
+					.as_ref()
+					.is_some_and(|id| !matches!(inner.finishes.get(id), Some(Finish::Answered)))
+			})
+			.cloned()
+			.collect()
+	}
+
 	/// Get what the runner reports about the boot when it connects to its scheduler, which is the processes that the scheduler offered into the boot and whose finish no server answered, and the proof of a boot on the shortcut path.
 	#[must_use]
 	pub fn report(&self) -> (Vec<tg::process::Id>, Option<tg::sandbox::id::Proof>) {
-		let inner = self.inner.lock().unwrap();
-		let processes = inner
-			.processes
-			.iter()
-			.filter_map(|process| process.id.clone())
-			.filter(|id| !inner.local.contains(id))
-			.filter(|id| !matches!(inner.finishes.get(id), Some(Finish::Answered)))
+		let processes = self
+			.unanswered()
+			.into_iter()
+			.filter(|process| !self.local(process))
+			.filter_map(|process| process.id)
 			.collect();
 
 		(processes, self.proof.clone())
@@ -544,7 +564,7 @@ mod tests {
 
 	fn boot(sequence: u64) -> Arc<Boot> {
 		let sandbox = tg::sandbox::Id::new();
-		Arc::new(Boot::new(0, sandbox, None, true, sequence))
+		Arc::new(Boot::new(0, sandbox, local(), None, true, sequence))
 	}
 
 	#[test]
@@ -616,9 +636,30 @@ mod tests {
 		let boots = Boots::default();
 		let sandbox = tg::sandbox::Id::new();
 		let other = tg::sandbox::Id::new();
-		boots.insert(Arc::new(Boot::new(0, sandbox.clone(), None, true, 1)));
-		boots.insert(Arc::new(Boot::new(0, other.clone(), None, true, 1)));
-		boots.insert(Arc::new(Boot::new(1, sandbox.clone(), None, true, 1)));
+		boots.insert(Arc::new(Boot::new(
+			0,
+			sandbox.clone(),
+			local(),
+			None,
+			true,
+			1,
+		)));
+		boots.insert(Arc::new(Boot::new(
+			0,
+			other.clone(),
+			local(),
+			None,
+			true,
+			1,
+		)));
+		boots.insert(Arc::new(Boot::new(
+			1,
+			sandbox.clone(),
+			local(),
+			None,
+			true,
+			1,
+		)));
 		assert_eq!(boots.latest(&sandbox).unwrap().boot, 1);
 		let mut wait = std::pin::pin!(boots.wait_ended_before(&sandbox, 1));
 		assert!(poll(&mut wait).is_pending());
@@ -626,6 +667,10 @@ mod tests {
 		assert!(poll(&mut wait).is_pending());
 		boots.remove(&sandbox, 0);
 		assert!(poll(&mut wait).is_ready());
+	}
+
+	fn local() -> tg::Location {
+		tg::Location::Local(tg::location::Local::default())
 	}
 
 	fn process(id: &tg::process::Id) -> tg::runner::control::Process {

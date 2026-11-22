@@ -1388,6 +1388,11 @@ impl Component {
 		self.publish_finished_process(session, &id, &processes, &mut data)
 			.await?;
 
+		// Number the finish with the process's boot, and write nothing more for a boot that the runner gave up, whose give-up records the end in this server's local copies.
+		let Some(sequence) = boot.next() else {
+			return Ok(FinishProcessRunOutput { index_task: None });
+		};
+
 		// Index completion and capture permissions independently of the output transfer.
 		let arg = IndexFinishedProcessTaskArg {
 			data: data.clone(),
@@ -1430,9 +1435,6 @@ impl Component {
 			.await;
 		let mut finish_data = data.clone();
 		Self::inherit_process_control_tokens(&mut finish_data, &location);
-		let Some(sequence) = boot.next() else {
-			return Ok(FinishProcessRunOutput { index_task });
-		};
 		let arg = tg::process::control::ClientRequestArg::Finish(
 			tg::process::control::FinishClientRequestArg {
 				data: finish_data,

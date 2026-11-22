@@ -744,7 +744,7 @@ impl Component {
 		self.finish_sandbox_directories(session, &stopped, &header, *first)
 			.await?;
 		*first = false;
-		self.yield_runner_sandboxes(&header);
+		self.yield_runner_sandboxes(session, &header);
 		tracing::info!(runner = %id, "the runner is ready to accept work");
 		session
 			.server
@@ -814,8 +814,8 @@ impl Component {
 		Ok(())
 	}
 
-	/// Give up each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the boot, keeping its directory if the scheduler keeps it, or destroys it otherwise, which removes its directory, and a boot whose state is not stored yet starts no process.
-	fn yield_runner_sandboxes(&self, header: &tg::runner::control::Header) {
+	/// Give up each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the boot, keeping its directory if the scheduler keeps it, or destroys the sandbox otherwise, which removes its directory, and a boot whose state is not stored yet starts no process.
+	fn yield_runner_sandboxes(&self, session: &Session, header: &tg::runner::control::Header) {
 		for ended in &header.ended {
 			let kind = if header.kept.contains(&ended.id) {
 				tangram_server_runner_core::sandbox::Teardown::Stop
@@ -823,8 +823,7 @@ impl Component {
 				tangram_server_runner_core::sandbox::Teardown::Destroy
 			};
 			if let Some(boot) = self.state.boots.get(&ended.id, ended.boot) {
-				tracing::warn!(sandbox = %ended.id, boot = ended.boot, "giving up a sandbox whose boot the scheduler ended");
-				boot.give_up(kind);
+				self.give_up_boot(session, &boot, kind);
 			}
 		}
 	}
