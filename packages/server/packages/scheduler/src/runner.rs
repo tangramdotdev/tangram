@@ -30,6 +30,9 @@ pub(super) struct EndRunnerSandboxesArg {
 	/// The sandboxes that the runner has directories for, or `None` if they are unknown.
 	pub directories: Option<BTreeSet<tg::sandbox::Id>>,
 
+	/// The receiver that the end tells of each boot that it ends, which is the scheduling task, so that it remembers the boot as ended and tells the runner when the runner connects again, or `None` if the runner does not hold the boots, because it restarted or was deleted.
+	pub ended: Option<tokio::sync::mpsc::UnboundedSender<super::HolderMessage>>,
+
 	/// The error that the ended sandboxes and their processes record.
 	pub error: tg::error::Data,
 
@@ -41,7 +44,7 @@ pub(super) struct EndRunnerSandboxesArg {
 
 	pub runner: tg::runner::Id,
 
-	/// The scheduling task, which the end asks after it reads the index for the sandboxes whose current boot the scheduler holds, and tells of each boot that it ends, or `None` before the task runs.
+	/// The scheduling task, which the end asks after it reads the index for the sandboxes whose current boot the scheduler holds, or `None` before the task runs.
 	pub scheduler: Option<tokio::sync::mpsc::UnboundedSender<super::HolderMessage>>,
 
 	/// The sandboxes whose offers to the runner are unanswered and whose boots the runner wrote to the index, which the end covers although the scheduler's saved queue has them.
@@ -223,27 +226,13 @@ impl SchedulerState {
 			&request.sandboxes,
 		);
 
-		// Get the reported boots that this scheduler ended, which it tells the runner from its memory, and which the runner gives up.
-		let ended = request
-			.sandboxes
-			.iter()
-			.filter(|sandbox| {
-				self.sandboxes
-					.ended
-					.get(&sandbox.id, sandbox.boot)
-					.is_some_and(|ended| ended.runner == request.runner)
-			})
-			.map(|sandbox| tg::runner::control::EndedSandbox {
-				boot: sandbox.boot,
-				id: sandbox.id.clone(),
-			})
-			.collect::<Vec<_>>();
+		// Get the reported boots that this scheduler declared ended, which it tells the runner from its memory, and which the runner gives up.
+		let ended = self.get_declared_ended_boots(&request.runner, &request.sandboxes);
 
 		let accepted =
 			self.forget_accepted_sandboxes(scheduler, &request.runner, &request.sandboxes);
 		if request.first {
 			self.sandboxes.ended.forget_runner(&request.runner);
-			self.sandboxes.ended.forget_declared(&request.runner);
 		}
 		let offers = self
 			.remove_runner_entry(&request.runner)
@@ -319,6 +308,7 @@ impl SchedulerState {
 					continue;
 				}
 				let ended = super::report::EndedBoot {
+					declared: false,
 					processes: recovered.processes,
 					runner: request.runner.clone(),
 				};
@@ -367,6 +357,26 @@ impl SchedulerState {
 			}
 			.boxed(),
 		);
+	}
+
+	/// Get the reported boots that this scheduler declared ended for the runner, which are the only boots that the runner's connection is told ended.
+	pub(super) fn get_declared_ended_boots(
+		&self,
+		runner: &tg::runner::Id,
+		sandboxes: &[tg::runner::control::ArgSandbox],
+	) -> Vec<tg::runner::control::EndedSandbox> {
+		sandboxes
+			.iter()
+			.filter(|sandbox| {
+				self.sandboxes
+					.ended
+					.is_declared(&sandbox.id, sandbox.boot, runner)
+			})
+			.map(|sandbox| tg::runner::control::EndedSandbox {
+				boot: sandbox.boot,
+				id: sandbox.id.clone(),
+			})
+			.collect()
 	}
 
 	/// Track a sandbox that a runner started on the shortcut path, so that this scheduler knows the sandbox and sends the spawns into it to the runner. Authorize the report with the proof that the runner derived the sandbox's ID, and ignore a report of a boot that already ended, so that a report that arrives after the boot's end does not track the boot again.
@@ -637,7 +647,7 @@ impl SchedulerState {
 		self.declare_runner_dead(scheduler, &request.runner, Removal::Deleted { id });
 	}
 
-	/// Declare a runner dead. Forget the sandboxes that it accepted, end its unanswered offers, and discard the starts pinned to it, so that a boot that the runner's sandboxes are stopped for never starts later. This scheduler holds those boots, so their discard alone records their end, and the end of the runner's boots leaves them alone. Then, in an operation, end the runner's boots.
+	/// Declare a runner dead. Forget the sandboxes that it accepted, end its unanswered offers, and discard the starts pinned to it, so that a boot that the runner's sandboxes are stopped for never starts later. This scheduler holds those boots, so their discard alone records their end, and the end of the runner's boots leaves them alone. Forget the ended boots of a deleted runner, which never connects again. Then, in an operation, end the runner's boots.
 	fn declare_runner_dead(
 		&mut self,
 		scheduler: &Scheduler,
@@ -652,6 +662,9 @@ impl SchedulerState {
 		for discarded in self.discard_pinned_sandboxes(scheduler, runner) {
 			queued.push(discarded.sandbox.clone());
 			scheduler.publish_sandbox_discarded(self, discarded);
+		}
+		if matches!(removal, Removal::Deleted { .. }) {
+			self.sandboxes.ended.forget_runner(runner);
 		}
 		let scheduler = scheduler.clone();
 		let runner = runner.clone();
@@ -738,7 +751,7 @@ impl SchedulerState {
 		sandboxes
 	}
 
-	/// Forget the sandboxes that a runner accepted, except the ones that it reports when it connects again, and return them. The runner held a boot from its acceptance, so a boot that it no longer reports is lost with the runner, and the end of the runner's boots ends it.
+	/// Forget the sandboxes that a runner accepted, except the ones that it reports when it connects again, remember their boots as ended, and return them. The runner held a boot from its acceptance, so a boot that it no longer reports ended on the runner, which reports the end, or was lost with a runner that restarted or is declared dead, whose boots this scheduler ends.
 	pub(super) fn forget_accepted_sandboxes(
 		&mut self,
 		scheduler: &Scheduler,
@@ -761,7 +774,7 @@ impl SchedulerState {
 			.collect::<Vec<_>>();
 		let mut forgotten = Vec::new();
 		for (sandbox, _) in accepted {
-			self.remove_sandbox(scheduler, &sandbox);
+			self.remove_ended_sandbox(scheduler, &sandbox);
 			self.stop_serving_sandbox_holder(&sandbox);
 			forgotten.push(sandbox);
 		}
@@ -794,7 +807,7 @@ impl SchedulerState {
 						&& matches!(&entry.state, State::Accepted { runner: accepted } if accepted.id == *runner)
 				});
 			if accepted {
-				self.remove_sandbox(scheduler, &sandbox.id);
+				self.remove_ended_sandbox(scheduler, &sandbox.id);
 				self.stop_serving_sandbox_holder(&sandbox.id);
 			}
 			let error = tg::error::Data {
@@ -899,7 +912,12 @@ impl SchedulerState {
 		let boot = entry.boot;
 		let dequeue_requests = std::mem::take(&mut entry.dequeue_requests);
 		let destroy = zero || !dequeue_requests.is_empty();
-		self.remember_ended_boot(sandbox, boot, runner);
+		let ended = super::report::EndedBoot {
+			declared: true,
+			processes: BTreeSet::new(),
+			runner: runner.clone(),
+		};
+		self.sandboxes.ended.insert(sandbox.clone(), boot, ended);
 
 		// End the boot.
 		let error = tg::error!(%sandbox, %runner, "the sandbox's runner is unavailable")
@@ -951,22 +969,6 @@ impl SchedulerState {
 		} else {
 			scheduler.send_dequeue_responses(dequeue_requests, true);
 		}
-	}
-
-	/// Remember a boot that this scheduler ended for a runner that it declared dead, so that it tells the runner from its memory when the runner connects again.
-	pub(super) fn remember_ended_boot(
-		&mut self,
-		sandbox: &tg::sandbox::Id,
-		boot: u64,
-		runner: &tg::runner::Id,
-	) {
-		let ended = super::report::EndedBoot {
-			processes: BTreeSet::new(),
-			runner: runner.clone(),
-		};
-		self.sandboxes
-			.ended
-			.insert_declared(sandbox.clone(), boot, ended);
 	}
 
 	/// Return a sandbox whose offer the runner lost to the queue, and end it as destroyed if a dequeue waits for it.
@@ -1144,6 +1146,7 @@ impl Scheduler {
 				accepted,
 				checkpoint: "scheduler.runner.restarted",
 				directories: Some(directories),
+				ended: None,
 				error,
 				held: request.sandboxes.clone(),
 				queued,
@@ -1305,6 +1308,7 @@ impl Scheduler {
 			accepted,
 			checkpoint,
 			directories: None,
+			ended: (!deleted).then(|| self.holder_sender.clone()),
 			error: error.clone(),
 			held: Vec::new(),
 			queued: queued.clone(),
@@ -1350,6 +1354,7 @@ impl Component {
 			accepted,
 			checkpoint,
 			directories,
+			ended,
 			error,
 			held,
 			queued,
@@ -1422,7 +1427,7 @@ impl Component {
 				error: error.clone(),
 				runner,
 				sandbox: &sandbox,
-				task: task.as_ref(),
+				task: ended.as_ref(),
 			};
 			self.end_dead_runner_boot(server, arg).boxed().await?;
 			if destroy

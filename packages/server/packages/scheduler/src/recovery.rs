@@ -114,6 +114,7 @@ impl Scheduler {
 					boots.entry(runner.clone()).or_default().push(recovered);
 				} else {
 					let ended = super::report::EndedBoot {
+						declared: false,
 						processes: recovered.processes,
 						runner: runner.clone(),
 					};
@@ -620,9 +621,7 @@ impl SchedulerState {
 		processes: BTreeSet<tg::process::Id>,
 		runner: super::placement::RunnerRef,
 	) {
-		if self.sandboxes.entries.contains_key(id) {
-			self.remove_sandbox(scheduler, id);
-		}
+		self.remove_ended_sandbox(scheduler, id);
 		let boot = request.boot;
 		let parent = request.parent.clone();
 		let state = super::sandbox::State::Accepted {
@@ -637,7 +636,14 @@ impl SchedulerState {
 	/// End a boot that a runner claimed and lost, or that a runner wrote and did not claim, because the runner restarted or was declared dead, through the end of a dead runner's boot, which leaves the sandbox stopped on the runner, or destroyed if its ttl is zero. Remember the boot as ended, so that this scheduler tells the runner when it connects again.
 	fn fail_claimed_sandbox(&mut self, scheduler: &Scheduler, claim: Claim) {
 		let Claim { request, runner } = claim;
-		self.remember_ended_boot(&request.sandbox, request.boot, &runner);
+		let ended = super::report::EndedBoot {
+			declared: true,
+			processes: BTreeSet::new(),
+			runner: runner.clone(),
+		};
+		self.sandboxes
+			.ended
+			.insert(request.sandbox.clone(), request.boot, ended);
 		let destroy = request
 			.arg
 			.time_to_live
@@ -673,8 +679,11 @@ impl SchedulerState {
 }
 
 impl Component {
-	/// End the boots in this single server's queue, and the sandboxes of the runners other than this server's that connected to it, whose connections can no longer expire after the restart. Stop each, or destroy it if its ttl is zero. This server's runner ends its own sandboxes when it connects.
-	pub(super) async fn end_previous_run(&self, server: &Server) -> tg::Result<()> {
+	/// End the boots in this single server's queue, and the sandboxes of the runners other than this server's that connected to it, whose connections can no longer expire after the restart. Stop each, or destroy it if its ttl is zero. This server's runner ends its own sandboxes when it connects. Return the messages that tell the scheduling task of each boot of the other runners that the end ended, so that the task remembers them and tells each runner when it connects again.
+	pub(super) async fn end_previous_run(
+		&self,
+		server: &Server,
+	) -> tg::Result<Vec<super::HolderMessage>> {
 		// Get the scheduler's ID. A single server applies its index writes in its own process, so none of its previous run's writes are pending.
 		let id = Self::scheduler_id(&server.config.scheduler)?;
 		let error = tg::error::Data {
@@ -731,7 +740,8 @@ impl Component {
 			tracing::error!(error = %error.trace(), "failed to finish the queued processes");
 		}
 
-		// End the boots of the other runners.
+		// End the boots of the other runners, and collect the messages of the boots that the end ended.
+		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
 		let local = server.components.runner.local_runner_id(server);
 		let runners = server
 			.index
@@ -746,6 +756,7 @@ impl Component {
 				accepted: Vec::new(),
 				checkpoint: "scheduler.runner.recovered",
 				directories: None,
+				ended: Some(sender.clone()),
 				error: error.clone(),
 				held: Vec::new(),
 				queued: Vec::new(),
@@ -758,7 +769,12 @@ impl Component {
 				tracing::error!(%runner, error = %error.trace(), "failed to end the runner's sandboxes");
 			}
 		}
+		drop(sender);
+		let mut messages = Vec::new();
+		while let Some(message) = receiver.recv().await {
+			messages.push(message);
+		}
 
-		Ok(())
+		Ok(messages)
 	}
 }

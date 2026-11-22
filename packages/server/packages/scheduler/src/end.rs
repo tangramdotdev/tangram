@@ -54,12 +54,13 @@ impl SchedulerState {
 					self.remove_reservation(&sandbox, &placement, true);
 					self.accept_sandbox(scheduler, &sandbox, runner);
 				}
-				self.remove_sandbox(scheduler, &sandbox);
+				self.remove_ended_sandbox(scheduler, &sandbox);
 				self.stop_serving_sandbox_holder(&sandbox);
 				self.queue.wake();
 			},
 			Held::Derived => {
 				let ended = EndedBoot {
+					declared: false,
 					processes: BTreeSet::new(),
 					runner: runner.clone(),
 				};

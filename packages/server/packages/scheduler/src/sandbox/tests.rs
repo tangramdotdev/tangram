@@ -156,9 +156,9 @@ fn a_reported_sandbox_that_the_scheduler_does_not_track_is_accepted_and_not_queu
 	assert_eq!(scheduler.queue.len(), 0);
 	assert_eq!(scheduler.parents.0[&parent].children[&id], runner.id);
 
-	// A report of the same boot without its request keeps the request and the parent.
+	// A report of the same boot without its request leaves the entry, with its request and its parent.
 	let tracked = scheduler.track_accepted_sandbox_inner(&id, 0, None, runner.clone());
-	assert!(matches!(tracked, Tracked::Inserted { ids } if ids.is_empty()));
+	assert!(matches!(tracked, Tracked::Ignored));
 	let entry = &scheduler.sandboxes.entries[&id];
 	assert!(entry.request.is_some());
 	assert_eq!(entry.parent, Some(parent));

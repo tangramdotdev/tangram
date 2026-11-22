@@ -1,6 +1,11 @@
 use {
 	super::Runner,
-	crate::SchedulerState,
+	crate::{
+		SchedulerState,
+		placement::RunnerRef,
+		report::EndedBoot,
+		sandbox::{Sandbox, State, Tracked},
+	},
 	std::{
 		collections::{BTreeSet, HashMap, HashSet},
 		time::Duration,
@@ -93,4 +98,125 @@ fn a_failed_earlier_connection_leaves_a_later_connection_alone() {
 	// The later connection becomes ready with its first heartbeat.
 	assert!(state.handle_heartbeat(&heartbeat(&id, 2, 1), now));
 	assert!(state.runners.entries[&id].ready());
+}
+
+/// Create the report of a boot that a runner holds.
+fn reported(sandbox: &tg::sandbox::Id, boot: u64) -> tg::runner::control::ArgSandbox {
+	tg::runner::control::ArgSandbox {
+		boot,
+		id: sandbox.clone(),
+		processes: Vec::new(),
+		proof: None,
+	}
+}
+
+/// Create the memory of a runner's ended boot.
+fn ended(runner: &tg::runner::Id, declared: bool) -> EndedBoot {
+	EndedBoot {
+		declared,
+		processes: BTreeSet::new(),
+		runner: runner.clone(),
+	}
+}
+
+#[test]
+fn reconnects_of_a_runner_that_holds_a_boot_tell_it_that_nothing_ended() {
+	let id = tg::runner::Id::new();
+	let now = Clock::new(None, None).instant();
+	let mut state = state(&id, 1, now);
+
+	// The runner holds a boot.
+	let sandbox = tg::sandbox::Id::new();
+	let runner = RunnerRef {
+		connection: 1,
+		id: id.clone(),
+	};
+	let entry = Sandbox::new(0, None, None, State::Accepted { runner });
+	state.sandboxes.entries.insert(sandbox.clone(), entry);
+
+	// The runner reconnects twice and reports the boot each time, and neither connection is told that the boot ended.
+	for connection in [2, 3] {
+		let ended = state.get_declared_ended_boots(&id, &[reported(&sandbox, 0)]);
+		assert!(
+			ended.is_empty(),
+			"the connection {connection} was told that the boot ended"
+		);
+		let runner = RunnerRef {
+			connection,
+			id: id.clone(),
+		};
+		let tracked = state.track_accepted_sandbox_inner(&sandbox, 0, None, runner);
+		assert!(matches!(tracked, Tracked::Ignored));
+	}
+	let ended = state.get_declared_ended_boots(&id, &[reported(&sandbox, 0)]);
+	assert!(
+		ended.is_empty(),
+		"the next connection was told that the boot ended"
+	);
+
+	// The scheduler still tracks the boot on the runner's latest connection, and does not remember it as ended.
+	assert!(matches!(
+		&state.sandboxes.entries[&sandbox].state,
+		State::Accepted { runner } if runner.connection == 3
+	));
+	assert!(state.sandboxes.ended.get(&sandbox, 0).is_none());
+}
+
+#[test]
+fn a_connection_is_told_only_the_boots_that_the_scheduler_declared_ended() {
+	let id = tg::runner::Id::new();
+	let other = tg::runner::Id::new();
+	let now = Clock::new(None, None).instant();
+	let mut state = state(&id, 1, now);
+
+	// The runner ended one boot itself, the scheduler declared another ended, and the scheduler declared a third ended on another runner.
+	let own = tg::sandbox::Id::new();
+	let declared = tg::sandbox::Id::new();
+	let foreign = tg::sandbox::Id::new();
+	state
+		.sandboxes
+		.ended
+		.insert(own.clone(), 0, ended(&id, false));
+	state
+		.sandboxes
+		.ended
+		.insert(declared.clone(), 0, ended(&id, true));
+	state
+		.sandboxes
+		.ended
+		.insert(foreign.clone(), 0, ended(&other, true));
+	let sandboxes = [
+		reported(&own, 0),
+		reported(&declared, 0),
+		reported(&foreign, 0),
+	];
+
+	// Only the boot that the scheduler declared ended on the runner is told, and it stays declared when the runner's own end is remembered too.
+	let told = |state: &SchedulerState| {
+		state
+			.get_declared_ended_boots(&id, &sandboxes)
+			.into_iter()
+			.map(|ended| ended.id)
+			.collect::<Vec<_>>()
+	};
+	assert_eq!(told(&state), vec![declared.clone()]);
+	state
+		.sandboxes
+		.ended
+		.insert(declared.clone(), 0, ended(&id, false));
+	assert_eq!(told(&state), vec![declared.clone()]);
+
+	// The rotations forget the boot that the runner ended itself, and keep the declared boot.
+	state.sandboxes.ended.rotate(now, TIME_TO_LIVE);
+	for rotation in 1..=2 {
+		let later = now + (TIME_TO_LIVE + Duration::from_secs(1)) * rotation;
+		state.sandboxes.ended.rotate(later, TIME_TO_LIVE);
+	}
+	assert!(state.sandboxes.ended.get(&own, 0).is_none());
+	assert_eq!(told(&state), vec![declared.clone()]);
+
+	// Forgetting the runner forgets its declared boot, and leaves the other runner's.
+	state.sandboxes.ended.forget_runner(&id);
+	assert_eq!(told(&state), Vec::<tg::sandbox::Id>::new());
+	assert!(state.sandboxes.ended.is_declared(&foreign, 0, &other));
 }
