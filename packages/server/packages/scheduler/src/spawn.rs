@@ -279,40 +279,9 @@ impl Scheduler {
 		}
 	}
 
-	/// Finish a process whose offer ended without the runner's yes, such as when its boot ended before its runner received it, only if no runner accepted it, and remove it from this scheduler's queue. Await indexing first, because a runner that accepted the process had a server accept its finish before it ended the boot, and finish the process as failed only if the index still records it as queued. The end of a boot of a runner that its scheduler declared dead fails the process in the end's transaction.
+	/// Finish a process whose offer ended without the runner's yes, such as when its boot ended before its runner received it, as failed, and remove it from this scheduler's queue. This is the exception to the rule that a non-holder changes nothing: the scheduler that spawned the process into an existing sandbox ends it when its offer gets no yes.
 	async fn finish_unaccepted_spawn(&self, spawn: &Spawn, error: &tg::Error) {
-		// Await indexing.
-		if let Err(error) = self.index().await {
-			tracing::warn!(error = %error.trace(), sandbox = %spawn.sandbox, "failed to await indexing");
-		}
-
-		// Read the process.
-		let Some(id) = &spawn.arg.process.id else {
-			return;
-		};
-		let result = self
-			.server
-			.index
-			.try_get_processes_with_data(std::slice::from_ref(id))
-			.await;
-		let queued = match result {
-			Ok(mut indexed) => indexed
-				.pop()
-				.flatten()
-				.and_then(|(_, data)| data)
-				.is_some_and(|data| data.status.is_queued()),
-			Err(error) => {
-				tracing::error!(error = %error.trace(), process = %id, "failed to get the process");
-				false
-			},
-		};
-
-		// Finish a process that no runner accepted, and remove the process from this scheduler's queue.
-		if queued {
-			finish_spawn(&self.server, &self.id, spawn, error).await;
-		} else if let Err(error) = self.write_process_handoff(spawn).await {
-			tracing::error!(error = %error.trace(), process = %id, "failed to remove the process from the queue");
-		}
+		finish_spawn(&self.server, &self.id, spawn, error).await;
 	}
 
 	/// Remove a process from this scheduler's queue.
