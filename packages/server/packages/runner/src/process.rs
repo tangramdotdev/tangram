@@ -62,6 +62,9 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 #[must_use]
 pub(super) struct SpawnProcessTaskOutput {
 	pub events: tokio::sync::mpsc::UnboundedReceiver<tg::Result<Event>>,
+
+	/// The process, which the boot finishes as failed if it does not start.
+	pub process: tg::runner::control::Process,
 }
 
 struct ProcessTaskArg {
@@ -248,6 +251,7 @@ impl Component {
 		let session = session.clone();
 		let boot = arg.boot;
 		let process = arg.process;
+		let spawned = process.clone();
 		let processes = arg.processes;
 		let public = arg.public;
 		let sandbox = arg.sandbox.clone();
@@ -287,6 +291,7 @@ impl Component {
 		);
 		SpawnProcessTaskOutput {
 			events: event_receiver,
+			process: spawned,
 		}
 	}
 

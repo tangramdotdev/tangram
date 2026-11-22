@@ -800,16 +800,18 @@ impl Component {
 		Ok(())
 	}
 
-	/// Give up each reported boot that the scheduler ended because it declared the runner dead, without writing anything more for it. Stop a boot whose state is stored locally, keeping its directory if the scheduler keeps it, and destroy it otherwise, which removes its directory. Mark a boot whose task runs, so that a boot whose state is not stored yet gives itself up in the same way once it is, and starts no process.
+	/// Give up each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the boot, keeping its directory if the scheduler keeps it, or destroys it otherwise, which removes its directory, and a boot whose state is not stored yet starts no process.
 	fn yield_runner_sandboxes(&self, header: &tg::runner::control::Header) {
 		for ended in &header.ended {
-			let yielded = if header.kept.contains(&ended.id) {
+			let kind = if header.kept.contains(&ended.id) {
 				tangram_server_runner_core::sandbox::Yield::Stop
 			} else {
 				tangram_server_runner_core::sandbox::Yield::Destroy
 			};
-			tracing::warn!(sandbox = %ended.id, boot = ended.boot, "giving up a sandbox whose boot the scheduler ended");
-			self.yield_sandbox_boot(&ended.id, ended.boot, yielded);
+			if let Some(boot) = self.state.boots.get(&ended.id, ended.boot) {
+				tracing::warn!(sandbox = %ended.id, boot = ended.boot, "giving up a sandbox whose boot the scheduler ended");
+				boot.give_up(kind);
+			}
 		}
 	}
 
