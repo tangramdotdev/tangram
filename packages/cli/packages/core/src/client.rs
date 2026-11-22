@@ -273,19 +273,17 @@ impl Cli {
 		self.config.as_ref().and_then(|config| config.token.clone())
 	}
 
-	pub fn write_token(&mut self, token: String) -> tg::Result<()> {
-		let mut config = self.config.clone().unwrap_or_default();
+	pub fn write_token(&self, token: String) -> tg::Result<()> {
+		let mut config = self.read_config_for_write()?;
 		config.token = Some(token);
 		self.write_config(&config)?;
-		self.config = Some(config);
 		Ok(())
 	}
 
-	pub fn delete_token(&mut self) -> tg::Result<()> {
-		if let Some(mut config) = self.config.clone() {
-			config.token = None;
+	pub fn delete_token(&self) -> tg::Result<()> {
+		let mut config = self.read_config_for_write()?;
+		if config.token.take().is_some() {
 			self.write_config(&config)?;
-			self.config = Some(config);
 		}
 		Ok(())
 	}

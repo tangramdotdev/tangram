@@ -25,15 +25,19 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			"the directory path is not valid UTF-8"
 		)
 	})?;
-	let mut config = cli.read_config()?;
-	let shell = config.shell.as_mut().ok_or_else(|| {
-		tg::error!(
-			path = %args.path.display(),
-			"the shell directory is not configured"
-		)
-	})?;
-	let removed = shell.directories.remove(&key).is_some();
-	let directories_empty = shell.directories.is_empty();
+	let mut config = cli.read_config_for_write()?;
+	let directories = config
+		.shell
+		.as_mut()
+		.and_then(|shell| shell.directories.as_mut())
+		.ok_or_else(|| {
+			tg::error!(
+				path = %args.path.display(),
+				"the shell directory is not configured"
+			)
+		})?;
+	let removed = directories.remove(&key).is_some();
+	let directories_empty = directories.is_empty();
 	if !removed {
 		return Err(tg::error!(
 			path = %args.path.display(),

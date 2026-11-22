@@ -23,13 +23,18 @@ impl Cli {
 impl Telemetry {
 	#[must_use]
 	pub fn new(config: &TelemetryConfig) -> Self {
+		let endpoint = config
+			.endpoint
+			.as_deref()
+			.expect("missing telemetry endpoint");
+		let service_name = config.service_name.as_deref().unwrap_or("tangram");
 		let resource = otel_sdk::Resource::builder()
-			.with_service_name(config.service_name.clone())
+			.with_service_name(service_name.to_owned())
 			.build();
 
 		let trace_exporter = otel_otlp::SpanExporter::builder()
 			.with_tonic()
-			.with_endpoint(&config.endpoint)
+			.with_endpoint(endpoint)
 			.with_compression(otel_otlp::Compression::Zstd)
 			.build()
 			.expect("failed to create OTLP trace exporter");
@@ -41,7 +46,7 @@ impl Telemetry {
 
 		let metric_exporter = otel_otlp::MetricExporter::builder()
 			.with_tonic()
-			.with_endpoint(&config.endpoint)
+			.with_endpoint(endpoint)
 			.with_compression(otel_otlp::Compression::Zstd)
 			.build()
 			.expect("failed to create OTLP metric exporter");
@@ -53,7 +58,7 @@ impl Telemetry {
 
 		let log_exporter = otel_otlp::LogExporter::builder()
 			.with_tonic()
-			.with_endpoint(&config.endpoint)
+			.with_endpoint(endpoint)
 			.with_compression(otel_otlp::Compression::Zstd)
 			.build()
 			.expect("failed to create OTLP log exporter");
@@ -65,8 +70,7 @@ impl Telemetry {
 
 		otel::global::set_meter_provider(meter_provider.clone());
 
-		let tracer =
-			otel::trace::TracerProvider::tracer(&tracer_provider, config.service_name.clone());
+		let tracer = otel::trace::TracerProvider::tracer(&tracer_provider, service_name.to_owned());
 
 		Self {
 			tracer,

@@ -46,7 +46,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let tokio_single_threaded = cli
 		.config
 		.as_ref()
-		.is_some_and(|config| config.tokio_single_threaded);
+		.is_some_and(|config| config.tokio_single_threaded.unwrap_or_default());
 
 	// Get the server config.
 	let mut config = crate::config::resolve_config(cli)?;

@@ -40,29 +40,24 @@ pub struct DeactivateShellOutput {
 pub(super) fn get_shell_directory(
 	cli: &Cli,
 	path: &Path,
-) -> tg::Result<Option<(PathBuf, tangram_cli_core::config::ShellDirectory)>> {
-	let config = cli.read_config()?;
-	let Some(shell) = config.shell else {
-		return Ok(None);
-	};
-	if shell.directories.is_empty() {
-		return Ok(None);
-	}
-	let mut directories = shell
-		.directories
+) -> Option<(PathBuf, tangram_cli_core::config::ShellDirectory)> {
+	let directories = cli
+		.config
+		.as_ref()
+		.and_then(|config| config.shell.as_ref())
+		.and_then(|shell| shell.directories.as_ref())?;
+	let mut directories = directories
 		.iter()
 		.map(|(directory, value)| (PathBuf::from(directory), value))
 		.collect::<Vec<_>>();
 	directories.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
-	let directory = directories
+	let (directory, value) = directories
 		.into_iter()
 		.rev()
-		.find(|(directory, _)| path.starts_with(directory))
-		.map(|(directory, value)| (directory, value.clone()));
-	let Some((directory, directory_value)) = directory else {
-		return Ok(None);
-	};
-	Ok(Some((directory, directory_value)))
+		.find(|(directory, _)| path.starts_with(directory))?;
+	let directory = (directory, value.clone());
+
+	Some(directory)
 }
 
 pub(super) fn shell_state_path() -> tg::Result<PathBuf> {

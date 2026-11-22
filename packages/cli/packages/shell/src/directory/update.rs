@@ -18,7 +18,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, "failed to get the current directory"))?;
 	let path = std::fs::canonicalize(path)
 		.map_err(|error| tg::error!(!error, "failed to canonicalize the current directory"))?;
-	let directory = crate::util::get_shell_directory(cli, &path)?;
+	let directory = crate::util::get_shell_directory(cli, &path);
 	let shell_state_path = std::env::var("TANGRAM_SHELL_STATE").ok();
 	let state = shell_state_path
 		.as_deref()
