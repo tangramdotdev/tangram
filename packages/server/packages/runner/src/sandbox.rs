@@ -766,7 +766,7 @@ impl Component {
 		task.detach();
 	}
 
-	/// Finish as failed with the error a process that this server spawned into a boot and recorded, on this server, numbering the finish with the boot's counter, and write the finish again until this server accepts it. Return whether this server answered the finish, which it does not for a boot that the runner gave up.
+	/// Finish as failed with the error a process that this server spawned into a boot and recorded, on this server, numbering the finish with the boot's counter. The write reaches this server's index, whose error is a refusal that is final, so the write is not sent again. Return whether this server answered the finish, which it does not for a boot that the runner gave up.
 	async fn finish_local_process(
 		session: &Session,
 		boot: &Boot,
@@ -780,19 +780,17 @@ impl Component {
 		let Some(sequence) = boot.next() else {
 			return false;
 		};
-		loop {
-			let result = session
-				.server
-				.components
-				.process
-				.finish_queued_process(&session.server, id, data.clone(), error.clone(), sequence)
-				.await;
-			let Err(error) = result else {
-				return true;
-			};
-			tracing::error!(error = %error.trace(), process = %id, "failed to finish the process");
-			tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+		let result = session
+			.server
+			.components
+			.process
+			.finish_queued_process(&session.server, id, data, error, sequence)
+			.await;
+		if let Err(error) = result {
+			tracing::error!(error = %error.trace(), process = %id, "the server refused the finish of the process");
 		}
+
+		true
 	}
 
 	#[tracing::instrument(name = "sandbox.lifecycle", level = "info", skip_all, fields(runner = self.state.id().as_ref().map(ToString::to_string), sandbox = arg.arg.id.as_ref().map(ToString::to_string)))]
