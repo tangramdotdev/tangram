@@ -28,6 +28,9 @@ pub(super) enum Outcome {
 	/// The runner does not have the capacity for the sandbox.
 	Declined,
 
+	/// The runner held the boot and it ended, because the runner gave it up or a later boot replaced it.
+	Ended,
+
 	/// The runner failed to create the sandbox.
 	Failed(tg::Error),
 
@@ -145,6 +148,13 @@ impl SchedulerState {
 			},
 
 			Outcome::Declined => None,
+
+			// Forget a boot that the runner held and that ended, as the end of a boot that the runner held, and offer it to no other runner.
+			Outcome::Ended => {
+				tracing::info!(sandbox = %id, runner = %runner.id, "the runner answered that the boot ended");
+				self.end_held_sandbox(scheduler, id, Some(placement.clone()));
+				return;
+			},
 
 			Outcome::Failed(error) => {
 				tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner.id, "the runner failed to create the sandbox");
@@ -567,11 +577,12 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 			output
 				.try_unwrap_offer_sandbox()
 				.map_err(|_| tg::error!("expected an offer sandbox response"))
-				.map(|output| output.accepted)
+				.map(|output| output.answer)
 		});
 	match result {
-		Ok(true) => Outcome::Accepted,
-		Ok(false) => Outcome::Declined,
+		Ok(tg::runner::control::Answer::Ended) => Outcome::Ended,
+		Ok(tg::runner::control::Answer::No) => Outcome::Declined,
+		Ok(tg::runner::control::Answer::Yes) => Outcome::Accepted,
 		Err(error) => Outcome::Failed(error),
 	}
 }

@@ -427,7 +427,34 @@ pub struct OfferSandboxServerRequestArg {
 )]
 pub struct OfferSandboxClientResponseOutput {
 	#[tangram_serialize(id = 0)]
-	pub accepted: bool,
+	pub answer: Answer,
+}
+
+/// A runner's answer to an offer of a boot.
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Answer {
+	/// The runner gave the boot up or a later boot of the sandbox replaced it, so the runner never runs it again and its holder ended it.
+	#[tangram_serialize(id = 0)]
+	Ended,
+
+	/// The runner does not take the boot, so the scheduler holds it again.
+	#[tangram_serialize(id = 1)]
+	No,
+
+	/// The runner holds the boot.
+	#[tangram_serialize(id = 2)]
+	Yes,
 }
 
 #[derive(

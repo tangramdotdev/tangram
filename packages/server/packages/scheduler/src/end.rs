@@ -48,15 +48,11 @@ impl SchedulerState {
 
 		// Record the runner's yes to a boot whose offer is unanswered, because the runner reports only a boot that it held, and forget the boot.
 		match held {
-			Held::Accepted | Held::Offered(_) => {
-				if let Held::Offered(placement) = held {
-					let runner = placement.runner().clone();
-					self.remove_reservation(&sandbox, &placement, true);
-					self.accept_sandbox(scheduler, &sandbox, runner);
-				}
-				self.remove_ended_sandbox(scheduler, &sandbox);
-				self.stop_serving_sandbox_holder(&sandbox);
-				self.queue.wake();
+			Held::Accepted => {
+				self.end_held_sandbox(scheduler, &sandbox, None);
+			},
+			Held::Offered(placement) => {
+				self.end_held_sandbox(scheduler, &sandbox, Some(placement));
 			},
 			Held::Derived => {
 				let ended = EndedBoot {
@@ -90,6 +86,23 @@ impl SchedulerState {
 }
 
 impl SchedulerState {
+	/// Forget a boot that a runner held and that ended, which frees its capacity, and remember it as ended. Record the runner's yes to a boot whose offer is unanswered, because the runner held it.
+	pub(super) fn end_held_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		sandbox: &tg::sandbox::Id,
+		offered: Option<super::placement::Placement>,
+	) {
+		if let Some(placement) = offered {
+			let runner = placement.runner().clone();
+			self.remove_reservation(sandbox, &placement, true);
+			self.accept_sandbox(scheduler, sandbox, runner);
+		}
+		self.remove_ended_sandbox(scheduler, sandbox);
+		self.stop_serving_sandbox_holder(sandbox);
+		self.queue.wake();
+	}
+
 	/// Answer a report of the end of a boot that this scheduler cannot authorize. Acknowledge it without acting on it if the index records the sandbox as destroyed or at a later boot, such as a sandbox that was destroyed while this scheduler was down, so that the runner finishes its end, and give the answer of the authorization otherwise.
 	fn acknowledge_ended_runner_sandbox(
 		&mut self,
