@@ -19,6 +19,8 @@ use {
 };
 
 mod assets;
+#[cfg(test)]
+mod tests;
 
 pub mod control;
 pub mod create;
@@ -997,13 +999,9 @@ impl Component {
 				return Ok(output);
 			}
 
-			// Wait for the stream to change after it is lost.
+			// Wait for a stream other than the one that was lost, which may already be the current one.
 			tracing::warn!("failed to send the report through the runner control stream");
-			control.mark_unchanged();
-			control
-				.changed()
-				.await
-				.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?;
+			wait_for_other_sender(&mut control, |current| current.same(&sender)).await?;
 		}
 	}
 
@@ -1191,11 +1189,17 @@ impl Component {
 			})
 			.collect::<Vec<_>>();
 
-		// Report the sandboxes with directories that the runner does not hold and the sandboxes that it runs on every connection, so that the scheduler decides which directories the runner keeps, and, on the first connection after the runner starts, ends the sandboxes that the runner no longer holds.
+		// Report the sandboxes with directories that the runner does not hold and the sandboxes of every boot that it has, including a boot that it gave up and that is still tearing down, on every connection, so that the scheduler decides which directories the runner keeps, and, on the first connection after the runner starts, ends the sandboxes that the runner no longer holds.
 		let directories = stopped
 			.iter()
 			.cloned()
-			.chain(sandboxes.iter().map(|sandbox| sandbox.id.clone()))
+			.chain(
+				self.state
+					.boots
+					.list()
+					.into_iter()
+					.map(|boot| boot.sandbox.clone()),
+			)
 			.collect::<BTreeSet<_>>()
 			.into_iter()
 			.collect();
@@ -1861,4 +1865,17 @@ impl tangram_server_core::runner::Component for Component {
 	) -> BoxFuture<'a, tg::Result<http::Response<BoxBody>>> {
 		self.request(session, request).boxed()
 	}
+}
+
+/// Wait until the watched sender is one other than a lost sender, which it may already be, so that a sender that replaced the lost one before the wait began is not missed.
+async fn wait_for_other_sender<T>(
+	receiver: &mut tokio::sync::watch::Receiver<Option<T>>,
+	lost: impl Fn(&T) -> bool,
+) -> tg::Result<()> {
+	receiver
+		.wait_for(|sender| sender.as_ref().is_some_and(|sender| !lost(sender)))
+		.await
+		.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?;
+
+	Ok(())
 }
