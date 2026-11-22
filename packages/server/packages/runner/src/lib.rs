@@ -853,13 +853,12 @@ impl Component {
 		});
 	}
 
-	/// Report a sandbox that this runner started on the shortcut path to its scheduler through the runner control stream, and report it again on the next stream after the scheduler rejects it, such as for a stream that a reconnect replaced.
+	/// Report a sandbox that this runner started on the shortcut path to its scheduler through the runner control stream. A report that the scheduler refuses is final.
 	pub(crate) async fn report_shortcut_sandbox_with_runner_control(
 		&self,
 		sandbox: &tg::sandbox::Id,
 		boot: u64,
 		proof: tg::sandbox::id::Proof,
-		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let arg = tg::runner::control::ClientRequestArg::AddSandbox(
 			tg::runner::control::AddSandboxClientRequestArg {
@@ -868,27 +867,13 @@ impl Component {
 				sandbox: sandbox.clone(),
 			},
 		);
-		let mut control = self.control.subscribe();
-		loop {
-			control.mark_unchanged();
-			let error = match self.report_with_runner_control(arg.clone()).await {
-				Ok(output) => {
-					output
-						.try_unwrap_add_sandbox()
-						.map_err(|_| tg::error!("expected an add sandbox response"))?;
-					return Ok(());
-				},
-				Err(error) => error,
-			};
-			tracing::warn!(error = %error.trace(), %sandbox, "failed to report the sandbox to the scheduler");
-			tokio::select! {
-				biased;
-				result = control.changed() => result.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?,
-				() = stopper.wait() => {
-					return Err(tg::error!(%sandbox, "the runner stopped before the sandbox was reported"));
-				},
-			}
-		}
+		self.report_with_runner_control(arg)
+			.await
+			.map_err(|error| tg::error!(!error, %sandbox, "failed to report the sandbox"))?
+			.try_unwrap_add_sandbox()
+			.map_err(|_| tg::error!("expected an add sandbox response"))?;
+
+		Ok(())
 	}
 
 	/// Report the end of a boot that this runner held to its scheduler through the runner control stream.

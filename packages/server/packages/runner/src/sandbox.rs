@@ -2330,10 +2330,9 @@ impl Component {
 			let component = self.clone();
 			let id = id.clone();
 			let reported = reported.clone();
-			let stopper = stopper.clone();
 			Task::spawn(move |_| async move {
 				match component
-					.report_shortcut_sandbox_with_runner_control(&id, boot, proof, &stopper)
+					.report_shortcut_sandbox_with_runner_control(&id, boot, proof)
 					.await
 				{
 					Ok(()) => reported.store(true, Ordering::Release),

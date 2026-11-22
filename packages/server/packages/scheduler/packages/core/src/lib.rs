@@ -359,7 +359,12 @@ pub struct AddRunnerSandboxRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct AddRunnerSandboxResponseOutput {}
+pub struct AddRunnerSandboxResponseOutput {
+	/// The scheduler's request that the runner send the report again later, because the report came on a connection that a reconnect replaced or the scheduler cannot authorize it yet.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<tg::control::Retry>,
+}
 
 /// A deletion of a runner, which its scheduler declares dead, and whose boots it ends.
 #[derive(

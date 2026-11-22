@@ -8,6 +8,7 @@ use {
 	futures::FutureExt as _,
 	std::{
 		collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+		ops::ControlFlow,
 		time::Duration,
 	},
 	tangram_cache::log,
@@ -178,6 +179,22 @@ pub(super) struct Runner {
 
 	/// Whether the runner restarted and this scheduler has not finished handling its first connection, until which the runner is sent nothing and every connection of the runner is handled as a first connection.
 	pub restarting: bool,
+}
+
+/// Decide the answer to a runner's report of a sandbox that it started on the shortcut path. A report on a connection that a reconnect replaced and a report that this scheduler cannot authorize yet are sent again, and a report that this scheduler refuses is final.
+pub(super) fn decide_added_sandbox(
+	current: bool,
+	authorization: super::report::Authorization,
+) -> tg::Result<ControlFlow<super::report::Authorized, tg::control::Retry>> {
+	match authorization {
+		super::report::Authorization::Authorized(authorized) if current => {
+			Ok(ControlFlow::Break(authorized))
+		},
+		super::report::Authorization::Authorized(_) | super::report::Authorization::NotReady => {
+			Ok(ControlFlow::Continue(tg::control::Retry::NotReady))
+		},
+		super::report::Authorization::Refused(error) => Err(error),
+	}
 }
 
 /// Decide each unanswered offer to a runner that restarted and each boot that it claimed from the index's record of its sandbox, with the one decision of a saved boot, so that an offer whose boot ended is never offered again, even if the end was written by an earlier connection that did not apply.
@@ -506,11 +523,8 @@ impl SchedulerState {
 			sandbox: &request.sandbox,
 		};
 		let authorization = self.authorize_runner_report(&report);
-		let result = match authorization {
-			_ if !current => Err(
-				tg::error!(sandbox = %request.sandbox, runner = %request.runner, "the runner's connection is not current"),
-			),
-			super::report::Authorization::Authorized(authorized) => {
+		let result = match decide_added_sandbox(current, authorization) {
+			Ok(ControlFlow::Break(authorized)) => {
 				if matches!(authorized.held, super::report::Held::Derived) {
 					let runner = super::placement::RunnerRef {
 						connection: request.connection,
@@ -525,13 +539,17 @@ impl SchedulerState {
 						runner,
 					);
 				}
-				let output = tangram_server_scheduler_core::AddRunnerSandboxResponseOutput {};
+				let output =
+					tangram_server_scheduler_core::AddRunnerSandboxResponseOutput { retry: None };
 				Ok(super::ResponseOutput::AddRunnerSandbox(output))
 			},
-			super::report::Authorization::NotReady => Err(
-				tg::error!(sandbox = %request.sandbox, runner = %request.runner, "the runner did not derive the sandbox's ID"),
-			),
-			super::report::Authorization::Refused(error) => Err(error),
+			Ok(ControlFlow::Continue(retry)) => {
+				let output = tangram_server_scheduler_core::AddRunnerSandboxResponseOutput {
+					retry: Some(retry),
+				};
+				Ok(super::ResponseOutput::AddRunnerSandbox(output))
+			},
+			Err(error) => Err(error),
 		};
 		let response = super::request::Response::new(id, result);
 		scheduler.send_response(response);

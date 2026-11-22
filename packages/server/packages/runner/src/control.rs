@@ -434,9 +434,9 @@ impl Component {
 			tg::runner::control::ClientRequestArg::AddSandbox(arg) => self
 				.add_runner_sandbox(session, runner, scheduler, connection, arg)
 				.await
-				.map(|output| {
+				.map(|(output, retry)| {
 					let output = tg::runner::control::ServerResponseOutput::AddSandbox(output);
-					(output, None)
+					(output, retry)
 				}),
 			tg::runner::control::ClientRequestArg::DestroySandbox(arg) => self
 				.destroy_runner_sandbox(session, runner, scheduler, arg)
@@ -496,7 +496,7 @@ impl Component {
 		tg::runner::control::ServerMessage::Response(response)
 	}
 
-	/// Report a sandbox that a runner started on the shortcut path to the runner's scheduler.
+	/// Report a sandbox that a runner started on the shortcut path to the runner's scheduler, and ask the runner to send the report again if the scheduler cannot be reached or asks for the report again.
 	async fn add_runner_sandbox(
 		&self,
 		session: &Session,
@@ -504,7 +504,10 @@ impl Component {
 		scheduler: &tg::scheduler::Id,
 		connection: u64,
 		arg: tg::runner::control::AddSandboxClientRequestArg,
-	) -> tg::Result<tg::runner::control::AddSandboxServerResponseOutput> {
+	) -> tg::Result<(
+		tg::runner::control::AddSandboxServerResponseOutput,
+		Option<tg::control::Retry>,
+	)> {
 		let request = tangram_server_scheduler_core::RequestArg::AddRunnerSandbox(
 			tangram_server_scheduler_core::AddRunnerSandboxRequestArg {
 				boot: arg.boot,
@@ -514,18 +517,25 @@ impl Component {
 				sandbox: arg.sandbox,
 			},
 		);
-		session
+		let output = tg::runner::control::AddSandboxServerResponseOutput {};
+		let response = match session
 			.server
 			.components
 			.scheduler
 			.send_scheduler_request_to(session, scheduler, request)
 			.boxed()
-			.await??
-			.try_unwrap_add_runner_sandbox()
-			.map_err(|_| tg::error!("expected an add runner sandbox response"))?;
-		let output = tg::runner::control::AddSandboxServerResponseOutput {};
+			.await
+		{
+			Ok(response) => response?,
+			Err(error) => {
+				tracing::warn!(error = %error.trace(), "failed to send the report to the scheduler");
+				return Ok((output, Some(tg::control::Retry::NotReady)));
+			},
+		}
+		.try_unwrap_add_runner_sandbox()
+		.map_err(|_| tg::error!("expected an add runner sandbox response"))?;
 
-		Ok(output)
+		Ok((output, response.retry))
 	}
 
 	/// Send a runner's report that it removed the directory of a destroying sandbox to the runner's scheduler, which authorizes it from its memory of the removal that it asked of the runner and records the destruction, and ask the runner to send the report again if the scheduler cannot be reached or cannot authorize it yet.
