@@ -1159,7 +1159,7 @@ async fn sandbox_put_preserves_existing_contents_and_processes() {
 	let stored = index.try_get_sandbox(&id).await.unwrap().unwrap();
 	assert!(stored.data.unwrap().data.owner.is_root());
 	changed.principal = tg::Principal::Sandbox(id);
-	put_sandbox(&index, changed).await.unwrap();
+	assert!(put_sandbox(&index, changed).await.is_err());
 }
 
 #[tokio::test]

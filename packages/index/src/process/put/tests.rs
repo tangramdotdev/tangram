@@ -314,6 +314,38 @@ fn a_write_that_changes_the_boot_is_rejected() {
 	assert!(state.rejected.contains(&1));
 }
 
+#[test]
+fn a_write_that_changes_the_command_of_a_process_is_rejected() {
+	let id = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let queued = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	let mut started = arg(&id, data(&sandbox, tg::process::Status::Started));
+	started.command_id = tg::command::Id::new(b"other").into();
+	started.sequence = 1;
+	let mut state = State::default();
+	apply(&mut state, 0, &queued, None);
+	apply(&mut state, 1, &started, None);
+	assert!(state.rejected.contains(&1));
+}
+
+#[test]
+fn a_write_that_changes_the_sandbox_of_a_process_is_rejected() {
+	let id = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let other = tg::sandbox::Id::new();
+	let queued = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	let mut started = arg(&id, data(&other, tg::process::Status::Started));
+	started.sequence = 1;
+	let mut link = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	link.data = None;
+	link.sandbox = Some(other);
+	let mut state = State::default();
+	apply(&mut state, 0, &queued, None);
+	apply(&mut state, 1, &started, None);
+	apply(&mut state, 2, &link, None);
+	assert_eq!(state.rejected, BTreeSet::from([1, 2]));
+}
+
 /// Apply the writes in every order with the sandbox's record, and assert that every order leaves the same records and rejects the same writes. Return the records of the last order.
 fn assert_every_order_converges(args: &[Arg], sandbox: Option<&crate::sandbox::Sandbox>) -> State {
 	let mut expected = None;

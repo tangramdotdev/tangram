@@ -148,19 +148,51 @@ fn the_lifecycle_writes_of_a_sandbox_converge_in_every_order() {
 
 #[test]
 fn a_late_write_of_an_earlier_boot_leaves_a_later_boot_and_its_runner() {
-	let first = tg::runner::Id::new();
-	let second = tg::runner::Id::new();
+	let runner = tg::runner::Id::new();
 	let mut existing = sandbox(data(1, tg::sandbox::Status::Starting, None));
-	existing.runner = Some(second.clone());
+	existing.runner = Some(runner.clone());
 	for status in [tg::sandbox::Status::Started, tg::sandbox::Status::Destroyed] {
 		let mut late = arg(data(0, status, None));
-		late.runner = Some(first.clone());
+		late.runner = Some(runner.clone());
 		let merge = late.merge(Some(&existing), None).unwrap().unwrap();
 		assert_eq!(
 			merge.sandbox.data.unwrap().data.status,
 			tg::sandbox::Status::Starting
 		);
-		assert_eq!(merge.sandbox.runner, Some(second.clone()));
+		assert_eq!(merge.sandbox.runner, Some(runner.clone()));
+	}
+}
+
+#[test]
+fn the_runner_of_a_sandbox_is_kept_from_the_first_put_that_names_one() {
+	let first = tg::runner::Id::new();
+	let second = tg::runner::Id::new();
+	let mut existing = sandbox(data(0, tg::sandbox::Status::Stopped, None));
+	existing.runner = Some(first.clone());
+	let mut later = arg(data(1, tg::sandbox::Status::Started, None));
+	later.runner = Some(second);
+	let merge = later.merge(Some(&existing), None).unwrap().unwrap();
+	assert_eq!(
+		merge.sandbox.data.unwrap().data.status,
+		tg::sandbox::Status::Started
+	);
+	assert_eq!(merge.sandbox.runner, Some(first));
+}
+
+#[test]
+fn a_write_that_changes_the_creator_or_the_owner_of_a_sandbox_is_rejected() {
+	let existing = sandbox(data(0, tg::sandbox::Status::Started, None));
+	let user = tg::Principal::User(tg::user::Id::new());
+	let mut creator = arg(data(0, tg::sandbox::Status::Stopped, None));
+	creator.data.as_mut().unwrap().data.creator = user.clone();
+	let mut owner = arg(data(0, tg::sandbox::Status::Stopped, None));
+	owner.data.as_mut().unwrap().data.owner = user;
+	for (field, write) in [("creator", creator), ("owner", owner)] {
+		let merge = write.merge(Some(&existing), None).unwrap();
+		assert!(
+			merge.is_err(),
+			"a write that changes the {field} was not rejected"
+		);
 	}
 }
 

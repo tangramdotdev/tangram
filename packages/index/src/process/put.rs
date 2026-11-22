@@ -454,10 +454,14 @@ impl Arg {
 			)));
 		}
 
-		// Reject a write that changes the sandbox of a process whose record has one.
+		// Reject a write that changes the sandbox of a process whose record has one, with its data or without.
+		let sandbox = self
+			.data
+			.as_ref()
+			.map_or(self.sandbox.as_ref(), |data| data.sandbox.as_ref());
 		if existing.sandbox.is_some()
-			&& let Some(data) = &self.data
-			&& data.sandbox != existing.sandbox
+			&& (self.data.is_some() || self.sandbox.is_some())
+			&& sandbox != existing.sandbox.as_ref()
 		{
 			return Ok(Err(tg::error!(
 				id = %self.id,
@@ -465,14 +469,16 @@ impl Arg {
 			)));
 		}
 
-		// Accept the process's own writes in any order, which the merge orders, keeping the first end that arrives.
-		if self.principal == tg::Principal::Process(self.id.clone()) {
-			return Ok(Ok(()));
-		}
+		// Reject a write that changes the command of an existing process.
 		if self.command_id != existing.command_id {
 			return Ok(Err(
 				tg::error!(id = %self.id, "cannot replace an existing process"),
 			));
+		}
+
+		// Accept the process's own writes in any order, which the merge orders, keeping the first end that arrives.
+		if self.principal == tg::Principal::Process(self.id.clone()) {
+			return Ok(Ok(()));
 		}
 
 		if let (Some(data), Some(existing)) = (&self.data, existing_data) {

@@ -39,6 +39,7 @@ pub struct Arg {
 	#[tangram_serialize(id = 7)]
 	pub processes: Option<Vec<tg::process::Id>>,
 
+	/// The runner of the sandbox, which the record keeps from the first put that names one.
 	#[tangram_serialize(id = 4)]
 	pub runner: Option<tg::runner::Id>,
 
@@ -82,7 +83,7 @@ struct DataMerge {
 
 	stopped_usages: BTreeMap<u64, tg::sandbox::Usage>,
 
-	/// Whether the arg's data superseded the existing data, so that the record takes the arg's account, location, and runner.
+	/// Whether the arg's data superseded the existing data, so that the record takes the arg's account and location.
 	superseded: bool,
 
 	usages: BTreeMap<u64, tg::sandbox::Usage>,
@@ -146,6 +147,18 @@ impl Arg {
 	}
 
 	pub fn validate_existing(&self, existing: &super::Sandbox) -> tg::Result<tg::Result<()>> {
+		// Reject a write by any principal that changes the creator or the owner of a sandbox whose record has data.
+		if let (Some(data), Some(existing)) = (&self.data, &existing.data)
+			&& (data.data.creator != existing.data.creator
+				|| data.data.owner != existing.data.owner)
+		{
+			return Ok(Err(tg::error!(
+				id = %self.id,
+				"cannot change the creator or the owner of an existing sandbox"
+			)));
+		}
+
+		// Accept the writes of root and of the sandbox itself in any order, which the merge orders.
 		if self.principal.is_root() || self.principal == tg::Principal::Sandbox(self.id.clone()) {
 			return Ok(Ok(()));
 		}
@@ -220,7 +233,7 @@ impl Arg {
 			|| existing.is_none()
 			|| (self.data.is_some() && self.processes.is_some());
 
-		// Keep the existing data, account, and runner for another principal's put.
+		// Keep the existing data and account for another principal's put.
 		let mut arg = std::borrow::Cow::Borrowed(self);
 		if let Some(existing) = existing
 			&& !arg.principal.is_root()
@@ -229,7 +242,6 @@ impl Arg {
 			let arg = arg.to_mut();
 			arg.account.clone_from(&existing.account);
 			arg.data = None;
-			arg.runner.clone_from(&existing.runner);
 		}
 		let arg = arg.as_ref();
 
@@ -242,23 +254,25 @@ impl Arg {
 			usages,
 		} = arg.merge_data(existing);
 
-		// Take the account, the location, and the runner with the data that wins, and keep the other's location and runner where the winner has none.
+		// Take the account and the location with the data that wins, and keep the other's location where the winner has none.
 		let existing_account = existing.and_then(|sandbox| sandbox.account.clone());
 		let existing_location = existing.and_then(|sandbox| sandbox.location.clone());
-		let existing_runner = existing.and_then(|sandbox| sandbox.runner.clone());
-		let (account, location, runner) = if superseded {
+		let (account, location) = if superseded {
 			(
 				arg.account.clone(),
 				arg.location.clone().or(existing_location),
-				arg.runner.clone().or(existing_runner),
 			)
 		} else {
 			(
 				existing_account,
 				existing_location.or_else(|| arg.location.clone()),
-				existing_runner.or_else(|| arg.runner.clone()),
 			)
 		};
+
+		// Keep the runner from the first put that names one, because a sandbox has one runner.
+		let runner = existing
+			.and_then(|sandbox| sandbox.runner.clone())
+			.or_else(|| arg.runner.clone());
 		if let Some(data) = &mut data {
 			data.location.clone_from(&location);
 		}
