@@ -1,7 +1,7 @@
 use {
-	super::{RecoveredBoot, Recovery},
+	super::{RecoveredBoot, Recovery, SavedBoot, decide_saved_boot},
 	crate::{SchedulerState, runner::tests::request},
-	std::collections::BTreeSet,
+	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
 	tangram_server_core::clock::Clock,
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
@@ -75,4 +75,107 @@ fn every_connection_of_a_runner_reports_to_a_restarted_scheduler_until_one_is_ap
 		);
 		assert!(recovery.requests.contains_key(&queued));
 	}
+}
+
+/// Create the index's record of a sandbox at a boot with a status, whose last write has a number and records a runner.
+fn indexed(
+	sandbox: &tg::sandbox::Id,
+	boot: u64,
+	status: tg::sandbox::Status,
+	sequence: u64,
+	runner: Option<&tg::runner::Id>,
+) -> tangram_index::sandbox::Sandbox {
+	let data = tg::sandbox::Data {
+		boot,
+		cpu: None,
+		creator: tg::Principal::Root,
+		error: None,
+		expires_at: None,
+		hostname: None,
+		id: sandbox.clone(),
+		memory: None,
+		mounts: Vec::new(),
+		network: None,
+		owner: tg::Principal::Root,
+		status,
+		stopped_at: None,
+		storage: None,
+		time_to_live: None,
+		time_to_stop: None,
+		usage: None,
+	};
+	let data = tg::sandbox::get::Output {
+		data,
+		location: None,
+		tokens: tg::authorization::Tokens::default(),
+	};
+	tangram_index::sandbox::Sandbox {
+		account: None,
+		created_at: 0,
+		data: Some(data),
+		ends: BTreeMap::new(),
+		location: None,
+		reference_count: 0,
+		runner: runner.cloned(),
+		scheduler: None,
+		sequence,
+		set: tangram_index::sandbox::Set::default(),
+		stopped_usages: BTreeMap::new(),
+		touched_at: 0,
+		usages: BTreeMap::new(),
+	}
+}
+
+#[test]
+fn a_saved_boot_that_the_index_shows_ended_is_never_offered_again() {
+	let sandbox = tg::sandbox::Id::new();
+	let runner = tg::runner::Id::new();
+	let request = saved(&sandbox, 1);
+	let decide = |indexed: Option<tangram_index::sandbox::Sandbox>| {
+		decide_saved_boot(&request, indexed.as_ref())
+	};
+
+	// A boot that its runner stopped or whose sandbox it destroyed, and a boot that a later boot replaced, ended.
+	for (boot, status) in [
+		(1, tg::sandbox::Status::Stopped),
+		(1, tg::sandbox::Status::Destroyed),
+		(2, tg::sandbox::Status::Starting),
+	] {
+		let decision = decide(Some(indexed(&sandbox, boot, status, 3, Some(&runner))));
+		assert!(
+			matches!(decision, SavedBoot::Ended),
+			"the boot {boot} with the status {status} was not decided as ended"
+		);
+	}
+
+	// A running boot that a runner wrote belongs to the runner.
+	let decision = decide(Some(indexed(
+		&sandbox,
+		1,
+		tg::sandbox::Status::Started,
+		1,
+		Some(&runner),
+	)));
+	assert!(matches!(decision, SavedBoot::Written { runner: written } if written == runner));
+
+	// A boot that only this scheduler wrote, or that the index does not have, is still held by this scheduler.
+	let decision = decide(Some(indexed(
+		&sandbox,
+		1,
+		tg::sandbox::Status::Starting,
+		0,
+		None,
+	)));
+	assert!(matches!(decision, SavedBoot::Unwritten));
+	assert!(matches!(decide(None), SavedBoot::Unwritten));
+
+	// A sandbox that is being destroyed is destroyed.
+	let decision = decide(Some(indexed(
+		&sandbox,
+		1,
+		tg::sandbox::Status::Destroying,
+		3,
+		Some(&runner),
+	)));
+	assert!(matches!(decision, SavedBoot::Destroying { .. }));
 }

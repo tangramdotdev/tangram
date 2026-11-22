@@ -121,7 +121,7 @@ impl SchedulerState {
 }
 
 impl Scheduler {
-	/// Record the end of the boot of an authorized report, unless the runner recorded the end through the boot's control stream, with the runner's data and with only the boot's processes that this scheduler offered into it, at the runner's boot and sequence, and remove the boot from this scheduler's queue in one write, and publish the sandbox's status.
+	/// Remove the boot of an authorized report from this scheduler's queue, and record the end of the boot unless the runner recorded it through the boot's control stream, with the runner's data and with only the boot's processes that this scheduler offered into it, at the runner's boot and sequence, in one write, and publish the sandbox's status.
 	async fn end_runner_sandbox(
 		&self,
 		runner: &tg::runner::Id,
@@ -150,49 +150,45 @@ impl Scheduler {
 		tangram_server_core::checkpoint!(self.server, "scheduler.sandbox.end", %sandbox, boot)
 			.await;
 
-		// Leave an end that the runner recorded at the sandbox's home through the boot's control stream.
-		if recorded {
-			return Ok(EndRunnerSandboxResponseOutput { retry: None });
-		}
-
-		// Record the end.
-		let account = self
-			.server
-			.components
-			.usage
-			.usage_account(&session, &data.data.owner)
-			.await?;
-		let now = self.server.clock.unix_timestamp();
-		let mut data = data;
-		data.location = None;
-		data.tokens = tg::authorization::Tokens::default();
-		let put = tangram_index::sandbox::put::Arg {
-			account,
-			created_at,
-			data: Some(data),
-			id: sandbox.clone(),
-			location: None,
-			permissions: Vec::new(),
-			principal: tg::Principal::Sandbox(sandbox.clone()),
-			process: None,
-			processes: Some(processes),
-			runner: Some(runner.clone()),
-			scheduler: None,
-			sequence,
-			stopped_boot: None,
-			stopped_usage: None,
-			touched_at: now,
-		};
+		// Remove the boot from this scheduler's queue, and record the end unless the runner recorded it at the sandbox's home through the boot's control stream, in one write.
 		let delete = tangram_index::scheduler::sandbox::delete::Arg {
 			boot,
 			sandbox: sandbox.clone(),
 		};
-		let arg = tangram_index::write::Arg {
-			items: vec![
-				tangram_index::Item::PutSandbox(Box::new(put)),
-				tangram_index::Item::DeleteSchedulerSandbox(Box::new(delete)),
-			],
-		};
+		let mut items = vec![tangram_index::Item::DeleteSchedulerSandbox(Box::new(
+			delete,
+		))];
+		if !recorded {
+			let account = self
+				.server
+				.components
+				.usage
+				.usage_account(&session, &data.data.owner)
+				.await?;
+			let now = self.server.clock.unix_timestamp();
+			let mut data = data;
+			data.location = None;
+			data.tokens = tg::authorization::Tokens::default();
+			let put = tangram_index::sandbox::put::Arg {
+				account,
+				created_at,
+				data: Some(data),
+				id: sandbox.clone(),
+				location: None,
+				permissions: Vec::new(),
+				principal: tg::Principal::Sandbox(sandbox.clone()),
+				process: None,
+				processes: Some(processes),
+				runner: Some(runner.clone()),
+				scheduler: None,
+				sequence,
+				stopped_boot: None,
+				stopped_usage: None,
+				touched_at: now,
+			};
+			items.insert(0, tangram_index::Item::PutSandbox(Box::new(put)));
+		}
+		let arg = tangram_index::write::Arg { items };
 		self.server
 			.components
 			.indexer
@@ -203,10 +199,12 @@ impl Scheduler {
 			)?;
 
 		// Publish the sandbox's status.
-		self.server
-			.components
-			.sandbox
-			.spawn_publish_sandbox_status_task(&self.server, &sandbox);
+		if !recorded {
+			self.server
+				.components
+				.sandbox
+				.spawn_publish_sandbox_status_task(&self.server, &sandbox);
+		}
 
 		Ok(EndRunnerSandboxResponseOutput { retry: None })
 	}
