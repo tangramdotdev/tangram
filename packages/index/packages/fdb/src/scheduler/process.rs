@@ -51,7 +51,8 @@ impl Index {
 			let Key::Runner(crate::runner::Key::SchedulerProcess { process, .. }) = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
-			let Some(request) = SchedulerProcess::deserialize(entry.value())?.request else {
+			let SchedulerProcess::Queued(request) = SchedulerProcess::deserialize(entry.value())?
+			else {
 				continue;
 			};
 			let process = tangram_index::scheduler::process::QueuedProcess {
@@ -77,7 +78,7 @@ impl Index {
 			Self::try_get_scheduler_process_with_transaction(txn, subspace, &key).await
 		);
 		let change = SchedulerProcess::put(existing.as_ref(), &arg.request);
-		Self::apply_scheduler_process_change(txn, subspace, &key, &change)?;
+		Self::apply_scheduler_process_change(txn, subspace, &arg.scheduler, &arg.process, &change)?;
 
 		Ok(ControlFlow::Break(()))
 	}
@@ -94,10 +95,71 @@ impl Index {
 		let existing = crate::propagate!(
 			Self::try_get_scheduler_process_with_transaction(txn, subspace, &key).await
 		);
-		let change = SchedulerProcess::delete(existing.as_ref());
-		Self::apply_scheduler_process_change(txn, subspace, &key, &change)?;
+		let change = SchedulerProcess::delete(existing.as_ref(), arg.deleted_at);
+		Self::apply_scheduler_process_change(txn, subspace, &arg.scheduler, &arg.process, &change)?;
 
 		Ok(ControlFlow::Break(()))
+	}
+
+	/// Delete the records of the deletes of scheduler processes that are at least as old as the cutoff, in the order of their age.
+	pub(crate) async fn delete_expired_scheduler_processes(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		max_deleted_at: i64,
+		limit: usize,
+	) -> tg::Result<ControlFlow<usize, fdb::FdbError>> {
+		if limit == 0 {
+			return Ok(ControlFlow::Break(0));
+		}
+
+		// Read the keys of the deletes in the order of their age.
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::SchedulerProcessDeletedAt.to_i32().unwrap(),),
+		);
+		let range = fdb::RangeOption {
+			limit: Some(limit),
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let entries = crate::retry!(result);
+		let mut expired = Vec::new();
+		for entry in &entries {
+			let Key::Runner(crate::runner::Key::SchedulerProcessDeletedAt {
+				deleted_at,
+				process,
+				scheduler,
+			}) = Self::unpack(subspace, entry.key())?
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			if deleted_at > max_deleted_at {
+				break;
+			}
+			expired.push((deleted_at, process, scheduler));
+		}
+
+		// Delete each expired record and its key.
+		let count = expired.len();
+		for (deleted_at, process, scheduler) in expired {
+			let key = Key::Runner(crate::runner::Key::SchedulerProcess {
+				process: process.clone(),
+				scheduler: scheduler.clone(),
+			});
+			txn.clear(&Self::pack(subspace, &key));
+			let key = Key::Runner(crate::runner::Key::SchedulerProcessDeletedAt {
+				deleted_at,
+				process,
+				scheduler,
+			});
+			txn.clear(&Self::pack(subspace, &key));
+		}
+
+		Ok(ControlFlow::Break(count))
 	}
 
 	async fn try_get_scheduler_process_with_transaction(
@@ -115,21 +177,30 @@ impl Index {
 		Ok(ControlFlow::Break(record))
 	}
 
+	/// Apply a change to the entry of a process in a scheduler's queue, and record a delete by its time, so that the clean removes the record of the delete by its age.
 	fn apply_scheduler_process_change(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-		key: &Key,
+		scheduler: &tg::scheduler::Id,
+		process: &tg::process::Id,
 		change: &Change,
 	) -> tg::Result<()> {
-		match change {
-			Change::Clear => {
-				txn.clear(&Self::pack(subspace, key));
-			},
-			Change::Keep => (),
-			Change::Store(record) => {
-				let value = record.serialize()?;
-				txn.set(&Self::pack(subspace, key), &value);
-			},
+		let Change::Store(record) = change else {
+			return Ok(());
+		};
+		let key = Key::Runner(crate::runner::Key::SchedulerProcess {
+			process: process.clone(),
+			scheduler: scheduler.clone(),
+		});
+		let value = record.serialize()?;
+		txn.set(&Self::pack(subspace, &key), &value);
+		if let SchedulerProcess::Deleted(deleted_at) = record {
+			let key = Key::Runner(crate::runner::Key::SchedulerProcessDeletedAt {
+				deleted_at: *deleted_at,
+				process: process.clone(),
+				scheduler: scheduler.clone(),
+			});
+			txn.set(&Self::pack(subspace, &key), &[]);
 		}
 
 		Ok(())

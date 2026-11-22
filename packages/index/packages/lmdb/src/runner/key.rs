@@ -18,6 +18,11 @@ pub enum Key {
 		process: tg::process::Id,
 		scheduler: tg::scheduler::Id,
 	},
+	SchedulerProcessDeletedAt {
+		deleted_at: i64,
+		process: tg::process::Id,
+		scheduler: tg::scheduler::Id,
+	},
 	SchedulerSandbox {
 		sandbox: tg::sandbox::Id,
 		scheduler: tg::scheduler::Id,

@@ -399,7 +399,9 @@ async fn delete_spawn(
 		.id
 		.clone()
 		.ok_or_else(|| tg::error!("expected the process's ID"))?;
+	let deleted_at = server.clock.unix_timestamp();
 	let delete = tangram_index::scheduler::process::delete::Arg {
+		deleted_at,
 		process,
 		sandbox: spawn.sandbox.clone(),
 		scheduler: scheduler.clone(),
