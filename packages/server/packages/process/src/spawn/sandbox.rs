@@ -371,7 +371,7 @@ impl Component {
 					.state()
 					.sandboxes
 					.get_by_id(sandbox)
-					.map(|state| state.boot);
+					.map(|state| state.boot.boot);
 				self.write_queued_process(session, &queued, sandbox, boot, public)
 					.await?;
 			}

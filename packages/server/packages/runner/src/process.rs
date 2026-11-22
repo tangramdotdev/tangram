@@ -17,7 +17,7 @@ use {
 		task::{Stopper, Task},
 	},
 	tangram_index::prelude::*,
-	tangram_server_runner_core::process::ConnectedEvent,
+	tangram_server_runner_core::{process::ConnectedEvent, sandbox::Boot},
 	tokio::task::JoinSet,
 	tokio_stream::wrappers::UnboundedReceiverStream,
 	tracing::Instrument as _,
@@ -43,8 +43,8 @@ type ControlConnection = (
 );
 
 pub(super) struct SpawnProcessTaskArg<'a> {
-	/// The boot of the process's sandbox, which the process belongs to.
-	pub boot: u64,
+	/// The boot of the process's sandbox, which the process belongs to, which numbers the process's start and finish and finishes the process as failed if no server accepts its finish.
+	pub boot: Arc<Boot>,
 
 	pub guest_url: &'a tangram_uri::Uri,
 	pub location: tg::Location,
@@ -57,12 +57,6 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub sandbox: &'a tangram_sandbox::Sandbox,
 	pub sandbox_create: Option<tg::process::control::SandboxCreate>,
 	pub sandbox_ready_receiver: Option<tokio::sync::oneshot::Receiver<()>>,
-
-	/// The spawner of the process, which finishes the process as failed if no server accepts its finish.
-	pub spawner: crate::sandbox::Spawner,
-
-	/// The writes of the process's boot, which number the process's start and finish.
-	pub writes: crate::sandbox::Writes,
 }
 
 #[must_use]
@@ -71,7 +65,7 @@ pub(super) struct SpawnProcessTaskOutput {
 }
 
 struct ProcessTaskArg {
-	boot: u64,
+	boot: Arc<Boot>,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 	guest_url: tangram_uri::Uri,
 	location: tg::Location,
@@ -83,11 +77,10 @@ struct ProcessTaskArg {
 	sandbox_create: Option<tg::process::control::SandboxCreate>,
 	sandbox_ready_receiver: Option<tokio::sync::oneshot::Receiver<()>>,
 	sandbox_stopper: Stopper,
-	spawner: crate::sandbox::Spawner,
-	writes: crate::sandbox::Writes,
 }
 
 struct FinishProcessRunArg {
+	boot: Arc<Boot>,
 	command_push: Option<Task<tg::Result<()>>>,
 	control: control::ProcessControlSender,
 	exited: Stopper,
@@ -102,7 +95,6 @@ struct FinishProcessRunArg {
 	run_task: Task<tg::Result<RunProcessOutcome>>,
 	sandbox: tangram_sandbox::Sandbox,
 	state: tg::process::State,
-	writes: crate::sandbox::Writes,
 }
 
 struct FinishProcessRunOutput {
@@ -265,8 +257,6 @@ impl Component {
 		let sandbox_ready_receiver = arg.sandbox_ready_receiver;
 		let sandbox_stopper = arg.process_stopper.clone();
 		let retention_stopper = arg.retention_stopper;
-		let spawner = arg.spawner;
-		let writes = arg.writes;
 		arg.process_tasks.spawn(
 			async move {
 				let arg = ProcessTaskArg {
@@ -282,8 +272,6 @@ impl Component {
 					sandbox_create,
 					sandbox_ready_receiver,
 					sandbox_stopper,
-					spawner,
-					writes,
 				};
 				let result = if session.server.shutdown.borrow().is_some() {
 					Err(tg::error!("the server is shutting down"))
@@ -317,12 +305,10 @@ impl Component {
 			sandbox_create,
 			mut sandbox_ready_receiver,
 			sandbox_stopper,
-			spawner,
-			writes,
 		} = arg;
 
 		// Count the process's finish as unaccepted until a server accepts it, so that the end of the boot waits for it, and keep the process to finish it as failed if no server accepts its finish.
-		let unaccepted = writes.begin();
+		let unaccepted = boot.begin_finish();
 		let unfinished = process.clone();
 		let tg::runner::control::Process {
 			mut data,
@@ -868,6 +854,7 @@ impl Component {
 		// Collect and store the output concurrently with the control connection.
 		let exited = Stopper::new();
 		let finish_arg = FinishProcessRunArg {
+			boot: boot.clone(),
 			command_push,
 			control: control.sender(),
 			exited: exited.clone(),
@@ -882,7 +869,6 @@ impl Component {
 			run_task,
 			sandbox: sandbox.clone(),
 			state: state.clone(),
-			writes: writes.clone(),
 		};
 		let finish_span = tracing::Span::current();
 		let finish_task = Task::spawn({
@@ -903,6 +889,7 @@ impl Component {
 		let (stderr_buffered_sender, stderr_buffered_receiver) = tokio::sync::oneshot::channel();
 		let (stdout_buffered_sender, stdout_buffered_receiver) = tokio::sync::oneshot::channel();
 		let control_task = Task::spawn({
+			let boot = boot.clone();
 			let component = self.clone();
 			let session = session.clone();
 			let exited = exited.clone();
@@ -914,6 +901,7 @@ impl Component {
 			|_| {
 				async move {
 					let arg = RunProcessControlTaskArg {
+						boot,
 						control,
 						exited,
 						finish: finish_receiver,
@@ -925,7 +913,6 @@ impl Component {
 						retention_stopper,
 						sandbox,
 						sandbox_process: sandbox_process_receiver,
-						spawner,
 						stderr,
 						stderr_buffered: stderr_buffered_sender,
 						stderr_progress,
@@ -972,12 +959,18 @@ impl Component {
 		// Connect process control while the process runs. A process on the shortcut path connects as the runner in the background, so that nothing waits for the server, and receives its process token in the header.
 		let shortcut_start = shortcut.is_some();
 		let (proof, shortcut) = shortcut.unzip();
+		let Some(sequence) = boot.next() else {
+			process_stopper.stop();
+			drop(index_sender);
+			finish_task.wait().await.ok();
+			return Err(tg::error!(%id, "the runner gave up the process's boot"));
+		};
 		let start = tg::process::control::StartClientRequestArg {
-			boot,
+			boot: boot.boot,
 			data: data.clone(),
 			lease,
 			options: options.clone(),
-			sequence: writes.next(),
+			sequence,
 			shortcut,
 		};
 		let arg = tg::process::control::Arg {
@@ -1185,6 +1178,7 @@ impl Component {
 		arg: FinishProcessRunArg,
 	) -> tg::Result<FinishProcessRunOutput> {
 		let FinishProcessRunArg {
+			boot,
 			command_push,
 			control,
 			exited,
@@ -1199,7 +1193,6 @@ impl Component {
 			run_task,
 			sandbox,
 			state,
-			writes,
 		} = arg;
 		let result = run_task
 			.wait()
@@ -1425,10 +1418,13 @@ impl Component {
 			.await;
 		let mut finish_data = data.clone();
 		Self::inherit_process_control_tokens(&mut finish_data, &location);
+		let Some(sequence) = boot.next() else {
+			return Ok(FinishProcessRunOutput { index_task });
+		};
 		let arg = tg::process::control::ClientRequestArg::Finish(
 			tg::process::control::FinishClientRequestArg {
 				data: finish_data,
-				sequence: writes.next(),
+				sequence,
 			},
 		);
 		let response = Self::send_process_control_client_request_inner(

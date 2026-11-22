@@ -31,6 +31,9 @@ pub struct State {
 	#[cfg(target_os = "linux")]
 	pub cpu_threads: tangram_sandbox::cpu::Threads,
 
+	/// The boots that the runner holds, from the runner's yes until each boot ends locally.
+	pub boots: crate::sandbox::Boots,
+
 	pub capacity: crate::capacity::Pool,
 
 	#[cfg(target_os = "linux")]
@@ -58,9 +61,6 @@ pub struct State {
 	/// The number of times that the runner has connected to a scheduler, which changes even when a restarted scheduler keeps its ID.
 	pub scheduler_connections: tokio::sync::watch::Sender<u64>,
 
-	/// The boots whose tasks run, from the runner's yes until the task ends.
-	pub starting: dashmap::DashMap<tg::sandbox::Id, crate::sandbox::Starting>,
-
 	#[cfg(target_os = "linux")]
 	pub stopped_project_ids: dashmap::DashMap<tg::sandbox::Id, crate::project::Id>,
 
@@ -74,6 +74,8 @@ impl State {
 		let (scheduler, _) = tokio::sync::watch::channel(None);
 		let (scheduler_connections, _) = tokio::sync::watch::channel(0);
 		Self {
+			boots: crate::sandbox::Boots::default(),
+
 			capacity: crate::capacity::Pool::new(config.capacity, config.overcommit),
 
 			#[cfg(target_os = "linux")]
@@ -101,8 +103,6 @@ impl State {
 
 			scheduler,
 			scheduler_connections,
-
-			starting: dashmap::DashMap::new(),
 
 			#[cfg(target_os = "linux")]
 			stopped_project_ids: dashmap::DashMap::new(),

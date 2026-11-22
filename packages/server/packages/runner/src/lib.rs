@@ -44,9 +44,6 @@ pub struct Component(Arc<State>);
 pub struct State {
 	pub control: tokio::sync::watch::Sender<Option<RunnerSender>>,
 
-	/// The boots whose tasks run, with the processes that each accepted, which the runner reports when it connects to its scheduler.
-	pub(crate) held: dashmap::DashMap<tg::sandbox::Id, crate::sandbox::Held, tg::id::BuildHasher>,
-
 	/// The replies to recent offers of boots, by request ID, so that an offer that the scheduler sends again is answered with its reply, even after the boot that it created ended. The replies outlast the scheduler's ttl of the runner, after which the scheduler no longer sends an offer again.
 	pub offers: tangram_server_core::holder::Replies<tg::runner::control::ClientMessage>,
 
@@ -104,10 +101,8 @@ impl Component {
 			arg.config.scheduler.runner_time_to_live,
 			arg.config.control.request_timeout,
 		);
-		let held = dashmap::DashMap::default();
 		let state = State {
 			control,
-			held,
 			offers,
 
 			#[cfg(target_os = "linux")]
@@ -710,7 +705,7 @@ impl Component {
 			.into_iter()
 			.filter(|sandbox| {
 				self.state.sandboxes.get_by_id(sandbox).is_none()
-					&& !self.state.starting.contains_key(sandbox)
+					&& self.state.boots.latest(sandbox).is_none()
 			})
 			.collect::<Vec<_>>();
 
@@ -814,11 +809,6 @@ impl Component {
 				tangram_server_runner_core::sandbox::Yield::Destroy
 			};
 			tracing::warn!(sandbox = %ended.id, boot = ended.boot, "giving up a sandbox whose boot the scheduler ended");
-			if let Some(mut starting) = self.state.starting.get_mut(&ended.id)
-				&& starting.boot == ended.boot
-			{
-				starting.yielded = Some(yielded);
-			}
 			self.yield_sandbox_boot(&ended.id, ended.boot, yielded);
 		}
 	}
@@ -1175,30 +1165,21 @@ impl Component {
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
 
-		// Report every sandbox that is running or starting, with the processes that its scheduler offered into the boot and that the runner holds, and the proof for a boot on the shortcut path, so that a restarted scheduler can tell which requests it already placed and cancel the boots and processes that the index does not have.
-		let mut sandboxes = self
+		// Report the latest boot of each sandbox that the runner holds and did not give up, with the processes that its scheduler offered into the boot and that did not finish, and the proof for a boot on the shortcut path, so that a restarted scheduler can tell which requests it already placed and cancel the boots and processes that the index does not have.
+		let sandboxes = self
 			.state
-			.sandboxes
-			.iter()
-			.filter(|sandbox| !sandbox.status.is_stopped_or_destroyed())
-			.map(|sandbox| (sandbox.id.clone(), sandbox.boot))
-			.collect::<BTreeMap<_, _>>();
-		for entry in &self.state.starting {
-			sandboxes
-				.entry(entry.key().clone())
-				.or_insert(entry.value().boot);
-		}
-		let sandboxes = sandboxes
+			.boots
+			.list()
 			.into_iter()
-			.map(|(id, boot)| {
-				let (processes, proof) = self
-					.held
-					.get(&id)
-					.filter(|held| held.boot == boot)
-					.map_or_default(|held| held.report());
+			.filter(|boot| boot.given_up().is_none())
+			.map(|boot| (boot.sandbox.clone(), boot))
+			.collect::<BTreeMap<_, _>>()
+			.into_values()
+			.map(|boot| {
+				let (processes, proof) = boot.report();
 				tg::runner::control::ArgSandbox {
-					boot,
-					id,
+					boot: boot.boot,
+					id: boot.sandbox.clone(),
 					processes,
 					proof,
 				}
@@ -1326,22 +1307,21 @@ impl Component {
 
 			// Join a boot that this runner holds or ended itself, whose end it reports, because a scheduler can send a boot again after it restarts. Refuse a boot that this runner gave up or that a later boot of the sandbox replaced, which the runner never runs again, so that the scheduler does not record that the runner holds it.
 			let state = session.server.components.runner.state();
-			let starting = state
-				.starting
-				.get(&request.sandbox)
-				.map(|starting| (starting.boot, starting.yielded.is_some()));
-			let stored = state
-				.sandboxes
-				.get_by_id(&request.sandbox)
-				.map(|sandbox| (sandbox.boot, sandbox.yielded));
-			let joined = [starting, stored]
-				.into_iter()
+			let boots = [
+				state.boots.get(&request.sandbox, request.boot),
+				state.boots.latest(&request.sandbox),
+				state
+					.sandboxes
+					.get_by_id(&request.sandbox)
+					.map(|sandbox| sandbox.boot.clone()),
+			];
+			let joined = boots
+				.iter()
 				.flatten()
-				.any(|(boot, yielded)| boot == request.boot && !yielded);
-			let ended = [starting, stored]
-				.into_iter()
-				.flatten()
-				.any(|(boot, yielded)| boot > request.boot || (boot == request.boot && yielded));
+				.any(|boot| boot.boot == request.boot && boot.given_up().is_none());
+			let ended = boots.iter().flatten().any(|boot| {
+				boot.boot > request.boot || (boot.boot == request.boot && boot.given_up().is_some())
+			});
 			if ended && !joined {
 				let message = Self::create_runner_control_response(
 					id.clone(),
@@ -1438,11 +1418,6 @@ impl Component {
 			};
 
 			// Spawn the sandbox task.
-			let starting = tangram_server_runner_core::sandbox::Starting {
-				boot: request.boot,
-				yielded: None,
-			};
-			state.starting.insert(sandbox.clone(), starting);
 			let _ = self.spawn_sandbox_task(
 				&session.server,
 				tangram_server_runner_core::sandbox::SpawnSandboxTaskArg {
