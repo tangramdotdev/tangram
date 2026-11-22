@@ -605,14 +605,14 @@ impl SchedulerState {
 					self.accept_claimed_sandbox(scheduler, &id, claim.request, processes, runner);
 				},
 
-				// Record the destruction of a boot that is being destroyed and whose runner was declared dead since its report.
+				// Record the destruction of a sandbox that is being destroyed and whose runner was declared dead since its report.
 				None if destroying => {
 					self.finish_destroy_sandbox(scheduler, claim.request, error);
 				},
 
 				// End a boot as failed whose runner was declared dead since its report, because the boot is lost with the runner.
 				None => {
-					self.fail_claimed_sandbox(scheduler, claim);
+					self.fail_claimed_sandbox(scheduler, claim.request, claim.runner);
 				},
 			}
 		}
@@ -636,7 +636,7 @@ impl SchedulerState {
 
 				// End a boot that a runner wrote and did not claim, because the runner restarted or was declared dead.
 				SavedBoot::Written { runner } => {
-					self.fail_claimed_sandbox(scheduler, Claim { request, runner });
+					self.fail_claimed_sandbox(scheduler, request, runner);
 				},
 			}
 		}
@@ -706,17 +706,13 @@ impl SchedulerState {
 		);
 	}
 
-	/// End a boot that a runner claimed and lost, or that a runner wrote and did not claim, because the runner restarted or was declared dead, through the end of a dead runner's boot, which leaves the sandbox stopped on the runner, or destroyed if its ttl is zero. Remember the boot as ended, so that this scheduler tells the runner when it connects again.
-	fn fail_claimed_sandbox(&mut self, scheduler: &Scheduler, claim: Claim) {
-		let Claim { request, runner } = claim;
-		let ended = super::report::EndedBoot {
-			declared: true,
-			processes: BTreeSet::new(),
-			runner: runner.clone(),
-		};
-		self.sandboxes
-			.ended
-			.insert(request.sandbox.clone(), request.boot, ended);
+	/// End a boot that a runner claimed and lost, that a runner wrote and did not claim, because the runner restarted or was declared dead, or whose offer the runner answered with the boot's end, through the end of a dead runner's boot, which leaves the sandbox stopped on the runner, or destroyed if its ttl is zero, and which leaves a boot whose end the index records as it is. Remember the boot as ended once the end applies, so that this scheduler tells the runner when it connects again.
+	pub(super) fn fail_claimed_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		request: EnqueueSandboxRequestArg,
+		runner: tg::runner::Id,
+	) {
 		let destroy = request
 			.arg
 			.time_to_live
@@ -733,9 +729,10 @@ impl SchedulerState {
 					boot: request.boot,
 					destroy,
 					error,
+					persist: None,
 					runner: &runner,
 					sandbox: &request.sandbox,
-					task: None,
+					task: Some(&scheduler.holder_sender),
 				};
 				scheduler
 					.component

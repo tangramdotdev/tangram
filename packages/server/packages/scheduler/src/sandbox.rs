@@ -116,6 +116,9 @@ pub(super) struct Sandbox {
 	/// The sandboxes that the sandbox can borrow capacity from while the scheduler holds it, which are the sandbox that created it and each sandbox whose process waits for its process after a cache hit, with the sandbox's links in each one's queue.
 	pub(super) parents: Vec<ParentLinks>,
 
+	/// The write of the boot's first record that this scheduler started, which an end of the boot waits for.
+	pub(super) persist: Option<Write>,
+
 	pub(super) persisted: bool,
 
 	/// The processes that the scheduler offered into the boot, which are the boot's initial process and the spawns into it, and which are the only processes that the runner's reports of the boot may finish.
@@ -216,6 +219,7 @@ impl Sandbox {
 			links: Links::default(),
 			parent,
 			parents: Vec::new(),
+			persist: None,
 			persisted: false,
 			processes,
 			request,
@@ -412,11 +416,17 @@ impl SchedulerState {
 			if first {
 				let boot = entry.boot;
 				let request = entry.request().clone();
-				let scheduler = scheduler.clone();
+				let persist = {
+					let scheduler = scheduler.clone();
+					async move { scheduler.persist_sandbox(&request, true).await }
+						.boxed()
+						.shared()
+				};
+				entry.persist = Some(persist.clone());
 				let sandbox = sandbox.clone();
 				self.operations.push(
 					async move {
-						let result = scheduler.persist_sandbox(&request, true).await;
+						let result = persist.await;
 						Operation::PersistSandbox {
 							boot,
 							result,

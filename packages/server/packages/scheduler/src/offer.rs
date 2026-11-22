@@ -175,9 +175,11 @@ impl SchedulerState {
 				return;
 			},
 
-			// Forget a boot that the runner held and that ended, as the end of a boot that the runner held, and offer it to no other runner.
+			// Forget a boot that the runner held and that ended, as the end of a boot that the runner held, offer it to no other runner, and write its end if the index does not record one.
 			Decision::End => {
 				tracing::info!(sandbox = %id, runner = %runner.id, "the runner answered that the boot ended");
+				let request = sandbox.request().clone();
+				self.fail_claimed_sandbox(scheduler, request, runner.id.clone());
 				self.end_held_sandbox(scheduler, id, Some(placement.clone()));
 				return;
 			},

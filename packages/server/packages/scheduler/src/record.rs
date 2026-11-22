@@ -8,18 +8,7 @@ use {
 impl Scheduler {
 	/// Await indexing, so that the index has applied every write that was acknowledged before.
 	pub(super) async fn index(&self) -> tg::Result<()> {
-		let session = self.server.session(&self.server.context);
-		self.server
-			.components
-			.indexer
-			.index(&session, tg::index::Arg::default())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index"))?
-			.try_last()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index"))?;
-
-		Ok(())
+		index(&self.server).await
 	}
 
 	/// Write the starting record and the key that associates the sandbox with this scheduler. The first write of a request also writes the permissions of its queued process.
@@ -308,6 +297,22 @@ impl Scheduler {
 
 		Ok(())
 	}
+}
+
+/// Await indexing, so that the index has applied every write that was acknowledged before.
+pub(super) async fn index(server: &tangram_server_core::Server) -> tg::Result<()> {
+	let session = server.session(&server.context);
+	server
+		.components
+		.indexer
+		.index(&session, tg::index::Arg::default())
+		.await
+		.map_err(|error| tg::error!(!error, "failed to index"))?
+		.try_last()
+		.await
+		.map_err(|error| tg::error!(!error, "failed to index"))?;
+
+	Ok(())
 }
 
 /// Get the status that records a failure of a sandbox after its acceptance, which destroys a new sandbox and stops a sandbox that was starting again.

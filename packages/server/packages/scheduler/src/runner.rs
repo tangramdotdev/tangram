@@ -61,6 +61,9 @@ pub(super) struct EndDeadRunnerBootArg<'a> {
 	/// The error that the ended sandbox and its processes record.
 	pub error: tg::error::Data,
 
+	/// The write of the boot's first record that this scheduler started, whose write and indexing the end waits for, or `None` if the caller read the boot from the index.
+	pub persist: Option<super::sandbox::Write>,
+
 	pub runner: &'a tg::runner::Id,
 
 	pub sandbox: &'a tg::sandbox::Id,
@@ -760,22 +763,22 @@ impl SchedulerState {
 	) {
 		let accepted = self.get_unreported_sandboxes(runner, &[]);
 		let accepted = self.forget_accepted_sandboxes(scheduler, runner, &accepted);
+		let deleted = matches!(removal, Removal::Deleted { .. });
 		if let Some(entry) = self.remove_runner_entry(runner) {
-			self.end_runner_offers(scheduler, runner, entry);
+			self.end_runner_offers(scheduler, runner, entry, deleted);
 		}
 		let mut queued = Vec::new();
 		for discarded in self.discard_pinned_sandboxes(scheduler, runner) {
 			queued.push(discarded.sandbox.clone());
 			scheduler.publish_sandbox_discarded(self, discarded);
 		}
-		if matches!(removal, Removal::Deleted { .. }) {
+		if deleted {
 			self.sandboxes.ended.forget_runner(runner, &[]);
 		}
 		let scheduler = scheduler.clone();
 		let runner = runner.clone();
 		self.operations.push(
 			async move {
-				let deleted = matches!(removal, Removal::Deleted { .. });
 				let result = scheduler
 					.end_dead_runner(&runner, queued, accepted, deleted)
 					.boxed()
@@ -1005,20 +1008,27 @@ impl SchedulerState {
 	}
 
 	/// End the unanswered offers of a runner that is declared dead, and stop waiting for its report to this restarted scheduler, whose release ends the boots that the runner claimed. The sandboxes that the runner accepted are ended by the end of the runner's boots.
-	fn end_runner_offers(&mut self, scheduler: &Scheduler, id: &tg::runner::Id, runner: Runner) {
+	fn end_runner_offers(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::runner::Id,
+		runner: Runner,
+		deleted: bool,
+	) {
 		self.forget_recovery_runner(scheduler, id);
 		for sandbox in runner.reservations.into_keys() {
-			self.end_unanswered_offer(scheduler, &sandbox, id);
+			self.end_unanswered_offer(scheduler, &sandbox, id, deleted);
 		}
 		self.queue.wake();
 	}
 
-	/// End the boot of a sandbox whose offer to a runner that this scheduler declared dead is unanswered, because the runner may have accepted the offer, so that the boot is never offered to a second runner while the first may hold it. Remember the boot as ended, so that this scheduler tells the runner when it connects again, and record the runner as the sandbox's runner, so that a later boot is offered only to it. Keep the sandbox's entry until the index has recorded the end, and destroy a sandbox that a dequeue waits for or whose ttl is zero.
+	/// End the boot of a sandbox whose offer to a runner that this scheduler declared dead is unanswered, because the runner may have accepted the offer, so that the boot is never offered to a second runner while the first may hold it. End it after the boot's first record is written and indexed, remember the boot as ended once the end applies, unless the runner was deleted, so that this scheduler tells the runner when it connects again, and record the runner as the sandbox's runner, so that a later boot is offered only to it. Keep the sandbox's entry until the index has recorded the end, and destroy a sandbox that a dequeue waits for or whose ttl is zero.
 	fn end_unanswered_offer(
 		&mut self,
 		scheduler: &Scheduler,
 		sandbox: &tg::sandbox::Id,
 		runner: &tg::runner::Id,
+		deleted: bool,
 	) {
 		// Record the runner as the sandbox's runner, and decide whether the sandbox can stay stopped.
 		let entry = self.sandboxes.entries.get_mut(sandbox).unwrap();
@@ -1031,12 +1041,7 @@ impl SchedulerState {
 		let boot = entry.boot;
 		let dequeue_requests = std::mem::take(&mut entry.dequeue_requests);
 		let destroy = zero || !dequeue_requests.is_empty();
-		let ended = super::report::EndedBoot {
-			declared: true,
-			processes: BTreeSet::new(),
-			runner: runner.clone(),
-		};
-		self.sandboxes.ended.insert(sandbox.clone(), boot, ended);
+		let persist = entry.persist.clone();
 
 		// End the boot.
 		let error = tg::error!(%sandbox, %runner, "the sandbox's runner is unavailable")
@@ -1053,6 +1058,7 @@ impl SchedulerState {
 			let error = error.clone();
 			let runner = runner.clone();
 			let sandbox = sandbox.clone();
+			let task = (!deleted).then(|| scheduler.holder_sender.clone());
 			async move {
 				tangram_server_core::checkpoint!(scheduler.server, "scheduler.sandbox.end", %sandbox, status = %status)
 					.await;
@@ -1060,9 +1066,10 @@ impl SchedulerState {
 					boot,
 					destroy,
 					error,
+					persist,
 					runner: &runner,
 					sandbox: &sandbox,
-					task: None,
+					task: task.as_ref(),
 				};
 				scheduler
 					.component
@@ -1562,6 +1569,7 @@ impl Component {
 				boot,
 				destroy,
 				error: error.clone(),
+				persist: None,
 				runner,
 				sandbox: &sandbox,
 				task: ended.as_ref(),
@@ -1588,7 +1596,7 @@ impl Component {
 		Ok(kept)
 	}
 
-	/// End a boot of a runner that this scheduler declared dead, which every end of a dead runner's boot by this scheduler goes through. Write the end numbered zero, which leaves the sandbox stopped, records the runner as the sandbox's runner, and removes the boot from the scheduler's queue, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Then destroy a sandbox that cannot stay stopped with the destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at the boot or is destroying, so that a start that reserved the next boot wins. Write each again until the index answers it, because the scheduler may remember the boot as ended and its runner then gives it up. Tell the scheduling task of the boot once the end applied, so that it remembers the boot as ended. Return whether the destroy applied.
+	/// End a boot of a runner that this scheduler declared dead, which every end of a dead runner's boot by this scheduler goes through. Wait until the boot's first record is written and indexed, so that the end never reads the index before the record that it ends. Write the end numbered zero, which leaves the sandbox stopped, records the runner as the sandbox's runner, and removes the boot from the scheduler's queue, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Then destroy a sandbox that cannot stay stopped with the destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at the boot or is destroying, so that a start that reserved the next boot wins. Write each again until the index answers it, because the scheduler may remember the boot as ended and its runner then gives it up. Tell the scheduling task of the boot once the end applied, so that it remembers the boot as ended. Return whether the destroy applied.
 	pub(super) async fn end_dead_runner_boot(
 		&self,
 		server: &Server,
@@ -1598,10 +1606,20 @@ impl Component {
 			boot,
 			destroy,
 			error,
+			persist,
 			runner,
 			sandbox,
 			task,
 		} = arg;
+
+		// Wait until the boot's first record is written and indexed.
+		if let Some(persist) = persist {
+			persist.await.ok();
+			while let Err(error) = super::record::index(server).await {
+				tracing::error!(error = %error.trace(), %sandbox, boot, "failed to await indexing before the end of the boot");
+				tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+			}
+		}
 
 		// End the boot.
 		let ended = loop {
