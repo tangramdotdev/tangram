@@ -1,7 +1,24 @@
 use {
-	crate::{Cli, Config, config::TracingOutput, telemetry::Telemetry},
+	crate::{
+		Cli, Config,
+		config::{BoolOr, Tracing, TracingOutput},
+		telemetry::Telemetry,
+	},
 	tracing_subscriber::prelude::*,
 };
+
+const DEFAULT_FILTER: &str = concat!(
+	"tangram=info,",
+	"tangram_archive=info,",
+	"tangram_client=info,",
+	"tangram_compiler=info,",
+	"tangram_database=info,",
+	"tangram_javascript=info,",
+	"tangram_messenger=info,",
+	"tangram_server=info,",
+	"tangram_cache=info,",
+	"tangram_vfs=info"
+);
 
 impl Cli {
 	/// Initialize tracing.
@@ -10,23 +27,30 @@ impl Cli {
 		tracing_filter: Option<&String>,
 		telemetry: Option<&Telemetry>,
 	) {
-		let console_layer = if config.is_some_and(|config| config.tokio_console) {
+		let console_layer = if config.is_some_and(|config| config.tokio_console.unwrap_or_default())
+		{
 			Some(console_subscriber::spawn())
 		} else {
 			None
 		};
-		let config_tracing = config.and_then(|config| config.tracing.as_ref());
+		let default = Tracing::default();
+		let config_tracing = config.and_then(|config| match &config.tracing {
+			Some(BoolOr::Bool(false)) => None,
+			None | Some(BoolOr::Bool(true)) => Some(&default),
+			Some(BoolOr::Value(tracing)) => Some(tracing),
+		});
 		let filter_string = tracing_filter
-			.or(config_tracing.map(|t| &t.filter))
-			.cloned()
+			.map(String::as_str)
+			.or_else(|| {
+				config_tracing.map(|tracing| tracing.filter.as_deref().unwrap_or(DEFAULT_FILTER))
+			})
 			.unwrap_or_default();
 		let output = config_tracing
-			.map(|tracing| tracing.output)
+			.map(|tracing| tracing.output.unwrap_or_default())
 			.or_else(|| tracing_filter.is_some().then_some(TracingOutput::Stderr));
 		let output_layer = match output {
 			Some(TracingOutput::Stderr) => {
-				let filter =
-					tracing_subscriber::filter::EnvFilter::try_new(&filter_string).unwrap();
+				let filter = tracing_subscriber::filter::EnvFilter::try_new(filter_string).unwrap();
 				let format = config_tracing
 					.and_then(|t| t.stderr_format)
 					.unwrap_or(crate::config::TracingFormat::Pretty);
@@ -53,13 +77,13 @@ impl Cli {
 		};
 
 		let telemetry_tracing_layer = telemetry.map(|telemetry| {
-			let filter = tracing_subscriber::filter::EnvFilter::try_new(&filter_string).unwrap();
+			let filter = tracing_subscriber::filter::EnvFilter::try_new(filter_string).unwrap();
 			tracing_opentelemetry::layer()
 				.with_tracer(telemetry.tracer.clone())
 				.with_filter(filter)
 		});
 		let telemetry_logs_layer = telemetry.map(|telemetry| {
-			let filter = tracing_subscriber::filter::EnvFilter::try_new(&filter_string).unwrap();
+			let filter = tracing_subscriber::filter::EnvFilter::try_new(filter_string).unwrap();
 			opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(
 				&telemetry.logger_provider,
 			)

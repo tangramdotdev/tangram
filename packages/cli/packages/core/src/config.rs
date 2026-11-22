@@ -1,4 +1,5 @@
 use {
+	self::merge::Merge as _,
 	crate::Cli,
 	serde_with::{DisplayFromStr, DurationSecondsWithFrac, serde_as},
 	std::{
@@ -9,8 +10,11 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_uri::Uri,
-	tangram_util::serde::{BoolOptionDefault, is_default, is_false},
 };
+
+mod merge;
+
+const SYSTEM_CONFIG_PATH: &str = "/etc/tangram/config.json";
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -37,7 +41,7 @@ pub struct Config {
 
 	/// Configure the builtin commands.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub builtin: Option<Builtin>,
+	pub builtin: Option<BuiltinOptions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache: Option<Cache>,
@@ -93,7 +97,7 @@ pub struct Config {
 
 	/// Configure the publish command.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub publish: Option<Publish>,
+	pub publish: Option<PublishOptions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read: Option<Read>,
@@ -120,7 +124,7 @@ pub struct Config {
 
 	/// Configure the REPL.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub repl: Option<Repl>,
+	pub repl: Option<ReplOptions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub roles: Option<BTreeSet<Role>>,
@@ -140,7 +144,7 @@ pub struct Config {
 
 	/// Configure how the CLI starts and stops the server.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub server: Option<Server>,
+	pub server: Option<ServerOptions>,
 
 	/// Configure shell behavior.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -158,20 +162,16 @@ pub struct Config {
 	pub token: Option<String>,
 
 	/// Enable tokio console.
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub tokio_console: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tokio_console: Option<bool>,
 
 	/// Use the tokio current thread runtime instead of the multi-threaded runtime.
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub tokio_single_threaded: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tokio_single_threaded: Option<bool>,
 
 	/// Configure tracing.
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(
-		default = "default_tracing",
-		skip_serializing_if = "is_default_tracing"
-	)]
-	pub tracing: Option<Tracing>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tracing: Option<BoolOr<Tracing>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage: Option<BoolOr<Usage>>,
@@ -188,7 +188,7 @@ pub struct Config {
 
 	/// Configure the viewer.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub viewer: Option<Viewer>,
+	pub viewer: Option<ViewerOptions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub vfs: Option<BoolOr<Vfs>>,
@@ -352,7 +352,8 @@ pub struct Advanced {
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdvancedClock {
-	pub start: jiff::Timestamp,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub start: Option<jiff::Timestamp>,
 }
 
 #[serde_as]
@@ -800,7 +801,7 @@ pub struct Http {
 	pub coalescing_target_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub http2: Option<tangram_http::http2::Config>,
+	pub http2: Option<Http2>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -815,6 +816,22 @@ pub struct Http {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request_timeout: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Http2 {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connection_window_size: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_concurrent_reset_streams: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_concurrent_streams: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stream_window_size: Option<u32>,
 }
 
 #[serde_as]
@@ -2117,8 +2134,11 @@ pub struct IdMap {
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FilesystemProjectIds {
-	pub count: u32,
-	pub start: u32,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub count: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub start: Option<u32>,
 }
 
 #[serde_as]
@@ -2284,7 +2304,7 @@ pub struct Sandbox {
 	pub default_processes_page_size: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub http2: Option<tangram_http::http2::Config>,
+	pub http2: Option<Http2>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3012,7 +3032,7 @@ pub struct ClientHttp {
 
 	/// Configure HTTP/2.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub http2: Option<tangram_http::http2::Config>,
+	pub http2: Option<Http2>,
 
 	/// The interval between HTTP/2 keep alive pings.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -3164,8 +3184,8 @@ pub struct Pool {
 #[serde(default, deny_unknown_fields)]
 pub struct Shell {
 	/// Configure automatic shell directories.
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub directories: BTreeMap<String, ShellDirectory>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub directories: Option<BTreeMap<String, ShellDirectory>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -3177,16 +3197,34 @@ pub struct ShellDirectory {
 }
 
 #[serde_as]
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuiltinOptions {
+	/// The interval at which a builtin progress indicator is redrawn.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub progress_interval: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Builtin {
 	/// The interval at which a builtin progress indicator is redrawn.
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub progress_interval: Duration,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublishOptions {
+	/// The maximum number of concurrent builds of the exports of published packages.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub build_concurrency: Option<usize>,
+
+	/// The maximum number of concurrent package tag lookups.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tag_concurrency: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Publish {
 	/// The maximum number of concurrent builds of the exports of published packages.
 	pub build_concurrency: usize,
@@ -3195,39 +3233,85 @@ pub struct Publish {
 	pub tag_concurrency: usize,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplOptions {
+	/// The maximum number of history entries.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub history_size: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Repl {
 	/// The maximum number of history entries.
 	pub history_size: usize,
 }
 
 #[serde_as]
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerOptions {
+	/// The time to wait for the server to exit after sending SIGTERM, before sending SIGKILL.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub kill_timeout: Option<Duration>,
+
+	/// The time to wait for a spawned server to signal that it is ready.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub start_timeout: Option<Duration>,
+
+	/// The time to wait for the server to exit after sending SIGINT, before sending SIGTERM.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stop_timeout: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Server {
 	/// The time to wait for the server to exit after sending SIGTERM, before sending SIGKILL.
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub kill_timeout: Duration,
 
 	/// The time to wait for a spawned server to signal that it is ready.
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub start_timeout: Duration,
 
 	/// The time to wait for the server to exit after sending SIGINT, before sending SIGTERM.
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub stop_timeout: Duration,
 }
 
 #[serde_as]
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewerOptions {
+	/// The maximum length of a blob that the viewer displays.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub blob_length_limit: Option<u64>,
+
+	/// The time to wait for an item's contents before showing a loading placeholder.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub loading_delay: Option<Duration>,
+
+	/// The length of each page read from a process log.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub log_page_size: Option<u64>,
+
+	/// The maximum length of the latest process log line shown in the tree.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_log_line_limit: Option<usize>,
+
+	/// The interval at which the viewer polls for changes and redraws.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub render_interval: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Viewer {
 	/// The maximum length of a blob that the viewer displays.
 	pub blob_length_limit: u64,
 
 	/// The time to wait for an item's contents before showing a loading placeholder.
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub loading_delay: Duration,
 
 	/// The length of each page read from a process log.
@@ -3237,7 +3321,6 @@ pub struct Viewer {
 	pub process_log_line_limit: usize,
 
 	/// The interval at which the viewer polls for changes and redraws.
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub render_interval: Duration,
 }
 
@@ -3245,23 +3328,24 @@ pub struct Viewer {
 #[serde(deny_unknown_fields)]
 pub struct Telemetry {
 	/// The OTLP endpoint URL.
-	pub endpoint: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub endpoint: Option<String>,
 
 	/// The service name for OpenTelemetry.
-	#[serde(default = "default_service_name")]
-	pub service_name: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub service_name: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Tracing {
-	#[serde(skip_serializing_if = "String::is_empty")]
-	pub filter: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub filter: Option<String>,
 
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub output: TracingOutput,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub output: Option<TracingOutput>,
 
-	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stderr_format: Option<TracingFormat>,
 }
 
@@ -3317,6 +3401,7 @@ pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 		target.connect_timeout = value;
 	}
 	if let Some(value) = source.http2 {
+		let value = value.resolve();
 		value
 			.validate()
 			.map_err(|error| tg::error!(source = error, "invalid client HTTP/2 configuration"))?;
@@ -3449,6 +3534,52 @@ pub(crate) fn resolve_client_retry(source: Retry) -> tg::Result<tangram_futures:
 }
 
 impl Config {
+	fn try_read(path: &Path) -> tg::Result<Option<Self>> {
+		let config = match std::fs::read_to_string(path) {
+			Ok(config) => config,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+			Err(error) => {
+				return Err(
+					tg::error!(!error, path = %path.display(), "failed to read the config file"),
+				);
+			},
+		};
+		let config = Self::deserialize(&config, Format::from_path(path))
+			.map_err(|error| tg::error!(!error, path = %path.display(), "invalid config file"))?;
+		Ok(Some(config))
+	}
+
+	fn validate_at(self, path: &Path) -> tg::Result<Self> {
+		self.validate_required()
+			.map_err(|error| tg::error!(!error, path = %path.display(), "invalid config file"))?;
+		Ok(self)
+	}
+
+	fn validate_required(&self) -> tg::Result<()> {
+		if let Some(clock) = self.advanced.and_then(|config| config.clock) {
+			required(clock.start, "advanced.clock.start")?;
+		}
+		if let Some(project_ids) = self
+			.runner
+			.as_ref()
+			.and_then(|config| config.resources.as_ref())
+			.and_then(|resources| resources.filesystem_project_ids)
+		{
+			required(
+				project_ids.count,
+				"runner.resources.filesystem_project_ids.count",
+			)?;
+			required(
+				project_ids.start,
+				"runner.resources.filesystem_project_ids.start",
+			)?;
+		}
+		if let Some(telemetry) = &self.telemetry {
+			required(telemetry.endpoint.as_ref(), "telemetry.endpoint")?;
+		}
+		Ok(())
+	}
+
 	fn deserialize(config: &str, format: Format) -> tg::Result<Self> {
 		let config: Self = match format {
 			Format::Json => serde_json::from_str(config)
@@ -3467,47 +3598,53 @@ impl Config {
 
 	fn validate(&self) -> tg::Result<()> {
 		if let Some(builtin) = &self.builtin
-			&& builtin.progress_interval.is_zero()
+			&& builtin
+				.progress_interval
+				.is_some_and(|interval| interval.is_zero())
 		{
 			return Err(tg::error!(
 				"the builtin progress interval must be greater than zero"
 			));
 		}
 		if let Some(publish) = &self.publish
-			&& publish.build_concurrency == 0
+			&& publish.build_concurrency == Some(0)
 		{
 			return Err(tg::error!(
 				"the publish build concurrency must be greater than zero"
 			));
 		}
 		if let Some(publish) = &self.publish
-			&& publish.tag_concurrency == 0
+			&& publish.tag_concurrency == Some(0)
 		{
 			return Err(tg::error!(
 				"the publish tag concurrency must be greater than zero"
 			));
 		}
 		if let Some(repl) = &self.repl
-			&& repl.history_size == 0
+			&& repl.history_size == Some(0)
 		{
 			return Err(tg::error!(
 				"the REPL history size must be greater than zero"
 			));
 		}
 		if let Some(server) = &self.server
-			&& (server.kill_timeout.is_zero()
-				|| server.start_timeout.is_zero()
-				|| server.stop_timeout.is_zero())
+			&& (server.kill_timeout.is_some_and(|timeout| timeout.is_zero())
+				|| server
+					.start_timeout
+					.is_some_and(|timeout| timeout.is_zero())
+				|| server.stop_timeout.is_some_and(|timeout| timeout.is_zero()))
 		{
 			return Err(tg::error!(
 				"the server kill, start, and stop timeouts must be greater than zero"
 			));
 		}
 		if let Some(viewer) = &self.viewer
-			&& (viewer.blob_length_limit == 0
-				|| viewer.log_page_size == 0
-				|| viewer.process_log_line_limit == 0
-				|| viewer.render_interval.is_zero())
+			&& (viewer.blob_length_limit == Some(0)
+				|| viewer.log_page_size == Some(0)
+				|| viewer.process_log_line_limit == Some(0)
+				|| viewer
+					.render_interval
+					.is_some_and(|interval| interval.is_zero()))
 		{
 			return Err(tg::error!(
 				"the viewer blob length limit, log page size, process log line limit, and render interval must be greater than zero"
@@ -3550,7 +3687,7 @@ impl Cli {
 		self.config
 			.as_ref()
 			.and_then(|config| config.builtin)
-			.unwrap_or_default()
+			.map_or_else(Builtin::default, BuiltinOptions::resolve)
 	}
 
 	pub(crate) fn progress_config(&self) -> tg::progress::Config {
@@ -3566,7 +3703,7 @@ impl Cli {
 		self.config
 			.as_ref()
 			.and_then(|config| config.publish)
-			.unwrap_or_default()
+			.map_or_else(Publish::default, PublishOptions::resolve)
 	}
 
 	#[cfg(any(feature = "quickjs", feature = "v8"))]
@@ -3575,14 +3712,14 @@ impl Cli {
 		self.config
 			.as_ref()
 			.and_then(|config| config.repl)
-			.unwrap_or_default()
+			.map_or_else(Repl::default, ReplOptions::resolve)
 	}
 
 	pub(crate) fn server_config(&self) -> Server {
 		self.config
 			.as_ref()
 			.and_then(|config| config.server)
-			.unwrap_or_default()
+			.map_or_else(Server::default, ServerOptions::resolve)
 	}
 
 	#[must_use]
@@ -3590,49 +3727,56 @@ impl Cli {
 		self.config
 			.as_ref()
 			.and_then(|config| config.viewer)
-			.unwrap_or_default()
+			.map_or_else(Viewer::default, ViewerOptions::resolve)
 	}
 
-	pub async fn read_config_with_path(path: Option<PathBuf>) -> tg::Result<Option<Config>> {
-		let Some(path) = path.or_else(Self::default_config_path) else {
-			return Ok(None);
-		};
-		let config = match tokio::fs::read_to_string(&path).await {
-			Ok(config) => config,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				return Ok(None);
-			},
-			Err(error) => {
-				return Err(
-					tg::error!(!error, path = %path.display(), "failed to read the config file"),
-				);
-			},
-		};
-		let format = Format::from_path(&path);
-		let config = Config::deserialize(&config, format)?;
-		Ok(Some(config))
+	pub fn try_read_config(path: Option<&Path>) -> tg::Result<Option<Config>> {
+		let user_path = Self::default_config_path();
+		Self::try_read_config_with_paths(path, Path::new(SYSTEM_CONFIG_PATH), user_path.as_deref())
 	}
 
-	pub fn read_config(&self) -> tg::Result<Config> {
+	pub fn read_config_for_write(&self) -> tg::Result<Config> {
 		let Some(path) = self.config_path() else {
 			return Ok(Config::default());
 		};
-		let config = match std::fs::read_to_string(&path) {
-			Ok(config) => config,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				return Ok(Config::default());
-			},
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					path = %path.display(),
-					"failed to read the config file"
-				));
-			},
-		};
-		let format = Format::from_path(&path);
+		let config = Config::try_read(&path)?.unwrap_or_default();
+		Ok(config)
+	}
 
-		Config::deserialize(&config, format)
+	fn try_read_config_with_paths(
+		explicit_path: Option<&Path>,
+		system_path: &Path,
+		user_path: Option<&Path>,
+	) -> tg::Result<Option<Config>> {
+		if let Some(path) = explicit_path {
+			let config = Config::try_read(path)?
+				.map(|config| config.validate_at(path))
+				.transpose()?;
+			return Ok(config);
+		}
+		let system = Config::try_read(system_path)?;
+		if let Some(path) = user_path
+			&& let Some(user) = Config::try_read(path)?
+		{
+			let Some(system) = system else {
+				let config = user.validate_at(path)?;
+				return Ok(Some(config));
+			};
+			let config = system.merge(user);
+			config.validate_required().map_err(|error| {
+				tg::error!(
+					!error,
+					system_path = %system_path.display(),
+					user_path = %path.display(),
+					"invalid merged config"
+				)
+			})?;
+			return Ok(Some(config));
+		}
+		let config = system
+			.map(|config| config.validate_at(system_path))
+			.transpose()?;
+		Ok(config)
 	}
 
 	pub fn write_config(&self, config: &Config) -> tg::Result<()> {
@@ -3648,6 +3792,79 @@ impl Cli {
 		std::fs::write(path, config)
 			.map_err(|error| tg::error!(!error, "failed to save the config"))?;
 		Ok(())
+	}
+}
+
+impl BuiltinOptions {
+	fn resolve(self) -> Builtin {
+		let default = Builtin::default();
+		Builtin {
+			progress_interval: self.progress_interval.unwrap_or(default.progress_interval),
+		}
+	}
+}
+
+impl PublishOptions {
+	fn resolve(self) -> Publish {
+		let default = Publish::default();
+		Publish {
+			build_concurrency: self.build_concurrency.unwrap_or(default.build_concurrency),
+			tag_concurrency: self.tag_concurrency.unwrap_or(default.tag_concurrency),
+		}
+	}
+}
+
+impl ReplOptions {
+	fn resolve(self) -> Repl {
+		let default = Repl::default();
+		Repl {
+			history_size: self.history_size.unwrap_or(default.history_size),
+		}
+	}
+}
+
+impl ServerOptions {
+	fn resolve(self) -> Server {
+		let default = Server::default();
+		Server {
+			kill_timeout: self.kill_timeout.unwrap_or(default.kill_timeout),
+			start_timeout: self.start_timeout.unwrap_or(default.start_timeout),
+			stop_timeout: self.stop_timeout.unwrap_or(default.stop_timeout),
+		}
+	}
+}
+
+impl ViewerOptions {
+	fn resolve(self) -> Viewer {
+		let default = Viewer::default();
+		Viewer {
+			blob_length_limit: self.blob_length_limit.unwrap_or(default.blob_length_limit),
+			loading_delay: self.loading_delay.unwrap_or(default.loading_delay),
+			log_page_size: self.log_page_size.unwrap_or(default.log_page_size),
+			process_log_line_limit: self
+				.process_log_line_limit
+				.unwrap_or(default.process_log_line_limit),
+			render_interval: self.render_interval.unwrap_or(default.render_interval),
+		}
+	}
+}
+
+impl Http2 {
+	#[must_use]
+	pub fn resolve(self) -> tangram_http::http2::Config {
+		let default = tangram_http::http2::Config::default();
+		tangram_http::http2::Config {
+			connection_window_size: self
+				.connection_window_size
+				.unwrap_or(default.connection_window_size),
+			max_concurrent_reset_streams: self
+				.max_concurrent_reset_streams
+				.unwrap_or(default.max_concurrent_reset_streams),
+			max_concurrent_streams: self.max_concurrent_streams,
+			stream_window_size: self
+				.stream_window_size
+				.unwrap_or(default.stream_window_size),
+		}
 	}
 }
 
@@ -3698,46 +3915,8 @@ impl Default for Viewer {
 	}
 }
 
-impl Default for Tracing {
-	fn default() -> Self {
-		Self {
-			filter: [
-				"tangram=info",
-				"tangram_archive=info",
-				"tangram_client=info",
-				"tangram_compiler=info",
-				"tangram_database=info",
-				"tangram_javascript=info",
-				"tangram_messenger=info",
-				"tangram_server=info",
-				"tangram_cache=info",
-				"tangram_vfs=info",
-			]
-			.join(","),
-			output: TracingOutput::Stderr,
-			stderr_format: Some(TracingFormat::Pretty),
-		}
-	}
-}
-
-fn default_service_name() -> String {
-	"tangram".to_owned()
-}
-
 fn default_export() -> String {
 	"default".to_owned()
-}
-
-#[expect(clippy::unnecessary_wraps)]
-fn default_tracing() -> Option<Tracing> {
-	Some(Tracing::default())
-}
-
-#[expect(clippy::ref_option)]
-fn is_default_tracing(value: &Option<Tracing>) -> bool {
-	value
-		.as_ref()
-		.is_some_and(|value| value == &Tracing::default())
 }
 
 fn is_default_export(export: &String) -> bool {
@@ -3780,7 +3959,132 @@ fn required<T>(value: Option<T>, field: &'static str) -> tg::Result<T> {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+	use {super::*, tangram_util::fs::Temp};
+
+	#[test]
+	fn reads_layered_configs() {
+		let temp = Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let system = temp.path().join("system.json");
+		let user = temp.path().join("user.json");
+		std::fs::write(
+			&system,
+			r#"{
+				"client": {"http": {"coalescing_target_size": 32768, "http2": {"connection_window_size": 4194304}}},
+				"roles": ["api"],
+				"runner": {"resources": {"filesystem_project_ids": {"count": 100, "start": 200}}},
+				"server": {"start_timeout": 9},
+				"shell": {"directories": {"/system": {}}},
+				"tokio_console": true,
+				"tokio_single_threaded": true,
+				"tracing": false,
+				"vfs": {"kind": "fuse"}
+			}"#,
+		)
+		.unwrap();
+		std::fs::write(
+			&user,
+			r#"{
+				"client": {"http": {"http2": {"stream_window_size": 524288}}},
+				"roles": [],
+				"runner": {"resources": {"filesystem_project_ids": {"count": 300}}},
+				"server": {"stop_timeout": 6},
+				"shell": {"directories": {}},
+				"tokio_console": false,
+				"vfs": false
+			}"#,
+		)
+		.unwrap();
+		let config = Cli::try_read_config_with_paths(None, &system, Some(&user))
+			.unwrap()
+			.unwrap();
+
+		let http = resolve_client_http(config.client.unwrap().http.unwrap()).unwrap();
+		assert_eq!(http.coalescing_target_size, 32768);
+		assert_eq!(http.http2.connection_window_size, 4_194_304);
+		assert_eq!(http.http2.stream_window_size, 524_288);
+		assert_eq!(config.roles, Some(BTreeSet::new()));
+		let project_ids = config
+			.runner
+			.unwrap()
+			.resources
+			.unwrap()
+			.filesystem_project_ids
+			.unwrap();
+		assert_eq!(project_ids.count, Some(300));
+		assert_eq!(project_ids.start, Some(200));
+		let server = config.server.unwrap().resolve();
+		assert_eq!(server.start_timeout, Duration::from_secs(9));
+		assert_eq!(server.stop_timeout, Duration::from_secs(6));
+		assert_eq!(server.kill_timeout, Server::default().kill_timeout);
+		assert!(config.shell.unwrap().directories.unwrap().is_empty());
+		assert_eq!(config.tokio_console, Some(false));
+		assert_eq!(config.tokio_single_threaded, Some(true));
+		assert!(matches!(config.tracing, Some(BoolOr::Bool(false))));
+		assert!(matches!(config.vfs, Some(BoolOr::Bool(false))));
+	}
+
+	#[test]
+	fn reads_explicit_config_in_isolation() {
+		let temp = Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let explicit = temp.path().join("explicit.toml");
+		let system = temp.path().join("system.json");
+		let user = temp.path().join("user.json");
+		std::fs::write(&explicit, "accounts = false").unwrap();
+		std::fs::write(&system, "invalid").unwrap();
+		std::fs::write(&user, "invalid").unwrap();
+		let config = Cli::try_read_config_with_paths(Some(&explicit), &system, Some(&user))
+			.unwrap()
+			.unwrap();
+		assert_eq!(config.accounts, Some(false));
+	}
+
+	#[test]
+	fn edits_tokens_in_the_destination_config() {
+		use {clap::CommandFactory as _, clap::FromArgMatches as _};
+
+		#[derive(clap::Parser)]
+		struct Args {
+			#[command(flatten)]
+			global: crate::Args,
+		}
+
+		let temp = Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let system = temp.path().join("system.json");
+		let user = temp.path().join("user.json");
+		let system_contents = r#"{"checkouts":false,"server":{"start_timeout":9}}"#;
+		std::fs::write(&system, system_contents).unwrap();
+		std::fs::write(&user, r#"{"tracing":{"stderr_format":"json"}}"#).unwrap();
+		let command = Args::command();
+		let matches = command
+			.clone()
+			.get_matches_from(["tg", "--config", user.to_str().unwrap()]);
+		let args = Args::from_arg_matches(&matches).unwrap();
+		let mut cli = Cli::new(args.global, command, matches);
+		cli.config = Cli::try_read_config_with_paths(None, &system, Some(&user)).unwrap();
+
+		cli.write_token("token".to_owned()).unwrap();
+		let config = Config::try_read(&user).unwrap().unwrap();
+		assert_eq!(config.token.as_deref(), Some("token"));
+		assert!(config.checkouts.is_none());
+		assert!(config.server.is_none());
+		let Some(BoolOr::Value(tracing)) = config.tracing else {
+			panic!("expected tracing settings");
+		};
+		assert!(tracing.filter.is_none());
+		assert!(tracing.output.is_none());
+		assert_eq!(tracing.stderr_format, Some(TracingFormat::Json));
+		assert_eq!(std::fs::read_to_string(&system).unwrap(), system_contents);
+
+		cli.delete_token().unwrap();
+		let config = Config::try_read(&user).unwrap().unwrap();
+		assert!(config.token.is_none());
+		assert!(config.checkouts.is_none());
+		assert!(config.server.is_none());
+		assert_eq!(std::fs::read_to_string(&system).unwrap(), system_contents);
+	}
 
 	#[test]
 	fn parses_and_resolves_client_http_coalescing_target_size() {

@@ -9,10 +9,12 @@ pub struct Args {
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
-	let config = cli.read_config()?;
-	let directories = config
-		.shell
-		.map_or_else(Default::default, |shell| shell.directories);
+	let directories = cli
+		.config
+		.as_ref()
+		.and_then(|config| config.shell.as_ref())
+		.and_then(|shell| shell.directories.clone())
+		.unwrap_or_default();
 	cli.print_serde(directories, args.print).await?;
 	Ok(())
 }

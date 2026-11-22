@@ -55,7 +55,7 @@ pub fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 		target.runners = runners;
 	}
 	if let Some(source) = source.advanced {
-		target.advanced = resolve_advanced(source);
+		target.advanced = resolve_advanced(source)?;
 	}
 	if let Some(source) = source.archive {
 		target.archive = Some(resolve_archive(source)?);
@@ -253,13 +253,14 @@ fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
 	Ok(target)
 }
 
-fn resolve_advanced(source: Advanced) -> server::Advanced {
+fn resolve_advanced(source: Advanced) -> tg::Result<server::Advanced> {
 	let mut target = server::Advanced::default();
 	if let Some(value) = source.checkpoints {
 		target.checkpoints = value;
 	}
 	if let Some(clock) = source.clock {
-		target.clock = Some(server::Clock { start: clock.start });
+		let start = required(clock.start, "advanced.clock.start")?;
+		target.clock = Some(server::Clock { start });
 	}
 	if let Some(value) = source.disable_version_check {
 		target.disable_version_check = value;
@@ -276,7 +277,7 @@ fn resolve_advanced(source: Advanced) -> server::Advanced {
 	if let Some(value) = source.version_check_interval {
 		target.version_check_interval = value;
 	}
-	target
+	Ok(target)
 }
 
 fn resolve_authentication(source: Authentication) -> tg::Result<server::Authentication> {
@@ -746,6 +747,7 @@ fn resolve_database_pool(source: DatabasePool) -> server::DatabasePool {
 fn resolve_http(source: Http) -> tg::Result<server::Http> {
 	let mut target = server::Http::default();
 	if let Some(value) = source.http2 {
+		let value = value.resolve();
 		value
 			.validate()
 			.map_err(|error| tg::error!(source = error, "invalid HTTP/2 configuration"))?;
@@ -1966,7 +1968,7 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 		target.backend = resolve_runner_backend(source)?;
 	}
 	if let Some(source) = source.resources {
-		target.resources = resolve_runner_resources(&source);
+		target.resources = resolve_runner_resources(&source)?;
 	}
 	if let Some(source) = source.javascript {
 		target.javascript = resolve_javascript(source);
@@ -2094,14 +2096,18 @@ fn resolve_runner_backend(source: RunnerBackend) -> tg::Result<server::RunnerBac
 	Ok(backend)
 }
 
-fn resolve_runner_resources(source: &RunnerResources) -> server::RunnerResources {
-	server::RunnerResources {
-		filesystem_project_ids: source
-			.filesystem_project_ids
-			.map_or_else(Default::default, resolve_filesystem_project_ids),
+fn resolve_runner_resources(source: &RunnerResources) -> tg::Result<server::RunnerResources> {
+	let filesystem_project_ids = source
+		.filesystem_project_ids
+		.map(resolve_filesystem_project_ids)
+		.transpose()?
+		.unwrap_or_default();
+	let target = server::RunnerResources {
+		filesystem_project_ids,
 		max_duration: source.max_duration,
 		max_pids: source.max_pids,
-	}
+	};
+	Ok(target)
 }
 
 fn resolve_runner_id_map(source: IdMap, helper: &str) -> server::IdMap {
@@ -2112,11 +2118,19 @@ fn resolve_runner_id_map(source: IdMap, helper: &str) -> server::IdMap {
 	}
 }
 
-fn resolve_filesystem_project_ids(source: FilesystemProjectIds) -> server::FilesystemProjectIds {
-	server::FilesystemProjectIds {
-		count: source.count,
-		start: source.start,
-	}
+fn resolve_filesystem_project_ids(
+	source: FilesystemProjectIds,
+) -> tg::Result<server::FilesystemProjectIds> {
+	let count = required(
+		source.count,
+		"runner.resources.filesystem_project_ids.count",
+	)?;
+	let start = required(
+		source.start,
+		"runner.resources.filesystem_project_ids.start",
+	)?;
+	let target = server::FilesystemProjectIds { count, start };
+	Ok(target)
 }
 
 fn resolve_javascript(source: JavaScript) -> server::JavaScript {
@@ -2246,6 +2260,7 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 		target.default_processes_page_size = value;
 	}
 	if let Some(value) = source.http2 {
+		let value = value.resolve();
 		value
 			.validate()
 			.map_err(|error| tg::error!(source = error, "invalid sandbox HTTP/2 configuration"))?;

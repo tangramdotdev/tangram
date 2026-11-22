@@ -13,7 +13,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, "failed to get the current directory"))?;
 	let path = std::fs::canonicalize(path)
 		.map_err(|error| tg::error!(!error, "failed to canonicalize the current directory"))?;
-	let directory = crate::util::get_shell_directory(cli, &path)?;
+	let directory = crate::util::get_shell_directory(cli, &path);
 	if directory.is_some() {
 		let error = tg::error!("cannot deactivate the current directory's shell environment");
 		return Err(error);

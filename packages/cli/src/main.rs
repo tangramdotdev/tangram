@@ -301,8 +301,7 @@ async fn main_inner(
 		return match result {
 			Ok(()) => cli.exit.unwrap_or_default(),
 			Err(error) => {
-				let internal = Cli::read_config_with_path(cli.args.config.clone())
-					.await
+				let internal = Cli::try_read_config(cli.args.config.as_deref())
 					.ok()
 					.flatten()
 					.and_then(|config| config.advanced)
@@ -337,7 +336,7 @@ async fn main_inner(
 	}
 
 	// Read the config.
-	cli.config = match Cli::read_config_with_path(cli.args.config.clone()).await {
+	cli.config = match Cli::try_read_config(cli.args.config.as_deref()) {
 		Ok(config) => config,
 		Err(error) => {
 			Cli::print_error_message("an error occurred");

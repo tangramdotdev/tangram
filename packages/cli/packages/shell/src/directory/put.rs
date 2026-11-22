@@ -28,12 +28,15 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			"the directory path is not valid UTF-8"
 		)
 	})?;
-	let mut config = cli.read_config()?;
+	let mut config = cli.read_config_for_write()?;
 	let shell = config.shell.get_or_insert_default();
 	let directory = tangram_cli_core::config::ShellDirectory {
 		export: args.export,
 	};
-	shell.directories.insert(key, directory);
+	shell
+		.directories
+		.get_or_insert_default()
+		.insert(key, directory);
 	cli.write_config(&config)?;
 	Ok(())
 }

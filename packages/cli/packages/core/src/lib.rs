@@ -235,7 +235,11 @@ impl Cli {
 	}
 
 	fn default_config_path() -> Option<PathBuf> {
-		let path = std::env::home_dir()?.join(".config/tangram/config.json");
+		let directory = std::env::var_os("XDG_CONFIG_HOME")
+			.map(PathBuf::from)
+			.filter(|path| path.is_absolute())
+			.or_else(|| std::env::home_dir().map(|home| home.join(".config")))?;
+		let path = directory.join("tangram/config.json");
 		Some(path)
 	}
 
