@@ -1,8 +1,9 @@
 use {
-	super::Runner,
+	super::{Runner, UnansweredOffer, decide_unanswered_offers},
 	crate::{
 		SchedulerState,
 		placement::RunnerRef,
+		recovery::{SavedBoot, tests::indexed},
 		report::EndedBoot,
 		sandbox::{Sandbox, State, Tracked},
 	},
@@ -267,4 +268,45 @@ fn a_declared_end_is_told_again_after_a_first_connection_fails() {
 		vec![sandbox],
 		"the second connection was not told that the boot ended"
 	);
+}
+
+#[test]
+fn an_unanswered_offer_whose_boot_an_earlier_connection_ended_is_never_offered_again() {
+	let runner = tg::runner::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let offer = UnansweredOffer {
+		boot: 1,
+		offer: Some(String::new()),
+		sandbox: sandbox.clone(),
+	};
+	let decide = |indexed: tangram_index::sandbox::Sandbox| {
+		let mut decided =
+			decide_unanswered_offers(std::slice::from_ref(&offer), vec![Some(indexed)]);
+		decided.remove(&sandbox).unwrap()
+	};
+
+	// A first connection of the runner that did not apply ended the boot that the runner wrote, with the end numbered zero, which leaves the sandbox stopped at the boot and its record numbered zero, and the next first connection decides that the boot ended.
+	let decision = decide(indexed(
+		&sandbox,
+		1,
+		tg::sandbox::Status::Stopped,
+		0,
+		Some(&runner),
+	));
+	assert!(
+		matches!(decision, SavedBoot::Ended),
+		"the offer of the ended boot would be returned to the queue"
+	);
+
+	// A running boot that the runner wrote is ended by the connection, and a boot that only this scheduler wrote is offered again.
+	let decision = decide(indexed(
+		&sandbox,
+		1,
+		tg::sandbox::Status::Started,
+		1,
+		Some(&runner),
+	));
+	assert!(decision.is_written());
+	let decision = decide(indexed(&sandbox, 1, tg::sandbox::Status::Starting, 0, None));
+	assert!(matches!(decision, SavedBoot::Unwritten));
 }

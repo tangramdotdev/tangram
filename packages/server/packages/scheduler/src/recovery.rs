@@ -2,14 +2,14 @@ use {
 	super::{Operation, Scheduler, SchedulerState},
 	crate::Component,
 	futures::FutureExt as _,
-	std::collections::{BTreeSet, HashMap, HashSet},
+	std::collections::{BTreeMap, BTreeSet, HashMap, HashSet},
 	tangram_client::prelude::*,
 	tangram_server_core::Server,
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 };
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 /// How long to wait before trying a read again that the scheduler must not give up.
 pub(super) const READ_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
@@ -302,15 +302,22 @@ impl Recovery {
 	}
 }
 
+impl SavedBoot {
+	/// Whether the index shows that a runner wrote the boot and did not end it, so that the runner holds or held it and only an end of the runner's boots ends it.
+	pub(super) fn is_written(&self) -> bool {
+		matches!(self, Self::Destroying { .. } | Self::Written { .. })
+	}
+}
+
 impl SchedulerState {
-	/// Record the boots that a runner reports, once its connection is applied, and release the held requests once every runner has reported or expired. A runner that restarted lost the boots that it claimed before, which its first connection decided from the index: forget a boot that the runner wrote, which the connection ended, and return a boot that it did not write to the held requests, so that it is offered again. Return the running boots that this scheduler rebuilt from the index on the runner, on the runner's first report.
+	/// Record the boots that a runner reports, once its connection is applied, and release the held requests once every runner has reported or expired. A runner that restarted lost the boots that it claimed before, which its first connection decided from the index: forget a boot that the runner wrote, which the connection ended, and return every other boot to the held requests, which the release decides again. Return the running boots that this scheduler rebuilt from the index on the runner, on the runner's first report.
 	pub(super) fn handle_recovery_report(
 		&mut self,
 		scheduler: &Scheduler,
 		runner: &tg::runner::Id,
 		restarted: bool,
 		sandboxes: &[tg::runner::control::ArgSandbox],
-		written: &BTreeSet<tg::sandbox::Id>,
+		decided: &BTreeMap<tg::sandbox::Id, SavedBoot>,
 	) -> Vec<RecoveredBoot> {
 		let Some(recovery) = &mut self.recovery else {
 			return Vec::new();
@@ -327,7 +334,8 @@ impl SchedulerState {
 				.collect::<Vec<_>>();
 			for id in lost {
 				let claim = recovery.claimed.remove(&id).unwrap();
-				if !written.contains(&id) {
+				let written = decided.get(&id).is_some_and(SavedBoot::is_written);
+				if !written {
 					recovery.requests.insert(id, claim.request);
 				}
 			}
@@ -580,7 +588,7 @@ impl SchedulerState {
 		}
 		for (id, request) in recovery.requests {
 			let indexed = statuses.remove(&id);
-			match decide_saved_boot(&request, indexed.as_ref()) {
+			match decide_saved_boot(request.boot, indexed.as_ref()) {
 				// Record the destruction of a sandbox that is being destroyed.
 				SavedBoot::Destroying { error } => {
 					self.finish_destroy_sandbox(scheduler, request, error);
@@ -632,7 +640,11 @@ impl SchedulerState {
 	}
 
 	/// Remove a saved boot that ended from this scheduler's saved queue.
-	fn delete_saved_boot(&mut self, scheduler: &Scheduler, request: EnqueueSandboxRequestArg) {
+	pub(super) fn delete_saved_boot(
+		&mut self,
+		scheduler: &Scheduler,
+		request: EnqueueSandboxRequestArg,
+	) {
 		tracing::info!(sandbox = %request.sandbox, boot = request.boot, "removing the saved boot that ended");
 		let scheduler = scheduler.clone();
 		self.operations.push(
@@ -710,9 +722,9 @@ impl SchedulerState {
 	}
 }
 
-/// Decide a saved boot that no runner claimed from the index's record of its sandbox.
+/// Decide a boot that this scheduler saved or offered and that no runner holds as far as this scheduler knows, from the index's record of its sandbox, which is the one decision of a restarted scheduler's saved boots and of a restarted runner's unanswered offers and claims.
 pub(super) fn decide_saved_boot(
-	request: &EnqueueSandboxRequestArg,
+	boot: u64,
 	indexed: Option<&tangram_index::sandbox::Sandbox>,
 ) -> SavedBoot {
 	let Some((indexed, data)) =
@@ -724,12 +736,10 @@ pub(super) fn decide_saved_boot(
 		let error = data.error.clone();
 		return SavedBoot::Destroying { error };
 	}
-	if data.boot > request.boot
-		|| (data.boot == request.boot && data.status.is_stopped_or_destroyed())
-	{
+	if data.boot > boot || (data.boot == boot && data.status.is_stopped_or_destroyed()) {
 		return SavedBoot::Ended;
 	}
-	if data.boot == request.boot
+	if data.boot == boot
 		&& indexed.sequence >= tangram_index::sandbox::put::FIRST_HOLDER_WRITE
 		&& let Some(runner) = &indexed.runner
 	{
