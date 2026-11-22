@@ -123,12 +123,8 @@ impl Component {
 		let (error_objects, output_objects) = if child.cached {
 			match outcome {
 				Some(outcome) => (
-					Some(Self::index_process_child_error_objects(
-						outcome.error.as_ref(),
-					)),
-					Some(Self::index_process_child_output_objects(
-						outcome.output.as_ref(),
-					)),
+					Some(Self::index_process_child_error_objects(outcome.error.as_ref()).into()),
+					Some(Self::index_process_child_output_objects(outcome.output.as_ref()).into()),
 				),
 				None => (None, None),
 			}
