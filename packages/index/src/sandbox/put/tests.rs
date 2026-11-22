@@ -238,7 +238,7 @@ fn the_first_end_of_a_boot_records_its_number() {
 		let first = order.iter().copied().find(|index| *index != 0).unwrap();
 		let expected = if first == 1 { 3 } else { 0 };
 		assert_eq!(
-			sandbox.ends.get(&1).copied(),
+			sandbox.ends.get(&1).map(|end| end.sequence),
 			Some(expected),
 			"the order {order:?} did not record the first end"
 		);
@@ -256,14 +256,14 @@ fn a_zero_end_of_an_ended_or_later_boot_does_not_apply() {
 
 	// The boot ended with its holder's end.
 	let mut existing = sandbox(data(1, tg::sandbox::Status::Stopped, None));
-	existing.ends = BTreeMap::from([(1, 4)]);
+	existing.ends = BTreeMap::from([(1, end(4))]);
 	let merge = zero.merge(Some(&existing), None).unwrap().unwrap();
 	assert_eq!(merge.zero_end, None);
-	assert_eq!(merge.sandbox.ends.get(&1), Some(&4));
+	assert_eq!(merge.sandbox.ends.get(&1).map(|end| end.sequence), Some(4));
 
 	// The sandbox has a later boot.
 	let mut existing = sandbox(data(2, tg::sandbox::Status::Started, None));
-	existing.ends = BTreeMap::from([(1, 4)]);
+	existing.ends = BTreeMap::from([(1, end(4))]);
 	let merge = zero.merge(Some(&existing), None).unwrap().unwrap();
 	assert_eq!(merge.zero_end, None);
 	assert_eq!(
@@ -305,7 +305,7 @@ fn a_start_applies_only_after_the_first_end_of_its_boot_in_every_order() {
 		let position = |index: usize| order.iter().position(|i| *i == index).unwrap();
 		let first_end = if position(0) < position(1) { 3 } else { 0 };
 		assert_eq!(
-			sandbox.ends.get(&0).copied(),
+			sandbox.ends.get(&0).map(|end| end.sequence),
 			Some(first_end),
 			"the order {order:?} did not record the first end"
 		);
@@ -420,6 +420,14 @@ fn data(
 		data,
 		location: None,
 		tokens: tg::authorization::Tokens::default(),
+	}
+}
+
+fn end(sequence: u64) -> super::super::End {
+	super::super::End {
+		at: 0,
+		error: None,
+		sequence,
 	}
 }
 

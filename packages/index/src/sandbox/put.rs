@@ -266,7 +266,7 @@ impl Arg {
 			sandbox.touched_at.max(arg.touched_at)
 		});
 
-		// Record the number of the first end of each boot, and whether this put is the first end of its boot with the number zero.
+		// Record the first end of each boot with its time, error, and number, and whether this put is the first end of its boot with the number zero.
 		let mut ends = existing.map_or_default(|sandbox| sandbox.ends.clone());
 		let mut zero_end = None;
 		if superseded
@@ -274,7 +274,12 @@ impl Arg {
 			&& data.data.status.is_stopped_or_destroyed()
 			&& !ends.contains_key(&data.data.boot)
 		{
-			ends.insert(data.data.boot, arg.sequence);
+			let end = super::End {
+				at: arg.touched_at,
+				error: data.data.error.clone(),
+				sequence: arg.sequence,
+			};
+			ends.insert(data.data.boot, end);
 			if arg.sequence == 0 {
 				zero_end = Some(data.data.boot);
 			}
