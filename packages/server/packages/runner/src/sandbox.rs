@@ -2546,11 +2546,12 @@ impl Component {
 			teardown = Teardown::Destroy;
 		}
 
-		// Record a destroy that arrives during a stop, with its error, which turns the stop into a destroy, as does giving up the boot for a sandbox whose directory the scheduler does not keep.
+		// Record a destroy that arrives during a stop, with its error. Get how the boot ends locally now, which is how the runner gave the boot up, because the scheduler's end decides whether the scheduler keeps the sandbox's directory, and otherwise a destroy if one arrived during the stop.
 		let destroy_request = std::sync::Mutex::new(None::<DestroyRequest>);
-		let destroyed = || {
-			destroy_request.lock().unwrap().is_some()
-				|| matches!(entry.given_up(), Some(Teardown::Destroy))
+		let current = |teardown: Teardown| match entry.given_up() {
+			Some(kind) => kind,
+			None if destroy_request.lock().unwrap().is_some() => Teardown::Destroy,
+			None => teardown,
 		};
 
 		let destroy = async {
@@ -2641,22 +2642,29 @@ impl Component {
 				}
 			}
 
-			// Destroy the sandbox instead of stopping it if a destroy arrived during the stop.
-			if matches!(teardown, Teardown::Stop) && destroyed() {
-				tracing::info!(sandbox = %id, "destroying the stopping sandbox");
-				teardown = Teardown::Destroy;
-				let mut state = session
-					.server
-					.components
-					.runner
-					.state()
-					.sandboxes
-					.get_mut_by_id(&id)
-					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-				state.expires_at = None;
-				state.status = tg::sandbox::Status::Destroying;
-				state.stopped_at = None;
-				state.changed.send_replace(());
+			// Destroy the sandbox instead of stopping it if a destroy arrived during the stop or the scheduler does not keep its directory, and stop a sandbox that did not fail instead of destroying it if the runner gave the boot up and the scheduler keeps its directory.
+			match (teardown, current(teardown)) {
+				(Teardown::Stop, Teardown::Destroy) => {
+					tracing::info!(sandbox = %id, "destroying the stopping sandbox");
+					teardown = Teardown::Destroy;
+					let mut state = session
+						.server
+						.components
+						.runner
+						.state()
+						.sandboxes
+						.get_mut_by_id(&id)
+						.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+					state.expires_at = None;
+					state.status = tg::sandbox::Status::Destroying;
+					state.stopped_at = None;
+					state.changed.send_replace(());
+				},
+				(Teardown::Destroy, Teardown::Stop) if failure.is_none() => {
+					tracing::info!(sandbox = %id, "stopping the sandbox whose directory the scheduler keeps");
+					teardown = Teardown::Stop;
+				},
+				(Teardown::Destroy | Teardown::Stop, _) => {},
 			}
 
 			// Stop or destroy the sandbox while retaining its process and control state.
@@ -2753,7 +2761,7 @@ impl Component {
 			}
 
 			// Destroy the stopped sandbox if a destroy arrived after the sandbox was stopped, before the stop is recorded.
-			if matches!(teardown, Teardown::Stop) && destroyed() {
+			if matches!(teardown, Teardown::Stop) && current(teardown) == Teardown::Destroy {
 				tracing::info!(sandbox = %id, "destroying the stopped sandbox");
 				teardown = Teardown::Destroy;
 				self.remove_stopped_sandbox_directory(session, &id).await?;
