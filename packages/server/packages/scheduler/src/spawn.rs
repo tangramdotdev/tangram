@@ -351,7 +351,7 @@ async fn get_spawns(server: &Server, scheduler: &tg::scheduler::Id) -> tg::Resul
 	Ok(spawns)
 }
 
-/// Finish a process that a scheduler holds as failed with the error, and remove it from the scheduler's queue.
+/// Finish a process that a scheduler holds as failed with the error, and remove it from the scheduler's queue. Send each write again until a server accepts it.
 async fn finish_spawn(
 	server: &Server,
 	scheduler: &tg::scheduler::Id,
@@ -362,21 +362,33 @@ async fn finish_spawn(
 	let Some(id) = &process.id else {
 		return;
 	};
-	let data = process
-		.data
-		.clone()
-		.without_location_and_tokens_except_sync();
-	let result = server
-		.components
-		.process
-		.finish_queued_process(server, id, data, error.to_data_or_id(), 0)
-		.await;
-	if let Err(error) = result {
+
+	// Finish the process.
+	loop {
+		let data = process
+			.data
+			.clone()
+			.without_location_and_tokens_except_sync();
+		let result = server
+			.components
+			.process
+			.finish_queued_process(server, id, data, error.to_data_or_id(), 0)
+			.await;
+		let Err(error) = result else {
+			break;
+		};
 		tracing::error!(error = %error.trace(), process = %id, "failed to finish the process");
-		return;
+		tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
 	}
-	if let Err(error) = delete_spawn(server, scheduler, spawn).await {
+
+	// Remove the process from the queue.
+	loop {
+		let result = delete_spawn(server, scheduler, spawn).await;
+		let Err(error) = result else {
+			break;
+		};
 		tracing::error!(error = %error.trace(), process = %id, "failed to remove the process from the queue");
+		tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
 	}
 }
 
