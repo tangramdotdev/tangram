@@ -71,6 +71,33 @@ pub(super) enum SavedBoot {
 pub(super) type Statuses =
 	HashMap<tg::sandbox::Id, tangram_index::sandbox::Sandbox, tg::id::BuildHasher>;
 
+/// Decide a boot that this scheduler saved or offered and that no runner holds as far as this scheduler knows, from the index's record of its sandbox, which is the one decision of a restarted scheduler's saved boots and of a restarted runner's unanswered offers and claims.
+pub(super) fn decide_saved_boot(
+	boot: u64,
+	indexed: Option<&tangram_index::sandbox::Sandbox>,
+) -> SavedBoot {
+	let Some((indexed, data)) =
+		indexed.and_then(|indexed| Some((indexed, &indexed.data.as_ref()?.data)))
+	else {
+		return SavedBoot::Unwritten;
+	};
+	if data.status.is_destroying() {
+		let error = data.error.clone();
+		return SavedBoot::Destroying { error };
+	}
+	if data.boot > boot || (data.boot == boot && data.status.is_stopped_or_destroyed()) {
+		return SavedBoot::Ended;
+	}
+	if data.boot == boot
+		&& indexed.sequence >= tangram_index::sandbox::put::FIRST_HOLDER_WRITE
+		&& let Some(runner) = &indexed.runner
+	{
+		let runner = runner.clone();
+		return SavedBoot::Written { runner };
+	}
+	SavedBoot::Unwritten
+}
+
 impl Scheduler {
 	/// Reload the accepted requests from the index. A single server does not reload them, because its index writes are not durable when it acknowledges them and its clients do not survive its restart, and it ends what its previous run left when it starts instead.
 	pub(super) async fn recover(&self, state: &mut SchedulerState) -> tg::Result<()> {
@@ -559,8 +586,8 @@ impl SchedulerState {
 				// Destroy a sandbox that is destroying on its runner.
 				Some(connection) if destroying => {
 					let destroy = super::sandbox::DestroySandbox {
-						error: error.and_then(tg::Either::left).unwrap_or_default(),
 						connection,
+						error: error.and_then(tg::Either::left).unwrap_or_default(),
 						request: Some(claim.request),
 						runner: claim.runner,
 						sandbox: id,
@@ -571,8 +598,8 @@ impl SchedulerState {
 				// Treat the runner's report of the boot as its yes, which writes the handoff that this scheduler may not have written before it restarted.
 				Some(connection) => {
 					let runner = super::placement::RunnerRef {
-						id: claim.runner,
 						connection,
+						id: claim.runner,
 					};
 					let processes = recovery.processes.get(&id).cloned().unwrap_or_default();
 					self.accept_claimed_sandbox(scheduler, &id, claim.request, processes, runner);
@@ -722,33 +749,6 @@ impl SchedulerState {
 			.boxed(),
 		);
 	}
-}
-
-/// Decide a boot that this scheduler saved or offered and that no runner holds as far as this scheduler knows, from the index's record of its sandbox, which is the one decision of a restarted scheduler's saved boots and of a restarted runner's unanswered offers and claims.
-pub(super) fn decide_saved_boot(
-	boot: u64,
-	indexed: Option<&tangram_index::sandbox::Sandbox>,
-) -> SavedBoot {
-	let Some((indexed, data)) =
-		indexed.and_then(|indexed| Some((indexed, &indexed.data.as_ref()?.data)))
-	else {
-		return SavedBoot::Unwritten;
-	};
-	if data.status.is_destroying() {
-		let error = data.error.clone();
-		return SavedBoot::Destroying { error };
-	}
-	if data.boot > boot || (data.boot == boot && data.status.is_stopped_or_destroyed()) {
-		return SavedBoot::Ended;
-	}
-	if data.boot == boot
-		&& indexed.sequence >= tangram_index::sandbox::put::FIRST_HOLDER_WRITE
-		&& let Some(runner) = &indexed.runner
-	{
-		let runner = runner.clone();
-		return SavedBoot::Written { runner };
-	}
-	SavedBoot::Unwritten
 }
 
 impl Component {

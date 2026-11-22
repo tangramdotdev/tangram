@@ -134,6 +134,10 @@ enum Operation {
 		id: String,
 		result: tg::Result<()>,
 	},
+	DestroyingSandboxes {
+		runner: tg::runner::Id,
+		sandboxes: Vec<(tg::sandbox::Id, Option<tg::error::Data>)>,
+	},
 	DestroySandbox {
 		destroy: sandbox::DestroySandbox,
 		result: tg::Result<bool>,
@@ -142,10 +146,6 @@ enum Operation {
 		id: String,
 		result: tg::Result<EndRunnerSandboxResponseOutput>,
 	},
-	DestroyingSandboxes {
-		runner: tg::runner::Id,
-		sandboxes: Vec<(tg::sandbox::Id, Option<tg::error::Data>)>,
-	},
 	Finished {
 		context: &'static str,
 		result: tg::Result<()>,
@@ -153,11 +153,6 @@ enum Operation {
 	FinishRunnerProcesses {
 		id: String,
 		result: tg::Result<FinishRunnerProcessesResponseOutput>,
-	},
-	RecordRunnerSandboxDestruction {
-		id: String,
-		result:
-			tg::Result<tangram_server_scheduler_core::RecordRunnerSandboxDestructionResponseOutput>,
 	},
 	IndexTerminalSandboxes {
 		sandboxes: Vec<(tg::sandbox::Id, u64)>,
@@ -171,6 +166,11 @@ enum Operation {
 		boot: u64,
 		result: tg::Result<()>,
 		sandbox: tg::sandbox::Id,
+	},
+	RecordRunnerSandboxDestruction {
+		id: String,
+		result:
+			tg::Result<tangram_server_scheduler_core::RecordRunnerSandboxDestructionResponseOutput>,
 	},
 	Recovered {
 		statuses: recovery::Statuses,
@@ -906,11 +906,6 @@ impl Scheduler {
 				self.send_response(response);
 			},
 			Operation::Checkpoint => {},
-			Operation::DestroyingSandboxes { runner, sandboxes } => {
-				for (sandbox, error) in sandboxes {
-					state.remove_destroying_sandbox(self, sandbox, runner.clone(), error);
-				}
-			},
 			Operation::DeleteRunner { id, result } => {
 				let result = result.map(|()| {
 					ResponseOutput::DeleteRunner(
@@ -919,6 +914,11 @@ impl Scheduler {
 				});
 				let response = request::Response::new(id, result);
 				self.send_response(response);
+			},
+			Operation::DestroyingSandboxes { runner, sandboxes } => {
+				for (sandbox, error) in sandboxes {
+					state.remove_destroying_sandbox(self, sandbox, runner.clone(), error);
+				}
 			},
 			Operation::DestroySandbox { destroy, result } => {
 				state.handle_destroy_sandbox(self, destroy, result);
@@ -938,11 +938,6 @@ impl Scheduler {
 				let response = request::Response::new(id, result);
 				self.send_response(response);
 			},
-			Operation::RecordRunnerSandboxDestruction { id, result } => {
-				let result = result.map(ResponseOutput::RecordRunnerSandboxDestruction);
-				let response = request::Response::new(id, result);
-				self.send_response(response);
-			},
 			Operation::IndexTerminalSandboxes { sandboxes } => {
 				state.handle_index_terminal_sandboxes(self, sandboxes);
 			},
@@ -959,6 +954,11 @@ impl Scheduler {
 				sandbox,
 			} => {
 				state.handle_persist_sandbox_completion(self, &sandbox, boot, result);
+			},
+			Operation::RecordRunnerSandboxDestruction { id, result } => {
+				let result = result.map(ResponseOutput::RecordRunnerSandboxDestruction);
+				let response = request::Response::new(id, result);
+				self.send_response(response);
 			},
 			Operation::Recovered { statuses } => {
 				state.handle_recovered(self, statuses);

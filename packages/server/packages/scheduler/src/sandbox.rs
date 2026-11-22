@@ -75,8 +75,8 @@ pub(super) enum Tracked {
 
 /// A destroy of a sandbox on a runner. The request is present if the sandbox has a record to finish.
 pub(super) struct DestroySandbox {
-	pub(super) error: tg::error::Data,
 	pub(super) connection: u64,
+	pub(super) error: tg::error::Data,
 	pub(super) request: Option<EnqueueSandboxRequestArg>,
 	pub(super) runner: tg::runner::Id,
 	pub(super) sandbox: tg::sandbox::Id,
@@ -975,8 +975,8 @@ impl SchedulerState {
 				State::Terminal { error, .. } if entry.boot == boot => {
 					let error = error.clone().and_then(tg::Either::left).unwrap_or_default();
 					let destroy = DestroySandbox {
-						error,
 						connection: runner.connection,
+						error,
 						request: None,
 						runner: runner.id,
 						sandbox: id.clone(),

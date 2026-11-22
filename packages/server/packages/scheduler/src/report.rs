@@ -365,7 +365,7 @@ impl SchedulerState {
 		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
-					let result = scheduler
+				let result = scheduler
 					.record_runner_sandbox_destruction(&runner, &sandbox, error)
 					.await
 					.map(|destroyed| RecordRunnerSandboxDestructionResponseOutput {
