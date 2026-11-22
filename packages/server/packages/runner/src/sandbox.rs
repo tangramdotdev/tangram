@@ -132,6 +132,13 @@ struct Ending {
 	teardown: Teardown,
 }
 
+/// The end of a boot that the runner wrote: the end's number, whether the boot's control stream recorded it, and the processes that the end finished from the runner's memory.
+struct WrittenEnd {
+	recorded: bool,
+	sequence: u64,
+	unfinished: Vec<tg::runner::control::Process>,
+}
+
 /// What the data of a sandbox whose boot failed is made from.
 struct EndedSandboxDataArg {
 	boot: u64,
@@ -680,10 +687,14 @@ impl Component {
 				Some(id) => {
 					let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
 						lease: process.lease,
-						process: tg::Referent::with_node(id.clone()),
+						process: tg::Referent::with_node(id),
 					};
-					boot.finish(&id);
-					self.finish_accepted_process(session, boot, process, &error);
+					self.finish_accepted_processes(
+						session,
+						boot,
+						vec![process],
+						error.to_data_or_id(),
+					);
 					Ok(output)
 				},
 				None => Err(error),
@@ -701,42 +712,53 @@ impl Component {
 		Ok(())
 	}
 
-	/// Finish a process that the runner accepted and that cannot run as failed with the error in a sandbox task, which the runner's drain waits for. Report a process that the sandbox's scheduler offered to the scheduler, and finish a process that this server spawned on this server.
-	pub(crate) fn finish_accepted_process(
+	/// Finish as failed with the error processes that the runner accepted and that cannot run, in a sandbox task, which the runner's drain waits for. Begin each process's finish at once, so that the end of the boot waits for it, and record each finish as answered once a server accepts or refuses it. Finish a process that this server spawned on this server, and report the processes that the sandbox's scheduler offered to the scheduler in one report.
+	pub(crate) fn finish_accepted_processes(
 		&self,
 		session: &Session,
 		boot: &Arc<Boot>,
-		process: tg::runner::control::Process,
-		error: &tg::Error,
+		processes: Vec<tg::runner::control::Process>,
+		error: tg::Either<tg::error::Data, tg::error::Id>,
 	) {
+		let (local, offered): (Vec<_>, Vec<_>) = processes
+			.into_iter()
+			.filter_map(|process| {
+				let finish = boot.begin_finish(process.id.as_ref()?);
+				Some((process, finish))
+			})
+			.partition(|(process, _)| boot.local(process));
 		let component = self.clone();
-		let error = error.to_data_or_id();
 		let session = session.clone();
 		let boot = boot.clone();
-		let unaccepted = boot.begin_finish();
 		let task_id = tangram_server_core::control::id();
 		let mut task = self.sandbox_tasks.spawn(task_id, move |_| {
 			async move {
-				let id = process.id.clone();
-				let result = if boot.local(&process) {
-					Self::finish_local_processes(&session, vec![process], error, &boot).await;
-					Ok(())
-				} else if let Some(sequence) = boot.next() {
-					component
-						.report_finished_processes_with_runner_control(
-							&boot.sandbox,
-							boot.boot,
-							&[process],
-							error,
-							sequence,
-						)
-						.await
-				} else {
-					Ok(())
+				for (process, finish) in local {
+					if Self::finish_local_process(&session, &boot, process, error.clone()).await {
+						finish.answered();
+					}
+				}
+				if offered.is_empty() {
+					return;
+				}
+				let Some(sequence) = boot.next() else {
+					return;
 				};
-				drop(unaccepted);
+				let (processes, finishes): (Vec<_>, Vec<_>) = offered.into_iter().unzip();
+				let result = component
+					.report_finished_processes_with_runner_control(
+						&boot.sandbox,
+						boot.boot,
+						&processes,
+						error,
+						sequence,
+					)
+					.await;
 				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), process = ?id, "failed to report the finished process");
+					tracing::error!(error = %error.trace(), sandbox = %boot.sandbox, "failed to report the finished processes");
+				}
+				for finish in finishes {
+					finish.answered();
 				}
 			}
 			.in_current_span()
@@ -744,40 +766,32 @@ impl Component {
 		task.detach();
 	}
 
-	/// Finish as failed with the error the processes that this server spawned into a boot and recorded, on this server, numbering each finish with the boot's counter, and write each finish again until this server accepts it.
-	async fn finish_local_processes(
+	/// Finish as failed with the error a process that this server spawned into a boot and recorded, on this server, numbering the finish with the boot's counter, and write the finish again until this server accepts it. Return whether this server answered the finish, which it does not for a boot that the runner gave up.
+	async fn finish_local_process(
 		session: &Session,
-		processes: Vec<tg::runner::control::Process>,
-		error: tg::Either<tg::error::Data, tg::error::Id>,
 		boot: &Boot,
-	) {
-		for process in processes {
-			let Some(id) = &process.id else {
-				continue;
+		process: tg::runner::control::Process,
+		error: tg::Either<tg::error::Data, tg::error::Id>,
+	) -> bool {
+		let Some(id) = &process.id else {
+			return true;
+		};
+		let data = process.data.without_location_and_tokens_except_sync();
+		let Some(sequence) = boot.next() else {
+			return false;
+		};
+		loop {
+			let result = session
+				.server
+				.components
+				.process
+				.finish_queued_process(&session.server, id, data.clone(), error.clone(), sequence)
+				.await;
+			let Err(error) = result else {
+				return true;
 			};
-			let data = process.data.without_location_and_tokens_except_sync();
-			let Some(sequence) = boot.next() else {
-				return;
-			};
-			loop {
-				let result = session
-					.server
-					.components
-					.process
-					.finish_queued_process(
-						&session.server,
-						id,
-						data.clone(),
-						error.clone(),
-						sequence,
-					)
-					.await;
-				let Err(error) = result else {
-					break;
-				};
-				tracing::error!(error = %error.trace(), process = %id, "failed to finish the process");
-				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-			}
+			tracing::error!(error = %error.trace(), process = %id, "failed to finish the process");
+			tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 		}
 	}
 
@@ -898,14 +912,13 @@ impl Component {
 		let id = &boot.sandbox;
 
 		// Write the end while serving the boot's control stream, unless the runner gave the boot up or its control connection was never established.
-		let unfinished = boot.unfinished();
 		let write =
 			boot.given_up().is_none() && (boot.scheduled || arg.connected.load(Ordering::Acquire));
 		let sender = control.as_ref().map(|control| control.sender());
 		let end = async {
 			let written = if write {
 				let control = sender.map(|sender| (sender, connected));
-				self.write_sandbox_boot_end(session, arg, &ending, &unfinished, control)
+				self.write_sandbox_boot_end(session, arg, &ending, control)
 					.await
 			} else {
 				None
@@ -932,7 +945,12 @@ impl Component {
 			},
 			None => end.await,
 		};
-		let Some((sequence, recorded)) = written else {
+		let Some(WrittenEnd {
+			recorded,
+			sequence,
+			unfinished,
+		}) = written
+		else {
 			arg.event_sender.send(Ok(Event::Destroyed)).ok();
 			return;
 		};
@@ -973,46 +991,44 @@ impl Component {
 		}
 	}
 
-	/// Write the end of a boot. Finish the boot's unfinished processes from the runner's memory, wait for a server to accept every finish of the boot's processes, take the number of the end, and write the end on the boot's control stream once it is connected, which destroys a destroyed sandbox in the same write. Return the end's number and whether the control stream recorded the end, or `None` if the runner gave the boot up meanwhile.
+	/// Write the end of a boot. Finish the boot's unfinished processes from the runner's memory, wait for a server to answer every finish of the boot's processes, finishing again from memory a process whose finish was dropped before a server answered it, take the number of the end, and write the end on the boot's control stream once it is connected, which destroys a destroyed sandbox in the same write. Return the end's number, whether the control stream recorded the end, and the processes that the end finished from memory, or `None` if the runner gave the boot up meanwhile.
 	async fn write_sandbox_boot_end(
 		&self,
 		session: &Session,
 		arg: &EndSandboxBootArg,
 		ending: &Ending,
-		unfinished: &[tg::runner::control::Process],
 		control: Option<(SandboxControlSender, ConnectionReady)>,
-	) -> Option<(u64, bool)> {
+	) -> Option<WrittenEnd> {
 		let boot = &arg.boot;
 		let id = &boot.sandbox;
 
-		// Finish the unfinished processes that this server spawned on this server, and report the ones that the sandbox's scheduler offered to the scheduler.
+		// Finish the unfinished processes from the runner's memory, and wait for a server to answer every finish of the boot's processes, until no process is unfinished, unless the runner gives the boot up meanwhile. Then take the number of the end in the same poll, so that no spawn is accepted in between.
 		let error = Self::ended_process_error(&ending.data);
-		let (local, offered): (Vec<_>, Vec<_>) = unfinished
-			.iter()
-			.cloned()
-			.partition(|process| boot.local(process));
-		Self::finish_local_processes(session, local, error.clone(), boot).await;
-		if !offered.is_empty()
-			&& let Some(sequence) = boot.next()
-			&& let Err(error) = self
-				.report_finished_processes_with_runner_control(
-					id, boot.boot, &offered, error, sequence,
-				)
-				.await
-		{
-			tracing::error!(error = %error.trace(), sandbox = %id, "failed to report the unfinished processes");
-		}
-
-		// Wait for a server to accept every finish of the boot's processes, and take the number of the end, unless the runner gives the boot up meanwhile.
-		tokio::select! {
-			() = boot.wait_finishes() => {},
-			_ = boot.wait_given_up() => return None,
+		let mut finished = Vec::new();
+		loop {
+			let unfinished = boot.unfinished();
+			if !unfinished.is_empty() {
+				self.finish_accepted_processes(session, boot, unfinished.clone(), error.clone());
+				finished.extend(unfinished);
+			}
+			tokio::select! {
+				() = boot.wait_finishes() => {},
+				_ = boot.wait_given_up() => return None,
+			}
+			if boot.unfinished().is_empty() {
+				break;
+			}
 		}
 		let sequence = boot.end()?;
 
 		// Write the end on the boot's control stream once it is connected.
 		let Some((sender, connected)) = control else {
-			return Some((sequence, false));
+			let written = WrittenEnd {
+				recorded: false,
+				sequence,
+				unfinished: finished,
+			};
+			return Some(written);
 		};
 		let result = async {
 			connected.await?;
@@ -1044,7 +1060,13 @@ impl Component {
 			tracing::error!(error = %error.trace(), sandbox = %id, "failed to write the end of the sandbox");
 		}
 
-		Some((sequence, result.is_ok()))
+		let written = WrittenEnd {
+			recorded: result.is_ok(),
+			sequence,
+			unfinished: finished,
+		};
+
+		Some(written)
 	}
 
 	/// Get how a boot whose task failed ended. Its sandbox is stopped if the sandbox's directory remains, so that it can start again, and destroyed otherwise.
@@ -2348,7 +2370,6 @@ impl Component {
 						};
 						match event? {
 							ProcessEvent::Buffered | ProcessEvent::Released => {
-								entry.finish(&process);
 								process_events.remove(&process);
 								if process_events.is_empty() && pending.is_empty() {
 									last_used_at = session.server.clock.unix_timestamp();
@@ -2495,7 +2516,6 @@ impl Component {
 			while let Some((process, event)) = process_events.next().await {
 				match event? {
 					ProcessEvent::Buffered | ProcessEvent::Released => {
-						entry.finish(&process);
 						process_events.remove(&process);
 					},
 					ProcessEvent::Connected(_) => {

@@ -85,9 +85,12 @@ pub struct Boots {
 	boots: tokio::sync::watch::Sender<BTreeMap<(tg::sandbox::Id, u64), Arc<Boot>>>,
 }
 
-/// A boot that the runner holds. The boot numbers every write of the runner for it from its one counter, which gives no number once the runner gave the boot up, remembers every process that it accepted, and counts the finishes of its processes that no server has accepted yet.
+/// A boot that the runner holds. The boot numbers every write of the runner for it from its one counter, which gives no number once the runner gave the boot up, remembers every process that it accepted, and tracks the finish of each of its processes until a server answers it.
 pub struct Boot {
 	pub boot: u64,
+
+	/// A change to the finishes of the boot's processes, which wakes the wait for every finish.
+	changed: tokio::sync::watch::Sender<()>,
 
 	/// How the runner gave up the boot, once its scheduler ended it.
 	given_up: tokio::sync::watch::Sender<Option<Teardown>>,
@@ -101,16 +104,14 @@ pub struct Boot {
 
 	/// Whether a scheduler offered the boot, rather than the runner's server creating it on the shortcut path.
 	pub scheduled: bool,
-
-	/// The number of finishes of the boot's processes that no server has accepted yet.
-	unaccepted: tokio::sync::watch::Sender<usize>,
 }
 
 struct BootInner {
 	/// Whether the boot took the number of its end, after which the runner does not give it up.
 	ending: bool,
 
-	finished: BTreeSet<tg::process::Id>,
+	/// The finish of each process of the boot that has a finish under way or that a server answered. A process without an entry is unfinished, and the end of the boot finishes it from the runner's memory.
+	finishes: BTreeMap<tg::process::Id, Finish>,
 
 	/// The processes that this server spawned into the boot, which this server finishes, rather than the sandbox's scheduler.
 	local: BTreeSet<tg::process::Id>,
@@ -121,9 +122,20 @@ struct BootInner {
 	sequence: u64,
 }
 
-/// A finish of a process of a boot that no server has accepted yet, which counts as accepted once it is dropped.
+/// The finish of a process of a boot.
+enum Finish {
+	/// A server accepted or refused a finish of the process, which is final.
+	Answered,
+
+	/// The number of finishes of the process that are under way and that no server has answered yet.
+	Pending(usize),
+}
+
+/// A finish of a process of a boot that is under way. Call `answered` once a server accepts or refuses it. If it is dropped before, such as when its task is aborted, the process is unfinished again, unless another finish of it is under way, so that the end of the boot finishes it from the runner's memory.
 pub struct Unaccepted {
+	answered: bool,
 	boot: Arc<Boot>,
+	process: tg::process::Id,
 }
 
 /// How a boot ends locally, which stops its sandbox or destroys it. The runner gives up a boot that its scheduler ended with a stop if the scheduler keeps the sandbox's directory, and with a destroy otherwise.
@@ -312,19 +324,19 @@ impl Boot {
 	) -> Self {
 		let inner = BootInner {
 			ending: false,
-			finished: BTreeSet::new(),
+			finishes: BTreeMap::new(),
 			local: BTreeSet::new(),
 			processes: Vec::new(),
 			sequence,
 		};
 		Self {
 			boot,
+			changed: tokio::sync::watch::Sender::new(()),
 			given_up: tokio::sync::watch::Sender::new(None),
 			inner: std::sync::Mutex::new(inner),
 			proof,
 			sandbox,
 			scheduled,
-			unaccepted: tokio::sync::watch::Sender::new(0),
 		}
 	}
 
@@ -376,18 +388,16 @@ impl Boot {
 		kind.unwrap()
 	}
 
-	/// Remember that the boot accepted a process, and whether this server spawned it.
+	/// Remember that the boot accepted a process, and whether this server spawned it. A process without an ID is remembered once the runner derives its ID.
 	pub fn accept(&self, process: tg::runner::control::Process, local: bool) {
+		let Some(id) = &process.id else {
+			return;
+		};
 		let mut inner = self.inner.lock().unwrap();
-		if local && let Some(id) = &process.id {
+		if local {
 			inner.local.insert(id.clone());
 		}
 		inner.processes.push(process);
-	}
-
-	/// Remember that a process of the boot finished, or that a finish of it is under way.
-	pub fn finish(&self, process: &tg::process::Id) {
-		self.inner.lock().unwrap().finished.insert(process.clone());
 	}
 
 	/// Get whether this server spawned the process into the boot, in which case this server finishes it, rather than the sandbox's scheduler.
@@ -411,7 +421,7 @@ impl Boot {
 			.collect()
 	}
 
-	/// Get the processes that the boot accepted, whose IDs are known, and that did not finish.
+	/// Get the processes that the boot accepted that have no finish under way and that no server answered a finish of, which the end of the boot finishes from the runner's memory.
 	#[must_use]
 	pub fn unfinished(&self) -> Vec<tg::runner::control::Process> {
 		let inner = self.inner.lock().unwrap();
@@ -422,36 +432,63 @@ impl Boot {
 				process
 					.id
 					.as_ref()
-					.is_some_and(|id| !inner.finished.contains(id))
+					.is_some_and(|id| !inner.finishes.contains_key(id))
 			})
 			.cloned()
 			.collect()
 	}
 
-	/// Get what the runner reports about the boot when it connects to its scheduler, which is the processes that the scheduler offered into the boot and that did not finish, and the proof of a boot on the shortcut path.
+	/// Get what the runner reports about the boot when it connects to its scheduler, which is the processes that the scheduler offered into the boot and whose finish no server answered, and the proof of a boot on the shortcut path.
 	#[must_use]
 	pub fn report(&self) -> (Vec<tg::process::Id>, Option<tg::sandbox::id::Proof>) {
-		let processes = self
-			.unfinished()
-			.into_iter()
-			.filter(|process| !self.local(process))
-			.filter_map(|process| process.id)
+		let inner = self.inner.lock().unwrap();
+		let processes = inner
+			.processes
+			.iter()
+			.filter_map(|process| process.id.clone())
+			.filter(|id| !inner.local.contains(id))
+			.filter(|id| !matches!(inner.finishes.get(id), Some(Finish::Answered)))
 			.collect();
 
 		(processes, self.proof.clone())
 	}
 
-	/// Begin a finish of a process of the boot, which counts as unaccepted until the returned value is dropped.
+	/// Begin a finish of a process of the boot, which is under way until a server answers it or the returned value is dropped.
 	#[must_use]
-	pub fn begin_finish(self: &Arc<Self>) -> Unaccepted {
-		self.unaccepted.send_modify(|count| *count += 1);
-		Unaccepted { boot: self.clone() }
+	pub fn begin_finish(self: &Arc<Self>, process: &tg::process::Id) -> Unaccepted {
+		let mut inner = self.inner.lock().unwrap();
+		let finish = inner
+			.finishes
+			.entry(process.clone())
+			.or_insert(Finish::Pending(0));
+		if let Finish::Pending(count) = finish {
+			*count += 1;
+		}
+		drop(inner);
+		self.changed.send_replace(());
+		Unaccepted {
+			answered: false,
+			boot: self.clone(),
+			process: process.clone(),
+		}
 	}
 
-	/// Wait until a server has accepted every finish of the boot's processes.
+	/// Wait until a server has answered every finish of the boot's processes that is under way.
 	pub async fn wait_finishes(&self) {
-		let mut unaccepted = self.unaccepted.subscribe();
-		unaccepted.wait_for(|count| *count == 0).await.ok();
+		let mut changed = self.changed.subscribe();
+		loop {
+			let pending = self
+				.inner
+				.lock()
+				.unwrap()
+				.finishes
+				.values()
+				.any(|finish| matches!(finish, Finish::Pending(_)));
+			if !pending {
+				return;
+			}
+			changed.changed().await.unwrap();
+		}
 	}
 }
 
@@ -476,11 +513,28 @@ impl<'a> IntoIterator for &'a Sandboxes {
 	}
 }
 
+impl Unaccepted {
+	/// Record that a server accepted or refused the finish, which is final, so that nothing finishes the process again.
+	pub fn answered(mut self) {
+		self.answered = true;
+	}
+}
+
 impl Drop for Unaccepted {
 	fn drop(&mut self) {
-		self.boot
-			.unaccepted
-			.send_modify(|count| *count = count.saturating_sub(1));
+		let mut inner = self.boot.inner.lock().unwrap();
+		if self.answered {
+			inner
+				.finishes
+				.insert(self.process.clone(), Finish::Answered);
+		} else if let Some(Finish::Pending(count)) = inner.finishes.get_mut(&self.process) {
+			*count -= 1;
+			if *count == 0 {
+				inner.finishes.remove(&self.process);
+			}
+		}
+		drop(inner);
+		self.boot.changed.send_replace(());
 	}
 }
 
@@ -516,14 +570,45 @@ mod tests {
 	#[tokio::test]
 	async fn a_boot_waits_for_every_finish_that_it_began() {
 		let boot = boot(1);
-		let first = boot.begin_finish();
-		let second = boot.begin_finish();
+		let first = boot.begin_finish(&tg::process::Id::new());
+		let second = boot.begin_finish(&tg::process::Id::new());
 		let mut wait = std::pin::pin!(boot.wait_finishes());
 		assert!(poll(&mut wait).is_pending());
-		drop(first);
+		first.answered();
 		assert!(poll(&mut wait).is_pending());
-		drop(second);
+		second.answered();
 		assert!(poll(&mut wait).is_ready());
+	}
+
+	#[tokio::test]
+	async fn a_process_whose_finish_is_dropped_before_a_server_answers_it_is_unfinished_again() {
+		let boot = boot(1);
+		let process = tg::process::Id::new();
+		boot.accept(self::process(&process), true);
+		assert_eq!(boot.unfinished().len(), 1);
+
+		// A finish that is under way leaves the process out of the unfinished processes, and the wait waits for it.
+		let finish = boot.begin_finish(&process);
+		assert!(boot.unfinished().is_empty());
+		let mut wait = std::pin::pin!(boot.wait_finishes());
+		assert!(poll(&mut wait).is_pending());
+
+		// A finish that is dropped before a server answers it, such as when its task is aborted, makes the process unfinished again, so that the end of the boot finishes it from memory.
+		drop(finish);
+		assert!(poll(&mut wait).is_ready());
+		assert_eq!(boot.unfinished().len(), 1);
+
+		// A second finish that is begun before the first is dropped keeps the process finishing.
+		let first = boot.begin_finish(&process);
+		let second = boot.begin_finish(&process);
+		drop(first);
+		assert!(boot.unfinished().is_empty());
+
+		// A finish that a server answered is final.
+		second.answered();
+		assert!(boot.unfinished().is_empty());
+		drop(boot.begin_finish(&process));
+		assert!(boot.unfinished().is_empty());
 	}
 
 	#[tokio::test]
@@ -541,6 +626,43 @@ mod tests {
 		assert!(poll(&mut wait).is_pending());
 		boots.remove(&sandbox, 0);
 		assert!(poll(&mut wait).is_ready());
+	}
+
+	fn process(id: &tg::process::Id) -> tg::runner::control::Process {
+		let data = tg::process::Data {
+			cacheable: false,
+			checksum: tg::process::Checksum::default(),
+			children: None,
+			command: tg::Referent::with_node(tg::Either::Right(tg::command::Id::new(b"command"))),
+			created_at: 0,
+			creator: tg::Principal::Root,
+			debug: None,
+			error: None,
+			exit: None,
+			finished_at: None,
+			host: "host".to_owned(),
+			log: None,
+			output: None,
+			owner: tg::Principal::Root,
+			retry: false,
+			sandbox: None,
+			started_at: None,
+			status: tg::process::Status::Started,
+			stderr: tg::process::Stdio::default(),
+			stdin: tg::process::Stdio::default(),
+			stdout: tg::process::Stdio::default(),
+			tty: None,
+		};
+		tg::runner::control::Process {
+			data,
+			id: Some(id.clone()),
+			lease: tg::process::Lease::new(),
+			leases: Vec::new(),
+			open: Vec::new(),
+			options: tg::referent::Options::default(),
+			parent: None,
+			token: None,
+		}
 	}
 
 	fn poll<F: std::future::Future + Unpin>(future: &mut F) -> std::task::Poll<F::Output> {

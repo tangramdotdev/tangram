@@ -313,9 +313,7 @@ impl Component {
 			sandbox_stopper,
 		} = arg;
 
-		// Count the process's finish as unaccepted until a server accepts it, so that the end of the boot waits for it, and keep the process to finish it as failed if no server accepts its finish.
-		let unaccepted = boot.begin_finish();
-		let unfinished = process.clone();
+		let mut unfinished = process.clone();
 		let tg::runner::control::Process {
 			mut data,
 			id,
@@ -475,6 +473,13 @@ impl Component {
 				));
 			},
 		};
+
+		// Remember a process whose ID the runner derived in its boot, which this server spawned. Begin the process's finish, which is under way until a server answers it, so that the end of the boot waits for it, and keep the process to finish it as failed if no server answers its finish.
+		if unfinished.id.is_none() {
+			unfinished.id = Some(id.clone());
+			boot.accept(unfinished.clone(), true);
+		}
+		let unaccepted = boot.begin_finish(&id);
 
 		tracing::Span::current().record("process", tracing::field::display(&id));
 		tracing::Span::current().record("sandbox", state.sandbox.as_ref().map(ToString::to_string));
