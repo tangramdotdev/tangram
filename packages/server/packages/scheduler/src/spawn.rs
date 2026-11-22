@@ -163,7 +163,7 @@ impl Scheduler {
 		Ok(())
 	}
 
-	/// Write the process's queued record with its permissions, and its entry in this scheduler's queue, in one write.
+	/// Write the process's queued record with its permissions, and its entry in this scheduler's queue, in one write, which is sent again until a server accepts it.
 	async fn record_spawn(&self, spawn: &Spawn) -> tg::Result<()> {
 		tangram_server_core::checkpoint!(self.server, "scheduler.process.record", sandbox = %spawn.sandbox).await;
 		let session = self.server.session(&self.server.context);
@@ -195,21 +195,14 @@ impl Scheduler {
 			scheduler: self.id.clone(),
 		};
 
-		// Write both.
+		// Write both, and send the write again until a server accepts it.
 		let arg = tangram_index::write::Arg {
 			items: vec![
 				tangram_index::Item::PutProcess(Box::new(record)),
 				tangram_index::Item::PutSchedulerProcess(Box::new(entry)),
 			],
 		};
-		self.server
-			.components
-			.indexer
-			.write(&self.server, arg)
-			.await
-			.map_err(
-				|error| tg::error!(!error, sandbox = %spawn.sandbox, "failed to write the process"),
-			)?;
+		self.write_until_accepted(arg).await;
 
 		Ok(())
 	}

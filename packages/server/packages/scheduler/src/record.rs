@@ -11,7 +11,24 @@ impl Scheduler {
 		index(&self.server).await
 	}
 
-	/// Write the starting record and the key that associates the sandbox with this scheduler. The first write of a request also writes the permissions of its queued process.
+	/// Write to the index, and send the write again until a server accepts it, because this scheduler holds what the write records.
+	pub(super) async fn write_until_accepted(&self, arg: tangram_index::write::Arg) {
+		loop {
+			let result = self
+				.server
+				.components
+				.indexer
+				.write(&self.server, arg.clone())
+				.await;
+			let Err(error) = result else {
+				return;
+			};
+			tracing::error!(error = %error.trace(), "failed to write to the index");
+			tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+		}
+	}
+
+	/// Write the starting record and the key that associates the sandbox with this scheduler, which is sent again until a server accepts it. The first write of a request also writes the permissions of its queued process.
 	pub(super) async fn persist_sandbox(
 		&self,
 		request: &EnqueueSandboxRequestArg,
@@ -266,12 +283,7 @@ impl Scheduler {
 			items.push(tangram_index::Item::DeleteSchedulerSandbox(Box::new(arg)));
 		}
 		let arg = tangram_index::write::Arg { items };
-		self.server
-			.components
-			.indexer
-			.write(&self.server, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to put the sandbox in the index"))?;
+		self.write_until_accepted(arg).await;
 
 		// Finish the boot's queued process, which this scheduler holds and which never started, from this scheduler's memory.
 		if !status.is_starting()
