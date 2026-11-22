@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A process that the sandbox's scheduler offers to the runner while the runner stops the sandbox is accepted into the stopping boot and finished as failed, and the sandbox stops.
+# A process that the sandbox's scheduler offers to the runner while the runner stops the sandbox is refused by the runner, whose boot is over, and the scheduler finishes it as failed, and the sandbox stops.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
@@ -39,11 +39,11 @@ let stop = job spawn {
 }
 checkpoint wait $shutdown | ignore
 
-# Spawn into the sandbox, and wait for the runner to accept the process into the stopping boot.
-let accepted = checkpoint watch runner.process.accepted --params { sandbox: $sandbox } --url $runner.url
+# Spawn into the sandbox, and wait for the runner to refuse the process, because the boot is over.
+let refused = checkpoint watch runner.process.refused --params { sandbox: $sandbox } --url $runner.url
 let process = tg --url $url --token $root_token process spawn --no-tokens --verbose $'--sandbox=($sandbox)' $command | from json | get process
-checkpoint pass $accepted | ignore
-checkpoint unwatch $accepted
+checkpoint pass $refused | ignore
+checkpoint unwatch $refused
 
 # Let the teardown continue.
 checkpoint unwatch $shutdown

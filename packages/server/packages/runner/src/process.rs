@@ -474,10 +474,16 @@ impl Component {
 			},
 		};
 
-		// Remember a process whose ID the runner derived in its boot, which this server spawned. Begin the process's finish, which is under way until a server answers it, so that the end of the boot waits for it, and keep the process to finish it as failed if no server answers its finish.
+		// Remember a process whose ID the runner derived in its boot, which this server spawned, and start nothing in a boot that is over. Begin the process's finish, which is under way until a server answers it, so that the end of the boot waits for it, and keep the process to finish it as failed if no server answers its finish.
 		if unfinished.id.is_none() {
 			unfinished.id = Some(id.clone());
-			boot.accept(unfinished.clone(), true);
+			if !boot.accept(unfinished.clone(), true) {
+				return Err(tg::error!(
+					code = tg::error::Code::Cancellation,
+					%id,
+					"the process's boot is over"
+				));
+			}
 		}
 		let unaccepted = boot.begin_finish(&id);
 

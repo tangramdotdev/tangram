@@ -384,18 +384,23 @@ impl Boot {
 				_ = self.wait_given_up() => return None,
 			}
 
-			// Take the number of the end in the same poll as the check, so that no process is accepted in between.
-			if self.unfinished().is_empty() {
-				let sequence = self.end()?;
+			// Take the number of the end once no process of the boot is unfinished, under the lock of the check, so that no process is accepted in between.
+			if let Some(sequence) = self.end() {
 				return Some((sequence, finished));
 			}
 		}
 	}
 
-	/// Get the number of the boot's end, or `None` once the runner gave the boot up. After this, the runner no longer gives the boot up, because its end is on the way to the index.
+	/// Get the number of the boot's end, or `None` while a process of the boot is unfinished or once the runner gave the boot up. After this, the runner no longer gives the boot up, because its end is on the way to the index, and the boot accepts no process.
 	fn end(&self) -> Option<u64> {
 		let mut inner = self.inner.lock().unwrap();
-		if self.given_up.borrow().is_some() {
+		let unfinished = inner.processes.iter().any(|process| {
+			process
+				.id
+				.as_ref()
+				.is_some_and(|id| !inner.finishes.contains_key(id))
+		});
+		if unfinished || self.given_up.borrow().is_some() {
 			return None;
 		}
 		inner.ending = true;
@@ -429,16 +434,22 @@ impl Boot {
 		kind.unwrap()
 	}
 
-	/// Remember that the boot accepted a process, and whether this server spawned it. A process without an ID is remembered once the runner derives its ID.
-	pub fn accept(&self, process: tg::runner::control::Process, local: bool) {
-		let Some(id) = &process.id else {
-			return;
-		};
+	/// Accept a process into the boot, and remember it and whether this server spawned it, unless the boot took the number of its end or the runner gave it up, after which the boot is over and accepts no process. Return whether the boot accepted the process. A process without an ID is remembered once the runner derives its ID.
+	#[must_use]
+	pub fn accept(&self, process: tg::runner::control::Process, local: bool) -> bool {
 		let mut inner = self.inner.lock().unwrap();
+		if inner.ending || self.given_up.borrow().is_some() {
+			return false;
+		}
+		let Some(id) = &process.id else {
+			return true;
+		};
 		if local {
 			inner.local.insert(id.clone());
 		}
 		inner.processes.push(process);
+
+		true
 	}
 
 	/// Get whether this server spawned the process into the boot, in which case this server finishes it, rather than the sandbox's scheduler.
@@ -616,6 +627,26 @@ mod tests {
 	}
 
 	#[test]
+	fn a_boot_accepts_no_process_once_it_took_the_number_of_its_end_or_was_given_up() {
+		let ended = boot(1);
+		assert!(ended.accept(process(&tg::process::Id::new()), false));
+		assert!(ended.end().is_none(), "the end should wait for the process");
+		let ended = boot(1);
+		assert_eq!(ended.end(), Some(1));
+		assert!(
+			!ended.accept(process(&tg::process::Id::new()), false),
+			"a boot that took the number of its end would accept a process"
+		);
+		assert!(ended.unfinished().is_empty());
+		let given_up = boot(1);
+		assert!(given_up.give_up(Teardown::Stop));
+		assert!(
+			!given_up.accept(process(&tg::process::Id::new()), false),
+			"a boot that was given up would accept a process"
+		);
+	}
+
+	#[test]
 	fn a_boot_that_took_the_number_of_its_end_is_not_given_up() {
 		let boot = boot(1);
 		assert_eq!(boot.end(), Some(1));
@@ -642,7 +673,7 @@ mod tests {
 	async fn a_boot_takes_its_end_only_after_a_server_answered_every_finish() {
 		let boot = boot(1);
 		let process = tg::process::Id::new();
-		boot.accept(self::process(&process), true);
+		assert!(boot.accept(self::process(&process), true));
 		let finish = boot.begin_finish(&process);
 
 		// The end waits while the process's finish is under way.
@@ -663,7 +694,7 @@ mod tests {
 	async fn a_boot_finishes_from_memory_again_a_process_whose_finish_was_dropped_before_its_end() {
 		let boot = boot(1);
 		let process = tg::process::Id::new();
-		boot.accept(self::process(&process), true);
+		assert!(boot.accept(self::process(&process), true));
 		let finishes = std::cell::RefCell::new(Vec::new());
 		let calls = std::cell::Cell::new(0);
 
@@ -695,7 +726,7 @@ mod tests {
 	async fn a_boot_that_is_given_up_while_its_end_waits_takes_no_end() {
 		let boot = boot(1);
 		let process = tg::process::Id::new();
-		boot.accept(self::process(&process), true);
+		assert!(boot.accept(self::process(&process), true));
 		let finish = boot.begin_finish(&process);
 		let mut end = std::pin::pin!(boot.end_after_finishes(|_| {}));
 		assert!(poll(&mut end).is_pending());
@@ -721,7 +752,7 @@ mod tests {
 	async fn a_process_whose_finish_is_dropped_before_a_server_answers_it_is_unfinished_again() {
 		let boot = boot(1);
 		let process = tg::process::Id::new();
-		boot.accept(self::process(&process), true);
+		assert!(boot.accept(self::process(&process), true));
 		assert_eq!(boot.unfinished().len(), 1);
 
 		// A finish that is under way leaves the process out of the unfinished processes, and the wait waits for it.

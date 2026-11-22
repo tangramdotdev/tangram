@@ -355,7 +355,8 @@ impl Component {
 		);
 		let boot = Arc::new(boot);
 		if let Some(process) = &arg.process {
-			boot.accept(process.clone(), !arg.scheduled);
+			let accepted = boot.accept(process.clone(), !arg.scheduled);
+			debug_assert!(accepted, "a new boot accepts its initial process");
 		}
 		self.state.boots.insert(boot.clone());
 
@@ -653,7 +654,7 @@ impl Component {
 		Ok(handled)
 	}
 
-	/// Serve a spawn into a boot. Reply to a server's spawn without a boot that the runner does not hold the sandbox, because the sandbox's scheduler sends the spawn to the runner with the boot, or that the runner is not ready until the scheduler has acknowledged the report of a boot on the shortcut path. Fail a spawn for another boot of the sandbox, which this boot does not number. Accept every other spawn into the boot, so that the boot numbers its finish and its end waits for it: a running boot starts the process, and a boot that is not running finishes it as failed at once, so that the process does not run in another boot.
+	/// Serve a spawn into a boot, which is the one handler of a spawn on the runner. Reply to a server's spawn without a boot that the runner does not hold the sandbox, because the sandbox's scheduler sends the spawn to the runner with the boot, or that the runner is not ready until the scheduler has acknowledged the report of a boot on the shortcut path. Say yes to a spawn into the boot while the boot runs and accepts the process, which starts it, and say no, that the boot is over, to a spawn for another boot of the sandbox and to a spawn into a boot that is not running, ending, or given up, so that the spawn's holder ends the process. Refuse a spawn whose process is not in the sandbox.
 	async fn serve_spawn(
 		&self,
 		session: &Session,
@@ -664,46 +665,23 @@ impl Component {
 	) -> tg::Result<Handled> {
 		let id = &boot.sandbox;
 
-		// Reply to a server's spawn without a boot, and fail a spawn for another boot.
+		// Reply to a server's spawn without a boot.
 		let remote = matches!(reply, Reply::Remote { .. });
-		match request.boot {
-			None if remote => {
-				let retry = if matches!(phase, Phase::Running { reported: false }) {
-					tg::control::Retry::NotReady
-				} else {
-					tg::control::Retry::NotHolder
-				};
-				reply.send_retry(retry).await.map_err(|error| {
-					tg::error!(!error, "failed to send the sandbox control response")
-				})?;
-				return Ok(Handled::Done);
-			},
-			Some(requested) if requested != boot.boot => {
-				let error = tg::error!(
-					code = tg::error::Code::Cancellation,
-					%id,
-					boot = %boot.boot,
-					%requested,
-					"the spawn is for another boot of the sandbox"
-				);
-				let other = Arc::new(Boot::new(
-					requested,
-					id.clone(),
-					boot.location.clone(),
-					None,
-					true,
-					0,
-				));
-				self.reply_to_spawn(session, Some(reply), request.process, &other, Err(error))
-					.boxed()
-					.await?;
-				return Ok(Handled::Done);
-			},
-			None | Some(_) => {},
+		if request.boot.is_none() && remote {
+			let retry = if matches!(phase, Phase::Running { reported: false }) {
+				tg::control::Retry::NotReady
+			} else {
+				tg::control::Retry::NotHolder
+			};
+			reply.send_retry(retry).await.map_err(|error| {
+				tg::error!(!error, "failed to send the sandbox control response")
+			})?;
+			return Ok(Handled::Done);
 		}
 
-		// Accept the spawn into a running boot, which starts the process. Refuse a spawn whose process is not in the sandbox.
-		if let Phase::Running { .. } = phase {
+		// Say yes to a spawn into a running boot that accepts the process, which starts the process.
+		let other = request.boot.is_some_and(|requested| requested != boot.boot);
+		if let (Phase::Running { .. }, false) = (phase, other) {
 			let process = match Self::prepare_process(request.process, id) {
 				Ok(process) => process,
 				Err(error) => {
@@ -713,19 +691,26 @@ impl Component {
 					return Ok(Handled::Done);
 				},
 			};
-			boot.accept(process.clone(), request.boot.is_none());
-			tangram_server_core::checkpoint!(session.server, "runner.process.accepted", sandbox = %id).await;
-			let spawn = Spawn {
-				process,
-				public: request.public,
-				reply,
-			};
-			return Ok(Handled::Spawn(spawn));
+			if boot.accept(process.clone(), request.boot.is_none()) {
+				tangram_server_core::checkpoint!(session.server, "runner.process.accepted", sandbox = %id).await;
+				let spawn = Spawn {
+					process,
+					public: request.public,
+					reply,
+				};
+				return Ok(Handled::Spawn(spawn));
+			}
 		}
 
-		// Accept the spawn into a boot that is not running, and finish its process as failed. A process that this server spawned is finished on this server, and one that the sandbox's scheduler offered is reported to the scheduler.
-		let error = if Self::sandbox_status(session, id).is_none_or(|status| status.is_destroyed())
-		{
+		// Say no to every other spawn, because the boot that it is for is over.
+		let error = if other {
+			tg::error!(
+				code = tg::error::Code::Cancellation,
+				%id,
+				boot = %boot.boot,
+				"the spawn is for another boot of the sandbox"
+			)
+		} else if Self::sandbox_status(session, id).is_none_or(|status| status.is_destroyed()) {
 			tg::error!(
 				code = tg::error::Code::Cancellation,
 				%id,
@@ -738,12 +723,12 @@ impl Component {
 				"the sandbox is not started"
 			)
 		};
-		boot.accept(request.process.clone(), request.boot.is_none());
-		tangram_server_core::checkpoint!(session.server, "runner.process.accepted", sandbox = %id)
+		tangram_server_core::checkpoint!(session.server, "runner.process.refused", sandbox = %id)
 			.await;
-		self.reply_to_spawn(session, Some(reply), request.process, boot, Err(error))
-			.boxed()
-			.await?;
+		reply
+			.send(Err(error))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))?;
 
 		Ok(Handled::Done)
 	}
