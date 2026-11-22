@@ -356,23 +356,16 @@ impl Component {
 		let timeout = session.server.config.control.request_timeout;
 		let options = tangram_server_core::control::Options { retry, timeout };
 		// Spawn preparation has already checked sandbox access and the request origin.
-		let response = if let Some(control_sender) = session
+		let response = if let Some(control) = session
 			.server
 			.components
 			.runner
 			.try_get_sandbox_control_runner(sandbox, location)
 		{
-			// Write the queued record of a process whose ID the spawn created before this server's runner holds the process, because this server is the runner's server.
+			// Write the queued record of a process whose ID the spawn created before this server's runner holds the process, because this server is the runner's server, with the boot from the lookup of the control.
+			let control_sender = control.sender;
 			if id.is_some() {
-				let boot = session
-					.server
-					.components
-					.runner
-					.state()
-					.sandboxes
-					.get_by_id(sandbox)
-					.map(|state| state.boot.boot);
-				self.write_queued_process(session, &queued, sandbox, boot, public)
+				self.write_queued_process(session, &queued, sandbox, Some(control.boot), public)
 					.await?;
 			}
 			let result = async {

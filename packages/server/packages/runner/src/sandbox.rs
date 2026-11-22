@@ -2997,19 +2997,23 @@ impl Component {
 	) -> tg::Result<tg::runner::control::DestroySandboxClientResponseOutput> {
 		let tg::runner::control::DestroySandboxServerRequestArg { error, sandbox: id } = arg;
 
-		// Wait for a boot that is starting to be stored, so that the destroy does not remove the directory it starts on.
+		// Wait for a boot that is starting to be stored, and for a boot that the runner gave up to end locally, so that the destroy does not remove the directory that either uses, and does not ask a boot that the runner gave up to destroy the sandbox.
 		let control_sender = loop {
 			let updated = self.state.sandboxes.updated();
 			let sandbox = self.state.sandboxes.get_by_id(&id);
-			let starting = self.state.boots.latest(&id).is_some_and(|latest| {
+			let latest = self.state.boots.latest(&id);
+			let starting = latest.as_ref().is_some_and(|latest| {
 				sandbox
 					.as_ref()
 					.is_none_or(|sandbox| sandbox.boot.boot != latest.boot)
 			});
+			let given_up = latest
+				.as_ref()
+				.is_some_and(|latest| latest.given_up().is_some());
 			let control_sender = sandbox
 				.filter(|sandbox| !sandbox.status.is_stopped_or_destroyed())
 				.map(|sandbox| sandbox.control_sender.clone());
-			if !starting {
+			if !starting && !given_up {
 				break control_sender;
 			}
 			updated.await;

@@ -468,6 +468,23 @@ impl Component {
 				tg::process::control::ServerMessage::Request(message) => {
 					let request_id = message.id;
 
+					// Reply to every request that the runner does not hold the process once the runner has released it or gave up its boot, including the opens of relays and the leases.
+					let held = match &session.context.principal {
+						tg::Principal::Process(process) => session
+							.server
+							.components
+							.runner
+							.state()
+							.try_get_process(process)
+							.is_some(),
+						_ => true,
+					};
+					if !held {
+						let response = Self::process_control_not_holder_response(request_id);
+						sender.send(response).await?;
+						continue;
+					}
+
 					match message.arg {
 						tg::process::control::ServerRequestArg::AcquireLease(_) => {
 							let result = Self::acquire_process_lease(session)

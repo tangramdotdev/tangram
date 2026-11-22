@@ -16,6 +16,12 @@ pub struct Runner {
 	pub location_arg: tg::location::Arg,
 }
 
+/// The control of a sandbox whose boot this server's runner holds, with the boot, both from one lookup.
+pub struct SandboxControl {
+	pub boot: u64,
+	pub sender: tangram_server_sandbox_core::control::local::Local,
+}
+
 /// The runner component.
 pub trait Component: crate::component::Lifecycle {
 	fn try_get_runner_data<'a>(
@@ -163,7 +169,7 @@ pub trait Component: crate::component::Lifecycle {
 		&self,
 		id: &tg::sandbox::Id,
 		location: Option<&tg::location::Arg>,
-	) -> Option<tangram_server_sandbox_core::control::local::Local>;
+	) -> Option<SandboxControl>;
 
 	fn try_get_sandbox_runner(
 		&self,

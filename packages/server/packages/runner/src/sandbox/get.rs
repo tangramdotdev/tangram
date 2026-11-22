@@ -1,18 +1,28 @@
 use {
-	crate::Component, tangram_client::prelude::*, tangram_server_core::runner::Runner,
-	tangram_server_sandbox_core::control::local::Local,
+	crate::Component,
+	tangram_client::prelude::*,
+	tangram_server_core::runner::{Runner, SandboxControl},
 };
 
 impl Component {
+	/// Get the control of a sandbox whose boot the runner holds and the boot from one lookup, so that a give-up between two lookups cannot be missed.
 	pub(crate) fn try_get_sandbox_control_runner(
 		&self,
 		id: &tg::sandbox::Id,
 		location: Option<&tg::location::Arg>,
-	) -> Option<Local> {
-		let runner = self.try_get_sandbox_runner(id, location)?;
-		let sandbox = self.state.sandboxes().get(runner.index)?;
+	) -> Option<SandboxControl> {
+		let sandbox = self.state.try_get_held_sandbox(id)?;
+		Self::sandbox_runner(&sandbox, location)?;
 		let sender = &sandbox.control_sender;
-		(!sender.is_closed()).then(|| sender.clone())
+		if sender.is_closed() {
+			return None;
+		}
+		let control = SandboxControl {
+			boot: sandbox.boot.boot,
+			sender: sender.clone(),
+		};
+
+		Some(control)
 	}
 
 	pub(crate) fn try_get_sandbox_runner(
@@ -21,7 +31,13 @@ impl Component {
 		location: Option<&tg::location::Arg>,
 	) -> Option<Runner> {
 		let sandbox = self.state.try_get_held_sandbox(id)?;
+		Self::sandbox_runner(&sandbox, location)
+	}
 
+	fn sandbox_runner(
+		sandbox: &dashmap::mapref::one::Ref<'_, u64, tangram_server_runner_core::sandbox::State>,
+		location: Option<&tg::location::Arg>,
+	) -> Option<Runner> {
 		// Regions guide subsequent routing, but do not constrain a runner state match.
 		let location_arg = if let Some(location) = location {
 			let components = location

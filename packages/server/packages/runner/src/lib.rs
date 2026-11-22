@@ -1747,7 +1747,7 @@ impl tangram_server_core::runner::Component for Component {
 		&self,
 		id: &tg::sandbox::Id,
 		location: Option<&tg::location::Arg>,
-	) -> Option<tangram_server_sandbox_core::control::local::Local> {
+	) -> Option<tangram_server_core::runner::SandboxControl> {
 		self.try_get_sandbox_control_runner(id, location)
 	}
 
