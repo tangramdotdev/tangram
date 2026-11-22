@@ -180,6 +180,16 @@ fn the_runner_of_a_sandbox_is_kept_from_the_first_put_that_names_one() {
 }
 
 #[test]
+fn another_principal_cannot_set_the_runner_of_a_sandbox() {
+	let existing = sandbox(data(0, tg::sandbox::Status::Destroyed, None));
+	let mut write = arg(existing.data.clone().unwrap());
+	write.principal = tg::Principal::User(tg::user::Id::new());
+	write.runner = Some(tg::runner::Id::new());
+	let merge = write.merge(Some(&existing), None).unwrap().unwrap();
+	assert_eq!(merge.sandbox.runner, None);
+}
+
+#[test]
 fn a_write_that_changes_the_creator_or_the_owner_of_a_sandbox_is_rejected() {
 	let existing = sandbox(data(0, tg::sandbox::Status::Started, None));
 	let user = tg::Principal::User(tg::user::Id::new());
@@ -427,7 +437,7 @@ fn of_a_start_and_a_destroy_of_a_stopped_sandbox_only_the_first_after_an_end_app
 }
 
 #[test]
-fn a_write_with_a_conditional_put_whose_condition_fails_is_rejected_whole() {
+fn check_conditions_rejects_a_write_whose_condition_fails() {
 	let stopped = sandbox(data(0, tg::sandbox::Status::Stopped, None));
 	let started = sandbox(data(1, tg::sandbox::Status::Started, None));
 	let mut start = arg(data(1, tg::sandbox::Status::Starting, None));

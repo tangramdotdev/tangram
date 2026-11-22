@@ -285,11 +285,26 @@ impl Arg {
 			|| existing.is_none()
 			|| (self.data.is_some() && self.children.is_some());
 
-		// Keep the stored data unless the arg's data supersedes it.
+		// Get the end of the process's boot if it applies to the write, which it does if the write is numbered at or above the end.
+		let end = boot
+			.and_then(|boot| context.sandbox?.ends.get(&boot))
+			.filter(|end| self.sequence >= end.sequence && Self::checks_end(existing))
+			.filter(|_| self.data.is_some());
+
+		// Keep the stored data unless the arg's data supersedes it, and ignore the error, log, and output lists of a write that the end fails or that the process writes to its finished record, because they describe data that the record does not have.
 		let superseded = self.supersedes(existing);
+		let finished = existing
+			.is_some_and(|existing| existing.status.is_some_and(|status| status.is_finished()));
 		let mut arg = std::borrow::Cow::Borrowed(self);
 		if !superseded {
 			arg.to_mut().data = None;
+		}
+		if end.is_some() || (finished && self.principal == tg::Principal::Process(self.id.clone()))
+		{
+			let arg = arg.to_mut();
+			arg.error = None;
+			arg.log = None;
+			arg.output = None;
 		}
 		let arg = arg.as_ref();
 		let sequence = if superseded {
@@ -341,16 +356,13 @@ impl Arg {
 			metadata.merge(&existing.metadata);
 		}
 
-		// Take the status, creator, owner, and sandbox from the data, or keep the existing ones.
+		// Take the data without its children.
 		let mut data = arg.data.clone();
 		if let Some(data) = &mut data {
 			data.children = None;
 		}
 
-		// Record the process as failed if the end of its boot applies to the write and the write is numbered at or above the end, with the write's data even if it would not supersede the record's, because the failure ends an unfinished record. The failed record carries the end's number.
-		let end = boot
-			.and_then(|boot| context.sandbox?.ends.get(&boot))
-			.filter(|end| self.sequence >= end.sequence && Self::checks_end(existing));
+		// Record the process as failed if the end of its boot applies to the write, with the write's data even if it would not supersede the record's, because the failure ends an unfinished record. The failed record carries the end's number.
 		let mut sequence = sequence;
 		if let Some(end) = end
 			&& let Some(finished) = self.data.clone()
@@ -367,6 +379,8 @@ impl Arg {
 		{
 			data = complete(existing_data, write);
 		}
+
+		// Take the status, creator, owner, location, and sandbox from the data, or keep the existing ones.
 		let status = data
 			.as_ref()
 			.map(|data| data.status)
