@@ -259,7 +259,7 @@ impl SchedulerState {
 		);
 	}
 
-	/// Number a runner's connection, replace the runner's entry with one for the connection that keeps the reservations of the runner's unanswered offers, and get the connection's inputs. Nothing else that the connection decides changes until the connection is added and applied.
+	/// Number a runner's connection, replace the runner's entry with one for the connection that keeps the reservations of the runner's unanswered offers and the time of the runner's last sign of life, and get the connection's inputs. Nothing else that the connection decides changes until the connection is added and applied, and only an applied connection counts as a sign of life, so that a runner whose connections never apply expires.
 	pub(super) fn connect_runner(
 		&mut self,
 		request: &mut AddRunnerRequestArg,
@@ -290,17 +290,19 @@ impl SchedulerState {
 		// Get the boots that the runner accepted and no longer reports.
 		let accepted = self.get_unreported_sandboxes(&request.runner, &request.sandboxes);
 
-		// Replace the runner's entry, and keep the reservations of the runner's unanswered offers on it.
-		let offers = self
+		// Replace the runner's entry, and keep the reservations of the runner's unanswered offers and the time of its last sign of life on it.
+		let (heartbeat_at, offers) = self
 			.remove_runner_entry(&request.runner)
-			.map_or_default(|runner| runner.reservations);
+			.map_or((now, HashMap::default()), |runner| {
+				(runner.heartbeat_at, runner.reservations)
+			});
 		let runner = Runner {
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
 			committed: tg::runner::Capacity::default(),
 			connection,
 			connection_failed: false,
-			heartbeat_at: now,
+			heartbeat_at,
 			heartbeat_index: 0,
 			host: request.host.clone(),
 			owner: None,
@@ -359,8 +361,9 @@ impl SchedulerState {
 			..
 		} = output;
 
-		// Record that the runner's restart is handled, so that the runner is sent work again.
+		// Record that the runner's restart is handled, so that the runner is sent work again, and count the connection as a sign of life.
 		let entry = self.runners.entries.get_mut(&id).unwrap();
+		entry.heartbeat_at = scheduler.server.clock.instant();
 		entry.owner = owner;
 		entry.restarting = false;
 

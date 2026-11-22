@@ -310,3 +310,29 @@ fn an_unanswered_offer_whose_boot_an_earlier_connection_ended_is_never_offered_a
 	let decision = decide(indexed(&sandbox, 1, tg::sandbox::Status::Starting, 0, None));
 	assert!(matches!(decision, SavedBoot::Unwritten));
 }
+
+#[test]
+fn a_runner_whose_connections_never_apply_expires_one_ttl_after_its_first_connection() {
+	let id = tg::runner::Id::new();
+	let now = Clock::new(None, None).instant();
+	let mut state = SchedulerState::new();
+
+	// The runner connects, and connects again before each connection is applied, many times within the ttl.
+	for attempt in 0..4 {
+		let mut connection = request(&id, true, Vec::new());
+		state.connect_runner(&mut connection, now + TIME_TO_LIVE / 4 * attempt);
+	}
+
+	// The runner expires one ttl after its first connection, because no connection applied.
+	let expired = state
+		.runners
+		.expired(now + TIME_TO_LIVE + Duration::from_secs(1), TIME_TO_LIVE);
+	assert_eq!(
+		expired
+			.into_iter()
+			.map(|(runner, _)| runner)
+			.collect::<Vec<_>>(),
+		vec![id],
+		"the connections that never applied kept the runner alive"
+	);
+}
