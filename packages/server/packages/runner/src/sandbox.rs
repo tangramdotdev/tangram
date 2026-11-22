@@ -258,6 +258,19 @@ struct Spawn {
 	reply: Reply,
 }
 
+/// How a boot answers a spawn.
+#[derive(Debug)]
+enum SpawnAnswer {
+	/// Accept the spawn into the boot.
+	Accept,
+
+	/// Refuse a spawn for another boot of the sandbox, which this boot does not hold.
+	Refuse,
+
+	/// Ask the sender to send the spawn again.
+	Retry(tg::control::Retry),
+}
+
 enum Directory {
 	/// The directory of a stopped sandbox, which starts again on its files.
 	Existing {
@@ -658,7 +671,7 @@ impl Component {
 		Ok(handled)
 	}
 
-	/// Serve a spawn into a boot. Reply to a server's spawn without a boot that the runner does not hold the sandbox, because the sandbox's scheduler sends the spawn to the runner with the boot, or that the runner is not ready until the scheduler has acknowledged the report of a boot on the shortcut path. Fail a spawn for another boot of the sandbox, which this boot does not number. Accept every other spawn into the boot, so that the boot numbers its finish and its end waits for it: a running boot starts the process, and a boot that is not running finishes it as failed at once, so that the process does not run in another boot.
+	/// Serve a spawn into a boot, answering it as `answer_spawn` decides. Refuse a spawn for another boot of the sandbox, which this boot does not hold, so that the sandbox's scheduler ends the process because its offer got no yes. Accept every other spawn into the boot, so that the boot numbers its finish and its end waits for it: a running boot starts the process, and a boot that is not running finishes it as failed at once, so that the process does not run in another boot.
 	async fn serve_spawn(
 		&self,
 		session: &Session,
@@ -669,42 +682,29 @@ impl Component {
 	) -> tg::Result<Handled> {
 		let id = &boot.sandbox;
 
-		// Reply to a server's spawn without a boot, and fail a spawn for another boot.
+		// Ask the sender to send a spawn again, or refuse a spawn for another boot.
 		let remote = matches!(reply, Reply::Remote { .. });
-		match request.boot {
-			None if remote => {
-				let retry = if matches!(phase, Phase::Running { reported: false }) {
-					tg::control::Retry::NotReady
-				} else {
-					tg::control::Retry::NotHolder
-				};
+		match answer_spawn(phase, boot.boot, request.boot, remote) {
+			SpawnAnswer::Accept => {},
+			SpawnAnswer::Refuse => {
+				let error = tg::error!(
+					code = tg::error::Code::Cancellation,
+					%id,
+					boot = %boot.boot,
+					requested = ?request.boot,
+					"the spawn is for another boot of the sandbox"
+				);
+				reply.send(Err(error)).await.map_err(|error| {
+					tg::error!(!error, "failed to send the sandbox control response")
+				})?;
+				return Ok(Handled::Done);
+			},
+			SpawnAnswer::Retry(retry) => {
 				reply.send_retry(retry).await.map_err(|error| {
 					tg::error!(!error, "failed to send the sandbox control response")
 				})?;
 				return Ok(Handled::Done);
 			},
-			Some(requested) if requested != boot.boot => {
-				let error = tg::error!(
-					code = tg::error::Code::Cancellation,
-					%id,
-					boot = %boot.boot,
-					%requested,
-					"the spawn is for another boot of the sandbox"
-				);
-				let other = Arc::new(Boot::new(
-					requested,
-					id.clone(),
-					boot.location.clone(),
-					None,
-					true,
-					0,
-				));
-				self.reply_to_spawn(session, Some(reply), request.process, &other, Err(error))
-					.boxed()
-					.await?;
-				return Ok(Handled::Done);
-			},
-			None | Some(_) => {},
 		}
 
 		// Accept the spawn into a running boot, which starts the process. Refuse a spawn whose process is not in the sandbox.
@@ -4009,6 +4009,21 @@ fn stopped_storage_usage(size: u64, seconds: i64) -> tg::sandbox::Usage {
 		cpu: tg::sandbox::ResourceUsage::default(),
 		memory: tg::sandbox::ResourceUsage::default(),
 		storage,
+	}
+}
+
+/// Decide how a boot answers a spawn. Ask a server that sends a spawn without a boot to send it again, because the runner does not hold the sandbox, since the sandbox's scheduler sends the spawn with the boot, or because the runner is not ready until its scheduler has acknowledged the report of a boot on the shortcut path. Refuse a spawn for another boot of the sandbox, and accept every other spawn.
+fn answer_spawn(phase: Phase<'_>, boot: u64, requested: Option<u64>, remote: bool) -> SpawnAnswer {
+	match requested {
+		None if remote => {
+			if matches!(phase, Phase::Running { reported: false }) {
+				SpawnAnswer::Retry(tg::control::Retry::NotReady)
+			} else {
+				SpawnAnswer::Retry(tg::control::Retry::NotHolder)
+			}
+		},
+		Some(requested) if requested != boot => SpawnAnswer::Refuse,
+		None | Some(_) => SpawnAnswer::Accept,
 	}
 }
 
