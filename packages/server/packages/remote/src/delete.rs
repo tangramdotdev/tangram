@@ -34,7 +34,6 @@ impl Component {
 			return Ok(None);
 		};
 		let remote = remote.clone();
-		let principal = principal.as_ref().map(ToString::to_string);
 		let name = session
 			.server
 			.database
@@ -42,8 +41,7 @@ impl Component {
 				let principal = principal.clone();
 				let remote = remote.clone();
 				async move {
-					Self::delete_remote_with_transaction(transaction, &remote, principal.as_deref())
-						.await
+					Self::delete_remote_with_transaction(transaction, &remote, &principal).await
 				}
 				.boxed()
 			})
@@ -80,7 +78,7 @@ impl Component {
 	async fn delete_remote_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		remote: &tg::remote::Selector,
-		principal: Option<&str>,
+		principal: &tg::Principal,
 	) -> tg::Result<ControlFlow<Option<String>, tangram_server_core::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -96,7 +94,8 @@ impl Component {
 				returning name;
 			",
 		);
-		let params = db::params![principal.unwrap_or_default(), remote.to_string()];
+		let principal = Self::remote_principal_parameter(principal);
+		let params = db::params![principal.as_deref().unwrap_or_default(), remote.to_string()];
 		let result = transaction
 			.query_optional_into::<Row>(statement.into(), params)
 			.await;

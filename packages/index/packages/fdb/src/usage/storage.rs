@@ -72,7 +72,7 @@ impl Index {
 				},
 			);
 			for entry in entries {
-				if entry.direct == Some(None) {
+				if entry.direct == Some(tangram_index::permission::Expiration::Never) {
 					permissions.insert(entry.permission.into());
 				}
 			}

@@ -49,4 +49,7 @@ assert equal $bob_remote.url $remote_bob.url
 let local_auth_disabled = server spawn --name local-auth-disabled
 
 tg remote put default $remote_root.url
-tg remote delete default
+let root_remote = tg remote get default | from json
+let root_remote_by_id = tg remote get $root_remote.id | from json
+assert equal $root_remote_by_id $root_remote
+tg remote delete $root_remote.id

@@ -148,7 +148,9 @@ impl Index {
 				continue;
 			};
 			let mut value = PermissionValue::deserialize(value)?;
-			let old_expires_at = value.source_expires_at(entry.permission, source).flatten();
+			let old_expires_at = value
+				.source_expires_at(entry.permission, source)
+				.and_then(tangram_index::permission::Expiration::timestamp);
 			let deleted = value.delete(entry.permission, source, entry.expires_at);
 			empty = empty && value.is_empty();
 			if !deleted {

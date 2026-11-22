@@ -35,7 +35,7 @@ pub struct Arg {
 		skip_serializing_if = "Option::is_none",
 		with = "tangram_serialize::with::unwrap_or_skip"
 	)]
-	pub error: Option<Option<Vec<tg::object::Id>>>,
+	pub error: Option<tg::update::Update<Vec<tg::object::Id>>>,
 
 	#[tangram_serialize(id = 4)]
 	pub id: tg::process::Id,
@@ -50,7 +50,7 @@ pub struct Arg {
 		skip_serializing_if = "Option::is_none",
 		with = "tangram_serialize::with::unwrap_or_skip"
 	)]
-	pub log: Option<Option<tg::object::Id>>,
+	pub log: Option<tg::update::Update<tg::object::Id>>,
 
 	#[tangram_serialize(id = 6)]
 	pub metadata: tg::process::Metadata,
@@ -64,7 +64,7 @@ pub struct Arg {
 		skip_serializing_if = "Option::is_none",
 		with = "tangram_serialize::with::unwrap_or_skip"
 	)]
-	pub output: Option<Option<Vec<tg::object::Id>>>,
+	pub output: Option<tg::update::Update<Vec<tg::object::Id>>>,
 
 	#[tangram_serialize(id = 8)]
 	pub parent: Option<tg::process::Id>,

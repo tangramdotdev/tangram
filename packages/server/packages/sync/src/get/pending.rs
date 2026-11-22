@@ -79,7 +79,7 @@ impl Pending {
 	}
 
 	pub async fn next(&mut self) -> tg::Result<()> {
-		if let Some(Some((id, output))) = self.futures.next().await
+		if let Some((id, output)) = self.futures.next().await.flatten()
 			&& let Some(node) = self.nodes.get_mut(&id)
 		{
 			if node.missing {

@@ -479,7 +479,7 @@ fn disabled_permission_searches() -> server::PermissionSearches {
 fn resolve_verification_index(source: VerificationIndex) -> server::VerificationIndex {
 	let mut target = server::VerificationIndex::default();
 	if let Some(delay) = source.delay {
-		target.delay = delay.map(|delay| delay.0);
+		target.delay = delay.into_option().map(|delay| delay.0);
 	}
 	target
 }
@@ -2183,7 +2183,7 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 		target.default_storage = value;
 	}
 	if let Some(value) = source.unplaceable_timeout {
-		target.unplaceable_timeout = value.map(|value| value.0);
+		target.unplaceable_timeout = value.into_option().map(|value| value.0);
 	}
 	if let Some(value) = source.max_offer_failures {
 		target.max_offer_failures = value;

@@ -427,9 +427,9 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 		.unwrap();
 	assert!(!children.complete);
 	process_arg.command = Some(vec![command.clone()]);
-	process_arg.error = Some(None);
-	process_arg.log = Some(None);
-	process_arg.output = Some(Some(vec![output.clone()]));
+	process_arg.error = Some(tg::update::Update::Clear);
+	process_arg.log = Some(tg::update::Update::Clear);
+	process_arg.output = Some(tg::update::Update::Set(vec![output.clone()]));
 	let batch = tangram_index::write::Arg {
 		items: vec![tangram_index::Item::PutProcess(Box::new(process_arg))],
 	};
@@ -508,7 +508,11 @@ fn permissions(
 		subject,
 	)
 	.unwrap();
-	assert!(entries.iter().all(|entry| entry.direct == Some(None)));
+	assert!(
+		entries
+			.iter()
+			.all(|entry| entry.direct == Some(tangram_index::permission::Expiration::Never))
+	);
 	entries
 }
 

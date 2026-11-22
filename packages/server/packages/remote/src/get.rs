@@ -72,7 +72,7 @@ impl Component {
 		else {
 			return Ok(None);
 		};
-		let row = self.try_get_remote_row(session, remote, principal).await?;
+		let row = self.try_get_remote_row(session, remote, &principal).await?;
 
 		Ok(row)
 	}
@@ -106,7 +106,9 @@ impl Component {
 			return Ok(None);
 		};
 		let remote = tg::remote::Selector::Name(name);
-		let row = self.try_get_remote_row(session, &remote, None).await?;
+		let row = self
+			.try_get_remote_row(session, &remote, &tg::Principal::Root)
+			.await?;
 
 		Ok(row)
 	}
@@ -115,15 +117,12 @@ impl Component {
 		&self,
 		session: &Session,
 		remote: &tg::remote::Selector,
-		principal: Option<tg::Principal>,
+		principal: &tg::Principal,
 	) -> tg::Result<Option<Row>> {
-		let principal = principal.as_ref().map(ToString::to_string);
-
 		// Read the row from the read connection.
 		let options = db::ConnectionOptions::default();
 		let row =
-			Self::try_get_remote_row_with_options(session, remote, principal.as_deref(), options)
-				.await?;
+			Self::try_get_remote_row_with_options(session, remote, principal, options).await?;
 		if row.is_some() {
 			return Ok(row);
 		}
@@ -134,8 +133,7 @@ impl Component {
 			..Default::default()
 		};
 		let row =
-			Self::try_get_remote_row_with_options(session, remote, principal.as_deref(), options)
-				.await?;
+			Self::try_get_remote_row_with_options(session, remote, principal, options).await?;
 
 		Ok(row)
 	}
@@ -143,22 +141,18 @@ impl Component {
 	async fn try_get_remote_row_with_options(
 		session: &Session,
 		remote: &tg::remote::Selector,
-		principal: Option<&str>,
+		principal: &tg::Principal,
 		options: db::ConnectionOptions,
 	) -> tg::Result<Option<Row>> {
 		session
 			.server
 			.database
 			.run_with_options(options, |transaction| {
-				let principal = principal.map(ToOwned::to_owned);
+				let principal = principal.clone();
 				let remote = remote.clone();
 				async move {
-					Self::try_get_remote_row_with_transaction(
-						transaction,
-						&remote,
-						principal.as_deref(),
-					)
-					.await
+					Self::try_get_remote_row_with_transaction(transaction, &remote, &principal)
+						.await
 				}
 				.boxed()
 			})
@@ -168,7 +162,7 @@ impl Component {
 	async fn try_get_remote_row_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		remote: &tg::remote::Selector,
-		principal: Option<&str>,
+		principal: &tg::Principal,
 	) -> tg::Result<ControlFlow<Option<Row>, tangram_server_core::database::Error>> {
 		let p = transaction.p();
 		let column = crate::selector_column(remote);
@@ -179,7 +173,8 @@ impl Component {
 				where coalesce(principal, '') = {p}1 and {column} = {p}2;
 			",
 		);
-		let params = db::params![principal.unwrap_or_default(), remote.to_string()];
+		let principal = Self::remote_principal_parameter(principal);
+		let params = db::params![principal.as_deref().unwrap_or_default(), remote.to_string()];
 		let result = transaction
 			.query_optional_into::<Row>(statement.into(), params)
 			.await;

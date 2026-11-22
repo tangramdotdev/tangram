@@ -52,8 +52,7 @@ impl Component {
 		// Resolve the principal.
 		let principal = self
 			.resolve_remote_arg_principal(session, arg.principal)
-			.await?
-			.map(|principal| principal.to_string());
+			.await?;
 
 		// Read an extra row to determine whether another page exists.
 		let mut rows = session
@@ -65,7 +64,7 @@ impl Component {
 				async move {
 					Self::list_remotes_with_transaction(
 						transaction,
-						principal.as_deref(),
+						&principal,
 						after.as_ref(),
 						limit + 1,
 					)
@@ -102,11 +101,12 @@ impl Component {
 
 	async fn list_remotes_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
-		principal: Option<&str>,
+		principal: &tg::Principal,
 		after: Option<&tg::remote::Id>,
 		limit: u64,
 	) -> tg::Result<ControlFlow<Vec<crate::get::Row>, tangram_server_core::database::Error>> {
 		let p = transaction.p();
+		let principal = Self::remote_principal_parameter(principal);
 		// The empty string sorts before every remote ID for the first page.
 		let after = after.map_or_default(ToString::to_string);
 		let statement = formatdoc!(
@@ -121,7 +121,7 @@ impl Component {
 			.query_all_into::<crate::get::Row>(
 				statement.into(),
 				db::params![
-					principal.unwrap_or_default(),
+					principal.as_deref().unwrap_or_default(),
 					after,
 					i64::try_from(limit).unwrap()
 				],

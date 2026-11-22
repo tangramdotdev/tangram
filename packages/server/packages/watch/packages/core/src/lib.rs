@@ -584,7 +584,8 @@ impl State {
 	}
 
 	fn graph_matches_path(graph: &Graph, path: &Path) -> bool {
-		let graph_metadata = graph.paths.get(path).map(|index| {
+		let graph_index = graph.paths.get(path);
+		let graph_metadata = graph_index.and_then(|index| {
 			graph
 				.nodes
 				.get(index)
@@ -592,14 +593,15 @@ impl State {
 		});
 		let path_metadata = std::fs::symlink_metadata(path);
 		match (graph_metadata, path_metadata) {
-			(Some(Some(graph_metadata)), Ok(path_metadata)) => {
+			(Some(graph_metadata), Ok(path_metadata)) => {
 				Self::metadata_matches(graph_metadata, &path_metadata)
 			},
 			(None, Err(error))
-				if matches!(
-					error.kind(),
-					std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-				) =>
+				if graph_index.is_none()
+					&& matches!(
+						error.kind(),
+						std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+					) =>
 			{
 				true
 			},

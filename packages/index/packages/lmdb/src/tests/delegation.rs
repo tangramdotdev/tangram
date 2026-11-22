@@ -782,7 +782,7 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 		log: None,
 		metadata: tg::process::Metadata::default(),
 		options: tg::referent::Options::default(),
-		output: Some(Some(vec![file.clone()])),
+		output: Some(tg::update::Update::Set(vec![file.clone()])),
 		parent: None,
 		permissions: Vec::new(),
 		principal: tg::Principal::Process(process.clone()),
@@ -861,7 +861,7 @@ async fn process_output_aspect_preserves_permanent_descendant_node_permissions()
 		unreachable!()
 	};
 	process_arg.command = Some(vec![unrelated.clone()]);
-	process_arg.output = Some(Some(vec![directory.clone()]));
+	process_arg.output = Some(tg::update::Update::Set(vec![directory.clone()]));
 	let mut items = vec![
 		put_object(&directory, BTreeSet::from([middle.clone(), missing])),
 		put_object(&middle, BTreeSet::from([file.clone()])),

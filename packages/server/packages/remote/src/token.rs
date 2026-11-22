@@ -12,7 +12,6 @@ impl Component {
 	) -> tg::Result<()> {
 		Self::verify_request_can_mutate_remotes(session)?;
 		let principal = self.resolve_remote_arg_principal(session, None).await?;
-		let principal = principal.as_ref().map(ToString::to_string);
 		let remote = remote.to_owned();
 		let n = session
 			.server
@@ -25,7 +24,7 @@ impl Component {
 					Self::set_remote_token_with_transaction(
 						transaction,
 						&remote,
-						principal.as_deref(),
+						&principal,
 						token.as_deref(),
 					)
 					.await
@@ -43,7 +42,7 @@ impl Component {
 	async fn set_remote_token_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		remote: &str,
-		principal: Option<&str>,
+		principal: &tg::Principal,
 		token: Option<&str>,
 	) -> tg::Result<ControlFlow<u64, tangram_server_core::database::Error>> {
 		let p = transaction.p();
@@ -57,6 +56,7 @@ impl Component {
 				);
 			",
 		);
+		let principal = Self::remote_principal_parameter(principal);
 		let params = tangram_database::params![remote, principal, token];
 		let result = transaction.execute(statement.into(), params).await;
 		let n = tangram_server_core::database::retry!(result, "failed to execute the statement");

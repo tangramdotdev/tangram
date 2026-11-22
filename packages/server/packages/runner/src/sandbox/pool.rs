@@ -17,20 +17,22 @@ pub struct Queue {
 	tasks: VecDeque<Task<tg::Result<CreateSandboxOutput>>>,
 }
 
-/// The settings fixed when a sandbox is warmed; `None` is configurable and `Some(None)` requires an absent request value.
+/// The settings fixed when a sandbox is warmed.
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(
-	clippy::option_option,
-	reason = "the outer option marks configurable settings and the inner option preserves absent request values"
-)]
 pub struct Key {
-	cpu: Option<Option<tg::sandbox::Cpu>>,
+	cpu: PoolSetting<Option<tg::sandbox::Cpu>>,
 	host_network: bool,
-	hostname: Option<Option<String>>,
-	memory: Option<Option<tg::sandbox::Resource<u64>>>,
+	hostname: PoolSetting<Option<String>>,
+	memory: PoolSetting<Option<tg::sandbox::Resource<u64>>>,
 	mounts: Option<Vec<tg::sandbox::Mount>>,
-	network: Option<Option<tg::sandbox::Network>>,
-	storage: Option<Option<tg::sandbox::Resource<u64>>>,
+	network: PoolSetting<Option<tg::sandbox::Network>>,
+	storage: PoolSetting<Option<tg::sandbox::Resource<u64>>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum PoolSetting<T> {
+	Configurable,
+	Fixed(T),
 }
 
 pub struct CreateSandboxOutput {
@@ -187,13 +189,33 @@ impl Key {
 			tangram_sandbox::Backend::Builtin | tangram_sandbox::Backend::Bubblewrap { .. }
 		);
 		Self {
-			cpu: (!native).then_some(arg.cpu),
+			cpu: if native {
+				PoolSetting::Configurable
+			} else {
+				PoolSetting::Fixed(arg.cpu)
+			},
 			host_network: matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)),
-			hostname: (!native).then(|| arg.hostname.clone()),
-			memory: (!native).then_some(arg.memory),
+			hostname: if native {
+				PoolSetting::Configurable
+			} else {
+				PoolSetting::Fixed(arg.hostname.clone())
+			},
+			memory: if native {
+				PoolSetting::Configurable
+			} else {
+				PoolSetting::Fixed(arg.memory)
+			},
 			mounts: (!native).then(|| arg.mounts.clone()),
-			network: (!native).then(|| arg.network.clone()),
-			storage: (!native && storage_limits).then_some(arg.storage),
+			network: if native {
+				PoolSetting::Configurable
+			} else {
+				PoolSetting::Fixed(arg.network.clone())
+			},
+			storage: if native || !storage_limits {
+				PoolSetting::Configurable
+			} else {
+				PoolSetting::Fixed(arg.storage)
+			},
 		}
 	}
 }

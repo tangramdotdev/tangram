@@ -240,13 +240,13 @@ async fn process_children_are_stored_separately_from_data() {
 				command: Some(vec![command.clone().into()]),
 				command_id: command.into(),
 				data: Some(data),
-				error: Some(None),
+				error: Some(tg::update::Update::Clear),
 				id: process.clone(),
 				location: None,
-				log: Some(None),
+				log: Some(tg::update::Update::Clear),
 				metadata: tg::process::Metadata::default(),
 				options: tg::referent::Options::default(),
-				output: Some(None),
+				output: Some(tg::update::Update::Clear),
 				parent: None,
 				permissions: Vec::new(),
 				principal: tg::Principal::Process(process.clone()),
@@ -1097,7 +1097,7 @@ async fn finished_process_data_is_immutable_for_every_principal() {
 	let mut arg = process_arg(id.clone(), tg::process::Status::Finished);
 	arg.children = Some(Vec::new());
 	arg.data.as_mut().unwrap().log = Some(tg::Referent::with_node(log.clone()));
-	arg.log = Some(Some(log.clone().into()));
+	arg.log = Some(tg::update::Update::Set(log.clone().into()));
 	arg.principal = tg::Principal::Root;
 	put_process(&index, arg.clone()).await.unwrap();
 
@@ -1116,7 +1116,7 @@ async fn finished_process_data_is_immutable_for_every_principal() {
 		for replacement in [None, Some(tg::blob::Id::new(b"other log"))] {
 			let mut changed = arg.clone();
 			changed.data.as_mut().unwrap().log = replacement.clone().map(tg::Referent::with_node);
-			changed.log = Some(replacement.map(Into::into));
+			changed.log = Some(replacement.map(Into::into).into());
 			assert!(put_process(&index, changed).await.is_err());
 		}
 		let mut changed = arg.clone();

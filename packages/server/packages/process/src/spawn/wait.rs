@@ -2,7 +2,7 @@ use {
 	super::{CandidateEvent, Event, cached, lease::LeaseGuard, local::Output},
 	crate::Component,
 	futures::{FutureExt as _, future},
-	std::pin::pin,
+	std::{pin::pin, task::Poll},
 	tangram_client::prelude::*,
 	tangram_server_core::Session,
 };
@@ -44,12 +44,12 @@ impl Component {
 		let mut missed = false;
 		let local = loop {
 			tokio::select! {
-				result = &mut local_future => break Some(result?),
+				result = &mut local_future => break Poll::Ready(result?),
 				Some(event) = receiver.recv() => match event {
 					Event::Candidate(event) => candidate = Some(event),
 					Event::Missed => {
 						missed = true;
-						break None;
+						break Poll::Pending;
 					},
 				},
 			}
@@ -57,7 +57,7 @@ impl Component {
 
 		let cached = 'cached: {
 			let local = 'local: {
-				if let Some(local) = local {
+				if let Poll::Ready(local) = local {
 					// Record a miss that the local spawn sent before it returned.
 					while let Ok(event) = receiver.try_recv() {
 						missed |= matches!(event, Event::Missed);
@@ -93,21 +93,21 @@ impl Component {
 
 				// Wait for the candidate or for the local spawn to return.
 				let local = if candidate.is_some() {
-					None
+					Poll::Pending
 				} else {
 					loop {
 						tokio::select! {
-							result = &mut local_future => break Some(result?),
+							result = &mut local_future => break Poll::Ready(result?),
 							Some(event) = receiver.recv() => {
 								if let Event::Candidate(event) = event {
 									candidate = Some(event);
-									break None;
+									break Poll::Pending;
 								}
 							},
 						}
 					}
 				};
-				if let Some(Some((output, _))) = &local
+				if let Poll::Ready(Some((output, _))) = &local
 					&& !output.cached
 					&& let Some(process) = output.process.as_ref().right()
 					&& let Some(lease) = output.lease
@@ -124,13 +124,13 @@ impl Component {
 					.is_some_and(|candidate| cached.process() == Some(&candidate.process))
 				{
 					return match local {
-						Some(local) => Ok(local),
-						None => local_future.await,
+						Poll::Ready(local) => Ok(local),
+						Poll::Pending => local_future.await,
 					};
 				}
 
 				// Release the lease of a local cached process, and cancel the candidate, logging a failure, because the spawn already has the cached process.
-				if let Some(Some((output, _))) = &local
+				if let Poll::Ready(Some((output, _))) = &local
 					&& output.cached
 				{
 					drop(LeaseGuard::new(session, output));

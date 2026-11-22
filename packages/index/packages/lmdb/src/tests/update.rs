@@ -80,7 +80,10 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 	drain_permission_updates(&index).await;
 
 	let value = process_direct_value(&index, &command, &process, subtree);
-	assert_eq!(value.direct, Some(None));
+	assert_eq!(
+		value.direct,
+		Some(tangram_index::permission::Expiration::Never)
+	);
 }
 
 fn object_id(n: usize) -> tg::object::Id {
@@ -232,14 +235,23 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 	drain_permission_updates(&index).await;
 
 	let child_value = process_direct_value(&index, &child, &process, subtree);
-	assert_eq!(child_value.direct, Some(None));
+	assert_eq!(
+		child_value.direct,
+		Some(tangram_index::permission::Expiration::Never)
+	);
 	assert!(!direct_permission_expiration_exists(
 		&index, &child, &process, subtree, 10,
 	));
 	let wrapper_value = process_direct_value(&index, &wrapper, &process, subtree);
-	assert_eq!(wrapper_value.direct, Some(None));
+	assert_eq!(
+		wrapper_value.direct,
+		Some(tangram_index::permission::Expiration::Never)
+	);
 	let unrelated_value = process_direct_value(&index, &unrelated, &process, subtree);
-	assert_eq!(unrelated_value.direct, Some(Some(10)));
+	assert_eq!(
+		unrelated_value.direct,
+		Some(tangram_index::permission::Expiration::At(10))
+	);
 	assert!(direct_permission_expiration_exists(
 		&index, &unrelated, &process, subtree, 10,
 	));
@@ -258,7 +270,10 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 	drain_permission_updates(&index).await;
 
 	let child_value = process_direct_value(&index, &child, &process, subtree);
-	assert_eq!(child_value.direct, Some(None));
+	assert_eq!(
+		child_value.direct,
+		Some(tangram_index::permission::Expiration::Never)
+	);
 }
 
 #[tokio::test]
@@ -643,7 +658,10 @@ async fn object_aspect_permissions_materialize_the_longest_cover() {
 			.filter(|entry| entry.permission == node_log_objects())
 			.filter_map(|entry| entry.materialized)
 			.collect::<Vec<_>>();
-		assert_eq!(materialized, vec![Some(200)]);
+		assert_eq!(
+			materialized,
+			vec![tangram_index::permission::Expiration::At(200)]
+		);
 	}
 }
 
@@ -696,7 +714,10 @@ async fn process_subtree_permissions_materialize_the_longest_cover() {
 			.filter(|entry| entry.permission == subtree)
 			.filter_map(|entry| entry.materialized)
 			.collect::<Vec<_>>();
-		assert_eq!(materialized, vec![Some(200)]);
+		assert_eq!(
+			materialized,
+			vec![tangram_index::permission::Expiration::At(200)]
+		);
 	}
 }
 
@@ -857,7 +878,11 @@ async fn materialized_permissions_are_rewritten_only_when_their_expiration_moves
 	// Verify that the renewal within the time to touch keeps the earlier expiration.
 	assert_eq!(
 		expirations,
-		vec![Some(Some(1000)), Some(Some(1000)), Some(Some(1200))]
+		vec![
+			Some(tangram_index::permission::Expiration::At(1000)),
+			Some(tangram_index::permission::Expiration::At(1000)),
+			Some(tangram_index::permission::Expiration::At(1200))
+		]
 	);
 }
 
@@ -1009,7 +1034,7 @@ fn put_process_with_log_items(
 		error: None,
 		id: process.clone(),
 		location: None,
-		log: Some(Some(log.clone())),
+		log: Some(tg::update::Update::Set(log.clone())),
 		metadata: tg::process::Metadata::default(),
 		options: tg::referent::Options::default(),
 		output: None,

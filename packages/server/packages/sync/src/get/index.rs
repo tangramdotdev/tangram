@@ -1376,13 +1376,19 @@ impl Component {
 							command: Some(command_objects),
 							command_id,
 							data: Some(data.clone().without_location_and_tokens()),
-							error: Some((!error_objects.is_empty()).then_some(error_objects)),
+							error: Some(
+								(!error_objects.is_empty()).then_some(error_objects).into(),
+							),
 							id: id.clone(),
 							location: None,
-							log: Some(log_object),
+							log: Some(log_object.into()),
 							metadata,
 							options: tg::referent::Options::default(),
-							output: Some((!output_objects.is_empty()).then_some(output_objects)),
+							output: Some(
+								(!output_objects.is_empty())
+									.then_some(output_objects)
+									.into(),
+							),
 							parent: None,
 							permissions: Vec::new(),
 							principal: session.context.principal.clone(),

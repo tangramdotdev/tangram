@@ -453,8 +453,8 @@ impl Index {
 			.chain(
 				arg.error
 					.as_ref()
+					.and_then(|update| update.as_ref().into_option())
 					.into_iter()
-					.flatten()
 					.flatten()
 					.cloned()
 					.map(|object| (object, tangram_index::process::object::Kind::Error)),
@@ -462,16 +462,16 @@ impl Index {
 			.chain(
 				arg.log
 					.as_ref()
+					.and_then(|update| update.as_ref().into_option())
 					.into_iter()
-					.flatten()
 					.cloned()
 					.map(|object| (object, tangram_index::process::object::Kind::Log)),
 			)
 			.chain(
 				arg.output
 					.as_ref()
+					.and_then(|update| update.as_ref().into_option())
 					.into_iter()
-					.flatten()
 					.flatten()
 					.cloned()
 					.map(|object| (object, tangram_index::process::object::Kind::Output)),
