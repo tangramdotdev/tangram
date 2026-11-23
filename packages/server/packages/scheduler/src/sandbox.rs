@@ -28,9 +28,6 @@ pub(super) struct Sandboxes {
 	/// The sandboxes that the scheduler tracks, from their enqueues until the index has recorded their ends or their runners report their ends.
 	pub(super) entries: Entries,
 
-	/// The destroying sandboxes whose directories the scheduler asked their runners to remove, which authorize the runners' reports of the removals.
-	pub(super) removing: HashMap<tg::sandbox::Id, tg::runner::Id, tg::id::BuildHasher>,
-
 	/// The tasks that serve the requests to the holders of the sandboxes that this scheduler knows, and of their queued processes until a runner holds them, which are absent until the subscriptions are established.
 	pub(super) holders: HashMap<tg::sandbox::Id, Option<HolderTasks>, tg::id::BuildHasher>,
 
@@ -39,6 +36,9 @@ pub(super) struct Sandboxes {
 
 	/// The number of offers that the scheduler is sending.
 	pub(super) offers: usize,
+
+	/// The destroying sandboxes whose directories the scheduler asked their runners to remove, which authorize the runners' reports of the removals.
+	pub(super) removing: HashMap<tg::sandbox::Id, tg::runner::Id, tg::id::BuildHasher>,
 
 	/// The sandboxes whose next boot a start is reserving, with the number of reservations in flight for each, which the scheduler holds as in its queue, because a reservation's write records the boot in the scheduler's saved queue before the scheduler tracks it.
 	pub(super) reserving: HashMap<tg::sandbox::Id, usize, tg::id::BuildHasher>,
@@ -116,6 +116,9 @@ pub(super) struct Sandbox {
 	/// The sandboxes that the sandbox can borrow capacity from while the scheduler holds it, which are the sandbox that created it and each sandbox whose process waits for its process after a cache hit, with the sandbox's links in each one's queue.
 	pub(super) parents: Vec<ParentLinks>,
 
+	/// The latest write of the boot's request that this scheduler started, which follows the write before it, and which an end of the boot waits for.
+	pub(super) persist: Option<Write>,
+
 	pub(super) persisted: bool,
 
 	/// The processes that the scheduler offered into the boot, which are the boot's initial process and the spawns into it, and which are the only processes that the runner's reports of the boot may finish.
@@ -178,6 +181,18 @@ pub(super) struct DiscardedSandbox {
 	pub(super) write: Write,
 }
 
+/// Decide whether a runner holds a sandbox at a boot at least as late as an enqueue's, from the scheduler's entry of the sandbox or from the running boot that a restarted scheduler rebuilt from the index, so that the scheduler answers the enqueue without queueing the sandbox.
+pub(super) fn is_held_by_runner(
+	boot: u64,
+	entry: Option<&Sandbox>,
+	recovered: Option<u64>,
+) -> bool {
+	let accepted = entry
+		.is_some_and(|entry| matches!(entry.state, State::Accepted { .. }) && boot <= entry.boot);
+	let recovered = recovered.is_some_and(|recovered| boot <= recovered);
+	accepted || recovered
+}
+
 impl Sandboxes {
 	pub(super) fn new() -> Self {
 		Self {
@@ -216,6 +231,7 @@ impl Sandbox {
 			links: Links::default(),
 			parent,
 			parents: Vec::new(),
+			persist: None,
 			persisted: false,
 			processes,
 			request,
@@ -232,6 +248,24 @@ impl Sandbox {
 
 	pub(super) fn request_mut(&mut self) -> &mut EnqueueSandboxRequestArg {
 		self.request.as_mut().unwrap()
+	}
+
+	/// Start a write of the sandbox's request after the sandbox's previous write of its request finishes, so that the writes of one sandbox apply in order, and remember it as the sandbox's latest write.
+	pub(super) fn chain_persist(
+		&mut self,
+		write: future::BoxFuture<'static, tg::Result<()>>,
+	) -> Write {
+		let previous = self.persist.take();
+		let write = async move {
+			if let Some(previous) = previous {
+				previous.await.ok();
+			}
+			write.await
+		}
+		.boxed()
+		.shared();
+		self.persist = Some(write.clone());
+		write
 	}
 
 	pub(super) fn links_mut(&mut self) -> &mut Links {
@@ -279,6 +313,14 @@ impl SchedulerState {
 	) {
 		let ids = id.into_iter().collect::<Vec<_>>();
 
+		// Reply to an enqueue of a sandbox that a runner holds at the enqueue's boot or a later one without enqueueing it, including a boot that a restarted scheduler rebuilt from the index and whose runner has not reported yet, so that the scheduler never holds a boot that a runner holds.
+		let entry = self.sandboxes.entries.get(&request.sandbox);
+		let rebuilt = self.try_get_recovered_boot(&request.sandbox);
+		if is_held_by_runner(request.boot, entry, rebuilt) {
+			scheduler.send_enqueue_responses(ids, Ok(()));
+			return;
+		}
+
 		// Reply to an enqueue of a sandbox that the scheduler tracks without enqueueing it again. A recovered enqueue of a later boot replaces a sandbox that a runner accepted or that the scheduler ended, and a start of a later boot replaces it once its reservation applies.
 		if let Some(entry) = self.sandboxes.entries.get(&request.sandbox) {
 			match entry.state {
@@ -287,7 +329,7 @@ impl SchedulerState {
 					self.finish_enqueue(scheduler, ids, &sandbox, Ok(()));
 					return;
 				},
-				State::Accepted { .. } | State::Terminal { .. } if request.boot <= entry.boot => {
+				State::Terminal { .. } if request.boot <= entry.boot => {
 					scheduler.send_enqueue_responses(ids, Ok(()));
 					return;
 				},
@@ -412,11 +454,15 @@ impl SchedulerState {
 			if first {
 				let boot = entry.boot;
 				let request = entry.request().clone();
-				let scheduler = scheduler.clone();
+				let persist = {
+					let scheduler = scheduler.clone();
+					async move { scheduler.persist_sandbox(&request, true).await }.boxed()
+				};
+				let persist = entry.chain_persist(persist);
 				let sandbox = sandbox.clone();
 				self.operations.push(
 					async move {
-						let result = scheduler.persist_sandbox(&request, true).await;
+						let result = persist.await;
 						Operation::PersistSandbox {
 							boot,
 							result,
@@ -936,6 +982,7 @@ impl SchedulerState {
 					entry.processes.extend(processes);
 				}
 
+				// Fail the enqueue requests that waited for the acceptance of the replaced entry.
 				let error = tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
 				scheduler.send_enqueue_responses(ids, Err(error));
 

@@ -138,19 +138,20 @@ impl Ended {
 			self.rotated_at = Some(now);
 			return;
 		};
-		if now - rotated_at > time_to_live {
-			let (declared, previous) = std::mem::take(&mut self.current)
-				.into_iter()
-				.chain(
-					std::mem::take(&mut self.previous)
-						.into_iter()
-						.filter(|(_, ended)| ended.declared),
-				)
-				.partition(|(_, ended)| ended.declared);
-			self.current = declared;
-			self.previous = previous;
-			self.rotated_at = Some(now);
+		if now - rotated_at <= time_to_live {
+			return;
 		}
+		let (declared, previous) = std::mem::take(&mut self.current)
+			.into_iter()
+			.chain(
+				std::mem::take(&mut self.previous)
+					.into_iter()
+					.filter(|(_, ended)| ended.declared),
+			)
+			.partition(|(_, ended)| ended.declared);
+		self.current = declared;
+		self.previous = previous;
+		self.rotated_at = Some(now);
 	}
 }
 

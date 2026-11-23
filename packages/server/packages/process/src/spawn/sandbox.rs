@@ -379,24 +379,28 @@ impl Component {
 			}
 			.await;
 
-			// Finish the process as failed from this server's memory if this server's runner did not take it, because this server holds the process that it recorded.
-			if let (Err(error), Some(id)) = (&result, id)
-				&& let Err(error) = self
-					.finish_queued_process(
-						&session.server,
-						id,
-						queued
-							.data
-							.clone()
-							.without_location_and_tokens_except_sync(),
-						error.to_data_or_id(),
-						0,
-					)
-					.await
-			{
-				tracing::error!(error = %error.trace(), process = %id, "failed to finish the unstarted process");
+			// Finish the process as failed from this server's memory if this server's runner did not take it, because this server holds the process that it recorded, and return the recorded process.
+			match (result, id) {
+				(Ok(response), _) => response,
+				(Err(error), Some(id)) => {
+					let data = queued
+						.data
+						.clone()
+						.without_location_and_tokens_except_sync();
+					if let Err(error) = self
+						.finish_queued_process(&session.server, id, data, error.to_data_or_id(), 0)
+						.await
+					{
+						tracing::error!(error = %error.trace(), process = %id, "failed to finish the unstarted process");
+					}
+					let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
+						lease: queued.lease,
+						process: tg::Referent::with_node(id.clone()),
+					};
+					tg::sandbox::control::ClientResponseOutput::SpawnProcess(output)
+				},
+				(Err(error), None) => return Err(error),
 			}
-			result?
 		} else {
 			// Subscribe before sending the request, so that a stop or destroy between the request and the wait cannot be missed.
 			let mut wakeups = session
@@ -544,6 +548,7 @@ impl Component {
 				id,
 				location,
 				owner,
+				placed: false,
 				process: Some(process.clone()),
 				public: public && process.id.is_none(),
 				scheduled: false,
@@ -719,6 +724,7 @@ impl Component {
 		} else {
 			None
 		};
+
 		// Write the records of a new sandbox.
 		if let Some(sandbox_arg) = sandbox_arg.clone() {
 			let mut sandbox_arg = sandbox_arg;

@@ -1,10 +1,20 @@
 use tangram_client::prelude::*;
 
+#[cfg(test)]
+mod tests;
+
 pub mod delete;
 pub mod put;
 
-#[cfg(test)]
-mod tests;
+/// The change to the entry that a put or delete makes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Change {
+	/// Leave the entry as it is.
+	Keep,
+
+	/// Store the entry.
+	Store(SchedulerProcess),
+}
 
 /// The entry of a process in a scheduler's queue, which holds the process's spawn request while the scheduler holds the process, or records that the scheduler stopped holding the process, so that the puts and the deletes of the entry resolve in any order and any number of times. The index removes the record of a delete by its age.
 #[derive(
@@ -27,16 +37,6 @@ pub struct QueuedProcess {
 	pub request: Vec<u8>,
 }
 
-/// The change to the entry that a put or delete makes.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Change {
-	/// Leave the entry as it is.
-	Keep,
-
-	/// Store the entry.
-	Store(SchedulerProcess),
-}
-
 impl SchedulerProcess {
 	/// Resolve a put of a process's spawn request, which does not apply after a delete of the entry.
 	#[must_use]
@@ -57,12 +57,14 @@ impl SchedulerProcess {
 	}
 
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
-		tangram_serialize::from_slice(bytes)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the scheduler process"))
+		let entry = tangram_serialize::from_slice(bytes)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the scheduler process"))?;
+		Ok(entry)
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
-		tangram_serialize::to_vec(self)
-			.map_err(|error| tg::error!(!error, "failed to serialize the scheduler process"))
+		let bytes = tangram_serialize::to_vec(self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the scheduler process"))?;
+		Ok(bytes)
 	}
 }

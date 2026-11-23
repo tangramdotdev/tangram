@@ -21,6 +21,20 @@ pub(super) struct Spawn {
 	pub(super) sandbox: tg::sandbox::Id,
 }
 
+/// Finish the saved spawns of a single server's previous run as failed, because its runner's sandboxes ended with the run.
+pub(super) async fn end_spawns(
+	server: &Server,
+	scheduler: &tg::scheduler::Id,
+	error: &tg::Error,
+) -> tg::Result<()> {
+	let spawns = get_spawns(server, scheduler).await?;
+	for spawn in spawns {
+		finish_spawn(server, scheduler, &spawn, error).await;
+	}
+
+	Ok(())
+}
+
 impl SchedulerState {
 	/// Hold a spawn into a sandbox that a runner holds, and offer the process to the runner with the boot, in an operation.
 	pub(super) fn spawn_process(&mut self, scheduler: &Scheduler, spawn: Spawn, record: bool) {
@@ -163,7 +177,7 @@ impl Scheduler {
 		Ok(())
 	}
 
-	/// Write the process's queued record with its permissions, and its entry in this scheduler's queue, in one write.
+	/// Write the process's queued record with its permissions, and its entry in this scheduler's queue, in one write, which is sent again until a server accepts it.
 	async fn record_spawn(&self, spawn: &Spawn) -> tg::Result<()> {
 		tangram_server_core::checkpoint!(self.server, "scheduler.process.record", sandbox = %spawn.sandbox).await;
 		let session = self.server.session(&self.server.context);
@@ -195,21 +209,13 @@ impl Scheduler {
 			scheduler: self.id.clone(),
 		};
 
-		// Write both.
-		let arg = tangram_index::write::Arg {
-			items: vec![
-				tangram_index::Item::PutProcess(Box::new(record)),
-				tangram_index::Item::PutSchedulerProcess(Box::new(entry)),
-			],
-		};
-		self.server
-			.components
-			.indexer
-			.write(&self.server, arg)
-			.await
-			.map_err(
-				|error| tg::error!(!error, sandbox = %spawn.sandbox, "failed to write the process"),
-			)?;
+		// Write both, and send the write again until a server accepts it.
+		let items = vec![
+			tangram_index::Item::PutProcess(Box::new(record)),
+			tangram_index::Item::PutSchedulerProcess(Box::new(entry)),
+		];
+		let arg = tangram_index::write::Arg { items };
+		self.write_until_accepted(arg).await;
 
 		Ok(())
 	}
@@ -286,7 +292,9 @@ impl Scheduler {
 
 	/// Remove a process from this scheduler's queue.
 	async fn write_process_handoff(&self, spawn: &Spawn) -> tg::Result<()> {
-		delete_spawn(&self.server, &self.id, spawn).await
+		delete_spawn(&self.server, &self.id, spawn).await?;
+
+		Ok(())
 	}
 
 	/// Read the saved spawns from this scheduler's queue, with the processes' tokens created again.
@@ -321,20 +329,6 @@ impl Scheduler {
 	}
 }
 
-/// Finish the saved spawns of a single server's previous run as failed, because its runner's sandboxes ended with the run.
-pub(super) async fn end_spawns(
-	server: &Server,
-	scheduler: &tg::scheduler::Id,
-	error: &tg::Error,
-) -> tg::Result<()> {
-	let spawns = get_spawns(server, scheduler).await?;
-	for spawn in spawns {
-		finish_spawn(server, scheduler, &spawn, error).await;
-	}
-
-	Ok(())
-}
-
 /// Read the saved spawns from a scheduler's queue, with the processes' tokens created again.
 async fn get_spawns(server: &Server, scheduler: &tg::scheduler::Id) -> tg::Result<Vec<Spawn>> {
 	let entries = server
@@ -358,7 +352,7 @@ async fn get_spawns(server: &Server, scheduler: &tg::scheduler::Id) -> tg::Resul
 	Ok(spawns)
 }
 
-/// Finish a process that a scheduler holds as failed with the error, and remove it from the scheduler's queue.
+/// Finish a process that a scheduler holds as failed with the error, and remove it from the scheduler's queue. Send each write again until a server accepts it.
 async fn finish_spawn(
 	server: &Server,
 	scheduler: &tg::scheduler::Id,
@@ -369,21 +363,33 @@ async fn finish_spawn(
 	let Some(id) = &process.id else {
 		return;
 	};
-	let data = process
-		.data
-		.clone()
-		.without_location_and_tokens_except_sync();
-	let result = server
-		.components
-		.process
-		.finish_queued_process(server, id, data, error.to_data_or_id(), 0)
-		.await;
-	if let Err(error) = result {
+
+	// Finish the process.
+	loop {
+		let data = process
+			.data
+			.clone()
+			.without_location_and_tokens_except_sync();
+		let result = server
+			.components
+			.process
+			.finish_queued_process(server, id, data, error.to_data_or_id(), 0)
+			.await;
+		let Err(error) = result else {
+			break;
+		};
 		tracing::error!(error = %error.trace(), process = %id, "failed to finish the process");
-		return;
+		tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
 	}
-	if let Err(error) = delete_spawn(server, scheduler, spawn).await {
+
+	// Remove the process from the queue.
+	loop {
+		let result = delete_spawn(server, scheduler, spawn).await;
+		let Err(error) = result else {
+			break;
+		};
 		tracing::error!(error = %error.trace(), process = %id, "failed to remove the process from the queue");
+		tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
 	}
 }
 
@@ -406,11 +412,10 @@ async fn delete_spawn(
 		sandbox: spawn.sandbox.clone(),
 		scheduler: scheduler.clone(),
 	};
-	let arg = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::DeleteSchedulerProcess(Box::new(
-			delete,
-		))],
-	};
+	let items = vec![tangram_index::Item::DeleteSchedulerProcess(Box::new(
+		delete,
+	))];
+	let arg = tangram_index::write::Arg { items };
 	server
 		.components
 		.indexer

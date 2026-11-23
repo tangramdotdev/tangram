@@ -1,10 +1,10 @@
 use {
-	super::{Runner, UnansweredOffer, decide_unanswered_offers},
+	super::{Runner, UnansweredOffer, decide_added_sandbox, decide_unanswered_offers},
 	crate::{
 		SchedulerState,
 		placement::RunnerRef,
 		recovery::{SavedBoot, tests::indexed},
-		report::EndedBoot,
+		report::{Authorization, Authorized, EndedBoot, Held},
 		sandbox::{DestroySandbox, Sandbox, State, Tracked},
 	},
 	std::{
@@ -17,6 +17,21 @@ use {
 };
 
 const TIME_TO_LIVE: Duration = Duration::from_secs(10);
+
+/// Create a connection of a runner that reports boots.
+pub(crate) fn request(
+	id: &tg::runner::Id,
+	first: bool,
+	sandboxes: Vec<tg::runner::control::ArgSandbox>,
+) -> AddRunnerRequestArg {
+	AddRunnerRequestArg {
+		capacity: capacity(),
+		first,
+		host: String::new(),
+		runner: id.clone(),
+		sandboxes,
+	}
+}
 
 /// Create the capacity of a runner that takes one sandbox.
 fn capacity() -> tg::runner::control::Capacity {
@@ -57,8 +72,8 @@ fn state(id: &tg::runner::Id, connection: u64, now: Instant) -> SchedulerState {
 fn heartbeat(id: &tg::runner::Id, connection: u64, heartbeat_index: u64) -> HeartbeatNotification {
 	HeartbeatNotification {
 		capacity: capacity(),
-		heartbeat_index,
 		connection,
+		heartbeat_index,
 		runner: id.clone(),
 		sandboxes: BTreeSet::new(),
 	}
@@ -222,22 +237,6 @@ fn a_connection_is_told_only_the_boots_that_the_scheduler_declared_ended() {
 	assert!(state.sandboxes.ended.is_declared(&foreign, 0, &other));
 }
 
-/// Create a connection of a runner that reports boots.
-pub(crate) fn request(
-	id: &tg::runner::Id,
-	first: bool,
-	sandboxes: Vec<tg::runner::control::ArgSandbox>,
-) -> AddRunnerRequestArg {
-	AddRunnerRequestArg {
-		capacity: capacity(),
-		directories: Vec::new(),
-		first,
-		host: String::new(),
-		runner: id.clone(),
-		sandboxes,
-	}
-}
-
 #[test]
 fn a_declared_end_is_told_again_after_a_first_connection_fails() {
 	let id = tg::runner::Id::new();
@@ -361,4 +360,40 @@ fn a_runner_that_restarted_is_sent_no_destroy_until_its_restart_is_handled() {
 	// Once the runner's first connection is applied, the destroy is sent on the connection.
 	state.runners.entries.get_mut(&id).unwrap().restarting = false;
 	assert_eq!(state.destroy_connection(&destroy), Some(1));
+}
+
+#[test]
+fn a_report_of_a_shortcut_sandbox_is_sent_again_unless_it_is_authorized_or_refused() {
+	let authorized = || {
+		Authorization::Authorized(Authorized {
+			held: Held::Derived,
+			processes: BTreeSet::new(),
+		})
+	};
+
+	// An authorized report on the runner's current connection is acted on.
+	assert!(matches!(
+		decide_added_sandbox(true, authorized()),
+		Ok(std::ops::ControlFlow::Break(_))
+	));
+
+	// A report on a connection that a reconnect replaced, and a report that the scheduler cannot authorize yet, are sent again.
+	assert!(
+		matches!(
+			decide_added_sandbox(false, authorized()),
+			Ok(std::ops::ControlFlow::Continue(_))
+		),
+		"a report on a replaced connection would be refused"
+	);
+	assert!(
+		matches!(
+			decide_added_sandbox(true, Authorization::NotReady),
+			Ok(std::ops::ControlFlow::Continue(_))
+		),
+		"a report that the scheduler cannot authorize yet would be refused"
+	);
+
+	// A refused report is final.
+	let error = tg::error!("the runner does not hold the boot");
+	assert!(decide_added_sandbox(true, Authorization::Refused(error)).is_err());
 }

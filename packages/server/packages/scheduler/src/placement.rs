@@ -56,8 +56,8 @@ pub(super) struct RunnerRef {
 
 /// A runner that can take a sandbox, with its score and its number of the sandbox's siblings.
 pub(super) struct Candidate<'a> {
-	pub(super) id: &'a tg::runner::Id,
 	pub(super) connection: u64,
+	pub(super) id: &'a tg::runner::Id,
 	pub(super) score: (u128, u128),
 	pub(super) siblings: usize,
 }
@@ -241,8 +241,8 @@ impl SchedulerState {
 					.count()
 			});
 			let candidate = Candidate {
-				id,
 				connection: runner.connection,
+				id,
 				score,
 				siblings,
 			};
@@ -307,7 +307,7 @@ impl SchedulerState {
 		let (_, acquired) = borrowable.capacity.try_borrow(sandbox.capacity)?;
 		if borrowable
 			.connection
-			.is_some_and(|index| index != runner.connection)
+			.is_some_and(|connection| connection != runner.connection)
 			|| !eligible(&borrowable.runner, runner, sandbox)
 			|| !runner.fits(acquired)
 		{

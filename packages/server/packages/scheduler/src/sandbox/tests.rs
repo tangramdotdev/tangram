@@ -5,6 +5,11 @@ use {
 		offer::{Decision, Outcome, decide_offer_outcome},
 		placement::{Placement, RunnerRef},
 	},
+	futures::FutureExt as _,
+	std::sync::{
+		Arc,
+		atomic::{AtomicBool, Ordering},
+	},
 	tangram_client::prelude::*,
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 };
@@ -271,4 +276,39 @@ fn an_answer_that_the_boot_ended_forgets_the_boot_without_offering_it_again() {
 		decide_offer_outcome(Outcome::Failed(error)),
 		Decision::Requeue { failure: Some(_) }
 	));
+}
+
+#[test]
+fn a_write_of_a_sandbox_request_starts_after_the_previous_write_finishes() {
+	let (mut scheduler, id) = state(State::Queued);
+	let entry = scheduler.sandboxes.entries.get_mut(&id).unwrap();
+
+	// Start a write that is pending, and a second write after it.
+	let (sender, receiver) = futures::channel::oneshot::channel::<()>();
+	let first = async move {
+		receiver.await.ok();
+		Ok(())
+	}
+	.boxed();
+	let first = entry.chain_persist(first);
+	assert!(first.now_or_never().is_none());
+	let written = Arc::new(AtomicBool::new(false));
+	let second = {
+		let written = written.clone();
+		async move {
+			written.store(true, Ordering::SeqCst);
+			Ok(())
+		}
+		.boxed()
+	};
+	let second = entry.chain_persist(second);
+
+	// The second write does not start while the first is pending.
+	assert!(second.clone().now_or_never().is_none());
+	assert!(!written.load(Ordering::SeqCst));
+
+	// The second write starts once the first finishes.
+	sender.send(()).unwrap();
+	assert!(second.now_or_never().is_some_and(|result| result.is_ok()));
+	assert!(written.load(Ordering::SeqCst));
 }

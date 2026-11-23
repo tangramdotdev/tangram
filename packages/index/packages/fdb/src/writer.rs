@@ -573,10 +573,7 @@ impl Index {
 				let request = batch.requests.into_iter().next().unwrap();
 				let tracker = batch.trackers.into_iter().next().unwrap();
 				let result = match request {
-					Request::CompletePermissionCapture(_)
-					| Request::PutIndexer(_)
-					| Request::PutScheduler(_)
-					| Request::UpdateIndexer(_) => Err(tg::error!(
+					request if !request.splittable() => Err(tg::error!(
 						!error,
 						"failed to execute a request that cannot be split"
 					)),

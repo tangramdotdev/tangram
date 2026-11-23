@@ -96,6 +96,8 @@ impl Index {
 			Ok(merge) => merge,
 			Err(error) => return Ok(ControlFlow::Break(Err(error))),
 		};
+
+		// Put the permissions if the merge grants them.
 		if merge.permissions {
 			crate::propagate!(
 				Self::put_permissions_with_transaction(
@@ -107,6 +109,8 @@ impl Index {
 				.await
 			);
 		}
+
+		// Store the record that the merge produces.
 		let Some(update) = merge.update else {
 			return Ok(ControlFlow::Break(Ok(())));
 		};

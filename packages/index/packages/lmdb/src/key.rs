@@ -1122,6 +1122,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					Key::Runner(crate::runner::Key::SchedulerSandbox { sandbox, scheduler }),
 				))
 			},
+
 			Kind::SchedulerProcess => {
 				let (input, scheduler): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;

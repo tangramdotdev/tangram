@@ -75,9 +75,13 @@ impl Index {
 			Ok(merge) => merge,
 			Err(error) => return Ok(Err(error)),
 		};
+
+		// Put the permissions if the merge grants them.
 		if merge.permissions {
 			Self::put_permissions_with_transaction(db, subspace, transaction, &arg.permissions)?;
 		}
+
+		// Store the record that the merge produces.
 		let Some(update) = merge.update else {
 			return Ok(Ok(()));
 		};

@@ -127,6 +127,28 @@ pub(super) enum Kind {
 }
 
 impl Request {
+	/// Get whether the request may be split across transactions. A write with a conditional put may not, because it applies whole or not at all, and neither may a request that is one operation.
+	#[must_use]
+	pub(super) fn splittable(&self) -> bool {
+		match self {
+			Self::AggregateUsage(_)
+			| Self::Clean(_)
+			| Self::ExpireUsage(_)
+			| Self::GetUsage { .. }
+			| Self::TouchCheckouts(_)
+			| Self::TouchObjects(_)
+			| Self::TouchProcesses(_)
+			| Self::Update(_) => true,
+			Self::CompletePermissionCapture(_)
+			| Self::PutIndexer(_)
+			| Self::PutScheduler(_)
+			| Self::UpdateIndexer(_) => false,
+			Self::Write(arg) => tangram_index::write::conditional_sandbox_puts(&arg.items)
+				.next()
+				.is_none(),
+		}
+	}
+
 	#[must_use]
 	pub(super) fn priority(&self) -> Priority {
 		match self {

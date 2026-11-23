@@ -87,8 +87,8 @@ fn options() -> Option<crate::Options> {
 			rand::random::<u128>()
 		)),
 		max_process_depth: None,
-		object_permission_time_to_touch: std::time::Duration::ZERO,
 		max_write_operation_batch_size: 1024,
+		object_permission_time_to_touch: std::time::Duration::ZERO,
 		permission_update_partition_total: 1,
 		process_data_fragment_size: 16,
 		process_permission_time_to_touch: std::time::Duration::ZERO,

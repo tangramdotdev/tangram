@@ -30,24 +30,38 @@ pub(super) struct RunProcessControlTaskArg {
 	pub boot: std::sync::Arc<tangram_server_runner_core::sandbox::Boot>,
 
 	pub control: tg::process::control::Connection,
+
 	pub exited: Stopper,
+
 	pub finish: tokio::sync::oneshot::Receiver<ProcessControlResponseReceiver>,
+
 	pub finished: tangram_server_runner_core::sandbox::Unaccepted,
+
 	pub local: tokio::sync::mpsc::Receiver<local::Message>,
+
 	pub location: tg::Location,
+
 	pub outcome_sync: tokio::sync::oneshot::Receiver<()>,
 
 	/// The process, which the control task finishes as failed through its boot if no server answers its finish.
 	pub process: tg::runner::control::Process,
 
 	pub retention_stopper: Stopper,
+
 	pub sandbox: tangram_sandbox::Sandbox,
+
 	pub sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
+
 	pub stderr: tg::process::Stdio,
+
 	pub stderr_buffered: tokio::sync::oneshot::Sender<tg::Result<()>>,
+
 	pub stderr_progress: Option<BoxStream<'static, tg::Result<Bytes>>>,
+
 	pub stdin: tg::process::Stdio,
+
 	pub stdout: tg::process::Stdio,
+
 	pub stdout_buffered: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
 

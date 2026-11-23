@@ -148,7 +148,7 @@ fn the_end_of_a_boot_and_the_writes_of_its_processes_keep_the_first_end_in_every
 	let second = tg::process::Id::new();
 	let sandbox_id = tg::sandbox::Id::new();
 
-	// The first process is queued by the scheduler, then started and finished by the runner. Every write has its own time, and every write that records the start carries the same start, as the runner sets it once.
+	// Create the writes of the first process, which the scheduler queues and the runner then starts and finishes. Every write has its own time, and every write that records the start carries the same start, because the runner sets it once.
 	let mut queued = arg(&first, data(&sandbox_id, tg::process::Status::Queued));
 	queued.boot = Some(0);
 	queued.permissions = vec![permission(&first, 1)];
@@ -161,14 +161,14 @@ fn the_end_of_a_boot_and_the_writes_of_its_processes_keep_the_first_end_in_every
 	finished.boot = Some(0);
 	finished.sequence = 2;
 	finished.touched_at = 30;
-	finished.error = Some(None);
-	finished.log = Some(Some(tg::blob::Id::new(b"log").into()));
-	finished.output = Some(Some(Vec::new()));
+	finished.error = Some(tg::update::Update::Clear);
+	finished.log = Some(tg::update::Update::Set(tg::blob::Id::new(b"log").into()));
+	finished.output = Some(tg::update::Update::Set(Vec::new()));
 	let finished_data = finished.data.as_mut().unwrap();
 	finished_data.log = Some(tg::Referent::with_node(tg::blob::Id::new(b"log")));
 	finished_data.output = Some(tg::Referent::with_node(tg::value::Data::Null));
 
-	// The second process is started by the runner, and written again by its holder for its child's spawn.
+	// Create the writes of the second process, which the runner starts and its holder writes again for its child's spawn.
 	let mut booted = arg(&second, data(&sandbox_id, tg::process::Status::Started));
 	booted.sequence = 1;
 	booted.touched_at = 40;
@@ -176,12 +176,13 @@ fn the_end_of_a_boot_and_the_writes_of_its_processes_keep_the_first_end_in_every
 	spawned.sequence = 2;
 	spawned.touched_at = 50;
 
-	// The sandbox's scheduler ends the boot with the number zero, and its holder ends it with the number three.
+	// Create the ends of the boot, which the sandbox's scheduler numbers zero and its holder numbers three.
 	let mut zero = sandbox_arg(&sandbox_id, 0);
 	zero.touched_at = 60;
 	let mut holder = sandbox_arg(&sandbox_id, 3);
 	holder.touched_at = 70;
 
+	// Apply the writes in every order, and check the records that each order leaves.
 	let writes = [
 		(0, Write::Process(queued)),
 		(0, Write::Process(started)),
@@ -293,7 +294,7 @@ fn a_process_of_a_boot_that_its_holder_ended_keeps_its_own_end_in_every_order() 
 	assert_eq!(data.exit, Some(0));
 	assert!(data.error.is_none());
 
-	// A late start of a process of a boot that its holder ended stays unfinished until the process's end arrives.
+	// Check that a late start of a process of a boot that its holder ended stays unfinished until the process's end arrives.
 	let state = assert_every_order_converges(&[started], Some(&sandbox));
 	assert_eq!(state.data.unwrap().status, tg::process::Status::Started);
 }

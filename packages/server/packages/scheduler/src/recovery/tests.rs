@@ -1,81 +1,11 @@
 use {
 	super::{RecoveredBoot, Recovery, SavedBoot, decide_saved_boot},
-	crate::{SchedulerState, runner::tests::request},
+	crate::{SchedulerState, runner::tests::request, sandbox::is_held_by_runner},
 	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
 	tangram_server_core::clock::Clock,
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 };
-
-/// Create the report of a boot that a runner holds.
-fn reported(sandbox: &tg::sandbox::Id, boot: u64) -> tg::runner::control::ArgSandbox {
-	tg::runner::control::ArgSandbox {
-		boot,
-		id: sandbox.clone(),
-		processes: Vec::new(),
-		proof: None,
-	}
-}
-
-/// Create the saved request of a sandbox's boot.
-fn saved(sandbox: &tg::sandbox::Id, boot: u64) -> EnqueueSandboxRequestArg {
-	EnqueueSandboxRequestArg {
-		arg: tg::sandbox::create::Arg::default(),
-		boot,
-		created_at: 0,
-		creator: tg::Principal::default(),
-		owner: tg::Principal::default(),
-		owner_ancestors: Vec::new(),
-		parent: None,
-		process: None,
-		public: false,
-		runner: None,
-		sandbox: sandbox.clone(),
-		scheduler: None,
-		token: None,
-	}
-}
-
-#[test]
-fn every_connection_of_a_runner_reports_to_a_restarted_scheduler_until_one_is_applied() {
-	let id = tg::runner::Id::new();
-	let now = Clock::new(None, None).instant();
-	let mut state = SchedulerState::new();
-
-	// The restarted scheduler waits for the runner's report, with a boot that it rebuilt from the index on the runner and a saved boot.
-	let rebuilt = tg::sandbox::Id::new();
-	let queued = tg::sandbox::Id::new();
-	let mut recovery = Recovery::default();
-	recovery.boots.insert(
-		id.clone(),
-		vec![RecoveredBoot {
-			boot: 0,
-			processes: BTreeSet::new(),
-			sandbox: rebuilt.clone(),
-		}],
-	);
-	recovery.requests.insert(queued.clone(), saved(&queued, 0));
-	recovery.runners.insert(id.clone());
-	state.recovery = Some(recovery);
-
-	// The runner connects twice, reporting the saved boot, before either connection is applied, and each connection reports to the restarted scheduler, whose state neither changes.
-	for attempt in 0..2 {
-		let mut connection = request(&id, false, vec![reported(&queued, 0)]);
-		let connection = state.connect_runner(&mut connection, now);
-		assert!(
-			connection.recovering,
-			"the connection {attempt} did not report to the restarted scheduler"
-		);
-		let recovery = state.recovery.as_ref().unwrap();
-		assert!(recovery.runners.contains(&id));
-		assert_eq!(recovery.boots[&id].len(), 1);
-		assert!(
-			recovery.claimed.is_empty(),
-			"the connection {attempt} claimed the saved boot before it was applied"
-		);
-		assert!(recovery.requests.contains_key(&queued));
-	}
-}
 
 /// Create the index's record of a sandbox at a boot with a status, whose last write has a number and records a runner.
 pub(crate) fn indexed(
@@ -123,6 +53,74 @@ pub(crate) fn indexed(
 		stopped_usages: BTreeMap::new(),
 		touched_at: 0,
 		usages: BTreeMap::new(),
+	}
+}
+
+/// Create the report of a boot that a runner holds.
+fn reported(sandbox: &tg::sandbox::Id, boot: u64) -> tg::runner::control::ArgSandbox {
+	tg::runner::control::ArgSandbox {
+		boot,
+		id: sandbox.clone(),
+		processes: Vec::new(),
+		proof: None,
+	}
+}
+
+/// Create the saved request of a sandbox's boot.
+fn saved(sandbox: &tg::sandbox::Id, boot: u64) -> EnqueueSandboxRequestArg {
+	EnqueueSandboxRequestArg {
+		arg: tg::sandbox::create::Arg::default(),
+		boot,
+		created_at: 0,
+		creator: tg::Principal::default(),
+		owner: tg::Principal::default(),
+		owner_ancestors: Vec::new(),
+		parent: None,
+		process: None,
+		public: false,
+		runner: None,
+		sandbox: sandbox.clone(),
+		scheduler: None,
+		token: None,
+	}
+}
+
+#[test]
+fn every_connection_of_a_runner_reports_to_a_restarted_scheduler_until_one_is_applied() {
+	let id = tg::runner::Id::new();
+	let now = Clock::new(None, None).instant();
+	let mut state = SchedulerState::new();
+
+	// The restarted scheduler waits for the runner's report, with a boot that it rebuilt from the index on the runner and a saved boot.
+	let rebuilt = tg::sandbox::Id::new();
+	let queued = tg::sandbox::Id::new();
+	let mut recovery = Recovery::default();
+	let recovered = RecoveredBoot {
+		boot: 0,
+		processes: BTreeSet::new(),
+		sandbox: rebuilt.clone(),
+	};
+	recovery.boots.insert(id.clone(), vec![recovered]);
+	recovery.requests.insert(queued.clone(), saved(&queued, 0));
+	recovery.runners.insert(id.clone());
+	state.recovery = Some(recovery);
+
+	// The runner connects twice, reporting the saved boot, before either connection is applied, and each connection reports to the restarted scheduler, whose state neither changes.
+	for attempt in 0..2 {
+		let mut connection = request(&id, false, vec![reported(&queued, 0)]);
+		let connection = state.connect_runner(&mut connection, now);
+		assert!(
+			connection.recovering,
+			"the connection {attempt} did not report to the restarted scheduler"
+		);
+		let recovery = state.recovery.as_ref().unwrap();
+		assert!(recovery.runners.contains(&id));
+		assert_eq!(recovery.boots[&id].len(), 1);
+		assert!(
+			recovery.claimed.is_empty(),
+			"the connection {attempt} claimed the saved boot before it was applied"
+		);
+		assert!(recovery.requests.contains_key(&queued));
 	}
 }
 
@@ -178,4 +176,33 @@ fn a_saved_boot_that_the_index_shows_ended_is_never_offered_again() {
 		Some(&runner),
 	)));
 	assert!(matches!(decision, SavedBoot::Destroying { .. }));
+}
+
+#[test]
+fn a_restarted_scheduler_does_not_queue_a_sandbox_that_a_runner_holds() {
+	let sandbox = tg::sandbox::Id::new();
+	let runner = tg::runner::Id::new();
+	let mut scheduler = SchedulerState::new();
+	let recovered = RecoveredBoot {
+		boot: 1,
+		processes: BTreeSet::new(),
+		sandbox: sandbox.clone(),
+	};
+	let recovery = Recovery {
+		boots: [(runner, vec![recovered])].into_iter().collect(),
+		..Default::default()
+	};
+	scheduler.recovery = Some(recovery);
+	let held = |boot| {
+		let entry = scheduler.sandboxes.entries.get(&sandbox);
+		let recovered = scheduler.try_get_recovered_boot(&sandbox);
+		is_held_by_runner(boot, entry, recovered)
+	};
+
+	// An enqueue of the boot that the index records on a runner that has not reported yet, or of an earlier boot, is answered without queueing the sandbox.
+	assert!(held(0));
+	assert!(held(1));
+
+	// An enqueue of a later boot is not answered from the rebuilt boot.
+	assert!(!held(2));
 }

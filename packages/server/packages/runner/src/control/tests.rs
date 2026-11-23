@@ -46,37 +46,47 @@ fn indexed(
 }
 
 #[test]
-fn a_runner_removes_the_directory_of_a_destroyed_or_destroying_sandbox() {
+fn a_runner_keeps_only_the_directories_of_its_sandboxes_that_can_start_again() {
 	let runner = tg::runner::Id::new();
 	let other = tg::runner::Id::new();
 	let remove = |removal| tg::runner::control::StoppedSandboxAction::Remove(removal);
 
-	// A sandbox that the index does not have is kept, because the index may lag.
+	// A sandbox that the index does not record after indexing was awaited is removed without a report.
 	assert_eq!(
-		stopped_sandbox_action(None),
-		tg::runner::control::StoppedSandboxAction::Keep
+		stopped_sandbox_action(None, &runner),
+		remove(tg::runner::control::StoppedSandboxRemoval::Unrecorded)
 	);
 
-	// A destroyed or destroying sandbox is removed, whichever runner the index records.
-	let sandbox = indexed(Some(&other), Some(tg::sandbox::Status::Destroyed));
+	// A sandbox that the index records on another runner is removed without a report, whatever its status.
+	for status in [tg::sandbox::Status::Stopped, tg::sandbox::Status::Destroyed] {
+		let sandbox = indexed(Some(&other), Some(status));
+		assert_eq!(
+			stopped_sandbox_action(Some(&sandbox), &runner),
+			remove(tg::runner::control::StoppedSandboxRemoval::Unrecorded)
+		);
+	}
+
+	// A destroyed or destroying sandbox of this runner is removed with a report.
+	let sandbox = indexed(Some(&runner), Some(tg::sandbox::Status::Destroyed));
 	assert_eq!(
-		stopped_sandbox_action(Some(&sandbox)),
+		stopped_sandbox_action(Some(&sandbox), &runner),
 		remove(tg::runner::control::StoppedSandboxRemoval::Destroyed)
 	);
 	let sandbox = indexed(Some(&runner), Some(tg::sandbox::Status::Destroying));
 	assert_eq!(
-		stopped_sandbox_action(Some(&sandbox)),
+		stopped_sandbox_action(Some(&sandbox), &runner),
 		remove(tg::runner::control::StoppedSandboxRemoval::Destroying)
 	);
 
-	// This runner's stopped sandbox, and a sandbox that the index records without a runner, are kept.
+	// This runner's stopped, starting, or running sandbox, and a sandbox that the index records without a runner, are kept.
 	for sandbox in [
 		indexed(Some(&runner), Some(tg::sandbox::Status::Stopped)),
+		indexed(Some(&runner), Some(tg::sandbox::Status::Started)),
 		indexed(None, Some(tg::sandbox::Status::Stopped)),
 		indexed(Some(&runner), None),
 	] {
 		assert_eq!(
-			stopped_sandbox_action(Some(&sandbox)),
+			stopped_sandbox_action(Some(&sandbox), &runner),
 			tg::runner::control::StoppedSandboxAction::Keep
 		);
 	}

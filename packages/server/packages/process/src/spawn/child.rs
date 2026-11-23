@@ -55,9 +55,8 @@ impl Component {
 			.components
 			.runner
 			.state()
-			.sandboxes()
-			.get_by_id(&parent_sandbox)
-			.ok_or_else(|| tg::error!("the parent sandbox was not found"))?;
+			.try_get_held_sandbox(&parent_sandbox)
+			.ok_or_else(|| tg::error!("the runner does not hold the parent's sandbox"))?;
 		let mut parent_process = parent_sandbox
 			.processes
 			.get_mut(&parent)

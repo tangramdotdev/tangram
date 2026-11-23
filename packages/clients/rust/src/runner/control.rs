@@ -396,6 +396,11 @@ pub struct OfferSandboxServerRequestArg {
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::sandbox::Id>,
 
+	/// Whether the index records the sandbox on the runner, because an earlier boot ran there, so that a start without the sandbox's files fails instead of creating an empty sandbox.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	#[tangram_serialize(id = 12, default, skip_serializing_if = "std::ops::Not::not")]
+	pub placed: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 5, default, skip_serializing_if = "Option::is_none")]
 	pub process: Option<Process>,
@@ -588,7 +593,7 @@ pub struct AddSandboxServerResponseOutput {}
 	tangram_serialize::Serialize,
 )]
 pub struct ReportSandboxUsageClientRequestArg {
-	/// The stopped sandboxes that the report covers.
+	/// The sandboxes with directories that the runner does not hold, which the report covers.
 	#[tangram_serialize(id = 0)]
 	pub sandboxes: Vec<ReportSandboxUsageClientRequestSandbox>,
 }
@@ -602,7 +607,7 @@ pub struct ReportSandboxUsageClientRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct ReportSandboxUsageClientRequestSandbox {
-	/// The boot that the sandbox stopped after.
+	/// The boot of the sandbox in the runner's local record, after whose stop the runner measured the usage.
 	#[tangram_serialize(id = 0)]
 	pub boot: u64,
 
@@ -645,7 +650,7 @@ pub struct ReportSandboxUsageServerResponseSandbox {
 	pub sandbox: tg::sandbox::Id,
 }
 
-/// What a runner does with the directory of a stopped sandbox that it reported.
+/// What a runner does with the directory of a sandbox that it reported.
 #[derive(
 	Clone,
 	Copy,
@@ -663,12 +668,12 @@ pub enum StoppedSandboxAction {
 	#[tangram_serialize(id = 0)]
 	Keep,
 
-	/// Remove the directory and report the sandbox's destruction.
+	/// Remove the directory, and report the sandbox's destruction if the index records the sandbox as destroying or destroyed.
 	#[tangram_serialize(id = 1)]
 	Remove(StoppedSandboxRemoval),
 }
 
-/// The reason that a runner removes the directory of a stopped sandbox.
+/// The reason that a runner removes the directory of a sandbox.
 #[derive(
 	Clone,
 	Copy,
@@ -689,6 +694,10 @@ pub enum StoppedSandboxRemoval {
 	/// The index records the sandbox as destroying, and the directory is all that is left of it.
 	#[tangram_serialize(id = 1)]
 	Destroying,
+
+	/// The index does not record the sandbox on the runner, so the runner removes the directory without reporting a destruction.
+	#[tangram_serialize(id = 2)]
+	Unrecorded,
 }
 
 #[derive(
@@ -808,11 +817,6 @@ pub struct EndSandboxServerResponseOutput {}
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
-	/// The sandboxes that the runner has directories for or is running, which it reports on every connection, so that the scheduler decides which directories the runner keeps.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
-	pub directories: Vec<tg::sandbox::Id>,
-
 	/// Whether this is the first connection of the runner's program since it started, in which case the scheduler ends the boots that the runner no longer holds.
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	#[tangram_serialize(default, id = 7, skip_serializing_if = "std::ops::Not::not")]
@@ -882,11 +886,6 @@ pub struct Header {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
 	pub ended: Vec<EndedSandbox>,
-
-	/// The reported sandboxes whose directories the runner keeps, because the sandboxes are stopped on the runner or their boots wait in the scheduler's queue. The runner removes every other directory that it reported, except the directories of the boots that it still holds.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
-	pub kept: Vec<tg::sandbox::Id>,
 
 	/// How long the scheduler keeps the runner after its last heartbeat, after which the scheduler no longer sends the runner a request again.
 	#[serde_as(as = "DurationSecondsWithFrac")]

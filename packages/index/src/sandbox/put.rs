@@ -102,87 +102,6 @@ pub struct StoppedUsage {
 }
 
 impl Arg {
-	pub fn validate(&self) -> tg::Result<()> {
-		if !self.principal.is_root()
-			&& self.principal != tg::Principal::Sandbox(self.id.clone())
-			&& self
-				.data
-				.as_ref()
-				.is_some_and(|data| !data.data.status.is_destroyed())
-		{
-			return Err(tg::error!("expected a destroyed sandbox"));
-		}
-		let Some(processes) = &self.processes else {
-			return Ok(());
-		};
-		let mut ids = BTreeSet::new();
-		for process in processes {
-			if !ids.insert(process) {
-				return Err(tg::error!("the sandbox processes must be unique"));
-			}
-		}
-		Ok(())
-	}
-
-	/// Reject a put that reserves the next boot unless the sandbox is stopped at the boot that the put names.
-	pub fn validate_stopped_boot(&self, existing: Option<&super::Sandbox>) -> tg::Result<()> {
-		let Some(boot) = self.stopped_boot else {
-			return Ok(());
-		};
-		let stopped = existing
-			.and_then(|sandbox| sandbox.data.as_ref())
-			.is_some_and(|data| data.data.status.is_stopped() && data.data.boot == boot);
-		if !stopped {
-			return Err(tg::error!(id = %self.id, %boot, "the sandbox is not stopped at the boot"));
-		}
-		Ok(())
-	}
-
-	/// Whether the sandbox's record is what this put of a stopped sandbox produces, with the put's status, boot, and runner.
-	#[must_use]
-	pub fn is_applied(&self, existing: Option<&super::Sandbox>) -> bool {
-		let (Some(data), Some(existing)) = (&self.data, existing) else {
-			return false;
-		};
-		existing.data.as_ref().is_some_and(|existing| {
-			existing.data.status == data.data.status && existing.data.boot == data.data.boot
-		}) && existing.runner == self.runner
-	}
-
-	pub fn validate_existing(&self, existing: &super::Sandbox) -> tg::Result<tg::Result<()>> {
-		// Reject a write by any principal that changes the creator or the owner of a sandbox whose record has data.
-		if let (Some(data), Some(existing)) = (&self.data, &existing.data)
-			&& (data.data.creator != existing.data.creator
-				|| data.data.owner != existing.data.owner)
-		{
-			return Ok(Err(tg::error!(
-				id = %self.id,
-				"cannot change the creator or the owner of an existing sandbox"
-			)));
-		}
-
-		// Accept the writes of root and of the sandbox itself in any order, which the merge orders.
-		if self.principal.is_root() || self.principal == tg::Principal::Sandbox(self.id.clone()) {
-			return Ok(Ok(()));
-		}
-		if self.created_at != existing.created_at {
-			return Ok(Err(tg::error!("cannot replace an existing sandbox")));
-		}
-		if let Some(data) = &self.data {
-			let Some(existing) = &existing.data else {
-				return Ok(Err(tg::error!("cannot verify the existing sandbox data")));
-			};
-			let data = serde_json::to_value(&data.data)
-				.map_err(|error| tg::error!(!error, "failed to serialize the sandbox contents"))?;
-			let existing = serde_json::to_value(&existing.data)
-				.map_err(|error| tg::error!(!error, "failed to serialize the sandbox contents"))?;
-			if data != existing {
-				return Ok(Err(tg::error!("cannot replace an existing sandbox")));
-			}
-		}
-		Ok(Ok(()))
-	}
-
 	/// Whether the merge compares the arg's processes with the existing record's processes, which the index reads for it.
 	#[must_use]
 	pub fn compares_processes(&self, existing: Option<&super::Sandbox>) -> bool {
@@ -277,6 +196,8 @@ impl Arg {
 		let runner = existing
 			.and_then(|sandbox| sandbox.runner.clone())
 			.or_else(|| arg.runner.clone());
+
+		// Set the location of the data, and keep the latest touch.
 		if let Some(data) = &mut data {
 			data.location.clone_from(&location);
 		}
@@ -304,22 +225,26 @@ impl Arg {
 		}
 
 		// Create the record.
+		let created_at = existing.map_or(arg.created_at, |sandbox| sandbox.created_at);
+		let reference_count = existing.map_or(0, |sandbox| sandbox.reference_count);
+		let scheduler = existing
+			.and_then(|sandbox| sandbox.scheduler.clone())
+			.or_else(|| arg.scheduler.clone());
+		let set = super::Set {
+			processes: arg.processes.is_some()
+				|| existing.is_some_and(|sandbox| sandbox.set.processes),
+		};
 		let sandbox = super::Sandbox {
 			account,
-			created_at: existing.map_or(arg.created_at, |sandbox| sandbox.created_at),
+			created_at,
 			data,
 			ends,
 			location,
-			reference_count: existing.map_or(0, |sandbox| sandbox.reference_count),
+			reference_count,
 			runner,
-			scheduler: existing
-				.and_then(|sandbox| sandbox.scheduler.clone())
-				.or_else(|| arg.scheduler.clone()),
+			scheduler,
 			sequence,
-			set: super::Set {
-				processes: arg.processes.is_some()
-					|| existing.is_some_and(|sandbox| sandbox.set.processes),
-			},
+			set,
 			stopped_usages,
 			touched_at,
 			usages,
@@ -331,6 +256,79 @@ impl Arg {
 		};
 
 		Ok(Ok(merge))
+	}
+
+	pub fn validate(&self) -> tg::Result<()> {
+		if !self.principal.is_root()
+			&& self.principal != tg::Principal::Sandbox(self.id.clone())
+			&& self
+				.data
+				.as_ref()
+				.is_some_and(|data| !data.data.status.is_destroyed())
+		{
+			return Err(tg::error!("expected a destroyed sandbox"));
+		}
+		let Some(processes) = &self.processes else {
+			return Ok(());
+		};
+		let mut ids = BTreeSet::new();
+		for process in processes {
+			if !ids.insert(process) {
+				return Err(tg::error!("the sandbox processes must be unique"));
+			}
+		}
+		Ok(())
+	}
+
+	/// Reject a put that reserves the next boot unless the sandbox is stopped at the boot that the put names.
+	pub fn validate_stopped_boot(&self, existing: Option<&super::Sandbox>) -> tg::Result<()> {
+		let Some(boot) = self.stopped_boot else {
+			return Ok(());
+		};
+		let stopped = existing
+			.and_then(|sandbox| sandbox.data.as_ref())
+			.is_some_and(|data| data.data.status.is_stopped() && data.data.boot == boot);
+		if !stopped {
+			return Err(tg::error!(id = %self.id, %boot, "the sandbox is not stopped at the boot"));
+		}
+		Ok(())
+	}
+
+	pub fn validate_existing(&self, existing: &super::Sandbox) -> tg::Result<tg::Result<()>> {
+		// Reject a write by any principal that changes the creator or the owner of a sandbox whose record has data.
+		if let (Some(data), Some(existing)) = (&self.data, &existing.data)
+			&& (data.data.creator != existing.data.creator
+				|| data.data.owner != existing.data.owner)
+		{
+			return Ok(Err(tg::error!(
+				id = %self.id,
+				"cannot change the creator or the owner of an existing sandbox"
+			)));
+		}
+
+		// Accept the writes of root and of the sandbox itself in any order, which the merge orders.
+		if self.principal.is_root() || self.principal == tg::Principal::Sandbox(self.id.clone()) {
+			return Ok(Ok(()));
+		}
+
+		// Reject another principal's write that replaces the existing sandbox.
+		if self.created_at != existing.created_at {
+			return Ok(Err(tg::error!("cannot replace an existing sandbox")));
+		}
+		if let Some(data) = &self.data {
+			let Some(existing) = &existing.data else {
+				return Ok(Err(tg::error!("cannot verify the existing sandbox data")));
+			};
+			let data = serde_json::to_value(&data.data)
+				.map_err(|error| tg::error!(!error, "failed to serialize the sandbox contents"))?;
+			let existing = serde_json::to_value(&existing.data)
+				.map_err(|error| tg::error!(!error, "failed to serialize the sandbox contents"))?;
+			if data != existing {
+				return Ok(Err(tg::error!("cannot replace an existing sandbox")));
+			}
+		}
+
+		Ok(Ok(()))
 	}
 
 	/// Merge the arg's data with the existing record, keeping the data that is later in the sandbox lifecycle and combining the usage of every boot.
@@ -422,6 +420,17 @@ impl Arg {
 				}
 			},
 		}
+	}
+
+	/// Whether the sandbox's record is what this put of a stopped sandbox produces, with the put's status, boot, and runner.
+	#[must_use]
+	pub fn is_applied(&self, existing: Option<&super::Sandbox>) -> bool {
+		let (Some(data), Some(existing)) = (&self.data, existing) else {
+			return false;
+		};
+		existing.data.as_ref().is_some_and(|existing| {
+			existing.data.status == data.data.status && existing.data.boot == data.data.boot
+		}) && existing.runner == self.runner
 	}
 }
 

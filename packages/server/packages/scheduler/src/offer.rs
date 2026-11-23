@@ -66,6 +66,147 @@ pub(super) fn decide_offer_outcome(outcome: Outcome) -> Decision {
 	}
 }
 
+/// Offer a sandbox to a runner, and wait for the runner's answer.
+#[tracing::instrument(name = "sandbox.offer", level = "debug", skip_all, fields(runner = %arg.runner.id, sandbox = %arg.request.sandbox, scheduler = %arg.scheduler))]
+pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome {
+	let OfferArg {
+		capacity,
+		lender,
+		offer,
+		request,
+		runner,
+		scheduler,
+		timeout,
+	} = arg;
+	tracing::info!(lender = lender.as_ref().map(ToString::to_string), runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler, "offering the sandbox to a runner");
+	let arg = tg::runner::control::ServerRequestArg::OfferSandbox(
+		tg::runner::control::OfferSandboxServerRequestArg {
+			arg: request.arg.clone(),
+			boot: request.boot,
+			capacity,
+			creator: request.creator.clone(),
+			lender,
+			owner: request.owner.clone(),
+			parent: request.parent.clone(),
+			placed: request.runner.is_some(),
+			process: request.process.clone(),
+			sandbox: request.sandbox.clone(),
+			sequence: tangram_index::sandbox::put::FIRST_HOLDER_WRITE,
+			token: request.token.clone(),
+		},
+	);
+
+	// Send the offer once and wait for the answer until the timeout, because the scheduler sends the offer again with the same ID if the runner does not answer. The request's own timeout bounds each wait for an acknowledgement or an answer and restarts after an acknowledgement, so the outer timeout bounds the whole wait.
+	let retry = tangram_futures::retry::Options {
+		max_retries: 0,
+		..session.server.config.control.request_retry.clone().into()
+	};
+	let options = tangram_server_core::control::Options { retry, timeout };
+	let future = session
+		.server
+		.components
+		.runner
+		.send_runner_control_request(
+			session,
+			&runner.id,
+			scheduler,
+			runner.connection,
+			offer,
+			arg,
+			options,
+		)
+		.boxed();
+	let result = tokio::time::timeout(timeout, future)
+		.await
+		.map_err(|error| tg::error!(!error, "timed out waiting for the runner to answer"))
+		.and_then(std::convert::identity);
+	if result.is_err() {
+		tangram_server_core::checkpoint!(session.server, "scheduler.sandbox.offer.unanswered", sandbox = %request.sandbox)
+			.await;
+	}
+	let result = match result {
+		Ok(result) => result,
+		Err(error) => {
+			let error = tg::error!(!error, sandbox = %request.sandbox, runner = %runner.id, "failed to send the offer of the sandbox to the runner");
+			return Outcome::Unanswered(error);
+		},
+	};
+	let result = result
+		.map_err(|error| {
+			tg::error!(!error, sandbox = %request.sandbox, runner = %runner.id, "the runner failed to create the sandbox")
+		})
+		.and_then(|output| {
+			output
+				.try_unwrap_offer_sandbox()
+				.map_err(|_| tg::error!("expected an offer sandbox response"))
+				.map(|output| output.answer)
+		});
+	match result {
+		Ok(tg::runner::control::Answer::Ended) => Outcome::Ended,
+		Ok(tg::runner::control::Answer::No) => Outcome::Declined,
+		Ok(tg::runner::control::Answer::Yes) => Outcome::Accepted,
+		Err(error) => Outcome::Failed(error),
+	}
+}
+
+/// Add a request to a sum of requests, which accounts for each request's maximum as its minimum when it has none.
+pub(super) fn add(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
+	let max = capacity
+		.cpu
+		.accounted_max()
+		.millis()
+		.saturating_add(value.cpu.accounted_max().millis());
+	let min = capacity
+		.cpu
+		.min
+		.millis()
+		.saturating_add(value.cpu.min.millis());
+	capacity.cpu = tg::sandbox::Cpu::new(
+		tg::sandbox::Amount::from_millis(min),
+		tg::sandbox::Amount::from_millis(max),
+	);
+	for (resource, value) in [
+		(&mut capacity.memory, value.memory),
+		(&mut capacity.storage, value.storage),
+	] {
+		let max = resource
+			.accounted_max()
+			.saturating_add(value.accounted_max());
+		let min = resource.min.saturating_add(value.min);
+		*resource = tg::sandbox::Resource::new(min, max);
+	}
+	capacity.sandboxes = capacity.sandboxes.saturating_add(value.sandboxes);
+}
+
+/// Subtract a request from a sum of requests.
+pub(super) fn subtract(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
+	let max = capacity
+		.cpu
+		.accounted_max()
+		.millis()
+		.saturating_sub(value.cpu.accounted_max().millis());
+	let min = capacity
+		.cpu
+		.min
+		.millis()
+		.saturating_sub(value.cpu.min.millis());
+	capacity.cpu = tg::sandbox::Cpu::new(
+		tg::sandbox::Amount::from_millis(min),
+		tg::sandbox::Amount::from_millis(max),
+	);
+	for (resource, value) in [
+		(&mut capacity.memory, value.memory),
+		(&mut capacity.storage, value.storage),
+	] {
+		let max = resource
+			.accounted_max()
+			.saturating_sub(value.accounted_max());
+		let min = resource.min.saturating_sub(value.min);
+		*resource = tg::sandbox::Resource::new(min, max);
+	}
+	capacity.sandboxes = capacity.sandboxes.saturating_sub(value.sandboxes);
+}
+
 impl SchedulerState {
 	/// Record a runner's yes to a boot, which is the answer to an offer or the report of the boot to a restarted scheduler, and write the handoff. Every yes goes through this function, so that no yes is recorded without the handoff. The runner holds the boot from its yes, the sandbox leaves the queue, and the waiting enqueues and dequeues are answered. The scheduler keeps the sandbox's request until its control connection is established.
 	pub(super) fn accept_sandbox(
@@ -94,6 +235,13 @@ impl SchedulerState {
 		let runner_id = runner.id.clone();
 		self.sandboxes.entries.get_mut(id).unwrap().state = State::Accepted { runner };
 		self.stop_serving_process_holder(id);
+
+		// Publish the sandbox's status, so that a reader that this scheduler answered as the boot's holder reads again from the runner.
+		scheduler
+			.server
+			.components
+			.sandbox
+			.spawn_publish_sandbox_status_task(&scheduler.server, id);
 
 		// Write the handoff, which is this scheduler's last write of the boot.
 		self.hand_off_sandbox(scheduler, request, runner_id);
@@ -175,9 +323,11 @@ impl SchedulerState {
 				return;
 			},
 
-			// Forget a boot that the runner held and that ended, as the end of a boot that the runner held, and offer it to no other runner.
+			// Forget a boot that the runner held and that ended, as the end of a boot that the runner held, offer it to no other runner, and write its end if the index does not record one.
 			Decision::End => {
 				tracing::info!(sandbox = %id, runner = %runner.id, "the runner answered that the boot ended");
+				let request = sandbox.request().clone();
+				self.fail_claimed_sandbox(scheduler, request, runner.id.clone());
 				self.end_held_sandbox(scheduler, id, Some(placement.clone()));
 				return;
 			},
@@ -532,144 +682,4 @@ impl SchedulerState {
 			self.offer_sandbox(scheduler, &sandbox);
 		}
 	}
-}
-
-/// Offer a sandbox to a runner, and wait for the runner's answer.
-#[tracing::instrument(name = "sandbox.offer", level = "debug", skip_all, fields(runner = %arg.runner.id, sandbox = %arg.request.sandbox, scheduler = %arg.scheduler))]
-pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome {
-	let OfferArg {
-		capacity,
-		lender,
-		offer,
-		request,
-		runner,
-		scheduler,
-		timeout,
-	} = arg;
-	tracing::info!(lender = lender.as_ref().map(ToString::to_string), runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler, "offering the sandbox to a runner");
-	let arg = tg::runner::control::ServerRequestArg::OfferSandbox(
-		tg::runner::control::OfferSandboxServerRequestArg {
-			arg: request.arg.clone(),
-			boot: request.boot,
-			capacity,
-			creator: request.creator.clone(),
-			lender,
-			owner: request.owner.clone(),
-			parent: request.parent.clone(),
-			process: request.process.clone(),
-			sandbox: request.sandbox.clone(),
-			sequence: tangram_index::sandbox::put::FIRST_HOLDER_WRITE,
-			token: request.token.clone(),
-		},
-	);
-
-	// Send the offer once and wait for the answer until the timeout, because the scheduler sends the offer again with the same ID if the runner does not answer. The request's own timeout bounds each wait for an acknowledgement or an answer and restarts after an acknowledgement, so the outer timeout bounds the whole wait.
-	let retry = tangram_futures::retry::Options {
-		max_retries: 0,
-		..session.server.config.control.request_retry.clone().into()
-	};
-	let options = tangram_server_core::control::Options { retry, timeout };
-	let future = session
-		.server
-		.components
-		.runner
-		.send_runner_control_request(
-			session,
-			&runner.id,
-			scheduler,
-			runner.connection,
-			offer,
-			arg,
-			options,
-		)
-		.boxed();
-	let result = tokio::time::timeout(timeout, future)
-		.await
-		.map_err(|error| tg::error!(!error, "timed out waiting for the runner to answer"))
-		.and_then(std::convert::identity);
-	if result.is_err() {
-		tangram_server_core::checkpoint!(session.server, "scheduler.sandbox.offer.unanswered", sandbox = %request.sandbox)
-			.await;
-	}
-	let result = match result {
-		Ok(result) => result,
-		Err(error) => {
-			let error = tg::error!(!error, sandbox = %request.sandbox, runner = %runner.id, "failed to send the offer of the sandbox to the runner");
-			return Outcome::Unanswered(error);
-		},
-	};
-	let result = result
-		.map_err(|error| {
-			tg::error!(!error, sandbox = %request.sandbox, runner = %runner.id, "the runner failed to create the sandbox")
-		})
-		.and_then(|output| {
-			output
-				.try_unwrap_offer_sandbox()
-				.map_err(|_| tg::error!("expected an offer sandbox response"))
-				.map(|output| output.answer)
-		});
-	match result {
-		Ok(tg::runner::control::Answer::Ended) => Outcome::Ended,
-		Ok(tg::runner::control::Answer::No) => Outcome::Declined,
-		Ok(tg::runner::control::Answer::Yes) => Outcome::Accepted,
-		Err(error) => Outcome::Failed(error),
-	}
-}
-
-/// Add a request to a sum of requests, which accounts for each request's maximum as its minimum when it has none.
-pub(super) fn add(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
-	let max = capacity
-		.cpu
-		.accounted_max()
-		.millis()
-		.saturating_add(value.cpu.accounted_max().millis());
-	let min = capacity
-		.cpu
-		.min
-		.millis()
-		.saturating_add(value.cpu.min.millis());
-	capacity.cpu = tg::sandbox::Cpu::new(
-		tg::sandbox::Amount::from_millis(min),
-		tg::sandbox::Amount::from_millis(max),
-	);
-	for (resource, value) in [
-		(&mut capacity.memory, value.memory),
-		(&mut capacity.storage, value.storage),
-	] {
-		let max = resource
-			.accounted_max()
-			.saturating_add(value.accounted_max());
-		let min = resource.min.saturating_add(value.min);
-		*resource = tg::sandbox::Resource::new(min, max);
-	}
-	capacity.sandboxes = capacity.sandboxes.saturating_add(value.sandboxes);
-}
-
-/// Subtract a request from a sum of requests.
-pub(super) fn subtract(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
-	let max = capacity
-		.cpu
-		.accounted_max()
-		.millis()
-		.saturating_sub(value.cpu.accounted_max().millis());
-	let min = capacity
-		.cpu
-		.min
-		.millis()
-		.saturating_sub(value.cpu.min.millis());
-	capacity.cpu = tg::sandbox::Cpu::new(
-		tg::sandbox::Amount::from_millis(min),
-		tg::sandbox::Amount::from_millis(max),
-	);
-	for (resource, value) in [
-		(&mut capacity.memory, value.memory),
-		(&mut capacity.storage, value.storage),
-	] {
-		let max = resource
-			.accounted_max()
-			.saturating_sub(value.accounted_max());
-		let min = resource.min.saturating_sub(value.min);
-		*resource = tg::sandbox::Resource::new(min, max);
-	}
-	capacity.sandboxes = capacity.sandboxes.saturating_sub(value.sandboxes);
 }

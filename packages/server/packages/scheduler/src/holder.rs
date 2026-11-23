@@ -147,6 +147,7 @@ impl SchedulerState {
 		if !self.sandboxes.holders.contains_key(&sandbox) {
 			return;
 		}
+
 		// Leave a spawn that this scheduler sends to a runner with the boot to the runner.
 		if let tg::sandbox::control::ServerRequestArg::SpawnProcess(arg) = &arg
 			&& arg.boot.is_some()
@@ -458,6 +459,8 @@ impl SchedulerState {
 				let scheduler_ = scheduler.clone();
 				let write =
 					async move { scheduler_.persist_sandbox(&request, false).await }.boxed();
+				let entry = self.sandboxes.entries.get_mut(sandbox).unwrap();
+				let write = entry.chain_persist(write).boxed();
 				self.publish_process_holder_response(scheduler, process, id, Some(write), output);
 			},
 
@@ -487,7 +490,6 @@ impl SchedulerState {
 					);
 					return;
 				}
-				let scheduler_ = scheduler.clone();
 				let write = if last {
 					let error = tg::error::Data {
 						code: Some(tg::error::Code::Cancellation),
@@ -501,7 +503,11 @@ impl SchedulerState {
 					write
 				} else {
 					let request = request.clone();
-					async move { scheduler_.persist_sandbox(&request, false).await }.boxed()
+					let scheduler_ = scheduler.clone();
+					let write =
+						async move { scheduler_.persist_sandbox(&request, false).await }.boxed();
+					let entry = self.sandboxes.entries.get_mut(sandbox).unwrap();
+					entry.chain_persist(write).boxed()
 				};
 				self.publish_process_holder_response(
 					scheduler,

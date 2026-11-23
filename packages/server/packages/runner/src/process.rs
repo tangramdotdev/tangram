@@ -47,15 +47,25 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub boot: Arc<Boot>,
 
 	pub guest_url: &'a tangram_uri::Uri,
+
 	pub location: tg::Location,
+
 	pub process: tg::runner::control::Process,
+
 	pub process_stopper: &'a Stopper,
+
 	pub process_tasks: &'a mut JoinSet<tg::Result<()>>,
+
 	pub processes: Arc<tangram_server_process_core::Processes>,
+
 	pub public: bool,
+
 	pub retention_stopper: Stopper,
+
 	pub sandbox: &'a tangram_sandbox::Sandbox,
+
 	pub sandbox_create: Option<tg::process::control::SandboxCreate>,
+
 	pub sandbox_ready_receiver: Option<tokio::sync::oneshot::Receiver<()>>,
 }
 
@@ -313,6 +323,7 @@ impl Component {
 			sandbox_stopper,
 		} = arg;
 
+		// Keep a copy of the process, which the control task finishes as failed through its boot if no server answers its finish.
 		let mut unfinished = process.clone();
 		let tg::runner::control::Process {
 			mut data,
@@ -474,10 +485,16 @@ impl Component {
 			},
 		};
 
-		// Remember a process whose ID the runner derived in its boot, which this server spawned. Begin the process's finish, which is under way until a server answers it, so that the end of the boot waits for it, and keep the process to finish it as failed if no server answers its finish.
+		// Remember a process whose ID the runner derived in its boot, which this server spawned, and start nothing in a boot that is over. Begin the process's finish, which is under way until a server answers it, so that the end of the boot waits for it, and keep the process to finish it as failed if no server answers its finish.
 		if unfinished.id.is_none() {
 			unfinished.id = Some(id.clone());
-			boot.accept(unfinished.clone(), true);
+			if !boot.accept(unfinished.clone(), true) {
+				return Err(tg::error!(
+					code = tg::error::Code::Cancellation,
+					%id,
+					"the process's boot is over"
+				));
+			}
 		}
 		let unaccepted = boot.begin_finish(&id);
 
