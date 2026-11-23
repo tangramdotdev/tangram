@@ -5,15 +5,19 @@ const repository_path = path self '../../'
 # The variables that enable Developer ID signing and notarization. Each one holds a path, and the files stay outside the Tangram store. TANGRAM_APPLE_P12 names a .p12 file with the Developer ID Application certificate and its private key, TANGRAM_APPLE_P12_PASSWORD_FILE names a file that contains the password of the .p12 file, and TANGRAM_APPLE_API_KEY names an App Store Connect API key JSON file, as written by `rcodesign encode-app-store-connect-api-key`.
 const variables = [TANGRAM_APPLE_P12 TANGRAM_APPLE_P12_PASSWORD_FILE TANGRAM_APPLE_API_KEY]
 
-# Sign the staged macOS release binaries with a Developer ID certificate and notarize them when the signing variables are set.
+# Sign copies of macOS release binaries with a Developer ID certificate and notarize them when the signing variables are set.
 def main [
+	--directory: path # The directory containing the copies to sign.
 	...targets: string # The macOS release targets whose staged binaries to sign.
 ] {
 	cd $repository_path
-	let binaries = $targets | each {|target| $'release/tangram_($target)' | path expand }
-	if ($binaries | is-empty) {
+	if ($targets | is-empty) {
 		return
 	}
+	if $directory == null {
+		error make {msg: 'pass --directory with the copies of the release binaries to sign'}
+	}
+	let binaries = $targets | each {|target| $directory | path join $'tangram_($target)' | path expand }
 	for binary in $binaries {
 		if ($binary | path type) != file {
 			error make { msg: $"expected a staged executable at ($binary)" }
