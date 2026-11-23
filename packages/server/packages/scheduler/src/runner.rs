@@ -1464,6 +1464,7 @@ impl Scheduler {
 		deleted: bool,
 	) -> tg::Result<()> {
 		// Await indexing, so that the runner's sandboxes are read with every write that was acknowledged before the runner was declared dead, and read the index as it is if indexing cannot be awaited.
+		tangram_server_core::checkpoint!(self.server, "scheduler.runner.index", %runner).await;
 		if let Err(error) = self.index().await {
 			tracing::warn!(error = %error.trace(), "failed to await indexing");
 		}

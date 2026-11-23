@@ -36,7 +36,7 @@ tg --url $remote.url --token $root_token index
 let write = checkpoint watch index.write --token $root_token --url $remote.url
 checkpoint unwatch $connect
 checkpoint wait $submitted | ignore
-let receive = checkpoint watch indexer.request.receive --token $root_token --url $remote.url
+let index = checkpoint watch scheduler.runner.index --params { runner: $created.data.id } --token $root_token --url $remote.url
 
 # Kill the runner and advance the remote's clock past the runner ttl, so that the scheduler removes the runner.
 let runner_pid = open ($runner.directory | path join 'lock') | into int
@@ -44,9 +44,9 @@ kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 advance_time $remote 4sec
 
-# Release the index once the scheduler waits for indexing after it removes the runner.
-checkpoint pass $receive | ignore
-checkpoint unwatch $receive
+# Release the index once the scheduler is about to await indexing after it removes the runner.
+checkpoint pass $index | ignore
+checkpoint unwatch $index
 checkpoint unwatch $write
 checkpoint unwatch $submitted
 
