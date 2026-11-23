@@ -102,6 +102,7 @@ pub enum Kind {
 	SchedulerSandbox = 93,
 	Scheduler = 94,
 	SandboxScheduler = 95,
+	SchedulerProcess = 96,
 	SandboxBootProcess = 97,
 }
 
@@ -291,6 +292,13 @@ impl fdbt::TuplePack for Key {
 				Kind::SchedulerRunner.to_i32().unwrap(),
 				scheduler.to_bytes().as_ref(),
 				runner.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Runner(crate::runner::Key::SchedulerProcess { process, scheduler }) => (
+				Kind::SchedulerProcess.to_i32().unwrap(),
+				scheduler.to_bytes().as_ref(),
+				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
@@ -1099,6 +1107,19 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((
 					input,
 					Key::Runner(crate::runner::Key::SchedulerSandbox { sandbox, scheduler }),
+				))
+			},
+			Kind::SchedulerProcess => {
+				let (input, scheduler): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let scheduler = tg::scheduler::Id::from_slice(&scheduler)
+					.map_err(|_| fdbt::PackError::Message("invalid scheduler id".into()))?;
+				let process = tg::process::Id::from_slice(&process)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((
+					input,
+					Key::Runner(crate::runner::Key::SchedulerProcess { process, scheduler }),
 				))
 			},
 

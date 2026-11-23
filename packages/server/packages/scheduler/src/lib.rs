@@ -36,6 +36,7 @@ mod recovery;
 mod request;
 mod runner;
 mod sandbox;
+mod spawn;
 
 /// The ID of the only scheduler of a single server, which multi-server mode replaces with a configured ID.
 const SINGLE_SERVER_ID: &str = "sch_0000000000000000000000000000";

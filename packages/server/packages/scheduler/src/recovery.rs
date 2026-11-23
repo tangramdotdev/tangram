@@ -17,6 +17,7 @@ pub(super) struct Recovery {
 	releasing: bool,
 	requests: HashMap<tg::sandbox::Id, EnqueueSandboxRequestArg, tg::id::BuildHasher>,
 	runners: HashMap<tg::runner::Id, u64, tg::id::BuildHasher>,
+	spawns: Vec<super::spawn::Spawn>,
 }
 
 /// A held request whose boot a runner reported, which belongs to the runner and not to the runner's connection, because a runner that reconnects still holds the boot.
@@ -60,6 +61,9 @@ impl Scheduler {
 			requests.insert(sandbox.id, request);
 		}
 
+		// Reload the spawns into existing sandboxes.
+		let spawns = self.get_saved_spawns().await?;
+
 		// Get the registered runners, which must report their sandboxes or expire.
 		let ids = self
 			.server
@@ -80,6 +84,7 @@ impl Scheduler {
 		tracing::info!(
 			requests = requests.len(),
 			runners = runners.len(),
+			spawns = spawns.len(),
 			"recovering the scheduler"
 		);
 
@@ -98,6 +103,7 @@ impl Scheduler {
 			releasing: false,
 			requests,
 			runners,
+			spawns,
 		});
 		if state
 			.recovery
@@ -278,6 +284,10 @@ impl SchedulerState {
 		let Some(recovery) = self.recovery.take() else {
 			return;
 		};
+
+		// Offer the saved spawns again.
+		self.recover_spawns(scheduler, recovery.spawns);
+
 		for (id, claim) in recovery.claimed {
 			let data = statuses.remove(&id);
 			let destroying = data
@@ -427,6 +437,13 @@ impl Component {
 			if let Err(error) = result {
 				tracing::error!(sandbox = %id, error = %error.trace(), "failed to end the queued sandbox");
 			}
+		}
+
+		// Finish the processes in the queue, which were on their way into sandboxes that ended with the run.
+		let process_error = tg::Error::try_from(error.clone())
+			.map_err(|error| tg::error!(!error, "failed to create the error"))?;
+		if let Err(error) = super::spawn::end_spawns(server, &id, &process_error).await {
+			tracing::error!(error = %error.trace(), "failed to finish the queued processes");
 		}
 
 		// End the sandboxes of the other runners with their registrations.

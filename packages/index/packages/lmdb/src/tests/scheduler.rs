@@ -77,6 +77,32 @@ async fn a_sandbox_delete_removes_its_scheduler_keys() {
 	assert_eq!(owner(&index, &sandbox).await, None);
 }
 
+#[tokio::test]
+async fn process_keys_resolve_in_any_order() {
+	let (_directory, index) = super::new_index();
+	let scheduler = tg::scheduler::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+
+	// A put records the spawn in the scheduler's queue, and a delete removes it.
+	let process = tg::process::Id::new();
+	write(&index, put_process(&process, &sandbox, &scheduler)).await;
+	assert_eq!(processes(&index, &scheduler).await, vec![process.clone()]);
+	write(&index, delete_process(&process, &sandbox, &scheduler)).await;
+	assert_eq!(
+		processes(&index, &scheduler).await,
+		Vec::<tg::process::Id>::new()
+	);
+
+	// A delete that applies before its put wins.
+	let other = tg::process::Id::new();
+	write(&index, delete_process(&other, &sandbox, &scheduler)).await;
+	write(&index, put_process(&other, &sandbox, &scheduler)).await;
+	assert_eq!(
+		processes(&index, &scheduler).await,
+		Vec::<tg::process::Id>::new()
+	);
+}
+
 fn put(sandbox: &tg::sandbox::Id, boot: u64, scheduler: &tg::scheduler::Id) -> tangram_index::Item {
 	let arg = tangram_index::scheduler::sandbox::put::Arg {
 		boot,
@@ -107,4 +133,36 @@ async fn queue(index: &crate::Index, scheduler: &tg::scheduler::Id) -> Vec<tg::s
 
 async fn owner(index: &crate::Index, sandbox: &tg::sandbox::Id) -> Option<tg::scheduler::Id> {
 	index.try_get_sandbox_scheduler(sandbox).await.unwrap()
+}
+
+fn put_process(
+	process: &tg::process::Id,
+	sandbox: &tg::sandbox::Id,
+	scheduler: &tg::scheduler::Id,
+) -> tangram_index::Item {
+	let arg = tangram_index::scheduler::process::put::Arg {
+		process: process.clone(),
+		request: b"request".to_vec(),
+		sandbox: sandbox.clone(),
+		scheduler: scheduler.clone(),
+	};
+	tangram_index::Item::PutSchedulerProcess(Box::new(arg))
+}
+
+fn delete_process(
+	process: &tg::process::Id,
+	sandbox: &tg::sandbox::Id,
+	scheduler: &tg::scheduler::Id,
+) -> tangram_index::Item {
+	let arg = tangram_index::scheduler::process::delete::Arg {
+		process: process.clone(),
+		sandbox: sandbox.clone(),
+		scheduler: scheduler.clone(),
+	};
+	tangram_index::Item::DeleteSchedulerProcess(Box::new(arg))
+}
+
+async fn processes(index: &crate::Index, scheduler: &tg::scheduler::Id) -> Vec<tg::process::Id> {
+	let processes = index.get_scheduler_processes(scheduler).await.unwrap();
+	processes.into_iter().map(|process| process.id).collect()
 }
