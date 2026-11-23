@@ -134,7 +134,7 @@ where
 					config.limits =
 						Self::request_limits(rustix::param::page_size(), config.options.max_write)?;
 					let mount = match ready {
-						None => Self::remount(path).await?,
+						None => Self::remount(path, config.options.allow_other).await?,
 						Some(ready) => Self::remount_external(ready).await?,
 					};
 					connection = Self::connect(
@@ -294,7 +294,7 @@ where
 					config.limits =
 						Self::request_limits(rustix::param::page_size(), config.options.max_write)?;
 					mount = match mount.ready.clone() {
-						None => Self::remount(path).await?,
+						None => Self::remount(path, config.options.allow_other).await?,
 						Some(ready) => Self::remount_external(ready).await?,
 					};
 				},
@@ -313,9 +313,9 @@ where
 			.map_err(|error| Error::other(format!("failed to build an SQPOLL ring: {error}")))
 	}
 
-	async fn remount(path: &Path) -> Result<Mount> {
+	async fn remount(path: &Path, allow_other: bool) -> Result<Mount> {
 		Self::unmount(path).await.ok();
-		let recvfd = fusermount3(path)?;
+		let recvfd = fusermount3(path, allow_other)?;
 		let mount = Self::receive_mount(recvfd).await?;
 		Ok(mount)
 	}

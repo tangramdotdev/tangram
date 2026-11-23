@@ -39,6 +39,8 @@ pub struct Config {
 
 	pub directory: Option<PathBuf>,
 
+	pub group_access: bool,
+
 	pub http: Http,
 
 	pub index: Index,
@@ -2215,6 +2217,7 @@ impl Default for Config {
 			control: Control::default(),
 			database: Database::default(),
 			directory: None,
+			group_access: false,
 			http: Http::default(),
 			index: Index::default(),
 			indexer: Indexer::default(),

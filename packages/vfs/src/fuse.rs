@@ -69,6 +69,8 @@ const S_IFLNK: u32 = 0o120_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Options {
+	pub allow_other: bool,
+
 	pub io: Io,
 
 	/// The maximum number of `io_uring` completions a worker processes in one batch.
@@ -181,6 +183,7 @@ impl Options {
 impl Default for Options {
 	fn default() -> Self {
 		Self {
+			allow_other: false,
 			io: Io::default(),
 			io_uring_completion_batch_size: 64,
 			io_uring_max_retired_slots_per_worker: 8,
@@ -494,7 +497,7 @@ fn receive_mount_command(sendfd: &OwnedFd) -> std::io::Result<u8> {
 	Ok(command[0])
 }
 
-pub fn fusermount3(path: &Path) -> std::io::Result<OwnedFd> {
+pub fn fusermount3(path: &Path, allow_other: bool) -> std::io::Result<OwnedFd> {
 	// Create the helper control socket.
 	let (fuse_commfd, recvfd) = rustix::net::socketpair(
 		AddressFamily::UNIX,
@@ -508,7 +511,10 @@ pub fn fusermount3(path: &Path) -> std::io::Result<OwnedFd> {
 	let commfd_raw = fuse_commfd.as_raw_fd();
 	let uid = rustix::process::getuid().as_raw();
 	let gid = rustix::process::getgid().as_raw();
-	let options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions,ro");
+	let mut options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions,ro");
+	if allow_other {
+		options.push_str(",allow_other");
+	}
 	// SAFETY: The pre_exec closure only calls async-signal-safe operations.
 	let child = unsafe {
 		std::process::Command::new("fusermount3")

@@ -3,6 +3,7 @@ use {
 		Components, Config, Owned, Server, State,
 		context::{Context, Origin},
 		database::Database,
+		http::Listener,
 		index::Index,
 		load_token_secrets,
 		messenger::Messenger,
@@ -10,7 +11,7 @@ use {
 	dashmap::{DashMap, DashSet},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	std::{
-		os::fd::AsRawFd as _,
+		os::{fd::AsRawFd as _, unix::fs::PermissionsExt as _},
 		path::{Path, PathBuf},
 		sync::{Arc, Mutex},
 	},
@@ -752,6 +753,17 @@ impl Server {
 							"failed to listen on the http url"
 						)
 					})?;
+					if self.config.group_access
+						&& let Listener::Unix { guard, .. } = &listener
+						&& guard.path() == self.path.join("socket")
+					{
+						let permissions = std::fs::Permissions::from_mode(0o660);
+						tokio::fs::set_permissions(guard.path(), permissions)
+							.await
+							.map_err(|error| {
+								tg::error!(!error, "failed to set permissions on the server socket")
+							})?;
+					}
 					tracing::info!("listening on {}", listener_config.url);
 					listeners.push((listener, listener_config.clone(), Origin::Host));
 				}

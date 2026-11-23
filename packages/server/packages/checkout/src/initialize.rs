@@ -1,5 +1,6 @@
 use {
 	crate::Component,
+	std::os::unix::fs::PermissionsExt as _,
 	tangram_client::prelude::*,
 	tangram_server_core::{Server, context::Origin},
 };
@@ -89,6 +90,15 @@ impl Component {
 			tokio::fs::create_dir_all(&store_path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
+		}
+		if server.config.group_access {
+			let path = server.checkout_path();
+			let permissions = std::fs::Permissions::from_mode(0o750);
+			tokio::fs::set_permissions(&path, permissions)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, path = %path.display(), "failed to set permissions on the checkouts directory")
+				})?;
 		}
 		drop(checkout_guard);
 

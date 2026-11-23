@@ -24,6 +24,10 @@ pub struct Args {
 	#[arg(long, short)]
 	pub directory: Option<PathBuf>,
 
+	/// Let members of the server's group use the local socket and checkouts.
+	#[arg(long)]
+	pub group_access: bool,
+
 	#[arg(hide = true, long)]
 	pub ready_fd: Option<RawFd>,
 
@@ -56,6 +60,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 
 	// Set the directory and version.
 	config.directory = Some(directory);
+	config.group_access = args.group_access;
 	config.version = Some(tangram_cli_core::version());
 
 	// Set the URL.

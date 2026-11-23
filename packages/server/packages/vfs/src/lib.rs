@@ -134,7 +134,9 @@ impl Server {
 							vfs::fuse::Passthrough::Required
 						},
 					};
+					// Allow access to the shared store through the group-restricted server directory.
 					let options = vfs::fuse::Options {
+						allow_other: server.config.group_access && path == server.store_path(),
 						io,
 						io_uring_completion_batch_size: fuse.io_uring_completion_batch_size,
 						io_uring_max_retired_slots_per_worker: fuse
@@ -157,7 +159,7 @@ impl Server {
 					let recvfd = match recvfd {
 						None => {
 							vfs::fuse::Server::<Provider>::unmount(path).await.ok();
-							vfs::fuse::fusermount3(path).map_err(|error| {
+							vfs::fuse::fusermount3(path, options.allow_other).map_err(|error| {
 								tg::error!(!error, "failed to start the FUSE mount helper")
 							})?
 						},
