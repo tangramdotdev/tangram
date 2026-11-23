@@ -852,7 +852,11 @@ impl Component {
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 		.map_err(|error| tg::error!(!error, "failed to determine if the path exists"))?;
-		if exists {
+		if exists
+			&& self
+				.checkout_internal_touch(session, std::slice::from_ref(&item.id))
+				.await?
+		{
 			return Ok(());
 		}
 
@@ -887,7 +891,7 @@ impl Component {
 		// Rename the temp to the checkouts directory.
 		let put_checkout_arg = tokio::task::spawn_blocking({
 			let session = session.clone();
-			move || Self::checkout_internal_rename(&session, item, &temp, &dependency_ids)
+			move || Self::checkout_internal_rename(&session, &item, &temp, &dependency_ids)
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
@@ -951,7 +955,10 @@ impl Component {
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))?;
 		if all_exist {
-			return Ok(());
+			let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+			if self.checkout_internal_touch(session, &ids).await? {
+				return Ok(());
+			}
 		}
 
 		// Write each item to a temp and collect dependencies.
@@ -1012,7 +1019,7 @@ impl Component {
 						.map(|dependency| dependency.id.clone())
 						.collect();
 					let put_checkout_arg =
-						Self::checkout_internal_rename(&session, item, &temp, &dependency_ids)?;
+						Self::checkout_internal_rename(&session, &item, &temp, &dependency_ids)?;
 					put_checkout_args.push(put_checkout_arg);
 				}
 				Ok::<_, tg::Error>(put_checkout_args)
@@ -1037,6 +1044,45 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to index the checkouts"))?;
 
 		Ok(())
+	}
+
+	/// Touch existing checkouts, and return whether the index has a record of every one of them.
+	async fn checkout_internal_touch(
+		&self,
+		session: &Session,
+		ids: &[tg::artifact::Id],
+	) -> tg::Result<bool> {
+		// Skip the checkouts that were put or touched within the time to touch.
+		let now = session.server.clock.unix_timestamp();
+		let time_to_touch = session.server.config.checkout.time_to_touch;
+		let ids = ids
+			.iter()
+			.map(|id| tg::Id::from(id.clone()))
+			.filter(|id| !self.puts.touched(id, now, time_to_touch))
+			.collect::<Vec<_>>();
+		if ids.is_empty() {
+			return Ok(true);
+		}
+
+		// Touch the checkouts in the index.
+		let checkouts = session
+			.server
+			.index
+			.touch_checkouts(&ids, now, time_to_touch)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the checkouts"))?;
+
+		// Record the touches of the checkouts that the index has.
+		let mut found = true;
+		for (id, checkout) in std::iter::zip(&ids, checkouts) {
+			if checkout.is_some() {
+				self.puts.lock(id).await.touch(now);
+			} else {
+				found = false;
+			}
+		}
+
+		Ok(found)
 	}
 
 	fn checkout_internal_write(
@@ -1405,37 +1451,25 @@ impl Component {
 
 	fn checkout_internal_rename(
 		session: &Session,
-		item: Item,
+		item: &Item,
 		temp: &Temp,
 		dependencies: &[tg::artifact::Id],
 	) -> tg::Result<tangram_index::checkout::put::Arg> {
 		// Create the path.
 		let path = session.server.checkout_path().join(item.id.to_string());
 
-		// Rename the temp to the path.
-		let result = tangram_util::fs::rename_noreplace_sync(temp, &path);
-		let done = match result {
-			Ok(()) => false,
-			Err(error)
-				if matches!(
-					error.kind(),
-					std::io::ErrorKind::AlreadyExists
-						| std::io::ErrorKind::IsADirectory
-						| std::io::ErrorKind::PermissionDenied
-				) =>
-			{
-				true
-			},
-			Err(error) => {
-				let src = temp.path().display();
-				let dst = path.display();
-				let error = tg::error!(!error, %src, %dst, "failed to rename to the checkout path");
-				return Err(error);
-			},
-		};
+		// Publish the temp at the path.
+		let id = tg::Id::from(item.id.clone());
+		let touched_at = session.server.clock.unix_timestamp();
+		let (put, renamed) = session.server.components.checkout.puts().publish_sync(
+			&id,
+			touched_at,
+			temp.path(),
+			&path,
+		)?;
 
 		// Set the permissions.
-		if !done && item.id.is_directory() {
+		if renamed && item.id.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o555);
 			std::fs::set_permissions(&path, permissions).map_err(
 				|error| tg::error!(!error, path = %path.display(), "failed to set permissions"),
@@ -1443,7 +1477,7 @@ impl Component {
 		}
 
 		// Set the modified time.
-		if !done {
+		if renamed {
 			let times = std::fs::FileTimes::new()
 				.set_accessed(std::time::SystemTime::UNIX_EPOCH)
 				.set_modified(std::time::SystemTime::UNIX_EPOCH);
@@ -1452,12 +1486,11 @@ impl Component {
 			)?;
 		}
 
-		// Index the checkout.
-		let touched_at = session.server.clock.unix_timestamp();
+		// Create the index arg.
 		let arg = tangram_index::checkout::put::Arg {
 			dependencies: dependencies.iter().cloned().map(Into::into).collect(),
-			id: item.id.into(),
-			put: uuid::Uuid::now_v7().into_bytes(),
+			id,
+			put,
 			replace: false,
 			touched_at,
 		};

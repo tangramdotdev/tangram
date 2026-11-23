@@ -189,12 +189,20 @@ impl Component {
 			runner.remove_sandbox(sandbox);
 		}
 
+		// Drop the checkout puts that are older than the time to touch.
+		server
+			.components
+			.checkout
+			.puts()
+			.retain(now, server.config.checkout.time_to_touch);
+
 		// Prepare the side effects.
 		let (artifacts, named): (Vec<_>, Vec<_>) = output
 			.checkouts
 			.iter()
-			.map(|checkout| checkout.id.clone())
-			.partition(|id| tg::artifact::Id::try_from(id.clone()).is_ok());
+			.cloned()
+			.partition(|checkout| tg::artifact::Id::try_from(checkout.id.clone()).is_ok());
+		let named = named.into_iter().map(|checkout| checkout.id).collect();
 		let archive_args = output
 			.objects
 			.iter()
@@ -294,11 +302,23 @@ impl Component {
 	async fn delete_artifact_checkouts(
 		&self,
 		server: &Server,
-		artifacts: Vec<tg::Id>,
+		artifacts: Vec<tangram_index::clean::Checkout>,
 	) -> CheckoutOutput {
 		if artifacts.is_empty() || !server.checkouts_enabled() {
 			return CheckoutOutput::default();
 		}
+
+		// Hit the checkpoint for each checkout between the index's decision and the removal of its files.
+		let ids = artifacts
+			.iter()
+			.map(|checkout| checkout.id.clone())
+			.collect::<Vec<_>>();
+		for id in &ids {
+			tangram_server_core::checkpoint!(server, "cleaning.checkout.delete", checkout = %id)
+				.await;
+		}
+
+		// Remove the files of the checkouts.
 		let result = tokio::task::spawn_blocking({
 			let server = server.clone();
 			move || {
@@ -306,15 +326,35 @@ impl Component {
 				let temp = Temp::new(&server);
 				std::fs::create_dir(temp.path())?;
 				let checkout_path = server.checkout_path();
-				for artifact in artifacts {
-					let path = checkout_path.join(artifact.to_string());
-					let temp_path = temp.path().join(artifact.to_string());
-					delete_checkout_path(&path, &temp_path, &mut output);
+				let puts = server.components.checkout.puts();
+				for checkout in artifacts {
+					let tangram_index::clean::Checkout { id, put } = checkout;
 
-					for extension in [".tg.js", ".tg.ts"] {
-						let path = checkout_path.join(format!("{artifact}{extension}"));
-						let temp_path = temp.path().join(format!("{artifact}{extension}"));
-						delete_checkout_path(&path, &temp_path, &mut output);
+					// Move the files away while holding the mutex for the ID, unless a newer put of the checkout is recorded.
+					let guard = puts.lock_sync(&id);
+					if guard
+						.get()
+						.and_then(|entry| entry.put)
+						.is_some_and(|current| current != put)
+					{
+						continue;
+					}
+					let mut paths = Vec::new();
+					let names = std::iter::once(id.to_string())
+						.chain([".tg.js", ".tg.ts"].map(|extension| format!("{id}{extension}")));
+					for name in names {
+						let path = checkout_path.join(&name);
+						let temp_path = temp.path().join(&name);
+						if move_checkout_path(&path, &temp_path) {
+							paths.push(temp_path);
+						}
+					}
+					guard.remove();
+					drop(guard);
+
+					// Remove the moved files.
+					for path in paths {
+						remove_checkout_path(&path, &mut output);
 					}
 				}
 
@@ -322,7 +362,7 @@ impl Component {
 			}
 		})
 		.await;
-		match result {
+		let output = match result {
 			Ok(Ok(output)) => output,
 			Ok(Err(error)) => {
 				tracing::error!(?error, "failed to create the checkout cleanup directory");
@@ -332,7 +372,15 @@ impl Component {
 				tracing::error!(?error, "the artifact checkout clean task panicked");
 				CheckoutOutput::default()
 			},
+		};
+
+		// Hit the checkpoint for each checkout after the removal of its files.
+		for id in &ids {
+			tangram_server_core::checkpoint!(server, "cleaning.checkout.deleted", checkout = %id)
+				.await;
 		}
+
+		output
 	}
 
 	async fn delete_named_checkouts(&self, server: &Server, named: Vec<tg::Id>) {
@@ -403,7 +451,7 @@ impl CleanMode {
 	}
 }
 
-fn delete_checkout_path(path: &Path, temp_path: &Path, output: &mut CheckoutOutput) {
+fn move_checkout_path(path: &Path, temp_path: &Path) -> bool {
 	let result = (|| {
 		// Restore owner access so read-only directories can be moved on macOS.
 		let metadata = std::fs::symlink_metadata(path)?;
@@ -416,20 +464,23 @@ fn delete_checkout_path(path: &Path, temp_path: &Path, output: &mut CheckoutOutp
 		Ok::<_, std::io::Error>(())
 	})();
 	match result {
-		Ok(()) => {
-			let result = tangram_util::fs::remove_sync_with_callback(temp_path, |metadata| {
-				if metadata.is_file() {
-					output.bytes += metadata.len();
-					output.files += 1;
-				}
-			});
-			if let Err(error) = result {
-				tracing::error!(?error, path = %temp_path.display(), "failed to delete a checkout path");
-			}
-		},
-		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+		Ok(()) => true,
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
 		Err(error) => {
 			tracing::error!(?error, path = %path.display(), "failed to move a checkout path for deletion");
+			false
 		},
+	}
+}
+
+fn remove_checkout_path(path: &Path, output: &mut CheckoutOutput) {
+	let result = tangram_util::fs::remove_sync_with_callback(path, |metadata| {
+		if metadata.is_file() {
+			output.bytes += metadata.len();
+			output.files += 1;
+		}
+	});
+	if let Err(error) = result {
+		tracing::error!(?error, path = %path.display(), "failed to delete a checkout path");
 	}
 }

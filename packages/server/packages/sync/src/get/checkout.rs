@@ -832,17 +832,16 @@ impl Component {
 				.map_err(|error| tg::error!(!error, "failed to set checkout permissions"))?;
 		}
 		let path = session.server.checkout_path().join(id.to_string());
-		match tangram_util::fs::rename_noreplace(&temp_path, &path).await {
-			Ok(()) => {},
-			Err(error)
-				if matches!(
-					error.kind(),
-					std::io::ErrorKind::AlreadyExists
-						| std::io::ErrorKind::IsADirectory
-						| std::io::ErrorKind::PermissionDenied
-				) => {},
-			Err(error) => return Err(tg::error!(!error, "failed to publish the checkout file")),
-		}
+		let checkout = tg::Id::from(artifact.clone());
+		let touched_at = session.server.clock.unix_timestamp();
+		let (put, _) = session
+			.server
+			.components
+			.checkout
+			.puts()
+			.publish(&checkout, touched_at, &temp_path, &path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to publish the checkout file"))?;
 		let path = Self::sync_get_checkout_intern_path(state, path);
 		for id in sources {
 			let blob = state.blobs.get_mut(&id).unwrap();
@@ -857,11 +856,12 @@ impl Component {
 				source.path = path.clone();
 			}
 		}
+		let checkout = super::super::graph::Checkout { dependencies, put };
 		state
 			.graph
 			.lock()
 			.unwrap()
-			.insert_checkout(artifact.clone(), dependencies);
+			.insert_checkout(artifact.clone(), checkout);
 		Self::sync_get_checkout_publish(state, &root, artifact.clone()).await?;
 		tangram_server_core::checkpoint!(session.server, "sync.get.checkout.publish", artifact = %artifact).await;
 

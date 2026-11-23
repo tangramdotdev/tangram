@@ -896,10 +896,10 @@ impl Component {
 			let put_checkout_args = graph
 				.checkouts()
 				.iter()
-				.map(|(id, dependencies)| tangram_index::checkout::put::Arg {
-					dependencies: dependencies.clone(),
+				.map(|(id, checkout)| tangram_index::checkout::put::Arg {
+					dependencies: checkout.dependencies.clone(),
 					id: id.clone().into(),
-					put: uuid::Uuid::now_v7().into_bytes(),
+					put: checkout.put,
 					replace: false,
 					touched_at,
 				})
