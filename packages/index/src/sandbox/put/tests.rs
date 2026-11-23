@@ -296,14 +296,14 @@ fn the_first_end_of_a_boot_records_its_number() {
 fn a_zero_end_of_an_ended_or_later_boot_does_not_apply() {
 	let zero = arg(data(1, tg::sandbox::Status::Stopped, None));
 
-	// The boot ended with its holder's end.
+	// Apply the zero end to a boot that ended with its holder's end.
 	let mut existing = sandbox(data(1, tg::sandbox::Status::Stopped, None));
 	existing.ends = BTreeMap::from([(1, end(4))]);
 	let merge = zero.merge(Some(&existing), None).unwrap().unwrap();
 	assert_eq!(merge.zero_end, None);
 	assert_eq!(merge.sandbox.ends.get(&1).map(|end| end.sequence), Some(4));
 
-	// The sandbox has a later boot.
+	// Apply the zero end to a sandbox at a later boot.
 	let mut existing = sandbox(data(2, tg::sandbox::Status::Started, None));
 	existing.ends = BTreeMap::from([(1, end(4))]);
 	let merge = zero.merge(Some(&existing), None).unwrap().unwrap();
@@ -313,7 +313,7 @@ fn a_zero_end_of_an_ended_or_later_boot_does_not_apply() {
 		tg::sandbox::Status::Started
 	);
 
-	// The sandbox is destroyed.
+	// Apply the zero end to a destroyed sandbox.
 	let existing = sandbox(data(1, tg::sandbox::Status::Destroyed, None));
 	let merge = zero.merge(Some(&existing), None).unwrap().unwrap();
 	assert_eq!(merge.zero_end, None);

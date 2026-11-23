@@ -131,13 +131,6 @@ impl Request {
 	#[must_use]
 	pub(super) fn splittable(&self) -> bool {
 		match self {
-			Self::Write(arg) => tangram_index::write::conditional_sandbox_puts(&arg.items)
-				.next()
-				.is_none(),
-			Self::CompletePermissionCapture(_)
-			| Self::PutIndexer(_)
-			| Self::PutScheduler(_)
-			| Self::UpdateIndexer(_) => false,
 			Self::AggregateUsage(_)
 			| Self::Clean(_)
 			| Self::ExpireUsage(_)
@@ -146,6 +139,13 @@ impl Request {
 			| Self::TouchObjects(_)
 			| Self::TouchProcesses(_)
 			| Self::Update(_) => true,
+			Self::CompletePermissionCapture(_)
+			| Self::PutIndexer(_)
+			| Self::PutScheduler(_)
+			| Self::UpdateIndexer(_) => false,
+			Self::Write(arg) => tangram_index::write::conditional_sandbox_puts(&arg.items)
+				.next()
+				.is_none(),
 		}
 	}
 

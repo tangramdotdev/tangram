@@ -62,9 +62,13 @@ pub struct State {
 
 	/// The ancestors of the owners of the sandboxes that this server enqueued, which is absent if the configuration does not remember them.
 	pub(crate) owner_ancestors: Option<moka::future::Cache<tg::Id, Vec<tg::Id>>>,
+
 	pub(crate) scheduler_cache_task: Mutex<Option<Task<()>>>,
+
 	pub(crate) schedulers: tangram_server_core::service::Cache<request::Kind>,
+
 	pub(crate) started: tokio::sync::watch::Sender<bool>,
+
 	pub(crate) task: Mutex<Option<Task<()>>>,
 }
 

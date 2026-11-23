@@ -485,6 +485,7 @@ impl Component {
 			}
 		});
 
+		// Connect to the scheduler again after each connection ends, until the runner stops.
 		let control_stopper = Stopper::new();
 		let mut first = true;
 		let mut drain = None::<BoxFuture<'_, ()>>;

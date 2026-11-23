@@ -18,6 +18,22 @@ use {
 
 const TIME_TO_LIVE: Duration = Duration::from_secs(10);
 
+/// Create a connection of a runner that reports boots.
+pub(crate) fn request(
+	id: &tg::runner::Id,
+	first: bool,
+	sandboxes: Vec<tg::runner::control::ArgSandbox>,
+) -> AddRunnerRequestArg {
+	AddRunnerRequestArg {
+		capacity: capacity(),
+		directories: Vec::new(),
+		first,
+		host: String::new(),
+		runner: id.clone(),
+		sandboxes,
+	}
+}
+
 /// Create the capacity of a runner that takes one sandbox.
 fn capacity() -> tg::runner::control::Capacity {
 	let capacity = tg::runner::Capacity {
@@ -57,8 +73,8 @@ fn state(id: &tg::runner::Id, connection: u64, now: Instant) -> SchedulerState {
 fn heartbeat(id: &tg::runner::Id, connection: u64, heartbeat_index: u64) -> HeartbeatNotification {
 	HeartbeatNotification {
 		capacity: capacity(),
-		heartbeat_index,
 		connection,
+		heartbeat_index,
 		runner: id.clone(),
 		sandboxes: BTreeSet::new(),
 	}
@@ -220,22 +236,6 @@ fn a_connection_is_told_only_the_boots_that_the_scheduler_declared_ended() {
 	state.sandboxes.ended.forget_runner(&id, &[]);
 	assert_eq!(told(&state), Vec::<tg::sandbox::Id>::new());
 	assert!(state.sandboxes.ended.is_declared(&foreign, 0, &other));
-}
-
-/// Create a connection of a runner that reports boots.
-pub(crate) fn request(
-	id: &tg::runner::Id,
-	first: bool,
-	sandboxes: Vec<tg::runner::control::ArgSandbox>,
-) -> AddRunnerRequestArg {
-	AddRunnerRequestArg {
-		capacity: capacity(),
-		directories: Vec::new(),
-		first,
-		host: String::new(),
-		runner: id.clone(),
-		sandboxes,
-	}
 }
 
 #[test]

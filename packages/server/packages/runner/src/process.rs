@@ -47,15 +47,25 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub boot: Arc<Boot>,
 
 	pub guest_url: &'a tangram_uri::Uri,
+
 	pub location: tg::Location,
+
 	pub process: tg::runner::control::Process,
+
 	pub process_stopper: &'a Stopper,
+
 	pub process_tasks: &'a mut JoinSet<tg::Result<()>>,
+
 	pub processes: Arc<tangram_server_process_core::Processes>,
+
 	pub public: bool,
+
 	pub retention_stopper: Stopper,
+
 	pub sandbox: &'a tangram_sandbox::Sandbox,
+
 	pub sandbox_create: Option<tg::process::control::SandboxCreate>,
+
 	pub sandbox_ready_receiver: Option<tokio::sync::oneshot::Receiver<()>>,
 }
 
@@ -313,6 +323,7 @@ impl Component {
 			sandbox_stopper,
 		} = arg;
 
+		// Keep a copy of the process, which the control task finishes as failed through its boot if no server answers its finish.
 		let mut unfinished = process.clone();
 		let tg::runner::control::Process {
 			mut data,

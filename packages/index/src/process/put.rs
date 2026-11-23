@@ -147,42 +147,6 @@ pub struct Update {
 }
 
 impl Arg {
-	pub fn validate(&self) -> tg::Result<()> {
-		if self.principal != tg::Principal::Process(self.id.clone())
-			&& self
-				.data
-				.as_ref()
-				.is_some_and(|data| !data.status.is_finished())
-		{
-			return Err(tg::error!("expected a finished process"));
-		}
-
-		// Require the boot and the sandbox of unfinished data, so that every unfinished record is listed under its boot, whose end fails it, and require data with a boot, so that a boot is set only together with data that the end of the boot can fail.
-		if let Some(data) = &self.data
-			&& !data.status.is_finished()
-			&& (self.boot.is_none() || data.sandbox.is_none())
-		{
-			return Err(tg::error!(
-				id = %self.id,
-				"expected the boot and the sandbox of an unfinished process"
-			));
-		}
-		if self.boot.is_some() && self.data.is_none() {
-			return Err(tg::error!(id = %self.id, "expected the data of a process with a boot"));
-		}
-		let Some(children) = &self.children else {
-			return Ok(());
-		};
-		let mut ids = BTreeSet::new();
-		for child in children {
-			if !ids.insert(&child.process.node) {
-				return Err(tg::error!("the process children must be unique"));
-			}
-		}
-
-		Ok(())
-	}
-
 	/// Whether the merge reads the existing data, which it compares with the arg's data.
 	#[must_use]
 	pub fn reads_data(&self, existing: Option<&super::Process>) -> bool {
@@ -191,11 +155,6 @@ impl Arg {
 			&& status.is_some_and(|status| {
 				self.principal != tg::Principal::Process(self.id.clone()) || status.is_finished()
 			})
-	}
-
-	/// Whether the end of the process's boot applies to the write, which it does if the index has no data for the process. An unfinished record always has its boot, so the end of its boot by the sandbox's scheduler found it under its boot and failed it in the same transaction.
-	fn checks_end(existing: Option<&super::Process>) -> bool {
-		existing.is_none_or(|existing| existing.status.is_none())
 	}
 
 	/// Whether the merge compares the arg's children with the existing children, which the index reads for it.
@@ -216,25 +175,6 @@ impl Arg {
 		}
 		self.boot?;
 		data.sandbox.clone()
-	}
-
-	/// Whether the arg's data supersedes the existing record's data. The first end to arrive is final, an end supersedes unfinished data, and otherwise a write supersedes the writes with lower sequences.
-	#[must_use]
-	fn supersedes(&self, existing: Option<&super::Process>) -> bool {
-		let Some(data) = &self.data else {
-			return false;
-		};
-		let Some(status) = existing.and_then(|existing| existing.status) else {
-			return true;
-		};
-		if status.is_finished() {
-			return false;
-		}
-		if data.status.is_finished() {
-			return true;
-		}
-		let sequence = existing.map_or(0, |existing| existing.sequence);
-		self.sequence > sequence
 	}
 
 	/// Merge the put with the existing record, which is the one rule that every index backend applies, so that writes applied in any order produce the same record.
@@ -427,6 +367,7 @@ impl Arg {
 		}
 
 		// Create the record.
+		let reference_count = existing.map_or(0, |existing| existing.reference_count);
 		let process = super::Process {
 			boot,
 			command_id: arg.command_id.clone(),
@@ -434,7 +375,7 @@ impl Arg {
 			location,
 			metadata,
 			owner,
-			reference_count: existing.map_or(0, |existing| existing.reference_count),
+			reference_count,
 			sandbox,
 			sequence,
 			set,
@@ -455,6 +396,42 @@ impl Arg {
 		};
 
 		Ok(Ok(merge))
+	}
+
+	pub fn validate(&self) -> tg::Result<()> {
+		if self.principal != tg::Principal::Process(self.id.clone())
+			&& self
+				.data
+				.as_ref()
+				.is_some_and(|data| !data.status.is_finished())
+		{
+			return Err(tg::error!("expected a finished process"));
+		}
+
+		// Require the boot and the sandbox of unfinished data, so that every unfinished record is listed under its boot, whose end fails it, and require data with a boot, so that a boot is set only together with data that the end of the boot can fail.
+		if let Some(data) = &self.data
+			&& !data.status.is_finished()
+			&& (self.boot.is_none() || data.sandbox.is_none())
+		{
+			return Err(tg::error!(
+				id = %self.id,
+				"expected the boot and the sandbox of an unfinished process"
+			));
+		}
+		if self.boot.is_some() && self.data.is_none() {
+			return Err(tg::error!(id = %self.id, "expected the data of a process with a boot"));
+		}
+		let Some(children) = &self.children else {
+			return Ok(());
+		};
+		let mut ids = BTreeSet::new();
+		for child in children {
+			if !ids.insert(&child.process.node) {
+				return Err(tg::error!("the process children must be unique"));
+			}
+		}
+
+		Ok(())
 	}
 
 	pub fn validate_existing(
@@ -543,6 +520,30 @@ impl Arg {
 		Ok(Ok(()))
 	}
 
+	/// Whether the end of the process's boot applies to the write, which it does if the index has no data for the process. An unfinished record always has its boot, so the end of its boot by the sandbox's scheduler found it under its boot and failed it in the same transaction.
+	fn checks_end(existing: Option<&super::Process>) -> bool {
+		existing.is_none_or(|existing| existing.status.is_none())
+	}
+
+	/// Whether the arg's data supersedes the existing record's data. The first end to arrive is final, an end supersedes unfinished data, and otherwise a write supersedes the writes with lower sequences.
+	#[must_use]
+	fn supersedes(&self, existing: Option<&super::Process>) -> bool {
+		let Some(data) = &self.data else {
+			return false;
+		};
+		let Some(status) = existing.and_then(|existing| existing.status) else {
+			return true;
+		};
+		if status.is_finished() {
+			return false;
+		}
+		if data.status.is_finished() {
+			return true;
+		}
+		let sequence = existing.map_or(0, |existing| existing.sequence);
+		self.sequence > sequence
+	}
+
 	#[must_use]
 	pub fn complete(&self) -> bool {
 		self.set().complete()
@@ -568,9 +569,7 @@ impl Arg {
 			output_objects: self.output.is_some(),
 		}
 	}
-}
 
-impl Arg {
 	/// Create the write that records a process as failed because the end of its boot by the sandbox's scheduler covers it, or `None` if the index has no unfinished record with data for the process. Every index backend calls this for each process that it lists under the ended boot. The write carries the record's command, boot, sandbox, and time, so that the merge cannot reject it and leaves the record's time as it is.
 	#[must_use]
 	pub fn failed(

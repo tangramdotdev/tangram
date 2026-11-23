@@ -106,17 +106,6 @@ impl Component {
 		Ok(task)
 	}
 
-	/// Get the replies that a kind of holder recently sent.
-	fn holder_replies(
-		&self,
-		holder: tangram_server_core::sandbox::Holder,
-	) -> &tangram_server_core::holder::Replies<tg::sandbox::control::ClientResponse> {
-		match holder {
-			tangram_server_core::sandbox::Holder::Runner => &self.0.holder_replies,
-			tangram_server_core::sandbox::Holder::Scheduler => &self.0.scheduler_holder_replies,
-		}
-	}
-
 	/// Publish a holder's acknowledgement of a request to the server that sent the request.
 	pub(crate) async fn publish_sandbox_holder_ack(
 		&self,
@@ -190,6 +179,17 @@ impl Component {
 			})?;
 
 		Ok(())
+	}
+
+	/// Get the replies that a kind of holder recently sent.
+	fn holder_replies(
+		&self,
+		holder: tangram_server_core::sandbox::Holder,
+	) -> &tangram_server_core::holder::Replies<tg::sandbox::control::ClientResponse> {
+		match holder {
+			tangram_server_core::sandbox::Holder::Runner => &self.0.holder_replies,
+			tangram_server_core::sandbox::Holder::Scheduler => &self.0.scheduler_holder_replies,
+		}
 	}
 }
 

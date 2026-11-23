@@ -12,8 +12,8 @@ use {
 
 fn candidate(id: &tg::runner::Id, score: u128, siblings: usize) -> Candidate<'_> {
 	Candidate {
-		id,
 		connection: 0,
+		id,
 		score: (score, score),
 		siblings,
 	}
@@ -153,8 +153,8 @@ fn lend(
 			sandboxes: 1,
 			..Default::default()
 		},
-		heartbeat_index: 1,
 		connection: Some(connection),
+		heartbeat_index: 1,
 		runner: runner.clone(),
 	};
 	state.parents.0.get_mut(parent).unwrap().borrowable = Some(borrowable);

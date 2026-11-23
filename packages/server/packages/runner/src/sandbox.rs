@@ -87,13 +87,16 @@ struct SandboxTaskArg {
 /// The output of a boot's task once the boot ended locally, with the boot's control stream, on which the end of the boot is written, and the state that the runner retains after the end.
 struct SandboxTaskOutput {
 	connected: ConnectionReady,
+
 	control: control::Control,
+
 	ending: Ending,
 
 	/// The guard that discards the boot's state when it is dropped.
 	guard: Box<dyn Send>,
 
 	process_tasks: JoinSet<tg::Result<()>>,
+
 	session: Session,
 }
 
@@ -106,25 +109,25 @@ struct Failed {
 /// What the end of a boot needs, which the boot's task gets before it runs.
 struct EndSandboxBootArg {
 	boot: Arc<Boot>,
+
 	create: tg::sandbox::create::Arg,
+
 	created_at: i64,
+
 	creator: tg::Principal,
+
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 
 	/// Whether a failed boot's task kept the sandbox's directory, so that the sandbox can start again.
 	kept: Arc<AtomicBool>,
 
 	location: tg::Location,
-	owner: tg::Principal,
-	stopper: Stopper,
-	storage: tg::sandbox::Resource<u64>,
-}
 
-/// How a boot ended locally, which the end of the boot records: the sandbox's data at the end, the boot's processes, and whether the end stops the sandbox or destroys it.
-struct Ending {
-	data: tg::sandbox::get::Output,
-	processes: Vec<tg::process::Id>,
-	teardown: Teardown,
+	owner: tg::Principal,
+
+	stopper: Stopper,
+
+	storage: tg::sandbox::Resource<u64>,
 }
 
 /// The end of a boot that the runner wrote: the end's number, whether the boot's control stream recorded it, and the processes that the end finished from the runner's memory.
@@ -207,16 +210,18 @@ struct RunSandboxTaskOutput {
 	process_tasks: JoinSet<tg::Result<()>>,
 }
 
+/// How a boot ended locally, which the end of the boot records: the sandbox's data at the end, the boot's processes, and whether the end stops the sandbox or destroys it.
+struct Ending {
+	data: tg::sandbox::get::Output,
+	processes: Vec<tg::process::Id>,
+	teardown: Teardown,
+}
+
 struct RetainSandboxTaskArg {
 	boot: Arc<Boot>,
 	control: Option<control::Control>,
 	process_tasks: JoinSet<tg::Result<()>>,
 	stopper: Stopper,
-}
-
-/// A destroy that arrived while a sandbox was stopping.
-struct DestroyRequest {
-	error: Option<tg::error::Data>,
 }
 
 /// The phase of a boot in which the boot's control stream serves a request.
@@ -232,6 +237,11 @@ enum Phase<'a> {
 	Stopping {
 		destroy: &'a std::sync::Mutex<Option<DestroyRequest>>,
 	},
+}
+
+/// A destroy that arrived while a sandbox was stopping.
+struct DestroyRequest {
+	error: Option<tg::error::Data>,
 }
 
 /// What serving a request of a boot's control stream leaves for the boot's run loop.
@@ -422,482 +432,6 @@ impl Component {
 			.send_retry(tg::control::Retry::NotHolder)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))
-	}
-
-	/// Give up a boot because its scheduler ended it, which is the only way that the runner gives up a boot, so that the runner writes nothing more for it. Then record the end at once in this server's local copies of a sandbox whose home is remote, in a sandbox task, because no write brings the scheduler's end of the boot to them, and let tests order events after the give-up. Return whether the boot was given up now.
-	pub(crate) fn give_up_boot(&self, session: &Session, boot: &Arc<Boot>, kind: Teardown) -> bool {
-		if !boot.give_up(kind) {
-			return false;
-		}
-		tracing::warn!(sandbox = %boot.sandbox, boot = boot.boot, "giving up a boot that its scheduler ended");
-		let component = self.clone();
-		let session = session.clone();
-		let boot = boot.clone();
-		let task_id = tangram_server_core::control::id();
-		let mut task = self.sandbox_tasks.spawn(task_id, move |_| {
-			async move {
-				let result = component
-					.record_given_up_boot_local(&session, &boot, kind)
-					.await;
-				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), sandbox = %boot.sandbox, "failed to record the end of the given up boot locally");
-				}
-				tangram_server_core::checkpoint!(session.server, "runner.boot.given_up", sandbox = %boot.sandbox)
-					.await;
-			}
-			.in_current_span()
-		});
-		task.detach();
-
-		true
-	}
-
-	/// Record the end of a boot that the runner gave up in this server's local copies of a sandbox whose home is remote: finish as failed each process of the boot whose finish no server answered, and record the sandbox as stopped or destroyed at the boot in its local copy.
-	async fn record_given_up_boot_local(
-		&self,
-		session: &Session,
-		boot: &Boot,
-		kind: Teardown,
-	) -> tg::Result<()> {
-		if !boot.location.is_remote() {
-			return Ok(());
-		}
-		let id = &boot.sandbox;
-		let error = tg::error::Data {
-			code: Some(tg::error::Code::Cancellation),
-			message: Some("the sandbox's scheduler ended the boot".to_owned()),
-			..Default::default()
-		};
-
-		// Finish the processes whose finish no server answered.
-		for process in boot.unanswered() {
-			let Some(process_id) = &process.id else {
-				continue;
-			};
-			let data = process.data.without_location_and_tokens_except_sync();
-			let result = session
-				.server
-				.components
-				.process
-				.finish_queued_process(
-					&session.server,
-					process_id,
-					data,
-					tg::Either::Left(error.clone()),
-					0,
-				)
-				.await;
-			if let Err(error) = result {
-				tracing::warn!(error = %error.trace(), process = %process_id, "failed to finish the process locally");
-			}
-		}
-
-		// Record the sandbox's end in its local copy of the boot.
-		let indexed = session
-			.server
-			.index
-			.try_get_sandboxes(std::slice::from_ref(id))
-			.await?
-			.pop()
-			.flatten();
-		let Some(indexed) = indexed else {
-			return Ok(());
-		};
-		let Some(mut data) = indexed.data.filter(|data| data.data.boot == boot.boot) else {
-			return Ok(());
-		};
-		let now = session.server.clock.unix_timestamp();
-		data.data.error = Some(tg::Either::Left(error));
-		match kind {
-			Teardown::Destroy => {
-				data.data.status = tg::sandbox::Status::Destroyed;
-			},
-			Teardown::Stop => {
-				data.data.status = tg::sandbox::Status::Stopped;
-				data.data.stopped_at = Some(now);
-			},
-		}
-		let processes = boot.ids();
-		self.index_remote_sandbox(
-			session,
-			id,
-			&boot.location,
-			indexed.created_at,
-			Some(&data),
-			Some(&processes),
-		)
-		.await?;
-
-		Ok(())
-	}
-
-	/// Serve a request of a boot's control stream, which is the only handler of the stream in every phase of the boot. Give up the boot first if the request says that the index records the boot as ended, and reply to every request for a boot that the runner gave up, local or remote, that the runner does not hold the boot, so that the boot neither answers nor acts for the sandbox's next boot.
-	async fn serve_control(
-		&self,
-		session: &Session,
-		boot: &Arc<Boot>,
-		phase: Phase<'_>,
-		message: Message,
-	) -> tg::Result<Handled> {
-		let id = &boot.sandbox;
-
-		// Give up a boot that the index records as ended, and reply that the runner does not hold a boot that it gave up.
-		if let Some(kind) = ended_teardown(&message.arg) {
-			self.give_up_boot(session, boot, kind);
-		}
-		if boot.given_up().is_some() {
-			Self::send_sandbox_not_holder_response(message.sender).await?;
-			return Ok(Handled::Done);
-		}
-
-		// Answer the request.
-		let mut handled = Handled::Done;
-		let result = match message.arg {
-			tg::sandbox::control::ServerRequestArg::Destroy(request) => {
-				let status = Self::sandbox_status(session, id);
-				match phase {
-					// End a running boot with a destroy.
-					Phase::Running { .. } => {
-						Self::cancel_sandbox_processes(session, id, request.error)?;
-						Self::set_sandbox_status(session, id, tg::sandbox::Status::Destroying);
-						handled = Handled::End(Teardown::Destroy);
-						Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
-							tg::sandbox::control::DestroyClientResponseOutput { destroyed: true },
-						))
-					},
-
-					// Accept a destroy that arrives while the sandbox is stopping, which the teardown carries out before it records the stop.
-					Phase::Stopping { destroy }
-						if status.is_some_and(|status| !status.is_stopped_or_destroyed()) =>
-					{
-						Self::cancel_sandbox_processes(session, id, request.error.clone())?;
-						let entry = DestroyRequest {
-							error: request.error,
-						};
-						destroy.lock().unwrap().replace(entry);
-						Self::set_sandbox_status(session, id, tg::sandbox::Status::Destroying);
-						Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
-							tg::sandbox::control::DestroyClientResponseOutput { destroyed: true },
-						))
-					},
-
-					// Reply that the runner does not hold a boot that it stopped, so that the destroy reaches the index, which holds the stopped sandbox.
-					Phase::Ended | Phase::Stopping { .. } => {
-						if status.is_some_and(|status| status.is_stopped()) {
-							Self::send_sandbox_not_holder_response(message.sender).await?;
-							return Ok(Handled::Done);
-						}
-						Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
-							tg::sandbox::control::DestroyClientResponseOutput { destroyed: false },
-						))
-					},
-				}
-			},
-			tg::sandbox::control::ServerRequestArg::Get(_) => session
-				.server
-				.components
-				.runner
-				.state()
-				.try_get_sandbox(id)
-				.map(|data| {
-					tg::sandbox::control::ClientResponseOutput::Get(
-						tg::sandbox::control::GetClientResponseOutput { data },
-					)
-				})
-				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
-			tg::sandbox::control::ServerRequestArg::GetProcesses(arg) => session
-				.server
-				.components
-				.runner
-				.state()
-				.sandboxes
-				.get_by_id(id)
-				.map(|sandbox| {
-					tg::sandbox::control::ClientResponseOutput::GetProcesses(
-						sandbox.processes(arg.position, arg.length),
-					)
-				})
-				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
-			tg::sandbox::control::ServerRequestArg::SpawnProcess(request) => {
-				return self
-					.serve_spawn(session, boot, phase, message.sender, request)
-					.boxed()
-					.await;
-			},
-			tg::sandbox::control::ServerRequestArg::Start(_) => session
-				.server
-				.components
-				.runner
-				.state()
-				.try_get_sandbox(id)
-				.map(|data| {
-					tg::sandbox::control::ClientResponseOutput::Start(
-						tg::sandbox::control::StartClientResponseOutput { data },
-					)
-				})
-				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
-			tg::sandbox::control::ServerRequestArg::Stop(_) => match phase {
-				// End a running boot with a stop.
-				Phase::Running { .. } => {
-					Self::cancel_sandbox_processes(session, id, None)?;
-					Self::set_sandbox_status(session, id, tg::sandbox::Status::Stopping);
-					handled = Handled::End(Teardown::Stop);
-					Ok(tg::sandbox::control::ClientResponseOutput::Stop(
-						tg::sandbox::control::StopClientResponseOutput { stopped: true },
-					))
-				},
-
-				// Reply that a boot that is no longer running did not stop now.
-				Phase::Ended | Phase::Stopping { .. } => {
-					if Self::sandbox_status(session, id)
-						.is_some_and(|status| !status.is_destroyed())
-					{
-						Ok(tg::sandbox::control::ClientResponseOutput::Stop(
-							tg::sandbox::control::StopClientResponseOutput { stopped: false },
-						))
-					} else {
-						Err(tg::error!(%id, "the sandbox was destroyed"))
-					}
-				},
-			},
-		};
-		message
-			.sender
-			.send(result)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))?;
-
-		Ok(handled)
-	}
-
-	/// Serve a spawn into a boot, which is the one handler of a spawn on the runner. Reply to a server's spawn without a boot that the runner does not hold the sandbox, because the sandbox's scheduler sends the spawn to the runner with the boot, or that the runner is not ready until the scheduler has acknowledged the report of a boot on the shortcut path. Say yes to a spawn into the boot while the boot runs and accepts the process, which starts it, reply that the runner does not hold the sandbox to a spawn for a later boot, so that the sender finds the later boot, and say no, that the boot is over, to a spawn for an earlier boot of the sandbox and to a spawn into a boot that is not running, ending, or given up, so that the spawn's holder ends the process. Refuse a spawn whose process is not in the sandbox.
-	async fn serve_spawn(
-		&self,
-		session: &Session,
-		boot: &Arc<Boot>,
-		phase: Phase<'_>,
-		reply: Reply,
-		request: tg::sandbox::control::SpawnProcessServerRequestArg,
-	) -> tg::Result<Handled> {
-		let id = &boot.sandbox;
-
-		// Reply to a server's spawn without a boot, and to a spawn for a later boot.
-		let remote = matches!(reply, Reply::Remote { .. });
-		let answer = spawn_answer(phase, remote, request.boot, boot.boot);
-		if let SpawnAnswer::Retry(retry) = answer {
-			reply.send_retry(retry).await.map_err(|error| {
-				tg::error!(!error, "failed to send the sandbox control response")
-			})?;
-			return Ok(Handled::Done);
-		}
-
-		// Say yes to a spawn into a running boot that accepts the process, which starts the process.
-		if answer == SpawnAnswer::Accept {
-			let process = match Self::prepare_process(request.process, id) {
-				Ok(process) => process,
-				Err(error) => {
-					reply.send(Err(error)).await.map_err(|error| {
-						tg::error!(!error, "failed to send the sandbox control response")
-					})?;
-					return Ok(Handled::Done);
-				},
-			};
-			if boot.accept(process.clone(), request.boot.is_none()) {
-				tangram_server_core::checkpoint!(session.server, "runner.process.accepted", sandbox = %id).await;
-				let spawn = Spawn {
-					process,
-					public: request.public,
-					reply,
-				};
-				return Ok(Handled::Spawn(spawn));
-			}
-		}
-
-		// Say no to every other spawn, because the boot that it is for is over.
-		let error = if answer == SpawnAnswer::Earlier {
-			tg::error!(
-				code = tg::error::Code::Cancellation,
-				%id,
-				boot = %boot.boot,
-				"the spawn is for an earlier boot of the sandbox"
-			)
-		} else if Self::sandbox_status(session, id).is_none_or(|status| status.is_destroyed()) {
-			tg::error!(
-				code = tg::error::Code::Cancellation,
-				%id,
-				"the sandbox was destroyed"
-			)
-		} else {
-			tg::error!(
-				code = tg::error::Code::Cancellation,
-				%id,
-				"the sandbox is not started"
-			)
-		};
-		tangram_server_core::checkpoint!(session.server, "runner.process.refused", sandbox = %id)
-			.await;
-		reply
-			.send(Err(error))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))?;
-
-		Ok(Handled::Done)
-	}
-
-	/// Run a future while serving the requests of a boot's control stream in a phase of the boot that is not its run, until the future completes. A failure to serve a request is logged, and the future still completes.
-	async fn serve_control_while<T>(
-		&self,
-		session: &Session,
-		boot: &Arc<Boot>,
-		phase: Phase<'_>,
-		control: &mut control::Control,
-		future: impl Future<Output = T>,
-	) -> T {
-		let mut future = pin!(future);
-		let mut serving = true;
-		loop {
-			tokio::select! {
-				output = &mut future => return output,
-				message = control.recv(), if serving => {
-					let message = match message {
-						Ok(Some(message)) => message,
-						Ok(None) => continue,
-						Err(error) => {
-							tracing::error!(error = %error.trace(), sandbox = %boot.sandbox, "failed to receive a sandbox control message");
-							serving = false;
-							continue;
-						},
-					};
-					if let Err(error) = self.serve_control(session, boot, phase, message).boxed().await {
-						tracing::error!(error = %error.trace(), sandbox = %boot.sandbox, "failed to serve a sandbox control request");
-					}
-				},
-			}
-		}
-	}
-
-	/// Answer a spawn that the runner accepted into a boot with yes, and finish its process as failed if it cannot run, because from the yes only the runner finishes the process. Every reply to a spawn that the runner accepted goes through this function, and so does the failure of a boot's initial process, which has no spawn to answer. Refuse a spawn whose process has no ID and that cannot run, because no record of it exists.
-	async fn reply_to_spawn(
-		&self,
-		session: &Session,
-		reply: Option<Reply>,
-		process: tg::runner::control::Process,
-		boot: &Arc<Boot>,
-		result: tg::Result<ConnectedEvent>,
-	) -> tg::Result<()> {
-		let output = match result {
-			Ok(event) => Ok(tg::sandbox::control::SpawnProcessClientResponseOutput {
-				lease: event.lease,
-				process: event.process,
-			}),
-			Err(error) => match process.id.clone() {
-				Some(id) => {
-					let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
-						lease: process.lease,
-						process: tg::Referent::with_node(id),
-					};
-					self.finish_accepted_processes(
-						session,
-						boot,
-						vec![process],
-						error.to_data_or_id(),
-					);
-					Ok(output)
-				},
-				None => Err(error),
-			},
-		};
-		let Some(reply) = reply else {
-			return Ok(());
-		};
-		let output = output.map(tg::sandbox::control::ClientResponseOutput::SpawnProcess);
-		reply
-			.send(output)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))?;
-
-		Ok(())
-	}
-
-	/// Finish as failed with the error processes that the runner accepted and that cannot run, in a sandbox task, which the runner's drain waits for. Begin each process's finish at once, so that the end of the boot waits for it, and record each finish as answered once a server accepts or refuses it. Finish a process that this server spawned on this server, and report the processes that the sandbox's scheduler offered to the scheduler in one report.
-	pub(crate) fn finish_accepted_processes(
-		&self,
-		session: &Session,
-		boot: &Arc<Boot>,
-		processes: Vec<tg::runner::control::Process>,
-		error: tg::Either<tg::error::Data, tg::error::Id>,
-	) {
-		let (local, offered): (Vec<_>, Vec<_>) = processes
-			.into_iter()
-			.filter_map(|process| {
-				let finish = boot.begin_finish(process.id.as_ref()?);
-				Some((process, finish))
-			})
-			.partition(|(process, _)| boot.local(process));
-		let component = self.clone();
-		let session = session.clone();
-		let boot = boot.clone();
-		let task_id = tangram_server_core::control::id();
-		let mut task = self.sandbox_tasks.spawn(task_id, move |_| {
-			async move {
-				for (process, finish) in local {
-					if Self::finish_local_process(&session, &boot, process, error.clone()).await {
-						finish.answered();
-					}
-				}
-				if offered.is_empty() {
-					return;
-				}
-				let Some(sequence) = boot.next() else {
-					return;
-				};
-				let (processes, finishes): (Vec<_>, Vec<_>) = offered.into_iter().unzip();
-				let result = component
-					.report_finished_processes_with_runner_control(
-						&boot.sandbox,
-						boot.boot,
-						&processes,
-						error,
-						sequence,
-					)
-					.await;
-				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), sandbox = %boot.sandbox, "failed to report the finished processes");
-				}
-				for finish in finishes {
-					finish.answered();
-				}
-			}
-			.in_current_span()
-		});
-		task.detach();
-	}
-
-	/// Finish as failed with the error a process that this server spawned into a boot and recorded, on this server, numbering the finish with the boot's counter. The write reaches this server's index, whose error is a refusal that is final, so the write is not sent again. Return whether this server answered the finish, which it does not for a boot that the runner gave up.
-	async fn finish_local_process(
-		session: &Session,
-		boot: &Boot,
-		process: tg::runner::control::Process,
-		error: tg::Either<tg::error::Data, tg::error::Id>,
-	) -> bool {
-		let Some(id) = &process.id else {
-			return true;
-		};
-		let data = process.data.without_location_and_tokens_except_sync();
-		let Some(sequence) = boot.next() else {
-			return false;
-		};
-		let result = session
-			.server
-			.components
-			.process
-			.finish_queued_process(&session.server, id, data, error, sequence)
-			.await;
-		if let Err(error) = result {
-			tracing::error!(error = %error.trace(), process = %id, "the server refused the finish of the process");
-		}
-
-		true
 	}
 
 	#[tracing::instrument(name = "sandbox.lifecycle", level = "info", skip_all, fields(runner = self.state.id().as_ref().map(ToString::to_string), sandbox = arg.arg.id.as_ref().map(ToString::to_string)))]
@@ -1305,6 +839,7 @@ impl Component {
 			let kept = kept.clone();
 			let entry = entry.clone();
 			async move {
+				// Wait for the earlier boots of the sandbox to end locally.
 				session
 					.server
 					.components
@@ -2856,6 +2391,482 @@ impl Component {
 			.await
 	}
 
+	/// Run a future while serving the requests of a boot's control stream in a phase of the boot that is not its run, until the future completes. A failure to serve a request is logged, and the future still completes.
+	async fn serve_control_while<T>(
+		&self,
+		session: &Session,
+		boot: &Arc<Boot>,
+		phase: Phase<'_>,
+		control: &mut control::Control,
+		future: impl Future<Output = T>,
+	) -> T {
+		let mut future = pin!(future);
+		let mut serving = true;
+		loop {
+			tokio::select! {
+				output = &mut future => return output,
+				message = control.recv(), if serving => {
+					let message = match message {
+						Ok(Some(message)) => message,
+						Ok(None) => continue,
+						Err(error) => {
+							tracing::error!(error = %error.trace(), sandbox = %boot.sandbox, "failed to receive a sandbox control message");
+							serving = false;
+							continue;
+						},
+					};
+					if let Err(error) = self.serve_control(session, boot, phase, message).boxed().await {
+						tracing::error!(error = %error.trace(), sandbox = %boot.sandbox, "failed to serve a sandbox control request");
+					}
+				},
+			}
+		}
+	}
+
+	/// Serve a request of a boot's control stream, which is the only handler of the stream in every phase of the boot. Give up the boot first if the request says that the index records the boot as ended, and reply to every request for a boot that the runner gave up, local or remote, that the runner does not hold the boot, so that the boot neither answers nor acts for the sandbox's next boot.
+	async fn serve_control(
+		&self,
+		session: &Session,
+		boot: &Arc<Boot>,
+		phase: Phase<'_>,
+		message: Message,
+	) -> tg::Result<Handled> {
+		let id = &boot.sandbox;
+
+		// Give up a boot that the index records as ended, and reply that the runner does not hold a boot that it gave up.
+		if let Some(kind) = ended_teardown(&message.arg) {
+			self.give_up_boot(session, boot, kind);
+		}
+		if boot.given_up().is_some() {
+			Self::send_sandbox_not_holder_response(message.sender).await?;
+			return Ok(Handled::Done);
+		}
+
+		// Answer the request.
+		let mut handled = Handled::Done;
+		let result = match message.arg {
+			tg::sandbox::control::ServerRequestArg::Destroy(request) => {
+				let status = Self::sandbox_status(session, id);
+				match phase {
+					// End a running boot with a destroy.
+					Phase::Running { .. } => {
+						Self::cancel_sandbox_processes(session, id, request.error)?;
+						Self::set_sandbox_status(session, id, tg::sandbox::Status::Destroying);
+						handled = Handled::End(Teardown::Destroy);
+						Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
+							tg::sandbox::control::DestroyClientResponseOutput { destroyed: true },
+						))
+					},
+
+					// Accept a destroy that arrives while the sandbox is stopping, which the teardown carries out before it records the stop.
+					Phase::Stopping { destroy }
+						if status.is_some_and(|status| !status.is_stopped_or_destroyed()) =>
+					{
+						Self::cancel_sandbox_processes(session, id, request.error.clone())?;
+						let entry = DestroyRequest {
+							error: request.error,
+						};
+						destroy.lock().unwrap().replace(entry);
+						Self::set_sandbox_status(session, id, tg::sandbox::Status::Destroying);
+						Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
+							tg::sandbox::control::DestroyClientResponseOutput { destroyed: true },
+						))
+					},
+
+					// Reply that the runner does not hold a boot that it stopped, so that the destroy reaches the index, which holds the stopped sandbox.
+					Phase::Ended | Phase::Stopping { .. } => {
+						if status.is_some_and(|status| status.is_stopped()) {
+							Self::send_sandbox_not_holder_response(message.sender).await?;
+							return Ok(Handled::Done);
+						}
+						Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
+							tg::sandbox::control::DestroyClientResponseOutput { destroyed: false },
+						))
+					},
+				}
+			},
+			tg::sandbox::control::ServerRequestArg::Get(_) => session
+				.server
+				.components
+				.runner
+				.state()
+				.try_get_sandbox(id)
+				.map(|data| {
+					tg::sandbox::control::ClientResponseOutput::Get(
+						tg::sandbox::control::GetClientResponseOutput { data },
+					)
+				})
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
+			tg::sandbox::control::ServerRequestArg::GetProcesses(arg) => session
+				.server
+				.components
+				.runner
+				.state()
+				.sandboxes
+				.get_by_id(id)
+				.map(|sandbox| {
+					tg::sandbox::control::ClientResponseOutput::GetProcesses(
+						sandbox.processes(arg.position, arg.length),
+					)
+				})
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
+			tg::sandbox::control::ServerRequestArg::SpawnProcess(request) => {
+				return self
+					.serve_spawn(session, boot, phase, message.sender, request)
+					.boxed()
+					.await;
+			},
+			tg::sandbox::control::ServerRequestArg::Start(_) => session
+				.server
+				.components
+				.runner
+				.state()
+				.try_get_sandbox(id)
+				.map(|data| {
+					tg::sandbox::control::ClientResponseOutput::Start(
+						tg::sandbox::control::StartClientResponseOutput { data },
+					)
+				})
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
+			tg::sandbox::control::ServerRequestArg::Stop(_) => match phase {
+				// End a running boot with a stop.
+				Phase::Running { .. } => {
+					Self::cancel_sandbox_processes(session, id, None)?;
+					Self::set_sandbox_status(session, id, tg::sandbox::Status::Stopping);
+					handled = Handled::End(Teardown::Stop);
+					Ok(tg::sandbox::control::ClientResponseOutput::Stop(
+						tg::sandbox::control::StopClientResponseOutput { stopped: true },
+					))
+				},
+
+				// Reply that a boot that is no longer running did not stop now.
+				Phase::Ended | Phase::Stopping { .. } => {
+					if Self::sandbox_status(session, id)
+						.is_some_and(|status| !status.is_destroyed())
+					{
+						Ok(tg::sandbox::control::ClientResponseOutput::Stop(
+							tg::sandbox::control::StopClientResponseOutput { stopped: false },
+						))
+					} else {
+						Err(tg::error!(%id, "the sandbox was destroyed"))
+					}
+				},
+			},
+		};
+		message
+			.sender
+			.send(result)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))?;
+
+		Ok(handled)
+	}
+
+	/// Give up a boot because its scheduler ended it, which is the only way that the runner gives up a boot, so that the runner writes nothing more for it. Then record the end at once in this server's local copies of a sandbox whose home is remote, in a sandbox task, because no write brings the scheduler's end of the boot to them, and let tests order events after the give-up. Return whether the boot was given up now.
+	pub(crate) fn give_up_boot(&self, session: &Session, boot: &Arc<Boot>, kind: Teardown) -> bool {
+		if !boot.give_up(kind) {
+			return false;
+		}
+		tracing::warn!(sandbox = %boot.sandbox, boot = boot.boot, "giving up a boot that its scheduler ended");
+		let component = self.clone();
+		let session = session.clone();
+		let boot = boot.clone();
+		let task_id = tangram_server_core::control::id();
+		let mut task = self.sandbox_tasks.spawn(task_id, move |_| {
+			async move {
+				let result = component
+					.record_given_up_boot_local(&session, &boot, kind)
+					.await;
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), sandbox = %boot.sandbox, "failed to record the end of the given up boot locally");
+				}
+				tangram_server_core::checkpoint!(session.server, "runner.boot.given_up", sandbox = %boot.sandbox)
+					.await;
+			}
+			.in_current_span()
+		});
+		task.detach();
+
+		true
+	}
+
+	/// Record the end of a boot that the runner gave up in this server's local copies of a sandbox whose home is remote: finish as failed each process of the boot whose finish no server answered, and record the sandbox as stopped or destroyed at the boot in its local copy.
+	async fn record_given_up_boot_local(
+		&self,
+		session: &Session,
+		boot: &Boot,
+		kind: Teardown,
+	) -> tg::Result<()> {
+		if !boot.location.is_remote() {
+			return Ok(());
+		}
+		let id = &boot.sandbox;
+		let error = tg::error::Data {
+			code: Some(tg::error::Code::Cancellation),
+			message: Some("the sandbox's scheduler ended the boot".to_owned()),
+			..Default::default()
+		};
+
+		// Finish the processes whose finish no server answered.
+		for process in boot.unanswered() {
+			let Some(process_id) = &process.id else {
+				continue;
+			};
+			let data = process.data.without_location_and_tokens_except_sync();
+			let result = session
+				.server
+				.components
+				.process
+				.finish_queued_process(
+					&session.server,
+					process_id,
+					data,
+					tg::Either::Left(error.clone()),
+					0,
+				)
+				.await;
+			if let Err(error) = result {
+				tracing::warn!(error = %error.trace(), process = %process_id, "failed to finish the process locally");
+			}
+		}
+
+		// Record the sandbox's end in its local copy of the boot.
+		let indexed = session
+			.server
+			.index
+			.try_get_sandboxes(std::slice::from_ref(id))
+			.await?
+			.pop()
+			.flatten();
+		let Some(indexed) = indexed else {
+			return Ok(());
+		};
+		let Some(mut data) = indexed.data.filter(|data| data.data.boot == boot.boot) else {
+			return Ok(());
+		};
+		let now = session.server.clock.unix_timestamp();
+		data.data.error = Some(tg::Either::Left(error));
+		match kind {
+			Teardown::Destroy => {
+				data.data.status = tg::sandbox::Status::Destroyed;
+			},
+			Teardown::Stop => {
+				data.data.status = tg::sandbox::Status::Stopped;
+				data.data.stopped_at = Some(now);
+			},
+		}
+		let processes = boot.ids();
+		self.index_remote_sandbox(
+			session,
+			id,
+			&boot.location,
+			indexed.created_at,
+			Some(&data),
+			Some(&processes),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	/// Serve a spawn into a boot, which is the one handler of a spawn on the runner. Reply to a server's spawn without a boot that the runner does not hold the sandbox, because the sandbox's scheduler sends the spawn to the runner with the boot, or that the runner is not ready until the scheduler has acknowledged the report of a boot on the shortcut path. Say yes to a spawn into the boot while the boot runs and accepts the process, which starts it, reply that the runner does not hold the sandbox to a spawn for a later boot, so that the sender finds the later boot, and say no, that the boot is over, to a spawn for an earlier boot of the sandbox and to a spawn into a boot that is not running, ending, or given up, so that the spawn's holder ends the process. Refuse a spawn whose process is not in the sandbox.
+	async fn serve_spawn(
+		&self,
+		session: &Session,
+		boot: &Arc<Boot>,
+		phase: Phase<'_>,
+		reply: Reply,
+		request: tg::sandbox::control::SpawnProcessServerRequestArg,
+	) -> tg::Result<Handled> {
+		let id = &boot.sandbox;
+
+		// Reply to a server's spawn without a boot, and to a spawn for a later boot.
+		let remote = matches!(reply, Reply::Remote { .. });
+		let answer = spawn_answer(phase, remote, request.boot, boot.boot);
+		if let SpawnAnswer::Retry(retry) = answer {
+			reply.send_retry(retry).await.map_err(|error| {
+				tg::error!(!error, "failed to send the sandbox control response")
+			})?;
+			return Ok(Handled::Done);
+		}
+
+		// Say yes to a spawn into a running boot that accepts the process, which starts the process.
+		if answer == SpawnAnswer::Accept {
+			let process = match Self::prepare_process(request.process, id) {
+				Ok(process) => process,
+				Err(error) => {
+					reply.send(Err(error)).await.map_err(|error| {
+						tg::error!(!error, "failed to send the sandbox control response")
+					})?;
+					return Ok(Handled::Done);
+				},
+			};
+			if boot.accept(process.clone(), request.boot.is_none()) {
+				tangram_server_core::checkpoint!(session.server, "runner.process.accepted", sandbox = %id).await;
+				let spawn = Spawn {
+					process,
+					public: request.public,
+					reply,
+				};
+				return Ok(Handled::Spawn(spawn));
+			}
+		}
+
+		// Say no to every other spawn, because the boot that it is for is over.
+		let error = if answer == SpawnAnswer::Earlier {
+			tg::error!(
+				code = tg::error::Code::Cancellation,
+				%id,
+				boot = %boot.boot,
+				"the spawn is for an earlier boot of the sandbox"
+			)
+		} else if Self::sandbox_status(session, id).is_none_or(|status| status.is_destroyed()) {
+			tg::error!(
+				code = tg::error::Code::Cancellation,
+				%id,
+				"the sandbox was destroyed"
+			)
+		} else {
+			tg::error!(
+				code = tg::error::Code::Cancellation,
+				%id,
+				"the sandbox is not started"
+			)
+		};
+		tangram_server_core::checkpoint!(session.server, "runner.process.refused", sandbox = %id)
+			.await;
+		reply
+			.send(Err(error))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))?;
+
+		Ok(Handled::Done)
+	}
+
+	/// Answer a spawn that the runner accepted into a boot with yes, and finish its process as failed if it cannot run, because from the yes only the runner finishes the process. Every reply to a spawn that the runner accepted goes through this function, and so does the failure of a boot's initial process, which has no spawn to answer. Refuse a spawn whose process has no ID and that cannot run, because no record of it exists.
+	async fn reply_to_spawn(
+		&self,
+		session: &Session,
+		reply: Option<Reply>,
+		process: tg::runner::control::Process,
+		boot: &Arc<Boot>,
+		result: tg::Result<ConnectedEvent>,
+	) -> tg::Result<()> {
+		let output = match result {
+			Ok(event) => Ok(tg::sandbox::control::SpawnProcessClientResponseOutput {
+				lease: event.lease,
+				process: event.process,
+			}),
+			Err(error) => match process.id.clone() {
+				Some(id) => {
+					let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
+						lease: process.lease,
+						process: tg::Referent::with_node(id),
+					};
+					self.finish_accepted_processes(
+						session,
+						boot,
+						vec![process],
+						error.to_data_or_id(),
+					);
+					Ok(output)
+				},
+				None => Err(error),
+			},
+		};
+		let Some(reply) = reply else {
+			return Ok(());
+		};
+		let output = output.map(tg::sandbox::control::ClientResponseOutput::SpawnProcess);
+		reply
+			.send(output)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))?;
+
+		Ok(())
+	}
+
+	/// Finish as failed with the error processes that the runner accepted and that cannot run, in a sandbox task, which the runner's drain waits for. Begin each process's finish at once, so that the end of the boot waits for it, and record each finish as answered once a server accepts or refuses it. Finish a process that this server spawned on this server, and report the processes that the sandbox's scheduler offered to the scheduler in one report.
+	pub(crate) fn finish_accepted_processes(
+		&self,
+		session: &Session,
+		boot: &Arc<Boot>,
+		processes: Vec<tg::runner::control::Process>,
+		error: tg::Either<tg::error::Data, tg::error::Id>,
+	) {
+		let (local, offered): (Vec<_>, Vec<_>) = processes
+			.into_iter()
+			.filter_map(|process| {
+				let finish = boot.begin_finish(process.id.as_ref()?);
+				Some((process, finish))
+			})
+			.partition(|(process, _)| boot.local(process));
+		let component = self.clone();
+		let session = session.clone();
+		let boot = boot.clone();
+		let task_id = tangram_server_core::control::id();
+		let mut task = self.sandbox_tasks.spawn(task_id, move |_| {
+			async move {
+				for (process, finish) in local {
+					if Self::finish_local_process(&session, &boot, process, error.clone()).await {
+						finish.answered();
+					}
+				}
+				if offered.is_empty() {
+					return;
+				}
+				let Some(sequence) = boot.next() else {
+					return;
+				};
+				let (processes, finishes): (Vec<_>, Vec<_>) = offered.into_iter().unzip();
+				let result = component
+					.report_finished_processes_with_runner_control(
+						&boot.sandbox,
+						boot.boot,
+						&processes,
+						error,
+						sequence,
+					)
+					.await;
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), sandbox = %boot.sandbox, "failed to report the finished processes");
+				}
+				for finish in finishes {
+					finish.answered();
+				}
+			}
+			.in_current_span()
+		});
+		task.detach();
+	}
+
+	/// Finish as failed with the error a process that this server spawned into a boot and recorded, on this server, numbering the finish with the boot's counter. The write reaches this server's index, whose error is a refusal that is final, so the write is not sent again. Return whether this server answered the finish, which it does not for a boot that the runner gave up.
+	async fn finish_local_process(
+		session: &Session,
+		boot: &Boot,
+		process: tg::runner::control::Process,
+		error: tg::Either<tg::error::Data, tg::error::Id>,
+	) -> bool {
+		let Some(id) = &process.id else {
+			return true;
+		};
+		let data = process.data.without_location_and_tokens_except_sync();
+		let Some(sequence) = boot.next() else {
+			return false;
+		};
+		let result = session
+			.server
+			.components
+			.process
+			.finish_queued_process(&session.server, id, data, error, sequence)
+			.await;
+		if let Err(error) = result {
+			tracing::error!(error = %error.trace(), process = %id, "the server refused the finish of the process");
+		}
+
+		true
+	}
+
 	async fn request_sandbox_destroy(
 		sender: &SandboxControlSender,
 		id: &tg::sandbox::Id,
@@ -3052,29 +3063,6 @@ impl Component {
 		let output = tg::runner::control::DestroySandboxClientResponseOutput { destroyed: true };
 
 		Ok(output)
-	}
-
-	/// Ask that a stopped sandbox whose ttl expired be destroyed, which the index decides with a write that applies only while the sandbox is still stopped at its boot. If it applies, the sandbox's scheduler has this runner remove the directory, and otherwise a start won, and this runner keeps the directory.
-	async fn destroy_expired_sandbox(
-		id: &tg::sandbox::Id,
-		boot: u64,
-		sender: &crate::RunnerSender,
-	) -> tg::Result<()> {
-		let arg = tg::runner::control::DestroyStoppedSandboxClientRequestArg {
-			boot,
-			sandbox: id.clone(),
-		};
-		let destroying = match Self::request_runner_stopped_sandbox_destroy(sender, arg).await? {
-			std::ops::ControlFlow::Break(destroying) => destroying,
-			std::ops::ControlFlow::Continue(error) => {
-				return Err(tg::error!(!error, %id, "failed to request the sandbox's destruction"));
-			},
-		};
-		if !destroying {
-			tracing::debug!(sandbox = %id, boot, "the expired sandbox is no longer stopped at its boot");
-		}
-
-		Ok(())
 	}
 
 	/// Remove a stopped sandbox's directory, release its filesystem project ID, and report its destruction, which marks the sandbox destroyed.
@@ -3365,6 +3353,29 @@ impl Component {
 			if let Err(error) = Self::destroy_expired_sandbox(&id, boot, &sender).await {
 				tracing::error!(error = %error.trace(), sandbox = %id, "failed to destroy the expired sandbox");
 			}
+		}
+
+		Ok(())
+	}
+
+	/// Ask that a stopped sandbox whose ttl expired be destroyed, which the index decides with a write that applies only while the sandbox is still stopped at its boot. If it applies, the sandbox's scheduler has this runner remove the directory, and otherwise a start won, and this runner keeps the directory.
+	async fn destroy_expired_sandbox(
+		id: &tg::sandbox::Id,
+		boot: u64,
+		sender: &crate::RunnerSender,
+	) -> tg::Result<()> {
+		let arg = tg::runner::control::DestroyStoppedSandboxClientRequestArg {
+			boot,
+			sandbox: id.clone(),
+		};
+		let destroying = match Self::request_runner_stopped_sandbox_destroy(sender, arg).await? {
+			std::ops::ControlFlow::Break(destroying) => destroying,
+			std::ops::ControlFlow::Continue(error) => {
+				return Err(tg::error!(!error, %id, "failed to request the sandbox's destruction"));
+			},
+		};
+		if !destroying {
+			tracing::debug!(sandbox = %id, boot, "the expired sandbox is no longer stopped at its boot");
 		}
 
 		Ok(())

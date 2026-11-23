@@ -51,9 +51,6 @@ impl SchedulerState {
 			Held::Accepted => {
 				self.end_held_sandbox(scheduler, &sandbox, None);
 			},
-			Held::Offered(placement) => {
-				self.end_held_sandbox(scheduler, &sandbox, Some(placement));
-			},
 			Held::Derived => {
 				let ended = EndedBoot {
 					declared: false,
@@ -63,6 +60,9 @@ impl SchedulerState {
 				self.sandboxes.ended.insert(sandbox.clone(), boot, ended);
 			},
 			Held::Ended | Held::Removing => {},
+			Held::Offered(placement) => {
+				self.end_held_sandbox(scheduler, &sandbox, Some(placement));
+			},
 		}
 
 		// Record the end in an operation.

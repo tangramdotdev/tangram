@@ -723,6 +723,7 @@ impl Component {
 		} else {
 			None
 		};
+
 		// Write the records of a new sandbox.
 		if let Some(sandbox_arg) = sandbox_arg.clone() {
 			let mut sandbox_arg = sandbox_arg;

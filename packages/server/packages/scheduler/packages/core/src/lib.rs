@@ -337,12 +337,12 @@ pub struct AddRunnerSandboxRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub boot: u64,
 
+	#[tangram_serialize(id = 1)]
+	pub connection: u64,
+
 	/// The proof that the runner derived the sandbox's ID.
 	#[tangram_serialize(id = 4)]
 	pub proof: tg::sandbox::id::Proof,
-
-	#[tangram_serialize(id = 1)]
-	pub connection: u64,
 
 	#[tangram_serialize(id = 2)]
 	pub runner: tg::runner::Id,

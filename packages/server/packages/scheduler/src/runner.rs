@@ -1171,11 +1171,12 @@ impl SchedulerState {
 			let State::Offered { offer, .. } = &entry.state else {
 				continue;
 			};
-			unanswered.push(UnansweredOffer {
+			let offer = UnansweredOffer {
 				boot: entry.boot,
 				offer: Some(offer.clone()),
 				sandbox: sandbox.clone(),
-			});
+			};
+			unanswered.push(offer);
 		}
 		unanswered.extend(self.get_claims(runner));
 
@@ -1323,6 +1324,7 @@ impl Scheduler {
 			let mut queued = queued.clone();
 			queued.retain(|sandbox| !written.contains(sandbox));
 
+			// End the boots of the runner that restarted.
 			let error = tg::error::Data {
 				code: Some(tg::error::Code::Internal),
 				message: Some("runner restarted".to_owned()),
@@ -1903,12 +1905,11 @@ impl Component {
 			stopped_usage: None,
 			touched_at: now,
 		};
-		let arg = tangram_index::write::Arg {
-			items: vec![
-				tangram_index::Item::PutSandbox(Box::new(put)),
-				tangram_index::Item::DeleteSchedulerSandbox(Box::new(delete)),
-			],
-		};
+		let items = vec![
+			tangram_index::Item::PutSandbox(Box::new(put)),
+			tangram_index::Item::DeleteSchedulerSandbox(Box::new(delete)),
+		];
+		let arg = tangram_index::write::Arg { items };
 		let applied = server
 			.index
 			.write(arg)

@@ -36,12 +36,12 @@ impl Index {
 			subspace,
 			&(Kind::SchedulerProcess.to_i32().unwrap(), scheduler.as_ref()),
 		);
-		let entry = fdb::RangeOption {
+		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
 		};
 		let result = txn
-			.get_ranges_keyvalues(entry, false)
+			.get_ranges_keyvalues(range, false)
 			.try_collect::<Vec<_>>()
 			.await;
 		let entries = crate::retry!(result);

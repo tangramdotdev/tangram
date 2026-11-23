@@ -11,12 +11,19 @@ use {
 
 pub struct SpawnSandboxTaskArg {
 	pub allocation: crate::capacity::Allocation,
+
 	pub arg: tg::sandbox::create::Arg,
+
 	pub boot: u64,
+
 	pub creator: tg::Principal,
+
 	pub id: Option<tg::sandbox::Id>,
+
 	pub location: tg::Location,
+
 	pub owner: tg::Principal,
+
 	pub process: Option<tg::runner::control::Process>,
 
 	/// Whether the spawn made the process public, which the runner carries to the process's home in the start of a process whose ID it derives.
@@ -452,6 +459,19 @@ impl Boot {
 		true
 	}
 
+	/// Get what the runner reports about the boot when it connects to its scheduler, which is the processes that the scheduler offered into the boot and whose finish no server answered, and the proof of a boot on the shortcut path.
+	#[must_use]
+	pub fn report(&self) -> (Vec<tg::process::Id>, Option<tg::sandbox::id::Proof>) {
+		let processes = self
+			.unanswered()
+			.into_iter()
+			.filter(|process| !self.local(process))
+			.filter_map(|process| process.id)
+			.collect();
+
+		(processes, self.proof.clone())
+	}
+
 	/// Get whether this server spawned the process into the boot, in which case this server finishes it, rather than the sandbox's scheduler.
 	#[must_use]
 	pub fn local(&self, process: &tg::runner::control::Process) -> bool {
@@ -507,19 +527,6 @@ impl Boot {
 			.collect()
 	}
 
-	/// Get what the runner reports about the boot when it connects to its scheduler, which is the processes that the scheduler offered into the boot and whose finish no server answered, and the proof of a boot on the shortcut path.
-	#[must_use]
-	pub fn report(&self) -> (Vec<tg::process::Id>, Option<tg::sandbox::id::Proof>) {
-		let processes = self
-			.unanswered()
-			.into_iter()
-			.filter(|process| !self.local(process))
-			.filter_map(|process| process.id)
-			.collect();
-
-		(processes, self.proof.clone())
-	}
-
 	/// Begin a finish of a process of the boot, which is under way until a server answers it or the returned value is dropped.
 	#[must_use]
 	pub fn begin_finish(self: &Arc<Self>, process: &tg::process::Id) -> Unaccepted {
@@ -559,6 +566,13 @@ impl Boot {
 	}
 }
 
+impl Unaccepted {
+	/// Record that a server accepted or refused the finish, which is final, so that nothing finishes the process again.
+	pub fn answered(mut self) {
+		self.answered = true;
+	}
+}
+
 impl Teardown {
 	/// Get the teardown of a boot whose sandbox is left without processes or whose runner shuts down, which destroys a sandbox whose ttl is zero and stops any other.
 	#[must_use]
@@ -577,13 +591,6 @@ impl<'a> IntoIterator for &'a Sandboxes {
 
 	fn into_iter(self) -> Self::IntoIter {
 		self.iter()
-	}
-}
-
-impl Unaccepted {
-	/// Record that a server accepted or refused the finish, which is final, so that nothing finishes the process again.
-	pub fn answered(mut self) {
-		self.answered = true;
 	}
 }
 
@@ -608,11 +615,6 @@ impl Drop for Unaccepted {
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	fn boot(sequence: u64) -> Arc<Boot> {
-		let sandbox = tg::sandbox::Id::new();
-		Arc::new(Boot::new(0, sandbox, local(), None, true, sequence))
-	}
 
 	#[test]
 	fn a_boot_numbers_its_writes_in_order_and_gives_no_number_once_given_up() {
@@ -815,6 +817,11 @@ mod tests {
 		assert!(poll(&mut wait).is_pending());
 		boots.remove(&sandbox, 0);
 		assert!(poll(&mut wait).is_ready());
+	}
+
+	fn boot(sequence: u64) -> Arc<Boot> {
+		let sandbox = tg::sandbox::Id::new();
+		Arc::new(Boot::new(0, sandbox, local(), None, true, sequence))
 	}
 
 	fn local() -> tg::Location {

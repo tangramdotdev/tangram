@@ -102,9 +102,13 @@ impl Index {
 			Ok(merge) => merge,
 			Err(error) => return Ok(Err(error)),
 		};
+
+		// Put the permissions if the merge grants them.
 		if merge.permissions {
 			Self::put_permissions_with_transaction(db, subspace, transaction, &arg.permissions)?;
 		}
+
+		// Store the record that the merge produces, with its processes.
 		let sandbox = merge.sandbox;
 		let zero_end = merge.zero_end.map(|boot| (boot, sandbox.clone()));
 		let touched_at = sandbox.touched_at;

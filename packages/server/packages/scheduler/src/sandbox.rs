@@ -28,9 +28,6 @@ pub(super) struct Sandboxes {
 	/// The sandboxes that the scheduler tracks, from their enqueues until the index has recorded their ends or their runners report their ends.
 	pub(super) entries: Entries,
 
-	/// The destroying sandboxes whose directories the scheduler asked their runners to remove, which authorize the runners' reports of the removals.
-	pub(super) removing: HashMap<tg::sandbox::Id, tg::runner::Id, tg::id::BuildHasher>,
-
 	/// The tasks that serve the requests to the holders of the sandboxes that this scheduler knows, and of their queued processes until a runner holds them, which are absent until the subscriptions are established.
 	pub(super) holders: HashMap<tg::sandbox::Id, Option<HolderTasks>, tg::id::BuildHasher>,
 
@@ -39,6 +36,9 @@ pub(super) struct Sandboxes {
 
 	/// The number of offers that the scheduler is sending.
 	pub(super) offers: usize,
+
+	/// The destroying sandboxes whose directories the scheduler asked their runners to remove, which authorize the runners' reports of the removals.
+	pub(super) removing: HashMap<tg::sandbox::Id, tg::runner::Id, tg::id::BuildHasher>,
 
 	/// The sandboxes whose next boot a start is reserving, with the number of reservations in flight for each, which the scheduler holds as in its queue, because a reservation's write records the boot in the scheduler's saved queue before the scheduler tracks it.
 	pub(super) reserving: HashMap<tg::sandbox::Id, usize, tg::id::BuildHasher>,
@@ -982,6 +982,7 @@ impl SchedulerState {
 					entry.processes.extend(processes);
 				}
 
+				// Fail the enqueue requests that waited for the acceptance of the replaced entry.
 				let error = tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
 				scheduler.send_enqueue_responses(ids, Err(error));
 

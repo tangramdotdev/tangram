@@ -9,16 +9,6 @@ use {
 
 pub type ConnectionFuture = BoxFuture<'static, tg::Result<()>>;
 
-/// The kind of a sandbox's holder that a server serves, each of which remembers its own replies, because a sandbox's scheduler and its runner both serve requests for the sandbox.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Holder {
-	/// The runner that holds the sandbox's boot, which a sandbox control connection serves.
-	Runner,
-
-	/// The sandbox's scheduler, which holds a queued boot and sends the spawns into the sandbox to its runner.
-	Scheduler,
-}
-
 /// The arg of a request to a sandbox's holder.
 pub type HolderArg<'a> = crate::holder::Arg<'a, tg::sandbox::control::ServerRequestArg>;
 
@@ -32,6 +22,16 @@ pub type HolderOutput = crate::holder::Output<
 pub type HolderHandle = Box<
 	dyn FnMut(tg::sandbox::control::ServerMessage) -> BoxFuture<'static, tg::Result<()>> + Send,
 >;
+
+/// The kind of a sandbox's holder that a server serves, each of which remembers its own replies, because a sandbox's scheduler and its runner both serve requests for the sandbox.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Holder {
+	/// The runner that holds the sandbox's boot, which a sandbox control connection serves.
+	Runner,
+
+	/// The sandbox's scheduler, which holds a queued boot and sends the spawns into the sandbox to its runner.
+	Scheduler,
+}
 
 /// The sandbox component.
 pub trait Component: crate::component::Lifecycle {

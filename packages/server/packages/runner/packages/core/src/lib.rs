@@ -25,19 +25,16 @@ pub struct Config {
 }
 
 pub struct State {
-	#[cfg(target_os = "linux")]
-	pub cpu_shares: tangram_sandbox::cpu::Shares,
-
-	#[cfg(target_os = "linux")]
-	pub cpu_threads: tangram_sandbox::cpu::Threads,
-
 	/// The boots that the runner holds, from the runner's yes until each boot ends locally.
 	pub boots: crate::sandbox::Boots,
 
 	pub capacity: crate::capacity::Pool,
 
 	#[cfg(target_os = "linux")]
-	pub storage_pool: tangram_sandbox::budget::Pool,
+	pub cpu_shares: tangram_sandbox::cpu::Shares,
+
+	#[cfg(target_os = "linux")]
+	pub cpu_threads: tangram_sandbox::cpu::Threads,
 
 	#[cfg(target_os = "linux")]
 	pub filesystem_project_ids: crate::project::Pool,
@@ -66,6 +63,9 @@ pub struct State {
 
 	/// The storage that each stopped sandbox's directory keeps reserved, which a start of the sandbox releases before it acquires its capacity.
 	pub stopped_storage: dashmap::DashMap<tg::sandbox::Id, crate::capacity::Allocation>,
+
+	#[cfg(target_os = "linux")]
+	pub storage_pool: tangram_sandbox::budget::Pool,
 }
 
 impl State {
@@ -102,6 +102,7 @@ impl State {
 			sandboxes: crate::sandbox::Sandboxes::default(),
 
 			scheduler,
+
 			scheduler_connections,
 
 			#[cfg(target_os = "linux")]
@@ -217,20 +218,6 @@ impl State {
 			.unwrap()
 	}
 
-	/// Get the state of a sandbox whose latest boot the runner did not give up, which is the lookup through which the runner answers and acts as the holder of a sandbox and of its processes, so that a boot that the runner gave up answers nothing.
-	#[must_use]
-	pub fn try_get_held_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> Option<dashmap::mapref::one::Ref<'_, u64, crate::sandbox::State>> {
-		let sandbox = self.sandboxes.get_by_id(id)?;
-		if sandbox.boot.given_up().is_some() {
-			return None;
-		}
-
-		Some(sandbox)
-	}
-
 	#[must_use]
 	pub fn try_get_sandbox(&self, id: &tg::sandbox::Id) -> Option<tg::sandbox::get::Output> {
 		Some(self.try_get_held_sandbox(id)?.data())
@@ -280,6 +267,20 @@ impl State {
 		let sandbox = self.try_get_held_sandbox(&sandbox)?;
 		let mut process = sandbox.processes.get_mut(id)?;
 		Some(update(&mut process))
+	}
+
+	/// Get the state of a sandbox whose latest boot the runner did not give up, which is the lookup through which the runner answers and acts as the holder of a sandbox and of its processes, so that a boot that the runner gave up answers nothing.
+	#[must_use]
+	pub fn try_get_held_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> Option<dashmap::mapref::one::Ref<'_, u64, crate::sandbox::State>> {
+		let sandbox = self.sandboxes.get_by_id(id)?;
+		if sandbox.boot.given_up().is_some() {
+			return None;
+		}
+
+		Some(sandbox)
 	}
 
 	#[must_use]

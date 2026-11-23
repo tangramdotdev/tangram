@@ -5,27 +5,35 @@ use {
 	tangram_index::prelude::*,
 };
 
+/// Await indexing, so that the index has applied every write that was acknowledged before.
+pub(super) async fn index(server: &tangram_server_core::Server) -> tg::Result<()> {
+	let session = server.session(&server.context);
+	server
+		.components
+		.indexer
+		.index(&session, tg::index::Arg::default())
+		.await
+		.map_err(|error| tg::error!(!error, "failed to index"))?
+		.try_last()
+		.await
+		.map_err(|error| tg::error!(!error, "failed to index"))?;
+
+	Ok(())
+}
+
+/// Get the status that records a failure of a sandbox after its acceptance, which destroys a new sandbox and stops a sandbox that was starting again.
+pub(super) fn failed_sandbox_status(request: &EnqueueSandboxRequestArg) -> tg::sandbox::Status {
+	if request.boot == 0 {
+		tg::sandbox::Status::Destroyed
+	} else {
+		tg::sandbox::Status::Stopped
+	}
+}
+
 impl Scheduler {
 	/// Await indexing, so that the index has applied every write that was acknowledged before.
 	pub(super) async fn index(&self) -> tg::Result<()> {
 		index(&self.server).await
-	}
-
-	/// Write to the index, and send the write again until a server accepts it, because this scheduler holds what the write records.
-	pub(super) async fn write_until_accepted(&self, arg: tangram_index::write::Arg) {
-		loop {
-			let result = self
-				.server
-				.components
-				.indexer
-				.write(&self.server, arg.clone())
-				.await;
-			let Err(error) = result else {
-				return;
-			};
-			tracing::error!(error = %error.trace(), "failed to write to the index");
-			tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
-		}
 	}
 
 	/// Write the starting record and the key that associates the sandbox with this scheduler, which is sent again until a server accepts it. The first write of a request also writes the permissions of its queued process.
@@ -50,7 +58,9 @@ impl Scheduler {
 			first,
 			0,
 		)
-		.await
+		.await?;
+
+		Ok(())
 	}
 
 	/// Reserve the next boot of a stopped sandbox with one index write that the index rejects unless the sandbox is still stopped at the boot before it, which records the starting boot and the boot's request in this scheduler's queue, from which a restarted scheduler recovers the boot. Return whether the index applied the write.
@@ -169,11 +179,10 @@ impl Scheduler {
 			boot: request.boot,
 			sandbox: id.clone(),
 		};
-		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::DeleteSchedulerSandbox(Box::new(
-				delete,
-			))],
-		};
+		let items = vec![tangram_index::Item::DeleteSchedulerSandbox(Box::new(
+			delete,
+		))];
+		let arg = tangram_index::write::Arg { items };
 		self.server
 			.components
 			.indexer
@@ -322,29 +331,21 @@ impl Scheduler {
 
 		Ok(())
 	}
-}
 
-/// Await indexing, so that the index has applied every write that was acknowledged before.
-pub(super) async fn index(server: &tangram_server_core::Server) -> tg::Result<()> {
-	let session = server.session(&server.context);
-	server
-		.components
-		.indexer
-		.index(&session, tg::index::Arg::default())
-		.await
-		.map_err(|error| tg::error!(!error, "failed to index"))?
-		.try_last()
-		.await
-		.map_err(|error| tg::error!(!error, "failed to index"))?;
-
-	Ok(())
-}
-
-/// Get the status that records a failure of a sandbox after its acceptance, which destroys a new sandbox and stops a sandbox that was starting again.
-pub(super) fn failed_sandbox_status(request: &EnqueueSandboxRequestArg) -> tg::sandbox::Status {
-	if request.boot == 0 {
-		tg::sandbox::Status::Destroyed
-	} else {
-		tg::sandbox::Status::Stopped
+	/// Write to the index, and send the write again until a server accepts it, because this scheduler holds what the write records.
+	pub(super) async fn write_until_accepted(&self, arg: tangram_index::write::Arg) {
+		loop {
+			let result = self
+				.server
+				.components
+				.indexer
+				.write(&self.server, arg.clone())
+				.await;
+			let Err(error) = result else {
+				return;
+			};
+			tracing::error!(error = %error.trace(), "failed to write to the index");
+			tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+		}
 	}
 }
