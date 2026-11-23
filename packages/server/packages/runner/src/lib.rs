@@ -814,8 +814,8 @@ impl Component {
 		boot: u64,
 		proof: tg::sandbox::id::Proof,
 	) -> tg::Result<()> {
-		let arg = tg::runner::control::ClientRequestArg::AddSandbox(
-			tg::runner::control::AddSandboxClientRequestArg {
+		let arg = tg::runner::control::ClientRequestArg::SandboxCreated(
+			tg::runner::control::SandboxCreatedClientRequestArg {
 				boot,
 				proof,
 				sandbox: sandbox.clone(),
@@ -824,26 +824,26 @@ impl Component {
 		self.report_with_runner_control(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %sandbox, "failed to report the sandbox"))?
-			.try_unwrap_add_sandbox()
-			.map_err(|_| tg::error!("expected an add sandbox response"))?;
+			.try_unwrap_sandbox_created()
+			.map_err(|_| tg::error!("expected a sandbox created response"))?;
 
 		Ok(())
 	}
 
 	/// Report the end of a boot that this runner held to its scheduler through the runner control stream.
-	pub(crate) async fn report_ended_sandbox_with_runner_control(
+	pub(crate) async fn report_ended_boot_with_runner_control(
 		&self,
-		arg: tg::runner::control::EndSandboxClientRequestArg,
+		arg: tg::runner::control::BootEndedClientRequestArg,
 	) -> tg::Result<()> {
 		let sandbox = arg.sandbox.clone();
-		let arg = tg::runner::control::ClientRequestArg::EndSandbox(arg);
+		let arg = tg::runner::control::ClientRequestArg::BootEnded(arg);
 		self.report_with_runner_control(arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, %sandbox, "failed to report the end of the sandbox"),
 			)?
-			.try_unwrap_end_sandbox()
-			.map_err(|_| tg::error!("expected an end sandbox response"))?;
+			.try_unwrap_boot_ended()
+			.map_err(|_| tg::error!("expected a boot ended response"))?;
 
 		Ok(())
 	}
@@ -1216,17 +1216,17 @@ impl Component {
 			};
 			let id = message.id;
 			let request = match message.arg {
-				tg::runner::control::ServerRequestArg::OfferSandbox(request) => request,
+				tg::runner::control::ServerRequestArg::OfferBoot(request) => request,
 				tg::runner::control::ServerRequestArg::DestroySandbox(arg) => {
 					self.spawn_destroy_stopped_sandbox_task(session, id.clone(), arg, &sender);
 					continue;
 				},
 			};
-			tangram_server_core::checkpoint!(session.server, "runner.control.offer_sandbox", sandbox = %request.sandbox).await;
+			tangram_server_core::checkpoint!(session.server, "runner.control.offer_boot", sandbox = %request.sandbox).await;
 
 			// Answer an offer that the scheduler sent again with the reply to the offer, without acting on it again, so that a boot that ended is not created again.
 			if let tangram_server_core::holder::Begin::Replied(message) = self.offers.begin(&id) {
-				tangram_server_core::checkpoint!(session.server, "runner.control.offer_sandbox.replied", sandbox = %request.sandbox).await;
+				tangram_server_core::checkpoint!(session.server, "runner.control.offer_boot.replied", sandbox = %request.sandbox).await;
 				sender.send(message).await?;
 				continue;
 			}
@@ -1262,12 +1262,10 @@ impl Component {
 				None
 			};
 			if let Some(answer) = answer {
-				let output = tg::runner::control::OfferSandboxClientResponseOutput { answer };
+				let output = tg::runner::control::OfferBootClientResponseOutput { answer };
 				let message = Self::create_runner_control_response(
 					id.clone(),
-					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
-						output,
-					)),
+					Ok(tg::runner::control::ClientResponseOutput::OfferBoot(output)),
 				);
 				self.offers.finish(&id, message.clone());
 				sender.send(message).await?;
@@ -1276,14 +1274,12 @@ impl Component {
 
 			// Decline work while the runner drains its sandboxes before it shuts down.
 			if stopper.stopped() {
-				let output = tg::runner::control::OfferSandboxClientResponseOutput {
+				let output = tg::runner::control::OfferBootClientResponseOutput {
 					answer: tg::runner::control::Answer::No,
 				};
 				let message = Self::create_runner_control_response(
 					id.clone(),
-					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
-						output,
-					)),
+					Ok(tg::runner::control::ClientResponseOutput::OfferBoot(output)),
 				);
 				self.offers.finish(&id, message.clone());
 				sender.send(message).await?;
@@ -1332,14 +1328,12 @@ impl Component {
 				}
 			}
 			let Some(allocation) = allocation else {
-				let output = tg::runner::control::OfferSandboxClientResponseOutput {
+				let output = tg::runner::control::OfferBootClientResponseOutput {
 					answer: tg::runner::control::Answer::No,
 				};
 				let message = Self::create_runner_control_response(
 					id.clone(),
-					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
-						output,
-					)),
+					Ok(tg::runner::control::ClientResponseOutput::OfferBoot(output)),
 				);
 				self.offers.finish(&id, message.clone());
 				sender.send(message).await?;
@@ -1365,17 +1359,15 @@ impl Component {
 					token: Some(token),
 				},
 			);
-			tangram_server_core::checkpoint!(session.server, "runner.control.offer_sandbox.accepted", sandbox = %sandbox).await;
+			tangram_server_core::checkpoint!(session.server, "runner.control.offer_boot.accepted", sandbox = %sandbox).await;
 
 			// Send the response.
-			let output = tg::runner::control::OfferSandboxClientResponseOutput {
+			let output = tg::runner::control::OfferBootClientResponseOutput {
 				answer: tg::runner::control::Answer::Yes,
 			};
 			let message = Self::create_runner_control_response(
 				id.clone(),
-				Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
-					output,
-				)),
+				Ok(tg::runner::control::ClientResponseOutput::OfferBoot(output)),
 			);
 			self.offers.finish(&id, message.clone());
 			sender.send(message).await?;

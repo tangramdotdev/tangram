@@ -79,7 +79,7 @@ pub(super) struct Connection {
 	pub accepted: Vec<(tg::sandbox::Id, u64)>,
 
 	/// The reported boots that this scheduler declared ended, which the connection tells the runner.
-	pub ended: Vec<tg::runner::control::EndedSandbox>,
+	pub ended: Vec<tg::runner::control::AbandonBoot>,
 
 	/// Whether the connection is the runner's first since it started, or a connection of a runner whose restart this scheduler is still handling.
 	pub first: bool,
@@ -182,7 +182,7 @@ pub(super) struct Runner {
 }
 
 /// Decide the answer to a runner's report of a sandbox that it started on the shortcut path. A report on a connection that a reconnect replaced and a report that this scheduler cannot authorize yet are sent again, and a report that this scheduler refuses is final.
-pub(super) fn decide_added_sandbox(
+pub(super) fn decide_created_sandbox(
 	current: bool,
 	authorization: super::report::Authorization,
 ) -> tg::Result<ControlFlow<super::report::Authorized, tg::control::Retry>> {
@@ -488,7 +488,7 @@ impl SchedulerState {
 		&self,
 		runner: &tg::runner::Id,
 		sandboxes: &[tg::runner::control::ArgSandbox],
-	) -> Vec<tg::runner::control::EndedSandbox> {
+	) -> Vec<tg::runner::control::AbandonBoot> {
 		sandboxes
 			.iter()
 			.filter(|sandbox| {
@@ -496,7 +496,7 @@ impl SchedulerState {
 					.ended
 					.is_declared(&sandbox.id, sandbox.boot, runner)
 			})
-			.map(|sandbox| tg::runner::control::EndedSandbox {
+			.map(|sandbox| tg::runner::control::AbandonBoot {
 				boot: sandbox.boot,
 				id: sandbox.id.clone(),
 			})
@@ -504,11 +504,11 @@ impl SchedulerState {
 	}
 
 	/// Track a sandbox that a runner started on the shortcut path, so that this scheduler knows the sandbox and sends the spawns into it to the runner. Authorize the report with the proof that the runner derived the sandbox's ID, and ignore a report of a boot that already ended, so that a report that arrives after the boot's end does not track the boot again.
-	pub(super) fn handle_add_runner_sandbox_request(
+	pub(super) fn handle_runner_sandbox_created_request(
 		&mut self,
 		scheduler: &Scheduler,
 		id: String,
-		request: tangram_server_scheduler_core::AddRunnerSandboxRequestArg,
+		request: tangram_server_scheduler_core::RunnerSandboxCreatedRequestArg,
 	) {
 		let current = self
 			.runners
@@ -523,7 +523,7 @@ impl SchedulerState {
 			sandbox: &request.sandbox,
 		};
 		let authorization = self.authorize_runner_report(&report);
-		let result = match decide_added_sandbox(current, authorization) {
+		let result = match decide_created_sandbox(current, authorization) {
 			Ok(ControlFlow::Break(authorized)) => {
 				if matches!(authorized.held, super::report::Held::Derived) {
 					let runner = super::placement::RunnerRef {
@@ -539,15 +539,16 @@ impl SchedulerState {
 						runner,
 					);
 				}
-				let output =
-					tangram_server_scheduler_core::AddRunnerSandboxResponseOutput { retry: None };
-				Ok(super::ResponseOutput::AddRunnerSandbox(output))
+				let output = tangram_server_scheduler_core::RunnerSandboxCreatedResponseOutput {
+					retry: None,
+				};
+				Ok(super::ResponseOutput::RunnerSandboxCreated(output))
 			},
 			Ok(ControlFlow::Continue(retry)) => {
-				let output = tangram_server_scheduler_core::AddRunnerSandboxResponseOutput {
+				let output = tangram_server_scheduler_core::RunnerSandboxCreatedResponseOutput {
 					retry: Some(retry),
 				};
-				Ok(super::ResponseOutput::AddRunnerSandbox(output))
+				Ok(super::ResponseOutput::RunnerSandboxCreated(output))
 			},
 			Err(error) => Err(error),
 		};

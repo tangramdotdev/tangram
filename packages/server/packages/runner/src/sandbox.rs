@@ -613,7 +613,7 @@ impl Component {
 		arg.event_sender.send(Ok(Event::Destroyed)).ok();
 
 		// Report the end to the runner's scheduler with the end's number.
-		let report = tg::runner::control::EndSandboxClientRequestArg {
+		let report = tg::runner::control::BootEndedClientRequestArg {
 			boot: boot.boot,
 			created_at: arg.created_at,
 			data,
@@ -623,7 +623,7 @@ impl Component {
 			sandbox: id.clone(),
 			sequence,
 		};
-		if let Err(error) = self.report_ended_sandbox_with_runner_control(report).await {
+		if let Err(error) = self.report_ended_boot_with_runner_control(report).await {
 			tracing::error!(error = %error.trace(), sandbox = %id, "failed to report the end of the sandbox");
 		}
 	}

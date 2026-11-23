@@ -19,7 +19,7 @@ let runner = server spawn --name runner --config {
 let url = $remote.url
 
 # Hold the runner after it accepts the boot and before it sends its yes.
-let accepted = checkpoint watch runner.control.offer_sandbox.accepted --url $runner.url
+let accepted = checkpoint watch runner.control.offer_boot.accepted --url $runner.url
 
 # Create a sandbox whose creation fails on the runner.
 let job = job spawn {

@@ -17,7 +17,7 @@ let runner = server spawn --name runner --config {
 }
 
 # Hold the runner before it answers the offer, so that the scheduler's wait for the answer times out.
-let create = checkpoint watch runner.control.offer_sandbox --url $runner.url
+let create = checkpoint watch runner.control.offer_boot --url $runner.url
 let unanswered = checkpoint watch scheduler.sandbox.offer.unanswered --token $root_token --url $remote.url
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 checkpoint wait $create | ignore

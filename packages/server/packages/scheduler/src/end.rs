@@ -1,6 +1,6 @@
 use {
 	super::{
-		EndRunnerSandboxRequestArg, EndRunnerSandboxResponseOutput, Operation, Scheduler,
+		Operation, RunnerBootEndedRequestArg, RunnerBootEndedResponseOutput, Scheduler,
 		SchedulerState,
 		report::{Authorization, Authorized, EndedBoot, Held, Report},
 	},
@@ -12,13 +12,13 @@ use {
 
 impl SchedulerState {
 	/// Handle a runner's report that a boot that it held ended, which the runner sends after it finished every process of the boot. Authorize the report, and act on nothing in a report that is not authorized. Treat a report of a boot whose offer to the runner is unanswered as the runner's yes. Forget the boot, which frees its capacity, or remember a boot on the shortcut path that this scheduler did not know as ended, so that a late report of the sandbox does not track it again. Then, in an operation, record the end, and ask the runner to send the report again if the write fails, which the memory of the ended boot authorizes.
-	pub(super) fn handle_end_runner_sandbox_request(
+	pub(super) fn handle_runner_boot_ended_request(
 		&mut self,
 		scheduler: &Scheduler,
 		id: String,
-		request: EndRunnerSandboxRequestArg,
+		request: RunnerBootEndedRequestArg,
 	) {
-		let EndRunnerSandboxRequestArg { end, runner } = request;
+		let RunnerBootEndedRequestArg { end, runner } = request;
 		let boot = end.boot;
 		let sandbox = end.sandbox.clone();
 
@@ -34,7 +34,7 @@ impl SchedulerState {
 		let Authorized { held, processes } = match self.authorize_runner_report(&report) {
 			Authorization::Authorized(authorized) => authorized,
 			Authorization::NotReady => {
-				let result = Ok(EndRunnerSandboxResponseOutput {
+				let result = Ok(RunnerBootEndedResponseOutput {
 					retry: Some(tg::control::Retry::NotReady),
 				});
 				self.acknowledge_ended_runner_sandbox(scheduler, id, sandbox, boot, result);
@@ -74,11 +74,11 @@ impl SchedulerState {
 					.await
 					.or_else(|error| {
 						tracing::warn!(error = %error.trace(), %sandbox, "failed to record the end of the sandbox");
-						Ok(EndRunnerSandboxResponseOutput {
+						Ok(RunnerBootEndedResponseOutput {
 							retry: Some(tg::control::Retry::NotReady),
 						})
 					});
-				Operation::EndRunnerSandbox { id, result }
+				Operation::RunnerBootEnded { id, result }
 			}
 			.boxed(),
 		);
@@ -110,7 +110,7 @@ impl SchedulerState {
 		id: String,
 		sandbox: tg::sandbox::Id,
 		boot: u64,
-		result: tg::Result<EndRunnerSandboxResponseOutput>,
+		result: tg::Result<RunnerBootEndedResponseOutput>,
 	) {
 		let scheduler = scheduler.clone();
 		self.operations.push(
@@ -122,11 +122,11 @@ impl SchedulerState {
 					.and_then(|indexed| indexed.data)
 					.is_some_and(|data| data.data.status.is_destroyed() || data.data.boot > boot);
 				let result = if ended {
-					Ok(EndRunnerSandboxResponseOutput { retry: None })
+					Ok(RunnerBootEndedResponseOutput { retry: None })
 				} else {
 					result
 				};
-				Operation::EndRunnerSandbox { id, result }
+				Operation::RunnerBootEnded { id, result }
 			}
 			.boxed(),
 		);
@@ -138,10 +138,10 @@ impl Scheduler {
 	async fn end_runner_sandbox(
 		&self,
 		runner: &tg::runner::Id,
-		end: tg::runner::control::EndSandboxClientRequestArg,
+		end: tg::runner::control::BootEndedClientRequestArg,
 		authorized: BTreeSet<tg::process::Id>,
-	) -> tg::Result<EndRunnerSandboxResponseOutput> {
-		let tg::runner::control::EndSandboxClientRequestArg {
+	) -> tg::Result<RunnerBootEndedResponseOutput> {
+		let tg::runner::control::BootEndedClientRequestArg {
 			boot,
 			created_at,
 			data,
@@ -219,6 +219,6 @@ impl Scheduler {
 				.spawn_publish_sandbox_status_task(&self.server, &sandbox);
 		}
 
-		Ok(EndRunnerSandboxResponseOutput { retry: None })
+		Ok(RunnerBootEndedResponseOutput { retry: None })
 	}
 }

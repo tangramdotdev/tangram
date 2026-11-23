@@ -64,7 +64,7 @@ let start = job spawn {
 }
 
 # Let a heartbeat reach the scheduler, which does not acknowledge it, and advance the remote's clock past the runner's scheduler ttl, so that the runner's control connection ends and the runner connects again, learns that the first boot ended, and accepts the offer of the next boot.
-let offered = checkpoint watch runner.control.offer_sandbox.accepted --params { sandbox: $sandbox } --url $runner.url
+let offered = checkpoint watch runner.control.offer_boot.accepted --params { sandbox: $sandbox } --url $runner.url
 checkpoint continue $heartbeat 0
 checkpoint wait $heartbeat 1 | ignore
 let connect = checkpoint watch scheduler.runner.connect --params { runner: $created.data.id } --token $root_token --url $remote.url

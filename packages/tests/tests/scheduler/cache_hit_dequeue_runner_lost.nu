@@ -31,7 +31,7 @@ checkin push $remote $path --token $root_token | ignore
 tg --url $cache.url build $id | ignore
 
 # Hold the runner before it accepts an offer, hold the remote's cache lookup, and build the cached process.
-let offer = checkpoint watch runner.control.offer_sandbox --url $runner.url
+let offer = checkpoint watch runner.control.offer_boot --url $runner.url
 let enqueued = checkpoint watch scheduler.sandbox.enqueued --token $root_token --url $url
 let cached = checkpoint watch process.spawn.cached.region_or_remote --token $root_token --url $url
 let build = job spawn {

@@ -44,7 +44,7 @@ success (tg --url $remote.url --token $root_token run $'--sandbox=($sandbox)' $w
 tg --url $remote.url --token $root_token sandbox stop --wait $sandbox
 
 # Start the sandbox, and hold the runner after it starts the boot and before it answers the offer, which also holds its heartbeats.
-let accepted = checkpoint watch runner.control.offer_sandbox.accepted --params { sandbox: $sandbox } --url $runner.url
+let accepted = checkpoint watch runner.control.offer_boot.accepted --params { sandbox: $sandbox } --url $runner.url
 let url = $remote.url
 let start = job spawn {
 	let job_id = job id

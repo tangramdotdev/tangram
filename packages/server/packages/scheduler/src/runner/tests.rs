@@ -1,5 +1,5 @@
 use {
-	super::{Runner, UnansweredOffer, decide_added_sandbox, decide_unanswered_offers},
+	super::{Runner, UnansweredOffer, decide_created_sandbox, decide_unanswered_offers},
 	crate::{
 		SchedulerState,
 		placement::RunnerRef,
@@ -373,21 +373,21 @@ fn a_report_of_a_shortcut_sandbox_is_sent_again_unless_it_is_authorized_or_refus
 
 	// An authorized report on the runner's current connection is acted on.
 	assert!(matches!(
-		decide_added_sandbox(true, authorized()),
+		decide_created_sandbox(true, authorized()),
 		Ok(std::ops::ControlFlow::Break(_))
 	));
 
 	// A report on a connection that a reconnect replaced, and a report that the scheduler cannot authorize yet, are sent again.
 	assert!(
 		matches!(
-			decide_added_sandbox(false, authorized()),
+			decide_created_sandbox(false, authorized()),
 			Ok(std::ops::ControlFlow::Continue(_))
 		),
 		"a report on a replaced connection would be refused"
 	);
 	assert!(
 		matches!(
-			decide_added_sandbox(true, Authorization::NotReady),
+			decide_created_sandbox(true, Authorization::NotReady),
 			Ok(std::ops::ControlFlow::Continue(_))
 		),
 		"a report that the scheduler cannot authorize yet would be refused"
@@ -395,5 +395,5 @@ fn a_report_of_a_shortcut_sandbox_is_sent_again_unless_it_is_authorized_or_refus
 
 	// A refused report is final.
 	let error = tg::error!("the runner does not hold the boot");
-	assert!(decide_added_sandbox(true, Authorization::Refused(error)).is_err());
+	assert!(decide_created_sandbox(true, Authorization::Refused(error)).is_err());
 }

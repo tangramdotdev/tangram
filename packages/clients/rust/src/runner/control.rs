@@ -110,8 +110,8 @@ pub struct ClientRequest {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientRequestArg {
-	#[tangram_serialize(id = 3)]
-	AddSandbox(AddSandboxClientRequestArg),
+	#[tangram_serialize(id = 5)]
+	BootEnded(BootEndedClientRequestArg),
 
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxClientRequestArg),
@@ -119,14 +119,14 @@ pub enum ClientRequestArg {
 	#[tangram_serialize(id = 6)]
 	DestroyStoppedSandbox(DestroyStoppedSandboxClientRequestArg),
 
-	#[tangram_serialize(id = 5)]
-	EndSandbox(EndSandboxClientRequestArg),
-
 	#[tangram_serialize(id = 4)]
 	FinishProcesses(FinishProcessesClientRequestArg),
 
 	#[tangram_serialize(id = 2)]
 	ReportSandboxUsage(ReportSandboxUsageClientRequestArg),
+
+	#[tangram_serialize(id = 3)]
+	SandboxCreated(SandboxCreatedClientRequestArg),
 }
 
 #[derive(
@@ -163,7 +163,7 @@ pub enum ClientResponseOutput {
 	DestroySandbox(DestroySandboxClientResponseOutput),
 
 	#[tangram_serialize(id = 0)]
-	OfferSandbox(OfferSandboxClientResponseOutput),
+	OfferBoot(OfferBootClientResponseOutput),
 }
 
 #[derive(
@@ -210,7 +210,7 @@ pub enum ServerRequestArg {
 	DestroySandbox(DestroySandboxServerRequestArg),
 
 	#[tangram_serialize(id = 0)]
-	OfferSandbox(OfferSandboxServerRequestArg),
+	OfferBoot(OfferBootServerRequestArg),
 }
 
 #[derive(
@@ -248,8 +248,8 @@ pub struct ServerResponse {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerResponseOutput {
-	#[tangram_serialize(id = 3)]
-	AddSandbox(AddSandboxServerResponseOutput),
+	#[tangram_serialize(id = 5)]
+	BootEnded(BootEndedServerResponseOutput),
 
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxServerResponseOutput),
@@ -257,14 +257,14 @@ pub enum ServerResponseOutput {
 	#[tangram_serialize(id = 6)]
 	DestroyStoppedSandbox(DestroyStoppedSandboxServerResponseOutput),
 
-	#[tangram_serialize(id = 5)]
-	EndSandbox(EndSandboxServerResponseOutput),
-
 	#[tangram_serialize(id = 4)]
 	FinishProcesses(FinishProcessesServerResponseOutput),
 
 	#[tangram_serialize(id = 2)]
 	ReportSandboxUsage(ReportSandboxUsageServerResponseOutput),
+
+	#[tangram_serialize(id = 3)]
+	SandboxCreated(SandboxCreatedServerResponseOutput),
 }
 
 #[derive(
@@ -363,7 +363,7 @@ pub struct Process {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct OfferSandboxServerRequestArg {
+pub struct OfferBootServerRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub arg: tg::sandbox::create::Arg,
 
@@ -430,7 +430,7 @@ pub struct OfferSandboxServerRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct OfferSandboxClientResponseOutput {
+pub struct OfferBootClientResponseOutput {
 	#[tangram_serialize(id = 0)]
 	pub answer: Answer,
 }
@@ -562,7 +562,7 @@ pub struct DestroyStoppedSandboxServerResponseOutput {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct AddSandboxClientRequestArg {
+pub struct SandboxCreatedClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub boot: u64,
 
@@ -582,7 +582,7 @@ pub struct AddSandboxClientRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct AddSandboxServerResponseOutput {}
+pub struct SandboxCreatedServerResponseOutput {}
 
 #[derive(
 	Clone,
@@ -753,7 +753,7 @@ pub struct FinishProcessesServerResponseOutput {}
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct EndSandboxClientRequestArg {
+pub struct BootEndedClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub boot: u64,
 
@@ -805,7 +805,7 @@ pub struct EndSandboxClientRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct EndSandboxServerResponseOutput {}
+pub struct BootEndedServerResponseOutput {}
 
 #[serde_as]
 #[derive(
@@ -885,7 +885,7 @@ pub struct Header {
 	/// The reported boots that the scheduler ended because it declared the runner dead, which the runner gives up without writing anything more for them.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
-	pub ended: Vec<EndedSandbox>,
+	pub ended: Vec<AbandonBoot>,
 
 	/// How long the scheduler keeps the runner after its last heartbeat, after which the scheduler no longer sends the runner a request again.
 	#[serde_as(as = "DurationSecondsWithFrac")]
@@ -906,7 +906,7 @@ pub struct Header {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct EndedSandbox {
+pub struct AbandonBoot {
 	#[tangram_serialize(id = 0)]
 	pub boot: u64,
 

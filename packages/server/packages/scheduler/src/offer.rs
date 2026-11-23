@@ -79,8 +79,8 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 		timeout,
 	} = arg;
 	tracing::info!(lender = lender.as_ref().map(ToString::to_string), runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler, "offering the sandbox to a runner");
-	let arg = tg::runner::control::ServerRequestArg::OfferSandbox(
-		tg::runner::control::OfferSandboxServerRequestArg {
+	let arg = tg::runner::control::ServerRequestArg::OfferBoot(
+		tg::runner::control::OfferBootServerRequestArg {
 			arg: request.arg.clone(),
 			boot: request.boot,
 			capacity,
@@ -137,8 +137,8 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 		})
 		.and_then(|output| {
 			output
-				.try_unwrap_offer_sandbox()
-				.map_err(|_| tg::error!("expected an offer sandbox response"))
+				.try_unwrap_offer_boot()
+				.map_err(|_| tg::error!("expected an offer boot response"))
 				.map(|output| output.answer)
 		});
 	match result {
@@ -584,7 +584,7 @@ impl SchedulerState {
 					timeout,
 				};
 				let outcome = send_offer(&session, arg).boxed().await;
-				Operation::OfferSandbox {
+				Operation::OfferBoot {
 					outcome,
 					placement,
 					sandbox,

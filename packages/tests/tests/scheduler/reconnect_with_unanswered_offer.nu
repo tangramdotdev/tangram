@@ -42,7 +42,7 @@ let path = artifact {
 }
 
 # Hold the first runner before it answers the offer of the process's sandbox.
-let offer = checkpoint watch runner.control.offer_sandbox --url $runner.url
+let offer = checkpoint watch runner.control.offer_boot --url $runner.url
 let process = tg --url $local.url run --no-tokens --detach $path --remote | referent node
 checkpoint wait $offer | ignore
 

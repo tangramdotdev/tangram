@@ -18,7 +18,7 @@ wait_for_log $runner 'the runner is ready to accept work'
 
 # Hold the scheduler's first write of a new sandbox, and hold the runner once it receives the sandbox's offer.
 let persist = checkpoint watch scheduler.sandbox.persist --token $root_token --url $remote.url
-let offer = checkpoint watch runner.control.offer_sandbox --url $runner.url
+let offer = checkpoint watch runner.control.offer_boot --url $runner.url
 let url = $remote.url
 let create = job spawn {
 	let id = job id
