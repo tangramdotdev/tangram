@@ -425,6 +425,7 @@ merge! {
 	super::Write { checkout_pointers }
 	super::Client {
 		http: section,
+		mode,
 		pool: section,
 		process: section,
 		progress: section,
@@ -433,6 +434,7 @@ merge! {
 		sandbox: section,
 		stream_retry: section,
 		sync: section,
+		url,
 		value: section,
 	}
 	super::ClientHttp {

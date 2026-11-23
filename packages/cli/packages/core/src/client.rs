@@ -10,7 +10,12 @@ impl Cli {
 			return Ok(client);
 		}
 
-		let client = match self.args.mode {
+		let mode = self
+			.args
+			.mode
+			.or_else(|| self.config.as_ref()?.client.as_ref()?.mode)
+			.unwrap_or_default();
+		let client = match mode {
 			Mode::Auto => self.client_with_auto_mode().await?,
 			Mode::Client => self.client_with_client_mode().await?,
 		};
@@ -131,6 +136,12 @@ impl Cli {
 			.args
 			.url
 			.clone()
+			.or_else(|| {
+				self.config
+					.as_ref()
+					.and_then(|config| config.client.as_ref())
+					.and_then(|client| client.url.clone())
+			})
 			.or_else(|| {
 				self.config
 					.as_ref()

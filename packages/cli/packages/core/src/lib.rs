@@ -37,8 +37,8 @@ pub struct Args {
 	pub directory: Option<PathBuf>,
 
 	/// The mode.
-	#[arg(default_value_t, env = "TANGRAM_MODE", long, short)]
-	pub mode: Mode,
+	#[arg(env = "TANGRAM_MODE", long, short)]
+	pub mode: Option<Mode>,
 
 	#[clap(flatten)]
 	pub quiet: Quiet,

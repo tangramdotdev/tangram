@@ -1,6 +1,6 @@
 use {
 	self::merge::Merge as _,
-	crate::Cli,
+	crate::{Cli, Mode},
 	serde_with::{DisplayFromStr, DurationSecondsWithFrac, serde_as},
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -2980,6 +2980,10 @@ pub struct Client {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub http: Option<ClientHttp>,
 
+	/// Configure how the CLI connects to the server.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub mode: Option<Mode>,
+
 	/// Configure the client connection pool.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub pool: Option<Pool>,
@@ -3011,6 +3015,10 @@ pub struct Client {
 	/// Configure sync.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sync: Option<ClientSync>,
+
+	/// The URL of the server.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Uri>,
 
 	/// Configure values.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
