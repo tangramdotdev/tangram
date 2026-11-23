@@ -413,6 +413,17 @@ impl SchedulerState {
 		})
 	}
 
+	/// Get the running boot of a sandbox that this restarted scheduler rebuilt from the index on a runner that has not reported yet.
+	pub(super) fn try_get_recovered_boot(&self, sandbox: &tg::sandbox::Id) -> Option<u64> {
+		let recovery = self.recovery.as_ref()?;
+		recovery
+			.boots
+			.values()
+			.flatten()
+			.find(|recovered| recovered.sandbox == *sandbox)
+			.map(|recovered| recovered.boot)
+	}
+
 	/// Get the sandboxes whose requests are held for recovery.
 	pub(super) fn get_recovering_sandboxes(&self) -> Vec<tg::sandbox::Id> {
 		self.recovery.as_ref().map_or_else(Vec::new, |recovery| {

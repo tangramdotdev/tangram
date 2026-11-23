@@ -95,6 +95,13 @@ impl SchedulerState {
 		self.sandboxes.entries.get_mut(id).unwrap().state = State::Accepted { runner };
 		self.stop_serving_process_holder(id);
 
+		// Publish the sandbox's status, so that a reader that this scheduler answered as the boot's holder reads again from the runner.
+		scheduler
+			.server
+			.components
+			.sandbox
+			.spawn_publish_sandbox_status_task(&scheduler.server, id);
+
 		// Write the handoff, which is this scheduler's last write of the boot.
 		self.hand_off_sandbox(scheduler, request, runner_id);
 

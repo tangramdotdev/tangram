@@ -181,6 +181,18 @@ pub(super) struct DiscardedSandbox {
 	pub(super) write: Write,
 }
 
+/// Decide whether a runner holds a sandbox at a boot at least as late as an enqueue's, from the scheduler's entry of the sandbox or from the running boot that a restarted scheduler rebuilt from the index, so that the scheduler answers the enqueue without queueing the sandbox.
+pub(super) fn is_held_by_runner(
+	boot: u64,
+	entry: Option<&Sandbox>,
+	recovered: Option<u64>,
+) -> bool {
+	let accepted = entry
+		.is_some_and(|entry| matches!(entry.state, State::Accepted { .. }) && boot <= entry.boot);
+	let recovered = recovered.is_some_and(|recovered| boot <= recovered);
+	accepted || recovered
+}
+
 impl Sandboxes {
 	pub(super) fn new() -> Self {
 		Self {
@@ -301,6 +313,14 @@ impl SchedulerState {
 	) {
 		let ids = id.into_iter().collect::<Vec<_>>();
 
+		// Reply to an enqueue of a sandbox that a runner holds at the enqueue's boot or a later one without enqueueing it, including a boot that a restarted scheduler rebuilt from the index and whose runner has not reported yet, so that the scheduler never holds a boot that a runner holds.
+		let entry = self.sandboxes.entries.get(&request.sandbox);
+		let rebuilt = self.try_get_recovered_boot(&request.sandbox);
+		if is_held_by_runner(request.boot, entry, rebuilt) {
+			scheduler.send_enqueue_responses(ids, Ok(()));
+			return;
+		}
+
 		// Reply to an enqueue of a sandbox that the scheduler tracks without enqueueing it again. A recovered enqueue of a later boot replaces a sandbox that a runner accepted or that the scheduler ended, and a start of a later boot replaces it once its reservation applies.
 		if let Some(entry) = self.sandboxes.entries.get(&request.sandbox) {
 			match entry.state {
@@ -309,7 +329,7 @@ impl SchedulerState {
 					self.finish_enqueue(scheduler, ids, &sandbox, Ok(()));
 					return;
 				},
-				State::Accepted { .. } | State::Terminal { .. } if request.boot <= entry.boot => {
+				State::Terminal { .. } if request.boot <= entry.boot => {
 					scheduler.send_enqueue_responses(ids, Ok(()));
 					return;
 				},

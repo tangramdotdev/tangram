@@ -1,6 +1,6 @@
 use {
 	super::{RecoveredBoot, Recovery, SavedBoot, decide_saved_boot},
-	crate::{SchedulerState, runner::tests::request},
+	crate::{SchedulerState, runner::tests::request, sandbox::is_held_by_runner},
 	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
 	tangram_server_core::clock::Clock,
@@ -178,4 +178,33 @@ fn a_saved_boot_that_the_index_shows_ended_is_never_offered_again() {
 		Some(&runner),
 	)));
 	assert!(matches!(decision, SavedBoot::Destroying { .. }));
+}
+
+#[test]
+fn a_restarted_scheduler_does_not_queue_a_sandbox_that_a_runner_holds() {
+	let sandbox = tg::sandbox::Id::new();
+	let runner = tg::runner::Id::new();
+	let mut scheduler = SchedulerState::new();
+	let recovered = RecoveredBoot {
+		boot: 1,
+		processes: BTreeSet::new(),
+		sandbox: sandbox.clone(),
+	};
+	let recovery = Recovery {
+		boots: [(runner, vec![recovered])].into_iter().collect(),
+		..Default::default()
+	};
+	scheduler.recovery = Some(recovery);
+	let held = |boot| {
+		let entry = scheduler.sandboxes.entries.get(&sandbox);
+		let recovered = scheduler.try_get_recovered_boot(&sandbox);
+		is_held_by_runner(boot, entry, recovered)
+	};
+
+	// An enqueue of the boot that the index records on a runner that has not reported yet, or of an earlier boot, is answered without queueing the sandbox.
+	assert!(held(0));
+	assert!(held(1));
+
+	// An enqueue of a later boot is not answered from the rebuilt boot.
+	assert!(!held(2));
 }
