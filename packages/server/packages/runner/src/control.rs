@@ -439,10 +439,18 @@ impl Component {
 					(output, None)
 				}),
 			tg::runner::control::ClientRequestArg::DestroySandbox(arg) => self
-				.destroy_runner_sandbox(session, runner, arg)
+				.destroy_runner_sandbox(session, runner, scheduler, arg)
+				.await
+				.map(|(output, retry)| {
+					let output = tg::runner::control::ServerResponseOutput::DestroySandbox(output);
+					(output, retry)
+				}),
+			tg::runner::control::ClientRequestArg::DestroyStoppedSandbox(arg) => self
+				.destroy_runner_stopped_sandbox(session, runner, arg)
 				.await
 				.map(|output| {
-					let output = tg::runner::control::ServerResponseOutput::DestroySandbox(output);
+					let output =
+						tg::runner::control::ServerResponseOutput::DestroyStoppedSandbox(output);
 					(output, None)
 				}),
 			tg::runner::control::ClientRequestArg::EndSandbox(arg) => self
@@ -520,48 +528,79 @@ impl Component {
 		Ok(output)
 	}
 
+	/// Send a runner's report that it removed the directory of a destroying sandbox to the runner's scheduler, which authorizes it from its memory of the removal that it asked of the runner and records the destruction, and ask the runner to send the report again if the scheduler cannot be reached or cannot authorize it yet.
 	async fn destroy_runner_sandbox(
 		&self,
 		session: &Session,
 		runner: &tg::runner::Id,
+		scheduler: &tg::scheduler::Id,
 		arg: tg::runner::control::DestroySandboxClientRequestArg,
-	) -> tg::Result<tg::runner::control::DestroySandboxServerResponseOutput> {
-		let sandbox = &arg.sandbox;
-		let indexed = session.server.index.try_get_sandbox(sandbox).await?;
-		let destroyed = if indexed.as_ref().is_some_and(|indexed| {
-			indexed.runner.as_ref() == Some(runner)
-				&& indexed
-					.data
-					.as_ref()
-					.is_some_and(|data| !data.data.status.is_destroyed())
-		}) {
-			tangram_server_core::checkpoint!(session.server, "runner.control.destroy_sandbox", %runner, %sandbox)
-				.await;
-			let error = match arg.error {
-				Some(tg::Either::Left(data)) => Some(data),
-				Some(tg::Either::Right(id)) => Some(
-					tg::Error::with_id(id)
-						.data_with_instance(session)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
-				),
-				None => None,
-			};
-			session
-				.server
-				.components
-				.scheduler
-				.destroy_runner_sandbox(&session.server, sandbox, error)
-				.await?;
-			true
-		} else {
-			false
+	) -> tg::Result<(
+		tg::runner::control::DestroySandboxServerResponseOutput,
+		Option<tg::control::Retry>,
+	)> {
+		let error = match arg.error {
+			Some(tg::Either::Left(data)) => Some(data),
+			Some(tg::Either::Right(id)) => Some(
+				tg::Error::with_id(id)
+					.data_with_instance(session)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
+			),
+			None => None,
 		};
-		let output = tg::runner::control::DestroySandboxServerResponseOutput { destroyed };
+		let request = tangram_server_scheduler_core::RequestArg::RecordRunnerSandboxDestruction(
+			tangram_server_scheduler_core::RecordRunnerSandboxDestructionRequestArg {
+				error,
+				runner: runner.clone(),
+				sandbox: arg.sandbox,
+			},
+		);
+		let output = match session
+			.server
+			.components
+			.scheduler
+			.send_scheduler_request_to(session, scheduler, request)
+			.boxed()
+			.await
+		{
+			Ok(output) => output?,
+			Err(error) => {
+				tracing::warn!(error = %error.trace(), "failed to send the report to the scheduler");
+				let output =
+					tg::runner::control::DestroySandboxServerResponseOutput { destroyed: false };
+				return Ok((output, Some(tg::control::Retry::NotReady)));
+			},
+		}
+		.try_unwrap_record_runner_sandbox_destruction()
+		.map_err(|_| tg::error!("expected a record runner sandbox destruction response"))?;
+		let retry = output.retry;
+		let output = tg::runner::control::DestroySandboxServerResponseOutput {
+			destroyed: output.destroyed,
+		};
+
+		Ok((output, retry))
+	}
+
+	/// Ask that a sandbox that is stopped at a boot on the runner be destroyed, which the index decides with the write that records the sandbox as destroying only while it is still stopped at the boot. The sandbox's scheduler then has the runner remove the directory and records the destruction.
+	async fn destroy_runner_stopped_sandbox(
+		&self,
+		session: &Session,
+		runner: &tg::runner::Id,
+		arg: tg::runner::control::DestroyStoppedSandboxClientRequestArg,
+	) -> tg::Result<tg::runner::control::DestroyStoppedSandboxServerResponseOutput> {
+		let destroying = session
+			.server
+			.components
+			.sandbox
+			.destroy_stopped_sandbox_at_boot(session, &arg.sandbox, runner, arg.boot)
+			.await?;
+		let output = tg::runner::control::DestroyStoppedSandboxServerResponseOutput { destroying };
+
 		Ok(output)
 	}
 
-	/// Send a runner's report that a boot that it held ended to the runner's scheduler, which authorizes it from its memory of the boot and records it, and return the scheduler's request to send the report again if the scheduler cannot authorize it yet.
+	/// Send a runner's report that a boot that it held ended to the runner's scheduler, which authorizes it from its memory of the boot and records it, and ask the runner to send the report again if the scheduler cannot be reached or cannot authorize or record it yet.
 	async fn end_runner_sandbox(
 		&self,
 		session: &Session,
@@ -578,22 +617,30 @@ impl Component {
 				runner: runner.clone(),
 			},
 		);
-		let output = session
+		let output = match session
 			.server
 			.components
 			.scheduler
 			.send_scheduler_request_to(session, scheduler, request)
 			.boxed()
-			.await??
-			.try_unwrap_end_runner_sandbox()
-			.map_err(|_| tg::error!("expected an end runner sandbox response"))?;
+			.await
+		{
+			Ok(output) => output?,
+			Err(error) => {
+				tracing::warn!(error = %error.trace(), "failed to send the report to the scheduler");
+				let output = tg::runner::control::EndSandboxServerResponseOutput {};
+				return Ok((output, Some(tg::control::Retry::NotReady)));
+			},
+		}
+		.try_unwrap_end_runner_sandbox()
+		.map_err(|_| tg::error!("expected an end runner sandbox response"))?;
 		let retry = output.retry;
 		let output = tg::runner::control::EndSandboxServerResponseOutput {};
 
 		Ok((output, retry))
 	}
 
-	/// Send a runner's report of processes that it accepted and that cannot run, such as a process for a boot that ended, to the runner's scheduler, which authorizes it from its memory of the boot and of the processes that it offered into the boot and finishes them, and return the scheduler's request to send the report again if the scheduler cannot authorize it yet.
+	/// Send a runner's report of processes that it accepted and that cannot run, such as a process for a boot that ended, to the runner's scheduler, which authorizes it from its memory of the boot and of the processes that it offered into the boot and finishes them, and ask the runner to send the report again if the scheduler cannot be reached or cannot authorize or finish them yet.
 	async fn finish_runner_processes(
 		&self,
 		session: &Session,
@@ -610,15 +657,23 @@ impl Component {
 				runner: runner.clone(),
 			},
 		);
-		let output = session
+		let output = match session
 			.server
 			.components
 			.scheduler
 			.send_scheduler_request_to(session, scheduler, request)
 			.boxed()
-			.await??
-			.try_unwrap_finish_runner_processes()
-			.map_err(|_| tg::error!("expected a finish runner processes response"))?;
+			.await
+		{
+			Ok(output) => output?,
+			Err(error) => {
+				tracing::warn!(error = %error.trace(), "failed to send the report to the scheduler");
+				let output = tg::runner::control::FinishProcessesServerResponseOutput {};
+				return Ok((output, Some(tg::control::Retry::NotReady)));
+			},
+		}
+		.try_unwrap_finish_runner_processes()
+		.map_err(|_| tg::error!("expected a finish runner processes response"))?;
 		let retry = output.retry;
 		let output = tg::runner::control::FinishProcessesServerResponseOutput {};
 

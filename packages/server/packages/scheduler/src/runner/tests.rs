@@ -41,6 +41,7 @@ fn state(id: &tg::runner::Id, connection: u64, now: Instant) -> SchedulerState {
 		owner: None,
 		reservations: HashMap::default(),
 		reserved: tg::runner::Capacity::default(),
+		restarting: false,
 	};
 	state.runners.entries.insert(id.clone(), runner);
 	state

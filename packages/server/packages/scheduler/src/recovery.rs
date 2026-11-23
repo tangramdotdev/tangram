@@ -1,8 +1,8 @@
 use {
-	super::{Operation, RemoveRunnerRequestArg, Scheduler, SchedulerState},
+	super::{Operation, Scheduler, SchedulerState},
 	crate::Component,
 	futures::FutureExt as _,
-	std::collections::{BTreeSet, HashMap},
+	std::collections::{BTreeSet, HashMap, HashSet},
 	tangram_client::prelude::*,
 	tangram_server_core::Server,
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
@@ -28,7 +28,7 @@ pub(super) struct Recovery {
 	/// The held requests whose boots a runner reported and then lost by restarting, which wait for the index check of the runner's next first connection, and which the release of the recovery waits for.
 	restarted: HashMap<tg::sandbox::Id, Claim, tg::id::BuildHasher>,
 
-	runners: HashMap<tg::runner::Id, u64, tg::id::BuildHasher>,
+	runners: HashSet<tg::runner::Id, tg::id::BuildHasher>,
 
 	spawns: Vec<super::spawn::Spawn>,
 }
@@ -95,20 +95,20 @@ impl Scheduler {
 			.get_scheduler_runners(&self.id)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the scheduler's runners"))?;
-		let mut runners = HashMap::default();
+		let mut runners = HashSet::default();
 		for id in ids {
 			let runner =
 				self.server.index.try_get_runner(&id).await.map_err(
 					|error| tg::error!(!error, runner = %id, "failed to get the runner"),
 				)?;
 			if runner.is_some() {
-				runners.insert(id, 0);
+				runners.insert(id);
 			}
 		}
 
 		// Rebuild the boots that the index records on the runners, with their processes, so that this scheduler authorizes the runners' reports of them as before the restart. Remember the ended boots at once, whose ends their runners may still report, and hold the running boots until their runners report.
 		let mut boots = HashMap::<_, Vec<_>, tg::id::BuildHasher>::default();
-		for runner in runners.keys() {
+		for runner in &runners {
 			for (recovered, running) in self.get_recovered_boots(runner, &requests).await? {
 				if running {
 					boots.entry(runner.clone()).or_default().push(recovered);
@@ -280,7 +280,7 @@ impl Scheduler {
 impl Recovery {
 	/// Whether this scheduler waits for a runner to report after it restarted.
 	pub(super) fn has_runner(&self, runner: &tg::runner::Id) -> bool {
-		self.runners.contains_key(runner)
+		self.runners.contains(runner)
 	}
 }
 
@@ -378,7 +378,7 @@ impl SchedulerState {
 			return;
 		};
 		let runners = std::mem::take(&mut recovery.runners);
-		for (runner, connection) in runners {
+		for runner in runners {
 			tracing::warn!(%runner, "the runner did not report after the scheduler restarted");
 
 			// Leave the restarts that are queued for the runner to this scheduler, which holds them.
@@ -388,14 +388,14 @@ impl SchedulerState {
 				.filter(|(_, request)| request.boot > 0 && request.runner.as_ref() == Some(&runner))
 				.map(|(id, _)| id.clone())
 				.collect::<Vec<_>>();
-			let request = RemoveRunnerRequestArg { connection, runner };
 			let scheduler = scheduler.clone();
 			self.operations.push(
 				async move {
 					let result = scheduler
-						.remove_runner(request, queued, Vec::new())
+						.end_dead_runner(&runner, queued, Vec::new(), false)
 						.boxed()
-						.await;
+						.await
+						.map(|()| super::RemoveRunnerResponseOutput { runner });
 					Operation::RemoveRunner { id: None, result }
 				}
 				.boxed(),
@@ -634,36 +634,33 @@ impl SchedulerState {
 		self.accept_sandbox(scheduler, id, runner);
 	}
 
-	/// End a boot that a runner claimed and lost, which leaves its sandbox stopped on the runner, with the end of a non-holder, which is numbered zero.
+	/// End a boot that a runner claimed and lost, or that a runner wrote and did not claim, because the runner restarted or was declared dead, through the end of a dead runner's boot, which leaves the sandbox stopped on the runner, or destroyed if its ttl is zero. Remember the boot as ended, so that this scheduler tells the runner when it connects again.
 	fn fail_claimed_sandbox(&mut self, scheduler: &Scheduler, claim: Claim) {
-		let Claim {
-			mut request,
-			runner,
-		} = claim;
-
-		// Remember the boot as ended, so that this scheduler tells the runner when it connects again.
-		let ended = super::report::EndedBoot {
-			processes: BTreeSet::new(),
-			runner: runner.clone(),
-		};
-		self.sandboxes
-			.ended
-			.insert_declared(request.sandbox.clone(), request.boot, ended);
-		request.runner.get_or_insert(runner);
+		let Claim { request, runner } = claim;
+		self.remember_ended_boot(&request.sandbox, request.boot, &runner);
+		let destroy = request
+			.arg
+			.time_to_live
+			.is_some_and(|time_to_live| time_to_live.is_zero());
 		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
 				let error =
-					tg::error!(sandbox = %request.sandbox, "the sandbox's runner is unavailable");
+					tg::error!(sandbox = %request.sandbox, "the sandbox's runner is unavailable")
+						.to_data_or_id()
+						.left()
+						.unwrap_or_default();
+				let arg = super::runner::EndDeadRunnerBootArg {
+					boot: request.boot,
+					destroy,
+					error,
+					runner: &runner,
+					sandbox: &request.sandbox,
+					task: None,
+				};
 				let result = scheduler
-					.put_sandbox_status(
-						&request,
-						tg::sandbox::Status::Stopped,
-						Some(error.to_data_or_id()),
-						None,
-						false,
-						0,
-					)
+					.component
+					.end_dead_runner_boot(&scheduler.server, arg)
 					.await;
 				Operation::Finished {
 					context: "failed to record the failed sandbox",

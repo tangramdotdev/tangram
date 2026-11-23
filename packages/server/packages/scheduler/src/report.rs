@@ -5,14 +5,16 @@ use {
 	futures::FutureExt as _,
 	std::collections::{BTreeSet, HashMap},
 	tangram_client::prelude::*,
+	tangram_index::prelude::*,
 	tangram_server_scheduler_core::{
 		FinishRunnerProcessesRequestArg, FinishRunnerProcessesResponseOutput,
+		RecordRunnerSandboxDestructionRequestArg, RecordRunnerSandboxDestructionResponseOutput,
 	},
 };
 
 type Key = (tg::sandbox::Id, u64);
 
-/// The boots that runners held and that ended or that a later boot replaced, which this scheduler remembers so that it can authorize a runner's late report of one, until the runner restarts or is removed, or for between one and two of the runner ttls.
+/// The boots that runners held and that ended or that a later boot replaced, which this scheduler remembers so that it can authorize a runner's late report of one, until the runner restarts or is removed, or for between one and two of the runner ttls, and the boots that this scheduler ended for a runner that it declared dead, which it remembers until the runner's next first connection, so that it tells the runner from its memory when the runner connects again.
 #[derive(Default)]
 pub(super) struct Ended {
 	current: HashMap<Key, EndedBoot>,
@@ -32,7 +34,8 @@ pub(super) struct EndedBoot {
 
 /// A runner's report about a boot, which this scheduler authorizes before it acts on any of it.
 pub(super) struct Report<'a> {
-	pub(super) boot: u64,
+	/// The boot that the report is about, or `None` for a report about the directory of a destroying sandbox.
+	pub(super) boot: Option<u64>,
 
 	/// The processes that the report names.
 	pub(super) processes: Vec<&'a tg::process::Id>,
@@ -77,6 +80,9 @@ pub(super) enum Held {
 
 	/// This scheduler offered the boot to the runner, whose answer is unanswered.
 	Offered(Placement),
+
+	/// This scheduler asked the runner to remove the directory of the destroying sandbox.
+	Removing,
 }
 
 impl Ended {
@@ -86,7 +92,12 @@ impl Ended {
 	}
 
 	/// Remember a boot that this scheduler ended for a runner that it declared dead.
-	pub(super) fn insert_declared(&mut self, sandbox: tg::sandbox::Id, boot: u64, ended: EndedBoot) {
+	pub(super) fn insert_declared(
+		&mut self,
+		sandbox: tg::sandbox::Id,
+		boot: u64,
+		ended: EndedBoot,
+	) {
 		self.declared.insert((sandbox, boot), ended);
 	}
 
@@ -127,7 +138,7 @@ impl Ended {
 }
 
 impl SchedulerState {
-	/// Authorize a runner's report about a boot, which every report from a runner that finishes, ends, or records something goes through before this scheduler acts on any of it. The runner holds or held the boot if this scheduler gave or offered the boot to it, if this scheduler remembers that the runner held the boot that ended, or if the runner proves that it derived the sandbox's ID for the first boot of a sandbox that it started on the shortcut path. A report that this scheduler cannot authorize is refused, unless the scheduler is recovering after a restart and may know the boot once its runners have reported. Of the processes that the report names, only the ones that this scheduler offered into the boot are authorized.
+	/// Authorize a runner's report about a boot or about the directory of a destroying sandbox, which every report from a runner that finishes, ends, or records something goes through before this scheduler acts on any of it. The runner holds or held the boot if this scheduler gave or offered the boot to it, if this scheduler remembers that the runner held the boot that ended, or if the runner proves that it derived the sandbox's ID for the first boot of a sandbox that it started on the shortcut path. A report about a destroying sandbox's directory is authorized if this scheduler asked the runner to remove it. A report that this scheduler cannot authorize is refused, unless the scheduler is recovering after a restart and may know the boot once its runners have reported. Of the processes that the report names, only the ones that this scheduler offered into the boot are authorized.
 	pub(super) fn authorize_runner_report(&self, report: &Report) -> Authorization {
 		let Report {
 			boot,
@@ -136,7 +147,22 @@ impl SchedulerState {
 			runner,
 			sandbox,
 		} = report;
-		let boot = *boot;
+
+		// Authorize a report about the directory of a destroying sandbox whose removal this scheduler asked of the runner.
+		let Some(boot) = *boot else {
+			if self.sandboxes.removing.get(*sandbox) == Some(*runner) {
+				let authorized = Authorized {
+					held: Held::Removing,
+					processes: BTreeSet::new(),
+				};
+				return Authorization::Authorized(authorized);
+			}
+			if self.recovery.is_some() {
+				return Authorization::NotReady;
+			}
+			let error = tg::error!(%sandbox, %runner, "the scheduler did not ask the runner to remove the sandbox's directory");
+			return Authorization::Refused(error);
+		};
 
 		// Find the boot that this scheduler gave or offered to the runner.
 		let entry = self
@@ -216,7 +242,7 @@ impl SchedulerState {
 			.filter_map(|process| process.id.as_ref())
 			.collect();
 		let report = Report {
-			boot: finish.boot,
+			boot: Some(finish.boot),
 			processes,
 			proof: None,
 			runner: &runner,
@@ -230,12 +256,12 @@ impl SchedulerState {
 				};
 				let output = ResponseOutput::FinishRunnerProcesses(output);
 				let response = super::request::Response::new(id, Ok(output));
-				scheduler.send_response(self, response);
+				scheduler.send_response(response);
 				return;
 			},
 			Authorization::Refused(error) => {
 				let response = super::request::Response::new(id, Err(error));
-				scheduler.send_response(self, response);
+				scheduler.send_response(response);
 				return;
 			},
 		};
@@ -256,10 +282,11 @@ impl SchedulerState {
 		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
-				scheduler
+				let finished = scheduler
 					.finish_reported_processes(processes, error, sequence)
 					.await;
-				let output = FinishRunnerProcessesResponseOutput { retry: None };
+				let retry = (!finished).then_some(tg::control::Retry::NotReady);
+				let output = FinishRunnerProcessesResponseOutput { retry };
 				Operation::FinishRunnerProcesses {
 					id,
 					result: Ok(output),
@@ -270,14 +297,126 @@ impl SchedulerState {
 	}
 }
 
+impl SchedulerState {
+	/// Handle a runner's report that it removed the directory of a destroying sandbox. Authorize the report, and then, in an operation, record the destruction.
+	pub(super) fn handle_record_runner_sandbox_destruction_request(
+		&mut self,
+		scheduler: &Scheduler,
+		id: String,
+		request: RecordRunnerSandboxDestructionRequestArg,
+	) {
+		let RecordRunnerSandboxDestructionRequestArg {
+			error,
+			runner,
+			sandbox,
+		} = request;
+
+		// Authorize the report.
+		let report = Report {
+			boot: None,
+			processes: Vec::new(),
+			proof: None,
+			runner: &runner,
+			sandbox: &sandbox,
+		};
+		match self.authorize_runner_report(&report) {
+			Authorization::Authorized(_) => (),
+			Authorization::NotReady => {
+				let output = RecordRunnerSandboxDestructionResponseOutput {
+					destroyed: false,
+					retry: Some(tg::control::Retry::NotReady),
+				};
+				let output = ResponseOutput::RecordRunnerSandboxDestruction(output);
+				let response = super::request::Response::new(id, Ok(output));
+				scheduler.send_response(response);
+				return;
+			},
+			Authorization::Refused(error) => {
+				tracing::warn!(error = %error.trace(), "refused the runner's report of the sandbox's destruction");
+				let output = RecordRunnerSandboxDestructionResponseOutput {
+					destroyed: false,
+					retry: None,
+				};
+				let output = ResponseOutput::RecordRunnerSandboxDestruction(output);
+				let response = super::request::Response::new(id, Ok(output));
+				scheduler.send_response(response);
+				return;
+			},
+		}
+
+		// Record the destruction in an operation.
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+					let result = scheduler
+					.record_runner_sandbox_destruction(&runner, &sandbox, error)
+					.await
+					.map(|destroyed| RecordRunnerSandboxDestructionResponseOutput {
+						destroyed,
+						retry: None,
+					})
+					.or_else(|error| {
+						tracing::warn!(error = %error.trace(), %sandbox, "failed to record the destruction of the sandbox");
+						Ok(RecordRunnerSandboxDestructionResponseOutput {
+							destroyed: false,
+							retry: Some(tg::control::Retry::NotReady),
+						})
+					});
+				Operation::RecordRunnerSandboxDestruction { id, result }
+			}
+			.boxed(),
+		);
+	}
+}
+
 impl Scheduler {
-	/// Finish as failed with the error the processes of an authorized report, which this scheduler offered into the reported boot, from the runner's report of its memory.
+	/// Record the destruction of a destroying sandbox whose directory its runner removed, and return whether the index records it. A sandbox that is not destroying on the runner is left alone, because the destroy of a stopped sandbox is decided by the write that records it as destroying.
+	async fn record_runner_sandbox_destruction(
+		&self,
+		runner: &tg::runner::Id,
+		sandbox: &tg::sandbox::Id,
+		error: Option<tg::error::Data>,
+	) -> tg::Result<bool> {
+		// Leave a sandbox that is not destroying on the runner.
+		let indexed = self.server.index.try_get_sandbox(sandbox).await?;
+		let destroying = indexed.as_ref().is_some_and(|indexed| {
+			indexed.runner.as_ref() == Some(runner)
+				&& indexed
+					.data
+					.as_ref()
+					.is_some_and(|data| data.data.status.is_destroying())
+		});
+		if !destroying {
+			return Ok(false);
+		}
+
+		// Record the destruction.
+		tangram_server_core::checkpoint!(self.server, "runner.control.destroy_sandbox", %runner, %sandbox)
+			.await;
+		self.component
+			.destroy_runner_sandbox(&self.server, sandbox, error)
+			.await?;
+
+		// Report whether the index recorded the destruction.
+		let destroyed = self
+			.server
+			.index
+			.try_get_sandbox(sandbox)
+			.await?
+			.and_then(|indexed| indexed.data)
+			.is_some_and(|data| data.data.status.is_destroyed());
+
+		Ok(destroyed)
+	}
+
+	/// Finish as failed with the error the processes of an authorized report, which this scheduler offered into the reported boot, from the runner's report of its memory, at the number of the runner's report, and return whether every finish succeeded.
 	pub(super) async fn finish_reported_processes(
 		&self,
 		processes: Vec<tg::runner::control::Process>,
 		error: tg::Either<tg::error::Data, tg::error::Id>,
 		sequence: u64,
-	) {
+	) -> bool {
+		let mut finished = true;
 		for process in processes {
 			let Some(id) = &process.id else {
 				continue;
@@ -291,7 +430,10 @@ impl Scheduler {
 				.await;
 			if let Err(error) = result {
 				tracing::warn!(error = %error.trace(), process = %id, "failed to finish the reported process");
+				finished = false;
 			}
 		}
+
+		finished
 	}
 }

@@ -121,6 +121,9 @@ pub enum RequestArg {
 	#[tangram_serialize(id = 13)]
 	FinishRunnerProcesses(FinishRunnerProcessesRequestArg),
 
+	#[tangram_serialize(id = 14)]
+	RecordRunnerSandboxDestruction(RecordRunnerSandboxDestructionRequestArg),
+
 	#[tangram_serialize(id = 8)]
 	RemoveRunner(RemoveRunnerRequestArg),
 }
@@ -162,6 +165,9 @@ pub enum ResponseOutput {
 
 	#[tangram_serialize(id = 13)]
 	FinishRunnerProcesses(FinishRunnerProcessesResponseOutput),
+
+	#[tangram_serialize(id = 14)]
+	RecordRunnerSandboxDestruction(RecordRunnerSandboxDestructionResponseOutput),
 
 	#[tangram_serialize(id = 8)]
 	RemoveRunner(RemoveRunnerResponseOutput),
@@ -217,7 +223,7 @@ pub struct AddRunnerResponseOutput {
 	/// The reported boots that the scheduler ended because it declared the runner dead, which the runner gives up without writing anything more for them.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
-	pub ended: Vec<tg::sandbox::Id>,
+	pub ended: Vec<tg::runner::control::EndedSandbox>,
 
 	/// The reported sandboxes with directories whose directories the runner keeps, because the sandboxes are stopped on the runner or their boots wait in the scheduler's queue.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -407,10 +413,7 @@ pub struct DestroyRunnerSandboxRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct DestroyRunnerSandboxResponseOutput {
-	#[tangram_serialize(id = 0)]
-	pub destroyed: bool,
-}
+pub struct DestroyRunnerSandboxResponseOutput {}
 
 /// A runner's report that a boot that it held ended, which the scheduler authorizes from its memory of the boot and records.
 #[derive(
@@ -473,6 +476,46 @@ pub struct FinishRunnerProcessesResponseOutput {
 	/// The scheduler's request that the runner send the report again later, because the scheduler cannot authorize it yet.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<tg::control::Retry>,
+}
+
+/// A runner's report that it removed the directory of a destroying sandbox, which the scheduler authorizes from its memory of the removal that it asked of the runner.
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct RecordRunnerSandboxDestructionRequestArg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::error::Data>,
+
+	#[tangram_serialize(id = 1)]
+	pub runner: tg::runner::Id,
+
+	#[tangram_serialize(id = 2)]
+	pub sandbox: tg::sandbox::Id,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct RecordRunnerSandboxDestructionResponseOutput {
+	/// Whether the index records the sandbox as destroyed by this report.
+	#[tangram_serialize(id = 0)]
+	pub destroyed: bool,
+
+	/// The scheduler's request that the runner send the report again later, because the scheduler cannot authorize it yet.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<tg::control::Retry>,
 }
 

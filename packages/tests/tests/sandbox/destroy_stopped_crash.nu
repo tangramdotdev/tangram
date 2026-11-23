@@ -18,14 +18,17 @@ let runner = server spawn --name runner --config {
 let sandbox = tg --url $remote.url --token $root_token sandbox create --wait --no-tokens | referent node
 tg --url $remote.url --token $root_token sandbox stop --wait $sandbox
 
-# Destroy the sandbox, and kill the server after it records the destruction and before it asks the runner to remove the sandbox's directory.
+# Destroy the sandbox, and kill the server after it records the destruction and before it hands the removal of the sandbox's directory to the scheduler.
 let remove = checkpoint watch sandbox.destroy.remove --params { sandbox: $sandbox } --token $root_token --url $remote.url
-tg --url $remote.url --token $root_token sandbox destroy $sandbox
+let url = $remote.url
+job spawn {
+	tg --url $url --token $root_token sandbox destroy $sandbox | complete | ignore
+} | ignore
 checkpoint wait $remove | ignore
 let pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 9 $pid
 wait_for_exit $pid
 
-# Start the server again. The sandbox is destroyed once the runner reports it and removes its directory.
+# Start the server again. The sandbox is destroyed once the runner connects again and its scheduler removes the directory through it.
 let remote = server start $remote
 success (timeout 30s tg --url $remote.url --token $root_token sandbox status --until destroyed $sandbox | complete) "the sandbox should be destroyed without another destroy"

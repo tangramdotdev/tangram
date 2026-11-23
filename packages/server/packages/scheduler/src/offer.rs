@@ -10,7 +10,7 @@ use {
 	tangram_server_core::{Session, control::accept::Path},
 };
 
-/// The number of a runner's first write of a boot, which follows the scheduler's writes of the boot, which it numbers zero.
+/// The number of a runner's first write of a boot, which the offer carries and which follows every write of the scheduler that the runner's writes may meet. The scheduler numbers its writes of a queued boot zero, and its end of a queued boot that it holds one, after which it offers the boot to no runner.
 pub(super) const FIRST_RUNNER_WRITE: u64 = 1;
 
 pub(super) struct OfferArg<'a> {
@@ -71,7 +71,7 @@ impl SchedulerState {
 		self.hand_off_sandbox(scheduler, request, runner_id);
 
 		// Reply to the waiting dequeues that the sandbox was not dequeued, and to the waiting enqueues that the sandbox is enqueued.
-		self.send_dequeue_responses(scheduler, dequeue_requests, false);
+		scheduler.send_dequeue_responses(dequeue_requests, false);
 		self.finish_accept(scheduler, id, Path::Handled, Ok(()));
 	}
 
@@ -171,7 +171,7 @@ impl SchedulerState {
 		if !dequeue_requests.is_empty() {
 			// End a sandbox that a dequeue waits for.
 			self.end_sandbox_and_log(scheduler, id, tg::sandbox::Status::Destroyed, None);
-			self.send_dequeue_responses(scheduler, dequeue_requests, true);
+			scheduler.send_dequeue_responses(dequeue_requests, true);
 		} else if let Some(source) = failure
 			&& failures >= scheduler.config.max_offer_failures
 		{
@@ -522,7 +522,7 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 		},
 	);
 
-	// Send the offer once and wait for the answer until the timeout, because the scheduler sends the offer again with the same ID if the runner does not answer.
+	// Send the offer once and wait for the answer until the timeout, because the scheduler sends the offer again with the same ID if the runner does not answer. The request's own timeout bounds each wait for an acknowledgement or an answer and restarts after an acknowledgement, so the outer timeout bounds the whole wait.
 	let retry = tangram_futures::retry::Options {
 		max_retries: 0,
 		..session.server.config.control.request_retry.clone().into()

@@ -58,8 +58,8 @@ pub struct State {
 	/// The number of times that the runner has connected to a scheduler, which changes even when a restarted scheduler keeps its ID.
 	pub scheduler_connections: tokio::sync::watch::Sender<u64>,
 
-	/// The sandboxes that are starting, with the boots that they start.
-	pub starting: dashmap::DashMap<tg::sandbox::Id, u64>,
+	/// The boots whose tasks run, from the runner's yes until the task ends.
+	pub starting: dashmap::DashMap<tg::sandbox::Id, crate::sandbox::Starting>,
 
 	#[cfg(target_os = "linux")]
 	pub stopped_project_ids: dashmap::DashMap<tg::sandbox::Id, crate::project::Id>,

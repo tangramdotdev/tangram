@@ -1,16 +1,17 @@
 use {
 	super::{
-		EndRunnerSandboxRequestArg, EndRunnerSandboxResponseOutput, Operation, ResponseOutput,
-		Scheduler, SchedulerState,
+		EndRunnerSandboxRequestArg, EndRunnerSandboxResponseOutput, Operation, Scheduler,
+		SchedulerState,
 		report::{Authorization, Authorized, EndedBoot, Held, Report},
 	},
 	futures::FutureExt as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
+	tangram_index::prelude::*,
 };
 
 impl SchedulerState {
-	/// Handle a runner's report that a boot that it held ended, which the runner sends after it finished every process of the boot. Authorize the report, and act on nothing in a report that is not authorized. Treat a report of a boot whose offer to the runner is unanswered as the runner's yes. Forget the boot, which frees its capacity, or remember a boot on the shortcut path that this scheduler did not know as ended, so that a late report of the sandbox does not track it again. Then, in an operation, record the end.
+	/// Handle a runner's report that a boot that it held ended, which the runner sends after it finished every process of the boot. Authorize the report, and act on nothing in a report that is not authorized. Treat a report of a boot whose offer to the runner is unanswered as the runner's yes. Forget the boot, which frees its capacity, or remember a boot on the shortcut path that this scheduler did not know as ended, so that a late report of the sandbox does not track it again. Then, in an operation, record the end, and ask the runner to send the report again if the write fails, which the memory of the ended boot authorizes.
 	pub(super) fn handle_end_runner_sandbox_request(
 		&mut self,
 		scheduler: &Scheduler,
@@ -24,7 +25,7 @@ impl SchedulerState {
 		// Authorize the report, which names the boot's processes.
 		let processes = end.processes.iter().collect();
 		let report = Report {
-			boot,
+			boot: Some(boot),
 			processes,
 			proof: end.proof.as_ref(),
 			runner: &runner,
@@ -33,17 +34,14 @@ impl SchedulerState {
 		let Authorized { held, processes } = match self.authorize_runner_report(&report) {
 			Authorization::Authorized(authorized) => authorized,
 			Authorization::NotReady => {
-				let output = EndRunnerSandboxResponseOutput {
+				let result = Ok(EndRunnerSandboxResponseOutput {
 					retry: Some(tg::control::Retry::NotReady),
-				};
-				let output = ResponseOutput::EndRunnerSandbox(output);
-				let response = super::request::Response::new(id, Ok(output));
-				scheduler.send_response(self, response);
+				});
+				self.acknowledge_ended_runner_sandbox(scheduler, id, sandbox, boot, result);
 				return;
 			},
 			Authorization::Refused(error) => {
-				let response = super::request::Response::new(id, Err(error));
-				scheduler.send_response(self, response);
+				self.acknowledge_ended_runner_sandbox(scheduler, id, sandbox, boot, Err(error));
 				return;
 			},
 		};
@@ -67,14 +65,53 @@ impl SchedulerState {
 				};
 				self.sandboxes.ended.insert(sandbox.clone(), boot, ended);
 			},
-			Held::Ended => {},
+			Held::Ended | Held::Removing => {},
 		}
 
 		// Record the end in an operation.
 		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
-				let result = scheduler.end_runner_sandbox(&runner, end, processes).await;
+				let result = scheduler
+					.end_runner_sandbox(&runner, end, processes)
+					.await
+					.or_else(|error| {
+						tracing::warn!(error = %error.trace(), %sandbox, "failed to record the end of the sandbox");
+						Ok(EndRunnerSandboxResponseOutput {
+							retry: Some(tg::control::Retry::NotReady),
+						})
+					});
+				Operation::EndRunnerSandbox { id, result }
+			}
+			.boxed(),
+		);
+	}
+}
+
+impl SchedulerState {
+	/// Answer a report of the end of a boot that this scheduler cannot authorize. Acknowledge it without acting on it if the index records the sandbox as destroyed or at a later boot, such as a sandbox that was destroyed while this scheduler was down, so that the runner finishes its end, and give the answer of the authorization otherwise.
+	fn acknowledge_ended_runner_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		id: String,
+		sandbox: tg::sandbox::Id,
+		boot: u64,
+		result: tg::Result<EndRunnerSandboxResponseOutput>,
+	) {
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let indexed = scheduler.server.index.try_get_sandbox(&sandbox).await;
+				let ended = indexed
+					.ok()
+					.flatten()
+					.and_then(|indexed| indexed.data)
+					.is_some_and(|data| data.data.status.is_destroyed() || data.data.boot > boot);
+				let result = if ended {
+					Ok(EndRunnerSandboxResponseOutput { retry: None })
+				} else {
+					result
+				};
 				Operation::EndRunnerSandbox { id, result }
 			}
 			.boxed(),

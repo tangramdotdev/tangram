@@ -58,6 +58,9 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub sandbox_create: Option<tg::process::control::SandboxCreate>,
 	pub sandbox_ready_receiver: Option<tokio::sync::oneshot::Receiver<()>>,
 
+	/// The spawner of the process, which finishes the process as failed if no server accepts its finish.
+	pub spawner: crate::sandbox::Spawner,
+
 	/// The writes of the process's boot, which number the process's start and finish.
 	pub writes: crate::sandbox::Writes,
 }
@@ -80,6 +83,7 @@ struct ProcessTaskArg {
 	sandbox_create: Option<tg::process::control::SandboxCreate>,
 	sandbox_ready_receiver: Option<tokio::sync::oneshot::Receiver<()>>,
 	sandbox_stopper: Stopper,
+	spawner: crate::sandbox::Spawner,
 	writes: crate::sandbox::Writes,
 }
 
@@ -261,6 +265,7 @@ impl Component {
 		let sandbox_ready_receiver = arg.sandbox_ready_receiver;
 		let sandbox_stopper = arg.process_stopper.clone();
 		let retention_stopper = arg.retention_stopper;
+		let spawner = arg.spawner;
 		let writes = arg.writes;
 		arg.process_tasks.spawn(
 			async move {
@@ -277,6 +282,7 @@ impl Component {
 					sandbox_create,
 					sandbox_ready_receiver,
 					sandbox_stopper,
+					spawner,
 					writes,
 				};
 				let result = if session.server.shutdown.borrow().is_some() {
@@ -311,11 +317,13 @@ impl Component {
 			sandbox_create,
 			mut sandbox_ready_receiver,
 			sandbox_stopper,
+			spawner,
 			writes,
 		} = arg;
 
-		// Count the process's finish as unaccepted until a server accepts it, so that the end of the boot waits for it.
+		// Count the process's finish as unaccepted until a server accepts it, so that the end of the boot waits for it, and keep the process to finish it as failed if no server accepts its finish.
 		let unaccepted = writes.begin();
+		let unfinished = process.clone();
 		let tg::runner::control::Process {
 			mut data,
 			id,
@@ -913,9 +921,11 @@ impl Component {
 						local: control_receiver,
 						location,
 						outcome_sync: outcome_sync_receiver,
+						process: unfinished,
 						retention_stopper,
 						sandbox,
 						sandbox_process: sandbox_process_receiver,
+						spawner,
 						stderr,
 						stderr_buffered: stderr_buffered_sender,
 						stderr_progress,

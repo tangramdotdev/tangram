@@ -28,6 +28,9 @@ pub(super) struct Sandboxes {
 	/// The sandboxes that the scheduler tracks, from their enqueues until the index has recorded their ends or their runners report their ends.
 	pub(super) entries: Entries,
 
+	/// The destroying sandboxes whose directories the scheduler asked their runners to remove, which authorize the runners' reports of the removals.
+	pub(super) removing: HashMap<tg::sandbox::Id, tg::runner::Id, tg::id::BuildHasher>,
+
 	/// The tasks that serve the requests to the holders of the sandboxes that this scheduler knows, and of their queued processes until a runner holds them, which are absent until the subscriptions are established.
 	pub(super) holders: HashMap<tg::sandbox::Id, Option<HolderTasks>, tg::id::BuildHasher>,
 
@@ -183,6 +186,7 @@ impl Sandboxes {
 			holders: HashMap::default(),
 			indexing: false,
 			offers: 0,
+			removing: HashMap::default(),
 			reserving: HashMap::default(),
 			written: Vec::new(),
 		}
@@ -284,7 +288,7 @@ impl SchedulerState {
 					return;
 				},
 				State::Accepted { .. } | State::Terminal { .. } if request.boot <= entry.boot => {
-					self.send_enqueue_responses(scheduler, ids, Ok(()));
+					scheduler.send_enqueue_responses(ids, Ok(()));
 					return;
 				},
 				State::Accepted { .. } | State::Terminal { .. } => {
@@ -329,7 +333,7 @@ impl SchedulerState {
 				let output =
 					ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput::Unplaceable);
 				let response = super::request::Response::new(id, Ok(output));
-				scheduler.send_response(self, response);
+				scheduler.send_response(response);
 			}
 			return;
 		}
@@ -353,12 +357,24 @@ impl SchedulerState {
 			}
 		}
 
+		// Get whether the scheduler tracks the reserved boot already, such as after a start of the same boot, or tracks a queued or offered boot. An entry of an earlier boot that a runner accepted or that the scheduler ended is replaced by the reserved boot.
+		let tracked = self
+			.sandboxes
+			.entries
+			.get(&request.sandbox)
+			.is_some_and(|entry| {
+				entry.boot >= request.boot
+					|| matches!(entry.state, State::Offered { .. } | State::Queued)
+			});
 		match result {
-			Ok(true) if self.sandboxes.entries.contains_key(&request.sandbox) => {
+			Ok(true) if tracked => {
 				let sandbox = request.sandbox;
 				self.finish_enqueue(scheduler, ids, &sandbox, Ok(()));
 			},
 			Ok(true) => {
+				if self.sandboxes.entries.contains_key(&request.sandbox) {
+					self.remove_sandbox(scheduler, &request.sandbox);
+				}
 				let sandbox = request.sandbox.clone();
 				let result = self.enqueue_sandbox(scheduler, request, true);
 				self.finish_enqueue(scheduler, ids, &sandbox, result.map(|_| ()));
@@ -368,11 +384,11 @@ impl SchedulerState {
 					let output =
 						ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput::Superseded);
 					let response = super::request::Response::new(id, Ok(output));
-					scheduler.send_response(self, response);
+					scheduler.send_response(response);
 				}
 			},
 			Err(error) => {
-				self.send_enqueue_responses(scheduler, ids, Err(error));
+				scheduler.send_enqueue_responses(ids, Err(error));
 			},
 		}
 	}
@@ -412,7 +428,7 @@ impl SchedulerState {
 			}
 			return;
 		}
-		self.send_enqueue_responses(scheduler, ids, result);
+		scheduler.send_enqueue_responses(ids, result);
 	}
 
 	/// Record the result of a path of a sandbox's acceptance, and respond to its enqueue requests the first time that the acceptance is decided.
@@ -442,7 +458,7 @@ impl SchedulerState {
 			entry.accept = None;
 		}
 		if let Some((ids, result)) = output {
-			self.send_enqueue_responses(scheduler, ids, result);
+			scheduler.send_enqueue_responses(ids, result);
 		}
 	}
 
@@ -456,7 +472,7 @@ impl SchedulerState {
 		if !ids.is_empty() {
 			let error =
 				tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
-			self.send_enqueue_responses(scheduler, ids, Err(error));
+			scheduler.send_enqueue_responses(ids, Err(error));
 		}
 
 		Some(sandbox)
@@ -483,7 +499,7 @@ impl SchedulerState {
 		Some((sandbox, ids))
 	}
 
-	/// End a sandbox that no runner accepted, and write its terminal state. Keep the sandbox's entry until the index has recorded the terminal state, so that an enqueue of the sandbox that the lagging index sends again does not start it. Return the write, which a response that follows it awaits.
+	/// End a sandbox that this scheduler holds, and write its terminal state, numbered as this scheduler's second write of the boot. Keep the sandbox's entry until the index has recorded the terminal state, so that an enqueue of the sandbox that the lagging index sends again does not start it. Return the write, which a response that follows it awaits.
 	pub(super) fn end_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
@@ -491,36 +507,46 @@ impl SchedulerState {
 		status: tg::sandbox::Status,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 	) -> Write {
-		// End the sandbox, which leaves the queue. The end of a boot that this scheduler holds is its second write of the boot, and the end of a boot whose offer is unanswered, which has no holder, is numbered zero.
-		self.remove_queued_sandbox(id);
-		let entry = self.sandboxes.entries.get_mut(id).unwrap();
-		let sequence = u64::from(!matches!(entry.state, State::Offered { .. }));
-		entry.state = State::Terminal {
-			error: error.clone(),
-			indexed: false,
-			status,
-		};
-		let boot = entry.boot;
-		let request = entry.request().clone();
-		let source =
-			tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
-		self.finish_accept(scheduler, id, Path::Handled, Err(source));
-
-		// Write the terminal state.
+		let request = self.sandboxes.entries[id].request().clone();
 		let write = {
 			let scheduler = scheduler.clone();
+			let error = error.clone();
 			async move {
 				tangram_server_core::checkpoint!(scheduler.server, "scheduler.sandbox.end", sandbox = %request.sandbox, status = %status)
 					.await;
 				scheduler
-					.put_sandbox_status(&request, status, error, None, false, sequence)
+					.put_sandbox_status(&request, status, error, None, false, 1)
 					.await
 			}
 			.boxed()
-			.shared()
 		};
+		self.end_sandbox_with_write(scheduler, id, status, error, write)
+	}
+
+	/// End a sandbox that no runner accepted with a write of its terminal state. Keep the sandbox's entry until the index has recorded the terminal state, and return the write, which a response that follows it awaits.
+	pub(super) fn end_sandbox_with_write(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::sandbox::Id,
+		status: tg::sandbox::Status,
+		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+		write: future::BoxFuture<'static, tg::Result<()>>,
+	) -> Write {
+		// End the sandbox, which leaves the queue.
+		self.remove_queued_sandbox(id);
+		let entry = self.sandboxes.entries.get_mut(id).unwrap();
+		entry.state = State::Terminal {
+			error,
+			indexed: false,
+			status,
+		};
+		let boot = entry.boot;
+		let source =
+			tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
+		self.finish_accept(scheduler, id, Path::Handled, Err(source));
 
 		// Report the write, so that the sandbox's entry is removed once the index has recorded the terminal state.
+		let write = write.shared();
 		let sandbox = id.clone();
 		let written = write.clone();
 		self.operations.push(
@@ -655,20 +681,6 @@ impl SchedulerState {
 		if remove {
 			self.remove_sandbox(scheduler, sandbox);
 			self.stop_serving_sandbox_holder(sandbox);
-		}
-	}
-
-	pub(super) fn send_enqueue_responses(
-		&mut self,
-		scheduler: &Scheduler,
-		ids: Vec<String>,
-		result: tg::Result<()>,
-	) {
-		let result =
-			result.map(|()| ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput::Enqueued));
-		for id in ids {
-			let response = super::request::Response::new(id, result.clone());
-			scheduler.send_response(self, response);
 		}
 	}
 
@@ -889,7 +901,7 @@ impl SchedulerState {
 				}
 
 				let error = tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
-				self.send_enqueue_responses(scheduler, ids, Err(error));
+				scheduler.send_enqueue_responses(ids, Err(error));
 
 				// Serve the spawns into the sandbox, which this scheduler sends to its runner.
 				self.serve_sandbox_holder(scheduler, id, None);
@@ -1037,19 +1049,6 @@ impl SchedulerState {
 		output
 	}
 
-	/// Reply to dequeue requests.
-	pub(super) fn send_dequeue_responses(
-		&mut self,
-		scheduler: &Scheduler,
-		requests: Vec<String>,
-		dequeued: bool,
-	) {
-		for request in requests {
-			let output = DequeueSandboxResponseOutput { dequeued };
-			scheduler.send_dequeue_sandbox_response(self, request, output);
-		}
-	}
-
 	pub(super) fn discard_pinned_sandboxes(
 		&mut self,
 		scheduler: &Scheduler,
@@ -1072,5 +1071,25 @@ impl SchedulerState {
 			discarded.push(sandbox);
 		}
 		discarded
+	}
+}
+
+impl Scheduler {
+	/// Reply to enqueue requests.
+	pub(super) fn send_enqueue_responses(&self, ids: Vec<String>, result: tg::Result<()>) {
+		let result =
+			result.map(|()| ResponseOutput::EnqueueSandbox(EnqueueSandboxResponseOutput::Enqueued));
+		for id in ids {
+			let response = super::request::Response::new(id, result.clone());
+			self.send_response(response);
+		}
+	}
+
+	/// Reply to dequeue requests.
+	pub(super) fn send_dequeue_responses(&self, requests: Vec<String>, dequeued: bool) {
+		for request in requests {
+			let output = DequeueSandboxResponseOutput { dequeued };
+			self.send_dequeue_sandbox_response(request, output);
+		}
 	}
 }

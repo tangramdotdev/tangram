@@ -62,7 +62,7 @@ impl SchedulerState {
 }
 
 impl Scheduler {
-	/// Hold a spawn into a sandbox that a runner holds: write the process's queued record with its permissions and its entry in this scheduler's queue, and offer the process to the runner with the boot concurrently, and answer the spawn's sender as soon as either the write or the runner's yes succeeds, so that the spawn does not wait for the write to persist. The runner's yes hands the process off, and every other outcome finishes the process as failed, because this scheduler still holds it.
+	/// Hold a spawn into a sandbox that a runner holds: write the process's queued record with its permissions and its entry in this scheduler's queue, and offer the process to the runner with the boot concurrently, and answer the spawn's sender as soon as either the write or the runner's yes succeeds, so that the spawn does not wait for the write to persist. The runner's yes hands the process off, and every other outcome leaves the process to the runner if it accepted the process and finishes it as failed otherwise.
 	pub(super) async fn spawn_process(&self, spawn: Spawn, record: bool) -> tg::Result<()> {
 		let held = spawn.arg.process.id.is_some();
 
@@ -110,11 +110,11 @@ impl Scheduler {
 		}
 		let offered = offered.unwrap();
 
-		// Hand the process off on the runner's yes, and otherwise finish it.
+		// Hand the process off on the runner's yes, and otherwise finish it unless the runner accepted it.
 		if held {
 			match &offered {
 				Ok(_) => self.accept_process(&spawn).await,
-				Err(error) => self.finish_spawn(&spawn, error).await,
+				Err(error) => self.finish_unaccepted_spawn(&spawn, error).await,
 			}
 		}
 
@@ -279,9 +279,40 @@ impl Scheduler {
 		}
 	}
 
-	/// Finish a process that this scheduler holds as failed with the error, and remove it from this scheduler's queue.
-	async fn finish_spawn(&self, spawn: &Spawn, error: &tg::Error) {
-		finish_spawn(&self.server, &self.id, spawn, error).await;
+	/// Finish a process whose offer ended without the runner's yes, such as when its boot ended before its runner received it, only if no runner accepted it, and remove it from this scheduler's queue. Await indexing first, because a runner that accepted the process had a server accept its finish before it ended the boot, and finish the process as failed only if the index still records it as queued. The end of a boot of a runner that its scheduler declared dead fails the process in the end's transaction.
+	async fn finish_unaccepted_spawn(&self, spawn: &Spawn, error: &tg::Error) {
+		// Await indexing.
+		if let Err(error) = self.index().await {
+			tracing::warn!(error = %error.trace(), sandbox = %spawn.sandbox, "failed to await indexing");
+		}
+
+		// Read the process.
+		let Some(id) = &spawn.arg.process.id else {
+			return;
+		};
+		let result = self
+			.server
+			.index
+			.try_get_processes_with_data(std::slice::from_ref(id))
+			.await;
+		let queued = match result {
+			Ok(mut indexed) => indexed
+				.pop()
+				.flatten()
+				.and_then(|(_, data)| data)
+				.is_some_and(|data| data.status.is_queued()),
+			Err(error) => {
+				tracing::error!(error = %error.trace(), process = %id, "failed to get the process");
+				false
+			},
+		};
+
+		// Finish a process that no runner accepted, and remove the process from this scheduler's queue.
+		if queued {
+			finish_spawn(&self.server, &self.id, spawn, error).await;
+		} else if let Err(error) = self.write_process_handoff(spawn).await {
+			tracing::error!(error = %error.trace(), process = %id, "failed to remove the process from the queue");
+		}
 	}
 
 	/// Remove a process from this scheduler's queue.
