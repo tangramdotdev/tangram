@@ -291,7 +291,7 @@ pub trait Component: crate::component::Lifecycle {
 		id: &'a tg::process::Id,
 		data: tg::process::Data,
 		error: tg::Either<tg::error::Data, tg::error::Id>,
-		registration: Option<tangram_index::runner::Registration>,
+		sequence: u64,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn get_process_local<'a>(

@@ -15,7 +15,6 @@ fn sandbox_put(id: &tg::sandbox::Id) -> tangram_index::Item {
 		principal: tg::Principal::Sandbox(id.clone()),
 		process: None,
 		processes: None,
-		registration: None,
 		runner: None,
 		scheduler: None,
 		sequence: 0,

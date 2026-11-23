@@ -397,7 +397,7 @@ impl Component {
 							.clone()
 							.without_location_and_tokens_except_sync(),
 						error.to_data_or_id(),
-						None,
+						0,
 					)
 					.await
 			{
@@ -554,7 +554,7 @@ impl Component {
 				process: Some(process.clone()),
 				public: public && process.id.is_none(),
 				scheduled: false,
-				sequence: 1,
+				sequence: 0,
 				token,
 			};
 
@@ -698,10 +698,17 @@ impl Component {
 		} = arg;
 		let sandbox = sandbox.ok_or_else(|| tg::error!("expected the process's sandbox"))?;
 
-		// Create the queued record of a process in a new sandbox with the creator's permissions, the public permission, and the command captures. The holder of a spawn into an existing sandbox writes the process's record.
+		// Create the queued record of a process in the first boot of a new sandbox with the creator's permissions, the public permission, and the command captures. The holder of a spawn into an existing sandbox writes the process's record.
 		let now = session.server.clock.unix_timestamp();
-		let process_arg =
-			Self::create_queued_process_arg(session, &process, &sandbox, None, now, true, public)?;
+		let process_arg = Self::create_queued_process_arg(
+			session,
+			&process,
+			&sandbox,
+			Some(0),
+			now,
+			true,
+			public,
+		)?;
 		let id = process_arg.id.clone();
 
 		// Carry the queued record in the record of a new sandbox in the starting state, so that the two are written together.
@@ -754,7 +761,7 @@ impl Component {
 				tracing::error!(error = %error.trace(), %sandbox, "failed to destroy the new sandbox");
 			}
 			if let Err(error) = self
-				.finish_queued_process(&session.server, &id, process.data.clone(), error, None)
+				.finish_queued_process(&session.server, &id, process.data.clone(), error, 0)
 				.await
 			{
 				tracing::error!(error = %error.trace(), process = %id, "failed to finish the unstarted process");

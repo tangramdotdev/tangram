@@ -11843,7 +11843,6 @@ dependencies = [
 name = "tangram_server_scheduler"
 version = "0.0.0"
 dependencies = [
- "bytes",
  "futures",
  "moka",
  "serde",
@@ -11854,7 +11853,6 @@ dependencies = [
  "tangram_index",
  "tangram_messenger",
  "tangram_server_core",
- "tangram_server_log_common",
  "tangram_server_process_core",
  "tangram_server_sandbox_common",
  "tangram_server_scheduler_core",

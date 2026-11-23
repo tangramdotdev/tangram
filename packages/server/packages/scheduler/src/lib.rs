@@ -81,10 +81,22 @@ struct Scheduler {
 	server: Server,
 }
 
-/// A message about a sandbox whose holder this scheduler serves.
+/// A message about the sandboxes whose holder this scheduler serves.
 enum HolderMessage {
 	/// The sandbox's control connection was established, so its runner serves its holder.
 	Connected { sandbox: tg::sandbox::Id },
+
+	/// A boot that this scheduler ends for a runner that it declared dead, which it remembers.
+	Ended {
+		boot: u64,
+		runner: tg::runner::Id,
+		sandbox: tg::sandbox::Id,
+	},
+
+	/// A request for the sandboxes whose current boot this scheduler holds, which the end of a runner's boots sends after it reads the index.
+	Held {
+		sender: tokio::sync::oneshot::Sender<Vec<tg::sandbox::Id>>,
+	},
 
 	/// A request to the holder of the sandbox's queued process.
 	ProcessRequest {
@@ -110,15 +122,20 @@ struct SchedulerState {
 
 enum Operation {
 	AddRunner {
-		registration_index: u64,
+		connection: u64,
 		id: String,
-		result: tg::Result<(AddRunnerResponseOutput, Option<tg::Id>)>,
+		result: tg::Result<runner::AddRunnerOutput>,
 		runner: tg::runner::Id,
+		unanswered: Vec<runner::UnansweredOffer>,
 	},
 	Checkpoint,
 	DestroyRunnerSandbox {
 		id: String,
 		result: tg::Result<bool>,
+	},
+	DeleteRunner {
+		id: String,
+		result: tg::Result<()>,
 	},
 	DestroySandbox {
 		destroy: sandbox::DestroySandbox,
@@ -308,7 +325,33 @@ impl Component {
 		receiver.wait_for(|started| *started).await.ok();
 	}
 
-	/// Ask a stopped sandbox's runner to destroy it, which removes its directory, returning whether the runner destroyed it.
+	/// Ask the scheduler that a deleted runner belongs to to declare the runner dead and end its boots. A runner that never connected belongs to no scheduler and has no boots.
+	pub(crate) async fn delete_runner(
+		&self,
+		session: &Session,
+		runner: &tg::runner::Id,
+	) -> tg::Result<()> {
+		let Some(scheduler) = session
+			.server
+			.index
+			.try_get_runner(runner)
+			.await?
+			.and_then(|runner| runner.scheduler)
+		else {
+			return Ok(());
+		};
+		let request = tangram_server_scheduler_core::DeleteRunnerRequestArg {
+			runner: runner.clone(),
+		};
+		self.send_scheduler_request_to(session, &scheduler, RequestArg::DeleteRunner(request))
+			.boxed()
+			.await??
+			.try_unwrap_delete_runner()
+			.map_err(|_| tg::error!("expected a delete runner response"))?;
+
+		Ok(())
+	}
+
 	pub(crate) async fn destroy_stopped_runner_sandbox(
 		&self,
 		session: &Session,
@@ -772,6 +815,9 @@ impl Scheduler {
 					request::Response::new(id, Ok(ResponseOutput::AddSandboxParent(output)));
 				self.send_response(state, response);
 			},
+			RequestArg::DeleteRunner(request) => {
+				state.handle_delete_runner_request(self, id, request);
+			},
 			RequestArg::DequeueSandbox(request) => {
 				if let Some(output) = state.dequeue_sandbox(self, id.clone(), request) {
 					self.send_dequeue_sandbox_response(state, id, output);
@@ -798,25 +844,34 @@ impl Scheduler {
 	fn handle_operation(&self, state: &mut SchedulerState, operation: Operation) {
 		match operation {
 			Operation::AddRunner {
-				registration_index,
+				connection,
 				id,
 				result,
 				runner,
+				unanswered,
 			} => {
 				let current = state
 					.runners
 					.entries
 					.get(&runner)
-					.is_some_and(|runner| runner.registration_index == registration_index);
+					.is_some_and(|runner| runner.connection == connection);
 				let result = match result {
-					Ok((output, owner)) => {
+					Ok(output) => {
+						let runner::AddRunnerOutput {
+							lost,
+							output,
+							owner,
+							written,
+						} = output;
 						if current {
 							state.runners.entries.get_mut(&runner).unwrap().owner = owner;
+							state.cancel_lost_sandboxes(self, &runner, connection, lost);
+							state.handle_unanswered_offers(self, &runner, unanswered, &written);
 						}
 						Ok(output)
 					},
 					Err(error) => {
-						state.fail_runner_registration(&runner, registration_index);
+						state.fail_runner_connection(&runner, connection);
 						Err(error)
 					},
 				};
@@ -830,6 +885,15 @@ impl Scheduler {
 					ResponseOutput::DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput {
 						destroyed,
 					})
+				});
+				let response = request::Response::new(id, result);
+				self.send_response(state, response);
+			},
+			Operation::DeleteRunner { id, result } => {
+				let result = result.map(|()| {
+					ResponseOutput::DeleteRunner(
+						tangram_server_scheduler_core::DeleteRunnerResponseOutput {},
+					)
 				});
 				let response = request::Response::new(id, result);
 				self.send_response(state, response);
@@ -918,12 +982,9 @@ impl Scheduler {
 			.ended
 			.rotate(now, self.config.runner_time_to_live);
 		let expired = state.runners.expired(now, self.config.runner_time_to_live);
-		for (runner, registration_index) in expired {
-			tracing::warn!(%runner, registration_index, time_to_live_ms = self.config.runner_time_to_live.as_millis(), "the runner heartbeat expired");
-			let request = RemoveRunnerRequestArg {
-				registration_index,
-				runner,
-			};
+		for (runner, connection) in expired {
+			tracing::warn!(%runner, connection, time_to_live_ms = self.config.runner_time_to_live.as_millis(), "the runner heartbeat expired");
+			let request = RemoveRunnerRequestArg { connection, runner };
 			state.handle_remove_runner_request(self, None, request);
 		}
 	}
@@ -934,20 +995,15 @@ impl Scheduler {
 		discarded: sandbox::DiscardedSandbox,
 	) {
 		let subject = tangram_server_sandbox_common::control::discarded_subject(&discarded.sandbox);
-		let error = discarded.error.clone();
 		let notification = tangram_server_sandbox_common::control::Discarded {
 			error: discarded.error,
 		};
-		let scheduler = self.clone();
 		let server = self.server.clone();
 		state.operations.push(
 			async move {
-				// Record the failure in the sandbox's error field, unless the scheduler already began the write, and then wake the callers.
+				// Wait for the write of the failure, and then wake the callers.
 				let request = discarded.request;
-				let result = match discarded.write {
-					Some(write) => write.await,
-					None => scheduler.fail_sandbox(&request, error).await,
-				};
+				let result = discarded.write.await;
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), sandbox = %request.sandbox, "failed to record the discarded sandbox");
 				}
@@ -987,7 +1043,7 @@ impl Scheduler {
 	) {
 		let subject = runner_heartbeat_subject(&self.id, &notification.runner);
 		let acknowledgement = HeartbeatAcknowledgement {
-			registration_index: notification.registration_index,
+			connection: notification.connection,
 			heartbeat_index: notification.heartbeat_index,
 		};
 		let server = self.server.clone();
@@ -1113,10 +1169,8 @@ impl tangram_server_core::scheduler::Component for Component {
 		server: &'a tangram_server_core::Server,
 		id: &'a tg::sandbox::Id,
 		error: Option<tg::error::Data>,
-		processes: bool,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.destroy_runner_sandbox(server, id, error, processes)
-			.boxed()
+		self.destroy_runner_sandbox(server, id, error).boxed()
 	}
 
 	fn destroy_stopped_runner_sandbox<'a>(
@@ -1128,6 +1182,14 @@ impl tangram_server_core::scheduler::Component for Component {
 	) -> BoxFuture<'a, tg::Result<bool>> {
 		self.destroy_stopped_runner_sandbox(session, runner, sandbox, error)
 			.boxed()
+	}
+
+	fn delete_runner<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		runner: &'a tg::runner::Id,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.delete_runner(session, runner).boxed()
 	}
 
 	fn dequeue_sandbox<'a>(

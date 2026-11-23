@@ -37,6 +37,9 @@ pub(super) struct Sandboxes {
 	/// The number of offers that the scheduler is sending.
 	pub(super) offers: usize,
 
+	/// The sandboxes whose next boot a start is reserving, with the number of reservations in flight for each, which the scheduler holds as in its queue, because a reservation's write records the boot in the scheduler's saved queue before the scheduler tracks it.
+	pub(super) reserving: HashMap<tg::sandbox::Id, usize, tg::id::BuildHasher>,
+
 	/// The sandboxes that the scheduler ended, with their boots, whose terminal states are written and which the next await of indexing covers.
 	pub(super) written: Vec<(tg::sandbox::Id, u64)>,
 }
@@ -70,7 +73,7 @@ pub(super) enum Tracked {
 /// A destroy of a sandbox on a runner. The request is present if the sandbox has a record to finish.
 pub(super) struct DestroySandbox {
 	pub(super) error: tg::error::Data,
-	pub(super) registration_index: u64,
+	pub(super) connection: u64,
 	pub(super) request: Option<EnqueueSandboxRequestArg>,
 	pub(super) runner: tg::runner::Id,
 	pub(super) sandbox: tg::sandbox::Id,
@@ -120,9 +123,6 @@ pub(super) struct Sandbox {
 
 	pub(super) retrying: bool,
 
-	/// The number of this scheduler's writes of the boot, which is zero, and after which the runner's writes follow, beginning with the number that the offer carries.
-	pub(super) sequence: u64,
-
 	pub(super) state: State,
 
 	pub(super) unplaceable_since: Option<tangram_server_core::clock::Instant>,
@@ -171,8 +171,8 @@ pub(super) struct DiscardedSandbox {
 
 	pub(super) sandbox: tg::sandbox::Id,
 
-	/// The write of the failure, if the scheduler held the sandbox and already began it.
-	pub(super) write: Option<Write>,
+	/// The write of the failure.
+	pub(super) write: Write,
 }
 
 impl Sandboxes {
@@ -183,6 +183,7 @@ impl Sandboxes {
 			holders: HashMap::default(),
 			indexing: false,
 			offers: 0,
+			reserving: HashMap::default(),
 			written: Vec::new(),
 		}
 	}
@@ -215,7 +216,6 @@ impl Sandbox {
 			processes,
 			request,
 			retrying: false,
-			sequence: 0,
 			state,
 			unplaceable_since: None,
 		}
@@ -301,6 +301,11 @@ impl SchedulerState {
 
 		// Start the next boot of a stopped sandbox with a write that the index applies only while the sandbox is stopped at the boot before it, and hold the boot only once the write applies, so that of several starts only one creates the boot.
 		if !recovered && request.boot > 0 {
+			*self
+				.sandboxes
+				.reserving
+				.entry(request.sandbox.clone())
+				.or_default() += 1;
 			let scheduler = scheduler.clone();
 			self.operations.push(
 				async move {
@@ -340,6 +345,14 @@ impl SchedulerState {
 		request: EnqueueSandboxRequestArg,
 		result: tg::Result<bool>,
 	) {
+		// Remove the reservation from the reservations in flight, once the scheduler tracks a boot that it reserved.
+		if let Some(count) = self.sandboxes.reserving.get_mut(&request.sandbox) {
+			*count -= 1;
+			if *count == 0 {
+				self.sandboxes.reserving.remove(&request.sandbox);
+			}
+		}
+
 		match result {
 			Ok(true) if self.sandboxes.entries.contains_key(&request.sandbox) => {
 				let sandbox = request.sandbox;
@@ -478,9 +491,10 @@ impl SchedulerState {
 		status: tg::sandbox::Status,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 	) -> Write {
-		// End the sandbox, which leaves the queue.
+		// End the sandbox, which leaves the queue. The end of a boot that this scheduler holds is its second write of the boot, and the end of a boot whose offer is unanswered, which has no holder, is numbered zero.
 		self.remove_queued_sandbox(id);
 		let entry = self.sandboxes.entries.get_mut(id).unwrap();
+		let sequence = u64::from(!matches!(entry.state, State::Offered { .. }));
 		entry.state = State::Terminal {
 			error: error.clone(),
 			indexed: false,
@@ -499,7 +513,7 @@ impl SchedulerState {
 				tangram_server_core::checkpoint!(scheduler.server, "scheduler.sandbox.end", sandbox = %request.sandbox, status = %status)
 					.await;
 				scheduler
-					.put_sandbox_status(&request, status, error, None, false)
+					.put_sandbox_status(&request, status, error, None, false, sequence)
 					.await
 			}
 			.boxed()
@@ -560,7 +574,7 @@ impl SchedulerState {
 			error,
 			request,
 			sandbox: id.clone(),
-			write: Some(write),
+			write,
 		}
 	}
 
@@ -774,7 +788,7 @@ impl SchedulerState {
 						&session,
 						&destroy.runner,
 						&scheduler_id,
-						destroy.registration_index,
+						destroy.connection,
 						tangram_server_core::control::id(),
 						arg,
 						options,
@@ -810,11 +824,11 @@ impl SchedulerState {
 			.runners
 			.entries
 			.get(&destroy.runner)
-			.map(|runner| runner.registration_index);
+			.map(|runner| runner.connection);
 		match (result, current) {
 			(Ok(true), _) => (),
-			(Err(_), Some(registration_index)) => {
-				destroy.registration_index = registration_index;
+			(Err(_), Some(connection)) => {
+				destroy.connection = connection;
 				self.send_destroy_sandbox(scheduler, destroy);
 			},
 			(Ok(false), _) | (Err(_), None) => {
@@ -843,6 +857,7 @@ impl SchedulerState {
 						error,
 						None,
 						false,
+						0,
 					)
 					.await;
 				Operation::Finished {
@@ -854,19 +869,25 @@ impl SchedulerState {
 		);
 	}
 
-	/// Track a sandbox that a runner holds, which a runner reports when it registers and which a restarted scheduler recovers, so that an enqueue of it or of an older boot is a no-op. The request is present if the sandbox's control connection may not be established.
+	/// Track a sandbox that a runner holds, which a runner reports when it connects and which a restarted scheduler recovers, so that an enqueue of it or of an older boot is a no-op. The request is present if the sandbox's control connection may not be established. The processes are the ones that this scheduler offered into the boot before it restarted, which it rebuilt from the index.
 	pub(super) fn track_accepted_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
 		id: &tg::sandbox::Id,
 		boot: u64,
 		request: Option<EnqueueSandboxRequestArg>,
+		processes: BTreeSet<tg::process::Id>,
 		runner: RunnerRef,
 	) {
 		match self.track_accepted_sandbox_inner(id, boot, request, runner) {
 			Tracked::Destroy(destroy) => self.send_destroy_sandbox(scheduler, destroy),
 			Tracked::Ignored => {},
 			Tracked::Inserted { ids } => {
+				// Remember the processes that this scheduler offered into the boot before it restarted.
+				if let Some(entry) = self.sandboxes.entries.get_mut(id) {
+					entry.processes.extend(processes);
+				}
+
 				let error = tg::error!(sandbox = %id, "the sandbox was removed before a runner accepted it");
 				self.send_enqueue_responses(scheduler, ids, Err(error));
 
@@ -896,7 +917,7 @@ impl SchedulerState {
 				// Leave a sandbox that the scheduler offered to a runner to the offer's answer, and a queued boot to its offer, because only a runner's answer to an offer is its yes.
 				State::Offered { .. } | State::Queued => return Tracked::Ignored,
 
-				// Leave a boot that the scheduler ended as stopped to its runner, which stops the boots that the index records as stopped when it registers, so that the sandbox's directory stays for its next start.
+				// Leave a boot that the scheduler ended as stopped to its runner, which gives up the boots that the index records as stopped when it connects, so that the sandbox's directory stays for its next start.
 				State::Terminal { status, .. } if entry.boot == boot && status.is_stopped() => {
 					return Tracked::Ignored;
 				},
@@ -906,7 +927,7 @@ impl SchedulerState {
 					let error = error.clone().and_then(tg::Either::left).unwrap_or_default();
 					let destroy = DestroySandbox {
 						error,
-						registration_index: runner.registration_index,
+						connection: runner.connection,
 						request: None,
 						runner: runner.id,
 						sandbox: id.clone(),

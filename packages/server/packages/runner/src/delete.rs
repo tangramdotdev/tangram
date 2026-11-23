@@ -90,22 +90,16 @@ impl Component {
 			)
 			.await;
 
-		// Destroy the runner's sandboxes, because no runner can report them anymore.
-		let sandboxes = session.server.index.get_runner_sandboxes(&runner).await?;
-		for sandbox in sandboxes {
-			let error = tg::error::Data {
-				code: Some(tg::error::Code::Internal),
-				message: Some("the runner was deleted".to_owned()),
-				..Default::default()
-			};
-			session
-				.server
-				.components
-				.scheduler
-				.destroy_runner_sandbox(&session.server, &sandbox, Some(error), true)
-				.await
-				.map_err(|error| tg::error!(!error, %sandbox, "failed to destroy the sandbox"))?;
-		}
+		// Ask the runner's scheduler to declare the runner dead and end its boots, because only a runner's scheduler ends the boots of a runner that is not their holder.
+		session
+			.server
+			.components
+			.scheduler
+			.delete_runner(session, &runner)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %runner, "failed to end the deleted runner's sandboxes"),
+			)?;
 
 		Ok(Some(()))
 	}

@@ -29,6 +29,7 @@ pub(super) struct RunProcessControlTaskArg {
 	pub control: tg::process::control::Connection,
 	pub exited: Stopper,
 	pub finish: tokio::sync::oneshot::Receiver<ProcessControlResponseReceiver>,
+	pub finished: crate::sandbox::Unaccepted,
 	pub local: tokio::sync::mpsc::Receiver<local::Message>,
 	pub location: tg::Location,
 	pub outcome_sync: tokio::sync::oneshot::Receiver<()>,
@@ -191,6 +192,7 @@ impl Component {
 			control,
 			exited,
 			finish,
+			finished,
 			local,
 			location,
 			outcome_sync,
@@ -286,6 +288,7 @@ impl Component {
 			.try_unwrap_finish()
 			.map_err(|_| tg::error!("expected a finish process response"))?;
 		tracing::info!(elapsed = ?started.elapsed(), process = %session.context.principal, "received the process finish response");
+		drop(finished);
 
 		tangram_server_core::checkpoint!(session.server, "runner.process.control.finish.succeeded")
 			.await;

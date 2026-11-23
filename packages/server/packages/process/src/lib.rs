@@ -568,9 +568,9 @@ impl tangram_server_core::process::Component for Component {
 		id: &'a tg::process::Id,
 		data: tg::process::Data,
 		error: tg::Either<tg::error::Data, tg::error::Id>,
-		registration: Option<tangram_index::runner::Registration>,
+		sequence: u64,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.finish_queued_process(server, id, data, error, registration)
+		self.finish_queued_process(server, id, data, error, sequence)
 			.boxed()
 	}
 

@@ -157,7 +157,7 @@ async fn reports_require_the_boot() -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, "failed to deserialize the sandbox"))?;
 	let boot = sandbox_output.data.boot;
 
-	// Another runner reports that the process cannot run, and that the sandbox's boot ended with the process unfinished.
+	// Another runner reports that the process cannot run, and that the sandbox's boot ended.
 	let other = remote.create_runner(ROOT_TOKEN, None).await?;
 	let reported = tg::runner::control::Process {
 		data,
@@ -177,8 +177,9 @@ async fn reports_require_the_boot() -> tg::Result<()> {
 		tg::runner::control::FinishProcessesClientRequestArg {
 			boot,
 			error: error.clone(),
-			processes: vec![reported.clone()],
+			processes: vec![reported],
 			sandbox: sandbox.clone(),
+			sequence: u64::MAX,
 		},
 	);
 	let mut ended = sandbox_output;
@@ -194,7 +195,6 @@ async fn reports_require_the_boot() -> tg::Result<()> {
 			recorded: false,
 			sandbox: sandbox.clone(),
 			sequence: u64::MAX,
-			unfinished: vec![reported],
 		},
 	);
 	let responses = send_runner_requests(&remote, &other, vec![finish, end]).await?;
@@ -408,7 +408,8 @@ async fn destroy_sandbox(
 	let (mut sender, receiver) =
 		futures::channel::mpsc::unbounded::<tg::Result<tg::runner::control::ClientMessage>>();
 	let arg = tg::runner::control::Arg {
-		directories: None,
+		directories: Vec::new(),
+		first: false,
 		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
 		host: "test".to_owned(),
 		id: runner.data.id.clone(),
@@ -509,7 +510,8 @@ async fn send_runner_requests(
 	let (mut sender, receiver) =
 		futures::channel::mpsc::unbounded::<tg::Result<tg::runner::control::ClientMessage>>();
 	let arg = tg::runner::control::Arg {
-		directories: None,
+		directories: Vec::new(),
+		first: false,
 		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
 		host: "test".to_owned(),
 		id: runner.data.id.clone(),
@@ -636,7 +638,8 @@ async fn start_runner_with_sandbox() -> tg::Result<(
 	let (sender, receiver) =
 		futures::channel::mpsc::unbounded::<tg::Result<tg::runner::control::ClientMessage>>();
 	let arg = tg::runner::control::Arg {
-		directories: None,
+		directories: Vec::new(),
+		first: false,
 		heartbeat: tg::runner::control::HeartbeatClientNotification::default(),
 		host: "test".to_owned(),
 		id: runner.data.id.clone(),

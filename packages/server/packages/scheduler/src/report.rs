@@ -16,6 +16,7 @@ type Key = (tg::sandbox::Id, u64);
 #[derive(Default)]
 pub(super) struct Ended {
 	current: HashMap<Key, EndedBoot>,
+	declared: HashMap<Key, EndedBoot>,
 	previous: HashMap<Key, EndedBoot>,
 	rotated_at: Option<tangram_server_core::clock::Instant>,
 }
@@ -84,15 +85,28 @@ impl Ended {
 		self.current.insert((sandbox, boot), ended);
 	}
 
+	/// Remember a boot that this scheduler ended for a runner that it declared dead.
+	pub(super) fn insert_declared(&mut self, sandbox: tg::sandbox::Id, boot: u64, ended: EndedBoot) {
+		self.declared.insert((sandbox, boot), ended);
+	}
+
 	pub(super) fn get(&self, sandbox: &tg::sandbox::Id, boot: u64) -> Option<&EndedBoot> {
 		let key = (sandbox.clone(), boot);
-		self.current.get(&key).or_else(|| self.previous.get(&key))
+		self.current
+			.get(&key)
+			.or_else(|| self.previous.get(&key))
+			.or_else(|| self.declared.get(&key))
 	}
 
 	/// Forget the boots of a runner that restarted or that was removed, which sends no more reports of them.
 	pub(super) fn forget_runner(&mut self, runner: &tg::runner::Id) {
 		self.current.retain(|_, ended| ended.runner != *runner);
 		self.previous.retain(|_, ended| ended.runner != *runner);
+	}
+
+	/// Forget the boots that this scheduler ended for a runner that it declared dead, once the runner restarted.
+	pub(super) fn forget_declared(&mut self, runner: &tg::runner::Id) {
+		self.declared.retain(|_, ended| ended.runner != *runner);
 	}
 
 	/// Forget the boots that ended more than a runner ttl before the last rotation, because a runner that does not report within its ttl is removed.
@@ -238,10 +252,13 @@ impl SchedulerState {
 			})
 			.collect::<Vec<_>>();
 		let error = finish.error;
+		let sequence = finish.sequence;
 		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
-				scheduler.finish_reported_processes(processes, error).await;
+				scheduler
+					.finish_reported_processes(processes, error, sequence)
+					.await;
 				let output = FinishRunnerProcessesResponseOutput { retry: None };
 				Operation::FinishRunnerProcesses {
 					id,
@@ -259,6 +276,7 @@ impl Scheduler {
 		&self,
 		processes: Vec<tg::runner::control::Process>,
 		error: tg::Either<tg::error::Data, tg::error::Id>,
+		sequence: u64,
 	) {
 		for process in processes {
 			let Some(id) = &process.id else {
@@ -269,7 +287,7 @@ impl Scheduler {
 				.server
 				.components
 				.process
-				.finish_queued_process(&self.server, id, data, error.clone(), None)
+				.finish_queued_process(&self.server, id, data, error.clone(), sequence)
 				.await;
 			if let Err(error) = result {
 				tracing::warn!(error = %error.trace(), process = %id, "failed to finish the reported process");

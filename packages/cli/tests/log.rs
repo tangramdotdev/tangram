@@ -60,6 +60,7 @@ async fn control_early_finish() -> tg::Result<()> {
 		let finish = tg::process::control::ClientRequestArg::Finish(
 			tg::process::control::FinishClientRequestArg {
 				data: finished.clone(),
+				sequence: 0,
 			},
 		);
 		let request = tg::process::control::ClientRequest {
@@ -621,6 +622,7 @@ fn start(
 		data: started_data(finished),
 		lease: LEASE.parse()?,
 		options: tg::referent::Options::default(),
+		sequence: 0,
 		shortcut: Some(shortcut),
 	};
 
@@ -649,6 +651,7 @@ fn started_data(finished: &tg::process::Data) -> tg::process::Data {
 fn finish(finished: &tg::process::Data) -> tg::process::control::ClientRequestArg {
 	let finish = tg::process::control::FinishClientRequestArg {
 		data: finished.clone(),
+		sequence: 0,
 	};
 	tg::process::control::ClientRequestArg::Finish(finish)
 }

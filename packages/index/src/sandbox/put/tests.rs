@@ -212,6 +212,122 @@ fn a_sandbox_keeps_the_scheduler_that_first_queued_it() {
 	assert_eq!(merge.sandbox.scheduler, Some(first));
 }
 
+#[test]
+fn the_first_end_of_a_boot_records_its_number() {
+	let started = data(1, tg::sandbox::Status::Started, None);
+	let id = started.data.id.clone();
+	let mut stopped = started.clone();
+	stopped.data.status = tg::sandbox::Status::Stopped;
+	let mut start = arg(started);
+	start.principal = tg::Principal::Sandbox(id.clone());
+	start.sequence = 1;
+	let mut holder = arg(stopped.clone());
+	holder.principal = tg::Principal::Sandbox(id);
+	holder.sequence = 3;
+	let zero = arg(stopped);
+	let args = [start, holder, zero];
+	for order in crate::tests::permutations(args.len()) {
+		let mut sandbox = None::<super::super::Sandbox>;
+		let mut zero_ends = Vec::new();
+		for &index in &order {
+			let merge = args[index].merge(sandbox.as_ref(), None).unwrap().unwrap();
+			zero_ends.extend(merge.zero_end);
+			sandbox = Some(merge.sandbox);
+		}
+		let sandbox = sandbox.unwrap();
+		let first = order.iter().copied().find(|index| *index != 0).unwrap();
+		let expected = if first == 1 { 3 } else { 0 };
+		assert_eq!(
+			sandbox.ends.get(&1).copied(),
+			Some(expected),
+			"the order {order:?} did not record the first end"
+		);
+		let expected = if first == 2 { vec![1] } else { vec![] };
+		assert_eq!(
+			zero_ends, expected,
+			"the order {order:?} did not report the zero end"
+		);
+	}
+}
+
+#[test]
+fn a_zero_end_of_an_ended_or_later_boot_does_not_apply() {
+	let zero = arg(data(1, tg::sandbox::Status::Stopped, None));
+
+	// The boot ended with its holder's end.
+	let mut existing = sandbox(data(1, tg::sandbox::Status::Stopped, None));
+	existing.ends = BTreeMap::from([(1, 4)]);
+	let merge = zero.merge(Some(&existing), None).unwrap().unwrap();
+	assert_eq!(merge.zero_end, None);
+	assert_eq!(merge.sandbox.ends.get(&1), Some(&4));
+
+	// The sandbox has a later boot.
+	let mut existing = sandbox(data(2, tg::sandbox::Status::Started, None));
+	existing.ends = BTreeMap::from([(1, 4)]);
+	let merge = zero.merge(Some(&existing), None).unwrap().unwrap();
+	assert_eq!(merge.zero_end, None);
+	assert_eq!(
+		merge.sandbox.data.unwrap().data.status,
+		tg::sandbox::Status::Started
+	);
+
+	// The sandbox is destroyed.
+	let existing = sandbox(data(1, tg::sandbox::Status::Destroyed, None));
+	let merge = zero.merge(Some(&existing), None).unwrap().unwrap();
+	assert_eq!(merge.zero_end, None);
+}
+
+#[test]
+fn a_start_applies_only_after_the_first_end_of_its_boot_in_every_order() {
+	let stopped = data(0, tg::sandbox::Status::Stopped, None);
+	let id = stopped.data.id.clone();
+	let mut holder = arg(stopped.clone());
+	holder.principal = tg::Principal::Sandbox(id.clone());
+	holder.sequence = 3;
+	let zero = arg(stopped);
+	let mut starting = data(1, tg::sandbox::Status::Starting, None);
+	starting.data.id = id;
+	let mut start = arg(starting);
+	start.stopped_boot = Some(0);
+	let args = [holder, zero, start];
+	for order in crate::tests::permutations(args.len()) {
+		let mut sandbox = Some(sandbox(data(0, tg::sandbox::Status::Started, None)));
+		sandbox.as_mut().unwrap().data.as_mut().unwrap().data.id = args[0].id.clone();
+		let mut rejected = BTreeSet::new();
+		for &index in &order {
+			let Ok(merge) = args[index].merge(sandbox.as_ref(), None).unwrap() else {
+				rejected.insert(index);
+				continue;
+			};
+			sandbox = Some(merge.sandbox);
+		}
+		let sandbox = sandbox.unwrap();
+		let position = |index: usize| order.iter().position(|i| *i == index).unwrap();
+		let first_end = if position(0) < position(1) { 3 } else { 0 };
+		assert_eq!(
+			sandbox.ends.get(&0).copied(),
+			Some(first_end),
+			"the order {order:?} did not record the first end"
+		);
+		let started = position(2) > position(0).min(position(1));
+		assert_eq!(
+			rejected.contains(&2),
+			!started,
+			"the order {order:?} applied the start before an end"
+		);
+		let status = sandbox.data.unwrap().data.status;
+		let expected = if started {
+			tg::sandbox::Status::Starting
+		} else {
+			tg::sandbox::Status::Stopped
+		};
+		assert_eq!(
+			status, expected,
+			"the order {order:?} left the wrong status"
+		);
+	}
+}
+
 /// Apply the writes in every order, and assert that every order leaves the same record and rejects the same writes. Return the record of the last order.
 fn assert_every_order_converges(args: &[Arg]) -> Option<super::super::Sandbox> {
 	let mut expected = None;
@@ -258,7 +374,6 @@ fn assert_every_order_converges(args: &[Arg]) -> Option<super::super::Sandbox> {
 fn arg(data: tg::sandbox::get::Output) -> Arg {
 	let id = data.data.id.clone();
 	Arg {
-		registration: None,
 		account: None,
 		created_at: 0,
 		data: Some(data),

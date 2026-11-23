@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A single server that restarts after a runner died stops the runner's running sandboxes, because the restart loses the runner's registration, so its heartbeat can no longer expire.
+# A single server that restarts after a runner died stops the runner's running sandboxes, because the restart loses the runner's connection, so its heartbeat can no longer expire.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {

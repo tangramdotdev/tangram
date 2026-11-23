@@ -5,7 +5,7 @@ use {
 		stream::{BoxStream, FuturesUnordered},
 	},
 	std::{
-		collections::BTreeMap,
+		collections::{BTreeMap, BTreeSet},
 		ops::ControlFlow,
 		pin::pin,
 		sync::{Arc, Mutex, atomic::Ordering},
@@ -43,6 +43,9 @@ pub struct Component(Arc<State>);
 
 pub struct State {
 	pub control: tokio::sync::watch::Sender<Option<RunnerSender>>,
+
+	/// The boots whose tasks run, with the processes that each accepted, which the runner reports when it connects to its scheduler.
+	pub(crate) held: dashmap::DashMap<tg::sandbox::Id, crate::sandbox::Held, tg::id::BuildHasher>,
 
 	/// The replies to recent offers of boots, by request ID, so that an offer that the scheduler sends again is answered with its reply, even after the boot that it created ended. The replies outlast the scheduler's ttl of the runner, after which the scheduler no longer sends an offer again.
 	pub offers: tangram_server_core::holder::Replies<tg::runner::control::ClientMessage>,
@@ -101,8 +104,10 @@ impl Component {
 			arg.config.scheduler.runner_time_to_live,
 			arg.config.control.request_timeout,
 		);
+		let held = dashmap::DashMap::default();
 		let state = State {
 			control,
+			held,
 			offers,
 
 			#[cfg(target_os = "linux")]
@@ -426,11 +431,9 @@ impl Component {
 		session: &Session,
 		runner: &tg::runner::Id,
 		scheduler: &tg::scheduler::Id,
-		registration_index: u64,
 	) -> tg::Result<()> {
 		let arg = tangram_index::runner::put::Arg {
 			id: runner.clone(),
-			registration: registration_index,
 			scheduler: scheduler.clone(),
 		};
 		let arg = tangram_index::write::Arg {
@@ -465,7 +468,7 @@ impl Component {
 			.unwrap()
 			.replace(id.clone());
 
-		// Get the sandboxes that the previous run left directories for, before the pool starts, which the first registration reports.
+		// Get the sandboxes that the previous run left directories for, before the pool starts, which the first connection reports.
 		let previous = match Self::sandbox_directory_ids(session).await {
 			Ok(previous) => previous,
 			Err(error) => {
@@ -486,7 +489,7 @@ impl Component {
 		});
 
 		let control_stopper = Stopper::new();
-		let mut cleanup = true;
+		let mut first = true;
 		let mut drained = false;
 		let mut retries = None::<BoxStream<'static, ()>>;
 		loop {
@@ -497,7 +500,7 @@ impl Component {
 				session,
 				&id,
 				&previous,
-				&mut cleanup,
+				&mut first,
 				stopper.clone(),
 				control_stopper.clone(),
 			);
@@ -676,7 +679,7 @@ impl Component {
 		session: &Session,
 		id: &tg::runner::Id,
 		previous: &[tg::sandbox::Id],
-		cleanup: &mut bool,
+		first: &mut bool,
 		stopper: Stopper,
 		control_stopper: Stopper,
 	) -> tg::Result<ControlFlow<(), tg::Error>> {
@@ -691,9 +694,29 @@ impl Component {
 			},
 		);
 
+		// Get the sandboxes that the runner has directories for and does not hold, which are the previous run's on the first connection and the ones on disk afterwards. Leave out a sandbox that the runner still has state for, whose end may not be recorded yet.
+		let stopped = if *first {
+			previous.to_vec()
+		} else {
+			match Self::sandbox_directory_ids(session).await {
+				Ok(stopped) => stopped,
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to get the sandbox directories");
+					Vec::new()
+				},
+			}
+		};
+		let stopped = stopped
+			.into_iter()
+			.filter(|sandbox| {
+				self.state.sandboxes.get_by_id(sandbox).is_none()
+					&& !self.state.starting.contains_key(sandbox)
+			})
+			.collect::<Vec<_>>();
+
 		// Get the runner control stream, continuing if the scheduler could not be reached.
 		let (header, control) = match self
-			.run_get_runner_control_stream(session, id, &location, cleanup.then_some(previous))
+			.run_get_runner_control_stream(session, id, &location, *first, &stopped)
 			.boxed()
 			.await?
 		{
@@ -701,21 +724,18 @@ impl Component {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 
-		tracing::info!(runner = %id, scheduler = %header.scheduler, yielded_sandboxes = header.sandboxes.len(), "connected the runner to the scheduler");
+		tracing::info!(runner = %id, scheduler = %header.scheduler, ended_sandboxes = header.ended.len(), "connected the runner to the scheduler");
 
 		// Remember the replies to offers for longer than the scheduler keeps the runner, so that the scheduler never sends an offer again after its reply is forgotten.
 		self.offers
 			.set_time_to_live(header.runner_time_to_live.saturating_mul(2));
 
-		// Keep or remove the previous sandboxes' directories as the registration decided before accepting work, or, after a reconnection, give up the sandboxes that the server took over when the runner's heartbeat expired.
+		// Keep or remove the directories of the sandboxes that the runner does not hold as the scheduler decided before accepting work, and give up the reported boots that the index records as ended.
 		let index = 1;
-		if *cleanup {
-			self.finish_previous_sandbox_directories(session, previous, &header)
-				.await?;
-			*cleanup = false;
-		} else {
-			self.yield_runner_sandboxes(&header.sandboxes);
-		}
+		self.finish_sandbox_directories(session, &stopped, &header, *first)
+			.await?;
+		*first = false;
+		self.yield_runner_sandboxes(&header);
 		tracing::info!(runner = %id, "the runner is ready to accept work");
 		session
 			.server
@@ -739,63 +759,81 @@ impl Component {
 		Ok(ControlFlow::Break(()))
 	}
 
-	/// Keep the directory of each previous sandbox that the registration keeps, reserving its storage, and record the stop of each one in a remote that the registration stopped in this runner's local index. Remove every other previous directory.
-	async fn finish_previous_sandbox_directories(
+	/// Remove the directory of each reported sandbox that the runner does not hold and that the scheduler does not keep. On the first connection, also reserve the storage of each kept directory, and record in this runner's local index the stop of each kept sandbox in a remote that the local index records as running, because the scheduler ended its boot.
+	async fn finish_sandbox_directories(
 		&self,
 		session: &Session,
-		previous: &[tg::sandbox::Id],
+		stopped: &[tg::sandbox::Id],
 		header: &tg::runner::control::Header,
+		first: bool,
 	) -> tg::Result<()> {
-		let indexed = session.server.index.try_get_sandboxes(previous).await?;
-		for (sandbox, indexed) in std::iter::zip(previous, indexed) {
-			if !header.kept.contains(sandbox) {
-				self.remove_stopped_sandbox_directory(session, sandbox)
-					.await?;
+		// Remove the directories that the scheduler does not keep, failing the first connection if one cannot be removed, and logging the failure on a later connection, which keeps running sandboxes.
+		for sandbox in stopped {
+			if header.kept.contains(sandbox) {
 				continue;
 			}
+			let result = self
+				.remove_stopped_sandbox_directory(session, sandbox)
+				.await;
+			match result {
+				Ok(()) => {},
+				Err(error) if first => return Err(error),
+				Err(error) => {
+					tracing::error!(error = %error.trace(), %sandbox, "failed to remove the sandbox directory");
+				},
+			}
+		}
+
+		// Reserve the storage of the kept directories and record the stops on the first connection only, because before a later connection the runner already holds the storage of its kept directories.
+		if !first {
+			return Ok(());
+		}
+		let kept = stopped
+			.iter()
+			.filter(|sandbox| header.kept.contains(sandbox))
+			.cloned()
+			.collect::<Vec<_>>();
+		let indexed = session.server.index.try_get_sandboxes(&kept).await?;
+		for (sandbox, indexed) in std::iter::zip(&kept, indexed) {
 			let storage = indexed
 				.and_then(|indexed| indexed.data)
 				.and_then(|data| data.data.storage);
 			self.keep_stopped_sandbox_directory(session, sandbox, storage);
-			if header.stopped.contains(sandbox) {
-				self.record_previous_sandbox_stop(session, sandbox).await?;
-			}
+			self.record_previous_sandbox_stop(session, sandbox).await?;
 		}
 
 		Ok(())
 	}
 
-	/// Stop or destroy each running sandbox that the server stopped, destroyed, or started at another boot when the runner's heartbeat expired, applying the same rule as the server: destroy a sandbox whose ttl is zero, and stop the others.
-	fn yield_runner_sandboxes(&self, sandboxes: &[tg::sandbox::Id]) {
-		let sandboxes = sandboxes
+	/// Give up each reported boot that the scheduler ended because it declared the runner dead, without writing anything more for it. Stop a running boot locally, keeping its directory if the scheduler keeps it, and destroy it otherwise, which removes its directory.
+	fn yield_runner_sandboxes(&self, header: &tg::runner::control::Header) {
+		let sandboxes = header
+			.ended
 			.iter()
 			.filter_map(|id| {
-				// Stop answering the servers for the boot at once, because the server may already hold the sandbox's next boot.
+				// Stop answering the servers and writing for the boot at once, because the scheduler ended the boot and may already hold the sandbox's next boot.
 				let mut sandbox = self.state.sandboxes.get_mut_by_id(id)?;
 				sandbox.yielded = true;
 				if sandbox.status.is_stopped_or_destroyed() {
 					return None;
 				}
-				let request = match crate::sandbox::Teardown::with_time_to_live(
-					sandbox.create.time_to_live,
-				) {
-					crate::sandbox::Teardown::Destroy => {
-						tg::sandbox::control::ServerRequestArg::Destroy(
-							tg::sandbox::control::DestroyServerRequestArg {
-								ended: false,
-								error: None,
-							},
-						)
-					},
-					crate::sandbox::Teardown::Stop => tg::sandbox::control::ServerRequestArg::Stop(
+				let request = if header.kept.contains(id) {
+					tg::sandbox::control::ServerRequestArg::Stop(
 						tg::sandbox::control::StopServerRequestArg { ended: false },
-					),
+					)
+				} else {
+					tg::sandbox::control::ServerRequestArg::Destroy(
+						tg::sandbox::control::DestroyServerRequestArg {
+							ended: false,
+							error: None,
+						},
+					)
 				};
 				Some((sandbox.id.clone(), sandbox.control_sender.clone(), request))
 			})
 			.collect::<Vec<_>>();
 		for (id, control_sender, request) in sandboxes {
-			tracing::warn!(sandbox = %id, "giving up a sandbox that the server took over");
+			tracing::warn!(sandbox = %id, "giving up a sandbox whose boot the scheduler ended");
 			tokio::spawn(async move {
 				let result = async {
 					let _response = control_sender.send_request(request).await?.await??;
@@ -896,6 +934,7 @@ impl Component {
 		boot: u64,
 		processes: &[tg::runner::control::Process],
 		error: tg::Either<tg::error::Data, tg::error::Id>,
+		sequence: u64,
 		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let arg = tg::runner::control::ClientRequestArg::FinishProcesses(
@@ -904,6 +943,7 @@ impl Component {
 				error,
 				processes: processes.to_vec(),
 				sandbox: sandbox.clone(),
+				sequence,
 			},
 		);
 		self.report_with_runner_control(arg, stopper)
@@ -915,7 +955,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// Send a report through the runner control stream and return the server's response, waiting for a runner control stream and sending the report again after the stream is lost, or after a backoff or a new stream if the server asks for the report again because it cannot decide it yet. Send the report on a stream that is connected even after the stopper is stopped, so that a report made during a graceful drain precedes the runner's `End`, and give up only if the stopper is stopped while no stream is connected. An error in the response is the server's refusal, after which the report is not sent again.
+	/// Send a report through the runner control stream, with one request ID that every copy of the report carries, and return the server's response, waiting for a runner control stream and sending the report again after the stream is lost, or after a backoff or a new stream if the server asks for the report again because it cannot decide it yet. Send the report on a stream that is connected even after the stopper is stopped, so that a report made during a graceful drain precedes the runner's `End`, and give up only if the stopper is stopped while no stream is connected. An error in the response is the server's refusal, after which the report is not sent again.
 	async fn report_with_runner_control(
 		&self,
 		arg: tg::runner::control::ClientRequestArg,
@@ -924,6 +964,7 @@ impl Component {
 		let mut control = self.control.subscribe();
 		let retry = tangram_futures::retry::Options::default();
 		let mut attempt = 0;
+		let id = tangram_server_core::control::id();
 		loop {
 			// Wait for a runner control stream.
 			let sender = tokio::select! {
@@ -940,7 +981,7 @@ impl Component {
 			// Send the report, and return the response.
 			let request = tg::runner::control::ClientRequest {
 				arg: arg.clone(),
-				id: tangram_server_core::control::id(),
+				id: id.clone(),
 			};
 			let response = sender
 				.request(
@@ -1084,7 +1125,8 @@ impl Component {
 		session: &Session,
 		id: &tg::runner::Id,
 		location: &tg::Location,
-		directories: Option<&[tg::sandbox::Id]>,
+		first: bool,
+		stopped: &[tg::sandbox::Id],
 	) -> tg::Result<
 		ControlFlow<
 			(
@@ -1103,12 +1145,11 @@ impl Component {
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
 			.map(Ok)
 			.boxed();
-		let cleanup = directories.is_some();
-		let heartbeat = Self::create_runner_heartbeat(session, 0, cleanup);
+		let heartbeat = Self::create_runner_heartbeat(session, 0, first);
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
 
-		// Report every sandbox that is running or starting, so that a restarted scheduler can tell which requests it already placed.
+		// Report every sandbox that is running or starting, with the processes that its scheduler offered into the boot and that the runner holds, and the proof for a boot on the shortcut path, so that a restarted scheduler can tell which requests it already placed and cancel the boots and processes that the index does not have.
 		let mut sandboxes = self
 			.state
 			.sandboxes
@@ -1123,14 +1164,33 @@ impl Component {
 		}
 		let sandboxes = sandboxes
 			.into_iter()
-			.map(|(id, boot)| tg::runner::control::ArgSandbox { boot, id })
-			.collect();
+			.map(|(id, boot)| {
+				let (processes, proof) = self
+					.held
+					.get(&id)
+					.filter(|held| held.boot == boot)
+					.map_or_default(|held| held.report());
+				tg::runner::control::ArgSandbox {
+					boot,
+					id,
+					processes,
+					proof,
+				}
+			})
+			.collect::<Vec<_>>();
 
-		// Report the previous sandboxes with directories on the first registration after the runner starts, so that the scheduler ends the sandboxes that the runner no longer holds and decides which directories the runner keeps.
-		let directories = directories.map(<[tg::sandbox::Id]>::to_vec);
+		// Report the sandboxes with directories that the runner does not hold and the sandboxes that it runs on every connection, so that the scheduler decides which directories the runner keeps, and, on the first connection after the runner starts, ends the sandboxes that the runner no longer holds.
+		let directories = stopped
+			.iter()
+			.cloned()
+			.chain(sandboxes.iter().map(|sandbox| sandbox.id.clone()))
+			.collect::<BTreeSet<_>>()
+			.into_iter()
+			.collect();
 		let scheduler_time_to_live = session.server.config.runner.scheduler_time_to_live;
 		let arg = tg::runner::control::Arg {
 			directories,
+			first,
 			heartbeat,
 			host,
 			id: id.clone(),
@@ -1347,7 +1407,7 @@ impl Component {
 					process: request.process,
 					public: false,
 					scheduled: true,
-					sequence: request.sequence + 2,
+					sequence: request.sequence,
 					token: Some(token),
 				},
 			);
@@ -1568,9 +1628,8 @@ impl tangram_server_core::runner::Component for Component {
 		session: &'a tangram_server_core::Session,
 		runner: &'a tg::runner::Id,
 		scheduler: &'a tg::scheduler::Id,
-		registration_index: u64,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.set_runner_scheduler(session, runner, scheduler, registration_index)
+		self.set_runner_scheduler(session, runner, scheduler)
 			.boxed()
 	}
 
@@ -1615,21 +1674,13 @@ impl tangram_server_core::runner::Component for Component {
 		session: &'a tangram_server_core::Session,
 		runner: &'a tg::runner::Id,
 		scheduler: &'a tg::scheduler::Id,
-		registration_index: u64,
+		connection: u64,
 		id: String,
 		arg: tg::runner::control::ServerRequestArg,
 		options: tangram_server_core::control::Options,
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::runner::control::ClientResponseOutput>>> {
-		self.send_runner_control_request(
-			session,
-			runner,
-			scheduler,
-			registration_index,
-			id,
-			arg,
-			options,
-		)
-		.boxed()
+		self.send_runner_control_request(session, runner, scheduler, connection, id, arg, options)
+			.boxed()
 	}
 
 	fn spawn_sandbox_task<'a>(

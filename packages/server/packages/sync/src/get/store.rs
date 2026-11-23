@@ -317,7 +317,6 @@ impl Component {
 					.flatten()
 					.collect(),
 					principal: session.context.principal.clone(),
-					registration: None,
 					sandbox: None,
 					sequence: 0,
 					storage: tg::process::storage::Set::NODE,

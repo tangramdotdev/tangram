@@ -16,15 +16,6 @@ impl Index {
 		process_data_fragment_size: usize,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
-		if let Some(registration) = &arg.registration {
-			let result = crate::propagate!(
-				Self::check_runner_registration_with_transaction(txn, subspace, registration).await
-			);
-			if let Err(error) = result {
-				return Ok(ControlFlow::Break(Err(error)));
-			}
-		}
-
 		let id = &arg.id;
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
