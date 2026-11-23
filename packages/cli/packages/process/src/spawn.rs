@@ -458,6 +458,7 @@ pub(crate) async fn spawn_inner(
 			options: crate::build::Options {
 				spawn: crate::spawn::Options {
 					location: options.location.clone(),
+					retry: options.retry,
 					..Default::default()
 				},
 				..Default::default()
