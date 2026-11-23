@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-const stages = [compile package publish]
+const stages = [compile push pull package publish]
 const stable_version = '^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$'
 const targets = [
 	aarch64-darwin
@@ -13,11 +13,13 @@ const targets = [
 	x86_64-linux-musl-static
 ]
 const tangram_targets = [aarch64-darwin aarch64-linux-gnu x86_64-darwin x86_64-linux-gnu]
+const tag_prefix = 'tangram/release'
 
-# Build and package Tangram with --cargo, build it with Tangram with --stage compile, or package staged binaries by default.
+# Build and package Tangram with --cargo, build it with Tangram with --stage compile, move staged binaries between machines with --stage push and --stage pull, or package staged binaries by default.
 # Repeat --stage <stage> and --target <target> to select stages and targets.
 def --wrapped main [...args: string] {
 	mut cargo = false
+	mut force = false
 	mut sign = true
 	mut selected_stages = []
 	mut selected_targets = []
@@ -29,12 +31,15 @@ def --wrapped main [...args: string] {
 		$remaining = $remaining | skip 1
 		match $flag {
 			'-h' | '--help' => {
-				print 'Usage: tg run .#release -- [--cargo] [--no-sign] [--stage <compile|package|publish>] [--target <target>] [--version <version>] [--build-number <number>]
+				print 'Usage: tg run .#release -- [--cargo] [--force] [--no-sign] [--stage <compile|push|pull|package|publish>] [--target <target>] [--version <version>] [--build-number <number>]
 
 Repeat --stage or --target to select more than one.
 The default stage is package, or compile followed by package with --cargo.
 The compile stage without --cargo builds the gnu and macOS targets with Tangram, and a Linux machine builds all of them.
 It also stages the provider library for each macOS target, and packaging on a Mac bundles the staged helper and library instead of building them with Cargo.
+The push stage tags the staged files of each target as tangram/release/<commit>/<target> and pushes the tags to the default remote. The <commit> is the commit of a clean checkout, or a hash of the edited contents.
+The pull stage pulls the tags for the commit of this checkout from the default remote and stages their files in release/, replacing the files that are staged. Without --target it pulls every target that is tagged.
+A push does not replace a tag that has a different target unless --force is passed.
 The package stage signs Linux repositories using the authenticated cf CLI.
 Signed macOS packaging requires a Mac and a positive --build-number, and includes Tangram.dmg and its Sparkle appcast.
 The package stage signs and notarizes the macOS binaries when TANGRAM_APPLE_P12, TANGRAM_APPLE_P12_PASSWORD_FILE, and TANGRAM_APPLE_API_KEY are set.
@@ -44,6 +49,7 @@ Existing assets can be replaced, including for version 0.0.0.'
 				return
 			}
 			'--cargo' => { $cargo = true }
+			'--force' => { $force = true }
 			'--build-number' => {
 				let value = $remaining | get -o 0 | default ''
 				if $value !~ '^[1-9][0-9]*$' {
@@ -98,6 +104,8 @@ Existing assets can be replaced, including for version 0.0.0.'
 		if $stage in $selected_stages {
 			match $stage {
 				compile => { compile $cargo $selected_targets }
+				push => { push $selected_targets $force }
+				pull => { pull $selected_targets }
 				package => { package $selected_targets $version $sign $build_number }
 				publish => { ^python3 scripts/release/publish.py publish $version ...$selected_targets }
 			}
@@ -174,6 +182,95 @@ def compile-tangram [selected_targets: list<string>] {
 		error make $error.raw
 	}
 	rm -rf $temporary
+}
+
+def push [selected_targets: list<string>, force: bool] {
+	let selected_targets = if ($selected_targets | is-empty) {
+		$targets | where {|target| (staged-binary $target | path type) == file }
+	} else {
+		$selected_targets
+	}
+	if ($selected_targets | is-empty) {
+		error make {msg: 'no Tangram binaries are staged in release/'}
+	}
+	let commit = ^python3 scripts/version.py | str trim
+	let force_flags = if $force { ['--force'] } else { [] }
+	let temporary = ^mktemp -d release/.push.XXXXXXXX | str trim
+	try {
+		for target in $selected_targets {
+			# Collect the staged files of the target in a directory.
+			let directory = $temporary | path join $target
+			mkdir $directory
+			for file in (staged-files $target) {
+				if $file.required and ($file.path | path type) != file {
+					error make {msg: $'expected a staged executable at ($file.path)'}
+				}
+				if ($file.path | path type) == file {
+					^install -m $file.mode $file.path ($directory | path join ($file.path | path basename))
+				}
+			}
+
+			# Tag the directory and push the tag.
+			let tag = release-tag $commit $target
+			let id = ^tg checkin --no-tokens $directory | str trim | split row '?' | first
+			^tg tag put --create-ancestors ...$force_flags $tag $id
+			^tg push ...$force_flags $tag
+			print $'pushed ($tag) ($id)'
+		}
+	} catch {|error|
+		rm -rf $temporary
+		error make $error.raw
+	}
+	rm -rf $temporary
+}
+
+def pull [selected_targets: list<string>] {
+	let commit = ^python3 scripts/version.py | str trim
+	let candidates = if ($selected_targets | is-empty) { $targets } else { $selected_targets }
+	mkdir release
+	let temporary = ^mktemp -d release/.pull.XXXXXXXX | str trim
+	let pulled = try {
+		$candidates | each {|target|
+			let tag = release-tag $commit $target
+
+			# Pull the tag, and replace a local tag that has a different target, because the remote decides what the tag is.
+			let output = ^tg pull --force $tag | complete
+			if $output.exit_code != 0 {
+				# Skip a target that is not tagged unless it was selected.
+				if ($selected_targets | is-empty) and ($output.stderr | str contains 'failed to get the reference') {
+					return null
+				}
+				error make {msg: $'failed to pull ($tag): ($output.stderr | str trim)'}
+			}
+
+			# Stage the files of the tag.
+			let directory = $temporary | path join $target
+			^tg checkout --no-lock $tag $'--path=($directory | path expand)' | ignore
+			let names = ls $directory | get name | each {|name| $name | path basename }
+			for file in (staged-files $target) {
+				let name = $file.path | path basename
+				if $name not-in $names {
+					if $file.required {
+						error make {msg: $'($tag) does not contain ($name)'}
+					}
+					continue
+				}
+				let staged = $temporary | path join staged
+				^install -m $file.mode ($directory | path join $name) $staged
+				place-file $staged $file.path
+				print $'staged ($file.path)'
+			}
+			$target
+		} | compact
+	} catch {|error|
+		rm -rf $temporary
+		error make $error.raw
+	}
+	^chmod -R u+w $temporary
+	rm -rf $temporary
+	if ($pulled | is-empty) {
+		error make {msg: $'no release targets are tagged under ($tag_prefix)/($commit)'}
+	}
 }
 
 def package [selected_targets: list<string>, version: string, sign: bool, build_number: string] {
@@ -294,6 +391,20 @@ exec tg run -b "$@"
 
 def staged-binary [target: string] {
 	$'release/tangram_($target)'
+}
+
+# List the files that the compile stage stages for a target.
+def staged-files [target: string] {
+	let binary = {mode: '755', path: (staged-binary $target), required: true}
+	if ($target ends-with '-darwin') {
+		[$binary {mode: '644', path: $'release/libtangram_vfs_provider_($target).a', required: false}]
+	} else {
+		[$binary]
+	}
+}
+
+def release-tag [commit: string, target: string] {
+	$'($tag_prefix)/($commit)/($target)'
 }
 
 def place-file [source: path, destination: path] {

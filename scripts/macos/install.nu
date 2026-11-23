@@ -3,7 +3,12 @@
 use ./identifiers.nu
 
 # Builds the app, installs it to ~/Applications, and registers and enables its file system extension. Idempotent, and does not launch the app.
-def main [--release, --no-build] {
+def main [
+	--helper: path # A prebuilt tangram executable to embed instead of building one with Cargo.
+	--no-build
+	--provider: path # A prebuilt libtangram_vfs_provider.a to link instead of building one with Cargo.
+	--release
+] {
 	let configuration = if $release { "Release" } else { "Debug" }
 	let app_name = if $release { "Tangram" } else { "Tangram Dev" }
 	let identifiers = (identifiers)
@@ -13,7 +18,10 @@ def main [--release, --no-build] {
 	let built_app = ($root | path join "packages/macos/build" $configuration $"($app_name).app")
 	let built_appex = ($root | path join "packages/macos/build" $configuration "TangramFSKit.appex")
 	let installed_app = ($env.HOME | path join "Applications" $"($app_name).app")
-	let build_args = if $release { ["--release"] } else { [] }
+	let release_args = if $release { ["--release"] } else { [] }
+	let helper_args = if $helper != null { ["--helper" ($helper | path expand)] } else { [] }
+	let provider_args = if $provider != null { ["--provider" ($provider | path expand)] } else { [] }
+	let build_args = [...$release_args ...$helper_args ...$provider_args]
 
 	cd $root
 	if not $no_build {
