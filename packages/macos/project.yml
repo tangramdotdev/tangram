@@ -11,6 +11,10 @@ options:
 configFiles:
   Debug: Configuration.xcconfig
   Release: Configuration.xcconfig
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
 settings:
   base:
     MARKETING_VERSION: 0.0.0
@@ -36,6 +40,7 @@ targets:
       - target: TangramFSKit
         embed: true
         codeSign: true
+      - package: Sparkle
     postBuildScripts:
       - path: scripts/embed-helper.sh
         name: Embed Tangram Helper

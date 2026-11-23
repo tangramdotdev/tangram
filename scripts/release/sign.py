@@ -8,6 +8,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import unquote_to_bytes
 
@@ -57,17 +58,7 @@ def main(version, targets):
     if not any(repositories.values()):
         return
 
-    # Keep downloaded keys in a private directory for this release.
-    keys = Path("keys")
-    keys.mkdir(mode=0o700, exist_ok=True)
-    info = keys.lstat()
-    if (
-        not stat.S_ISDIR(info.st_mode)
-        or info.st_uid != os.getuid()
-        or info.st_mode & 0o022
-    ):
-        raise RuntimeError("keys/ must be a directory owned and writable only by you")
-    with tempfile.TemporaryDirectory(prefix=".signing-", dir=keys.resolve()) as secrets:
+    with signing_directory() as secrets:
         with tempfile.TemporaryDirectory(prefix=".signing-", dir=release) as staging:
             stage = Path(staging)
             for name, files in repositories.items():
@@ -80,11 +71,11 @@ def main(version, targets):
                     shutil.copy2(path, destination)
                 print(f"Preparing signed {name.upper()} repository.", flush=True)
                 if name == "apt":
-                    sign_apt(repo, Path(secrets))
+                    sign_apt(repo, secrets)
                 elif name == "rpm":
-                    sign_rpm(repo, Path(secrets))
+                    sign_rpm(repo, secrets)
                 elif name == "apk":
-                    sign_apk(repo, Path(secrets))
+                    sign_apk(repo, secrets)
 
             # Place verified files before the indexes and their signatures.
             outputs = sorted(
@@ -100,6 +91,23 @@ def main(version, targets):
 def apk_name(version):
     version = re.sub(r"-(alpha|beta|pre|rc)\.?([0-9]*)$", r"_\1\2", version)
     return f"tangramdotdev-{version}-r0.apk"
+
+
+@contextmanager
+def signing_directory():
+    keys = Path("keys")
+    keys.mkdir(mode=0o700, exist_ok=True)
+    info = keys.lstat()
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.getuid()
+        or info.st_mode & 0o022
+    ):
+        raise RuntimeError("keys/ must be a directory owned and writable only by you")
+    with tempfile.TemporaryDirectory(
+        prefix=".signing-", dir=keys.resolve()
+    ) as directory:
+        yield Path(directory)
 
 
 def download_key(directory, name):

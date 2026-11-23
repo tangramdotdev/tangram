@@ -48,9 +48,13 @@ The macOS app uses XcodeGen. Commit changes to `packages/macos/project.yml`, and
 
 Run `tg run ./packages/macos#doctor` to check the unsigned build prerequisites. Run `tg run ./packages/macos#check` for an unsigned Rust and Swift compilation that does not require an Apple Developer account. Run `tg run ./packages/macos#run` to development-sign, install, and launch the app from `~/Applications`. The `--release` flag on `scripts/macos/run.nu` selects optimized local binaries, but it does not produce a distributable release.
 
-Run `tg run ./packages/macos#release` to sign the app, notarize the disk image, and create `Tangram.dmg` and `Tangram.zip` under `packages/macos/build/Distribution`. The disk image submission provides the tickets for both the disk image and the app in the ZIP. Pass `-- --install` to install the verified app in `/Applications`. Set `TANGRAM_NOTARY_PROFILE` to override the default `Tangram` notarytool keychain profile.
+Run `tg run ./packages/macos#release -- --build-number <number>` to sign the app, notarize the disk image, and create `Tangram.dmg`, `Tangram.zip`, and the signed Sparkle appcast under `packages/macos/build/Distribution`. The disk image submission provides the tickets for both the disk image and the app in the ZIP. Pass `--install` after `--` to install the verified app in `/Applications`. Set `TANGRAM_NOTARY_PROFILE` to override the default `Tangram` notarytool keychain profile.
 
-For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `packages/macos/Local.xcconfig` and set the bundle prefix and development team. Create Apple Development and Developer ID Application certificates in the login keychain. Store the notarization credentials interactively with `xcrun notarytool store-credentials Tangram --apple-id <apple-id> --team-id <team-id>`. Do not store signing keys or notarization passwords in the repository.
+For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `packages/macos/Local.xcconfig` and set the bundle prefix and development team. Create Apple Development and Developer ID Application certificates in the login keychain. Store the notarization credentials interactively with `xcrun notarytool store-credentials Tangram --apple-id <apple-id> --team-id <team-id>`. Do not store private signing keys or notarization passwords in the repository.
+
+Run `python3 scripts/release/sparkle.py bootstrap` to create or recover the production Sparkle key. The encrypted private key is stored in the private `keys-tangram-dev` bucket. Keep its passphrase in the team password vault and commit only `packages/macos/SparklePublicKey.txt`. Signed macOS packaging downloads and decrypts the key for that run.
+
+Use an increasing `--build-number` when running `tg run .#release` with the macOS package stage, even when reusing a public version. Publish with one operator at a time. The publisher verifies the immutable, build-specific DMG before replacing the stable appcast. The stable image currently targets Apple Silicon, so publish a universal image before using the same feed for Intel clients.
 
 ## Style
 

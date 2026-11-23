@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import OSLog
 import ServiceManagement
+import Sparkle
 import SwiftUI
 
 private enum AppError: LocalizedError {
@@ -525,6 +526,14 @@ private final class AppModel: ObservableObject {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarDelegate {
+	private let updater: SPUStandardUpdaterController? = {
+		guard let key = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
+		      let publicKey = Data(base64Encoded: key), publicKey.count == 32
+		else {
+			return nil
+		}
+		return SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+	}()
 	private let model = AppModel()
 	private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 	private let serverMenuItem = NSMenuItem(title: "Server: stopped", action: nil, keyEquivalent: "")
@@ -595,6 +604,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		refreshLaunchAtLoginStatus()
 		promptForLaunchAtLoginIfNeeded()
 		CommandLineTool.promptIfNeeded()
+		updater?.startUpdater()
 	}
 
 	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -1138,6 +1148,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		appMenu.addItem(menuItem("Show Window", #selector(showWindow(_:))))
 		if CommandLineTool.canInstall {
 			appMenu.addItem(menuItem("Install Command-Line Tools…", #selector(installCommandLineTools(_:))))
+		}
+		if let updater {
+			let item = NSMenuItem(title: "Check for Updates…", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
+			item.target = updater
+			appMenu.addItem(item)
 		}
 		appMenu.addItem(.separator())
 		appMenu.addItem(withTitle: "Quit Tangram", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

@@ -16,6 +16,7 @@ from uuid import uuid4
 from xml.etree import ElementTree
 
 from arch_package import write_recipe
+from sparkle import APPCAST, BUILD_NUMBER, MACOS_PREFIX, PACKAGE_HOST
 
 RELEASE = Path("release")
 AUR_REMOTE = "ssh://aur@aur.archlinux.org/tangramdotdev-bin.git"
@@ -30,7 +31,6 @@ AUR_FILES = (
 GITHUB_REPO = "tangramdotdev/tangram"
 HOMEBREW_FORMULA = "repos/tangramdotdev/homebrew-tap/contents/tangram.rb"
 PACKAGE_BUCKET = "pkgs-tangram-dev"
-PACKAGE_HOST = "https://pkgs.tangram.dev"
 R2_LIMIT = 300 * 1024 * 1024
 ARCHITECTURES = ("aarch64", "x86_64")
 TARGETS = {
@@ -44,6 +44,8 @@ HOMEBREW_ASSETS = {
     for platform in ("darwin", "linux-gnu")
 }
 MACOS_APP = "Tangram.dmg"
+MACOS_APPCAST = f"{MACOS_PREFIX}/{APPCAST}"
+SPARKLE_NAMESPACE = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
 
 
 def sha256_file(path):
@@ -128,6 +130,26 @@ def release_manifest(version, targets):
     aur = {}
     if gnu:
         aur = {name: checksum(f"aur/{name}") for name in AUR_FILES}
+    macos = None
+    if MACOS_APP in assets:
+        appcast = (RELEASE / APPCAST).read_bytes()
+        build, item = appcast_item(appcast)
+        release_version = item.findtext(f"{SPARKLE_NAMESPACE}shortVersionString")
+        enclosure = item.find("enclosure")
+        key = f"{MACOS_PREFIX}/builds/{build}/{MACOS_APP}"
+        if (
+            release_version != version
+            or enclosure is None
+            or enclosure.get("url") != object_url(key)
+            or enclosure.get("length") != str((RELEASE / MACOS_APP).stat().st_size)
+            or not enclosure.get(f"{SPARKLE_NAMESPACE}edSignature")
+        ):
+            raise ValueError("the Sparkle appcast does not match the macOS release")
+        add(immutable, MACOS_APP, key=key.removeprefix("stable/"))
+        macos = {
+            "build": build,
+            "appcast": {"file": APPCAST, "sha256": checksum(APPCAST)},
+        }
     return {
         "version": version,
         "targets": sorted(targets),
@@ -137,7 +159,23 @@ def release_manifest(version, targets):
         "immutable": immutable,
         "indexes": indexes,
         "heads": heads,
+        "macos": macos,
     }
+
+
+def appcast_item(data):
+    if not re.search(
+        rb"<!-- sparkle-signatures:\s+edSignature: [A-Za-z0-9+/]{86}==", data
+    ):
+        raise ValueError("the Sparkle appcast is missing its feed signature")
+    try:
+        (item,) = ElementTree.fromstring(data).findall("channel/item")
+    except (ElementTree.ParseError, ValueError) as error:
+        raise ValueError("expected one update in the Sparkle appcast") from error
+    build = item.findtext(f"{SPARKLE_NAMESPACE}version") or ""
+    if not re.fullmatch(BUILD_NUMBER, build):
+        raise ValueError("invalid build number in the Sparkle appcast")
+    return int(build), item
 
 
 def rpm_metadata():
@@ -277,7 +315,7 @@ def object_url(key):
     return f"{PACKAGE_HOST}/{quote(key, safe='/')}"
 
 
-def public_checksum(key, nonce=None):
+def public_response(key, nonce=None):
     url = object_url(key)
     if nonce is not None:
         url += f"?publish={nonce}"
@@ -286,12 +324,33 @@ def public_checksum(key, nonce=None):
         headers={"Accept-Encoding": "identity", "User-Agent": "Tangram-Release/1.0"},
     )
     try:
-        with urlopen(request, timeout=30) as response:
-            return hash_stream(response)
+        return urlopen(request, timeout=30)
     except HTTPError as error:
         if error.code != 404:
             raise
         return None
+
+
+def public_checksum(key, nonce=None):
+    response = public_response(key, nonce)
+    if response is None:
+        return None
+    with response:
+        return hash_stream(response)
+
+
+def check_macos_update(update):
+    response = public_response(MACOS_APPCAST, uuid4().hex)
+    if response is None:
+        return
+    with response:
+        current = response.read()
+    build, _ = appcast_item(current)
+    if (
+        build >= update["build"]
+        and hashlib.sha256(current).hexdigest() != update["appcast"]["sha256"]
+    ):
+        raise ValueError(f"the stable Sparkle feed already publishes build {build}")
 
 
 def content_type(name):
@@ -301,6 +360,8 @@ def content_type(name):
         return "application/pgp-signature"
     if name.endswith(".xml"):
         return "application/xml"
+    if name.endswith(".dmg"):
+        return "application/x-apple-diskimage"
     return "application/octet-stream"
 
 
@@ -477,6 +538,9 @@ def main(action, version, targets):
     if manifest != prepared:
         raise ValueError("release files or version changed after signed packaging")
 
+    macos = manifest["macos"]
+    if macos:
+        check_macos_update(macos)
     pending = pending_r2_objects(manifest["immutable"], immutable=True)
     assets = publish_github(manifest)
     upload_r2_objects(pending, verify=True)
@@ -487,6 +551,9 @@ def main(action, version, targets):
         update_homebrew({**manifest, "assets": assets})
     if manifest["aur"]:
         update_aur(manifest, assets)
+    if macos:
+        check_macos_update(macos)
+        publish_cached_objects({MACOS_APPCAST: macos["appcast"]})
 
 
 if __name__ == "__main__":

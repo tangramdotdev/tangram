@@ -21,24 +21,33 @@ def --wrapped main [...args: string] {
 	mut selected_stages = []
 	mut selected_targets = []
 	mut version = ''
+	mut build_number = ''
 	mut remaining = $args
 	while (not ($remaining | is-empty)) {
 		let flag = $remaining | first
 		$remaining = $remaining | skip 1
 		match $flag {
 			'-h' | '--help' => {
-				print 'Usage: tg run .#release -- [--cargo] [--no-sign] [--stage <compile|package|publish>] [--target <target>] [--version <version>]
+				print 'Usage: tg run .#release -- [--cargo] [--no-sign] [--stage <compile|package|publish>] [--target <target>] [--version <version>] [--build-number <number>]
 
 Repeat --stage or --target to select more than one.
 The default stage is package, or compile followed by package with --cargo.
 The package stage signs Linux repositories using the authenticated cf CLI.
-Packaging a macOS target requires a Mac and includes Tangram.dmg.
+Signed macOS packaging requires a Mac and a positive --build-number, and includes Tangram.dmg and its Sparkle appcast.
 Downloaded keys are stored temporarily under keys/. Use --no-sign for local unsigned packages.
 Publishing requires --version, a matching GitHub tag, and signed packaging for the selected targets.
 Existing assets can be replaced, including for version 0.0.0.'
 				return
 			}
 			'--cargo' => { $cargo = true }
+			'--build-number' => {
+				let value = $remaining | get -o 0 | default ''
+				if $value !~ '^[1-9][0-9]*$' {
+					error make {msg: 'expected --build-number followed by a positive integer'}
+				}
+				$build_number = $value
+				$remaining = $remaining | skip 1
+			}
 			'--no-sign' => { $sign = false }
 			'--stage' => {
 				let stage = $remaining | get -o 0
@@ -85,7 +94,7 @@ Existing assets can be replaced, including for version 0.0.0.'
 		if $stage in $selected_stages {
 			match $stage {
 				compile => { compile $cargo $selected_targets }
-				package => { package $selected_targets $version $sign }
+				package => { package $selected_targets $version $sign $build_number }
 				publish => { ^python3 scripts/release/publish.py publish $version ...$selected_targets }
 			}
 		}
@@ -134,7 +143,7 @@ def compile [cargo: bool, selected_targets: list<string>] {
 	print $'staged ($destination)'
 }
 
-def package [selected_targets: list<string>, version: string, sign: bool] {
+def package [selected_targets: list<string>, version: string, sign: bool, build_number: string] {
 	let selected_targets = if ($selected_targets | is-empty) {
 		$targets | where {|target| (staged-binary $target | path type) == file }
 	} else {
@@ -159,21 +168,30 @@ def package [selected_targets: list<string>, version: string, sign: bool] {
 	}
 	if $macos_app {
 		let sign_flags = if $sign { [] } else { ['--no-sign'] }
-		^nu scripts/macos/release.nu --version $version ...$sign_flags
+		let build_flags = if ($build_number | is-empty) { [] } else { ['--build-number' $build_number] }
+		^nu scripts/macos/release.nu --version $version ...$sign_flags ...$build_flags
 	}
 	let manifest = ('release/manifest.json' | path expand)
 	if ($manifest | path type) == file {
 		rm $manifest
 	}
 	if $macos_app {
-		let staged = ^mktemp release/.dmg.XXXXXXXX | str trim
+		let staged = ^mktemp -d release/.macos.XXXXXXXX | str trim
 		try {
-			^install -m 644 packages/macos/build/Distribution/Tangram.dmg $staged
-			place-file $staged release/Tangram.dmg
+			let names = if $sign { ['Tangram.dmg' 'appcast.xml'] } else { ['Tangram.dmg'] }
+			for name in $names {
+				let source = ('packages/macos/build/Distribution' | path join $name)
+				let destination = ($staged | path join $name)
+				^install -m 644 $source $destination
+			}
+			for name in $names {
+				place-file ($staged | path join $name) ('release' | path join $name)
+			}
 		} catch {|error|
-			rm -f $staged
+			rm -r $staged
 			error make $error.raw
 		}
+		rm -r $staged
 	}
 	for target in $selected_targets {
 		let binary = staged-binary $target

@@ -26,6 +26,20 @@
 	<string>NSApplication</string>
 	<key>NSSystemExtensionUsageDescriptionKey</key>
 	<string>Tangram uses a file system extension to mount artifacts.</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>$(TANGRAM_SPARKLE_FEED_URL)</string>
+	<key>SUPublicEDKey</key>
+	<string>$(TANGRAM_SPARKLE_PUBLIC_KEY)</string>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUSignedFeedFailureExpirationInterval</key>
+	<integer>0</integer>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 	<key>TangramAppGroupIdentifier</key>
 	<string>$(TANGRAM_APP_GROUP_IDENTIFIER)</string>
 </dict>
