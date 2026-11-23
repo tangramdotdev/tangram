@@ -353,14 +353,9 @@ async fn main() -> Result<()> {
 #[cfg(target_os = "linux")]
 async fn fuse(path: PathBuf) -> Result<()> {
 	let provider = Provider::new();
-	let recvfd = tangram_vfs::fuse::fusermount3(&path)?;
-	let server = tangram_vfs::fuse::Server::start(
-		provider,
-		&path,
-		tangram_vfs::fuse::Options::default(),
-		recvfd,
-	)
-	.await?;
+	let options = tangram_vfs::fuse::Options::default();
+	let recvfd = tangram_vfs::fuse::fusermount3(&path, options.allow_other)?;
+	let server = tangram_vfs::fuse::Server::start(provider, &path, options, recvfd).await?;
 	tokio::spawn({
 		let server = server.clone();
 		async move {
