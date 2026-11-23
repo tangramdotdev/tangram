@@ -729,7 +729,7 @@ impl Component {
 				.await?;
 		}
 		*first = false;
-		self.yield_runner_sandboxes(session, &header);
+		self.abandon_ended_boots(session, &header);
 		tracing::info!(runner = %id, "the runner is ready to accept work");
 		session
 			.server
@@ -772,10 +772,10 @@ impl Component {
 	}
 
 	/// Give up each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the boot and keeps its directory, which the stopped sandbox task removes if the index records the sandbox as destroyed, and a boot whose state is not stored yet starts no process.
-	fn yield_runner_sandboxes(&self, session: &Session, header: &tg::runner::control::Header) {
+	fn abandon_ended_boots(&self, session: &Session, header: &tg::runner::control::Header) {
 		for ended in &header.ended {
 			if let Some(boot) = self.state.boots.get(&ended.id, ended.boot) {
-				self.give_up_boot(
+				self.abandon_boot(
 					session,
 					&boot,
 					tangram_server_runner_core::sandbox::Teardown::Stop,
@@ -1112,7 +1112,7 @@ impl Component {
 			.boots
 			.list()
 			.into_iter()
-			.filter(|boot| boot.given_up().is_none())
+			.filter(|boot| boot.abandoned().is_none())
 			.map(|boot| (boot.sandbox.clone(), boot))
 			.collect::<BTreeMap<_, _>>()
 			.into_values()
@@ -1250,9 +1250,10 @@ impl Component {
 			let joined = boots
 				.iter()
 				.flatten()
-				.any(|boot| boot.boot == request.boot && boot.given_up().is_none());
+				.any(|boot| boot.boot == request.boot && boot.abandoned().is_none());
 			let ended = boots.iter().flatten().any(|boot| {
-				boot.boot > request.boot || (boot.boot == request.boot && boot.given_up().is_some())
+				boot.boot > request.boot
+					|| (boot.boot == request.boot && boot.abandoned().is_some())
 			});
 			let answer = if joined {
 				Some(tg::runner::control::Answer::Yes)

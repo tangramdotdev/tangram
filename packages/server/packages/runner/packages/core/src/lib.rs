@@ -276,7 +276,7 @@ impl State {
 		id: &tg::sandbox::Id,
 	) -> Option<dashmap::mapref::one::Ref<'_, u64, crate::sandbox::State>> {
 		let sandbox = self.sandboxes.get_by_id(id)?;
-		if sandbox.boot.given_up().is_some() {
+		if sandbox.boot.abandoned().is_some() {
 			return None;
 		}
 

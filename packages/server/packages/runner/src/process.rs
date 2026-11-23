@@ -991,7 +991,7 @@ impl Component {
 			process_stopper.stop();
 			drop(index_sender);
 			finish_task.wait().await.ok();
-			return Err(tg::error!(%id, "the runner gave up the process's boot"));
+			return Err(tg::error!(%id, "the runner abandoned the process's boot"));
 		};
 		let start = tg::process::control::StartClientRequestArg {
 			boot: boot.boot,
