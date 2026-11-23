@@ -2,13 +2,13 @@ use {
 	super::{
 		AddSandboxParentRequestArg, AddSandboxParentResponseOutput, DequeueSandboxRequestArg,
 		DequeueSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
-		Operation, ResponseOutput, SandboxEndedNotification, Scheduler, SchedulerState,
+		Operation, ResponseOutput, Scheduler, SchedulerState,
 		placement::{Block, Parents, Placement, RunnerRef},
 		queue::{Links, Queue},
 		record::failed_sandbox_status,
 	},
 	futures::{FutureExt as _, future},
-	std::collections::HashMap,
+	std::collections::{BTreeSet, HashMap},
 	tangram_client::prelude::*,
 	tangram_server_core::control::accept::{Accept, Path},
 };
@@ -22,6 +22,9 @@ pub(super) type Write = future::Shared<future::BoxFuture<'static, tg::Result<()>
 pub(super) type Entries = HashMap<tg::sandbox::Id, Sandbox, tg::id::BuildHasher>;
 
 pub(super) struct Sandboxes {
+	/// The boots that runners held and that ended or that a later boot replaced, which authorize the runners' late reports of them.
+	pub(super) ended: super::report::Ended,
+
 	/// The sandboxes that the scheduler tracks, from their enqueues until the index has recorded their ends or their runners report their ends.
 	pub(super) entries: Entries,
 
@@ -109,6 +112,9 @@ pub(super) struct Sandbox {
 
 	pub(super) persisted: bool,
 
+	/// The processes that the scheduler offered into the boot, which are the boot's initial process and the spawns into it, and which are the only processes that the runner's reports of the boot may finish.
+	pub(super) processes: BTreeSet<tg::process::Id>,
+
 	/// The sandbox's request, which is absent once a runner holds the sandbox and its control connection is established, and for a sandbox that the scheduler knows only from its runner's report.
 	pub(super) request: Option<EnqueueSandboxRequestArg>,
 
@@ -172,6 +178,7 @@ pub(super) struct DiscardedSandbox {
 impl Sandboxes {
 	pub(super) fn new() -> Self {
 		Self {
+			ended: super::report::Ended::default(),
 			entries: HashMap::default(),
 			holders: HashMap::default(),
 			indexing: false,
@@ -188,6 +195,12 @@ impl Sandbox {
 		request: Option<EnqueueSandboxRequestArg>,
 		state: State,
 	) -> Self {
+		let processes = request
+			.as_ref()
+			.and_then(|request| request.process.as_ref())
+			.and_then(|process| process.id.clone())
+			.into_iter()
+			.collect();
 		Self {
 			accept: None,
 			blocked: HashMap::default(),
@@ -199,6 +212,7 @@ impl Sandbox {
 			parent,
 			parents: Vec::new(),
 			persisted: false,
+			processes,
 			request,
 			retrying: false,
 			sequence: 0,
@@ -435,9 +449,16 @@ impl SchedulerState {
 		Some(sandbox)
 	}
 
-	/// Remove the entry of a sandbox that is not in the queue, and return it with the enqueue requests that still wait for its acceptance.
+	/// Remove the entry of a sandbox that is not in the queue, and return it with the enqueue requests that still wait for its acceptance. Remember a boot that a runner held as ended, so that the runner's late reports of it are authorized.
 	fn remove_sandbox_inner(&mut self, id: &tg::sandbox::Id) -> Option<(Sandbox, Vec<String>)> {
 		let mut sandbox = self.sandboxes.entries.remove(id)?;
+		if let State::Accepted { runner } = &sandbox.state {
+			let ended = super::report::EndedBoot {
+				processes: sandbox.processes.clone(),
+				runner: runner.id.clone(),
+			};
+			self.sandboxes.ended.insert(id.clone(), sandbox.boot, ended);
+		}
 		if let Some(parent) = &sandbox.parent {
 			self.remove_child(parent, id);
 		}
@@ -866,6 +887,7 @@ impl SchedulerState {
 		let mut parent = request.as_ref().and_then(|request| request.parent.clone());
 		let mut request = request;
 		let mut ids = Vec::new();
+		let mut processes = BTreeSet::new();
 		if let Some(entry) = self.sandboxes.entries.get(id) {
 			if entry.boot > boot {
 				return Tracked::Ignored;
@@ -899,6 +921,7 @@ impl SchedulerState {
 					parent = parent.or(previous.parent);
 					if previous.boot == boot {
 						request = request.or(previous.request);
+						processes = previous.processes;
 					}
 				},
 			}
@@ -906,35 +929,11 @@ impl SchedulerState {
 		if let Some(parent) = &parent {
 			self.insert_child(parent, id, &runner.id);
 		}
-		let sandbox = Sandbox::new(boot, parent, request, State::Accepted { runner });
+		let mut sandbox = Sandbox::new(boot, parent, request, State::Accepted { runner });
+		sandbox.processes.extend(processes);
 		self.sandboxes.entries.insert(id.clone(), sandbox);
 
 		Tracked::Inserted { ids }
-	}
-
-	/// Forget a sandbox that its runner reports ended.
-	pub(super) fn handle_sandbox_ended(
-		&mut self,
-		scheduler: &Scheduler,
-		notification: &SandboxEndedNotification,
-	) {
-		let ended = self
-			.sandboxes
-			.entries
-			.get(&notification.sandbox)
-			.is_some_and(|entry| {
-				entry.boot == notification.boot
-					&& matches!(
-						&entry.state,
-						State::Accepted { runner }
-							if runner.id == notification.runner
-								&& runner.registration_index == notification.registration_index
-					)
-			});
-		if ended {
-			self.remove_sandbox(scheduler, &notification.sandbox);
-			self.stop_serving_sandbox_holder(&notification.sandbox);
-		}
 	}
 
 	/// Add a parent to a sandbox that the scheduler holds, so that the sandbox can borrow the capacity of a sandbox whose process waits for its process after a cache hit, and offer a queued sandbox if the parent already lends its capacity. Reply with the sandbox's capacity, or with none if the scheduler does not hold the sandbox.

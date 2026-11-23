@@ -164,6 +164,9 @@ impl SchedulerState {
 			.is_some()
 			.then(|| self.get_accepted_sandboxes(&request.runner));
 		self.forget_accepted_sandboxes(scheduler, &request.runner, &request.sandboxes);
+		if request.directories.is_some() {
+			self.sandboxes.ended.forget_runner(&request.runner);
+		}
 		let offers = self.remove_runner(scheduler, &request.runner, true);
 		let runner = Runner {
 			borrowable: HashSet::default(),
@@ -224,7 +227,7 @@ impl SchedulerState {
 		);
 	}
 
-	/// Track a sandbox that a runner started on the shortcut path, so that this scheduler knows the sandbox and sends the spawns into it to the runner.
+	/// Track a sandbox that a runner started on the shortcut path, so that this scheduler knows the sandbox and sends the spawns into it to the runner. Authorize the report with the proof that the runner derived the sandbox's ID, and ignore a report of a boot that already ended, so that a report that arrives after the boot's end does not track the boot again.
 	pub(super) fn handle_add_runner_sandbox_request(
 		&mut self,
 		scheduler: &Scheduler,
@@ -236,18 +239,39 @@ impl SchedulerState {
 			.entries
 			.get(&request.runner)
 			.is_some_and(|runner| runner.registration_index == request.registration_index);
-		let result = if current {
-			let runner = super::placement::RunnerRef {
-				id: request.runner,
-				registration_index: request.registration_index,
-			};
-			self.track_accepted_sandbox(scheduler, &request.sandbox, request.boot, None, runner);
-			let output = tangram_server_scheduler_core::AddRunnerSandboxResponseOutput {};
-			Ok(super::ResponseOutput::AddRunnerSandbox(output))
-		} else {
-			Err(
+		let report = super::report::Report {
+			boot: request.boot,
+			processes: Vec::new(),
+			proof: Some(&request.proof),
+			runner: &request.runner,
+			sandbox: &request.sandbox,
+		};
+		let authorization = self.authorize_runner_report(&report);
+		let result = match authorization {
+			_ if !current => Err(
 				tg::error!(sandbox = %request.sandbox, runner = %request.runner, "the runner's connection is not current"),
-			)
+			),
+			super::report::Authorization::Authorized(authorized) => {
+				if matches!(authorized.held, super::report::Held::Derived) {
+					let runner = super::placement::RunnerRef {
+						id: request.runner,
+						registration_index: request.registration_index,
+					};
+					self.track_accepted_sandbox(
+						scheduler,
+						&request.sandbox,
+						request.boot,
+						None,
+						runner,
+					);
+				}
+				let output = tangram_server_scheduler_core::AddRunnerSandboxResponseOutput {};
+				Ok(super::ResponseOutput::AddRunnerSandbox(output))
+			},
+			super::report::Authorization::NotReady => Err(
+				tg::error!(sandbox = %request.sandbox, runner = %request.runner, "the runner did not derive the sandbox's ID"),
+			),
+			super::report::Authorization::Refused(error) => Err(error),
 		};
 		let response = super::request::Response::new(id, result);
 		scheduler.send_response(self, response);
@@ -340,6 +364,7 @@ impl SchedulerState {
 		}
 		tracing::info!(runner = %request.runner, registration_index = request.registration_index, "removing the runner");
 		self.forget_accepted_sandboxes(scheduler, &request.runner, &[]);
+		self.sandboxes.ended.forget_runner(&request.runner);
 		self.remove_runner(scheduler, &request.runner, false);
 
 		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later. This scheduler holds those boots, so their discard alone records their end, and the runner's cleanup leaves them alone.
@@ -787,6 +812,7 @@ impl Component {
 				Some(error.clone()),
 				status,
 				Some(registration),
+				true,
 			)
 			.boxed()
 			.await?;
@@ -844,6 +870,7 @@ impl Component {
 		server: &Server,
 		id: &tg::sandbox::Id,
 		error: Option<tg::error::Data>,
+		processes: bool,
 	) -> tg::Result<()> {
 		self.finish_runner_sandbox(
 			server,
@@ -852,6 +879,7 @@ impl Component {
 			error,
 			tg::sandbox::Status::Destroyed,
 			None,
+			processes,
 		)
 		.boxed()
 		.await
@@ -862,6 +890,7 @@ impl Component {
 		server: &Server,
 		id: &tg::sandbox::Id,
 		error: tg::error::Data,
+		processes: bool,
 	) -> tg::Result<()> {
 		self.finish_runner_sandbox(
 			server,
@@ -870,6 +899,7 @@ impl Component {
 			Some(error),
 			tg::sandbox::Status::Stopped,
 			None,
+			processes,
 		)
 		.boxed()
 		.await
@@ -899,6 +929,10 @@ impl Component {
 		Ok(reserved)
 	}
 
+	#[expect(
+		clippy::too_many_arguments,
+		reason = "the end of a runner's sandbox has this many inputs"
+	)]
 	async fn finish_runner_sandbox(
 		&self,
 		server: &Server,
@@ -907,6 +941,7 @@ impl Component {
 		error: Option<tg::error::Data>,
 		status: tg::sandbox::Status,
 		registration: Option<&tangram_index::runner::Registration>,
+		processes: bool,
 	) -> tg::Result<()> {
 		// Leave a sandbox that is already stopped or destroyed alone, or that moved past the boot that the caller read, and get the boot that ends.
 		let data = server
@@ -934,23 +969,27 @@ impl Component {
 		}
 		tracing::warn!(sandbox = %id, reason = error.as_ref().and_then(|error| error.message.as_deref()), %status, "finishing the runner sandbox");
 
-		// Finish the started processes with the error, or with a cancellation if the sandbox ends without one, and the queued processes, which can never start once the sandbox ends, because a start of a stopped sandbox does not carry them and a spawn into it is refused.
+		// Finish the started processes with the error, or with a cancellation if the sandbox ends without one, and the queued processes, which can never start once the sandbox ends, because a start of a stopped sandbox does not carry them and the runner finishes a spawn into it as failed.
 		let process_error = error.clone().unwrap_or_else(|| tg::error::Data {
 			code: Some(tg::error::Code::Cancellation),
 			message: Some("the sandbox was destroyed".to_owned()),
 			..Default::default()
 		});
 		let now = server.clock.unix_timestamp();
-		let length = server
-			.index
-			.try_get_sandbox_processes_count(id)
-			.await?
-			.unwrap_or_default();
-		let processes = server
-			.index
-			.get_sandbox_processes(id, std::io::SeekFrom::Start(0), length)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox processes"))?;
+		let processes = if processes {
+			let length = server
+				.index
+				.try_get_sandbox_processes_count(id)
+				.await?
+				.unwrap_or_default();
+			server
+				.index
+				.get_sandbox_processes(id, std::io::SeekFrom::Start(0), length)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox processes"))?
+		} else {
+			Vec::new()
+		};
 		let indexed = server
 			.index
 			.try_get_processes_with_data(&processes)
@@ -961,25 +1000,19 @@ impl Component {
 				continue;
 			};
 			let process = process.clone();
+
+			// Finish exactly the ending boot's processes, and leave a process of another boot to that boot.
+			if indexed.boot.is_some() && indexed.boot != boot {
+				continue;
+			}
 			let mut data = data.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
 			if data.status.is_queued() {
-				// Finish the queued process only while the sandbox is at the boot that ends, and leave a process that is not finished, because the sandbox moved to a later boot or another finisher finished it first, to the later boot or that finisher. A superseded registration ends the routine.
+				// Finish the queued process. A superseded registration ends the routine.
 				let error = tg::Either::Left(process_error.clone());
-				let sandbox_boot = boot.map(|boot| tangram_index::process::put::SandboxBoot {
-					boot,
-					sandbox: id.clone(),
-				});
 				let result = server
 					.components
 					.process
-					.finish_queued_process(
-						server,
-						&process,
-						data,
-						error,
-						sandbox_boot,
-						registration.cloned(),
-					)
+					.finish_queued_process(server, &process, data, error, registration.cloned())
 					.boxed()
 					.await;
 				if let Err(error) = result {
@@ -1003,7 +1036,6 @@ impl Component {
 						},
 					}
 				}
-				data.children.get_or_insert_default();
 				data.cacheable = false;
 				data.set_error(Some(tg::Either::Left(process_error.clone())));
 				data.exit = Some(1);
@@ -1023,14 +1055,10 @@ impl Component {
 					location: None,
 					outcome_sync: None,
 					registration: registration.cloned(),
-					sandbox_boot: boot.map(|boot| tangram_index::process::put::SandboxBoot {
-						boot,
-						sandbox: id.clone(),
-					}),
 					store_data: true,
 				};
 
-				// Leave a process that is not finished, because the sandbox moved to a later boot or another finisher finished it first, to the later boot or that finisher. A superseded registration ends the routine.
+				// Finish the started process. A superseded registration ends the routine.
 				let result = session
 					.server
 					.components
@@ -1104,7 +1132,6 @@ impl Component {
 							principal: tg::Principal::Process(process.clone()),
 							registration: registration.cloned(),
 							sandbox: None,
-							sandbox_boot: None,
 							sequence: 0,
 							storage: indexed.storage,
 							time_to_touch: server.config.process.time_to_touch,

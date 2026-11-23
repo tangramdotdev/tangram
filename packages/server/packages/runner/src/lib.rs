@@ -781,11 +781,14 @@ impl Component {
 				) {
 					crate::sandbox::Teardown::Destroy => {
 						tg::sandbox::control::ServerRequestArg::Destroy(
-							tg::sandbox::control::DestroyServerRequestArg { error: None },
+							tg::sandbox::control::DestroyServerRequestArg {
+								ended: false,
+								error: None,
+							},
 						)
 					},
 					crate::sandbox::Teardown::Stop => tg::sandbox::control::ServerRequestArg::Stop(
-						tg::sandbox::control::StopServerRequestArg {},
+						tg::sandbox::control::StopServerRequestArg { ended: false },
 					),
 				};
 				Some((sandbox.id.clone(), sandbox.control_sender.clone(), request))
@@ -829,31 +832,114 @@ impl Component {
 		});
 	}
 
-	/// Report a sandbox that this runner started on the shortcut path to its scheduler through the runner control stream, waiting for a runner control stream and retrying after the stream is lost.
+	/// Report a sandbox that this runner started on the shortcut path to its scheduler through the runner control stream, and report it again on the next stream after the scheduler rejects it, such as for a stream that a reconnect replaced.
 	pub(crate) async fn report_shortcut_sandbox_with_runner_control(
 		&self,
 		sandbox: &tg::sandbox::Id,
 		boot: u64,
+		proof: tg::sandbox::id::Proof,
 		stopper: &Stopper,
 	) -> tg::Result<()> {
+		let arg = tg::runner::control::ClientRequestArg::AddSandbox(
+			tg::runner::control::AddSandboxClientRequestArg {
+				boot,
+				proof,
+				sandbox: sandbox.clone(),
+			},
+		);
 		let mut control = self.control.subscribe();
 		loop {
+			control.mark_unchanged();
+			let error = match self.report_with_runner_control(arg.clone(), stopper).await {
+				Ok(output) => {
+					output
+						.try_unwrap_add_sandbox()
+						.map_err(|_| tg::error!("expected an add sandbox response"))?;
+					return Ok(());
+				},
+				Err(error) => error,
+			};
+			tracing::warn!(error = %error.trace(), %sandbox, "failed to report the sandbox to the scheduler");
+			tokio::select! {
+				biased;
+				result = control.changed() => result.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?,
+				() = stopper.wait() => {
+					return Err(tg::error!(%sandbox, "the runner stopped before the sandbox was reported"));
+				},
+			}
+		}
+	}
+
+	/// Report the end of a boot that this runner held to its scheduler through the runner control stream.
+	pub(crate) async fn report_ended_sandbox_with_runner_control(
+		&self,
+		arg: tg::runner::control::EndSandboxClientRequestArg,
+		stopper: &Stopper,
+	) -> tg::Result<()> {
+		let sandbox = arg.sandbox.clone();
+		let arg = tg::runner::control::ClientRequestArg::EndSandbox(arg);
+		self.report_with_runner_control(arg, stopper)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %sandbox, "failed to report the end of the sandbox"),
+			)?
+			.try_unwrap_end_sandbox()
+			.map_err(|_| tg::error!("expected an end sandbox response"))?;
+
+		Ok(())
+	}
+
+	/// Report processes that the runner accepted for a boot that the scheduler offered them into and that cannot run to the runner's scheduler, which finishes them as failed with the error.
+	pub(crate) async fn report_finished_processes_with_runner_control(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		boot: u64,
+		processes: &[tg::runner::control::Process],
+		error: tg::Either<tg::error::Data, tg::error::Id>,
+		stopper: &Stopper,
+	) -> tg::Result<()> {
+		let arg = tg::runner::control::ClientRequestArg::FinishProcesses(
+			tg::runner::control::FinishProcessesClientRequestArg {
+				boot,
+				error,
+				processes: processes.to_vec(),
+				sandbox: sandbox.clone(),
+			},
+		);
+		self.report_with_runner_control(arg, stopper)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to report the finished processes"))?
+			.try_unwrap_finish_processes()
+			.map_err(|_| tg::error!("expected a finish processes response"))?;
+
+		Ok(())
+	}
+
+	/// Send a report through the runner control stream and return the server's response, waiting for a runner control stream and sending the report again after the stream is lost, or after a backoff or a new stream if the server asks for the report again because it cannot decide it yet. Send the report on a stream that is connected even after the stopper is stopped, so that a report made during a graceful drain precedes the runner's `End`, and give up only if the stopper is stopped while no stream is connected. An error in the response is the server's refusal, after which the report is not sent again.
+	async fn report_with_runner_control(
+		&self,
+		arg: tg::runner::control::ClientRequestArg,
+		stopper: &Stopper,
+	) -> tg::Result<tg::runner::control::ServerResponseOutput> {
+		let mut control = self.control.subscribe();
+		let retry = tangram_futures::retry::Options::default();
+		let mut attempt = 0;
+		loop {
+			// Wait for a runner control stream.
 			let sender = tokio::select! {
+				biased;
 				result = control.wait_for(Option::is_some) => result
 					.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?
 					.clone()
 					.unwrap(),
 				() = stopper.wait() => {
-					return Err(tg::error!("the runner stopped before the sandbox was reported"));
+					return Err(tg::error!("the runner stopped without a runner control stream"));
 				},
 			};
+
+			// Send the report, and return the response.
 			let request = tg::runner::control::ClientRequest {
-				arg: tg::runner::control::ClientRequestArg::AddSandbox(
-					tg::runner::control::AddSandboxClientRequestArg {
-						boot,
-						sandbox: sandbox.clone(),
-					},
-				),
+				arg: arg.clone(),
 				id: tangram_server_core::control::id(),
 			};
 			let response = sender
@@ -866,68 +952,44 @@ impl Component {
 				Ok(response) => response.await.ok(),
 				Err(_) => None,
 			};
-			if let Some(tg::runner::control::ServerMessage::Response(response)) = response
-				&& response.error.is_none()
-			{
-				return Ok(());
-			}
-			tracing::warn!(%sandbox, "failed to report the sandbox to the scheduler");
-			control.mark_unchanged();
-			tokio::select! {
-				result = control.changed() => result.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?,
-				() = stopper.wait() => {
-					return Err(tg::error!("the runner stopped before the sandbox was reported"));
-				},
-			}
-		}
-	}
+			if let Some(response) = response {
+				let tg::runner::control::ServerMessage::Response(response) = response else {
+					return Err(tg::error!("expected a runner control response"));
+				};
 
-	/// Report a sandbox's stop or destruction through the runner control stream, waiting for a runner control stream and retrying after the stream is lost.
-	pub(crate) async fn report_sandbox_with_runner_control(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		error: tg::Either<tg::error::Data, tg::error::Id>,
-		teardown: crate::sandbox::Teardown,
-		stopper: &Stopper,
-	) -> tg::Result<()> {
-		let mut control = self.control.subscribe();
-		loop {
-			let sender = tokio::select! {
-				result = control.wait_for(Option::is_some) => result
-					.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?
-					.clone()
-					.unwrap(),
-				() = stopper.wait() => {
-					return Err(tg::error!("the runner stopped before the sandbox was reported"));
-				},
-			};
-			let result = match teardown {
-				crate::sandbox::Teardown::Destroy => {
-					let arg = tg::runner::control::DestroySandboxClientRequestArg {
-						error: Some(error.clone()),
-						sandbox: sandbox.clone(),
-					};
-					Self::request_runner_sandbox_destroy(&sender, arg).await?
-				},
-				crate::sandbox::Teardown::Stop => {
-					let arg = tg::runner::control::StopSandboxClientRequestArg {
-						error: Some(error.clone()),
-						sandbox: sandbox.clone(),
-					};
-					Self::request_runner_sandbox_stop(&sender, arg).await?
-				},
-			};
-			match result {
-				ControlFlow::Break(()) => return Ok(()),
-				ControlFlow::Continue(error) => {
-					tracing::warn!(error = %error.trace(), %sandbox, "failed to send the sandbox report");
+				// Send the report again after a backoff or on a new stream if the server cannot decide it yet.
+				if response.retry.is_some() {
+					let delay = tangram_futures::retry::delay_for_attempt(attempt, &retry);
+					attempt += 1;
 					control.mark_unchanged();
 					tokio::select! {
+						biased;
 						result = control.changed() => result.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?,
-						() = stopper.wait() => {
-							return Err(tg::error!("the runner stopped before the sandbox was reported"));
-						},
+						() = tokio::time::sleep(delay) => {},
 					}
+					continue;
+				}
+
+				if let Some(error) = response.error {
+					let error = tg::Error::try_from(error).map_err(|error| {
+						tg::error!(!error, "failed to deserialize the runner control error")
+					})?;
+					return Err(error);
+				}
+				let output = response
+					.output
+					.ok_or_else(|| tg::error!("missing the runner control response output"))?;
+				return Ok(output);
+			}
+
+			// Wait for the stream to change after it is lost.
+			tracing::warn!("failed to send the report through the runner control stream");
+			control.mark_unchanged();
+			tokio::select! {
+				biased;
+				result = control.changed() => result.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?,
+				() = stopper.wait() => {
+					return Err(tg::error!("the runner stopped without a runner control stream"));
 				},
 			}
 		}
@@ -967,45 +1029,6 @@ impl Component {
 		let Some(tg::runner::control::ServerResponseOutput::DestroySandbox(_)) = response.output
 		else {
 			return Err(tg::error!("expected a destroy sandbox response"));
-		};
-
-		Ok(ControlFlow::Break(()))
-	}
-
-	async fn request_runner_sandbox_stop(
-		sender: &RunnerSender,
-		arg: tg::runner::control::StopSandboxClientRequestArg,
-	) -> tg::Result<ControlFlow<(), tg::Error>> {
-		let request = tg::runner::control::ClientRequest {
-			arg: tg::runner::control::ClientRequestArg::StopSandbox(arg),
-			id: tangram_server_core::control::id(),
-		};
-		let response = sender
-			.request(
-				tg::runner::control::ClientMessage::Request(request),
-				tangram_server_core::control::Priority::High,
-			)
-			.await;
-		let response = match response {
-			Ok(response) => response.await,
-			Err(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let Ok(response) = response else {
-			let error = tg::error!("the runner control response stream ended");
-			return Ok(ControlFlow::Continue(error));
-		};
-		let tg::runner::control::ServerMessage::Response(response) = response else {
-			return Err(tg::error!("expected a runner control response"));
-		};
-		if let Some(error) = response.error {
-			let error = tg::Error::try_from(error).map_err(|error| {
-				tg::error!(!error, "failed to deserialize the runner control error")
-			})?;
-			return Err(tg::error!(!error, "the stop sandbox request failed"));
-		}
-		let Some(tg::runner::control::ServerResponseOutput::StopSandbox(_)) = response.output
-		else {
-			return Err(tg::error!("expected a stop sandbox response"));
 		};
 
 		Ok(ControlFlow::Break(()))

@@ -46,33 +46,26 @@ fn indexed(
 }
 
 #[test]
-fn a_runner_removes_the_directory_of_a_destroyed_sandbox_or_another_runners_sandbox() {
+fn a_runner_removes_the_directory_of_a_destroyed_or_destroying_sandbox() {
 	let runner = tg::runner::Id::new();
 	let other = tg::runner::Id::new();
 	let remove = |removal| tg::runner::control::StoppedSandboxAction::Remove(removal);
 
 	// A sandbox that the index does not have is kept, because the index may lag.
 	assert_eq!(
-		stopped_sandbox_action(None, &runner),
+		stopped_sandbox_action(None),
 		tg::runner::control::StoppedSandboxAction::Keep
-	);
-
-	// A sandbox that the index records as held by another runner is removed.
-	let sandbox = indexed(Some(&other), Some(tg::sandbox::Status::Stopped));
-	assert_eq!(
-		stopped_sandbox_action(Some(&sandbox), &runner),
-		remove(tg::runner::control::StoppedSandboxRemoval::OtherRunner)
 	);
 
 	// A destroyed or destroying sandbox is removed, whichever runner the index records.
 	let sandbox = indexed(Some(&other), Some(tg::sandbox::Status::Destroyed));
 	assert_eq!(
-		stopped_sandbox_action(Some(&sandbox), &runner),
+		stopped_sandbox_action(Some(&sandbox)),
 		remove(tg::runner::control::StoppedSandboxRemoval::Destroyed)
 	);
 	let sandbox = indexed(Some(&runner), Some(tg::sandbox::Status::Destroying));
 	assert_eq!(
-		stopped_sandbox_action(Some(&sandbox), &runner),
+		stopped_sandbox_action(Some(&sandbox)),
 		remove(tg::runner::control::StoppedSandboxRemoval::Destroying)
 	);
 
@@ -83,7 +76,7 @@ fn a_runner_removes_the_directory_of_a_destroyed_sandbox_or_another_runners_sand
 		indexed(Some(&runner), None),
 	] {
 		assert_eq!(
-			stopped_sandbox_action(Some(&sandbox), &runner),
+			stopped_sandbox_action(Some(&sandbox)),
 			tg::runner::control::StoppedSandboxAction::Keep
 		);
 	}

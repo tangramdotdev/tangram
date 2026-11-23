@@ -142,7 +142,7 @@ impl SchedulerState {
 			.get(&sandbox)
 			.map(|entry| (&entry.state, entry.boot));
 		match state {
-			// Send a spawn into a sandbox that a runner holds to the runner with the boot, which refuses a spawn for a boot that it is not running.
+			// Hold a spawn into a sandbox that a runner holds, and offer the process to the runner with the boot, which accepts it and finishes it as failed if it is not running the boot.
 			Some((State::Accepted { .. }, boot))
 				if matches!(arg, tg::sandbox::control::ServerRequestArg::SpawnProcess(_)) =>
 			{
@@ -150,6 +150,12 @@ impl SchedulerState {
 					unreachable!()
 				};
 				arg.boot = Some(boot);
+
+				// Remember that this scheduler offered the process into the boot, so that the runner's reports of the boot may finish it.
+				if let Some(process) = &arg.process.id {
+					let entry = self.sandboxes.entries.get_mut(&sandbox).unwrap();
+					entry.processes.insert(process.clone());
+				}
 				let spawn = super::spawn::Spawn { arg, id, sandbox };
 				self.spawn_process(scheduler, spawn, true);
 				return;

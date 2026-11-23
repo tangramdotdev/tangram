@@ -375,13 +375,35 @@ impl Component {
 				self.write_queued_process(session, &queued, sandbox, boot, public)
 					.await?;
 			}
-			let response = control_sender.request(request).await.map_err(
-				|error| tg::error!(!error, %sandbox, process = ?id, "the spawn process request failed"),
-			)?;
-			let std::ops::ControlFlow::Break(response) = response else {
-				return Err(tg::error!(%sandbox, process = ?id, "the sandbox is not started"));
-			};
-			response
+			let result = async {
+				let response = control_sender.request(request).await.map_err(
+					|error| tg::error!(!error, %sandbox, process = ?id, "the spawn process request failed"),
+				)?;
+				let std::ops::ControlFlow::Break(response) = response else {
+					return Err(tg::error!(%sandbox, process = ?id, "the sandbox is not started"));
+				};
+				Ok(response)
+			}
+			.await;
+
+			// Finish the process as failed from this server's memory if this server's runner did not take it, because this server holds the process that it recorded.
+			if let (Err(error), Some(id)) = (&result, id)
+				&& let Err(error) = self
+					.finish_queued_process(
+						&session.server,
+						id,
+						queued
+							.data
+							.clone()
+							.without_location_and_tokens_except_sync(),
+						error.to_data_or_id(),
+						None,
+					)
+					.await
+			{
+				tracing::error!(error = %error.trace(), process = %id, "failed to finish the unstarted process");
+			}
+			result?
 		} else {
 			// Subscribe before sending the request, so that a stop or destroy between the request and the wait cannot be missed.
 			let mut wakeups = session
@@ -719,19 +741,20 @@ impl Component {
 				.spawn_publish_sandbox_status_task(&session.server, &sandbox);
 		}
 
-		// Hand the process off, and record its failure if it does not start, because no runner will report it.
+		// Hand the process off. If the hand-off to this server's runner of a new sandbox fails, then this server holds the process and its new sandbox, so it records the sandbox as destroyed and the process as failed from its own memory. The holder of a spawn into an existing sandbox finishes the process.
 		let result = hand_off.await;
-		if let Err(error) = &result {
+		if let Err(error) = &result
+			&& let Some(sandbox_arg) = sandbox_arg
+		{
 			let error = error.to_data_or_id();
-			if let Some(sandbox_arg) = sandbox_arg
-				&& let Err(error) = self
-					.spawn_process_destroy_new_sandbox(session, sandbox_arg, error.clone())
-					.await
+			if let Err(error) = self
+				.spawn_process_destroy_new_sandbox(session, sandbox_arg, error.clone())
+				.await
 			{
 				tracing::error!(error = %error.trace(), %sandbox, "failed to destroy the new sandbox");
 			}
 			if let Err(error) = self
-				.finish_unstarted_process(&session.server, &process, error)
+				.finish_queued_process(&session.server, &id, process.data.clone(), error, None)
 				.await
 			{
 				tracing::error!(error = %error.trace(), process = %id, "failed to finish the unstarted process");

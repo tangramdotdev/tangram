@@ -143,7 +143,7 @@ impl Component {
 
 		// Send the request to the sandbox's holder.
 		let request = tg::sandbox::control::ServerRequestArg::Stop(
-			tg::sandbox::control::StopServerRequestArg {},
+			tg::sandbox::control::StopServerRequestArg { ended: false },
 		);
 		let retry = session.server.config.control.request_retry.clone().into();
 		let timeout = session.server.config.control.request_timeout;
@@ -228,7 +228,7 @@ impl Component {
 			tg::sandbox::Status::Stopping => false,
 			tg::sandbox::Status::Started | tg::sandbox::Status::Starting => {
 				let request = tg::sandbox::control::ServerRequestArg::Stop(
-					tg::sandbox::control::StopServerRequestArg {},
+					tg::sandbox::control::StopServerRequestArg { ended: false },
 				);
 				let response = match control_sender.send_request(request).await {
 					Err(error) => Err(error),

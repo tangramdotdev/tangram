@@ -82,9 +82,6 @@ pub enum ClientNotification {
 
 	#[tangram_serialize(id = 0)]
 	Heartbeat(HeartbeatClientNotification),
-
-	#[tangram_serialize(id = 1)]
-	SandboxEnded(SandboxEndedClientNotification),
 }
 
 #[derive(
@@ -119,11 +116,14 @@ pub enum ClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxClientRequestArg),
 
+	#[tangram_serialize(id = 5)]
+	EndSandbox(EndSandboxClientRequestArg),
+
+	#[tangram_serialize(id = 4)]
+	FinishProcesses(FinishProcessesClientRequestArg),
+
 	#[tangram_serialize(id = 2)]
 	ReportSandboxUsage(ReportSandboxUsageClientRequestArg),
-
-	#[tangram_serialize(id = 1)]
-	StopSandbox(StopSandboxClientRequestArg),
 }
 
 #[derive(
@@ -227,11 +227,17 @@ pub struct ServerResponse {
 
 	#[tangram_serialize(id = 2)]
 	pub output: Option<ServerResponseOutput>,
+
+	/// The server's request that the runner send the request again later, because the server cannot decide it yet, such as a report of a boot that a restarted scheduler does not know until it recovers.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<tg::control::Retry>,
 }
 
 #[derive(
 	Clone,
 	Debug,
+	derive_more::TryUnwrap,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
@@ -245,11 +251,14 @@ pub enum ServerResponseOutput {
 	#[tangram_serialize(id = 0)]
 	DestroySandbox(DestroySandboxServerResponseOutput),
 
+	#[tangram_serialize(id = 5)]
+	EndSandbox(EndSandboxServerResponseOutput),
+
+	#[tangram_serialize(id = 4)]
+	FinishProcesses(FinishProcessesServerResponseOutput),
+
 	#[tangram_serialize(id = 2)]
 	ReportSandboxUsage(ReportSandboxUsageServerResponseOutput),
-
-	#[tangram_serialize(id = 1)]
-	StopSandbox(StopSandboxServerResponseOutput),
 }
 
 #[derive(
@@ -270,23 +279,6 @@ pub struct HeartbeatClientNotification {
 
 	#[tangram_serialize(id = 2)]
 	pub sandboxes: BTreeSet<tg::sandbox::Id>,
-}
-
-/// A report that a boot of a sandbox ended on the runner.
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct SandboxEndedClientNotification {
-	#[tangram_serialize(id = 0)]
-	pub boot: u64,
-
-	#[tangram_serialize(id = 1)]
-	pub sandbox: tg::sandbox::Id,
 }
 
 #[derive(
@@ -505,6 +497,10 @@ pub struct AddSandboxClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub boot: u64,
 
+	/// The proof that the runner derived the sandbox's ID.
+	#[tangram_serialize(id = 2)]
+	pub proof: tg::sandbox::id::Proof,
+
 	#[tangram_serialize(id = 1)]
 	pub sandbox: tg::sandbox::Id,
 }
@@ -643,15 +639,34 @@ pub enum StoppedSandboxRemoval {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct StopSandboxClientRequestArg {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+pub struct FinishProcessesClientRequestArg {
+	/// The boot that the scheduler offered the processes into.
+	#[tangram_serialize(id = 2)]
+	pub boot: u64,
 
 	#[tangram_serialize(id = 0)]
+	pub error: tg::Either<tg::error::Data, tg::error::Id>,
+
+	/// The processes that the runner accepted and that cannot run, from the runner's memory, which the server finishes as failed with the error if the scheduler offered them into the boot.
+	#[tangram_serialize(id = 1)]
+	pub processes: Vec<Process>,
+
+	#[tangram_serialize(id = 3)]
 	pub sandbox: tg::sandbox::Id,
 }
 
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct FinishProcessesServerResponseOutput {}
+
+/// A runner's report that a boot that it held ended, which is stopped or destroyed, with the processes that the runner accepted for the boot and that did not finish, from the runner's memory.
 #[derive(
 	Clone,
 	Debug,
@@ -660,10 +675,64 @@ pub struct StopSandboxClientRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct StopSandboxServerResponseOutput {
+pub struct EndSandboxClientRequestArg {
 	#[tangram_serialize(id = 0)]
-	pub stopped: bool,
+	pub boot: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub created_at: i64,
+
+	/// The sandbox's data at the end of the boot, with its status and error.
+	#[tangram_serialize(id = 2)]
+	pub data: tg::sandbox::get::Output,
+
+	/// The processes of the boot.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Vec::is_empty")]
+	pub processes: Vec<tg::process::Id>,
+
+	/// The proof that the runner derived the sandbox's ID, for a sandbox that the runner started on the shortcut path.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
+	pub proof: Option<tg::sandbox::id::Proof>,
+
+	/// Whether the runner recorded the end at the sandbox's home through the boot's control stream, in which case the server does not record it again.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_default")]
+	#[tangram_serialize(
+		default,
+		id = 8,
+		skip_serializing_if = "tangram_util::serde::is_default"
+	)]
+	pub recorded: bool,
+
+	#[tangram_serialize(id = 5)]
+	pub sandbox: tg::sandbox::Id,
+
+	/// The sequence of the runner's write of the end among its writes of the boot.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_default")]
+	#[tangram_serialize(
+		default,
+		id = 6,
+		skip_serializing_if = "tangram_util::serde::is_default"
+	)]
+	pub sequence: u64,
+
+	/// The processes that the runner accepted for the boot and that did not finish, which the server finishes as failed with the boot's error.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 7, skip_serializing_if = "Vec::is_empty")]
+	pub unfinished: Vec<Process>,
 }
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct EndSandboxServerResponseOutput {}
 
 #[serde_as]
 #[derive(
