@@ -21,7 +21,7 @@ pub(super) struct Spawn {
 	pub(super) sandbox: tg::sandbox::Id,
 }
 
-/// Finish the saved spawns of a single server's previous run as failed, because its runner's sandboxes ended with the run.
+/// Finish the saved spawns of a single server's previous run as failed, because its runner's boots ended with the run.
 pub(super) async fn end_spawns(
 	server: &Server,
 	scheduler: &tg::scheduler::Id,
@@ -36,7 +36,7 @@ pub(super) async fn end_spawns(
 }
 
 impl SchedulerState {
-	/// Hold a spawn into a sandbox that a runner holds, and offer the process to the runner with the boot, in an operation.
+	/// Hold a spawn into a sandbox whose boot a runner holds, and offer the process to the runner with the boot, in an operation.
 	pub(super) fn spawn_process(&mut self, scheduler: &Scheduler, spawn: Spawn, record: bool) {
 		let scheduler = scheduler.clone();
 		self.operations.push(
@@ -76,7 +76,7 @@ impl SchedulerState {
 }
 
 impl Scheduler {
-	/// Hold a spawn into a sandbox that a runner holds: write the process's queued record with its permissions and its entry in this scheduler's queue, and offer the process to the runner with the boot concurrently, and answer the spawn's sender as soon as either the write or the runner's yes succeeds, so that the spawn does not wait for the write to persist. The runner's yes hands the process off, and every other outcome leaves the process to the runner if it accepted the process and finishes it as failed otherwise.
+	/// Hold a spawn into a sandbox whose boot a runner holds: write the process's queued record with its permissions and its entry in this scheduler's queue, and offer the process to the runner with the boot concurrently, and answer the spawn's sender as soon as either the write or the runner's yes succeeds, so that the spawn does not wait for the write to persist. The runner's yes hands the process off, and every other outcome leaves the process to the runner if it accepted the process and finishes it as failed otherwise.
 	pub(super) async fn spawn_process(&self, spawn: Spawn, record: bool) -> tg::Result<()> {
 		let held = spawn.arg.process.id.is_some();
 

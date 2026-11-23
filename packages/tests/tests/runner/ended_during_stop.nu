@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner that learns that its scheduler ended a boot while the runner stops the boot gives the boot up and writes nothing more for it, so that the sandbox keeps the end that the scheduler recorded.
+# A runner that learns that its scheduler ended a boot while the runner stops the sandbox abandons the boot and writes nothing more for it, so that the sandbox keeps the end that the scheduler recorded.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires the sandbox pool'

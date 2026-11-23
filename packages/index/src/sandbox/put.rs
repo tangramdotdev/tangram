@@ -376,7 +376,7 @@ impl Arg {
 			stopped_usages.insert(stopped.boot, usage);
 		}
 
-		// Report the sum of the usage of every boot, while running and while stopped.
+		// Report the sum of the usage of every boot, while started and while stopped.
 		if let Some(data) = &mut data
 			&& (!usages.is_empty() || !stopped_usages.is_empty())
 		{

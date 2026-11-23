@@ -184,7 +184,7 @@ exercising its scenario. Use, in order of preference:
 - **A checkpoint** that the test watches and waits for:
 
 ```nushell
-let end = checkpoint watch scheduler.sandbox.end --params { sandbox: $sandbox }
+let end = checkpoint watch scheduler.boot.end --params { sandbox: $sandbox }
 let stop = job spawn { tg sandbox stop $sandbox }
 checkpoint pass $end | ignore
 checkpoint unwatch $end

@@ -11,7 +11,7 @@ use {
 #[cfg(test)]
 mod tests;
 
-/// The sandboxes that the scheduler holds, in the order that they were enqueued. The scheduler passes over the queue one sandbox at a time, and at most one pass is in progress.
+/// The sandboxes whose boots the scheduler holds, in the order that they were enqueued. The scheduler passes over the queue one sandbox at a time, and at most one pass is in progress.
 pub(super) struct Queue {
 	/// Whether the capacity changed during the pass that is in progress, so that another pass follows it.
 	pub(super) again: bool,
@@ -144,7 +144,7 @@ impl List {
 }
 
 impl SchedulerState {
-	/// Whether the scheduler can offer a sandbox, which a restarted scheduler does only once each of its runners has reported or been declared dead.
+	/// Whether the scheduler can offer a boot, which a restarted scheduler does only once each of its runners has reported or been declared dead.
 	pub(super) fn can_schedule(&self, scheduler: &Scheduler) -> bool {
 		self.recovery.is_none()
 			&& self.sandboxes.offers < scheduler.config.max_offers
@@ -155,7 +155,7 @@ impl SchedulerState {
 		let Some(sandbox) = self.queue.next(&self.sandboxes.entries) else {
 			return;
 		};
-		self.try_offer_sandbox(scheduler, &sandbox);
+		self.try_offer_boot(scheduler, &sandbox);
 	}
 
 	/// Return a sandbox whose offer was not accepted to the queued state. The sandbox kept its place in the queue while it was offered.
@@ -166,7 +166,7 @@ impl SchedulerState {
 		self.sandboxes.entries.get_mut(id).unwrap().state = State::Queued;
 	}
 
-	/// Add a sandbox that the scheduler holds to the end of a parent's queue, so that the sandbox can borrow the parent's capacity.
+	/// Add a sandbox whose boot the scheduler holds to the end of a parent's queue, so that the sandbox can borrow the parent's capacity.
 	pub(super) fn add_parent(&mut self, id: &tg::sandbox::Id, parent: &tg::sandbox::Id) {
 		let links = ParentLinks {
 			links: Links::default(),

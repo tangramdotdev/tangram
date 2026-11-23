@@ -20,9 +20,9 @@ pub(super) struct OfferArg<'a> {
 	pub(super) timeout: std::time::Duration,
 }
 
-/// A runner's answer to an offer of a sandbox.
+/// A runner's answer to an offer of a boot.
 pub(super) enum Outcome {
-	/// The runner holds the sandbox.
+	/// The runner holds the boot.
 	Accepted,
 
 	/// The runner does not have the capacity for the sandbox.
@@ -66,8 +66,8 @@ pub(super) fn decide_offer_outcome(outcome: Outcome) -> Decision {
 	}
 }
 
-/// Offer a sandbox to a runner, and wait for the runner's answer.
-#[tracing::instrument(name = "sandbox.offer", level = "debug", skip_all, fields(runner = %arg.runner.id, sandbox = %arg.request.sandbox, scheduler = %arg.scheduler))]
+/// Offer a boot to a runner, and wait for the runner's answer.
+#[tracing::instrument(name = "boot.offer", level = "debug", skip_all, fields(runner = %arg.runner.id, sandbox = %arg.request.sandbox, scheduler = %arg.scheduler))]
 pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome {
 	let OfferArg {
 		capacity,
@@ -78,9 +78,9 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 		scheduler,
 		timeout,
 	} = arg;
-	tracing::info!(lender = lender.as_ref().map(ToString::to_string), runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler, "offering the sandbox to a runner");
-	let arg = tg::runner::control::ServerRequestArg::OfferSandbox(
-		tg::runner::control::OfferSandboxServerRequestArg {
+	tracing::info!(lender = lender.as_ref().map(ToString::to_string), runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler, "offering the boot to a runner");
+	let arg = tg::runner::control::ServerRequestArg::OfferBoot(
+		tg::runner::control::OfferBootServerRequestArg {
 			arg: request.arg.clone(),
 			boot: request.boot,
 			capacity,
@@ -121,13 +121,13 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 		.map_err(|error| tg::error!(!error, "timed out waiting for the runner to answer"))
 		.and_then(std::convert::identity);
 	if result.is_err() {
-		tangram_server_core::checkpoint!(session.server, "scheduler.sandbox.offer.unanswered", sandbox = %request.sandbox)
+		tangram_server_core::checkpoint!(session.server, "scheduler.boot.offer.unanswered", sandbox = %request.sandbox)
 			.await;
 	}
 	let result = match result {
 		Ok(result) => result,
 		Err(error) => {
-			let error = tg::error!(!error, sandbox = %request.sandbox, runner = %runner.id, "failed to send the offer of the sandbox to the runner");
+			let error = tg::error!(!error, sandbox = %request.sandbox, runner = %runner.id, "failed to send the offer of the boot to the runner");
 			return Outcome::Unanswered(error);
 		},
 	};
@@ -137,8 +137,8 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 		})
 		.and_then(|output| {
 			output
-				.try_unwrap_offer_sandbox()
-				.map_err(|_| tg::error!("expected an offer sandbox response"))
+				.try_unwrap_offer_boot()
+				.map_err(|_| tg::error!("expected an offer boot response"))
 				.map(|output| output.answer)
 		});
 	match result {
@@ -215,7 +215,7 @@ impl SchedulerState {
 		id: &tg::sandbox::Id,
 		runner: RunnerRef,
 	) {
-		// Remove the sandbox from the queue, which an offered sandbox keeps its place in.
+		// Remove the sandbox from the queue, in which the sandbox of an offered boot keeps its place.
 		if matches!(
 			self.sandboxes.entries[id].state,
 			State::Offered { .. } | State::Queued
@@ -244,7 +244,7 @@ impl SchedulerState {
 			.spawn_publish_sandbox_status_task(&scheduler.server, id);
 
 		// Write the handoff, which is this scheduler's last write of the boot.
-		self.hand_off_sandbox(scheduler, request, runner_id);
+		self.hand_off_boot(scheduler, request, runner_id);
 
 		// Reply to the waiting dequeues that the sandbox was not dequeued, and to the waiting enqueues that the sandbox is enqueued.
 		scheduler.send_dequeue_responses(dequeue_requests, false);
@@ -252,7 +252,7 @@ impl SchedulerState {
 	}
 
 	/// Write the handoff of a boot that a runner accepted, which removes the boot from this scheduler's queue. Write it again until it applies, because the boot stays in this scheduler's saved queue until the handoff removes it.
-	fn hand_off_sandbox(
+	fn hand_off_boot(
 		&mut self,
 		scheduler: &Scheduler,
 		request: EnqueueSandboxRequestArg,
@@ -263,7 +263,7 @@ impl SchedulerState {
 			async move {
 				loop {
 					let result = scheduler
-						.write_sandbox_handoff(&request, &runner)
+						.write_boot_handoff(&request, &runner)
 						.await;
 					let Err(error) = result else {
 						break;
@@ -280,7 +280,7 @@ impl SchedulerState {
 		);
 	}
 
-	/// Handle a runner's answer to an offer of a sandbox.
+	/// Handle a runner's answer to an offer of a boot.
 	pub(super) fn handle_offer_outcome(
 		&mut self,
 		scheduler: &Scheduler,
@@ -304,7 +304,7 @@ impl SchedulerState {
 		let runner = placement.runner().clone();
 		let sandbox = self.sandboxes.entries.get_mut(id).unwrap();
 		let failure = match decide_offer_outcome(outcome) {
-			// Record that the runner holds the sandbox.
+			// Record that the runner holds the boot.
 			Decision::Accept => {
 				let connected = matches!(
 					sandbox.state,
@@ -328,7 +328,7 @@ impl SchedulerState {
 				tracing::info!(sandbox = %id, runner = %runner.id, "the runner answered that the boot ended");
 				let request = sandbox.request().clone();
 				self.fail_claimed_sandbox(scheduler, request, runner.id.clone());
-				self.end_held_sandbox(scheduler, id, Some(placement.clone()));
+				self.end_held_boot(scheduler, id, Some(placement.clone()));
 				return;
 			},
 
@@ -343,8 +343,8 @@ impl SchedulerState {
 
 			// Send the offer again, and keep the reservation and the waiting dequeues until the runner answers.
 			Decision::Resend { error } => {
-				tracing::warn!(error = %error.trace(), sandbox = %id, runner = %runner.id, "the runner did not answer the offer of the sandbox");
-				self.retry_sandbox_offer(scheduler, id);
+				tracing::warn!(error = %error.trace(), sandbox = %id, runner = %runner.id, "the runner did not answer the offer of the boot");
+				self.retry_boot_offer(scheduler, id);
 				return;
 			},
 		};
@@ -355,20 +355,20 @@ impl SchedulerState {
 		self.remove_reservation(id, placement, false);
 		self.requeue_sandbox(id);
 		if !dequeue_requests.is_empty() {
-			// End a sandbox that a dequeue waits for.
-			self.end_sandbox_and_log(scheduler, id, tg::sandbox::Status::Destroyed, None);
+			// End the boot of a sandbox that a dequeue waits for.
+			self.end_boot_and_log(scheduler, id, tg::sandbox::Status::Destroyed, None);
 			scheduler.send_dequeue_responses(dequeue_requests, true);
 		} else if let Some(source) = failure
 			&& failures >= scheduler.config.max_offer_failures
 		{
-			// Give up on a sandbox whose offers failed too many times.
+			// Discard a sandbox whose offers failed too many times.
 			let error = tg::error!(
 				!source,
 				sandbox = %id,
 				%failures,
 				"failed to create the sandbox after too many attempts"
 			);
-			tracing::error!(error = %error.trace(), "giving up on the sandbox");
+			tracing::error!(error = %error.trace(), "discarding the sandbox");
 			let discarded = self.discard_sandbox(scheduler, id, &error);
 			scheduler.publish_sandbox_discarded(self, discarded);
 		} else {
@@ -387,7 +387,7 @@ impl SchedulerState {
 					.blocked
 					.insert(runner.id.clone(), block);
 			}
-			self.try_offer_sandbox(scheduler, id);
+			self.try_offer_boot(scheduler, id);
 		}
 	}
 
@@ -400,7 +400,7 @@ impl SchedulerState {
 			return;
 		}
 		sandbox.retrying = false;
-		self.try_offer_sandbox(scheduler, id);
+		self.try_offer_boot(scheduler, id);
 	}
 
 	pub(super) fn remove_reservation(
@@ -425,11 +425,7 @@ impl SchedulerState {
 		}
 	}
 
-	pub(super) fn try_offer_sandbox(
-		&mut self,
-		scheduler: &Scheduler,
-		id: &tg::sandbox::Id,
-	) -> bool {
+	pub(super) fn try_offer_boot(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) -> bool {
 		// Offer nothing while a restarted scheduler waits for its runners to report, because a runner may hold a boot that the scheduler would otherwise offer again.
 		if self.recovery.is_some() {
 			return false;
@@ -465,7 +461,7 @@ impl SchedulerState {
 			let elapsed = now - since;
 			if elapsed >= timeout {
 				let error = tg::error!(sandbox = %id, "no runners available");
-				tracing::error!(error = %error.trace(), "giving up on the sandbox");
+				tracing::error!(error = %error.trace(), "discarding the sandbox");
 				let discarded = self.discard_sandbox(scheduler, id, &error);
 				scheduler.publish_sandbox_discarded(self, discarded);
 				return false;
@@ -522,7 +518,7 @@ impl SchedulerState {
 		};
 
 		// Offer the boot to the runner.
-		self.offer_sandbox(scheduler, id);
+		self.offer_boot(scheduler, id);
 
 		true
 	}
@@ -550,7 +546,7 @@ impl SchedulerState {
 	}
 
 	/// Send the offer of a boot to its runner, whose answer completes the offer.
-	pub(super) fn offer_sandbox(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) {
+	pub(super) fn offer_boot(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) {
 		let sandbox = &self.sandboxes.entries[id];
 		let State::Offered {
 			offer, placement, ..
@@ -584,7 +580,7 @@ impl SchedulerState {
 					timeout,
 				};
 				let outcome = send_offer(&session, arg).boxed().await;
-				Operation::OfferSandbox {
+				Operation::OfferBoot {
 					outcome,
 					placement,
 					sandbox,
@@ -595,7 +591,7 @@ impl SchedulerState {
 	}
 
 	/// Send an offer that its runner did not answer again after a delay, with no limit, until the runner answers or is declared dead.
-	pub(super) fn retry_sandbox_offer(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) {
+	pub(super) fn retry_boot_offer(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) {
 		let Some(sandbox) = self.sandboxes.entries.get_mut(id) else {
 			return;
 		};
@@ -610,14 +606,14 @@ impl SchedulerState {
 		self.operations.push(
 			async move {
 				tokio::time::sleep(delay).await;
-				Operation::RetrySandboxOffer { offer, sandbox }
+				Operation::RetryBootOffer { offer, sandbox }
 			}
 			.boxed(),
 		);
 	}
 
 	/// Send an offer again, unless the runner answered it or the runner was removed in the meantime.
-	pub(super) fn handle_retry_sandbox_offer(
+	pub(super) fn handle_retry_boot_offer(
 		&mut self,
 		scheduler: &Scheduler,
 		id: &tg::sandbox::Id,
@@ -644,7 +640,7 @@ impl SchedulerState {
 				State::Accepted { .. } | State::Queued | State::Terminal { .. } => false,
 			});
 		if current {
-			self.offer_sandbox(scheduler, id);
+			self.offer_boot(scheduler, id);
 		}
 	}
 
@@ -679,7 +675,7 @@ impl SchedulerState {
 			*retries = 0;
 
 			// Send the offer again.
-			self.offer_sandbox(scheduler, &sandbox);
+			self.offer_boot(scheduler, &sandbox);
 		}
 	}
 }

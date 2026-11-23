@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A sandbox that was stopped and started, and that was running when its runner was killed, starts again after the runner restarts.
+# A sandbox that was stopped and started, and that was started when its runner was killed, starts again after the runner restarts.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {

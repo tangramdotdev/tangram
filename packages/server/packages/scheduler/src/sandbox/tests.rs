@@ -39,7 +39,7 @@ fn sandbox(id: &tg::sandbox::Id, state: State) -> Sandbox {
 	sandbox
 }
 
-/// Create a scheduler state that holds a sandbox in a state.
+/// Create a scheduler state that tracks a sandbox in a state.
 fn state(state: State) -> (SchedulerState, tg::sandbox::Id) {
 	let mut scheduler = SchedulerState::new();
 	let id = tg::sandbox::Id::new();
@@ -185,7 +185,7 @@ fn a_report_of_a_queued_sandbox_is_not_a_yes() {
 
 #[test]
 fn a_report_leaves_an_offered_sandbox_and_a_later_boot_alone() {
-	// An offered sandbox waits for the answer to its offer.
+	// The sandbox of an offered boot waits for the answer to its offer.
 	let (mut scheduler, id) = state(offered());
 	let tracked = scheduler.track_accepted_sandbox_inner(&id, 0, None, runner());
 	assert!(matches!(tracked, Tracked::Ignored));
@@ -222,7 +222,7 @@ fn a_report_of_a_later_boot_replaces_an_accepted_boot() {
 }
 
 #[test]
-fn a_report_of_a_sandbox_that_the_scheduler_ended_stops_or_destroys_it_on_its_runner() {
+fn a_report_of_a_boot_that_the_scheduler_ended_stops_or_destroys_the_sandbox_on_its_runner() {
 	// A boot that the scheduler ended as stopped is left to its runner.
 	let stopped = State::Terminal {
 		error: None,
@@ -237,7 +237,7 @@ fn a_report_of_a_sandbox_that_the_scheduler_ended_stops_or_destroys_it_on_its_ru
 		State::Terminal { .. }
 	));
 
-	// A sandbox that the scheduler ended as destroyed is destroyed on the runner that reports it.
+	// A sandbox whose boot the scheduler ended with a destroy is destroyed on the runner that reports it.
 	let destroyed = State::Terminal {
 		error: None,
 		indexed: false,

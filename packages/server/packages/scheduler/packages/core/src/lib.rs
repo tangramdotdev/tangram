@@ -97,9 +97,6 @@ pub enum RequestArg {
 	#[tangram_serialize(id = 1)]
 	AddRunner(AddRunnerRequestArg),
 
-	#[tangram_serialize(id = 10)]
-	AddRunnerSandbox(AddRunnerSandboxRequestArg),
-
 	#[tangram_serialize(id = 9)]
 	AddSandboxParent(AddSandboxParentRequestArg),
 
@@ -112,9 +109,6 @@ pub enum RequestArg {
 	#[tangram_serialize(id = 4)]
 	DestroyRunnerSandbox(DestroyRunnerSandboxRequestArg),
 
-	#[tangram_serialize(id = 12)]
-	EndRunnerSandbox(EndRunnerSandboxRequestArg),
-
 	#[tangram_serialize(id = 6)]
 	EnqueueSandbox(EnqueueSandboxRequestArg),
 
@@ -126,6 +120,12 @@ pub enum RequestArg {
 
 	#[tangram_serialize(id = 8)]
 	RemoveRunner(RemoveRunnerRequestArg),
+
+	#[tangram_serialize(id = 12)]
+	RunnerBootEnded(RunnerBootEndedRequestArg),
+
+	#[tangram_serialize(id = 10)]
+	RunnerSandboxCreated(RunnerSandboxCreatedRequestArg),
 }
 
 #[derive(
@@ -142,9 +142,6 @@ pub enum ResponseOutput {
 	#[tangram_serialize(id = 1)]
 	AddRunner(AddRunnerResponseOutput),
 
-	#[tangram_serialize(id = 10)]
-	AddRunnerSandbox(AddRunnerSandboxResponseOutput),
-
 	#[tangram_serialize(id = 9)]
 	AddSandboxParent(AddSandboxParentResponseOutput),
 
@@ -157,9 +154,6 @@ pub enum ResponseOutput {
 	#[tangram_serialize(id = 4)]
 	DestroyRunnerSandbox(DestroyRunnerSandboxResponseOutput),
 
-	#[tangram_serialize(id = 12)]
-	EndRunnerSandbox(EndRunnerSandboxResponseOutput),
-
 	#[tangram_serialize(id = 6)]
 	EnqueueSandbox(EnqueueSandboxResponseOutput),
 
@@ -171,6 +165,12 @@ pub enum ResponseOutput {
 
 	#[tangram_serialize(id = 8)]
 	RemoveRunner(RemoveRunnerResponseOutput),
+
+	#[tangram_serialize(id = 12)]
+	RunnerBootEnded(RunnerBootEndedResponseOutput),
+
+	#[tangram_serialize(id = 10)]
+	RunnerSandboxCreated(RunnerSandboxCreatedResponseOutput),
 }
 
 #[derive(
@@ -196,7 +196,7 @@ pub struct AddRunnerRequestArg {
 	#[tangram_serialize(id = 3)]
 	pub runner: tg::runner::Id,
 
-	/// The sandboxes that the runner is running or starting, which a restarted scheduler treats as placed.
+	/// The boots that the runner holds, which a restarted scheduler treats as placed.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
 	pub sandboxes: Vec<tg::runner::control::ArgSandbox>,
@@ -211,14 +211,14 @@ pub struct AddRunnerRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct AddRunnerResponseOutput {
+	/// The reported boots that the runner abandons, because the scheduler ended them when it declared the runner dead, so that the runner writes nothing more for them.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
+	pub abandon: Vec<tg::runner::control::AbandonBoot>,
+
 	/// The number that the scheduler gave the runner's connection, which it keeps only in memory and which the runner's messages carry.
 	#[tangram_serialize(id = 5)]
 	pub connection: u64,
-
-	/// The reported boots that the scheduler ended because it declared the runner dead, which the runner gives up without writing anything more for them.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
-	pub ended: Vec<tg::runner::control::EndedSandbox>,
 
 	#[tangram_serialize(id = 0)]
 	pub runner: tg::runner::Id,
@@ -282,7 +282,7 @@ pub struct AddSandboxParentRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct AddSandboxParentResponseOutput {
-	/// The capacity of the sandbox, which is absent if the scheduler does not hold the sandbox.
+	/// The capacity of the sandbox, which is absent if the scheduler does not hold the sandbox's boot.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub capacity: Option<tg::runner::Capacity>,
@@ -323,7 +323,7 @@ pub struct DequeueSandboxResponseOutput {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct AddRunnerSandboxRequestArg {
+pub struct RunnerSandboxCreatedRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub boot: u64,
 
@@ -349,7 +349,7 @@ pub struct AddRunnerSandboxRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct AddRunnerSandboxResponseOutput {
+pub struct RunnerSandboxCreatedResponseOutput {
 	/// The scheduler's request that the runner send the report again later, because the report came on a connection that a reconnect replaced or the scheduler cannot authorize it yet.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
@@ -419,9 +419,9 @@ pub struct DestroyRunnerSandboxResponseOutput {}
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct EndRunnerSandboxRequestArg {
+pub struct RunnerBootEndedRequestArg {
 	#[tangram_serialize(id = 0)]
-	pub end: tg::runner::control::EndSandboxClientRequestArg,
+	pub end: tg::runner::control::BootEndedClientRequestArg,
 
 	#[tangram_serialize(id = 1)]
 	pub runner: tg::runner::Id,
@@ -435,7 +435,7 @@ pub struct EndRunnerSandboxRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct EndRunnerSandboxResponseOutput {
+pub struct RunnerBootEndedResponseOutput {
 	/// The scheduler's request that the runner send the report again later, because the scheduler cannot authorize it yet.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]

@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner that starts a boot whose offer's answer the scheduler never receives, and whose heartbeat then expires while it keeps running, stops the boot when it connects again, so the sandbox stays stopped and starts again with its files.
+# A runner that starts a sandbox at a boot whose offer's answer the scheduler never receives, and whose heartbeat then expires while it keeps the boot, stops the sandbox when it connects again, so the sandbox stays stopped and starts again with its files.
 
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
@@ -44,7 +44,7 @@ success (tg --url $remote.url --token $root_token run $'--sandbox=($sandbox)' $w
 tg --url $remote.url --token $root_token sandbox stop --wait $sandbox
 
 # Start the sandbox, and hold the runner after it starts the boot and before it answers the offer, which also holds its heartbeats.
-let accepted = checkpoint watch runner.control.offer_sandbox.accepted --params { sandbox: $sandbox } --url $runner.url
+let accepted = checkpoint watch runner.control.offer_boot.accepted --params { sandbox: $sandbox } --url $runner.url
 let url = $remote.url
 let start = job spawn {
 	let job_id = job id
@@ -54,7 +54,7 @@ checkpoint wait $accepted | ignore
 
 # Hold the index writes, so that the scheduler keeps the ended boot's entry, and advance the remote's clock past the runner ttl, so that the scheduler expires the runner and ends the boot as stopped.
 let index = checkpoint watch index.write --token $root_token --url $remote.url
-let ended = checkpoint watch scheduler.sandbox.end --params { sandbox: $sandbox } --token $root_token --url $remote.url
+let ended = checkpoint watch scheduler.boot.end --params { sandbox: $sandbox } --token $root_token --url $remote.url
 advance_time $remote 4sec
 checkpoint pass $ended | ignore
 checkpoint unwatch $ended

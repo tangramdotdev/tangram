@@ -300,7 +300,7 @@ fn a_process_of_a_boot_that_its_holder_ended_keeps_its_own_end_in_every_order() 
 }
 
 #[test]
-fn a_process_of_a_running_boot_is_not_finished() {
+fn a_process_of_an_active_boot_is_not_finished() {
 	let id = tg::process::Id::new();
 	let sandbox = sandbox_record(0, tg::sandbox::Status::Started);
 	let sandbox_id = sandbox.data.as_ref().unwrap().data.id.clone();

@@ -78,7 +78,7 @@ fn a_runner_keeps_only_the_directories_of_its_sandboxes_that_can_start_again() {
 		remove(tg::runner::control::StoppedSandboxRemoval::Destroying)
 	);
 
-	// This runner's stopped, starting, or running sandbox, and a sandbox that the index records without a runner, are kept.
+	// This runner's stopped, starting, or started sandbox, and a sandbox that the index records without a runner, are kept.
 	for sandbox in [
 		indexed(Some(&runner), Some(tg::sandbox::Status::Stopped)),
 		indexed(Some(&runner), Some(tg::sandbox::Status::Started)),

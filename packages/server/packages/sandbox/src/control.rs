@@ -271,7 +271,7 @@ impl Component {
 		);
 		let control_sender = control.sender();
 
-		// Watch for the index to record that the connection's boot ended, and then ask the runner to end the boot, so that a runner that still runs a boot that the index ended without it, such as a boot that the sandbox's scheduler ended for a runner that it declared dead, does not keep running it.
+		// Watch for the index to record that the connection's boot ended, and then ask the runner to end the boot, so that a runner that still holds a boot that the index ended without it, such as a boot that the sandbox's scheduler ended for a runner that it declared dead, does not keep running it.
 		let ended = Arc::new(AtomicBool::new(false));
 		let ended_request_id = tangram_server_core::control::id();
 		let indexed = session
@@ -291,7 +291,7 @@ impl Component {
 			let sender = control_sender.clone();
 			let session = session.clone();
 			move |_| async move {
-				// Wait for the index to record that the sandbox ended.
+				// Wait for the index to record that the boot ended.
 				let mut indexed = indexed;
 				if !ended.load(Ordering::SeqCst) {
 					let Ok(mut wakeups) = component
@@ -318,7 +318,7 @@ impl Component {
 					}
 				}
 
-				// Ask the runner to give up the boot, destroying a sandbox that the index records as destroying or destroyed, and stopping any other, which keeps its directory for its next start, and writing nothing more for the boot. A runner that already ended the sandbox has nothing left to do.
+				// Ask the runner to abandon the boot, destroying a sandbox that the index records as destroying or destroyed, and stopping any other, which keeps its directory for its next start, and writing nothing more for the boot. A runner that already ended the boot has nothing left to do.
 				let destroyed = indexed
 					.as_ref()
 					.and_then(|sandbox| sandbox.data.as_ref())
@@ -328,13 +328,13 @@ impl Component {
 				let arg = if destroyed {
 					tg::sandbox::control::ServerRequestArg::Destroy(
 						tg::sandbox::control::DestroyServerRequestArg {
-							ended: true,
+							abandon: true,
 							error: None,
 						},
 					)
 				} else {
 					tg::sandbox::control::ServerRequestArg::Stop(
-						tg::sandbox::control::StopServerRequestArg { ended: true },
+						tg::sandbox::control::StopServerRequestArg { abandon: true },
 					)
 				};
 				let request = tg::sandbox::control::ServerRequest {
@@ -469,7 +469,7 @@ impl Component {
 							})?;
 						},
 						tg::sandbox::control::ClientMessage::Response(response) => {
-							// Acknowledge the response to the connection's request to end the sandbox, which no other server waits for, so that the runner stops sending it.
+							// Acknowledge the response to the connection's request to end the boot, which no other server waits for, so that the runner stops sending it.
 							if response.id == ended_request_id {
 								let ack = tg::sandbox::control::ServerMessage::Ack(
 									tg::sandbox::control::ServerAck { id: response.id },

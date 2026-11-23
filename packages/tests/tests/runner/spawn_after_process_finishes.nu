@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A spawn must succeed when its process finishes and its sandbox ends before the spawn observes that the process started.
+# A spawn must succeed when its process finishes and its sandbox's boot ends before the spawn observes that the process started.
 let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },

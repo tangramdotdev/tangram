@@ -6,7 +6,7 @@ let local = server spawn --config {
 	runner: { cpus: 1, overcommit: { cpu: 1 } },
 	scheduler: { queue_capacity: 1, default_cpu: 1, default_memory: 1_073_741_824 },
 }
-let running = tg sandbox create --wait --no-tokens --cpu 1 | referent node
+let started = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let queued = tg sandbox create --no-tokens --cpu 1 | referent node
 let output = tg sandbox create --no-tokens --cpu 1 | complete
 failure $output "a request to a full queue should fail"

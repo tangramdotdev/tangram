@@ -146,7 +146,7 @@ fn a_saved_boot_that_the_index_shows_ended_is_never_offered_again() {
 		);
 	}
 
-	// A running boot that a runner wrote belongs to the runner.
+	// A live boot that a runner wrote belongs to the runner.
 	let decision = decide(Some(indexed(
 		&sandbox,
 		1,
@@ -179,7 +179,7 @@ fn a_saved_boot_that_the_index_shows_ended_is_never_offered_again() {
 }
 
 #[test]
-fn a_restarted_scheduler_does_not_queue_a_sandbox_that_a_runner_holds() {
+fn a_restarted_scheduler_does_not_queue_a_sandbox_whose_boot_a_runner_holds() {
 	let sandbox = tg::sandbox::Id::new();
 	let runner = tg::runner::Id::new();
 	let mut scheduler = SchedulerState::new();

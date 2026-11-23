@@ -4,7 +4,7 @@ use ../../util/test.nu *
 
 let server = server spawn --config { advanced: { checkpoints: true } }
 
-# Spawn a process that keeps a new sandbox running.
+# Spawn a process that keeps a new sandbox started.
 let first = tg spawn --no-tokens --verbose --sandbox --executable /bin/sh -- -c 'while :; do :; done' | from json
 let sandbox = tg process get $first.process | from json | get sandbox
 

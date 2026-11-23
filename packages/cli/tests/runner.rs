@@ -105,7 +105,7 @@ async fn destroy_sandbox_requires_ownership() -> tg::Result<()> {
 	Ok(())
 }
 
-/// A runner cannot finish a process of a sandbox that another runner holds, with a report of the process's finish or of the end of the sandbox's boot.
+/// A runner cannot finish a process of a sandbox whose boot another runner holds, with a report of the process's finish or of the end of the sandbox's boot.
 #[tokio::test]
 async fn reports_require_the_boot() -> tg::Result<()> {
 	let tangram = env!("CARGO_BIN_EXE_tangram");
@@ -196,8 +196,8 @@ async fn reports_require_the_boot() -> tg::Result<()> {
 	let mut ended = sandbox_output;
 	ended.data.status = tg::sandbox::Status::Destroyed;
 	ended.data.error = Some(error);
-	let end = tg::runner::control::ClientRequestArg::EndSandbox(
-		tg::runner::control::EndSandboxClientRequestArg {
+	let end = tg::runner::control::ClientRequestArg::BootEnded(
+		tg::runner::control::BootEndedClientRequestArg {
 			boot,
 			created_at: 0,
 			data: ended,

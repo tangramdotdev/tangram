@@ -23,7 +23,7 @@ let write = checkpoint watch index.write
 
 # Start a spawn that must wait for capacity, and observe its wait on the index.
 let start = checkpoint watch process.spawn.start.index
-let ended = checkpoint watch process.spawn.sandbox.ended
+let ended = checkpoint watch process.spawn.boot.ended
 let spawn = job spawn {
 	let job_id = job id
 	let output = tg spawn --no-tokens --wait $second | complete

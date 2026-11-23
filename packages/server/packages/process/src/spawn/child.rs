@@ -55,8 +55,10 @@ impl Component {
 			.components
 			.runner
 			.state()
-			.try_get_held_sandbox(&parent_sandbox)
-			.ok_or_else(|| tg::error!("the runner does not hold the parent's sandbox"))?;
+			.try_get_held_boot(&parent_sandbox)
+			.ok_or_else(|| {
+				tg::error!("the runner does not hold the boot of the parent's sandbox")
+			})?;
 		let mut parent_process = parent_sandbox
 			.processes
 			.get_mut(&parent)
@@ -105,9 +107,9 @@ impl Component {
 				|error| tg::error!(!error, %parent, "failed to send the child spawned notification"),
 			)?;
 
-		// Index the child, with the parent's data numbered by the parent's boot, which the runner holds, and without the parent's data if the runner gave the boot up.
+		// Index the child, with the parent's data numbered by the parent's boot, which the runner holds, and without the parent's data if the runner abandoned the boot.
 		let parent_entry = parent_boot.next().map(|sequence| IndexProcessChildParent {
-			boot: parent_boot.boot,
+			boot: parent_boot.number,
 			data: parent_data,
 			location: parent_location,
 			sequence,

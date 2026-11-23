@@ -482,7 +482,7 @@ impl Component {
 				tg::process::control::ServerMessage::Request(message) => {
 					let request_id = message.id;
 
-					// Reply to every request that the runner does not hold the process once the runner has released it or gave up its boot, including the opens of relays and the leases.
+					// Reply to every request that the runner does not hold the process once the runner has released it or abandoned its boot, including the opens of relays and the leases.
 					let held = match &session.context.principal {
 						tg::Principal::Process(process) => session
 							.server
@@ -507,7 +507,7 @@ impl Component {
 							sender.send(response).await?;
 						},
 						tg::process::control::ServerRequestArg::Finish(finish) => {
-							// Reply that the runner does not hold the process if the runner has released it or gave up its boot.
+							// Reply that the runner does not hold the process if the runner has released it or abandoned its boot.
 							let result = match &session.context.principal {
 								tg::Principal::Process(process) => {
 									let finished = session
@@ -566,7 +566,7 @@ impl Component {
 							sender.send(response).await?;
 						},
 						tg::process::control::ServerRequestArg::GetChildren(arg) => {
-							// Reply that the runner does not hold the process if the runner has released it or gave up its boot.
+							// Reply that the runner does not hold the process if the runner has released it or abandoned its boot.
 							let result = match &session.context.principal {
 								tg::Principal::Process(process) => {
 									let children = session

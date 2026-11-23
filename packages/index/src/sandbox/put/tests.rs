@@ -58,7 +58,7 @@ fn the_stopped_usage_of_every_boot_is_summed_and_only_grows() {
 	let mut existing = sandbox(data(0, tg::sandbox::Status::Stopped, Some(usage(5))));
 	existing.usages = BTreeMap::from([(0, usage(5))]);
 
-	// A stopped usage report adds to the running usage and keeps the data.
+	// A stopped usage report adds to the usage while started and keeps the data.
 	let mut report = arg(data(0, tg::sandbox::Status::Stopped, None));
 	report.data = None;
 	report.stopped_usage = Some(StoppedUsage {

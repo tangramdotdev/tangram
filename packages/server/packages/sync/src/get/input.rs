@@ -281,7 +281,7 @@ impl Component {
 						));
 					}
 					if !message.data.data.status.is_destroyed() {
-						return Err(tg::error!(id = %message.id, "cannot sync a running sandbox"));
+						return Err(tg::error!(id = %message.id, "cannot sync a started sandbox"));
 					}
 					message.data.location =
 						Some(tg::Location::Local(tg::location::Local::default()));

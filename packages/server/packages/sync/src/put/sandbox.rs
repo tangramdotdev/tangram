@@ -81,7 +81,7 @@ impl Component {
 			));
 		}
 		if !data.data.status.is_destroyed() {
-			return Err(tg::error!(id = %node.id, "cannot sync a running sandbox"));
+			return Err(tg::error!(id = %node.id, "cannot sync a started sandbox"));
 		}
 		data.tokens.clear();
 

@@ -8,7 +8,7 @@ let local = server spawn --config {
 }
 
 # Fill the runner, then create a second sandbox that waits in the queue.
-let running = tg sandbox create --wait --no-tokens --cpu 1 | referent node
+let started = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let queued = tg sandbox create --no-tokens --cpu 1 | referent node
 
 # Kill the server while the second sandbox is queued, and start it again.

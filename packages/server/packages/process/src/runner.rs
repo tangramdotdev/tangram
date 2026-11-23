@@ -27,7 +27,7 @@ impl Component {
 			.runner
 			.try_get_sandbox_runner(&sandbox, location)?;
 		let sandbox = state
-			.try_get_held_sandbox(&sandbox)
+			.try_get_held_boot(&sandbox)
 			.filter(|sandbox| *sandbox.key() == runner.index)?;
 		let process = sandbox.processes.get(id)?;
 		let control = Control {
@@ -80,7 +80,7 @@ impl Component {
 			.runner
 			.try_get_sandbox_runner(&sandbox, location)?;
 		let sandbox = state
-			.try_get_held_sandbox(&sandbox)
+			.try_get_held_boot(&sandbox)
 			.filter(|sandbox| *sandbox.key() == runner.index)?;
 		let process = sandbox.processes.get(id)?;
 

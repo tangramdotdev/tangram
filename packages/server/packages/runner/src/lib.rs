@@ -716,20 +716,20 @@ impl Component {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 
-		tracing::info!(runner = %id, scheduler = %header.scheduler, ended_sandboxes = header.ended.len(), "connected the runner to the scheduler");
+		tracing::info!(runner = %id, scheduler = %header.scheduler, abandon = header.abandon.len(), "connected the runner to the scheduler");
 
 		// Remember the replies to offers for longer than the scheduler keeps the runner, so that the scheduler never sends an offer again after its reply is forgotten.
 		self.offers
 			.set_time_to_live(header.runner_time_to_live.saturating_mul(2));
 
-		// Keep the previous run's directories on the first connection before accepting work, and give up the reported boots that the scheduler ended.
+		// Keep the previous run's directories on the first connection before accepting work, and abandon the reported boots that the scheduler ended.
 		let index = 1;
 		if *first {
 			self.keep_previous_sandbox_directories(session, previous)
 				.await?;
 		}
 		*first = false;
-		self.yield_runner_sandboxes(session, &header);
+		self.abandon_ended_boots(session, &header);
 		tracing::info!(runner = %id, "the runner is ready to accept work");
 		session
 			.server
@@ -771,11 +771,11 @@ impl Component {
 		Ok(())
 	}
 
-	/// Give up each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the boot and keeps its directory, which the stopped sandbox task removes if the index records the sandbox as destroyed, and a boot whose state is not stored yet starts no process.
-	fn yield_runner_sandboxes(&self, session: &Session, header: &tg::runner::control::Header) {
-		for ended in &header.ended {
-			if let Some(boot) = self.state.boots.get(&ended.id, ended.boot) {
-				self.give_up_boot(
+	/// Abandon each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the sandbox and keeps its directory, which the stopped sandbox task removes if the index records the sandbox as destroyed, and a boot whose state is not stored yet starts no process.
+	fn abandon_ended_boots(&self, session: &Session, header: &tg::runner::control::Header) {
+		for abandon in &header.abandon {
+			if let Some(boot) = self.state.boots.get(&abandon.id, abandon.boot) {
+				self.abandon_boot(
 					session,
 					&boot,
 					tangram_server_runner_core::sandbox::Teardown::Stop,
@@ -814,8 +814,8 @@ impl Component {
 		boot: u64,
 		proof: tg::sandbox::id::Proof,
 	) -> tg::Result<()> {
-		let arg = tg::runner::control::ClientRequestArg::AddSandbox(
-			tg::runner::control::AddSandboxClientRequestArg {
+		let arg = tg::runner::control::ClientRequestArg::SandboxCreated(
+			tg::runner::control::SandboxCreatedClientRequestArg {
 				boot,
 				proof,
 				sandbox: sandbox.clone(),
@@ -824,26 +824,24 @@ impl Component {
 		self.report_with_runner_control(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %sandbox, "failed to report the sandbox"))?
-			.try_unwrap_add_sandbox()
-			.map_err(|_| tg::error!("expected an add sandbox response"))?;
+			.try_unwrap_sandbox_created()
+			.map_err(|_| tg::error!("expected a sandbox created response"))?;
 
 		Ok(())
 	}
 
 	/// Report the end of a boot that this runner held to its scheduler through the runner control stream.
-	pub(crate) async fn report_ended_sandbox_with_runner_control(
+	pub(crate) async fn report_ended_boot_with_runner_control(
 		&self,
-		arg: tg::runner::control::EndSandboxClientRequestArg,
+		arg: tg::runner::control::BootEndedClientRequestArg,
 	) -> tg::Result<()> {
 		let sandbox = arg.sandbox.clone();
-		let arg = tg::runner::control::ClientRequestArg::EndSandbox(arg);
+		let arg = tg::runner::control::ClientRequestArg::BootEnded(arg);
 		self.report_with_runner_control(arg)
 			.await
-			.map_err(
-				|error| tg::error!(!error, %sandbox, "failed to report the end of the sandbox"),
-			)?
-			.try_unwrap_end_sandbox()
-			.map_err(|_| tg::error!("expected an end sandbox response"))?;
+			.map_err(|error| tg::error!(!error, %sandbox, "failed to report the end of the boot"))?
+			.try_unwrap_boot_ended()
+			.map_err(|_| tg::error!("expected a boot ended response"))?;
 
 		Ok(())
 	}
@@ -1106,20 +1104,20 @@ impl Component {
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
 
-		// Report the latest boot of each sandbox that the runner holds and did not give up, with the processes that its scheduler offered into the boot and that did not finish, and the proof for a boot on the shortcut path, so that a restarted scheduler can tell which requests it already placed and cancel the boots and processes that the index does not have.
+		// Report each latest boot of a sandbox that the runner holds and did not abandon, with the processes that its scheduler offered into the boot and that did not finish, and the proof for a boot on the shortcut path, so that a restarted scheduler can tell which requests it already placed and cancel the boots and processes that the index does not have.
 		let sandboxes = self
 			.state
 			.boots
 			.list()
 			.into_iter()
-			.filter(|boot| boot.given_up().is_none())
+			.filter(|boot| boot.abandoned().is_none())
 			.map(|boot| (boot.sandbox.clone(), boot))
 			.collect::<BTreeMap<_, _>>()
 			.into_values()
 			.map(|boot| {
 				let (processes, proof) = boot.report();
 				tg::runner::control::ArgSandbox {
-					boot: boot.boot,
+					boot: boot.number,
 					id: boot.sandbox.clone(),
 					processes,
 					proof,
@@ -1216,17 +1214,17 @@ impl Component {
 			};
 			let id = message.id;
 			let request = match message.arg {
-				tg::runner::control::ServerRequestArg::OfferSandbox(request) => request,
+				tg::runner::control::ServerRequestArg::OfferBoot(request) => request,
 				tg::runner::control::ServerRequestArg::DestroySandbox(arg) => {
 					self.spawn_destroy_stopped_sandbox_task(session, id.clone(), arg, &sender);
 					continue;
 				},
 			};
-			tangram_server_core::checkpoint!(session.server, "runner.control.offer_sandbox", sandbox = %request.sandbox).await;
+			tangram_server_core::checkpoint!(session.server, "runner.control.offer_boot", sandbox = %request.sandbox).await;
 
 			// Answer an offer that the scheduler sent again with the reply to the offer, without acting on it again, so that a boot that ended is not created again.
 			if let tangram_server_core::holder::Begin::Replied(message) = self.offers.begin(&id) {
-				tangram_server_core::checkpoint!(session.server, "runner.control.offer_sandbox.replied", sandbox = %request.sandbox).await;
+				tangram_server_core::checkpoint!(session.server, "runner.control.offer_boot.replied", sandbox = %request.sandbox).await;
 				sender.send(message).await?;
 				continue;
 			}
@@ -1237,7 +1235,7 @@ impl Component {
 				requested.storage = request.arg.storage.unwrap_or_default();
 			}
 
-			// Answer yes to a boot that this runner holds or ended itself, whose end it reports, because a scheduler can send a boot again after it restarts. Answer that a boot that this runner gave up or that a later boot of the sandbox replaced ended, because the runner never runs it again, so that the scheduler handles it as the end of a boot that the runner held.
+			// Answer yes to a boot that this runner holds or ended itself, whose end it reports, because a scheduler can send a boot again after it restarts. Answer that a boot that this runner abandoned or that a later boot of the sandbox replaced ended, because the runner never holds it again, so that the scheduler handles it as the end of a boot that the runner held.
 			let state = session.server.components.runner.state();
 			let boots = [
 				state.boots.get(&request.sandbox, request.boot),
@@ -1250,9 +1248,10 @@ impl Component {
 			let joined = boots
 				.iter()
 				.flatten()
-				.any(|boot| boot.boot == request.boot && boot.given_up().is_none());
+				.any(|boot| boot.number == request.boot && boot.abandoned().is_none());
 			let ended = boots.iter().flatten().any(|boot| {
-				boot.boot > request.boot || (boot.boot == request.boot && boot.given_up().is_some())
+				boot.number > request.boot
+					|| (boot.number == request.boot && boot.abandoned().is_some())
 			});
 			let answer = if joined {
 				Some(tg::runner::control::Answer::Yes)
@@ -1262,12 +1261,10 @@ impl Component {
 				None
 			};
 			if let Some(answer) = answer {
-				let output = tg::runner::control::OfferSandboxClientResponseOutput { answer };
+				let output = tg::runner::control::OfferBootClientResponseOutput { answer };
 				let message = Self::create_runner_control_response(
 					id.clone(),
-					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
-						output,
-					)),
+					Ok(tg::runner::control::ClientResponseOutput::OfferBoot(output)),
 				);
 				self.offers.finish(&id, message.clone());
 				sender.send(message).await?;
@@ -1276,14 +1273,12 @@ impl Component {
 
 			// Decline work while the runner drains its sandboxes before it shuts down.
 			if stopper.stopped() {
-				let output = tg::runner::control::OfferSandboxClientResponseOutput {
+				let output = tg::runner::control::OfferBootClientResponseOutput {
 					answer: tg::runner::control::Answer::No,
 				};
 				let message = Self::create_runner_control_response(
 					id.clone(),
-					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
-						output,
-					)),
+					Ok(tg::runner::control::ClientResponseOutput::OfferBoot(output)),
 				);
 				self.offers.finish(&id, message.clone());
 				sender.send(message).await?;
@@ -1332,14 +1327,12 @@ impl Component {
 				}
 			}
 			let Some(allocation) = allocation else {
-				let output = tg::runner::control::OfferSandboxClientResponseOutput {
+				let output = tg::runner::control::OfferBootClientResponseOutput {
 					answer: tg::runner::control::Answer::No,
 				};
 				let message = Self::create_runner_control_response(
 					id.clone(),
-					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
-						output,
-					)),
+					Ok(tg::runner::control::ClientResponseOutput::OfferBoot(output)),
 				);
 				self.offers.finish(&id, message.clone());
 				sender.send(message).await?;
@@ -1365,17 +1358,15 @@ impl Component {
 					token: Some(token),
 				},
 			);
-			tangram_server_core::checkpoint!(session.server, "runner.control.offer_sandbox.accepted", sandbox = %sandbox).await;
+			tangram_server_core::checkpoint!(session.server, "runner.control.offer_boot.accepted", sandbox = %sandbox).await;
 
 			// Send the response.
-			let output = tg::runner::control::OfferSandboxClientResponseOutput {
+			let output = tg::runner::control::OfferBootClientResponseOutput {
 				answer: tg::runner::control::Answer::Yes,
 			};
 			let message = Self::create_runner_control_response(
 				id.clone(),
-				Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
-					output,
-				)),
+				Ok(tg::runner::control::ClientResponseOutput::OfferBoot(output)),
 			);
 			self.offers.finish(&id, message.clone());
 			sender.send(message).await?;

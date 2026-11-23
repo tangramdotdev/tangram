@@ -20,7 +20,7 @@ pub(super) type Statuses =
 /// The requests that a restarted scheduler holds until its runners report what they have placed.
 #[derive(Default)]
 pub(super) struct Recovery {
-	/// The running boots that the index records on each runner, which this scheduler rebuilt from the index and which wait for the runner's report.
+	/// The live boots that the index records on each runner, which this scheduler rebuilt from the index and which wait for the runner's report.
 	boots: HashMap<tg::runner::Id, Vec<RecoveredBoot>, tg::id::BuildHasher>,
 
 	claimed: HashMap<tg::sandbox::Id, Claim, tg::id::BuildHasher>,
@@ -67,7 +67,7 @@ pub(super) enum SavedBoot {
 	/// No runner wrote the boot, so this scheduler still holds it.
 	Unwritten,
 
-	/// A runner wrote the running boot, so the runner holds or held it.
+	/// A runner wrote the live boot, so the runner holds or held it.
 	Written { runner: tg::runner::Id },
 }
 
@@ -165,13 +165,11 @@ impl Scheduler {
 			}
 		}
 
-		// Rebuild the boots that the index records on the runners, with their processes, so that this scheduler authorizes the runners' reports of them as before the restart. Remember the ended boots at once, whose ends their runners may still report, as declared if this scheduler ended them with an end numbered zero, so that it tells their runners when they connect again, and hold the running boots until their runners report.
+		// Rebuild the boots that the index records on the runners, with their processes, so that this scheduler authorizes the runners' reports of them as before the restart. Remember the ended boots at once, whose ends their runners may still report, as declared if this scheduler ended them with an end numbered zero, so that it tells their runners when they connect again, and hold the live boots until their runners report.
 		let mut boots = HashMap::<_, Vec<_>, tg::id::BuildHasher>::default();
 		for runner in &runners {
-			for (recovered, running, declared) in
-				self.get_recovered_boots(runner, &requests).await?
-			{
-				if running {
+			for (recovered, live, declared) in self.get_recovered_boots(runner, &requests).await? {
+				if live {
 					boots.entry(runner.clone()).or_default().push(recovered);
 				} else {
 					let ended = super::report::EndedBoot {
@@ -201,7 +199,7 @@ impl Scheduler {
 			"recovering the scheduler"
 		);
 
-		// Serve the holders of the held sandboxes, so that a request to one is told that this scheduler does not hold it until the runners report.
+		// Serve the holders of the held boots, so that a request to one is told that this scheduler does not hold the boot until the runners report.
 		for (id, request) in &requests {
 			let process = request
 				.process
@@ -240,7 +238,7 @@ impl Scheduler {
 		Ok(())
 	}
 
-	/// Get the boots that the index records on a runner, except the boots of the held requests, which the runner's report claims, each with its processes, whether it is running, and whether this scheduler ended it with an end numbered zero. Finish again the processes of a boot that this scheduler ended, whose statuses and logs it may not have finished before it restarted.
+	/// Get the boots that the index records on a runner, except the boots of the held requests, which the runner's report claims, each with its processes, whether it is live, and whether this scheduler ended it with an end numbered zero. Finish again the processes of a boot that this scheduler ended, whose statuses and logs it may not have finished before it restarted.
 	async fn get_recovered_boots(
 		&self,
 		runner: &tg::runner::Id,
@@ -280,7 +278,7 @@ impl Scheduler {
 					.finish_ended_boot_processes(&self.server, &id, boot)
 					.await;
 			}
-			let running = matches!(
+			let live = matches!(
 				data.data.status,
 				tg::sandbox::Status::Started
 					| tg::sandbox::Status::Starting
@@ -292,7 +290,7 @@ impl Scheduler {
 				processes,
 				sandbox: id,
 			};
-			boots.push((recovered, running, declared));
+			boots.push((recovered, live, declared));
 		}
 
 		Ok(boots)
@@ -340,7 +338,7 @@ impl Scheduler {
 }
 
 impl SchedulerState {
-	/// Record the boots that a runner reports, once its connection is applied, and release the held requests once every runner has reported or expired. A runner that restarted lost the boots that it claimed before, which its first connection decided from the index: forget a boot that the runner wrote, which the connection ended, and return every other boot to the held requests, which the release decides again. Return the running boots that this scheduler rebuilt from the index on the runner, on the runner's first report.
+	/// Record the boots that a runner reports, once its connection is applied, and release the held requests once every runner has reported or expired. A runner that restarted lost the boots that it claimed before, which its first connection decided from the index: forget a boot that the runner wrote, which the connection ended, and return every other boot to the held requests, which the release decides again. Return the live boots that this scheduler rebuilt from the index on the runner, on the runner's first report.
 	pub(super) fn handle_recovery_report(
 		&mut self,
 		scheduler: &Scheduler,
@@ -413,7 +411,7 @@ impl SchedulerState {
 		})
 	}
 
-	/// Get the running boot of a sandbox that this restarted scheduler rebuilt from the index on a runner that has not reported yet.
+	/// Get the live boot of a sandbox that this restarted scheduler rebuilt from the index on a runner that has not reported yet.
 	pub(super) fn try_get_recovered_boot(&self, sandbox: &tg::sandbox::Id) -> Option<u64> {
 		let recovery = self.recovery.as_ref()?;
 		recovery
@@ -658,7 +656,7 @@ impl SchedulerState {
 		// Offer the saved spawns again, once the boots that they are for are tracked.
 		self.recover_spawns(scheduler, recovery.spawns);
 
-		// Offer the sandboxes, which waited for the runners to report.
+		// Offer the boots, which waited for the runners to report.
 		self.queue.wake();
 	}
 
@@ -671,7 +669,7 @@ impl SchedulerState {
 		processes: BTreeSet<tg::process::Id>,
 		runner: super::placement::RunnerRef,
 	) {
-		self.remove_ended_sandbox(scheduler, id);
+		self.remove_ended_boot(scheduler, id);
 		let boot = request.boot;
 		let parent = request.parent.clone();
 		let state = super::sandbox::State::Accepted {
@@ -775,7 +773,7 @@ impl Component {
 			..Default::default()
 		};
 
-		// End the running boots in the queue, which also removes them from the queue.
+		// End the live boots in the queue, which also removes them from the queue.
 		let ids = server
 			.index
 			.get_scheduler_sandboxes(&id)
@@ -807,13 +805,13 @@ impl Component {
 					.boxed()
 					.await
 			} else {
-				self.end_runner_sandbox(server, &id, None, None, Some(error.clone()))
+				self.end_runner_boot(server, &id, None, None, Some(error.clone()))
 					.boxed()
 					.await
 					.map(|_| ())
 			};
 			if let Err(error) = result {
-				tracing::error!(sandbox = %id, error = %error.trace(), "failed to end the queued sandbox");
+				tracing::error!(sandbox = %id, error = %error.trace(), "failed to end the queued boot");
 			}
 		}
 
@@ -836,7 +834,7 @@ impl Component {
 			if local.as_ref() == Some(&runner) {
 				continue;
 			}
-			let arg = super::runner::EndRunnerSandboxesArg {
+			let arg = super::runner::EndRunnerBootsArg {
 				accepted: Vec::new(),
 				checkpoint: "scheduler.runner.recovered",
 				deleted: false,
@@ -848,9 +846,9 @@ impl Component {
 				scheduler: None,
 				written: Vec::new(),
 			};
-			let result = self.end_runner_sandboxes(server, &id, arg).boxed().await;
+			let result = self.end_runner_boots(server, &id, arg).boxed().await;
 			if let Err(error) = result {
-				tracing::error!(%runner, error = %error.trace(), "failed to end the runner's sandboxes");
+				tracing::error!(%runner, error = %error.trace(), "failed to end the runner's boots");
 			}
 		}
 		drop(sender);

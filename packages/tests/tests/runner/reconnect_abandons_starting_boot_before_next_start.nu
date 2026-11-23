@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner whose scheduler declares it dead while a boot is still starting on it, and that then reconnects, gives up the boot without starting its process, so that the sandbox stays stopped and its next boot runs once.
+# A runner whose scheduler declares it dead while a boot is still starting on it, and that reconnects after the sandbox was started again, abandons the first boot without starting its process, even though the scheduler offers it the sandbox's next boot on the same connection, and runs the next boot only after the first boot is done with the sandbox's directory.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires the sandbox pool'
@@ -38,7 +38,7 @@ let command = tg --url $remote.url --token $root_token build $'($id)#append' | s
 
 # Spawn the command in a new sandbox with a nonzero ttl, and hold the boot's task on the runner before it stores the boot's state, once the scheduler has handed the boot off to the runner and the runner has connected the boot's control stream.
 let take = checkpoint watch runner.sandbox.pool.take --url $runner.url
-let handoff = checkpoint watch scheduler.sandbox.handoff --token $root_token --url $remote.url
+let handoff = checkpoint watch scheduler.boot.handoff --token $root_token --url $remote.url
 let connected = checkpoint watch sandbox.control.index.submitted --token $root_token --url $remote.url
 let process = tg --url $remote.url --token $root_token spawn --sandbox --ttl 1h --mount $'($directory):($directory)' --no-tokens --verbose $command | from json | get process
 let sandbox = tg --url $remote.url --token $root_token process get $process | from json | get sandbox
@@ -58,7 +58,13 @@ checkpoint unwatch $expired
 tg --url $remote.url --token $root_token index
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) stopped "the scheduler should stop the sandbox when it declares the runner dead"
 
-# Let a heartbeat reach the scheduler, which does not acknowledge it, and advance the remote's clock past the runner's scheduler ttl, so that the runner's control connection ends and the runner connects again.
+# Start the sandbox again while the runner is cut off, so that the scheduler holds the sandbox's next boot for the runner.
+let start = job spawn {
+	timeout 60s tg --url $remote.url --token $root_token sandbox start $sandbox | complete | job send 0
+}
+
+# Let a heartbeat reach the scheduler, which does not acknowledge it, and advance the remote's clock past the runner's scheduler ttl, so that the runner's control connection ends and the runner connects again, learns that the first boot ended, and accepts the offer of the next boot.
+let offered = checkpoint watch runner.control.offer_boot.accepted --params { sandbox: $sandbox } --url $runner.url
 checkpoint continue $heartbeat 0
 checkpoint wait $heartbeat 1 | ignore
 let connect = checkpoint watch scheduler.runner.connect --params { runner: $created.data.id } --token $root_token --url $remote.url
@@ -66,23 +72,18 @@ advance_time $remote 2sec
 checkpoint unwatch $heartbeat
 checkpoint pass $connect | ignore
 checkpoint unwatch $connect
+checkpoint pass $offered | ignore
+checkpoint unwatch $offered
 
-# Wait for the first heartbeat of the new connection, which the runner sends once it has handled the connection's header.
-let heartbeat = checkpoint watch runner.control.heartbeat.received --params { runner: $created.data.id } --token $root_token --url $remote.url
-checkpoint pass $heartbeat | ignore
-checkpoint unwatch $heartbeat
-
-# Let the boot's task continue.
+# Let the first boot's task continue.
 checkpoint unwatch $take
 
-# The process fails without running, and the sandbox is stopped.
+# The start succeeds, and the first boot's process fails without running.
+success (job recv --timeout 60sec) "the start should succeed"
 let outcome = timeout 60s tg --url $remote.url --token $root_token wait $process | from json
 assert ($outcome.exit != 0) "the process should fail"
-tg --url $remote.url --token $root_token index
-assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) stopped "the sandbox should stay stopped"
 
-# The sandbox starts again, and the command runs once in it.
-success (timeout 60s tg --url $remote.url --token $root_token sandbox start --wait $sandbox | complete) "the start should succeed"
+# The command runs once in the next boot.
 let output = timeout 60s tg --url $remote.url --token $root_token run --no-tokens $'--sandbox=($sandbox)' $command | complete
 success $output "the run should succeed"
 assert equal (open --raw $log | lines) [ran] "the command should run once"

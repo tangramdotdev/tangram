@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner whose heartbeat expires while it keeps running a sandbox stops the sandbox when it reconnects, so the sandbox starts again with its files.
+# A runner whose heartbeat expires while a sandbox stays started on it stops the sandbox when it reconnects, so the sandbox starts again with its files.
 
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
@@ -40,7 +40,7 @@ let read = tg --url $remote.url --token $root_token build $'($id)#read' | str tr
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 success (tg --url $remote.url --token $root_token run $'--sandbox=($sandbox)' $write | complete) "the write should succeed"
 
-# Hold the runner's heartbeats and advance the remote's clock past the runner ttl, so that the remote expires the runner and stops the sandbox while the runner keeps running it.
+# Hold the runner's heartbeats and advance the remote's clock past the runner ttl, so that the remote expires the runner and stops the sandbox while the runner keeps holding its boot.
 let heartbeat = checkpoint watch runner.control.heartbeat.received --params { runner: $created.data.id } --token $root_token --url $remote.url
 let expired = checkpoint watch scheduler.runner.expired --params { runner: $created.data.id } --token $root_token --url $remote.url
 advance_time $remote 4sec
@@ -50,7 +50,7 @@ checkpoint unwatch $heartbeat
 tg --url $remote.url --token $root_token index
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) stopped "the remote should stop the sandbox when the runner expires"
 
-# Kill the remote and start it again, so that the runner reconnects. The start succeeds once the reconnected runner has stopped its boot of the sandbox.
+# Kill the remote and start it again, so that the runner reconnects. The start succeeds once the reconnected runner has stopped the sandbox.
 kill --signal 9 $remote.pid
 wait_for_exit $remote.pid
 let remote = server start $remote

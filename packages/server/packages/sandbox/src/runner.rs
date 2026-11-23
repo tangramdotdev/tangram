@@ -47,7 +47,7 @@ impl Component {
 			.sandboxes()
 			.get(runner.index)
 			.filter(|sandbox| sandbox.status.is_stopped())
-			.map(|sandbox| sandbox.boot.boot);
+			.map(|sandbox| sandbox.boot.number);
 		let Some(boot) = stopped else {
 			return Ok(Some(runner));
 		};

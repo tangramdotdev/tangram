@@ -4,7 +4,7 @@ use ../../util/test.nu *
 
 let server = server spawn --config { advanced: { checkpoints: true } }
 
-# Create a sandbox, which stops rather than being destroyed when its runner is lost, and spawn a process that keeps it running.
+# Create a sandbox, which stops rather than being destroyed when its runner is lost, and spawn a process that keeps it started.
 let sandbox = tg sandbox create --wait --no-tokens | referent node
 tg spawn --no-tokens $'--sandbox=($sandbox)' --executable /bin/sh -- -c 'while :; do :; done' | ignore
 

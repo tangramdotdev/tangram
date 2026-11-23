@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A stop that arrives while the scheduler has offered the sandbox to a runner, and the runner has not answered the offer yet, waits for the answer, because a stop never rides with an offer, and stops the sandbox once the runner holds it.
+# A stop that arrives while the scheduler has offered the boot to a runner, and the runner has not answered the offer yet, waits for the answer, because a stop never rides with an offer, and stops the sandbox once the runner holds it.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
@@ -15,8 +15,8 @@ let runner = server spawn --name runner --config {
 	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
 }
 
-# Hold the runner before it accepts the sandbox, so that the scheduler has offered the sandbox and has no reply.
-let create = checkpoint watch runner.control.offer_sandbox --url $runner.url
+# Hold the runner before it accepts the sandbox, so that the scheduler has offered the boot and has no reply.
+let create = checkpoint watch runner.control.offer_boot --url $runner.url
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 checkpoint wait $create | ignore
 

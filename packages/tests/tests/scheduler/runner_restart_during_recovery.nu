@@ -25,7 +25,7 @@ let first_runner = server spawn --name first --config {
 wait_for_log $first_runner 'the runner is ready to accept work'
 
 # Hold the scheduler's handoff write, so that the boot stays in the scheduler's saved queue, and let the runner start the sandbox.
-let handoff = checkpoint watch scheduler.sandbox.handoff --token $root --url $scheduler.url
+let handoff = checkpoint watch scheduler.boot.handoff --token $root --url $scheduler.url
 let sandbox = tg --url $gateway.url --token $root sandbox create --no-tokens | referent node
 checkpoint wait $handoff | ignore
 success (timeout 60s tg --url $gateway.url --token $root sandbox status $sandbox --until started | complete) "the sandbox must start"

@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A sandbox that was running when its server was terminated is stopped after the server restarts, and it starts again with its files.
+# A sandbox that was started when its server was terminated is stopped after the server restarts, and it starts again with its files.
 
 let local = server spawn
 

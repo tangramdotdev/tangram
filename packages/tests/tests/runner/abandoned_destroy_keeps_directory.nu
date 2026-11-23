@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner whose scheduler declares it dead while the runner destroys a sandbox gives the boot up and keeps the sandbox's directory, because the scheduler's end leaves the sandbox stopped on the runner, so that the sandbox starts again with its files.
+# A runner whose scheduler declares it dead while the runner destroys a sandbox abandons the boot and keeps the sandbox's directory, because the scheduler's end leaves the sandbox stopped on the runner, so that the sandbox starts again with its files.
 
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
@@ -53,16 +53,16 @@ checkpoint wait $shutdown | ignore
 let heartbeat = checkpoint watch runner.control.heartbeat.received --params { runner: $created.data.id } --token $root_token --url $url
 checkpoint wait $heartbeat 0 | ignore
 let expired = checkpoint watch scheduler.runner.expired --params { runner: $created.data.id } --token $root_token --url $url
-let given_up = checkpoint watch runner.boot.given_up --params { sandbox: $sandbox } --url $runner.url
+let abandoned = checkpoint watch runner.boot.abandoned --params { sandbox: $sandbox } --url $runner.url
 advance_time $remote 4sec
 checkpoint pass $expired | ignore
 checkpoint unwatch $expired
 tg --url $url --token $root_token index
 assert equal (tg --url $url --token $root_token sandbox get $sandbox | from json | get data.status) stopped "the scheduler should stop the sandbox"
 
-# Let the runner's teardown continue once the runner gave the boot up, which it learns from the index's record of the end.
-checkpoint pass $given_up | ignore
-checkpoint unwatch $given_up
+# Let the runner's teardown continue once the runner abandoned the boot, which it learns from the index's record of the end.
+checkpoint pass $abandoned | ignore
+checkpoint unwatch $abandoned
 checkpoint unwatch $shutdown
 
 # Let the runner's heartbeats continue, and advance the remote's clock past the runner's scheduler ttl, so that the runner connects again.

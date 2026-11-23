@@ -9,7 +9,7 @@ let local = server spawn --config {
 }
 
 # Fill the runner, so that the next sandbox waits in the queue.
-let running = tg sandbox create --wait --no-tokens --cpu 1 | referent node
+let started = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let queued = tg sandbox create --no-tokens --cpu 1 | referent node
 
 # Stop the queued sandbox, then start it.
@@ -18,7 +18,7 @@ success (tg sandbox start $queued | complete) "the start should return on accept
 
 # Releasing the capacity lets the sandbox start, and once the runner has it ready without the stop, it stays started.
 let ready = checkpoint watch runner.sandbox.ready --params { sandbox: $queued }
-tg sandbox destroy --wait $running
+tg sandbox destroy --wait $started
 checkpoint pass $ready | ignore
 checkpoint unwatch $ready
 success (timeout 30s tg sandbox status --until started $queued | complete) "the sandbox should start"

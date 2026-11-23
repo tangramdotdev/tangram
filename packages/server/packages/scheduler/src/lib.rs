@@ -20,11 +20,11 @@ use {
 		AddRunnerRequestArg, AddRunnerResponseOutput, AddSandboxParentRequestArg,
 		AddSandboxParentResponseOutput, BorrowableCapacityNotification, DequeueSandboxRequestArg,
 		DequeueSandboxResponseOutput, DestroyRunnerSandboxRequestArg,
-		DestroyRunnerSandboxResponseOutput, EndRunnerSandboxRequestArg,
-		EndRunnerSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
+		DestroyRunnerSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
 		FinishRunnerProcessesResponseOutput, HeartbeatAcknowledgement, HeartbeatNotification,
 		Notification, RemoveRunnerRequestArg, RemoveRunnerResponseOutput, RequestArg,
-		ResponseOutput, runner_heartbeat_subject, scheduler_notification_subject,
+		ResponseOutput, RunnerBootEndedRequestArg, RunnerBootEndedResponseOutput,
+		runner_heartbeat_subject, scheduler_notification_subject,
 	},
 };
 
@@ -146,10 +146,6 @@ enum Operation {
 		destroy: sandbox::DestroySandbox,
 		result: tg::Result<bool>,
 	},
-	EndRunnerSandbox {
-		id: String,
-		result: tg::Result<EndRunnerSandboxResponseOutput>,
-	},
 	Finished {
 		context: &'static str,
 		result: tg::Result<()>,
@@ -161,7 +157,7 @@ enum Operation {
 	IndexTerminalSandboxes {
 		sandboxes: Vec<(tg::sandbox::Id, u64)>,
 	},
-	OfferSandbox {
+	OfferBoot {
 		outcome: offer::Outcome,
 		placement: placement::Placement,
 		sandbox: tg::sandbox::Id,
@@ -195,12 +191,16 @@ enum Operation {
 		request: EnqueueSandboxRequestArg,
 		result: tg::Result<bool>,
 	},
+	RetryBootOffer {
+		offer: String,
+		sandbox: tg::sandbox::Id,
+	},
 	RetrySandbox {
 		sandbox: tg::sandbox::Id,
 	},
-	RetrySandboxOffer {
-		offer: String,
-		sandbox: tg::sandbox::Id,
+	RunnerBootEnded {
+		id: String,
+		result: tg::Result<RunnerBootEndedResponseOutput>,
 	},
 	ServeSandboxHolder {
 		result: tg::Result<sandbox::HolderTasks>,
@@ -403,7 +403,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// Add a parent to a sandbox that a scheduler holds, and return the sandbox's capacity, or none if the scheduler does not hold the sandbox.
+	/// Add a parent to a sandbox whose boot a scheduler holds, and return the sandbox's capacity, or none if the scheduler does not hold the sandbox's boot.
 	pub(crate) async fn add_sandbox_parent(
 		&self,
 		session: &Session,
@@ -841,9 +841,6 @@ impl Scheduler {
 			RequestArg::AddRunner(request) => {
 				state.handle_add_runner_request(self, id, request);
 			},
-			RequestArg::AddRunnerSandbox(request) => {
-				state.handle_add_runner_sandbox_request(self, id, request);
-			},
 			RequestArg::AddSandboxParent(request) => {
 				let output = state.add_sandbox_parent(self, &request);
 				let response =
@@ -861,9 +858,6 @@ impl Scheduler {
 			RequestArg::DestroyRunnerSandbox(request) => {
 				state.handle_destroy_runner_sandbox_request(self, id, request);
 			},
-			RequestArg::EndRunnerSandbox(request) => {
-				state.handle_end_runner_sandbox_request(self, id, request);
-			},
 			RequestArg::EnqueueSandbox(request) => {
 				state.handle_enqueue_sandbox_request(self, Some(id), request, false);
 			},
@@ -875,6 +869,12 @@ impl Scheduler {
 			},
 			RequestArg::RemoveRunner(request) => {
 				state.handle_remove_runner_request(self, Some(id), request);
+			},
+			RequestArg::RunnerBootEnded(request) => {
+				state.handle_runner_boot_ended_request(self, id, request);
+			},
+			RequestArg::RunnerSandboxCreated(request) => {
+				state.handle_runner_sandbox_created_request(self, id, request);
 			},
 		}
 	}
@@ -927,11 +927,6 @@ impl Scheduler {
 			Operation::DestroySandbox { destroy, result } => {
 				state.handle_destroy_sandbox(self, destroy, result);
 			},
-			Operation::EndRunnerSandbox { id, result } => {
-				let result = result.map(ResponseOutput::EndRunnerSandbox);
-				let response = request::Response::new(id, result);
-				self.send_response(response);
-			},
 			Operation::Finished { context, result } => {
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "{context}");
@@ -945,7 +940,7 @@ impl Scheduler {
 			Operation::IndexTerminalSandboxes { sandboxes } => {
 				state.handle_index_terminal_sandboxes(self, sandboxes);
 			},
-			Operation::OfferSandbox {
+			Operation::OfferBoot {
 				outcome,
 				placement,
 				sandbox,
@@ -994,11 +989,16 @@ impl Scheduler {
 			} => {
 				state.handle_reserve_sandbox(self, ids, request, result);
 			},
+			Operation::RetryBootOffer { offer, sandbox } => {
+				state.handle_retry_boot_offer(self, &sandbox, &offer);
+			},
 			Operation::RetrySandbox { sandbox } => {
 				state.handle_retry_sandbox(self, &sandbox);
 			},
-			Operation::RetrySandboxOffer { offer, sandbox } => {
-				state.handle_retry_sandbox_offer(self, &sandbox, &offer);
+			Operation::RunnerBootEnded { id, result } => {
+				let result = result.map(ResponseOutput::RunnerBootEnded);
+				let response = request::Response::new(id, result);
+				self.send_response(response);
 			},
 			Operation::ServeSandboxHolder { result, sandbox } => {
 				state.handle_serve_sandbox_holder_completion(&sandbox, result);

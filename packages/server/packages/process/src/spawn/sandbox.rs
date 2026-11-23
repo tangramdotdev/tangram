@@ -184,13 +184,13 @@ impl Component {
 			result = started_future.as_mut() => result,
 			result = destroyed_future => {
 				let started = Self::try_get_process_start_from_index(session, id).await?;
-				tangram_server_core::checkpoint!(session.server, "process.spawn.sandbox.ended", process = %id)
+				tangram_server_core::checkpoint!(session.server, "process.spawn.boot.ended", process = %id)
 					.await;
 				if started {
 					return Ok(());
 				}
 
-				// Wait for pending writes before checking whether the process started before its sandbox ended.
+				// Wait for pending writes before checking whether the process started before its sandbox's boot ended.
 				session
 					.index(tg::index::Arg::default())
 					.await
@@ -581,7 +581,7 @@ impl Component {
 							Ok(ready_event)
 						},
 						Err(error) => {
-							// Wait for the sandbox to end, so that the runner records the end of a sandbox that connected before the spawn does.
+							// Wait for the sandbox's boot to end, so that the runner records the end of a boot that connected before the spawn does.
 							while let Some(event) = events.recv().await {
 								if matches!(
 									event,

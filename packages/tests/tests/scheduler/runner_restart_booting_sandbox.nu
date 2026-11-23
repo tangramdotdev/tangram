@@ -24,7 +24,7 @@ let runner = server spawn --name runner --config {
 wait_for_log $runner 'the runner is ready to accept work'
 
 # Hold the runner once it receives the offer, and crash it before it answers.
-let offer = checkpoint watch runner.control.offer_sandbox --url $runner.url
+let offer = checkpoint watch runner.control.offer_boot --url $runner.url
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens --cpu 1 | referent node
 checkpoint wait $offer | ignore
 let pid = open ($runner.directory | path join 'lock') | into int

@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A stopped sandbox starts again with its files and runs new processes.
+# A stopped sandbox starts again with its files, and new processes run in it.
 
 let local = server spawn
 

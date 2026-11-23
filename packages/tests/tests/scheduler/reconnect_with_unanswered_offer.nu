@@ -1,7 +1,7 @@
 use ../../util/test.nu *
 use ../../util/nats.nu *
 
-# A runner that reconnects while the offer of a sandbox to it is unanswered gets the same offer again, so that a second runner does not run the sandbox and the sandbox's process runs once.
+# A runner that reconnects while the offer of a boot to it is unanswered gets the same offer again, so that a second runner does not hold the boot and the sandbox's process runs once.
 let nats = spawn_nats
 let root = random chars
 let common = {
@@ -42,7 +42,7 @@ let path = artifact {
 }
 
 # Hold the first runner before it answers the offer of the process's sandbox.
-let offer = checkpoint watch runner.control.offer_sandbox --url $runner.url
+let offer = checkpoint watch runner.control.offer_boot --url $runner.url
 let process = tg --url $local.url run --no-tokens --detach $path --remote | referent node
 checkpoint wait $offer | ignore
 

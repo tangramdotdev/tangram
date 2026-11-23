@@ -991,10 +991,10 @@ impl Component {
 			process_stopper.stop();
 			drop(index_sender);
 			finish_task.wait().await.ok();
-			return Err(tg::error!(%id, "the runner gave up the process's boot"));
+			return Err(tg::error!(%id, "the runner abandoned the process's boot"));
 		};
 		let start = tg::process::control::StartClientRequestArg {
-			boot: boot.boot,
+			boot: boot.number,
 			data: data.clone(),
 			lease,
 			options: options.clone(),
@@ -1405,7 +1405,7 @@ impl Component {
 		self.publish_finished_process(session, &id, &processes, &mut data)
 			.await?;
 
-		// Number the finish with the process's boot, and write nothing more for a boot that the runner gave up, whose give-up records the end in this server's local copies.
+		// Number the finish with the process's boot, and write nothing more for a boot that the runner abandoned, whose abandonment records the end in this server's local copies.
 		let Some(sequence) = boot.next() else {
 			return Ok(FinishProcessRunOutput { index_task: None });
 		};
@@ -2069,13 +2069,13 @@ impl Component {
 			)?;
 		captures.extend(command_captures);
 
-		// Number the local copy's write with the process's boot, and write nothing for a boot that the runner gave up.
+		// Number the local copy's write with the process's boot, and write nothing for a boot that the runner abandoned.
 		let Some(sequence) = boot.next() else {
 			return Ok(());
 		};
 		let put_process_arg = tangram_index::process::put::Arg {
 			account: None,
-			boot: Some(boot.boot),
+			boot: Some(boot.number),
 			cached: false,
 			captures,
 			children: None,

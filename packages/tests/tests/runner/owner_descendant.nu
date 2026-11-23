@@ -26,7 +26,7 @@ let alice_local = server spawn --name alice-local --config {
 }
 let path = artifact { tangram.ts: 'export default () => tg.file("hello")' }
 let output = tg --url $alice_local.url build --remote --owner tangram/engineering $path | complete
-success $output "the organization runner should run a sandbox owned by a descendant group"
+success $output "a sandbox owned by a descendant group should start on the organization runner"
 
 def build_background [url: string, owner: string, path: path] {
 	job spawn {
