@@ -48,7 +48,7 @@ The macOS app uses XcodeGen. Commit changes to `packages/macos/project.yml`, and
 
 Run `tg run ./packages/macos#doctor` to check the unsigned build prerequisites. Run `tg run ./packages/macos#check` for an unsigned Rust and Swift compilation that does not require an Apple Developer account. Run `tg run ./packages/macos#run` to development-sign, install, and launch the app from `~/Applications`. The `--release` flag on `scripts/macos/run.nu` selects optimized local binaries, but it does not produce a distributable release.
 
-Run `tg run ./packages/macos#release` to archive the app, export it with Developer ID signing, notarize it, staple and verify the ticket, and create `packages/macos/build/Distribution/Tangram.zip`. Pass `-- --install` to install the verified app in `/Applications`. Set `TANGRAM_NOTARY_PROFILE` to override the default `Tangram` notarytool keychain profile.
+Run `tg run ./packages/macos#release` to sign the app, notarize the disk image, and create `Tangram.dmg` and `Tangram.zip` under `packages/macos/build/Distribution`. The disk image submission provides the tickets for both the disk image and the app in the ZIP. Pass `-- --install` to install the verified app in `/Applications`. Set `TANGRAM_NOTARY_PROFILE` to override the default `Tangram` notarytool keychain profile.
 
 For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `packages/macos/Local.xcconfig` and set the bundle prefix and development team. Create Apple Development and Developer ID Application certificates in the login keychain. Store the notarization credentials interactively with `xcrun notarytool store-credentials Tangram --apple-id <apple-id> --team-id <team-id>`. Do not store signing keys or notarization passwords in the repository.
 

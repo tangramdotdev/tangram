@@ -8,7 +8,9 @@ def step [message: string] {
 
 def main [
 	--install
+	--no-sign
 	--notary-profile: string
+	--version: string
 ] {
 	let root = ($env.FILE_PWD | path dirname | path dirname)
 	let path = ($root | path join "packages/macos")
@@ -16,9 +18,10 @@ def main [
 	let archive_path = ($build_path | path join "Tangram.xcarchive")
 	let derived_data_path = ($build_path | path join "DerivedData")
 	let export_path = ($build_path | path join "Export")
-	let app_path = ($export_path | path join "Tangram.app")
-	let notarization_path = ($build_path | path join "Tangram-notarization.zip")
+	let archived_app = ($archive_path | path join "Products/Applications/Tangram.app")
+	let app_path = if $no_sign { $archived_app } else { $export_path | path join "Tangram.app" }
 	let artifact_path = ($build_path | path join "Tangram.zip")
+	let dmg_path = ($build_path | path join "Tangram.dmg")
 	let project = ($path | path join "Tangram.xcodeproj")
 	let result_bundle_path = ($build_path | path join "TangramArchive.xcresult")
 	let source_path = ($root | path join "target/release/tangram")
@@ -31,8 +34,19 @@ def main [
 	let doctor = ($root | path join "scripts/macos/doctor.nu")
 
 	cd $root
+	let version = $version | default ((open Cargo.toml).workspace.package.version)
+	if $version !~ '^[0-9]+\.[0-9]+\.[0-9]+$' {
+		error make {msg: 'expected a numeric macOS release version'}
+	}
+	if $no_sign and $install {
+		error make {msg: '--install requires a signed macOS app'}
+	}
 	step "Checking the macOS release environment"
-	^nu $doctor --release --notary-profile $profile
+	if $no_sign {
+		^nu $doctor
+	} else {
+		^nu $doctor --release --notary-profile $profile
+	}
 
 	step "Building the Tangram helper"
 	^cargo build --release -p tangram_cli -p tangram_vfs_provider
@@ -45,9 +59,10 @@ def main [
 	rm -rf $build_path
 	mkdir $build_path
 	let arch = (^uname -m | str trim)
+	let signing_args = if $no_sign { ['CODE_SIGNING_ALLOWED=NO'] } else { ['-allowProvisioningUpdates'] }
 	(
 		xcodebuild
-			-allowProvisioningUpdates
+			...$signing_args
 			-archivePath $archive_path
 			-configuration Release
 			-derivedDataPath $derived_data_path
@@ -57,46 +72,55 @@ def main [
 			-scheme Tangram
 			-showBuildTimingSummary
 			$"ARCHS=($arch)"
+			$"MARKETING_VERSION=($version)"
 			$"TANGRAM_HELPER_PATH=($source_path)"
 			archive
 	)
 
-	let archived_helper = ($archive_path | path join "Products/Applications/Tangram.app/Contents/Helpers/tangram")
+	let archived_helper = ($archived_app | path join "Contents/Helpers/tangram")
 	if not ($archived_helper | path exists) {
 		error make { msg: "the archive does not contain the Tangram helper" }
 	}
 
-	step "Exporting Tangram with Developer ID signing"
-	(
-		xcodebuild
-			-allowProvisioningUpdates
-			-archivePath $archive_path
-			-exportArchive
-			-exportOptionsPlist $export_options_path
-			-exportPath $export_path
-	)
+	if not $no_sign {
+		step "Exporting Tangram with Developer ID signing"
+		(
+			xcodebuild
+				-allowProvisioningUpdates
+				-archivePath $archive_path
+				-exportArchive
+				-exportOptionsPlist $export_options_path
+				-exportPath $export_path
+		)
+	}
 	if not ($app_path | path exists) {
-		error make { msg: $"the exported app was not found at ($app_path)" }
+		error make { msg: $"the app was not found at ($app_path)" }
 	}
-	^codesign --verify --deep --strict --verbose=2 $app_path
-	let signature = (^codesign -dv --verbose=4 $app_path | complete)
-	let signature_details = $signature.stdout + $signature.stderr
-	if $signature.exit_code != 0 or not ($signature_details | str contains "Authority=Developer ID Application") {
-		error make { msg: "the exported app is not signed with a Developer ID Application identity" }
+	if (^test -x ($app_path | path join "Contents/Resources/tg") | complete).exit_code != 0 {
+		error make {msg: 'the app does not contain the executable tg wrapper'}
 	}
-	if not ($signature_details | str contains "Timestamp=") {
-		error make { msg: "the exported app does not have a secure signing timestamp" }
+	let identity = if $no_sign {
+		null
+	} else {
+		verify-signing $app_path
 	}
 
-	step "Submitting Tangram for notarization"
-	^ditto -c -k --keepParent $app_path $notarization_path
-	^xcrun notarytool submit $notarization_path --keychain-profile $profile --wait
-
-	step "Stapling and verifying the notarization ticket"
-	^xcrun stapler staple $app_path
-	^xcrun stapler validate $app_path
-	^codesign --verify --deep --strict --verbose=2 $app_path
-	^spctl -a -vvv -t exec $app_path
+	step "Creating the drag-to-Applications disk image"
+	^nu ($root | path join "scripts/macos/dmg.nu") $app_path $dmg_path
+	if $identity != null {
+		^codesign --sign $identity --timestamp $dmg_path
+		^xcrun notarytool submit $dmg_path --keychain-profile $profile --wait
+		^xcrun stapler staple $dmg_path
+		^xcrun stapler validate $dmg_path
+		^codesign --verify --strict $dmg_path
+		^spctl --assess --type open --context context:primary-signature --verbose=2 $dmg_path
+		# The disk image submission also creates a ticket for the bundled app.
+		^xcrun stapler staple $app_path
+		^xcrun stapler validate $app_path
+		^codesign --verify --deep --strict --verbose=2 $app_path
+		^spctl -a -vvv -t exec $app_path
+	}
+	^hdiutil verify $dmg_path
 
 	step "Creating the distributable archive"
 	^ditto -c -k --keepParent $app_path $artifact_path
@@ -114,5 +138,19 @@ def main [
 		^spctl -a -vvv -t exec $installed_app
 	}
 
-	print $"\nTangram was signed, notarized, stapled, and written to ($artifact_path)."
+	print $"\nPackaged Tangram at ($dmg_path) and ($artifact_path)."
+}
+
+def verify-signing [app: path] {
+	^codesign --verify --deep --strict --verbose=2 $app
+	let signature = (^codesign -dv --verbose=4 $app | complete)
+	let details = $signature.stdout + $signature.stderr
+	let authority = ($details | lines | where {|line| $line starts-with "Authority=Developer ID Application"} | get -o 0)
+	if $signature.exit_code != 0 or $authority == null {
+		error make { msg: "the exported app is not signed with a Developer ID Application identity" }
+	}
+	if not ($details | str contains "Timestamp=") {
+		error make { msg: "the exported app does not have a secure signing timestamp" }
+	}
+	$authority | str replace "Authority=" ""
 }
