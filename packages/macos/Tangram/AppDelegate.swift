@@ -331,11 +331,27 @@ private final class VfsBroker: @unchecked Sendable {
 				socket: socket,
 			)
 			if output.status == 0 {
+				Task { @MainActor [weak self] in
+					self?.showExtensionApprovalConfirmation(generation: generation)
+				}
 				return
 			}
 			lastMessage = output.message
 		}
 		throw VfsBrokerError.extensionApprovalTimedOut(lastMessage)
+	}
+
+	@MainActor
+	private func showExtensionApprovalConfirmation(generation: UInt64) {
+		guard isActive(generation) else {
+			return
+		}
+		let alert = NSAlert()
+		alert.messageText = "Tangram Filesystem Is Ready"
+		alert.informativeText = "Tangram mounted its artifact store using the file system extension."
+		alert.addButton(withTitle: "Done")
+		NSApp.activate()
+		alert.runModal()
 	}
 
 	private func mountOptions(
