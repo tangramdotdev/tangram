@@ -77,16 +77,12 @@ export const run = async (...args: tg.Args<Arg>) => {
 	// Hybrid builds share Cargo's target directory, so only sandboxed builds supply NODE_PATH and the V8 and Python artifacts watched by build scripts.
 	const env = await std.env.arg(env_ ?? null, bunEnvArg(host));
 
-	// Link the dependencies that the proxy compiles in sandboxes with mold, so that rustflags that select mold, such as those in a user's Cargo configuration, also work there.
-	const sdk = { linker: "mold" as const };
-
 	const output = cargo.run({
 		disableDefaultFeatures,
 		env,
 		features,
 		host,
 		proxy,
-		sdk,
 		source: source_,
 	});
 
@@ -106,12 +102,10 @@ export const build = async (...args: tg.Args<Arg>) => {
 		env: env_,
 		foundationdb: useFoundationdb = false,
 		host: host_,
-		pre: pre_,
 		proxy = false,
 		sdk,
 		source: source_ = source,
 		standalone = false,
-		subcommand,
 	} = merged;
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
@@ -184,35 +178,18 @@ export const build = async (...args: tg.Args<Arg>) => {
 		PATH: tg.Mutation.suffix(tg`${nodeModulesArtifact}/node_modules/.bin`, ":"),
 	});
 
-	// Configure bindgen, which generates the foundationdb and rocksdb bindings.
-	let pre: tg.Unresolved<tg.Template.Arg> = null;
-	if (useFoundationdb || features.includes("rocksdb")) {
-		// Build libclang with the default linker, because the linker that the SDK argument names is for Tangram.
-		const { linker: _linker, ...libclangSdk } = std.sdk.argObject(sdk) ?? {};
-		const libclangArg =
-			Object.keys(libclangSdk).length > 0 ? { sdk: libclangSdk } : {};
-		envs.push({
-			LIBCLANG_PATH: tg`${libclang({ build, host, ...libclangArg })}/lib`,
-		});
-		if (std.triple.os(host) === "linux") {
-			// Give bindgen the C library's headers and libclang's resource directory, which holds the compiler's headers, such as stdbool.h.
-			pre = tg`
-				export CPATH=$CPATH:$(gcc -print-sysroot)/include
-				export BINDGEN_EXTRA_CLANG_ARGS="-resource-dir $(echo "$LIBCLANG_PATH"/clang/*)"
-			`;
-		}
-	}
-
 	// Configure foundationdb.
+	let pre: tg.Unresolved<tg.Template.Arg> = null;
 	if (useFoundationdb) {
 		const fdbArtifact = foundationdb({ build, host });
 		envs.push(fdbArtifact, {
+			LIBCLANG_PATH: tg`${libclang({ build, host, ...std.args.optional("sdk", sdk) })}/lib`,
 			FDB_LIB_PATH: tg`${fdbArtifact}/lib`,
 		});
 		if (std.triple.os(host) === "linux") {
 			pre = tg`
 				export LD_LIBRARY_PATH=$LIBRARY_PATH
-				${pre}
+				export CPATH=$CPATH:$(gcc -print-sysroot)/include
 			`;
 		}
 	}
@@ -220,24 +197,18 @@ export const build = async (...args: tg.Args<Arg>) => {
 	// Build tangram.
 	const env = std.env.arg(...envs, env_ ?? null);
 	const output = cargo.build({
-		...merged,
 		...(await std.triple.rotate({ build, host })),
 		captureStderr,
 		disableDefaultFeatures,
 		env,
 		features,
-		pre: tg.Template.join("\n", pre, pre_ ?? null),
+		pre,
 		proxy,
 		...std.args.optional("sdk", sdk),
 		source: source_,
 		standalone,
 		useCargoVendor: true,
 	});
-
-	// Return the output of other cargo subcommands, such as test runs, without wrapping.
-	if (subcommand !== undefined) {
-		return output;
-	}
 
 	// Return standalone builds unwrapped.
 	if (standalone) {
@@ -381,30 +352,15 @@ export const testProxy = async () => {
 export type IntegrationArg = {
 	/** Regular expressions that select tests by their paths relative to packages/tests/tests. */
 	filters?: Array<string>;
-
-	/** Disable network access and skip the tests that require it. */
-	offline?: boolean;
 };
 
-export type IntegrationOutput = {
-	/** The number of tests that passed. */
-	passed: number;
-
-	/** The skipped tests, by the reason that each test gave. */
-	skipped: Record<string, Array<string>>;
-};
-
-/** Run each integration test in its own sandbox, with Tangram, the test runner, and the test supervisor built on the host in the repository's target/integration directory. Run it from the repository with `tg run ./build.tg.ts#testIntegration`. Each test is a cached process, so a test runs again only when its inputs change. */
-export const testIntegration = async (
-	arg: IntegrationArg = {},
-): Promise<IntegrationOutput> => {
-	const { filters = [], offline = false } = arg;
+/** Run the integration tests in cached sandboxes, with Tangram and the test runner built on the host in target/integration. Run it with `tg run ./build.tg.ts#testIntegration`. */
+export const testIntegration = async (arg: IntegrationArg = {}) => {
+	const { filters = [] } = arg;
 	const host = std.triple.host();
-
-	// Find the repository, where the host build runs, and where the test runner that it builds finds the tests.
 	const { cwd: root } = await context();
 
-	// Configure PyO3 for the test interpreter instead of the embedded runtime that the repository configures, as packages/clients/python/build.py does. The Python extension does not link libpython, because the interpreter that imports it provides the symbols.
+	// Configure PyO3 for the test interpreter, as packages/clients/python/build.py does.
 	const pythonArtifact = python({ enableOptimizations: false });
 	const pyo3Config = await std.build`
 		python3 -c 'import sys; print("implementation=CPython"); print("version=%d.%d" % sys.version_info[:2]); print("shared=true"); print("suppress_build_script_link_lines=true")' > ${tg.output}
@@ -412,11 +368,11 @@ export const testIntegration = async (
 		.env(pythonArtifact)
 		.then(tg.File.expect);
 
-	// Build Tangram, the test runner, the test supervisor, and the native extensions of the JavaScript and Python clients on the host.
+	// Build Tangram, the test runner, the test supervisor, and the client extensions on the host.
 	const tangram = await buildIntegration({ host, pyo3Config, root });
 	const extensions = await tangram.get("lib").then(tg.Directory.expect);
 
-	// Get the dynamic loader that the executables request, and std's loader and libraries to install for them.
+	// Get the dynamic loader that the executables request, and std's loader and libraries.
 	const metadata = await tangram
 		.get("bin/tangram")
 		.then(tg.File.expect)
@@ -431,7 +387,7 @@ export const testIntegration = async (
 	});
 	tg.assert(ldso !== undefined, "expected a dynamic loader");
 
-	// Compile the JavaScript client, and add its native extension where the client loads it. The type definitions are hoisted to the root node_modules.
+	// Compile the JavaScript client with its native extension.
 	const modules = await nodeModules();
 	const arch = std.triple.arch(host) === "aarch64" ? "arm64" : "x64";
 	const javascriptClient = await std.build`
@@ -445,12 +401,12 @@ export const testIntegration = async (
 		})
 		.then(tg.Directory.expect);
 
-	// Add the Node.js packages and the compiled JavaScript client to the repository, where the Node.js tests import the client.
+	// Add the Node.js packages and the JavaScript client to the repository that the tests mount.
 	const repository = await tg.directory(source, modules, {
 		"packages/clients/javascript/dist": javascriptClient,
 	});
 
-	// Install the Python client and the dependencies that uv.lock pins for it, for the Python tests that import it.
+	// Install the Python client and the dependencies that uv.lock pins for it.
 	const lock = tg.encoding.toml.decode(
 		await source
 			.get("uv.lock")
@@ -537,7 +493,7 @@ export const testIntegration = async (
 		},
 	);
 
-	// Group the selected tests by directory, and split each directory into batches of at most 16 tests, so that the cost of a sandbox is paid once per batch rather than once per test, and no large directory runs alone at the end.
+	// Group the tests into batches of at most 16 tests from one directory.
 	const directories = new Map<string, Array<string>>();
 	for (const test of selected) {
 		const directory = test.includes("/")
@@ -555,10 +511,10 @@ export const testIntegration = async (
 		}
 	}
 
-	// Run each batch in its own sandbox. The runner runs one test at a time, so that the server runs about one test per CPU at once, as running the tests on the host does, and writes a line for each test, which the sandbox writes as its output.
+	// Run each batch in a sandbox, one test at a time, and read each test's result from the runner's output.
 	const failed: Record<string, string> = {};
 	let passed = 0;
-	const skipped: Record<string, Array<string>> = {};
+	let skipped = 0;
 	const runBatch = async (batch: {
 		directory: string;
 		tests: Array<string>;
@@ -570,67 +526,47 @@ export const testIntegration = async (
 					`'/packages/tests/tests/${test.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$'`,
 			)
 			.join(" ");
-		const output = await std.build`
-			# Install std's loader at the path that the standalone executables request, and its libraries in /lib, where the loader searches, keeping the files that /lib already has.
+		const text = await std.build`
+			# Install std's loader at the path that the executables request, and its libraries in /lib.
 			mkdir -p /lib "$(dirname ${interpreter})"
 			ln -s ${ldso} ${interpreter}
 			ln -s ${libDir}/* /lib/ 2> /dev/null || true
 
-			# Copy the directory, where the tests write their snapshots, to a writable directory.
+			# Copy the directory to a writable directory for the tests' snapshots.
 			cp -R ${source}/packages/tests/tests/${directory}/. copy
 			chmod -R u+w copy
 
-			# Remove the connection to this server and the environment values that refer to its store.
+			# Remove the connection to this server.
 			unset TANGRAM_OUTPUT TANGRAM_TOKEN TANGRAM_URL
 			for name in $(env | grep -o '^TANGRAM_ENV_[^=]*'); do
 				unset "$name"
 			done
 
-			# Run the tests in a user and mount namespace. The runner finds the tests in the repository that it was built from, so mount the repository with the clients at that path, and mount the writable copy over the directory, where the tests write their snapshots. The namespace also lets fusermount3 mount the test servers' VFS.
+			# Mount the repository at the path that the runner was built from, with the writable copy over the directory, and run the tests.
 			export PATH="${tangram}/bin:$PATH"
 			mkdir -p '${root}'
 			unshare --user --map-current-user --mount --keep-caps \\
 				sh -c 'mount --bind "$1" "$2" && mount --bind "$3" "$4" && shift 4 && exec tangram_tests_runner "$@"' \\
 				sh ${repository} '${root}' "$PWD/copy" '${root}/packages/tests/tests/${directory}' \\
-				run --jobs 1 --no-progress-details ${offline ? "--offline" : ""} -- ${filters} 2> log || true
+				run --jobs 1 --no-progress-details -- ${filters} 2> log || true
 			cat log >&2
 			cp log ${tg.output}
 		`
 			.named(directory === "" ? "tests" : directory)
-			.network(!offline)
-			.checksum(offline ? null : "sha256:any")
+			.network(true)
+			.checksum("sha256:any")
 			.env(env)
 			.then(tg.File.expect)
-			.then((file) => file.text)
-			.then(
-				(text) => ({ text }),
-				async (error: unknown) => ({ error: await describeError(error) }),
-			);
-
-		// Record each test's result, with the time that a failed test was recorded, so that it can be matched with the server's log.
-		const time = new Date().toISOString();
-		if ("error" in output) {
-			for (const test of tests) {
-				failed[test] = `${time} ${output.error}`;
-			}
-			return;
-		}
-		const text = removeColors(output.text);
-		const results = readResults(text);
-		const lastLine =
-			text
-				.split("\n")
-				.map((line) => line.trim())
-				.filter((line) => line !== "")
-				.at(-1) ?? "";
+			.then((file) => file.text);
+		const results = readResults(removeColors(text));
 		for (const test of tests) {
 			const result = results.get(test);
 			if (result === undefined) {
-				failed[test] = `${time} the runner reported no result: ${lastLine}`;
+				failed[test] = "the runner reported no result";
 			} else if (result.kind === "failed") {
-				failed[test] = `${time} ${result.message}`;
+				failed[test] = result.message;
 			} else if (result.kind === "skipped") {
-				(skipped[result.reason] ??= []).push(test);
+				skipped += 1;
 			} else {
 				passed += 1;
 			}
@@ -640,52 +576,30 @@ export const testIntegration = async (
 
 	// Report the failed tests with their errors.
 	const failedTests = Object.keys(failed).sort();
-	const skippedCount = Object.values(skipped).flat().length;
-	const summary = `${passed} passed, ${skippedCount} skipped, ${failedTests.length} failed`;
+	const summary = `${passed} passed, ${skipped} skipped, ${failedTests.length} failed`;
 	if (failedTests.length > 0) {
 		const lines = failedTests.map((test) => `${test}: ${failed[test]}`);
 		throw new Error(`${summary}:\n${lines.join("\n")}`);
 	}
 
-	return { passed, skipped };
+	return summary;
 };
 
-/** Run the Rust tests with nextest on the host, in the repository's target directory, compiling the dependencies through the rustc proxy. Run it with `tg run -b ./build.tg.ts#testRust`, and pass nextest's arguments after `--`. */
-export const testRust = async (...args: tg.Args<Arg>) => {
-	const merged = await mergeArgs(args);
-	const {
-		env: env_,
-		host: host_,
-		proxy = true,
-		source: source_ = source,
-	} = merged;
-	const host = host_ ?? std.triple.host();
-
-	// Use the environment of the run export, so that both share the fingerprints in the target directory.
-	const env = await std.env.arg(env_ ?? null, bunEnvArg(host));
-
-	// Run nextest for the whole workspace with every feature, followed by the arguments after `--`.
+/** Run the Rust tests with nextest on the host in the repository's target directory, compiling the dependencies through the rustc proxy. Run it with `tg run -b ./build.tg.ts#testRust`, and pass nextest's arguments after `--`. */
+export const testRust = async () => {
+	const host = std.triple.host();
+	const env = await std.env.arg(bunEnvArg(host));
 	const pre =
 		'set -- nextest run --all-features --no-fail-fast --workspace "$@"';
-
-	// Link the dependencies that the proxy compiles in sandboxes with mold, so that rustflags that select mold, such as those in a user's Cargo configuration, also work there.
+	// Link the proxied dependencies with mold, so that rustflags that select mold also work in the proxy's sandboxes.
 	const sdk = { linker: "mold" as const };
-
-	const command = await cargo.run({
-		env,
-		host,
-		pre,
-		proxy,
-		sdk,
-		source: source_,
-	});
-
+	const command = await cargo.run({ env, host, pre, proxy: true, sdk, source });
 	return command;
 };
 
 // Internal helpers.
 
-/** Build Tangram, the test runner, the test supervisor, and the native extensions of the JavaScript and Python clients on the host, in target directories of their own in the repository, and output the executables in bin and the extensions in lib. */
+/** Build Tangram, the test runner, the test supervisor, and the client extensions on the host, and output the executables in bin and the extensions in lib. */
 const buildIntegration = async (arg: {
 	host: string;
 	pyo3Config: tg.File;
@@ -694,7 +608,7 @@ const buildIntegration = async (arg: {
 	const { host, pyo3Config, root } = arg;
 	const linker = `CARGO_TARGET_${rustTriple(host).toUpperCase().replaceAll("-", "_")}_LINKER`;
 
-	// Link with std's SDK and compile C with it, so that the executables and extensions run with std's libraries in the test sandboxes. Link without Tangram wrappers, because the servers run Tangram in their sandboxes, which do not contain the artifacts that a wrapper loads. Build in target directories of their own, because the linker is part of every crate's fingerprint, and because the extensions configure PyO3 for the test interpreter.
+	// Link with std's SDK without Tangram wrappers, so that the executables run in the test sandboxes. Build in separate target directories, because the linker is in every crate's fingerprint.
 	const pre = tg`
 		export TANGRAM_LINKER_PASSTHROUGH=1
 		export CC="$TGRUSTC_SANDBOX_SDK/bin/cc"
@@ -709,10 +623,10 @@ const buildIntegration = async (arg: {
 		exit
 	`;
 
-	// Link the dependencies that the proxy compiles in sandboxes with mold, so that rustflags that select mold, such as those in a user's Cargo configuration, also work there.
+	// Link the proxied dependencies with mold, so that rustflags that select mold also work in the proxy's sandboxes.
 	const sdk = { linker: "mold" as const };
 
-	// Link libcap-ng, libseccomp, and OpenSSL statically from Tangram's builds, because std's SDK does not search the host's libraries, and the test sandboxes do not contain them.
+	// Link libcap-ng, libseccomp, and OpenSSL statically, because the test sandboxes do not contain the host's libraries.
 	const capNg = libcapNg({ build: host, host });
 	const seccomp = libseccomp({ build: host, host });
 	const env = await std.env.arg(bunEnvArg(host), {
@@ -770,9 +684,9 @@ const removeColors = (text: string): string =>
 type TestResult =
 	| { kind: "failed"; message: string }
 	| { kind: "passed" }
-	| { kind: "skipped"; reason: string };
+	| { kind: "skipped" };
 
-// Read each test's result from the runner's output: a line that starts with ✓ for a test that passed, ⊘ for a test that was skipped, followed by the reason, and ✗ for a test that failed, followed by its output. The runner lists the failed tests again at the end, so keep each test's first result.
+// Read each test's first result from the runner's output: ✓ passed, ⊘ skipped, and ✗ failed, followed by the test's output.
 const readResults = (text: string): Map<string, TestResult> => {
 	const results = new Map<string, TestResult>();
 	const lines = text.split("\n");
@@ -789,8 +703,7 @@ const readResults = (text: string): Map<string, TestResult> => {
 		if (symbol === "✓") {
 			results.set(test, { kind: "passed" });
 		} else if (symbol === "⊘") {
-			const reason = lines[index + 1]?.trim() ?? "";
-			results.set(test, { kind: "skipped", reason });
+			results.set(test, { kind: "skipped" });
 		} else {
 			const rest = lines.slice(index + 1);
 			const end = rest.findIndex((line) => marker.test(line));
@@ -803,24 +716,6 @@ const readResults = (text: string): Map<string, TestResult> => {
 		}
 	}
 	return results;
-};
-
-// Describe an error and the errors that caused it on one line.
-const describeError = async (error: unknown): Promise<string> => {
-	const messages: Array<string> = [];
-	let current: unknown = error;
-	while (current instanceof tg.Error) {
-		const message = await current.message;
-		const values = await current.values;
-		const valuesText =
-			Object.keys(values).length > 0 ? ` ${JSON.stringify(values)}` : "";
-		messages.push(`${message ?? "an error occurred"}${valuesText}`);
-		current = (await current.source)?.node;
-	}
-	if (current !== undefined) {
-		messages.push(current instanceof Error ? current.message : String(current));
-	}
-	return messages.join(" -> ");
 };
 
 const assertHelp = async (env: tg.Unresolved<std.env.Arg>) => {
