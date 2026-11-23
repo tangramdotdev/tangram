@@ -116,7 +116,7 @@ pub(super) struct Sandbox {
 	/// The sandboxes that the sandbox can borrow capacity from while the scheduler holds it, which are the sandbox that created it and each sandbox whose process waits for its process after a cache hit, with the sandbox's links in each one's queue.
 	pub(super) parents: Vec<ParentLinks>,
 
-	/// The write of the boot's first record that this scheduler started, which an end of the boot waits for.
+	/// The latest write of the boot's request that this scheduler started, which follows the write before it, and which an end of the boot waits for.
 	pub(super) persist: Option<Write>,
 
 	pub(super) persisted: bool,
@@ -236,6 +236,24 @@ impl Sandbox {
 
 	pub(super) fn request_mut(&mut self) -> &mut EnqueueSandboxRequestArg {
 		self.request.as_mut().unwrap()
+	}
+
+	/// Start a write of the sandbox's request after the sandbox's previous write of its request finishes, so that the writes of one sandbox apply in order, and remember it as the sandbox's latest write.
+	pub(super) fn chain_persist(
+		&mut self,
+		write: future::BoxFuture<'static, tg::Result<()>>,
+	) -> Write {
+		let previous = self.persist.take();
+		let write = async move {
+			if let Some(previous) = previous {
+				previous.await.ok();
+			}
+			write.await
+		}
+		.boxed()
+		.shared();
+		self.persist = Some(write.clone());
+		write
 	}
 
 	pub(super) fn links_mut(&mut self) -> &mut Links {
@@ -418,11 +436,9 @@ impl SchedulerState {
 				let request = entry.request().clone();
 				let persist = {
 					let scheduler = scheduler.clone();
-					async move { scheduler.persist_sandbox(&request, true).await }
-						.boxed()
-						.shared()
+					async move { scheduler.persist_sandbox(&request, true).await }.boxed()
 				};
-				entry.persist = Some(persist.clone());
+				let persist = entry.chain_persist(persist);
 				let sandbox = sandbox.clone();
 				self.operations.push(
 					async move {

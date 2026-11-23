@@ -458,6 +458,8 @@ impl SchedulerState {
 				let scheduler_ = scheduler.clone();
 				let write =
 					async move { scheduler_.persist_sandbox(&request, false).await }.boxed();
+				let entry = self.sandboxes.entries.get_mut(sandbox).unwrap();
+				let write = entry.chain_persist(write).boxed();
 				self.publish_process_holder_response(scheduler, process, id, Some(write), output);
 			},
 
@@ -501,7 +503,10 @@ impl SchedulerState {
 					write
 				} else {
 					let request = request.clone();
-					async move { scheduler_.persist_sandbox(&request, false).await }.boxed()
+					let write =
+						async move { scheduler_.persist_sandbox(&request, false).await }.boxed();
+					let entry = self.sandboxes.entries.get_mut(sandbox).unwrap();
+					entry.chain_persist(write).boxed()
 				};
 				self.publish_process_holder_response(
 					scheduler,

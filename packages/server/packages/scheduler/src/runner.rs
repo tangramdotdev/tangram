@@ -62,7 +62,7 @@ pub(super) struct EndDeadRunnerBootArg<'a> {
 	/// The error that the ended sandbox and its processes record.
 	pub error: tg::error::Data,
 
-	/// The write of the boot's first record that this scheduler started, whose write and indexing the end waits for, or `None` if the caller read the boot from the index.
+	/// The latest write of the boot's request that this scheduler started, which follows the boot's first record, and whose write and indexing the end waits for, or `None` if the caller read the boot from the index.
 	pub persist: Option<super::sandbox::Write>,
 
 	pub runner: &'a tg::runner::Id,
