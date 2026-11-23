@@ -1,5 +1,8 @@
 use {super::storage::Set, std::collections::BTreeSet, tangram_client::prelude::*};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
 	/// The account for which to put a storage entry for the process, after the process is accepted.
@@ -98,6 +101,48 @@ pub struct Arg {
 	pub touched_at: i64,
 }
 
+/// The records that a process put reads from the index for its merge, besides the existing process.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Context<'a> {
+	/// Whether the indexed parent accepts the process as a child, or `None` if the put has no parent or the parent is not indexed.
+	pub accepts_child: Option<bool>,
+
+	/// The first children of the existing process, when `compares_children` is true.
+	pub children: Option<&'a [tg::process::data::Child]>,
+
+	/// The existing process's data, when `compares_data` is true.
+	pub data: Option<&'a tg::process::Data>,
+
+	/// The record of the sandbox that `context_sandbox` names.
+	pub sandbox: Option<&'a crate::sandbox::Sandbox>,
+}
+
+/// What a process put writes to the index.
+pub struct Merge {
+	/// Whether the index puts the arg's permissions.
+	pub permissions: bool,
+
+	/// The record to write, or `None` if the put leaves the record as it is.
+	pub update: Option<Update>,
+}
+
+/// The record that a process put writes, and the relationships that it adds.
+pub struct Update {
+	/// The lists that the put sets for the first time, whose children or objects the index writes.
+	pub added: super::Set,
+
+	/// Whether the record, its relationships, or its data changed, which enqueues an update of the process.
+	pub changed: bool,
+
+	/// The data to store, which replaces the stored data.
+	pub data: Option<tg::process::Data>,
+
+	/// Whether the index links the process to its parent.
+	pub parent: bool,
+
+	pub process: super::Process,
+}
+
 /// A sandbox's boot that a conditional process put requires.
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct SandboxBoot {
@@ -153,6 +198,216 @@ impl Arg {
 		}
 
 		Ok(())
+	}
+
+	/// Whether the merge compares the arg's data with the existing data, which the index reads for it.
+	#[must_use]
+	pub fn compares_data(&self, existing: Option<&super::Process>) -> bool {
+		self.data.is_some()
+			&& existing
+				.and_then(|existing| existing.status)
+				.is_some_and(|status| {
+					self.principal != tg::Principal::Process(self.id.clone())
+						|| status.is_finished()
+				})
+	}
+
+	/// Whether the merge compares the arg's children with the existing children, which the index reads for it.
+	#[must_use]
+	pub fn compares_children(&self, existing: Option<&super::Process>) -> bool {
+		existing.is_some_and(|existing| existing.set.children)
+			&& !self.principal.is_root()
+			&& self.principal != tg::Principal::Process(self.id.clone())
+			&& self.children.is_some()
+	}
+
+	/// The sandbox whose record the merge reads, if any.
+	#[must_use]
+	pub fn context_sandbox(&self) -> Option<&tg::sandbox::Id> {
+		self.sandbox_boot.as_ref().map(|expected| &expected.sandbox)
+	}
+
+	/// Merge the put with the existing record, which is the one rule that every index backend applies, so that writes applied in any order produce the same record.
+	pub fn merge(
+		&self,
+		existing: Option<&super::Process>,
+		context: Context<'_>,
+	) -> tg::Result<tg::Result<Merge>> {
+		// Validate the arg.
+		if let Err(error) = self.validate() {
+			return Ok(Err(error));
+		}
+
+		// Reject a conditional finish unless the process's sandbox is still at the boot that the put names.
+		if let Err(error) = self.validate_sandbox_boot(context.sandbox) {
+			return Ok(Err(error));
+		}
+
+		// Ignore a queued record that arrives after the process started, except for its permissions, because writes may be applied out of order.
+		if self
+			.data
+			.as_ref()
+			.is_some_and(|data| data.status.is_queued())
+			&& existing.is_some_and(|existing| existing.status.is_some())
+		{
+			let merge = Merge {
+				permissions: true,
+				update: None,
+			};
+			return Ok(Ok(merge));
+		}
+
+		// Validate the process data and children against the existing record.
+		if let Some(existing) = existing {
+			if let Err(error) = self.validate_existing(existing, context.data)? {
+				return Ok(Err(error));
+			}
+			if !self.principal.is_root()
+				&& self.principal != tg::Principal::Process(self.id.clone())
+				&& self.children.is_some()
+			{
+				if !existing.set.children {
+					return Ok(Err(tg::error!(
+						"cannot verify the existing process children"
+					)));
+				}
+				if let Err(error) = self.validate_children(context.children.unwrap_or_default())? {
+					return Ok(Err(error));
+				}
+			}
+		}
+
+		// Put the permissions if the process is new or the put carries both its data and its children.
+		let permissions = existing.is_none() || (self.data.is_some() && self.children.is_some());
+
+		// Preserve the stored data after validating an identical write.
+		let mut arg = std::borrow::Cow::Borrowed(self);
+		if let Some(status) = existing.and_then(|existing| existing.status)
+			&& (arg.principal != tg::Principal::Process(arg.id.clone()) || status.is_finished())
+		{
+			arg.to_mut().data = None;
+		}
+		let arg = arg.as_ref();
+		let merge = !arg.complete();
+
+		// Touch the process unless it was touched within the time to touch.
+		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
+		let touch = existing.is_none_or(|existing| {
+			arg.touched_at.saturating_sub(existing.touched_at) >= time_to_touch
+		});
+		let touched_at = existing.map_or(arg.touched_at, |existing| {
+			if touch {
+				existing.touched_at.max(arg.touched_at)
+			} else {
+				existing.touched_at
+			}
+		});
+
+		// Get the lists that the put sets for the first time.
+		let existing_set = existing.map(|existing| &existing.set);
+		let added = super::Set {
+			children: arg.children.is_some() && existing_set.is_none_or(|set| !set.children),
+			command_objects: arg.command.is_some()
+				&& existing_set.is_none_or(|set| !set.command_objects),
+			error_objects: arg.error.is_some() && existing_set.is_none_or(|set| !set.error_objects),
+			log_objects: arg.log.is_some() && existing_set.is_none_or(|set| !set.log_objects),
+			output_objects: arg.output.is_some()
+				&& existing_set.is_none_or(|set| !set.output_objects),
+		};
+
+		// Link the process to its parent if the indexed parent accepts it, which it does unless the parent finished without listing it.
+		let parent = arg.parent.is_some() && context.accepts_child == Some(true);
+
+		// Merge the set, storage, and metadata with the existing record unless the put is complete.
+		let mut set = arg.set();
+		if merge && let Some(existing) = existing {
+			set.merge(&existing.set);
+		}
+		let mut storage = arg.storage;
+		if merge && let Some(existing) = existing {
+			storage.insert(existing.storage);
+		}
+		let mut metadata = arg.metadata.clone();
+		if merge && let Some(existing) = existing {
+			metadata.merge(&existing.metadata);
+		}
+
+		// Take the status, creator, owner, and sandbox from the data, or keep the existing ones.
+		let mut data = arg.data.clone();
+		if let Some(data) = &mut data {
+			data.children = None;
+		}
+		let status = data
+			.as_ref()
+			.map(|data| data.status)
+			.or_else(|| existing.and_then(|existing| existing.status));
+		let creator = data.as_ref().map_or_else(
+			|| existing.map_or_default(|existing| existing.creator.clone()),
+			|data| data.creator.clone(),
+		);
+		let owner = data.as_ref().map_or_else(
+			|| existing.map_or_default(|existing| existing.owner.clone()),
+			|data| data.owner.clone(),
+		);
+		let location = arg
+			.location
+			.clone()
+			.or_else(|| existing.and_then(|existing| existing.location.clone()));
+		let sandbox = arg.data.as_ref().map_or_else(
+			|| {
+				arg.sandbox
+					.clone()
+					.or_else(|| existing.and_then(|existing| existing.sandbox.clone()))
+			},
+			|data| data.sandbox.clone(),
+		);
+
+		// Leave the record as it is if nothing changed and the process is not touched.
+		let changed = parent
+			|| arg.sandbox.is_some()
+			|| arg.data.is_some()
+			|| existing.is_none_or(|existing| {
+				existing.location != location
+					|| existing.metadata != metadata
+					|| existing.sandbox != sandbox
+					|| existing.set != set
+					|| existing.storage != storage
+			});
+		if !changed && !touch {
+			let merge = Merge {
+				permissions,
+				update: None,
+			};
+			return Ok(Ok(merge));
+		}
+
+		// Create the record.
+		let process = super::Process {
+			command_id: arg.command_id.clone(),
+			creator,
+			location,
+			metadata,
+			owner,
+			reference_count: existing.map_or(0, |existing| existing.reference_count),
+			sandbox,
+			set,
+			status,
+			storage,
+			touched_at,
+		};
+		let update = Update {
+			added,
+			changed,
+			data,
+			parent,
+			process,
+		};
+		let merge = Merge {
+			permissions,
+			update: Some(update),
+		};
+
+		Ok(Ok(merge))
 	}
 
 	pub fn validate_existing(

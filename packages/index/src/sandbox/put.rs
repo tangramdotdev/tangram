@@ -57,11 +57,19 @@ pub struct Arg {
 	pub touched_at: i64,
 }
 
-/// The merged sandbox data and per-boot usage that a put records.
+/// The record that a put of a sandbox produces.
 pub struct Merge {
-	pub data: Option<tg::sandbox::get::Output>,
-	pub stopped_usages: BTreeMap<u64, tg::sandbox::Usage>,
-	pub usages: BTreeMap<u64, tg::sandbox::Usage>,
+	/// Whether the index puts the arg's permissions.
+	pub permissions: bool,
+
+	pub sandbox: super::Sandbox,
+}
+
+/// The merged sandbox data and per-boot usage that a put records.
+struct DataMerge {
+	data: Option<tg::sandbox::get::Output>,
+	stopped_usages: BTreeMap<u64, tg::sandbox::Usage>,
+	usages: BTreeMap<u64, tg::sandbox::Usage>,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -143,9 +151,117 @@ impl Arg {
 		Ok(Ok(()))
 	}
 
+	/// Whether the merge compares the arg's processes with the existing record's processes, which the index reads for it.
+	#[must_use]
+	pub fn compares_processes(&self, existing: Option<&super::Sandbox>) -> bool {
+		existing.is_some_and(|existing| existing.set.processes)
+			&& !self.principal.is_root()
+			&& self.principal != tg::Principal::Sandbox(self.id.clone())
+			&& self.processes.is_some()
+	}
+
+	/// Merge the put with the existing record, which is the one rule that every index backend applies, so that writes applied in any order produce the same record. The existing processes are the first processes of the existing record, which the index reads when `compares_processes` is true.
+	pub fn merge(
+		&self,
+		existing: Option<&super::Sandbox>,
+		existing_processes: Option<&[tg::process::Id]>,
+	) -> tg::Result<tg::Result<Merge>> {
+		// Validate the arg.
+		if let Err(error) = self.validate() {
+			return Ok(Err(error));
+		}
+
+		// Reject a reservation of the next boot unless the sandbox is stopped at the boot that the put names.
+		if let Err(error) = self.validate_stopped_boot(existing) {
+			return Ok(Err(error));
+		}
+
+		// Validate the sandbox data and processes against the existing record.
+		if let Some(existing) = existing {
+			if let Err(error) = self.validate_existing(existing)? {
+				return Ok(Err(error));
+			}
+			if !self.principal.is_root()
+				&& self.principal != tg::Principal::Sandbox(self.id.clone())
+				&& let Some(processes) = &self.processes
+			{
+				if !existing.set.processes {
+					return Ok(Err(tg::error!(
+						"cannot verify the existing sandbox processes"
+					)));
+				}
+				if processes.as_slice() != existing_processes.unwrap_or_default() {
+					return Ok(Err(tg::error!(
+						"cannot replace the existing sandbox processes"
+					)));
+				}
+			}
+		}
+
+		// Put the permissions if the sandbox is new or the put carries both its data and its processes.
+		let permissions = existing.is_none() || (self.data.is_some() && self.processes.is_some());
+
+		// Keep the existing data, account, and runner for another principal's put.
+		let mut arg = std::borrow::Cow::Borrowed(self);
+		if let Some(existing) = existing
+			&& !arg.principal.is_root()
+			&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
+		{
+			let arg = arg.to_mut();
+			arg.account.clone_from(&existing.account);
+			arg.data = None;
+			arg.runner.clone_from(&existing.runner);
+		}
+		let arg = arg.as_ref();
+
+		// Keep the data that is latest in the sandbox lifecycle, because writes may be applied out of order.
+		let DataMerge {
+			mut data,
+			stopped_usages,
+			usages,
+		} = arg.merge_data(existing);
+		let location = arg
+			.location
+			.clone()
+			.or_else(|| existing.and_then(|sandbox| sandbox.location.clone()));
+		if let Some(data) = &mut data {
+			data.location.clone_from(&location);
+		}
+		let runner = arg
+			.runner
+			.clone()
+			.or_else(|| existing.and_then(|sandbox| sandbox.runner.clone()));
+		let touched_at = existing.map_or(arg.touched_at, |sandbox| {
+			sandbox.touched_at.max(arg.touched_at)
+		});
+
+		// Create the record.
+		let sandbox = super::Sandbox {
+			account: arg.account.clone(),
+			created_at: existing.map_or(arg.created_at, |sandbox| sandbox.created_at),
+			data,
+			location,
+			reference_count: existing.map_or(0, |sandbox| sandbox.reference_count),
+			runner,
+			set: super::Set {
+				processes: arg.processes.is_some()
+					|| existing.is_some_and(|sandbox| sandbox.set.processes),
+			},
+			stopped_usages,
+			touched_at,
+			usages,
+		};
+		let merge = Merge {
+			permissions,
+			sandbox,
+		};
+
+		Ok(Ok(merge))
+	}
+
 	/// Merge the arg's data with the existing record, keeping the data that is later in the sandbox lifecycle and combining the usage of every boot.
 	#[must_use]
-	pub fn merge(&self, existing: Option<&super::Sandbox>) -> Merge {
+	fn merge_data(&self, existing: Option<&super::Sandbox>) -> DataMerge {
 		// Record the usage of the arg's boot, which only grows within a boot.
 		let mut usages = existing.map_or_default(|sandbox| sandbox.usages.clone());
 		if let Some(data) = &self.data
@@ -194,7 +310,7 @@ impl Arg {
 			data.data.usage = Some(sum(usages.values().chain(stopped_usages.values())));
 		}
 
-		Merge {
+		DataMerge {
 			data,
 			stopped_usages,
 			usages,
