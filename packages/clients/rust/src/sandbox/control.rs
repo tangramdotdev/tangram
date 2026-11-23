@@ -527,6 +527,15 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
 	pub runner: Option<tg::runner::Id>,
+
+	/// The sequence of the runner's write of the connection, which follows the writes of the boot's scheduler.
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_default")]
+	#[tangram_serialize(
+		default,
+		id = 9,
+		skip_serializing_if = "tangram_util::serde::is_default"
+	)]
+	pub sequence: u64,
 }
 
 #[derive(

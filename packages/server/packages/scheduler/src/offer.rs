@@ -17,6 +17,7 @@ pub(super) struct OfferArg<'a> {
 	pub(super) request: &'a EnqueueSandboxRequestArg,
 	pub(super) runner: &'a RunnerRef,
 	pub(super) scheduler: &'a tg::scheduler::Id,
+	pub(super) sequence: u64,
 	pub(super) timeout: std::time::Duration,
 }
 
@@ -36,17 +37,69 @@ pub(super) enum Outcome {
 }
 
 impl SchedulerState {
-	/// Record that a runner accepted a sandbox, which leaves the queue. The scheduler keeps the sandbox's request until its control connection is established.
-	pub(super) fn accept_sandbox(&mut self, id: &tg::sandbox::Id, runner: RunnerRef) {
-		self.remove_queued_sandbox(id);
+	/// Record a runner's yes to a boot, which is the answer to an offer or the report of the boot to a restarted scheduler, and write the handoff. Every yes goes through this function, so that no yes is recorded without the handoff. The runner holds the boot from its yes, the sandbox leaves the queue, and the waiting enqueues and dequeues are answered. The scheduler keeps the sandbox's request until its control connection is established.
+	pub(super) fn accept_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::sandbox::Id,
+		runner: RunnerRef,
+	) {
+		// Remove the sandbox from the queue, which an offered sandbox keeps its place in.
+		if matches!(
+			self.sandboxes.entries[id].state,
+			State::Offered { .. } | State::Queued
+		) {
+			self.remove_queued_sandbox(id);
+		}
+
+		// Record that the runner holds the boot.
 		let entry = self.sandboxes.entries.get_mut(id).unwrap();
 		entry.blocked = HashMap::default();
+		let dequeue_requests = std::mem::take(&mut entry.dequeue_requests);
 		let parent = entry.parent.clone();
+		let request = entry.request().clone();
 		if let Some(parent) = &parent {
 			self.insert_child(parent, id, &runner.id);
 		}
+		let runner_id = runner.id.clone();
 		self.sandboxes.entries.get_mut(id).unwrap().state = State::Accepted { runner };
 		self.stop_serving_process_holder(id);
+
+		// Write the handoff, which is this scheduler's last write of the boot.
+		self.hand_off_sandbox(scheduler, request, runner_id);
+
+		// Reply to the waiting dequeues that the sandbox was not dequeued, and to the waiting enqueues that the sandbox is enqueued.
+		self.send_dequeue_responses(scheduler, dequeue_requests, false);
+		self.finish_accept(scheduler, id, Path::Handled, Ok(()));
+	}
+
+	/// Write the handoff of a boot that a runner accepted, which removes the boot from this scheduler's queue. Write it again until it applies, because the boot stays in this scheduler's saved queue until the handoff removes it.
+	fn hand_off_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		request: EnqueueSandboxRequestArg,
+		runner: tg::runner::Id,
+	) {
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				loop {
+					let result = scheduler
+						.write_sandbox_handoff(&request, &runner)
+						.await;
+					let Err(error) = result else {
+						break;
+					};
+					tracing::error!(error = %error.trace(), sandbox = %request.sandbox, %runner, "failed to record the handoff of the sandbox");
+					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+				}
+				Operation::Finished {
+					context: "failed to record the handoff of the sandbox",
+					result: Ok(()),
+				}
+			}
+			.boxed(),
+		);
 	}
 
 	/// Handle a runner's answer to an offer of a sandbox.
@@ -59,7 +112,7 @@ impl SchedulerState {
 	) {
 		self.sandboxes.offers = self.sandboxes.offers.saturating_sub(1);
 
-		// Ignore the answer to an offer that is not the sandbox's current offer. Removing a runner returns the sandboxes that are offered to it to the queue, so the runner of the current offer is registered.
+		// Ignore the answer to an offer that is not the sandbox's current offer, such as an answer on a runner connection that the runner's reconnect replaced, after which the offer is sent to the new connection.
 		let current = self.sandboxes.entries.get(id).is_some_and(|sandbox| {
 			matches!(&sandbox.state, State::Offered { placement: current, .. } if current == placement)
 		});
@@ -69,7 +122,7 @@ impl SchedulerState {
 		let runner = placement.runner().clone();
 		let sandbox = self.sandboxes.entries.get_mut(id).unwrap();
 		let failure = match outcome {
-			// Record that the runner holds the sandbox, and reply to the waiting dequeues that the sandbox was not dequeued.
+			// Record that the runner holds the sandbox.
 			Outcome::Accepted => {
 				let connected = matches!(
 					sandbox.state,
@@ -78,11 +131,8 @@ impl SchedulerState {
 						..
 					}
 				);
-				let dequeue_requests = std::mem::take(&mut sandbox.dequeue_requests);
 				self.remove_reservation(id, placement, true);
-				self.accept_sandbox(id, runner);
-				self.send_dequeue_responses(scheduler, dequeue_requests, false);
-				self.finish_accept(scheduler, id, Path::Handled, Ok(()));
+				self.accept_sandbox(scheduler, id, runner);
 
 				// Drop the request of a sandbox whose control connection is established, and keep serving the spawns into the sandbox, which this scheduler sends to its runner.
 				if connected {
@@ -316,6 +366,7 @@ impl SchedulerState {
 		let offer = offer.clone();
 		let placement = placement.clone();
 		let request = sandbox.request().clone();
+		let sequence = sandbox.sequence + 1;
 		self.sandboxes.offers += 1;
 		let session = scheduler.server.session(&scheduler.server.context);
 		let scheduler_id = scheduler.id.clone();
@@ -335,6 +386,7 @@ impl SchedulerState {
 					request: &request,
 					runner,
 					scheduler: &scheduler_id,
+					sequence,
 					timeout,
 				};
 				let outcome = send_offer(&session, arg).boxed().await;
@@ -348,7 +400,7 @@ impl SchedulerState {
 		);
 	}
 
-	/// Send an offer that its runner did not answer again after a delay, until the retries are exhausted, after which the offer waits for the runner to be removed.
+	/// Send an offer that its runner did not answer again after a delay, with no limit, until the runner answers or is declared dead.
 	pub(super) fn retry_sandbox_offer(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) {
 		let Some(sandbox) = self.sandboxes.entries.get_mut(id) else {
 			return;
@@ -356,11 +408,7 @@ impl SchedulerState {
 		let State::Offered { offer, retries, .. } = &mut sandbox.state else {
 			return;
 		};
-		if *retries >= scheduler.config.offer_retry.max_retries {
-			tracing::error!(sandbox = %id, "the runner did not answer the offer of the sandbox after too many attempts");
-			return;
-		}
-		*retries += 1;
+		*retries = retries.saturating_add(1);
 		let delay =
 			tangram_futures::retry::delay_for_attempt(*retries, &scheduler.config.offer_retry);
 		let offer = offer.clone();
@@ -403,6 +451,36 @@ impl SchedulerState {
 			self.offer_sandbox(scheduler, id);
 		}
 	}
+
+	/// Send the unanswered offers of a runner that reconnected again to its new registration, with the capacity that each one reserves. The runner is the same program and answers an offer that it already answered from its memory of its reply, so that no offer is returned to the queue and no boot is offered to a second runner while the first may hold it.
+	pub(super) fn resend_runner_offers(
+		&mut self,
+		scheduler: &Scheduler,
+		runner: &tg::runner::Id,
+		offers: HashMap<tg::sandbox::Id, tg::runner::Capacity, tg::id::BuildHasher>,
+	) {
+		for (sandbox, reserved) in offers {
+			// Point the offer at the runner's new registration.
+			let entry = self.runners.entries.get_mut(runner).unwrap();
+			let Some(State::Offered {
+				placement, retries, ..
+			}) = self
+				.sandboxes
+				.entries
+				.get_mut(&sandbox)
+				.map(|entry| &mut entry.state)
+			else {
+				continue;
+			};
+			placement.set_registration_index(entry.registration_index);
+			*retries = 0;
+
+			// Reserve the offer's capacity on the new registration, and send the offer again.
+			add(&mut entry.reserved, reserved);
+			entry.reservations.insert(sandbox.clone(), reserved);
+			self.offer_sandbox(scheduler, &sandbox);
+		}
+	}
 }
 
 /// Offer a sandbox to a runner, and wait for the runner's answer.
@@ -415,6 +493,7 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 		request,
 		runner,
 		scheduler,
+		sequence,
 		timeout,
 	} = arg;
 	tracing::info!(lender = lender.as_ref().map(ToString::to_string), runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler, "offering the sandbox to a runner");
@@ -429,7 +508,7 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 			parent: request.parent.clone(),
 			process: request.process.clone(),
 			sandbox: request.sandbox.clone(),
-			stop: request.stop,
+			sequence,
 			token: request.token.clone(),
 		},
 	);

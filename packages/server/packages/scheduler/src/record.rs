@@ -6,19 +6,6 @@ use {
 };
 
 impl Scheduler {
-	/// Write the starting record and the key that associates the sandbox with this scheduler.
-	/// Read the sandboxes that this scheduler has keys for, after pending indexing, so that every key written before the read is included.
-	pub(super) async fn read_scheduler_sandbox_keys(&self) -> tg::Result<Vec<tg::sandbox::Id>> {
-		self.index().await?;
-		let sandboxes = self.server.index.get_scheduler_sandboxes(&self.id).await?;
-		let keys = sandboxes
-			.into_iter()
-			.map(|sandbox| sandbox.id)
-			.collect::<Vec<_>>();
-
-		Ok(keys)
-	}
-
 	/// Await indexing, so that the index has applied every write that was acknowledged before.
 	pub(super) async fn index(&self) -> tg::Result<()> {
 		let session = self.server.session(&self.server.context);
@@ -161,6 +148,34 @@ impl Scheduler {
 		}
 
 		Ok(reserved)
+	}
+
+	/// Write the handoff of a boot to the runner that accepted it, which removes the boot from this scheduler's queue. The runner holds the boot from its yes, and its own first write records it as the sandbox's runner.
+	pub(super) async fn write_sandbox_handoff(
+		&self,
+		request: &EnqueueSandboxRequestArg,
+		runner: &tg::runner::Id,
+	) -> tg::Result<()> {
+		tangram_server_core::checkpoint!(self.server, "scheduler.sandbox.handoff", sandbox = %request.sandbox, %runner)
+			.await;
+		let id = &request.sandbox;
+		let delete = tangram_index::scheduler::sandbox::delete::Arg {
+			boot: request.boot,
+			sandbox: id.clone(),
+		};
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::DeleteSchedulerSandbox(Box::new(
+				delete,
+			))],
+		};
+		self.server
+			.components
+			.indexer
+			.write(&self.server, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to write the sandbox's handoff"))?;
+
+		Ok(())
 	}
 
 	/// Record a failure after acceptance in the sandbox's error field. A new sandbox is destroyed, and a sandbox that was starting again is stopped.

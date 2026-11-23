@@ -154,7 +154,7 @@ impl SchedulerState {
 		self.handle_recovery_report(
 			scheduler,
 			&request.runner,
-			registration_index,
+			request.directories.is_some(),
 			&request.sandboxes,
 		);
 
@@ -164,7 +164,7 @@ impl SchedulerState {
 			.is_some()
 			.then(|| self.get_accepted_sandboxes(&request.runner));
 		self.forget_accepted_sandboxes(scheduler, &request.runner, &request.sandboxes);
-		self.remove_runner(scheduler, &request.runner);
+		let offers = self.remove_runner(scheduler, &request.runner, true);
 		let runner = Runner {
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
@@ -180,13 +180,25 @@ impl SchedulerState {
 		};
 		self.runners.entries.insert(request.runner.clone(), runner);
 
-		// Track the sandboxes that the runner reports, which a restarted scheduler rebuilds its tracking from.
+		// Track the sandboxes that the runner reports, except the ones that a restarted scheduler holds for recovery, which the runner's report claims and which the end of the recovery accepts.
 		for sandbox in &request.sandboxes {
+			if self.is_recovering(&sandbox.id) {
+				continue;
+			}
 			let runner = super::placement::RunnerRef {
 				registration_index,
 				id: request.runner.clone(),
 			};
 			self.track_accepted_sandbox(scheduler, &sandbox.id, sandbox.boot, None, runner);
+		}
+
+		// Send the unanswered offers again to a runner that reconnects, which is the same program and answers them from its memory of its replies, and return them to the queue for a runner that restarted, which lost them, after the reported sandboxes are tracked.
+		if request.directories.is_none() {
+			self.resend_runner_offers(scheduler, &request.runner, offers);
+		} else {
+			for sandbox in offers.into_keys() {
+				self.requeue_unanswered_sandbox(scheduler, &sandbox);
+			}
 		}
 		self.queue.wake();
 
@@ -328,7 +340,7 @@ impl SchedulerState {
 		}
 		tracing::info!(runner = %request.runner, registration_index = request.registration_index, "removing the runner");
 		self.forget_accepted_sandboxes(scheduler, &request.runner, &[]);
-		self.remove_runner(scheduler, &request.runner);
+		self.remove_runner(scheduler, &request.runner, false);
 
 		// Discard the starts pinned to the runner, so that a boot that the runner's sandboxes are marked stopped for never starts later. This scheduler holds those boots, so their discard alone records their end, and the runner's cleanup leaves them alone.
 		let mut queued = Vec::new();
@@ -424,7 +436,7 @@ impl SchedulerState {
 			.collect()
 	}
 
-	/// Forget the sandboxes that a runner accepted, except the ones that it reports when it registers again, and queue the ones again whose control connections were not established, if their keys remain.
+	/// Forget the sandboxes that a runner accepted, except the ones that it reports when it connects again. The runner held a boot from its acceptance, so a boot that it no longer reports is lost with the runner, and the runner's cleanup ends it.
 	pub(super) fn forget_accepted_sandboxes(
 		&mut self,
 		scheduler: &Scheduler,
@@ -445,17 +457,9 @@ impl SchedulerState {
 					.any(|reported| reported.id == *sandbox && reported.boot == *boot)
 			})
 			.collect::<Vec<_>>();
-		let mut lost = Vec::new();
 		for (sandbox, _) in accepted {
-			let entry = self.remove_sandbox(scheduler, &sandbox).unwrap();
-			if let Some(request) = entry.request {
-				lost.push(request);
-			} else {
-				self.stop_serving_sandbox_holder(&sandbox);
-			}
-		}
-		if !lost.is_empty() {
-			self.read_lost_sandboxes(scheduler, lost);
+			self.remove_sandbox(scheduler, &sandbox);
+			self.stop_serving_sandbox_holder(&sandbox);
 		}
 	}
 
@@ -472,10 +476,15 @@ impl SchedulerState {
 		}
 	}
 
-	/// Remove a runner, and return the sandboxes that are offered to it to the queue. The sandboxes that it accepted stay until the runner registers again or expires.
-	pub(super) fn remove_runner(&mut self, scheduler: &Scheduler, id: &tg::runner::Id) {
+	/// Remove a runner, and return the capacity that each of its unanswered offers reserves if the runner connects again, whose caller decides what becomes of the offers. End the unanswered offers of a runner that is declared dead as failed, because the runner may have accepted them, so that a boot is never offered to a second runner while the first may hold it, and end the ones that a dequeue waits for as destroyed. The sandboxes that the runner accepted stay until the runner connects again or expires.
+	pub(super) fn remove_runner(
+		&mut self,
+		scheduler: &Scheduler,
+		id: &tg::runner::Id,
+		reconnected: bool,
+	) -> HashMap<tg::sandbox::Id, tg::runner::Capacity, tg::id::BuildHasher> {
 		let Some(runner) = self.runners.entries.remove(id) else {
-			return;
+			return HashMap::default();
 		};
 
 		// Forget the capacity that the runner's sandboxes lend.
@@ -495,19 +504,40 @@ impl SchedulerState {
 			}
 		}
 
-		// Return the sandboxes that are offered to the runner to the queue, and end the ones that a dequeue waits for.
-		let sandboxes = runner.reservations.into_keys().collect::<Vec<_>>();
-		for sandbox in sandboxes {
-			self.requeue_sandbox(&sandbox);
+		// Return the unanswered offers of a runner that connects again.
+		if reconnected {
+			return runner.reservations;
+		}
+
+		// End the unanswered offers of a runner that is declared dead.
+		for sandbox in runner.reservations.into_keys() {
 			let entry = self.sandboxes.entries.get_mut(&sandbox).unwrap();
 			let dequeue_requests = std::mem::take(&mut entry.dequeue_requests);
 			if dequeue_requests.is_empty() {
+				let error =
+					tg::error!(%sandbox, runner = %id, "the sandbox's runner is unavailable");
+				let discarded = self.discard_sandbox(scheduler, &sandbox, &error);
+				scheduler.publish_sandbox_discarded(self, discarded);
 				continue;
 			}
 			self.end_sandbox_and_log(scheduler, &sandbox, tg::sandbox::Status::Destroyed, None);
 			self.send_dequeue_responses(scheduler, dequeue_requests, true);
 		}
 		self.queue.wake();
+
+		HashMap::default()
+	}
+
+	/// Return a sandbox whose offer the runner lost to the queue, and end it as destroyed if a dequeue waits for it.
+	fn requeue_unanswered_sandbox(&mut self, scheduler: &Scheduler, sandbox: &tg::sandbox::Id) {
+		self.requeue_sandbox(sandbox);
+		let entry = self.sandboxes.entries.get_mut(sandbox).unwrap();
+		let dequeue_requests = std::mem::take(&mut entry.dequeue_requests);
+		if dequeue_requests.is_empty() {
+			return;
+		}
+		self.end_sandbox_and_log(scheduler, sandbox, tg::sandbox::Status::Destroyed, None);
+		self.send_dequeue_responses(scheduler, dequeue_requests, true);
 	}
 }
 

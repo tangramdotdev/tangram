@@ -23,7 +23,6 @@ fn sandbox(id: &tg::sandbox::Id, state: State) -> Sandbox {
 		runner: None,
 		sandbox: id.clone(),
 		scheduler: None,
-		stop: false,
 		token: None,
 	};
 	let mut sandbox = Sandbox::new(0, None, Some(request), state);
@@ -150,7 +149,7 @@ fn a_reported_sandbox_that_the_scheduler_does_not_track_is_accepted_and_not_queu
 	let mut request = sandbox(&id, State::Queued).request.unwrap();
 	request.parent = Some(parent.clone());
 
-	// A restarted scheduler tracks the sandbox on the runner that claims it, so that it is not placed again.
+	// The scheduler tracks a sandbox that a runner reports and that it does not know, such as a sandbox that the runner started on the shortcut path, so that it is not placed again.
 	let tracked = scheduler.track_accepted_sandbox_inner(&id, 0, Some(request), runner.clone());
 	assert!(matches!(tracked, Tracked::Inserted { ids } if ids.is_empty()));
 	assert_eq!(accepted_runner(&scheduler, &id), Some(runner.clone()));
@@ -166,15 +165,16 @@ fn a_reported_sandbox_that_the_scheduler_does_not_track_is_accepted_and_not_queu
 }
 
 #[test]
-fn a_reported_queued_sandbox_leaves_the_queue_for_its_runner() {
+fn a_report_of_a_queued_sandbox_is_not_a_yes() {
 	let (mut scheduler, id) = state(State::Queued);
 	let runner = runner();
 	assert_eq!(scheduler.queue.len(), 1);
 
+	// A queued sandbox stays queued for its offer, because only a runner's answer to an offer is its yes.
 	let tracked = scheduler.track_accepted_sandbox_inner(&id, 0, None, runner.clone());
-	assert!(matches!(tracked, Tracked::Accepted));
-	assert_eq!(accepted_runner(&scheduler, &id), Some(runner));
-	assert_eq!(scheduler.queue.len(), 0);
+	assert!(matches!(tracked, Tracked::Ignored));
+	assert_eq!(accepted_runner(&scheduler, &id), None);
+	assert_eq!(scheduler.queue.len(), 1);
 }
 
 #[test]
