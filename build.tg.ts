@@ -1,26 +1,54 @@
-import bubblewrap from "bubblewrap";
-import bun from "bun";
-import curl from "curl";
-import dash from "dash";
-import delta from "delta";
-import foundationdb from "foundationdb";
-import libcapNg from "libcap-ng";
-import libfuse from "libfuse";
-import libseccomp from "libseccomp";
-import { libclang } from "llvm";
-import nodejs from "nodejs";
-import nushell from "nushell";
-import openssl from "openssl";
-import passt from "passt";
-import procps from "procps";
-import python from "python";
-import { cargo, rustTriple } from "rust";
-import sqlite from "sqlite";
-import utilLinux from "util-linux";
-import xz from "xz";
-import zlib from "zlib-ng";
-import * as std from "std";
-import { $ } from "std";
+import bubblewrap from "bubblewrap" with {
+	source: "../packages/packages/bubblewrap.tg.ts",
+};
+import bun from "bun" with { source: "../packages/packages/bun.tg.ts" };
+import curl from "curl" with { source: "../packages/packages/curl.tg.ts" };
+import dash from "dash" with { source: "../packages/packages/dash.tg.ts" };
+import delta from "delta" with { source: "../packages/packages/delta.tg.ts" };
+import foundationdb from "foundationdb" with {
+	source: "../packages/packages/foundationdb.tg.ts",
+};
+import libcapNg from "libcap-ng" with {
+	source: "../packages/packages/libcap-ng.tg.ts",
+};
+import libfuse from "libfuse" with {
+	source: "../packages/packages/libfuse.tg.ts",
+};
+import libseccomp from "libseccomp" with {
+	source: "../packages/packages/libseccomp.tg.ts",
+};
+import { libclang } from "llvm" with { source: "../packages/packages/llvm" };
+import nodejs from "nodejs" with {
+	source: "../packages/packages/nodejs.tg.ts",
+};
+import nushell from "nushell" with {
+	source: "../packages/packages/nushell.tg.ts",
+};
+import openssl from "openssl" with {
+	source: "../packages/packages/openssl.tg.ts",
+};
+import passt from "passt" with {
+	source: "../packages/packages/passt.tg.ts",
+};
+import procps from "procps" with {
+	source: "../packages/packages/procps.tg.ts",
+};
+import python from "python" with { source: "../packages/packages/python" };
+import { cargo, rustTriple } from "rust" with {
+	source: "../packages/packages/rust",
+};
+import sqlite from "sqlite" with {
+	source: "../packages/packages/sqlite.tg.ts",
+};
+import utilLinux from "util-linux" with {
+	source: "../packages/packages/util-linux.tg.ts",
+};
+import xz from "xz" with { source: "../packages/packages/xz.tg.ts" };
+import zlib from "zlib-ng" with {
+	source: "../packages/packages/zlib-ng.tg.ts",
+};
+import * as std from "std" with { source: "../packages/packages/std" };
+import { $ } from "std" with { source: "../packages/packages/std" };
 
 import source from "." with { type: "directory" };
 import { context } from "./scripts/context.tg.ts";
