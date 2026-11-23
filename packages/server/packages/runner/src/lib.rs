@@ -1311,7 +1311,7 @@ impl Component {
 				requested.storage = request.arg.storage.unwrap_or_default();
 			}
 
-			// Join a boot that this runner holds or ended itself, whose end it reports, because a scheduler can send a boot again after it restarts. Refuse a boot that this runner gave up or that a later boot of the sandbox replaced, which the runner never runs again, so that the scheduler does not record that the runner holds it.
+			// Answer yes to a boot that this runner holds or ended itself, whose end it reports, because a scheduler can send a boot again after it restarts. Answer that a boot that this runner gave up or that a later boot of the sandbox replaced ended, because the runner never runs it again, so that the scheduler handles it as the end of a boot that the runner held.
 			let state = session.server.components.runner.state();
 			let boots = [
 				state.boots.get(&request.sandbox, request.boot),
@@ -1328,20 +1328,15 @@ impl Component {
 			let ended = boots.iter().flatten().any(|boot| {
 				boot.boot > request.boot || (boot.boot == request.boot && boot.given_up().is_some())
 			});
-			if ended && !joined {
-				let message = Self::create_runner_control_response(
-					id.clone(),
-					Err(
-						tg::error!(sandbox = %request.sandbox, boot = %request.boot, "the runner ended the boot"),
-					),
-				);
-				self.offers.finish(&id, message.clone());
-				sender.send(message).await?;
-				continue;
-			}
-			if joined {
-				let output =
-					tg::runner::control::OfferSandboxClientResponseOutput { accepted: true };
+			let answer = if joined {
+				Some(tg::runner::control::Answer::Yes)
+			} else if ended {
+				Some(tg::runner::control::Answer::Ended)
+			} else {
+				None
+			};
+			if let Some(answer) = answer {
+				let output = tg::runner::control::OfferSandboxClientResponseOutput { answer };
 				let message = Self::create_runner_control_response(
 					id.clone(),
 					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
@@ -1355,8 +1350,9 @@ impl Component {
 
 			// Decline work while the runner drains its sandboxes before it shuts down.
 			if stopper.stopped() {
-				let output =
-					tg::runner::control::OfferSandboxClientResponseOutput { accepted: false };
+				let output = tg::runner::control::OfferSandboxClientResponseOutput {
+					answer: tg::runner::control::Answer::No,
+				};
 				let message = Self::create_runner_control_response(
 					id.clone(),
 					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
@@ -1410,8 +1406,9 @@ impl Component {
 				}
 			}
 			let Some(allocation) = allocation else {
-				let output =
-					tg::runner::control::OfferSandboxClientResponseOutput { accepted: false };
+				let output = tg::runner::control::OfferSandboxClientResponseOutput {
+					answer: tg::runner::control::Answer::No,
+				};
 				let message = Self::create_runner_control_response(
 					id.clone(),
 					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
@@ -1444,7 +1441,9 @@ impl Component {
 			tangram_server_core::checkpoint!(session.server, "runner.control.offer_sandbox.accepted", sandbox = %sandbox).await;
 
 			// Send the response.
-			let output = tg::runner::control::OfferSandboxClientResponseOutput { accepted: true };
+			let output = tg::runner::control::OfferSandboxClientResponseOutput {
+				answer: tg::runner::control::Answer::Yes,
+			};
 			let message = Self::create_runner_control_response(
 				id.clone(),
 				Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(

@@ -292,7 +292,7 @@ impl SchedulerState {
 					return;
 				},
 				State::Accepted { .. } | State::Terminal { .. } => {
-					self.remove_sandbox(scheduler, &request.sandbox);
+					self.remove_ended_sandbox(scheduler, &request.sandbox);
 				},
 			}
 		}
@@ -372,9 +372,7 @@ impl SchedulerState {
 				self.finish_enqueue(scheduler, ids, &sandbox, Ok(()));
 			},
 			Ok(true) => {
-				if self.sandboxes.entries.contains_key(&request.sandbox) {
-					self.remove_sandbox(scheduler, &request.sandbox);
-				}
+				self.remove_ended_sandbox(scheduler, &request.sandbox);
 				let sandbox = request.sandbox.clone();
 				let result = self.enqueue_sandbox(scheduler, request, true);
 				self.finish_enqueue(scheduler, ids, &sandbox, result.map(|_| ()));
@@ -478,16 +476,29 @@ impl SchedulerState {
 		Some(sandbox)
 	}
 
-	/// Remove the entry of a sandbox that is not in the queue, and return it with the enqueue requests that still wait for its acceptance. Remember a boot that a runner held as ended, so that the runner's late reports of it are authorized.
+	/// Remove the entry of a sandbox whose boot ended or that a later boot replaced, and remember a boot that a runner held as ended, so that the runner's late reports of it are authorized.
+	pub(super) fn remove_ended_sandbox(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) {
+		if let Some(sandbox) = self.remove_sandbox(scheduler, id) {
+			self.remember_ended_entry(id, &sandbox);
+		}
+	}
+
+	/// Remember the boot of a removed entry that a runner held as ended.
+	fn remember_ended_entry(&mut self, id: &tg::sandbox::Id, sandbox: &Sandbox) {
+		let State::Accepted { runner } = &sandbox.state else {
+			return;
+		};
+		let ended = super::report::EndedBoot {
+			declared: false,
+			processes: sandbox.processes.clone(),
+			runner: runner.id.clone(),
+		};
+		self.sandboxes.ended.insert(id.clone(), sandbox.boot, ended);
+	}
+
+	/// Remove the entry of a sandbox that is not in the queue, and return it with the enqueue requests that still wait for its acceptance.
 	fn remove_sandbox_inner(&mut self, id: &tg::sandbox::Id) -> Option<(Sandbox, Vec<String>)> {
 		let mut sandbox = self.sandboxes.entries.remove(id)?;
-		if let State::Accepted { runner } = &sandbox.state {
-			let ended = super::report::EndedBoot {
-				processes: sandbox.processes.clone(),
-				runner: runner.id.clone(),
-			};
-			self.sandboxes.ended.insert(id.clone(), sandbox.boot, ended);
-		}
 		if let Some(parent) = &sandbox.parent {
 			self.remove_child(parent, id);
 		}
@@ -772,8 +783,26 @@ impl SchedulerState {
 		Ok(EnqueueSandboxResponseOutput::Enqueued)
 	}
 
-	/// Ask a runner to destroy a sandbox that it holds.
+	/// Ask a runner to destroy a sandbox that it holds. Wait while this scheduler has not finished handling the runner's restart, because a runner that restarted is sent nothing until then.
 	pub(super) fn send_destroy_sandbox(&mut self, scheduler: &Scheduler, destroy: DestroySandbox) {
+		let restarting = self
+			.runners
+			.entries
+			.get(&destroy.runner)
+			.is_some_and(|runner| runner.restarting);
+		if restarting {
+			self.operations.push(
+				async move {
+					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+					let result = Err(
+						tg::error!(sandbox = %destroy.sandbox, runner = %destroy.runner, "the runner is restarting"),
+					);
+					Operation::DestroySandbox { destroy, result }
+				}
+				.boxed(),
+			);
+			return;
+		}
 		let session = scheduler.server.session(&scheduler.server.context);
 		let scheduler_id = scheduler.id.clone();
 
@@ -918,18 +947,24 @@ impl SchedulerState {
 		runner: RunnerRef,
 	) -> Tracked {
 		let mut parent = request.as_ref().and_then(|request| request.parent.clone());
-		let mut request = request;
 		let mut ids = Vec::new();
-		let mut processes = BTreeSet::new();
-		if let Some(entry) = self.sandboxes.entries.get(id) {
+		if let Some(entry) = self.sandboxes.entries.get_mut(id) {
 			if entry.boot > boot {
 				return Tracked::Ignored;
 			}
-			match &entry.state {
+			match &mut entry.state {
 				// Leave a sandbox that the scheduler offered to a runner to the offer's answer, and a queued boot to its offer, because only a runner's answer to an offer is its yes.
 				State::Offered { .. } | State::Queued => return Tracked::Ignored,
 
-				// Leave a boot that the scheduler ended as stopped to its runner, which gives up the boots that the index records as stopped when it connects, so that the sandbox's directory stays for its next start.
+				// Keep a boot that the runner holds, and point it at the runner's connection.
+				State::Accepted { runner: accepted } if entry.boot == boot => {
+					if accepted.id == runner.id {
+						accepted.connection = runner.connection;
+					}
+					return Tracked::Ignored;
+				},
+
+				// Leave a boot that the scheduler ended as stopped to its runner, so that the sandbox's directory stays for its next start.
 				State::Terminal { status, .. } if entry.boot == boot && status.is_stopped() => {
 					return Tracked::Ignored;
 				},
@@ -947,23 +982,19 @@ impl SchedulerState {
 					return Tracked::Destroy(destroy);
 				},
 
-				// Replace an older boot, and keep what the scheduler knows about the boot if the report does not carry it.
+				// Replace an older boot, which ended, and keep the sandbox's parent if the report does not carry it.
 				State::Accepted { .. } | State::Terminal { .. } => {
 					let (previous, waiting) = self.remove_sandbox_inner(id).unwrap();
+					self.remember_ended_entry(id, &previous);
 					ids = waiting;
 					parent = parent.or(previous.parent);
-					if previous.boot == boot {
-						request = request.or(previous.request);
-						processes = previous.processes;
-					}
 				},
 			}
 		}
 		if let Some(parent) = &parent {
 			self.insert_child(parent, id, &runner.id);
 		}
-		let mut sandbox = Sandbox::new(boot, parent, request, State::Accepted { runner });
-		sandbox.processes.extend(processes);
+		let sandbox = Sandbox::new(boot, parent, request, State::Accepted { runner });
 		self.sandboxes.entries.insert(id.clone(), sandbox);
 
 		Tracked::Inserted { ids }

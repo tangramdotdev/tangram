@@ -236,7 +236,7 @@ impl Arg {
 			|| existing.is_none()
 			|| (self.data.is_some() && self.processes.is_some());
 
-		// Keep the existing data and account for another principal's put.
+		// Keep the existing data, account, and runner for another principal's put.
 		let mut arg = std::borrow::Cow::Borrowed(self);
 		if let Some(existing) = existing
 			&& !arg.principal.is_root()
@@ -245,6 +245,7 @@ impl Arg {
 			let arg = arg.to_mut();
 			arg.account.clone_from(&existing.account);
 			arg.data = None;
+			arg.runner.clone_from(&existing.runner);
 		}
 		let arg = arg.as_ref();
 

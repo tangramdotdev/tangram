@@ -57,6 +57,9 @@ const OWNER_ANCESTORS_CAPACITY: u64 = 65_536;
 pub struct Component(Arc<State>);
 
 pub struct State {
+	/// The messages of the boots that a single server's previous run left and that its start ended, which the scheduling task handles when it first starts, so that it remembers the boots as ended.
+	pub(crate) ended: Mutex<Vec<HolderMessage>>,
+
 	/// The ancestors of the owners of the sandboxes that this server enqueued, which is absent if the configuration does not remember them.
 	pub(crate) owner_ancestors: Option<moka::future::Cache<tg::Id, Vec<tg::Id>>>,
 	pub(crate) scheduler_cache_task: Mutex<Option<Task<()>>>,
@@ -122,11 +125,9 @@ struct SchedulerState {
 
 enum Operation {
 	AddRunner {
-		connection: u64,
+		connection: runner::Connection,
 		id: String,
 		result: tg::Result<runner::AddRunnerOutput>,
-		runner: tg::runner::Id,
-		unanswered: Vec<runner::UnansweredOffer>,
 	},
 	Checkpoint,
 	DeleteRunner {
@@ -257,6 +258,7 @@ impl Component {
 
 		// Create the state.
 		let state = State {
+			ended: Mutex::new(Vec::new()),
 			owner_ancestors,
 			scheduler_cache_task,
 			schedulers,
@@ -740,6 +742,12 @@ impl Scheduler {
 	) -> tg::Result<()> {
 		let mut state = SchedulerState::new();
 
+		// Remember the boots that the end of a single server's previous run ended.
+		let ended = std::mem::take(&mut *self.component.ended.lock().unwrap());
+		for message in ended {
+			state.handle_sandbox_holder_message(self, message);
+		}
+
 		// Recover the accepted requests before handling messages.
 		self.recover(&mut state).await?;
 
@@ -873,34 +881,23 @@ impl Scheduler {
 				connection,
 				id,
 				result,
-				runner,
-				unanswered,
 			} => {
+				// Apply the connection only if it was added and is still the runner's current connection.
 				let current = state
 					.runners
 					.entries
-					.get(&runner)
-					.is_some_and(|runner| runner.connection == connection);
+					.get(&connection.runner)
+					.is_some_and(|runner| runner.connection == connection.number);
 				let result = match result {
 					Ok(output) => {
-						let runner::AddRunnerOutput {
-							lost,
-							output,
-							owner,
-							written,
-						} = output;
+						let response = output.output.clone();
 						if current {
-							let entry = state.runners.entries.get_mut(&runner).unwrap();
-							entry.owner = owner;
-							entry.restarting = false;
-							state.cancel_lost_sandboxes(self, &runner, connection, lost);
-							state.handle_unanswered_offers(self, &runner, unanswered, &written);
-							state.read_destroying_sandboxes(self, &runner);
+							state.apply_runner_connection(self, connection, output);
 						}
-						Ok(output)
+						Ok(response)
 					},
 					Err(error) => {
-						state.fail_runner_connection(&runner, connection);
+						state.fail_runner_connection(&connection.runner, connection.number);
 						Err(error)
 					},
 				};
@@ -1131,7 +1128,8 @@ impl tangram_server_core::component::Lifecycle for Component {
 					.roles
 					.contains(&tangram_server_core::config::Role::Scheduler)
 			{
-				self.end_previous_run(server).await?;
+				let ended = self.end_previous_run(server).await?;
+				*self.ended.lock().unwrap() = ended;
 			}
 
 			// Spawn the scheduler task.

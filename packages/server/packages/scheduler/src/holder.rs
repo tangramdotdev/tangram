@@ -124,10 +124,11 @@ impl SchedulerState {
 				sandbox,
 			} => {
 				let ended = super::report::EndedBoot {
+					declared: true,
 					processes: std::collections::BTreeSet::new(),
 					runner,
 				};
-				self.sandboxes.ended.insert_declared(sandbox, boot, ended);
+				self.sandboxes.ended.insert(sandbox, boot, ended);
 				return;
 			},
 			HolderMessage::Held { sender } => {

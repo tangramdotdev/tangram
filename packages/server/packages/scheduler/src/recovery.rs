@@ -8,10 +8,14 @@ use {
 	tangram_server_scheduler_core::EnqueueSandboxRequestArg,
 };
 
+#[cfg(test)]
+mod tests;
+
 /// How long to wait before trying a read again that the scheduler must not give up.
 pub(super) const READ_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The requests that a restarted scheduler holds until its runners report what they have placed.
+#[derive(Default)]
 pub(super) struct Recovery {
 	/// The running boots that the index records on each runner, which this scheduler rebuilt from the index and which wait for the runner's report.
 	boots: HashMap<tg::runner::Id, Vec<RecoveredBoot>, tg::id::BuildHasher>,
@@ -24,9 +28,6 @@ pub(super) struct Recovery {
 	releasing: bool,
 
 	requests: HashMap<tg::sandbox::Id, EnqueueSandboxRequestArg, tg::id::BuildHasher>,
-
-	/// The held requests whose boots a runner reported and then lost by restarting, which wait for the index check of the runner's next first connection, and which the release of the recovery waits for.
-	restarted: HashMap<tg::sandbox::Id, Claim, tg::id::BuildHasher>,
 
 	runners: HashSet<tg::runner::Id, tg::id::BuildHasher>,
 
@@ -48,6 +49,23 @@ pub(super) struct RecoveredBoot {
 struct Claim {
 	request: EnqueueSandboxRequestArg,
 	runner: tg::runner::Id,
+}
+
+/// The decision of a restarted scheduler on a saved boot that no runner claimed, from the index read after the scheduler awaited indexing.
+pub(super) enum SavedBoot {
+	/// The sandbox is being destroyed.
+	Destroying {
+		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	},
+
+	/// The index shows the boot ended or the sandbox destroyed or at a later boot, so the boot is never offered again.
+	Ended,
+
+	/// No runner wrote the boot, so this scheduler still holds it.
+	Unwritten,
+
+	/// A runner wrote the running boot, so the runner holds or held it.
+	Written { runner: tg::runner::Id },
 }
 
 pub(super) type Statuses =
@@ -114,6 +132,7 @@ impl Scheduler {
 					boots.entry(runner.clone()).or_default().push(recovered);
 				} else {
 					let ended = super::report::EndedBoot {
+						declared: false,
 						processes: recovered.processes,
 						runner: runner.clone(),
 					};
@@ -155,7 +174,6 @@ impl Scheduler {
 			processes,
 			releasing: false,
 			requests,
-			restarted: HashMap::default(),
 			runners,
 			spawns,
 		});
@@ -285,20 +303,21 @@ impl Recovery {
 }
 
 impl SchedulerState {
-	/// Record the sandboxes that a runner reports, and release the held requests once every runner has reported or expired. A runner that restarted lost the boots that it claimed before, which wait for the index check of its first connection, like the unanswered offers to a runner that restarted. Return the running boots that this scheduler rebuilt from the index on the runner, on the runner's first report.
+	/// Record the boots that a runner reports, once its connection is applied, and release the held requests once every runner has reported or expired. A runner that restarted lost the boots that it claimed before, which its first connection decided from the index: forget a boot that the runner wrote, which the connection ended, and return a boot that it did not write to the held requests, so that it is offered again. Return the running boots that this scheduler rebuilt from the index on the runner, on the runner's first report.
 	pub(super) fn handle_recovery_report(
 		&mut self,
 		scheduler: &Scheduler,
 		runner: &tg::runner::Id,
 		restarted: bool,
 		sandboxes: &[tg::runner::control::ArgSandbox],
+		written: &BTreeSet<tg::sandbox::Id>,
 	) -> Vec<RecoveredBoot> {
 		let Some(recovery) = &mut self.recovery else {
 			return Vec::new();
 		};
 		let boots = recovery.boots.remove(runner).unwrap_or_default();
 
-		// Hold the boots that a runner that restarted claimed before for the index check of its first connection.
+		// Decide the boots that a runner that restarted claimed before.
 		if restarted {
 			let lost = recovery
 				.claimed
@@ -308,7 +327,9 @@ impl SchedulerState {
 				.collect::<Vec<_>>();
 			for id in lost {
 				let claim = recovery.claimed.remove(&id).unwrap();
-				recovery.restarted.insert(id, claim);
+				if !written.contains(&id) {
+					recovery.requests.insert(id, claim.request);
+				}
 			}
 		}
 
@@ -328,19 +349,29 @@ impl SchedulerState {
 			}
 		}
 		recovery.runners.remove(runner);
-		if recovery.runners.is_empty() {
-			self.release_recovery(scheduler);
-		}
+		self.release_recovery(scheduler);
 
 		boots
+	}
+
+	/// Stop waiting for the report of a runner that is declared dead, whose boots the end of the runner's boots ends, and release the held requests if no other runner is waited for.
+	pub(super) fn forget_recovery_runner(
+		&mut self,
+		scheduler: &Scheduler,
+		runner: &tg::runner::Id,
+	) {
+		let Some(recovery) = &mut self.recovery else {
+			return;
+		};
+		recovery.boots.remove(runner);
+		recovery.runners.remove(runner);
+		self.release_recovery(scheduler);
 	}
 
 	/// Whether a sandbox's request is held for recovery.
 	pub(super) fn is_recovering(&self, sandbox: &tg::sandbox::Id) -> bool {
 		self.recovery.as_ref().is_some_and(|recovery| {
-			recovery.claimed.contains_key(sandbox)
-				|| recovery.requests.contains_key(sandbox)
-				|| recovery.restarted.contains_key(sandbox)
+			recovery.claimed.contains_key(sandbox) || recovery.requests.contains_key(sandbox)
 		})
 	}
 
@@ -351,7 +382,6 @@ impl SchedulerState {
 				.claimed
 				.keys()
 				.chain(recovery.requests.keys())
-				.chain(recovery.restarted.keys())
 				.cloned()
 				.collect()
 		})
@@ -366,19 +396,22 @@ impl SchedulerState {
 		if let Some(claim) = recovery.claimed.get_mut(sandbox) {
 			return Some(&mut claim.request);
 		}
-		if let Some(claim) = recovery.restarted.get_mut(sandbox) {
-			return Some(&mut claim.request);
-		}
 		recovery.requests.get_mut(sandbox)
 	}
 
-	/// Expire the runners that did not report in time, and release the held requests.
+	/// Expire the runners that did not report in time, and release the held requests. Keep waiting for a runner that connected and whose connection is not applied yet, which reports once its connection is applied, or expires as a connected runner.
 	pub(super) fn handle_recovery_expired(&mut self, scheduler: &Scheduler) {
 		let Some(recovery) = &mut self.recovery else {
 			return;
 		};
-		let runners = std::mem::take(&mut recovery.runners);
+		let (connected, runners) = std::mem::take(&mut recovery.runners)
+			.into_iter()
+			.partition::<HashSet<_, tg::id::BuildHasher>, _>(|runner| {
+				self.runners.entries.contains_key(runner)
+			});
+		recovery.runners = connected;
 		for runner in runners {
+			recovery.boots.remove(&runner);
 			tracing::warn!(%runner, "the runner did not report after the scheduler restarted");
 
 			// Leave the restarts that are queued for the runner to this scheduler, which holds them.
@@ -404,8 +437,8 @@ impl SchedulerState {
 		self.release_recovery(scheduler);
 	}
 
-	/// Get the boots that a runner reported and then lost by restarting, as unanswered offers for the index check of the runner's first connection.
-	pub(super) fn get_restarted_claims(
+	/// Get the boots that a runner claimed in its reports to this restarted scheduler, as unanswered offers for the index check of the runner's first connection after it restarted.
+	pub(super) fn get_claims(
 		&self,
 		runner: &tg::runner::Id,
 	) -> Vec<super::runner::UnansweredOffer> {
@@ -413,7 +446,7 @@ impl SchedulerState {
 			return Vec::new();
 		};
 		recovery
-			.restarted
+			.claimed
 			.iter()
 			.filter(|(_, claim)| claim.runner == *runner)
 			.map(|(id, claim)| super::runner::UnansweredOffer {
@@ -424,66 +457,29 @@ impl SchedulerState {
 			.collect()
 	}
 
-	/// Decide a boot that a runner reported and then lost by restarting, once the runner's first connection has read the index. Forget a boot that the runner wrote, whose boot the connection ended. Return a boot that the runner did not write to the held requests, so that it is offered again once the recovery ends.
-	pub(super) fn decide_restarted_claim(
-		&mut self,
-		scheduler: &Scheduler,
-		runner: &tg::runner::Id,
-		sandbox: &tg::sandbox::Id,
-		written: bool,
-	) {
-		let Some(recovery) = &mut self.recovery else {
-			return;
+	/// Whether the release waits, because a runner has not reported, or because a runner that claimed a boot restarted and its first connection is not applied yet.
+	fn is_recovery_waiting(&self) -> bool {
+		let Some(recovery) = &self.recovery else {
+			return false;
 		};
-		if recovery
-			.restarted
-			.get(sandbox)
-			.is_none_or(|claim| claim.runner != *runner)
-		{
-			return;
-		}
-		let claim = recovery.restarted.remove(sandbox).unwrap();
-		if !written {
-			recovery.requests.insert(sandbox.clone(), claim.request);
-		}
-		if recovery.runners.is_empty() {
-			self.release_recovery(scheduler);
-		}
+		!recovery.runners.is_empty()
+			|| recovery.claimed.values().any(|claim| {
+				self.runners
+					.entries
+					.get(&claim.runner)
+					.is_some_and(|runner| runner.restarting)
+			})
 	}
 
-	/// End the boots as failed that a runner that is declared dead reported and then lost by restarting, because no connection of the runner will check them.
-	pub(super) fn fail_restarted_claims(&mut self, scheduler: &Scheduler, runner: &tg::runner::Id) {
+	/// Release the held requests once no runner is waited for.
+	pub(super) fn release_recovery(&mut self, scheduler: &Scheduler) {
+		if self.is_recovery_waiting() {
+			return;
+		}
 		let Some(recovery) = &mut self.recovery else {
 			return;
 		};
-		let lost = recovery
-			.restarted
-			.iter()
-			.filter(|(_, claim)| claim.runner == *runner)
-			.map(|(id, _)| id.clone())
-			.collect::<Vec<_>>();
-		if lost.is_empty() {
-			return;
-		}
-		let lost = lost
-			.into_iter()
-			.map(|id| recovery.restarted.remove(&id).unwrap())
-			.collect::<Vec<_>>();
-		let release = recovery.runners.is_empty();
-		for claim in lost {
-			self.fail_claimed_sandbox(scheduler, claim);
-		}
-		if release {
-			self.release_recovery(scheduler);
-		}
-	}
-
-	/// Release the held requests, unless a boot that a runner lost by restarting waits for its index check.
-	fn release_recovery(&mut self, scheduler: &Scheduler) {
-		let Some(recovery) = &mut self.recovery else {
-			return;
-		};
-		if recovery.releasing || !recovery.restarted.is_empty() {
+		if recovery.releasing {
 			return;
 		}
 		recovery.releasing = true;
@@ -493,12 +489,18 @@ impl SchedulerState {
 			.chain(recovery.requests.keys())
 			.cloned()
 			.collect::<Vec<_>>();
-		let server = scheduler.server.clone();
+		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
+				// Await indexing, so that the read has every write that a server accepted before the release. Keep trying, because the held requests are decided from the read.
+				while let Err(error) = scheduler.index().await {
+					tracing::error!(error = %error.trace(), "failed to await indexing before the release");
+					tokio::time::sleep(READ_RETRY_INTERVAL).await;
+				}
+
 				// Read the sandboxes' statuses, because a destroy may have arrived before the restart. Keep trying, because the held requests are lost if the read is given up.
 				let sandboxes = loop {
-					match server.index.try_get_sandboxes(&ids).await {
+					match scheduler.server.index.try_get_sandboxes(&ids).await {
 						Ok(sandboxes) => break sandboxes,
 						Err(error) => {
 							tracing::error!(error = %error.trace(), "failed to read the recovered sandboxes");
@@ -517,11 +519,11 @@ impl SchedulerState {
 
 	/// Tear down the requests that are being destroyed, and queue the rest of the requests that no runner claimed.
 	pub(super) fn handle_recovered(&mut self, scheduler: &Scheduler, mut statuses: Statuses) {
-		// Wait for the index checks of the boots that a runner lost by restarting during the release, whose decisions release the requests again.
-		if let Some(recovery) = &mut self.recovery
-			&& !recovery.restarted.is_empty()
-		{
-			recovery.releasing = false;
+		// Wait for the first connection of a runner that claimed a boot and restarted during the release, whose application releases the requests again.
+		if self.is_recovery_waiting() {
+			if let Some(recovery) = &mut self.recovery {
+				recovery.releasing = false;
+			}
 			return;
 		}
 		let Some(recovery) = self.recovery.take() else {
@@ -578,29 +580,26 @@ impl SchedulerState {
 		}
 		for (id, request) in recovery.requests {
 			let indexed = statuses.remove(&id);
+			match decide_saved_boot(&request, indexed.as_ref()) {
+				// Record the destruction of a sandbox that is being destroyed.
+				SavedBoot::Destroying { error } => {
+					self.finish_destroy_sandbox(scheduler, request, error);
+				},
 
-			// Get the runner that wrote the request's boot, which holds or held the boot, so that the boot is never offered to another runner.
-			let written = indexed.as_ref().and_then(|indexed| {
-				let data = &indexed.data.as_ref()?.data;
-				let running = data.boot == request.boot && !data.status.is_stopped_or_destroyed();
-				(running && indexed.sequence >= tangram_index::sandbox::put::FIRST_HOLDER_WRITE)
-					.then(|| indexed.runner.clone())
-					.flatten()
-			});
-			let data = indexed
-				.and_then(|indexed| indexed.data)
-				.map(|data| data.data);
-			if data
-				.as_ref()
-				.is_some_and(|data| data.status.is_destroying())
-			{
-				let error = data.and_then(|data| data.error);
-				self.finish_destroy_sandbox(scheduler, request, error);
-			} else if let Some(runner) = written {
+				// Remove a boot that ended from this scheduler's saved queue, because no scheduler holds an ended boot.
+				SavedBoot::Ended => {
+					self.delete_saved_boot(scheduler, request);
+				},
+
+				// Queue a boot that no runner wrote, which this scheduler still holds.
+				SavedBoot::Unwritten => {
+					self.handle_enqueue_sandbox_request(scheduler, None, request, true);
+				},
+
 				// End a boot that a runner wrote and did not claim, because the runner restarted or was declared dead.
-				self.fail_claimed_sandbox(scheduler, Claim { request, runner });
-			} else {
-				self.handle_enqueue_sandbox_request(scheduler, None, request, true);
+				SavedBoot::Written { runner } => {
+					self.fail_claimed_sandbox(scheduler, Claim { request, runner });
+				},
 			}
 		}
 
@@ -620,9 +619,7 @@ impl SchedulerState {
 		processes: BTreeSet<tg::process::Id>,
 		runner: super::placement::RunnerRef,
 	) {
-		if self.sandboxes.entries.contains_key(id) {
-			self.remove_sandbox(scheduler, id);
-		}
+		self.remove_ended_sandbox(scheduler, id);
 		let boot = request.boot;
 		let parent = request.parent.clone();
 		let state = super::sandbox::State::Accepted {
@@ -634,10 +631,50 @@ impl SchedulerState {
 		self.accept_sandbox(scheduler, id, runner);
 	}
 
+	/// Remove a saved boot that ended from this scheduler's saved queue.
+	fn delete_saved_boot(&mut self, scheduler: &Scheduler, request: EnqueueSandboxRequestArg) {
+		tracing::info!(sandbox = %request.sandbox, boot = request.boot, "removing the saved boot that ended");
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let delete = tangram_index::scheduler::sandbox::delete::Arg {
+					boot: request.boot,
+					sandbox: request.sandbox.clone(),
+				};
+				let arg = tangram_index::write::Arg {
+					items: vec![tangram_index::Item::DeleteSchedulerSandbox(Box::new(
+						delete,
+					))],
+				};
+				let result = scheduler
+					.server
+					.components
+					.indexer
+					.write(&scheduler.server, arg)
+					.await
+					.map_err(
+						|error| tg::error!(!error, sandbox = %request.sandbox, "failed to remove the saved boot"),
+					);
+				Operation::Finished {
+					context: "failed to remove the saved boot that ended",
+					result,
+				}
+			}
+			.boxed(),
+		);
+	}
+
 	/// End a boot that a runner claimed and lost, or that a runner wrote and did not claim, because the runner restarted or was declared dead, through the end of a dead runner's boot, which leaves the sandbox stopped on the runner, or destroyed if its ttl is zero. Remember the boot as ended, so that this scheduler tells the runner when it connects again.
 	fn fail_claimed_sandbox(&mut self, scheduler: &Scheduler, claim: Claim) {
 		let Claim { request, runner } = claim;
-		self.remember_ended_boot(&request.sandbox, request.boot, &runner);
+		let ended = super::report::EndedBoot {
+			declared: true,
+			processes: BTreeSet::new(),
+			runner: runner.clone(),
+		};
+		self.sandboxes
+			.ended
+			.insert(request.sandbox.clone(), request.boot, ended);
 		let destroy = request
 			.arg
 			.time_to_live
@@ -661,7 +698,8 @@ impl SchedulerState {
 				let result = scheduler
 					.component
 					.end_dead_runner_boot(&scheduler.server, arg)
-					.await;
+					.await
+					.map(|_| ());
 				Operation::Finished {
 					context: "failed to record the failed sandbox",
 					result,
@@ -672,9 +710,41 @@ impl SchedulerState {
 	}
 }
 
+/// Decide a saved boot that no runner claimed from the index's record of its sandbox.
+pub(super) fn decide_saved_boot(
+	request: &EnqueueSandboxRequestArg,
+	indexed: Option<&tangram_index::sandbox::Sandbox>,
+) -> SavedBoot {
+	let Some((indexed, data)) =
+		indexed.and_then(|indexed| Some((indexed, &indexed.data.as_ref()?.data)))
+	else {
+		return SavedBoot::Unwritten;
+	};
+	if data.status.is_destroying() {
+		let error = data.error.clone();
+		return SavedBoot::Destroying { error };
+	}
+	if data.boot > request.boot
+		|| (data.boot == request.boot && data.status.is_stopped_or_destroyed())
+	{
+		return SavedBoot::Ended;
+	}
+	if data.boot == request.boot
+		&& indexed.sequence >= tangram_index::sandbox::put::FIRST_HOLDER_WRITE
+		&& let Some(runner) = &indexed.runner
+	{
+		let runner = runner.clone();
+		return SavedBoot::Written { runner };
+	}
+	SavedBoot::Unwritten
+}
+
 impl Component {
-	/// End the boots in this single server's queue, and the sandboxes of the runners other than this server's that connected to it, whose connections can no longer expire after the restart. Stop each, or destroy it if its ttl is zero. This server's runner ends its own sandboxes when it connects.
-	pub(super) async fn end_previous_run(&self, server: &Server) -> tg::Result<()> {
+	/// End the boots in this single server's queue, and the sandboxes of the runners other than this server's that connected to it, whose connections can no longer expire after the restart. Stop each, or destroy it if its ttl is zero. This server's runner ends its own sandboxes when it connects. Return the messages that tell the scheduling task of each boot of the other runners that the end ended, so that the task remembers them and tells each runner when it connects again.
+	pub(super) async fn end_previous_run(
+		&self,
+		server: &Server,
+	) -> tg::Result<Vec<super::HolderMessage>> {
 		// Get the scheduler's ID. A single server applies its index writes in its own process, so none of its previous run's writes are pending.
 		let id = Self::scheduler_id(&server.config.scheduler)?;
 		let error = tg::error::Data {
@@ -731,7 +801,8 @@ impl Component {
 			tracing::error!(error = %error.trace(), "failed to finish the queued processes");
 		}
 
-		// End the boots of the other runners.
+		// End the boots of the other runners, and collect the messages of the boots that the end ended.
+		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
 		let local = server.components.runner.local_runner_id(server);
 		let runners = server
 			.index
@@ -746,6 +817,7 @@ impl Component {
 				accepted: Vec::new(),
 				checkpoint: "scheduler.runner.recovered",
 				directories: None,
+				ended: Some(sender.clone()),
 				error: error.clone(),
 				held: Vec::new(),
 				queued: Vec::new(),
@@ -758,7 +830,12 @@ impl Component {
 				tracing::error!(%runner, error = %error.trace(), "failed to end the runner's sandboxes");
 			}
 		}
+		drop(sender);
+		let mut messages = Vec::new();
+		while let Some(message) = receiver.recv().await {
+			messages.push(message);
+		}
 
-		Ok(())
+		Ok(messages)
 	}
 }

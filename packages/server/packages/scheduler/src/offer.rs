@@ -28,6 +28,9 @@ pub(super) enum Outcome {
 	/// The runner does not have the capacity for the sandbox.
 	Declined,
 
+	/// The runner held the boot and it ended, because the runner gave it up or a later boot replaced it.
+	Ended,
+
 	/// The runner failed to create the sandbox.
 	Failed(tg::Error),
 
@@ -145,6 +148,13 @@ impl SchedulerState {
 			},
 
 			Outcome::Declined => None,
+
+			// Forget a boot that the runner held and that ended, as the end of a boot that the runner held, and offer it to no other runner.
+			Outcome::Ended => {
+				tracing::info!(sandbox = %id, runner = %runner.id, "the runner answered that the boot ended");
+				self.end_held_sandbox(scheduler, id, Some(placement.clone()));
+				return;
+			},
 
 			Outcome::Failed(error) => {
 				tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner.id, "the runner failed to create the sandbox");
@@ -459,16 +469,20 @@ impl SchedulerState {
 		}
 	}
 
-	/// Send the unanswered offers of a runner that reconnected again to its new connection, with the capacity that each one reserves. The runner is the same program and answers an offer that it already answered from its memory of its reply, so that no offer is returned to the queue and no boot is offered to a second runner while the first may hold it.
+	/// Send the unanswered offers of a runner that reconnected again to its new connection, whose entry keeps their reservations. The runner is the same program and answers an offer that it already answered from its memory of its reply, so that no offer is returned to the queue and no boot is offered to a second runner while the first may hold it.
 	pub(super) fn resend_runner_offers(
 		&mut self,
 		scheduler: &Scheduler,
 		runner: &tg::runner::Id,
-		offers: HashMap<tg::sandbox::Id, tg::runner::Capacity, tg::id::BuildHasher>,
+		connection: u64,
 	) {
-		for (sandbox, reserved) in offers {
-			// Point the offer at the runner's new connection.
-			let entry = self.runners.entries.get_mut(runner).unwrap();
+		let sandboxes = self.runners.entries[runner]
+			.reservations
+			.keys()
+			.cloned()
+			.collect::<Vec<_>>();
+		for sandbox in sandboxes {
+			// Point the offer at the runner's new connection, unless it was made on the new connection.
 			let Some(State::Offered {
 				placement, retries, ..
 			}) = self
@@ -479,12 +493,13 @@ impl SchedulerState {
 			else {
 				continue;
 			};
-			placement.set_connection(entry.connection);
+			if placement.runner().connection == connection {
+				continue;
+			}
+			placement.set_connection(connection);
 			*retries = 0;
 
-			// Reserve the offer's capacity on the new connection, and send the offer again.
-			add(&mut entry.reserved, reserved);
-			entry.reservations.insert(sandbox.clone(), reserved);
+			// Send the offer again.
 			self.offer_sandbox(scheduler, &sandbox);
 		}
 	}
@@ -562,11 +577,12 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 			output
 				.try_unwrap_offer_sandbox()
 				.map_err(|_| tg::error!("expected an offer sandbox response"))
-				.map(|output| output.accepted)
+				.map(|output| output.answer)
 		});
 	match result {
-		Ok(true) => Outcome::Accepted,
-		Ok(false) => Outcome::Declined,
+		Ok(tg::runner::control::Answer::Ended) => Outcome::Ended,
+		Ok(tg::runner::control::Answer::No) => Outcome::Declined,
+		Ok(tg::runner::control::Answer::Yes) => Outcome::Accepted,
 		Err(error) => Outcome::Failed(error),
 	}
 }

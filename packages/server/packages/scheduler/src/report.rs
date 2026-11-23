@@ -14,17 +14,19 @@ use {
 
 type Key = (tg::sandbox::Id, u64);
 
-/// The boots that runners held and that ended or that a later boot replaced, which this scheduler remembers so that it can authorize a runner's late report of one, until the runner restarts or is removed, or for between one and two of the runner ttls, and the boots that this scheduler ended for a runner that it declared dead, which it remembers until the runner's next first connection, so that it tells the runner from its memory when the runner connects again.
+/// The boots that runners held and that ended or that a later boot replaced, which this scheduler remembers so that it authorizes a runner's late report of one, and the boots that this scheduler declared ended for a runner that it declared dead, which it tells the runner from its memory when the runner connects again. A runner's boots are forgotten on the runner's first connection that succeeds and when the runner is deleted, and a boot that this scheduler did not declare ended is also forgotten between one and two of the runner ttls after it ended.
 #[derive(Default)]
 pub(super) struct Ended {
 	current: HashMap<Key, EndedBoot>,
-	declared: HashMap<Key, EndedBoot>,
 	previous: HashMap<Key, EndedBoot>,
 	rotated_at: Option<tangram_server_core::clock::Instant>,
 }
 
 /// A boot that a runner held and that ended or that a later boot replaced.
 pub(super) struct EndedBoot {
+	/// Whether this scheduler declared the boot ended because it declared the boot's runner dead, which it tells the runner when the runner connects again.
+	pub(super) declared: bool,
+
 	/// The processes that this scheduler offered into the boot.
 	pub(super) processes: BTreeSet<tg::process::Id>,
 
@@ -86,41 +88,44 @@ pub(super) enum Held {
 }
 
 impl Ended {
-	/// Remember a boot that a runner held and that ended or that a later boot replaced.
+	/// Remember a boot that ended or that a later boot replaced, which every memory of an ended boot goes through. A boot that this scheduler declared ended stays declared.
 	pub(super) fn insert(&mut self, sandbox: tg::sandbox::Id, boot: u64, ended: EndedBoot) {
-		self.current.insert((sandbox, boot), ended);
-	}
-
-	/// Remember a boot that this scheduler ended for a runner that it declared dead.
-	pub(super) fn insert_declared(
-		&mut self,
-		sandbox: tg::sandbox::Id,
-		boot: u64,
-		ended: EndedBoot,
-	) {
-		self.declared.insert((sandbox, boot), ended);
+		let key = (sandbox, boot);
+		let mut ended = ended;
+		if let Some(existing) = self
+			.current
+			.remove(&key)
+			.or_else(|| self.previous.remove(&key))
+		{
+			ended.declared |= existing.declared;
+			ended.processes.extend(existing.processes);
+		}
+		self.current.insert(key, ended);
 	}
 
 	pub(super) fn get(&self, sandbox: &tg::sandbox::Id, boot: u64) -> Option<&EndedBoot> {
 		let key = (sandbox.clone(), boot);
-		self.current
-			.get(&key)
-			.or_else(|| self.previous.get(&key))
-			.or_else(|| self.declared.get(&key))
+		self.current.get(&key).or_else(|| self.previous.get(&key))
 	}
 
-	/// Forget the boots of a runner that restarted or that was removed, which sends no more reports of them.
+	/// Whether this scheduler declared a runner's boot ended.
+	pub(super) fn is_declared(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		boot: u64,
+		runner: &tg::runner::Id,
+	) -> bool {
+		self.get(sandbox, boot)
+			.is_some_and(|ended| ended.declared && ended.runner == *runner)
+	}
+
+	/// Forget the boots of a runner whose first connection succeeded, which reports none of them again, or of a runner that was deleted.
 	pub(super) fn forget_runner(&mut self, runner: &tg::runner::Id) {
 		self.current.retain(|_, ended| ended.runner != *runner);
 		self.previous.retain(|_, ended| ended.runner != *runner);
 	}
 
-	/// Forget the boots that this scheduler ended for a runner that it declared dead, once the runner restarted.
-	pub(super) fn forget_declared(&mut self, runner: &tg::runner::Id) {
-		self.declared.retain(|_, ended| ended.runner != *runner);
-	}
-
-	/// Forget the boots that ended more than a runner ttl before the last rotation, because a runner that does not report within its ttl is removed.
+	/// Forget the boots that this scheduler did not declare ended and that ended more than a runner ttl before the last rotation, because a runner that does not report within its ttl is removed.
 	pub(super) fn rotate(
 		&mut self,
 		now: tangram_server_core::clock::Instant,
@@ -131,7 +136,16 @@ impl Ended {
 			return;
 		};
 		if now - rotated_at > time_to_live {
-			self.previous = std::mem::take(&mut self.current);
+			let (declared, previous) = std::mem::take(&mut self.current)
+				.into_iter()
+				.chain(
+					std::mem::take(&mut self.previous)
+						.into_iter()
+						.filter(|(_, ended)| ended.declared),
+				)
+				.partition(|(_, ended)| ended.declared);
+			self.current = declared;
+			self.previous = previous;
 			self.rotated_at = Some(now);
 		}
 	}
