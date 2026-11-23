@@ -19,6 +19,7 @@ let process = {|output|
 # A second run without retry reuses the failed build.
 let first = tg run --build $path | complete
 failure $first "the build should fail"
+tg index
 let second = tg run --build $path | complete
 failure $second "the build should fail"
 assert equal (do $process $second) (do $process $first) "the run without retry should reuse the failed build"
