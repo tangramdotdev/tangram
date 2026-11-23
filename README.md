@@ -24,7 +24,7 @@ To get started, run the install script below, or download the [latest release](h
 curl -fsSL https://tangram.dev/install.sh | sh
 ```
 
-To build and install from a local checkout, run `tg run .#install`. This installs the release binary at `~/.local/bin/tangram` and creates a `tg` symlink alongside it. Use `tg run .#installDev` to install a dev build instead. If Tangram is not installed yet, bootstrap with `nu scripts/install.nu`.
+To build and install from a local checkout, run `tg run .#install`. This installs the release binary at `~/.tangram/bin/tangram` and creates a `tg` symlink alongside it. Add `~/.tangram/bin` to your `PATH` if needed. Use `tg run .#installDev` to install a dev build instead. If Tangram is not installed yet, bootstrap with `nu scripts/install.nu`.
 
 Create a file at the root of your project called `tangram.ts` with the following content:
 

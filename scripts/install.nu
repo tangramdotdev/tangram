@@ -5,7 +5,7 @@ const repository_path = path self '../'
 # Build and install the CLI with a tg symlink.
 def main [
 	--dev # Use the dev profile instead of the release profile.
-	--directory: path = ~/.local/bin # The directory in which to install the CLI.
+	--directory: path = ~/.tangram/bin # The directory in which to install the CLI.
 ] {
 	# Build the CLI.
 	cd $repository_path
