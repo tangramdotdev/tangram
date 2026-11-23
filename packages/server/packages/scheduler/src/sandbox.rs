@@ -75,8 +75,8 @@ pub(super) enum Tracked {
 
 /// A destroy of a sandbox on a runner. The request is present if the sandbox has a record to finish.
 pub(super) struct DestroySandbox {
-	pub(super) error: tg::error::Data,
 	pub(super) connection: u64,
+	pub(super) error: tg::error::Data,
 	pub(super) request: Option<EnqueueSandboxRequestArg>,
 	pub(super) runner: tg::runner::Id,
 	pub(super) sandbox: tg::sandbox::Id,
@@ -279,7 +279,7 @@ impl SchedulerState {
 	) {
 		let ids = id.into_iter().collect::<Vec<_>>();
 
-		// Reply to an enqueue of a sandbox that the scheduler tracks without enqueueing it again. An enqueue of a later boot replaces a sandbox that a runner accepted or that the scheduler ended.
+		// Reply to an enqueue of a sandbox that the scheduler tracks without enqueueing it again. A recovered enqueue of a later boot replaces a sandbox that a runner accepted or that the scheduler ended, and a start of a later boot replaces it once its reservation applies.
 		if let Some(entry) = self.sandboxes.entries.get(&request.sandbox) {
 			match entry.state {
 				State::Offered { .. } | State::Queued => {
@@ -292,7 +292,9 @@ impl SchedulerState {
 					return;
 				},
 				State::Accepted { .. } | State::Terminal { .. } => {
-					self.remove_ended_sandbox(scheduler, &request.sandbox);
+					if recovered {
+						self.remove_ended_sandbox(scheduler, &request.sandbox);
+					}
 				},
 			}
 		}
@@ -785,12 +787,7 @@ impl SchedulerState {
 
 	/// Ask a runner to destroy a sandbox that it holds. Wait while this scheduler has not finished handling the runner's restart, because a runner that restarted is sent nothing until then.
 	pub(super) fn send_destroy_sandbox(&mut self, scheduler: &Scheduler, destroy: DestroySandbox) {
-		let restarting = self
-			.runners
-			.entries
-			.get(&destroy.runner)
-			.is_some_and(|runner| runner.restarting);
-		if restarting {
+		let Some(connection) = self.destroy_connection(&destroy) else {
 			self.operations.push(
 				async move {
 					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
@@ -802,7 +799,7 @@ impl SchedulerState {
 				.boxed(),
 			);
 			return;
-		}
+		};
 		let session = scheduler.server.session(&scheduler.server.context);
 		let scheduler_id = scheduler.id.clone();
 
@@ -829,7 +826,7 @@ impl SchedulerState {
 						&session,
 						&destroy.runner,
 						&scheduler_id,
-						destroy.connection,
+						connection,
 						tangram_server_core::control::id(),
 						arg,
 						options,
@@ -852,6 +849,16 @@ impl SchedulerState {
 			}
 			.boxed(),
 		);
+	}
+
+	/// Get the connection that a destroy on a runner is sent to, or `None` while this scheduler has not finished handling the runner's restart, because a runner that restarted is sent nothing until then.
+	pub(super) fn destroy_connection(&self, destroy: &DestroySandbox) -> Option<u64> {
+		let restarting = self
+			.runners
+			.entries
+			.get(&destroy.runner)
+			.is_some_and(|runner| runner.restarting);
+		(!restarting).then_some(destroy.connection)
 	}
 
 	/// Finish a destroy that the runner did not carry out. A runner that does not have the sandbox, or that is gone, will never report it, so the scheduler records it as destroyed.
@@ -973,8 +980,8 @@ impl SchedulerState {
 				State::Terminal { error, .. } if entry.boot == boot => {
 					let error = error.clone().and_then(tg::Either::left).unwrap_or_default();
 					let destroy = DestroySandbox {
-						error,
 						connection: runner.connection,
+						error,
 						request: None,
 						runner: runner.id,
 						sandbox: id.clone(),

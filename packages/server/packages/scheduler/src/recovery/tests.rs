@@ -78,7 +78,7 @@ fn every_connection_of_a_runner_reports_to_a_restarted_scheduler_until_one_is_ap
 }
 
 /// Create the index's record of a sandbox at a boot with a status, whose last write has a number and records a runner.
-fn indexed(
+pub(crate) fn indexed(
 	sandbox: &tg::sandbox::Id,
 	boot: u64,
 	status: tg::sandbox::Status,
@@ -132,7 +132,7 @@ fn a_saved_boot_that_the_index_shows_ended_is_never_offered_again() {
 	let runner = tg::runner::Id::new();
 	let request = saved(&sandbox, 1);
 	let decide = |indexed: Option<tangram_index::sandbox::Sandbox>| {
-		decide_saved_boot(&request, indexed.as_ref())
+		decide_saved_boot(request.boot, indexed.as_ref())
 	};
 
 	// A boot that its runner stopped or whose sandbox it destroyed, and a boot that a later boot replaced, ended.

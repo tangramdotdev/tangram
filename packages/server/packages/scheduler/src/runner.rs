@@ -7,7 +7,7 @@ use {
 	crate::Component,
 	futures::FutureExt as _,
 	std::{
-		collections::{BTreeSet, HashMap, HashSet},
+		collections::{BTreeMap, BTreeSet, HashMap, HashSet},
 		time::Duration,
 	},
 	tangram_cache::log,
@@ -47,7 +47,7 @@ pub(super) struct EndRunnerSandboxesArg {
 	/// The scheduling task, which the end asks after it reads the index for the sandboxes whose current boot the scheduler holds, or `None` before the task runs.
 	pub scheduler: Option<tokio::sync::mpsc::UnboundedSender<super::HolderMessage>>,
 
-	/// The sandboxes whose offers to the runner are unanswered and whose boots the runner wrote to the index, which the end covers although the scheduler's saved queue has them.
+	/// The sandboxes whose offers to the runner are unanswered and whose boots the index shows that the runner wrote, which the end covers although the scheduler's queue has them.
 	pub written: Vec<tg::sandbox::Id>,
 }
 
@@ -100,15 +100,15 @@ pub(super) struct Connection {
 
 /// The output of a runner's connection.
 pub(super) struct AddRunnerOutput {
+	/// The decisions of the unanswered offers to a runner that restarted and of the boots that it claimed, from the index, which the connection's end and its application both follow.
+	pub decided: BTreeMap<tg::sandbox::Id, super::recovery::SavedBoot>,
+
 	/// The reported boots and processes that the index does not have on the runner's first report to this restarted scheduler, which this scheduler cancels.
 	pub lost: Lost,
 
 	pub output: AddRunnerResponseOutput,
 
 	pub owner: Option<tg::Id>,
-
-	/// The sandboxes whose offers to the runner are unanswered and whose boots the runner wrote to the index.
-	pub written: BTreeSet<tg::sandbox::Id>,
 }
 
 /// The boots and processes that a runner reports to a restarted scheduler and that the index does not have, which the scheduler lost before its first write of them.
@@ -175,6 +175,19 @@ pub(super) struct Runner {
 
 	/// Whether the runner restarted and this scheduler has not finished handling its first connection, until which the runner is sent nothing and every connection of the runner is handled as a first connection.
 	pub restarting: bool,
+}
+
+/// Decide each unanswered offer to a runner that restarted and each boot that it claimed from the index's record of its sandbox, with the one decision of a saved boot, so that an offer whose boot ended is never offered again, even if the end was written by an earlier connection that did not apply.
+pub(super) fn decide_unanswered_offers(
+	unanswered: &[UnansweredOffer],
+	indexed: Vec<Option<tangram_index::sandbox::Sandbox>>,
+) -> BTreeMap<tg::sandbox::Id, super::recovery::SavedBoot> {
+	std::iter::zip(unanswered, indexed)
+		.map(|(offer, indexed)| {
+			let decision = super::recovery::decide_saved_boot(offer.boot, indexed.as_ref());
+			(offer.sandbox.clone(), decision)
+		})
+		.collect()
 }
 
 impl Runner {
@@ -246,7 +259,7 @@ impl SchedulerState {
 		);
 	}
 
-	/// Number a runner's connection, replace the runner's entry with one for the connection that keeps the reservations of the runner's unanswered offers, and get the connection's inputs. Nothing else that the connection decides changes until the connection is added and applied.
+	/// Number a runner's connection, replace the runner's entry with one for the connection that keeps the reservations of the runner's unanswered offers and the time of the runner's last sign of life, and get the connection's inputs. Nothing else that the connection decides changes until the connection is added and applied, and only an applied connection counts as a sign of life, so that a runner whose connections never apply expires.
 	pub(super) fn connect_runner(
 		&mut self,
 		request: &mut AddRunnerRequestArg,
@@ -277,17 +290,19 @@ impl SchedulerState {
 		// Get the boots that the runner accepted and no longer reports.
 		let accepted = self.get_unreported_sandboxes(&request.runner, &request.sandboxes);
 
-		// Replace the runner's entry, and keep the reservations of the runner's unanswered offers on it.
-		let offers = self
+		// Replace the runner's entry, and keep the reservations of the runner's unanswered offers and the time of its last sign of life on it.
+		let (heartbeat_at, offers) = self
 			.remove_runner_entry(&request.runner)
-			.map_or_default(|runner| runner.reservations);
+			.map_or((now, HashMap::default()), |runner| {
+				(runner.heartbeat_at, runner.reservations)
+			});
 		let runner = Runner {
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
 			committed: tg::runner::Capacity::default(),
 			connection,
 			connection_failed: false,
-			heartbeat_at: now,
+			heartbeat_at,
 			heartbeat_index: 0,
 			host: request.host.clone(),
 			owner: None,
@@ -340,25 +355,35 @@ impl SchedulerState {
 			..
 		} = connection;
 		let AddRunnerOutput {
+			decided,
 			lost,
 			owner,
-			written,
 			..
 		} = output;
 
-		// Record that the runner's restart is handled, so that the runner is sent work again.
+		// Record that the runner's restart is handled, so that the runner is sent work again, and count the connection as a sign of life.
 		let entry = self.runners.entries.get_mut(&id).unwrap();
+		entry.heartbeat_at = scheduler.server.clock.instant();
 		entry.owner = owner;
 		entry.restarting = false;
 
-		// Forget the ended boots of a runner that restarted, which reports none of them again, and the boots that the runner no longer reports.
+		// Forget the ended boots of a runner that restarted, which reports none of them again, except the reported boots that this scheduler declared ended after the connection arrived, which the connection was not told, and forget the boots that the runner no longer reports.
 		if first {
-			self.sandboxes.ended.forget_runner(&id);
+			let kept = sandboxes
+				.iter()
+				.filter(|sandbox| {
+					!ended
+						.iter()
+						.any(|ended| ended.id == sandbox.id && ended.boot == sandbox.boot)
+				})
+				.map(|sandbox| (sandbox.id.clone(), sandbox.boot))
+				.collect::<Vec<_>>();
+			self.sandboxes.ended.forget_runner(&id, &kept);
 		}
 		self.forget_accepted_sandboxes(scheduler, &id, &accepted);
 
 		// Record the runner's report for the recovery of a restarted scheduler, and get the boots that the scheduler rebuilt from the index on the runner.
-		let recovered = self.handle_recovery_report(scheduler, &id, first, &sandboxes, &written);
+		let recovered = self.handle_recovery_report(scheduler, &id, first, &sandboxes, &decided);
 
 		// Track the reported boots that this scheduler authorizes, which are the ones that it gave to the runner, the ones that it rebuilt from the index on the runner after it restarted, and the ones whose IDs the runner proves that it derived, and act on no other reported boot. Leave the ones that a restarted scheduler holds for recovery, which the runner's report claims and which the end of the recovery accepts, and the ones that ended.
 		for sandbox in &sandboxes {
@@ -427,7 +452,7 @@ impl SchedulerState {
 
 		// Decide the unanswered offers to a runner that restarted from the index, and send the unanswered offers again to a runner that reconnects, which is the same program and answers them from its memory of its replies.
 		if first {
-			self.handle_unanswered_offers(scheduler, &id, unanswered, &written);
+			self.handle_unanswered_offers(scheduler, &id, unanswered, &decided);
 		} else {
 			self.resend_runner_offers(scheduler, &id, connection);
 		}
@@ -744,7 +769,7 @@ impl SchedulerState {
 			scheduler.publish_sandbox_discarded(self, discarded);
 		}
 		if matches!(removal, Removal::Deleted { .. }) {
-			self.sandboxes.ended.forget_runner(runner);
+			self.sandboxes.ended.forget_runner(runner, &[]);
 		}
 		let scheduler = scheduler.clone();
 		let runner = runner.clone();
@@ -1047,7 +1072,7 @@ impl SchedulerState {
 			.boxed()
 			.shared()
 		};
-		let write = destroyed.clone().map(|result| result.map(|_| ())).boxed();
+		let write = destroyed.clone().map(|_| Ok(())).boxed();
 		let request = self.sandboxes.entries[sandbox].request().clone();
 		let error = tg::Either::Left(error);
 		let write =
@@ -1066,12 +1091,11 @@ impl SchedulerState {
 			let scheduler = scheduler.clone();
 			self.operations.push(
 				async move {
-					let result = destroyed.await;
-					let dequeued = *result.as_ref().unwrap_or(&false);
+					let dequeued = destroyed.await;
 					scheduler.send_dequeue_responses(dequeue_requests, dequeued);
 					Operation::Finished {
 						context: "failed to record the ended sandbox",
-						result: result.map(|_| ()),
+						result: Ok(()),
 					}
 				}
 				.boxed(),
@@ -1133,13 +1157,13 @@ impl SchedulerState {
 		unanswered
 	}
 
-	/// Decide the unanswered offers to a runner that restarted, once its first connection has read the index. Forget a boot that the runner wrote, which the connection ended, because the runner had accepted it. Return a boot that the runner did not write to the queue, because this scheduler still holds it, so that it is offered again. The boots that the runner claimed are decided with the runner's report.
+	/// Act on the decisions of the unanswered offers to a runner that restarted, which its first connection made from the index. Return a boot that no runner wrote to the queue, because this scheduler still holds it, so that it is offered again. Forget a boot that the runner wrote, which the connection ended, because the runner had accepted it, and a boot that ended, which is never offered again, and remove it from this scheduler's saved queue. The boots that the runner claimed are decided with the runner's report.
 	pub(super) fn handle_unanswered_offers(
 		&mut self,
 		scheduler: &Scheduler,
 		runner: &tg::runner::Id,
 		unanswered: Vec<UnansweredOffer>,
-		written: &BTreeSet<tg::sandbox::Id>,
+		decided: &BTreeMap<tg::sandbox::Id, super::recovery::SavedBoot>,
 	) {
 		for offer in unanswered {
 			let Some(id) = &offer.offer else {
@@ -1161,18 +1185,25 @@ impl SchedulerState {
 				super::offer::subtract(&mut entry.reserved, reserved);
 			}
 
-			// Return a boot that the runner did not write to the queue.
-			if !written.contains(&offer.sandbox) {
+			// Return a boot that no runner wrote to the queue.
+			let decision = decided.get(&offer.sandbox);
+			if decision
+				.is_none_or(|decision| matches!(decision, super::recovery::SavedBoot::Unwritten))
+			{
 				self.requeue_unanswered_sandbox(scheduler, &offer.sandbox);
 				continue;
 			}
 
-			// Forget a boot that the runner wrote, and reply to the waiting dequeues that the sandbox was not dequeued.
+			// Forget a boot that the runner wrote or that ended, remove a boot that ended from the saved queue, and reply to the waiting dequeues that the sandbox was not dequeued.
 			let entry = self.sandboxes.entries.get_mut(&offer.sandbox).unwrap();
 			let dequeue_requests = std::mem::take(&mut entry.dequeue_requests);
+			let request = entry.request().clone();
 			self.remove_queued_sandbox(&offer.sandbox);
 			self.remove_sandbox(scheduler, &offer.sandbox);
 			self.stop_serving_sandbox_holder(&offer.sandbox);
+			if matches!(decision, Some(super::recovery::SavedBoot::Ended)) {
+				self.delete_saved_boot(scheduler, request);
+			}
 			scheduler.send_dequeue_responses(dequeue_requests, false);
 		}
 		self.queue.wake();
@@ -1254,11 +1285,16 @@ impl Scheduler {
 		};
 
 		// End the boots that the index records on a runner on its first connection after it starts, and that neither the runner reports nor this scheduler's queue has, and decide which of its directories the runner keeps. On a later connection, only decide which of its directories the runner keeps, and keep the directories of the destroying sandboxes, which this scheduler has the runner remove.
-		let mut written = BTreeSet::new();
+		let mut decided = BTreeMap::new();
 		let directories = request.directories.iter().cloned().collect::<BTreeSet<_>>();
 		let kept = if request.first {
-			// Get the unanswered offers whose boots the runner wrote to the index, which shows that the runner had accepted them, so that the end covers them.
-			written = self.get_written_offers(unanswered).await?;
+			// Decide the unanswered offers and the claimed boots from the index, and get the ones whose boots the runner wrote, which shows that the runner had accepted them, so that the end covers them.
+			decided = self.decide_unanswered_offers(unanswered).await?;
+			let written = decided
+				.iter()
+				.filter(|(_, decision)| decision.is_written())
+				.map(|(sandbox, _)| sandbox.clone())
+				.collect::<Vec<_>>();
 			let mut queued = queued.clone();
 			queued.retain(|sandbox| !written.contains(sandbox));
 
@@ -1277,7 +1313,7 @@ impl Scheduler {
 				queued,
 				runner: request.runner.clone(),
 				scheduler: Some(self.holder_sender.clone()),
-				written: written.iter().cloned().collect(),
+				written,
 			};
 			self.component
 				.end_runner_sandboxes(&self.server, &self.id, arg)
@@ -1309,10 +1345,10 @@ impl Scheduler {
 			scheduler: self.id.clone(),
 		};
 		let output = AddRunnerOutput {
+			decided,
 			lost,
 			output,
 			owner,
-			written,
 		};
 
 		Ok(output)
@@ -1374,11 +1410,11 @@ impl Scheduler {
 		Ok(lost)
 	}
 
-	/// Get the unanswered offers whose boots the runner wrote to the index, which the index shows with a write of the offered boot numbered at or above the number of the runner's first write, which the offer carries.
-	async fn get_written_offers(
+	/// Decide the unanswered offers to a runner that restarted and the boots that it claimed from the index.
+	async fn decide_unanswered_offers(
 		&self,
 		unanswered: &[UnansweredOffer],
-	) -> tg::Result<BTreeSet<tg::sandbox::Id>> {
+	) -> tg::Result<BTreeMap<tg::sandbox::Id, super::recovery::SavedBoot>> {
 		let ids = unanswered
 			.iter()
 			.map(|offer| offer.sandbox.clone())
@@ -1389,20 +1425,9 @@ impl Scheduler {
 			.try_get_sandboxes(&ids)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the offered sandboxes"))?;
-		let written = std::iter::zip(unanswered, indexed)
-			.filter(|(offer, indexed)| {
-				indexed.as_ref().is_some_and(|indexed| {
-					indexed.sequence >= tangram_index::sandbox::put::FIRST_HOLDER_WRITE
-						&& indexed
-							.data
-							.as_ref()
-							.is_some_and(|data| data.data.boot == offer.boot)
-				})
-			})
-			.map(|(offer, _)| offer.sandbox.clone())
-			.collect();
+		let decided = decide_unanswered_offers(unanswered, indexed);
 
-		Ok(written)
+		Ok(decided)
 	}
 
 	/// End the boots of a runner that this scheduler declared dead, and destroy the sandboxes of a deleted runner, which has no directories. The queued sandboxes are the ones whose current boot this scheduler holds, which the runner never held.
@@ -1541,7 +1566,7 @@ impl Component {
 				sandbox: &sandbox,
 				task: ended.as_ref(),
 			};
-			self.end_dead_runner_boot(server, arg).boxed().await?;
+			self.end_dead_runner_boot(server, arg).boxed().await;
 			if destroy
 				&& directories
 					.as_ref()
@@ -1563,12 +1588,12 @@ impl Component {
 		Ok(kept)
 	}
 
-	/// End a boot of a runner that this scheduler declared dead, which every end of a dead runner's boot by this scheduler goes through. Tell the scheduling task of the boot, so that it remembers the boot as ended. Write the end numbered zero, which leaves the sandbox stopped, records the runner as the sandbox's runner, and removes the boot from the scheduler's queue, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Then destroy a sandbox that cannot stay stopped with the destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at the boot or is destroying, so that a start that reserved the next boot wins. Return whether the destroy applied.
+	/// End a boot of a runner that this scheduler declared dead, which every end of a dead runner's boot by this scheduler goes through. Write the end numbered zero, which leaves the sandbox stopped, records the runner as the sandbox's runner, and removes the boot from the scheduler's queue, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Then destroy a sandbox that cannot stay stopped with the destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at the boot or is destroying, so that a start that reserved the next boot wins. Write each again until the index answers it, because the scheduler may remember the boot as ended and its runner then gives it up. Tell the scheduling task of the boot once the end applied, so that it remembers the boot as ended. Return whether the destroy applied.
 	pub(super) async fn end_dead_runner_boot(
 		&self,
 		server: &Server,
 		arg: EndDeadRunnerBootArg<'_>,
-	) -> tg::Result<bool> {
+	) -> bool {
 		let EndDeadRunnerBootArg {
 			boot,
 			destroy,
@@ -1578,8 +1603,29 @@ impl Component {
 			task,
 		} = arg;
 
-		// Remember the boot as ended.
-		if let Some(task) = task {
+		// End the boot.
+		let ended = loop {
+			let result = self
+				.end_runner_sandbox(
+					server,
+					sandbox,
+					Some(boot),
+					Some(runner),
+					Some(error.clone()),
+				)
+				.boxed()
+				.await;
+			match result {
+				Ok(ended) => break ended,
+				Err(error) => {
+					tracing::error!(error = %error.trace(), %sandbox, boot, %runner, "failed to end the boot of the dead runner");
+					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+				},
+			}
+		};
+
+		// Remember the boot as ended once the end applied.
+		if ended && let Some(task) = task {
 			let message = super::HolderMessage::Ended {
 				boot,
 				runner: runner.clone(),
@@ -1588,35 +1634,30 @@ impl Component {
 			task.send(message).ok();
 		}
 
-		// End the boot.
-		self.end_runner_sandbox(
-			server,
-			sandbox,
-			Some(boot),
-			Some(runner),
-			Some(error.clone()),
-		)
-		.boxed()
-		.await?;
-
 		// Destroy a sandbox that cannot stay stopped, and return whether the write destroyed it.
 		if !destroy {
-			return Ok(false);
+			return false;
 		}
-		let destroyed = self
-			.put_runner_sandbox_status(
-				server,
-				sandbox,
-				Some(boot),
-				None,
-				Some(error),
-				tg::sandbox::Status::Destroyed,
-			)
-			.boxed()
-			.await?
-			.is_some();
-
-		Ok(destroyed)
+		loop {
+			let result = self
+				.put_runner_sandbox_status(
+					server,
+					sandbox,
+					Some(boot),
+					None,
+					Some(error.clone()),
+					tg::sandbox::Status::Destroyed,
+				)
+				.boxed()
+				.await;
+			match result {
+				Ok(destroyed) => break destroyed.is_some(),
+				Err(error) => {
+					tracing::error!(error = %error.trace(), %sandbox, boot, %runner, "failed to destroy the sandbox of the dead runner");
+					tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+				},
+			}
+		}
 	}
 
 	/// Get the reported directories that the runner keeps, which are the ones of the sandboxes that the index records as stopped on the runner, whose boot the scheduler holds, or that the scheduler's saved queue has, and, if `destroying` is set, the ones of the sandboxes that the index records as destroying on the runner, whose directories this scheduler has the runner remove. The runner removes every other directory.
@@ -1709,7 +1750,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// End the running boot of a runner's sandbox with the end numbered zero, which leaves the sandbox stopped, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Record the runner, if one is given, as the sandbox's runner, because the runner may hold the boot without having written it. Leave a sandbox that moved past the boot that the caller read.
+	/// End the running boot of a runner's sandbox with the end numbered zero, which leaves the sandbox stopped, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Record the runner, if one is given, as the sandbox's runner, because the runner may hold the boot without having written it. Leave a sandbox that moved past the boot that the caller read. Return whether the end applied.
 	pub(crate) async fn end_runner_sandbox(
 		&self,
 		server: &Server,
@@ -1717,7 +1758,7 @@ impl Component {
 		boot: Option<u64>,
 		runner: Option<&tg::runner::Id>,
 		error: Option<tg::error::Data>,
-	) -> tg::Result<()> {
+	) -> tg::Result<bool> {
 		let ended = self
 			.put_runner_sandbox_status(
 				server,
@@ -1735,7 +1776,7 @@ impl Component {
 				.await;
 		}
 
-		Ok(())
+		Ok(ended.is_some())
 	}
 
 	/// Write the end of a runner's sandbox's boot numbered zero. A stop ends a running boot. A destroy applies only while the sandbox is stopped at its boot, because a stopped sandbox has no holder and the index decides its destroy, or while it is destroying. Return the boot that the write ended, if the index applied it.

@@ -38,6 +38,34 @@ pub(super) enum Outcome {
 	Unanswered(tg::Error),
 }
 
+/// What this scheduler does with a runner's answer to the current offer of a boot.
+pub(super) enum Decision {
+	/// Record that the runner holds the boot.
+	Accept,
+
+	/// Forget the boot as the end of a boot that the runner held, and offer it to no other runner.
+	End,
+
+	/// Return the boot to the queue, and count the failure if the runner failed to create the sandbox.
+	Requeue { failure: Option<tg::Error> },
+
+	/// Send the offer again, because only the runner's answer shows whether the runner holds the boot.
+	Resend { error: tg::Error },
+}
+
+/// Decide what this scheduler does with a runner's answer to the current offer of a boot. Only a runner's no and its failure to create the sandbox return the boot to the queue, because a runner that answers that the boot ended held it.
+pub(super) fn decide_offer_outcome(outcome: Outcome) -> Decision {
+	match outcome {
+		Outcome::Accepted => Decision::Accept,
+		Outcome::Declined => Decision::Requeue { failure: None },
+		Outcome::Ended => Decision::End,
+		Outcome::Failed(error) => Decision::Requeue {
+			failure: Some(error),
+		},
+		Outcome::Unanswered(error) => Decision::Resend { error },
+	}
+}
+
 impl SchedulerState {
 	/// Record a runner's yes to a boot, which is the answer to an offer or the report of the boot to a restarted scheduler, and write the handoff. Every yes goes through this function, so that no yes is recorded without the handoff. The runner holds the boot from its yes, the sandbox leaves the queue, and the waiting enqueues and dequeues are answered. The scheduler keeps the sandbox's request until its control connection is established.
 	pub(super) fn accept_sandbox(
@@ -127,9 +155,9 @@ impl SchedulerState {
 		}
 		let runner = placement.runner().clone();
 		let sandbox = self.sandboxes.entries.get_mut(id).unwrap();
-		let failure = match outcome {
+		let failure = match decide_offer_outcome(outcome) {
 			// Record that the runner holds the sandbox.
-			Outcome::Accepted => {
+			Decision::Accept => {
 				let connected = matches!(
 					sandbox.state,
 					State::Offered {
@@ -147,23 +175,24 @@ impl SchedulerState {
 				return;
 			},
 
-			Outcome::Declined => None,
-
 			// Forget a boot that the runner held and that ended, as the end of a boot that the runner held, and offer it to no other runner.
-			Outcome::Ended => {
+			Decision::End => {
 				tracing::info!(sandbox = %id, runner = %runner.id, "the runner answered that the boot ended");
 				self.end_held_sandbox(scheduler, id, Some(placement.clone()));
 				return;
 			},
 
-			Outcome::Failed(error) => {
-				tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner.id, "the runner failed to create the sandbox");
-				sandbox.failures += 1;
-				Some(error)
+			// Count the failure of a runner that failed to create the sandbox.
+			Decision::Requeue { failure } => {
+				if let Some(error) = &failure {
+					tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner.id, "the runner failed to create the sandbox");
+					sandbox.failures += 1;
+				}
+				failure
 			},
 
-			// Send the offer again, because only the runner's answer shows whether the runner holds the sandbox, and keep the reservation and the waiting dequeues until it answers.
-			Outcome::Unanswered(error) => {
+			// Send the offer again, and keep the reservation and the waiting dequeues until the runner answers.
+			Decision::Resend { error } => {
 				tracing::warn!(error = %error.trace(), sandbox = %id, runner = %runner.id, "the runner did not answer the offer of the sandbox");
 				self.retry_sandbox_offer(scheduler, id);
 				return;
