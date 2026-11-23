@@ -20,7 +20,8 @@ impl Component {
 		id: &tg::sandbox::Id,
 		location: Option<&tg::location::Arg>,
 	) -> Option<Runner> {
-		let sandbox = self.state.sandboxes().get_by_id(id)?;
+		let sandbox = self.state.try_get_held_sandbox(id)?;
+
 		// Regions guide subsequent routing, but do not constrain a runner state match.
 		let location_arg = if let Some(location) = location {
 			let components = location

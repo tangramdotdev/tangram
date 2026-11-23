@@ -59,6 +59,7 @@ fn the_permissions_of_a_queued_record_apply_after_a_child_link() {
 	let mut queued = arg(&id, data(&sandbox, tg::process::Status::Queued));
 	queued.permissions = vec![permission(&id, 1)];
 	let mut link = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	link.boot = None;
 	link.data = None;
 	link.parent = Some(parent.clone());
 	link.principal = tg::Principal::Process(parent);
@@ -160,14 +161,13 @@ fn the_end_of_a_boot_and_the_writes_of_its_processes_keep_the_first_end_in_every
 	finished_data.log = Some(tg::Referent::with_node(tg::blob::Id::new(b"log")));
 	finished_data.output = Some(tg::Referent::with_node(tg::value::Data::Null));
 
-	// The second process's first write carries no boot, such as a write of a parent by its child's spawn, and the runner's start sets its boot.
-	let mut unbooted = arg(&second, data(&sandbox_id, tg::process::Status::Started));
-	unbooted.principal = tg::Principal::Process(second.clone());
-	unbooted.touched_at = 40;
+	// The second process is started by the runner, and written again by its holder for its child's spawn.
 	let mut booted = arg(&second, data(&sandbox_id, tg::process::Status::Started));
-	booted.boot = Some(0);
 	booted.sequence = 1;
-	booted.touched_at = 50;
+	booted.touched_at = 40;
+	let mut spawned = arg(&second, data(&sandbox_id, tg::process::Status::Started));
+	spawned.sequence = 2;
+	spawned.touched_at = 50;
 
 	// The sandbox's scheduler ends the boot with the number zero, and its holder ends it with the number three.
 	let mut zero = sandbox_arg(&sandbox_id, 0);
@@ -179,8 +179,8 @@ fn the_end_of_a_boot_and_the_writes_of_its_processes_keep_the_first_end_in_every
 		(0, Write::Process(queued)),
 		(0, Write::Process(started)),
 		(0, Write::Process(finished)),
-		(1, Write::Process(unbooted)),
 		(1, Write::Process(booted)),
+		(1, Write::Process(spawned)),
 		(2, Write::Sandbox(zero)),
 		(2, Write::Sandbox(holder)),
 	];
@@ -337,6 +337,7 @@ fn a_write_that_changes_the_sandbox_of_a_process_is_rejected() {
 	let mut started = arg(&id, data(&other, tg::process::Status::Started));
 	started.sequence = 1;
 	let mut link = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	link.boot = None;
 	link.data = None;
 	link.sandbox = Some(other);
 	let mut state = State::default();
@@ -344,6 +345,36 @@ fn a_write_that_changes_the_sandbox_of_a_process_is_rejected() {
 	apply(&mut state, 1, &started, None);
 	apply(&mut state, 2, &link, None);
 	assert_eq!(state.rejected, BTreeSet::from([1, 2]));
+}
+
+#[test]
+fn an_unfinished_write_without_a_boot_or_a_sandbox_is_rejected() {
+	let id = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let mut unbooted = arg(&id, data(&sandbox, tg::process::Status::Started));
+	unbooted.boot = None;
+	let mut unsandboxed = arg(&id, data(&sandbox, tg::process::Status::Started));
+	unsandboxed.data.as_mut().unwrap().sandbox = None;
+	unsandboxed.sandbox = Some(sandbox.clone());
+	let mut finished = arg(&id, data(&sandbox, tg::process::Status::Finished));
+	finished.boot = None;
+	let mut state = State::default();
+	apply(&mut state, 0, &unbooted, None);
+	apply(&mut state, 1, &unsandboxed, None);
+	apply(&mut state, 2, &finished, None);
+	assert_eq!(state.rejected, BTreeSet::from([0, 1]));
+}
+
+#[test]
+fn a_write_with_a_boot_and_without_data_is_rejected() {
+	let id = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let mut link = arg(&id, data(&sandbox, tg::process::Status::Started));
+	link.data = None;
+	link.sandbox = Some(sandbox);
+	let mut state = State::default();
+	apply(&mut state, 0, &link, None);
+	assert_eq!(state.rejected, BTreeSet::from([0]));
 }
 
 /// Apply the writes in every order with the sandbox's record, and assert that every order leaves the same records and rejects the same writes. Return the records of the last order.
@@ -430,7 +461,7 @@ fn outcome(
 fn arg(id: &tg::process::Id, data: tg::process::Data) -> Arg {
 	Arg {
 		account: None,
-		boot: None,
+		boot: Some(0),
 		cached: false,
 		captures: crate::permission::capture::Captures::default(),
 		children: None,

@@ -46,7 +46,7 @@ fn process_arg(
 		output: None,
 		owner: tg::Principal::Root,
 		retry: false,
-		sandbox: None,
+		sandbox: Some("sbx_0006gwnhtrsdvah1bjsskmh8bczm".parse().unwrap()),
 		started_at: Some(0),
 		status,
 		stderr: tg::process::Stdio::default(),
@@ -56,7 +56,7 @@ fn process_arg(
 	};
 	tangram_index::process::put::Arg {
 		account: None,
-		boot: None,
+		boot: (!finished).then_some(0),
 		cached: false,
 		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
@@ -690,6 +690,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 
 	// Permission spawn updates append once in indexed order without finalizing the list.
 	let mut first_membership = process_arg(first.clone(), tg::process::Status::Started);
+	first_membership.boot = None;
 	first_membership.data = None;
 	first_membership.sandbox = Some(sandbox.clone());
 	let mut second_membership = first_membership.clone();
@@ -811,6 +812,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 
 	// A delayed spawn update must not change the finalized process list.
 	let mut membership = process_arg(tg::process::Id::new(), tg::process::Status::Started);
+	membership.boot = None;
 	membership.data = None;
 	membership.sandbox = Some(sandbox.clone());
 	let arg = tangram_index::write::Arg {
@@ -966,6 +968,7 @@ async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
 		.await
 		.unwrap();
 	let mut membership = process_arg.clone();
+	membership.boot = None;
 	membership.data = None;
 	membership.id = process.clone();
 	membership.sandbox = Some(sandbox.clone());
@@ -1130,6 +1133,7 @@ async fn finished_process_data_is_immutable_for_every_principal() {
 		changed.data.as_mut().unwrap().exit = Some(1);
 		assert_eq!(put_process(&index, changed).await.is_ok(), own);
 		let mut changed = arg.clone();
+		changed.boot = Some(0);
 		changed.data.as_mut().unwrap().status = tg::process::Status::Started;
 		assert_eq!(put_process(&index, changed).await.is_ok(), own);
 	}

@@ -44,9 +44,6 @@ pub struct Component(Arc<State>);
 pub struct State {
 	pub control: tokio::sync::watch::Sender<Option<RunnerSender>>,
 
-	/// The boots whose tasks run, with the processes that each accepted, which the runner reports when it connects to its scheduler.
-	pub(crate) held: dashmap::DashMap<tg::sandbox::Id, crate::sandbox::Held, tg::id::BuildHasher>,
-
 	/// The replies to recent offers of boots, by request ID, so that an offer that the scheduler sends again is answered with its reply, even after the boot that it created ended. The replies outlast the scheduler's ttl of the runner, after which the scheduler no longer sends an offer again.
 	pub offers: tangram_server_core::holder::Replies<tg::runner::control::ClientMessage>,
 
@@ -104,10 +101,8 @@ impl Component {
 			arg.config.scheduler.runner_time_to_live,
 			arg.config.control.request_timeout,
 		);
-		let held = dashmap::DashMap::default();
 		let state = State {
 			control,
-			held,
 			offers,
 
 			#[cfg(target_os = "linux")]
@@ -490,11 +485,10 @@ impl Component {
 
 		let control_stopper = Stopper::new();
 		let mut first = true;
+		let mut drain = None::<BoxFuture<'_, ()>>;
 		let mut drained = false;
 		let mut retries = None::<BoxStream<'static, ()>>;
-		loop {
-			let stop_future = stopper.wait();
-			let stop_future = pin!(stop_future);
+		'connections: loop {
 			let started = tokio::time::Instant::now();
 			let run_future = self.runner_task_inner(
 				session,
@@ -505,22 +499,30 @@ impl Component {
 				control_stopper.clone(),
 			);
 			let mut run_future = pin!(run_future);
-			let (result, _) = match future::select(stop_future, run_future.as_mut()).await {
-				future::Either::Left(((), _)) => {
-					// Drain the sandbox tasks while the control stream keeps running, and then end the control stream with a message that tells the server that the runner shut down gracefully and holds nothing, so that the server removes the runner at once. A runner that terminates leaves its removal to its ttl and its next connection.
-					let shutdown = session
-						.server
-						.shutdown
-						.borrow()
-						.expect("the shutdown mode was not set");
-					if matches!(shutdown, Shutdown::Interrupt) {
-						let drain_future = self.shutdown_sandbox_tasks(shutdown);
-						let drain_future = pin!(drain_future);
-						if let future::Either::Right((_, drain_future)) =
-							future::select(drain_future, run_future).await
-						{
-							drain_future.await;
-						}
+
+			// Run the connection until it ends. Once the runner stops gracefully, drain the sandbox tasks while the connection keeps running, and then end the control stream with a message that tells the server that the runner shut down gracefully and holds nothing, so that the server removes the runner at once. A runner that terminates leaves its removal to its ttl and its next connection.
+			let result = loop {
+				let Some(drain_future) = &mut drain else {
+					let stop_future = pin!(stopper.wait());
+					match future::select(stop_future, run_future.as_mut()).await {
+						future::Either::Left(((), _)) => {
+							let shutdown = session
+								.server
+								.shutdown
+								.borrow()
+								.expect("the shutdown mode was not set");
+							if !matches!(shutdown, Shutdown::Interrupt) {
+								control_stopper.stop();
+								break 'connections;
+							}
+							drain = Some(self.shutdown_sandbox_tasks(shutdown).boxed());
+							continue;
+						},
+						future::Either::Right((output, _)) => break output,
+					}
+				};
+				match future::select(drain_future, run_future.as_mut()).await {
+					future::Either::Left(((), _)) => {
 						drained = true;
 						if let Some(sender) = self.control.borrow().clone() {
 							let message = tg::runner::control::ClientMessage::Notification(
@@ -528,11 +530,11 @@ impl Component {
 							);
 							sender.try_send_untracked(message);
 						}
-					}
-					control_stopper.stop();
-					break;
-				},
-				future::Either::Right(output) => output,
+						control_stopper.stop();
+						break 'connections;
+					},
+					future::Either::Right((output, _)) => break output,
+				}
 			};
 			session.server.components.runner.state().set_scheduler(None);
 
@@ -572,13 +574,20 @@ impl Component {
 						.boxed()
 				},
 			};
-			let stop_future = stopper.wait();
-			let stop_future = pin!(stop_future);
-			if matches!(
-				future::select(stop_future, delay).await,
-				future::Either::Left(_)
-			) {
-				break;
+
+			// Wait for the delay before the next connection. Connect at once if the runner stops during the delay, so that a graceful drain runs while connected, and end once a drain finishes during the delay.
+			match &mut drain {
+				None => {
+					let stop_future = pin!(stopper.wait());
+					future::select(stop_future, delay).await;
+				},
+				Some(drain_future) => {
+					if let future::Either::Left(_) = future::select(drain_future, delay).await {
+						drained = true;
+						control_stopper.stop();
+						break;
+					}
+				},
 			}
 		}
 
@@ -710,7 +719,7 @@ impl Component {
 			.into_iter()
 			.filter(|sandbox| {
 				self.state.sandboxes.get_by_id(sandbox).is_none()
-					&& !self.state.starting.contains_key(sandbox)
+					&& self.state.boots.latest(sandbox).is_none()
 			})
 			.collect::<Vec<_>>();
 
@@ -805,21 +814,18 @@ impl Component {
 		Ok(())
 	}
 
-	/// Give up each reported boot that the scheduler ended because it declared the runner dead, without writing anything more for it. Stop a boot whose state is stored locally, keeping its directory if the scheduler keeps it, and destroy it otherwise, which removes its directory. Mark a boot whose task runs, so that a boot whose state is not stored yet gives itself up in the same way once it is, and starts no process.
+	/// Give up each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the boot, keeping its directory if the scheduler keeps it, or destroys it otherwise, which removes its directory, and a boot whose state is not stored yet starts no process.
 	fn yield_runner_sandboxes(&self, header: &tg::runner::control::Header) {
 		for ended in &header.ended {
-			let yielded = if header.kept.contains(&ended.id) {
+			let kind = if header.kept.contains(&ended.id) {
 				tangram_server_runner_core::sandbox::Yield::Stop
 			} else {
 				tangram_server_runner_core::sandbox::Yield::Destroy
 			};
-			tracing::warn!(sandbox = %ended.id, boot = ended.boot, "giving up a sandbox whose boot the scheduler ended");
-			if let Some(mut starting) = self.state.starting.get_mut(&ended.id)
-				&& starting.boot == ended.boot
-			{
-				starting.yielded = Some(yielded);
+			if let Some(boot) = self.state.boots.get(&ended.id, ended.boot) {
+				tracing::warn!(sandbox = %ended.id, boot = ended.boot, "giving up a sandbox whose boot the scheduler ended");
+				boot.give_up(kind);
 			}
-			self.yield_sandbox_boot(&ended.id, ended.boot, yielded);
 		}
 	}
 
@@ -864,7 +870,7 @@ impl Component {
 		let mut control = self.control.subscribe();
 		loop {
 			control.mark_unchanged();
-			let error = match self.report_with_runner_control(arg.clone(), stopper).await {
+			let error = match self.report_with_runner_control(arg.clone()).await {
 				Ok(output) => {
 					output
 						.try_unwrap_add_sandbox()
@@ -888,11 +894,10 @@ impl Component {
 	pub(crate) async fn report_ended_sandbox_with_runner_control(
 		&self,
 		arg: tg::runner::control::EndSandboxClientRequestArg,
-		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let sandbox = arg.sandbox.clone();
 		let arg = tg::runner::control::ClientRequestArg::EndSandbox(arg);
-		self.report_with_runner_control(arg, stopper)
+		self.report_with_runner_control(arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, %sandbox, "failed to report the end of the sandbox"),
@@ -911,7 +916,6 @@ impl Component {
 		processes: &[tg::runner::control::Process],
 		error: tg::Either<tg::error::Data, tg::error::Id>,
 		sequence: u64,
-		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let arg = tg::runner::control::ClientRequestArg::FinishProcesses(
 			tg::runner::control::FinishProcessesClientRequestArg {
@@ -922,7 +926,7 @@ impl Component {
 				sequence,
 			},
 		);
-		self.report_with_runner_control(arg, stopper)
+		self.report_with_runner_control(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to report the finished processes"))?
 			.try_unwrap_finish_processes()
@@ -931,11 +935,10 @@ impl Component {
 		Ok(())
 	}
 
-	/// Send a report through the runner control stream, with one request ID that every copy of the report carries, and return the server's response, waiting for a runner control stream and sending the report again after the stream is lost, or after a backoff or a new stream if the server asks for the report again because it cannot decide it yet. Send the report on a stream that is connected even after the stopper is stopped, so that a report made during a graceful drain precedes the runner's `End`, and give up only if the stopper is stopped while no stream is connected. An error in the response is the server's refusal, after which the report is not sent again.
+	/// Send a report through the runner control stream, with one request ID that every copy of the report carries, and return the server's response, waiting for a runner control stream and sending the report again after the stream is lost, or after a backoff or a new stream if the server asks for the report again because it cannot decide it yet. Send the report until a server accepts it or refuses it, also during a graceful drain, which keeps the runner control stream connected until the runner holds no boot. An error in the response is the server's refusal, after which the report is not sent again.
 	async fn report_with_runner_control(
 		&self,
 		arg: tg::runner::control::ClientRequestArg,
-		stopper: &Stopper,
 	) -> tg::Result<tg::runner::control::ServerResponseOutput> {
 		let mut control = self.control.subscribe();
 		let retry = tangram_futures::retry::Options::default();
@@ -943,16 +946,12 @@ impl Component {
 		let id = tangram_server_core::control::id();
 		loop {
 			// Wait for a runner control stream.
-			let sender = tokio::select! {
-				biased;
-				result = control.wait_for(Option::is_some) => result
-					.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?
-					.clone()
-					.unwrap(),
-				() = stopper.wait() => {
-					return Err(tg::error!("the runner stopped without a runner control stream"));
-				},
-			};
+			let sender = control
+				.wait_for(Option::is_some)
+				.await
+				.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?
+				.clone()
+				.unwrap();
 
 			// Send the report, and return the response.
 			let request = tg::runner::control::ClientRequest {
@@ -1002,13 +1001,10 @@ impl Component {
 			// Wait for the stream to change after it is lost.
 			tracing::warn!("failed to send the report through the runner control stream");
 			control.mark_unchanged();
-			tokio::select! {
-				biased;
-				result = control.changed() => result.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?,
-				() = stopper.wait() => {
-					return Err(tg::error!("the runner stopped without a runner control stream"));
-				},
-			}
+			control
+				.changed()
+				.await
+				.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?;
 		}
 	}
 
@@ -1175,30 +1171,21 @@ impl Component {
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
 
-		// Report every sandbox that is running or starting, with the processes that its scheduler offered into the boot and that the runner holds, and the proof for a boot on the shortcut path, so that a restarted scheduler can tell which requests it already placed and cancel the boots and processes that the index does not have.
-		let mut sandboxes = self
+		// Report the latest boot of each sandbox that the runner holds and did not give up, with the processes that its scheduler offered into the boot and that did not finish, and the proof for a boot on the shortcut path, so that a restarted scheduler can tell which requests it already placed and cancel the boots and processes that the index does not have.
+		let sandboxes = self
 			.state
-			.sandboxes
-			.iter()
-			.filter(|sandbox| !sandbox.status.is_stopped_or_destroyed())
-			.map(|sandbox| (sandbox.id.clone(), sandbox.boot))
-			.collect::<BTreeMap<_, _>>();
-		for entry in &self.state.starting {
-			sandboxes
-				.entry(entry.key().clone())
-				.or_insert(entry.value().boot);
-		}
-		let sandboxes = sandboxes
+			.boots
+			.list()
 			.into_iter()
-			.map(|(id, boot)| {
-				let (processes, proof) = self
-					.held
-					.get(&id)
-					.filter(|held| held.boot == boot)
-					.map_or_default(|held| held.report());
+			.filter(|boot| boot.given_up().is_none())
+			.map(|boot| (boot.sandbox.clone(), boot))
+			.collect::<BTreeMap<_, _>>()
+			.into_values()
+			.map(|boot| {
+				let (processes, proof) = boot.report();
 				tg::runner::control::ArgSandbox {
-					boot,
-					id,
+					boot: boot.boot,
+					id: boot.sandbox.clone(),
 					processes,
 					proof,
 				}
@@ -1326,22 +1313,21 @@ impl Component {
 
 			// Join a boot that this runner holds or ended itself, whose end it reports, because a scheduler can send a boot again after it restarts. Refuse a boot that this runner gave up or that a later boot of the sandbox replaced, which the runner never runs again, so that the scheduler does not record that the runner holds it.
 			let state = session.server.components.runner.state();
-			let starting = state
-				.starting
-				.get(&request.sandbox)
-				.map(|starting| (starting.boot, starting.yielded.is_some()));
-			let stored = state
-				.sandboxes
-				.get_by_id(&request.sandbox)
-				.map(|sandbox| (sandbox.boot, sandbox.yielded));
-			let joined = [starting, stored]
-				.into_iter()
+			let boots = [
+				state.boots.get(&request.sandbox, request.boot),
+				state.boots.latest(&request.sandbox),
+				state
+					.sandboxes
+					.get_by_id(&request.sandbox)
+					.map(|sandbox| sandbox.boot.clone()),
+			];
+			let joined = boots
+				.iter()
 				.flatten()
-				.any(|(boot, yielded)| boot == request.boot && !yielded);
-			let ended = [starting, stored]
-				.into_iter()
-				.flatten()
-				.any(|(boot, yielded)| boot > request.boot || (boot == request.boot && yielded));
+				.any(|boot| boot.boot == request.boot && boot.given_up().is_none());
+			let ended = boots.iter().flatten().any(|boot| {
+				boot.boot > request.boot || (boot.boot == request.boot && boot.given_up().is_some())
+			});
 			if ended && !joined {
 				let message = Self::create_runner_control_response(
 					id.clone(),
@@ -1438,11 +1424,6 @@ impl Component {
 			};
 
 			// Spawn the sandbox task.
-			let starting = tangram_server_runner_core::sandbox::Starting {
-				boot: request.boot,
-				yielded: None,
-			};
-			state.starting.insert(sandbox.clone(), starting);
 			let _ = self.spawn_sandbox_task(
 				&session.server,
 				tangram_server_runner_core::sandbox::SpawnSandboxTaskArg {

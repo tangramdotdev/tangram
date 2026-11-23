@@ -6,10 +6,12 @@ use {
 };
 
 fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::process::put::Arg {
+	// Give unfinished data a boot, which the index requires of every unfinished process.
+	let boot = (!data.status.is_finished()).then_some(0);
 	let command = tg::command::Id::new(b"command");
 	tangram_index::process::put::Arg {
 		account: None,
-		boot: None,
+		boot,
 		cached: false,
 		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
@@ -34,6 +36,11 @@ fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::
 	}
 }
 
+/// The sandbox of the processes that the tests write.
+fn sandbox_id() -> tg::sandbox::Id {
+	"sbx_0006gwnhtrsdvah1bjsskmh8bczm".parse().unwrap()
+}
+
 fn process_data(status: tg::process::Status, host: String) -> tg::process::Data {
 	let finished = status.is_finished();
 	tg::process::Data {
@@ -52,7 +59,7 @@ fn process_data(status: tg::process::Status, host: String) -> tg::process::Data 
 		output: None,
 		owner: tg::Principal::Root,
 		retry: false,
-		sandbox: None,
+		sandbox: Some(sandbox_id()),
 		started_at: Some(0),
 		status,
 		stderr: tg::process::Stdio::default(),

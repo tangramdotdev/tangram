@@ -26,21 +26,23 @@ pub(super) type ProcessControlSender = tg::process::control::Sender;
 pub(super) type ProcessControlResponseReceiver = tg::process::control::Response;
 
 pub(super) struct RunProcessControlTaskArg {
+	/// The boot of the process, which finishes the process as failed if no server accepts its finish.
+	pub boot: std::sync::Arc<tangram_server_runner_core::sandbox::Boot>,
+
 	pub control: tg::process::control::Connection,
 	pub exited: Stopper,
 	pub finish: tokio::sync::oneshot::Receiver<ProcessControlResponseReceiver>,
-	pub finished: crate::sandbox::Unaccepted,
+	pub finished: tangram_server_runner_core::sandbox::Unaccepted,
 	pub local: tokio::sync::mpsc::Receiver<local::Message>,
 	pub location: tg::Location,
 	pub outcome_sync: tokio::sync::oneshot::Receiver<()>,
 
-	/// The process, which the control task finishes as failed through its spawner if no server accepts its finish.
+	/// The process, which the control task finishes as failed through its boot if no server accepts its finish.
 	pub process: tg::runner::control::Process,
 
 	pub retention_stopper: Stopper,
 	pub sandbox: tangram_sandbox::Sandbox,
 	pub sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
-	pub spawner: crate::sandbox::Spawner,
 	pub stderr: tg::process::Stdio,
 	pub stderr_buffered: tokio::sync::oneshot::Sender<tg::Result<()>>,
 	pub stderr_progress: Option<BoxStream<'static, tg::Result<Bytes>>>,
@@ -194,6 +196,7 @@ impl Component {
 		arg: RunProcessControlTaskArg,
 	) -> tg::Result<()> {
 		let RunProcessControlTaskArg {
+			boot,
 			control,
 			exited,
 			finish,
@@ -205,7 +208,6 @@ impl Component {
 			retention_stopper,
 			sandbox,
 			sandbox_process,
-			spawner,
 			stderr,
 			stderr_buffered,
 			stderr_progress,
@@ -283,7 +285,7 @@ impl Component {
 			},
 		);
 
-		// Wait for a server to accept the process's finish. If no server accepts it, finish the process as failed through its spawner, whose finish counts as unaccepted until a server accepts it, so that the end of the boot still waits for a finish of the process.
+		// Wait for a server to accept the process's finish. If no server accepts it, finish the process as failed through its boot, whose finish counts as unaccepted until a server accepts it, so that the end of the boot still waits for a finish of the process.
 		let result = async {
 			let receiver = finish.await.map_err(|_| {
 				tg::error!("failed to receive the process finish response receiver")
@@ -301,7 +303,7 @@ impl Component {
 		}
 		.await;
 		if let Err(error) = result {
-			self.finish_accepted_process(session, process, spawner, &error);
+			self.finish_accepted_process(session, &boot, process, &error);
 			drop(finished);
 			return Err(error);
 		}
@@ -474,41 +476,32 @@ impl Component {
 							sender.send(response).await?;
 						},
 						tg::process::control::ServerRequestArg::Finish(finish) => {
-							let result = (|| match &session.context.principal {
-								tg::Principal::Process(process_id) => {
-									let sandbox = session
+							// Reply that the runner does not hold the process if the runner has released it or gave up its boot.
+							let result = match &session.context.principal {
+								tg::Principal::Process(process) => {
+									let finished = session
 										.server
 										.components
 										.runner
 										.state()
-										.try_get_process_sandbox(process_id)
-										.ok_or_else(
-											|| tg::error!(%process_id, "failed to find the process sandbox"),
-										)?;
-									let sandbox = session
-										.server
-										.components
-										.runner
-										.state()
-										.sandboxes
-										.get_by_id(&sandbox)
-										.ok_or_else(
-											|| tg::error!(%process_id, "failed to find the sandbox"),
-										)?;
-									let mut process =
-										sandbox.processes.get_mut(process_id).ok_or_else(
-											|| tg::error!(%process_id, "failed to find the process"),
-										)?;
-									if !process.data.status.is_finished() {
-										process.finish.get_or_insert(finish);
-										process.stopper.stop();
+										.try_update_process(process, |process| {
+											if !process.data.status.is_finished() {
+												process.finish.get_or_insert(finish);
+												process.stopper.stop();
+											}
+										});
+									if finished.is_none() {
+										let response =
+											Self::process_control_not_holder_response(request_id);
+										sender.send(response).await?;
+										continue;
 									}
 									Ok(tg::process::control::ClientResponseOutput::Finish(
 										tg::process::control::FinishClientResponseOutput {},
 									))
 								},
 								_ => Err(tg::error!("expected a process principal")),
-							})();
+							};
 							let response = Self::process_control_response(request_id, result);
 							sender.send(response).await?;
 						},
@@ -542,17 +535,29 @@ impl Component {
 							sender.send(response).await?;
 						},
 						tg::process::control::ServerRequestArg::GetChildren(arg) => {
+							// Reply that the runner does not hold the process if the runner has released it or gave up its boot.
 							let result = match &session.context.principal {
-								tg::Principal::Process(process) => session
-									.server
-									.components
-									.runner
-									.state()
-									.try_get_process_children(process, arg.position, arg.length)
-									.map(tg::process::control::ClientResponseOutput::GetChildren)
-									.ok_or_else(
-										|| tg::error!(%process, "failed to find the process"),
-									),
+								tg::Principal::Process(process) => {
+									let children = session
+										.server
+										.components
+										.runner
+										.state()
+										.try_get_process_children(
+											process,
+											arg.position,
+											arg.length,
+										);
+									let Some(children) = children else {
+										let response =
+											Self::process_control_not_holder_response(request_id);
+										sender.send(response).await?;
+										continue;
+									};
+									Ok(tg::process::control::ClientResponseOutput::GetChildren(
+										children,
+									))
+								},
 								_ => Err(tg::error!("expected a process principal")),
 							};
 							let response = Self::process_control_response(request_id, result);

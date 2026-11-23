@@ -10,9 +10,6 @@ use {
 	tangram_server_core::{Session, control::accept::Path},
 };
 
-/// The number of a runner's first write of a boot, which the offer carries and which follows every write of the scheduler that the runner's writes may meet. The scheduler numbers its writes of a queued boot zero, and its end of a queued boot that it holds one, after which it offers the boot to no runner.
-pub(super) const FIRST_RUNNER_WRITE: u64 = 1;
-
 pub(super) struct OfferArg<'a> {
 	pub(super) capacity: tg::runner::Capacity,
 	pub(super) lender: Option<tg::sandbox::Id>,
@@ -517,7 +514,7 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 			parent: request.parent.clone(),
 			process: request.process.clone(),
 			sandbox: request.sandbox.clone(),
-			sequence: FIRST_RUNNER_WRITE,
+			sequence: tangram_index::sandbox::put::FIRST_HOLDER_WRITE,
 			token: request.token.clone(),
 		},
 	);

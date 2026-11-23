@@ -156,6 +156,20 @@ impl Arg {
 		{
 			return Err(tg::error!("expected a finished process"));
 		}
+
+		// Require the boot and the sandbox of unfinished data, so that every unfinished record is listed under its boot, whose end fails it, and require data with a boot, so that a boot is set only together with data that the end of the boot can fail.
+		if let Some(data) = &self.data
+			&& !data.status.is_finished()
+			&& (self.boot.is_none() || data.sandbox.is_none())
+		{
+			return Err(tg::error!(
+				id = %self.id,
+				"expected the boot and the sandbox of an unfinished process"
+			));
+		}
+		if self.boot.is_some() && self.data.is_none() {
+			return Err(tg::error!(id = %self.id, "expected the data of a process with a boot"));
+		}
 		let Some(children) = &self.children else {
 			return Ok(());
 		};
@@ -179,14 +193,9 @@ impl Arg {
 			})
 	}
 
-	/// Whether the end of the process's boot applies to the write, which it does if the index has no data for the process, or if the write first sets the boot of an unfinished record, because the end of the boot did not find the record under its boot.
-	fn checks_end(&self, existing: Option<&super::Process>) -> bool {
-		existing.is_none_or(|existing| {
-			existing.status.is_none()
-				|| (existing.boot.is_none()
-					&& self.boot.is_some()
-					&& existing.status.is_some_and(|status| !status.is_finished()))
-		})
+	/// Whether the end of the process's boot applies to the write, which it does if the index has no data for the process. An unfinished record always has its boot, so the end of its boot by the sandbox's scheduler found it under its boot and failed it in the same transaction.
+	fn checks_end(existing: Option<&super::Process>) -> bool {
+		existing.is_none_or(|existing| existing.status.is_none())
 	}
 
 	/// Whether the merge compares the arg's children with the existing children, which the index reads for it.
@@ -198,19 +207,15 @@ impl Arg {
 			&& self.children.is_some()
 	}
 
-	/// The sandbox whose record the merge reads, which is the sandbox of a write with data and a boot that the end of the boot applies to. A process whose unfinished record already has its boot needs no read, because the end of its boot by the sandbox's scheduler failed it in the same transaction, and its holder writes nothing at or above its own end.
+	/// The sandbox whose record the merge reads, which is the sandbox of a process's first write of data with a boot, which the end of the boot applies to. A process whose unfinished record already exists needs no read, because the end of its boot by the sandbox's scheduler failed it in the same transaction, and its holder writes nothing at or above its own end.
 	#[must_use]
 	pub fn context_sandbox(&self, existing: Option<&super::Process>) -> Option<tg::sandbox::Id> {
 		let data = self.data.as_ref()?;
-		if !self.checks_end(existing) {
+		if !Self::checks_end(existing) {
 			return None;
 		}
-		self.boot
-			.or_else(|| existing.and_then(|existing| existing.boot))?;
-		data.sandbox
-			.clone()
-			.or_else(|| self.sandbox.clone())
-			.or_else(|| existing.and_then(|existing| existing.sandbox.clone()))
+		self.boot?;
+		data.sandbox.clone()
 	}
 
 	/// Whether the arg's data supersedes the existing record's data. The first end to arrive is final, an end supersedes unfinished data, and otherwise a write supersedes the writes with lower sequences.
@@ -345,7 +350,7 @@ impl Arg {
 		// Record the process as failed if the end of its boot applies to the write and the write is numbered at or above the end, with the write's data even if it would not supersede the record's, because the failure ends an unfinished record. The failed record carries the end's number.
 		let end = boot
 			.and_then(|boot| context.sandbox?.ends.get(&boot))
-			.filter(|end| self.sequence >= end.sequence && self.checks_end(existing));
+			.filter(|end| self.sequence >= end.sequence && Self::checks_end(existing));
 		let mut sequence = sequence;
 		if let Some(end) = end
 			&& let Some(finished) = self.data.clone()

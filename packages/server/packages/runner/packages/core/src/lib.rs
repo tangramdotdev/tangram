@@ -31,6 +31,9 @@ pub struct State {
 	#[cfg(target_os = "linux")]
 	pub cpu_threads: tangram_sandbox::cpu::Threads,
 
+	/// The boots that the runner holds, from the runner's yes until each boot ends locally.
+	pub boots: crate::sandbox::Boots,
+
 	pub capacity: crate::capacity::Pool,
 
 	#[cfg(target_os = "linux")]
@@ -58,9 +61,6 @@ pub struct State {
 	/// The number of times that the runner has connected to a scheduler, which changes even when a restarted scheduler keeps its ID.
 	pub scheduler_connections: tokio::sync::watch::Sender<u64>,
 
-	/// The boots whose tasks run, from the runner's yes until the task ends.
-	pub starting: dashmap::DashMap<tg::sandbox::Id, crate::sandbox::Starting>,
-
 	#[cfg(target_os = "linux")]
 	pub stopped_project_ids: dashmap::DashMap<tg::sandbox::Id, crate::project::Id>,
 
@@ -74,6 +74,8 @@ impl State {
 		let (scheduler, _) = tokio::sync::watch::channel(None);
 		let (scheduler_connections, _) = tokio::sync::watch::channel(0);
 		Self {
+			boots: crate::sandbox::Boots::default(),
+
 			capacity: crate::capacity::Pool::new(config.capacity, config.overcommit),
 
 			#[cfg(target_os = "linux")]
@@ -101,8 +103,6 @@ impl State {
 
 			scheduler,
 			scheduler_connections,
-
-			starting: dashmap::DashMap::new(),
 
 			#[cfg(target_os = "linux")]
 			stopped_project_ids: dashmap::DashMap::new(),
@@ -217,15 +217,29 @@ impl State {
 			.unwrap()
 	}
 
+	/// Get the state of a sandbox whose latest boot the runner did not give up, which is the lookup through which the runner answers and acts as the holder of a sandbox and of its processes, so that a boot that the runner gave up answers nothing.
+	#[must_use]
+	pub fn try_get_held_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> Option<dashmap::mapref::one::Ref<'_, u64, crate::sandbox::State>> {
+		let sandbox = self.sandboxes.get_by_id(id)?;
+		if sandbox.boot.given_up().is_some() {
+			return None;
+		}
+
+		Some(sandbox)
+	}
+
 	#[must_use]
 	pub fn try_get_sandbox(&self, id: &tg::sandbox::Id) -> Option<tg::sandbox::get::Output> {
-		Some(self.sandboxes.get_by_id(id)?.data())
+		Some(self.try_get_held_sandbox(id)?.data())
 	}
 
 	#[must_use]
 	pub fn try_get_process(&self, id: &tg::process::Id) -> Option<tg::process::Data> {
 		let sandbox = self.try_get_process_sandbox(id)?;
-		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+		let sandbox = self.try_get_held_sandbox(&sandbox)?;
 		let process = sandbox.processes.get(id)?;
 		Some(process.data())
 	}
@@ -238,7 +252,7 @@ impl State {
 		length: u64,
 	) -> Option<tg::process::control::GetChildrenClientResponseOutput> {
 		let sandbox = self.try_get_process_sandbox(id)?;
-		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+		let sandbox = self.try_get_held_sandbox(&sandbox)?;
 		let process = sandbox.processes.get(id)?;
 		let children_length = u64::try_from(process.children.len()).unwrap();
 		let start = usize::try_from(position.min(children_length)).unwrap();
@@ -263,7 +277,7 @@ impl State {
 		update: impl FnOnce(&mut tangram_server_process_core::State) -> T,
 	) -> Option<T> {
 		let sandbox = self.try_get_process_sandbox(id)?;
-		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+		let sandbox = self.try_get_held_sandbox(&sandbox)?;
 		let mut process = sandbox.processes.get_mut(id)?;
 		Some(update(&mut process))
 	}

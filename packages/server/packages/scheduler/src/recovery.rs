@@ -583,7 +583,7 @@ impl SchedulerState {
 			let written = indexed.as_ref().and_then(|indexed| {
 				let data = &indexed.data.as_ref()?.data;
 				let running = data.boot == request.boot && !data.status.is_stopped_or_destroyed();
-				(running && indexed.sequence >= super::offer::FIRST_RUNNER_WRITE)
+				(running && indexed.sequence >= tangram_index::sandbox::put::FIRST_HOLDER_WRITE)
 					.then(|| indexed.runner.clone())
 					.flatten()
 			});

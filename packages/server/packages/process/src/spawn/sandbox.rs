@@ -371,7 +371,7 @@ impl Component {
 					.state()
 					.sandboxes
 					.get_by_id(sandbox)
-					.map(|state| state.boot);
+					.map(|state| state.boot.boot);
 				self.write_queued_process(session, &queued, sandbox, boot, public)
 					.await?;
 			}
@@ -554,7 +554,7 @@ impl Component {
 				process: Some(process.clone()),
 				public: public && process.id.is_none(),
 				scheduled: false,
-				sequence: 0,
+				sequence: tangram_index::sandbox::put::FIRST_HOLDER_WRITE,
 				token,
 			};
 
