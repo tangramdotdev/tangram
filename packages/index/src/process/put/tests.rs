@@ -161,9 +161,9 @@ fn the_end_of_a_boot_and_the_writes_of_its_processes_keep_the_first_end_in_every
 	finished.boot = Some(0);
 	finished.sequence = 2;
 	finished.touched_at = 30;
-	finished.error = Some(None);
-	finished.log = Some(Some(tg::blob::Id::new(b"log").into()));
-	finished.output = Some(Some(Vec::new()));
+	finished.error = Some(tg::update::Update::Clear);
+	finished.log = Some(tg::update::Update::Set(tg::blob::Id::new(b"log").into()));
+	finished.output = Some(tg::update::Update::Set(Vec::new()));
 	let finished_data = finished.data.as_mut().unwrap();
 	finished_data.log = Some(tg::Referent::with_node(tg::blob::Id::new(b"log")));
 	finished_data.output = Some(tg::Referent::with_node(tg::value::Data::Null));
