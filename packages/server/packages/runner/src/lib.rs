@@ -5,7 +5,7 @@ use {
 		stream::{BoxStream, FuturesUnordered},
 	},
 	std::{
-		collections::{BTreeMap, BTreeSet},
+		collections::BTreeMap,
 		ops::ControlFlow,
 		pin::pin,
 		sync::{Arc, Mutex, atomic::Ordering},
@@ -465,7 +465,7 @@ impl Component {
 			.unwrap()
 			.replace(id.clone());
 
-		// Get the sandboxes that the previous run left directories for, before the pool starts, which the first connection reports.
+		// Get the sandboxes that the previous run left directories for, before the pool starts, which the first connection keeps.
 		let previous = match Self::sandbox_directory_ids(session).await {
 			Ok(previous) => previous,
 			Err(error) => {
@@ -706,29 +706,9 @@ impl Component {
 			},
 		);
 
-		// Get the sandboxes that the runner has directories for and does not hold, which are the previous run's on the first connection and the ones on disk afterwards. Leave out a sandbox that the runner still has state for, whose end may not be recorded yet.
-		let stopped = if *first {
-			previous.to_vec()
-		} else {
-			match Self::sandbox_directory_ids(session).await {
-				Ok(stopped) => stopped,
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to get the sandbox directories");
-					Vec::new()
-				},
-			}
-		};
-		let stopped = stopped
-			.into_iter()
-			.filter(|sandbox| {
-				self.state.sandboxes.get_by_id(sandbox).is_none()
-					&& self.state.boots.latest(sandbox).is_none()
-			})
-			.collect::<Vec<_>>();
-
 		// Get the runner control stream, continuing if the scheduler could not be reached.
 		let (header, control) = match self
-			.run_get_runner_control_stream(session, id, &location, *first, &stopped)
+			.run_get_runner_control_stream(session, id, &location, *first)
 			.boxed()
 			.await?
 		{
@@ -742,10 +722,12 @@ impl Component {
 		self.offers
 			.set_time_to_live(header.runner_time_to_live.saturating_mul(2));
 
-		// Keep or remove the directories of the sandboxes that the runner does not hold as the scheduler decided before accepting work, and give up the reported boots that the index records as ended.
+		// Keep the previous run's directories on the first connection before accepting work, and give up the reported boots that the scheduler ended.
 		let index = 1;
-		self.finish_sandbox_directories(session, &stopped, &header, *first)
-			.await?;
+		if *first {
+			self.keep_previous_sandbox_directories(session, previous)
+				.await?;
+		}
 		*first = false;
 		self.yield_runner_sandboxes(session, &header);
 		tracing::info!(runner = %id, "the runner is ready to accept work");
@@ -771,42 +753,14 @@ impl Component {
 		Ok(ControlFlow::Break(()))
 	}
 
-	/// Remove the directory of each reported sandbox that the runner does not hold and that the scheduler does not keep. On the first connection, also reserve the storage of each kept directory, and record in this runner's local index the stop of each kept sandbox in a remote that the local index records as running, because the scheduler ended its boot.
-	async fn finish_sandbox_directories(
+	/// Keep the directories of the previous run's sandboxes, reserving the storage of each and recording in this runner's local index the stop of each sandbox in a remote that the local index records as running, because the scheduler ended its boot. The stopped sandbox task then removes the directories of the sandboxes that the index does not record as stopped on this runner.
+	async fn keep_previous_sandbox_directories(
 		&self,
 		session: &Session,
-		stopped: &[tg::sandbox::Id],
-		header: &tg::runner::control::Header,
-		first: bool,
+		previous: &[tg::sandbox::Id],
 	) -> tg::Result<()> {
-		// Remove the directories that the scheduler does not keep, failing the first connection if one cannot be removed, and logging the failure on a later connection, which keeps running sandboxes.
-		for sandbox in stopped {
-			if header.kept.contains(sandbox) {
-				continue;
-			}
-			let result = self
-				.remove_stopped_sandbox_directory(session, sandbox)
-				.await;
-			match result {
-				Ok(()) => {},
-				Err(error) if first => return Err(error),
-				Err(error) => {
-					tracing::error!(error = %error.trace(), %sandbox, "failed to remove the sandbox directory");
-				},
-			}
-		}
-
-		// Reserve the storage of the kept directories and record the stops on the first connection only, because before a later connection the runner already holds the storage of its kept directories.
-		if !first {
-			return Ok(());
-		}
-		let kept = stopped
-			.iter()
-			.filter(|sandbox| header.kept.contains(sandbox))
-			.cloned()
-			.collect::<Vec<_>>();
-		let indexed = session.server.index.try_get_sandboxes(&kept).await?;
-		for (sandbox, indexed) in std::iter::zip(&kept, indexed) {
+		let indexed = session.server.index.try_get_sandboxes(previous).await?;
+		for (sandbox, indexed) in std::iter::zip(previous, indexed) {
 			let storage = indexed
 				.and_then(|indexed| indexed.data)
 				.and_then(|data| data.data.storage);
@@ -817,16 +771,15 @@ impl Component {
 		Ok(())
 	}
 
-	/// Give up each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the boot, keeping its directory if the scheduler keeps it, or destroys the sandbox otherwise, which removes its directory, and a boot whose state is not stored yet starts no process.
+	/// Give up each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the boot and keeps its directory, which the stopped sandbox task removes if the index records the sandbox as destroyed, and a boot whose state is not stored yet starts no process.
 	fn yield_runner_sandboxes(&self, session: &Session, header: &tg::runner::control::Header) {
 		for ended in &header.ended {
-			let kind = if header.kept.contains(&ended.id) {
-				tangram_server_runner_core::sandbox::Teardown::Stop
-			} else {
-				tangram_server_runner_core::sandbox::Teardown::Destroy
-			};
 			if let Some(boot) = self.state.boots.get(&ended.id, ended.boot) {
-				self.give_up_boot(session, &boot, kind);
+				self.give_up_boot(
+					session,
+					&boot,
+					tangram_server_runner_core::sandbox::Teardown::Stop,
+				);
 			}
 		}
 	}
@@ -1131,7 +1084,6 @@ impl Component {
 		id: &tg::runner::Id,
 		location: &tg::Location,
 		first: bool,
-		stopped: &[tg::sandbox::Id],
 	) -> tg::Result<
 		ControlFlow<
 			(
@@ -1175,23 +1127,8 @@ impl Component {
 			})
 			.collect::<Vec<_>>();
 
-		// Report the sandboxes with directories that the runner does not hold and the sandboxes of every boot that it has, including a boot that it gave up and that is still tearing down, on every connection, so that the scheduler decides which directories the runner keeps, and, on the first connection after the runner starts, ends the sandboxes that the runner no longer holds.
-		let directories = stopped
-			.iter()
-			.cloned()
-			.chain(
-				self.state
-					.boots
-					.list()
-					.into_iter()
-					.map(|boot| boot.sandbox.clone()),
-			)
-			.collect::<BTreeSet<_>>()
-			.into_iter()
-			.collect();
 		let scheduler_time_to_live = session.server.config.runner.scheduler_time_to_live;
 		let arg = tg::runner::control::Arg {
-			directories,
 			first,
 			heartbeat,
 			host,
@@ -1420,6 +1357,7 @@ impl Component {
 					id: Some(sandbox.clone()),
 					location: location.clone(),
 					owner: request.owner,
+					placed: request.placed,
 					process: request.process,
 					public: false,
 					scheduled: true,

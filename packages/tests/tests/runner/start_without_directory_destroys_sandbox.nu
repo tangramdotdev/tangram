@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner that restarts within its ttl and no longer has the directory of a sandbox that would stop destroys the sandbox, because the sandbox cannot start again without its files.
+# A sandbox whose runner restarts and no longer has the sandbox's directory stays stopped, and a start of it fails and destroys it, because the sandbox cannot start again without its files.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
@@ -25,8 +25,14 @@ wait_for_exit $pid
 rm --recursive --force ($runner.directory | path join 'sandboxes' $sandbox)
 let runner = server start $runner
 
-# The restarted runner's first connection destroys the sandbox with the restart's error.
+# The restarted runner's first connection stops the sandbox with the restart's error.
+success (timeout 30s tg --url $remote.url --token $root_token sandbox status --until stopped $sandbox | complete) 'the sandbox should stop'
+let data = tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data
+assert equal $data.error.message 'runner restarted'
+
+# A start of the sandbox fails, and destroys the sandbox with the error of its lost directory.
+tg --url $remote.url --token $root_token sandbox start --wait $sandbox | complete | ignore
 success (timeout 30s tg --url $remote.url --token $root_token sandbox status --until destroyed $sandbox | complete) 'the sandbox should be destroyed'
 let data = tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data
 assert equal $data.status destroyed
-assert equal $data.error.message 'runner restarted'
+assert ($data.error.message | str contains 'directory was lost') 'the error should name the lost directory'

@@ -548,6 +548,7 @@ impl Component {
 				id,
 				location,
 				owner,
+				placed: false,
 				process: Some(process.clone()),
 				public: public && process.id.is_none(),
 				scheduled: false,

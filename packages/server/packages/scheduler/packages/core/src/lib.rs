@@ -185,11 +185,6 @@ pub struct AddRunnerRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub capacity: tg::runner::control::Capacity,
 
-	/// The sandboxes that the runner has directories for or is running, which the runner reports on every connection, so that the scheduler decides which directories the runner keeps.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "Vec::is_empty")]
-	pub directories: Vec<tg::sandbox::Id>,
-
 	/// Whether this is the first connection of the runner's program since it started, in which case the scheduler ends the boots that the index records on the runner and that the runner does not report, and decides the unanswered offers to the runner from the index.
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "std::ops::Not::not")]
@@ -224,11 +219,6 @@ pub struct AddRunnerResponseOutput {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
 	pub ended: Vec<tg::runner::control::EndedSandbox>,
-
-	/// The reported sandboxes with directories whose directories the runner keeps, because the sandboxes are stopped on the runner or their boots wait in the scheduler's queue.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 3, skip_serializing_if = "Vec::is_empty")]
-	pub kept: Vec<tg::sandbox::Id>,
 
 	#[tangram_serialize(id = 0)]
 	pub runner: tg::runner::Id,

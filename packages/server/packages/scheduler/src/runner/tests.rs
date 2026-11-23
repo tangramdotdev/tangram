@@ -26,7 +26,6 @@ pub(crate) fn request(
 ) -> AddRunnerRequestArg {
 	AddRunnerRequestArg {
 		capacity: capacity(),
-		directories: Vec::new(),
 		first,
 		host: String::new(),
 		runner: id.clone(),

@@ -78,6 +78,7 @@ struct SandboxTaskArg {
 	kept: Arc<AtomicBool>,
 	location: tg::Location,
 	owner: tg::Principal,
+	placed: bool,
 	process: Option<tg::runner::control::Process>,
 	public: bool,
 	stopper: Stopper,
@@ -470,6 +471,7 @@ impl Component {
 			kept,
 			location: arg.location,
 			owner: arg.owner,
+			placed: arg.placed,
 			process: arg.process,
 			public: arg.public,
 			stopper,
@@ -792,6 +794,7 @@ impl Component {
 			kept,
 			location,
 			owner,
+			placed,
 			process,
 			public,
 			stopper,
@@ -854,9 +857,12 @@ impl Component {
 					return Err(tg::error!(%id, "the runner gave up the boot"));
 				}
 
-				// Create a new sandbox if this runner has no directory for it, because the sandbox never booted here or its directory was lost.
+				// Fail a restarted boot of a sandbox that ran on this runner and has no directory, because its files were lost, which destroys the sandbox, and create a sandbox that never ran on a runner.
 				let path = Self::sandbox_path(&session, &id);
 				if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
+					if placed {
+						return Err(tg::error!(%id, "the sandbox's directory was lost"));
+					}
 					return component.create_sandbox_with_pool(&session, arg, &id).await;
 				}
 
@@ -1979,7 +1985,7 @@ impl Component {
 						}
 					},
 
-					// If the runner gives up the boot because its scheduler ended it, then stop the sandbox, or destroy it if the scheduler does not keep its directory, writing nothing more for the boot.
+					// If the runner gives up the boot because its scheduler ended it, then stop the sandbox, or destroy it if the scheduler's end destroyed it, writing nothing more for the boot.
 					kind = entry.wait_given_up() => {
 						let status = match kind {
 							Teardown::Destroy => tg::sandbox::Status::Destroying,
@@ -2069,7 +2075,7 @@ impl Component {
 			teardown = Teardown::Destroy;
 		}
 
-		// Record a destroy that arrives during a stop, with its error. Get how the boot ends locally now, which is how the runner gave the boot up, because the scheduler's end decides whether the scheduler keeps the sandbox's directory, and otherwise a destroy if one arrived during the stop.
+		// Record a destroy that arrives during a stop, with its error. Get how the boot ends locally now, which is how the runner gave the boot up, because the scheduler's end decides whether the sandbox stays stopped, and otherwise a destroy if one arrived during the stop.
 		let destroy_request = std::sync::Mutex::new(None::<DestroyRequest>);
 		let current = |teardown: Teardown| match entry.given_up() {
 			Some(kind) => kind,
@@ -2165,7 +2171,7 @@ impl Component {
 				}
 			}
 
-			// Destroy the sandbox instead of stopping it if a destroy arrived during the stop or the scheduler does not keep its directory, and stop a sandbox that did not fail instead of destroying it if the runner gave the boot up and the scheduler keeps its directory.
+			// Destroy the sandbox instead of stopping it if a destroy arrived during the stop or the scheduler's end destroyed it, and stop a sandbox that did not fail instead of destroying it if the runner gave the boot up and the scheduler's end left it stopped.
 			match (teardown, current(teardown)) {
 				(Teardown::Stop, Teardown::Destroy) => {
 					tracing::info!(sandbox = %id, "destroying the stopping sandbox");
@@ -2184,7 +2190,7 @@ impl Component {
 					state.changed.send_replace(());
 				},
 				(Teardown::Destroy, Teardown::Stop) if failure.is_none() => {
-					tracing::info!(sandbox = %id, "stopping the sandbox whose directory the scheduler keeps");
+					tracing::info!(sandbox = %id, "stopping the sandbox that the scheduler's end left stopped");
 					teardown = Teardown::Stop;
 				},
 				(Teardown::Destroy | Teardown::Stop, _) => {},
@@ -3218,14 +3224,27 @@ impl Component {
 		let _ = session;
 	}
 
-	/// Report the storage usage of this runner's stopped sandboxes, and destroy those whose ttl has expired, at each interval, until the stopper stops.
+	/// Report the sandboxes with directories that this runner does not hold with the storage usage of the stopped ones, remove the directories that the index decides, and destroy the stopped sandboxes whose ttl has expired, at each interval and each time the runner connects, until the stopper stops.
 	pub(crate) async fn stopped_sandbox_task(&self, session: &Session, stopper: Stopper) {
 		let interval = session.server.config.runner.stopped_sandbox_interval;
 		let mut first_seen = BTreeMap::new();
+		let mut control = self.control.subscribe();
 		loop {
-			tokio::select! {
-				() = session.server.clock.sleep(interval) => {},
-				() = stopper.wait() => return,
+			// Wait for the interval, or for the runner to connect.
+			let mut sleep = pin!(session.server.clock.sleep(interval));
+			loop {
+				tokio::select! {
+					() = &mut sleep => break,
+					result = control.changed() => {
+						if result.is_err() {
+							return;
+						}
+						if control.borrow_and_update().is_some() {
+							break;
+						}
+					},
+					() = stopper.wait() => return,
+				}
 			}
 			if let Err(error) = self
 				.update_stopped_sandboxes(session, &mut first_seen)
@@ -3234,7 +3253,7 @@ impl Component {
 				tracing::error!(error = %error.trace(), "failed to update the stopped sandboxes");
 			}
 
-			// Hit a checkpoint once this interval's update of the stopped sandboxes is finished.
+			// Hit a checkpoint once this update of the stopped sandboxes is finished.
 			tangram_server_core::checkpoint!(session.server, "runner.sandbox.stopped.updated")
 				.await;
 		}
@@ -3250,25 +3269,32 @@ impl Component {
 			return Ok(());
 		};
 
-		// Get the sandboxes with directories and their local records.
-		let ids = Self::sandbox_directory_ids(session).await?;
+		// Get the sandboxes with directories that this runner does not hold and their local records.
+		let ids = Self::sandbox_directory_ids(session)
+			.await?
+			.into_iter()
+			.filter(|id| !self.sandbox_is_held(id))
+			.collect::<Vec<_>>();
 		let indexed = session.server.index.try_get_sandboxes(&ids).await?;
 		let now = session.server.clock.unix_timestamp();
 		first_seen.retain(|(id, _), _| ids.contains(id));
 
-		// Measure each stopped sandbox, and find those whose ttl has expired.
+		// Measure each stopped sandbox, and find those whose ttl has expired. Report a sandbox that the local record does not show as stopped without its usage, so that the index decides whether its directory stays.
 		let mut reports = Vec::new();
 		let mut expired = Vec::new();
 		for (id, indexed) in std::iter::zip(ids, indexed) {
-			// Skip a sandbox that is not stopped, or that has a boot starting or running.
-			let Some(data) = indexed.and_then(|indexed| indexed.data) else {
+			let data = indexed.and_then(|indexed| indexed.data);
+			let boot = data.as_ref().map_or(0, |data| data.data.boot);
+			let Some(data) = data.filter(|data| data.data.status == tg::sandbox::Status::Stopped)
+			else {
+				let report = tg::runner::control::ReportSandboxUsageClientRequestSandbox {
+					boot,
+					sandbox: id,
+					usage: None,
+				};
+				reports.push(report);
 				continue;
 			};
-			if data.data.status != tg::sandbox::Status::Stopped
-				|| self.sandbox_is_starting_or_running(&id)
-			{
-				continue;
-			}
 
 			// Get when the sandbox stopped and when it expires, counting from when this runner first saw the boot stopped if its stop recorded neither, such as after a crash.
 			let first_seen_at = *first_seen
@@ -3301,7 +3327,7 @@ impl Component {
 			reports.push(report);
 		}
 
-		// Report the stopped sandboxes in batches, and remove the directory of each sandbox that the index records as destroying or destroyed, unless a boot of it is starting or running on this runner.
+		// Report the sandboxes in batches, and remove the directory of each sandbox that the index decides, unless this runner now holds a boot of it.
 		let batch_size = session
 			.server
 			.config
@@ -3325,7 +3351,7 @@ impl Component {
 				else {
 					continue;
 				};
-				if self.sandbox_is_starting_or_running(&reply.sandbox) {
+				if self.sandbox_is_held(&reply.sandbox) {
 					continue;
 				}
 
@@ -3334,6 +3360,10 @@ impl Component {
 					tg::runner::control::StoppedSandboxRemoval::Destroyed
 					| tg::runner::control::StoppedSandboxRemoval::Destroying => {
 						self.remove_stopped_sandbox(session, &reply.sandbox, None, &sender)
+							.await
+					},
+					tg::runner::control::StoppedSandboxRemoval::Unrecorded => {
+						self.remove_stopped_sandbox_directory(session, &reply.sandbox)
 							.await
 					},
 				};
@@ -3347,7 +3377,7 @@ impl Component {
 
 		// Ask that each expired sandbox be destroyed, checking again that no boot started while the usage was reported. The index decides the destroy of a stopped sandbox, which applies only while the sandbox is still stopped at its boot, and the sandbox's scheduler then has this runner remove the directory.
 		for (id, boot) in expired {
-			if removed.contains(&id) || self.sandbox_is_starting_or_running(&id) {
+			if removed.contains(&id) || self.sandbox_is_held(&id) {
 				continue;
 			}
 			if let Err(error) = Self::destroy_expired_sandbox(&id, boot, &sender).await {
@@ -3381,16 +3411,15 @@ impl Component {
 		Ok(())
 	}
 
-	/// Get whether a boot of the sandbox is starting or running on this runner.
-	fn sandbox_is_starting_or_running(&self, id: &tg::sandbox::Id) -> bool {
-		let sandbox = self.state.sandboxes.get_by_id(id);
-		let starting = self.state.boots.latest(id).is_some_and(|latest| {
-			sandbox
-				.as_ref()
-				.is_none_or(|sandbox| sandbox.boot.boot != latest.boot)
-		});
-		let running = sandbox.is_some_and(|sandbox| !sandbox.status.is_stopped_or_destroyed());
-		starting || running
+	/// Get whether this runner holds a boot of the sandbox, which is starting, running, or ending, or retains the state of a running boot, so that the directory is never removed while a boot uses it or before the boot's end was accepted.
+	fn sandbox_is_held(&self, id: &tg::sandbox::Id) -> bool {
+		let boot = self.state.boots.latest(id).is_some();
+		let running = self
+			.state
+			.sandboxes
+			.get_by_id(id)
+			.is_some_and(|sandbox| !sandbox.status.is_stopped_or_destroyed());
+		boot || running
 	}
 
 	/// Report the storage usage of a restarted sandbox's previous boot in a task, because the start must not wait for it.
@@ -4015,7 +4044,7 @@ fn stopped_storage_usage(size: u64, seconds: i64) -> tg::sandbox::Usage {
 	}
 }
 
-/// Get how a boot whose task failed ends: as the runner gave the boot up, because the scheduler's end decides whether the scheduler keeps the sandbox's directory, and otherwise with a stop if the failed task kept the sandbox's directory or a directory of a boot after the first remains, such as for a start that fails before it runs, so that the sandbox can start again, and with a destroy otherwise.
+/// Get how a boot whose task failed ends: as the runner gave the boot up, because the scheduler's end decides whether the sandbox stays stopped, and otherwise with a stop if the failed task kept the sandbox's directory or a directory of a boot after the first remains, such as for a start that fails before it runs, so that the sandbox can start again, and with a destroy otherwise.
 fn failed_teardown(given_up: Option<Teardown>, kept: bool, boot: u64, exists: bool) -> Teardown {
 	match given_up {
 		Some(kind) => kind,

@@ -11,7 +11,10 @@ use {
 		},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext as _, task::Task},
+	tangram_futures::{
+		stream::{Ext as _, TryExt as _},
+		task::Task,
+	},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
@@ -112,7 +115,6 @@ impl Component {
 		let request = tangram_server_scheduler_core::RequestArg::AddRunner(
 			tangram_server_scheduler_core::AddRunnerRequestArg {
 				capacity: arg.heartbeat.capacity,
-				directories: arg.directories,
 				first: arg.first,
 				host: arg.host,
 				runner: id.clone(),
@@ -164,7 +166,6 @@ impl Component {
 		let runner_time_to_live = session.server.config.scheduler.runner_time_to_live;
 		let header = tg::runner::control::Header {
 			ended: output.ended,
-			kept: output.kept,
 			runner_time_to_live,
 			scheduler: scheduler.clone(),
 		};
@@ -702,7 +703,34 @@ impl Component {
 			.iter()
 			.map(|sandbox| sandbox.sandbox.clone())
 			.collect::<Vec<_>>();
-		let indexed = session.server.index.try_get_sandboxes(&ids).await?;
+		let mut indexed = session.server.index.try_get_sandboxes(&ids).await?;
+
+		// Await indexing and read again the reported sandboxes that the index does not record, because the index lags, so that a directory is removed as unrecorded only once the index has every write that was acknowledged before.
+		let unrecorded = std::iter::zip(&ids, &indexed)
+			.filter(|(_, indexed)| indexed.is_none())
+			.map(|(id, _)| id.clone())
+			.collect::<Vec<_>>();
+		if !unrecorded.is_empty() {
+			session
+				.server
+				.components
+				.indexer
+				.index(session, tg::index::Arg::default())
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index"))?
+				.try_last()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index"))?;
+			let mut read = session
+				.server
+				.index
+				.try_get_sandboxes(&unrecorded)
+				.await?
+				.into_iter();
+			for indexed in indexed.iter_mut().filter(|indexed| indexed.is_none()) {
+				*indexed = read.next().flatten();
+			}
+		}
 
 		// Decide what the runner does with each sandbox, and accept the usage of a sandbox that this runner holds, that is not destroyed, and that is at the boot or a later one, because a restart reports the previous boot's usage while its start is recorded. A destroying sandbox's directory occupies storage until the runner removes it.
 		let touched_at = session.server.clock.unix_timestamp();
@@ -714,7 +742,7 @@ impl Component {
 				sandbox,
 				usage,
 			} = reported;
-			let action = stopped_sandbox_action(indexed.as_ref());
+			let action = stopped_sandbox_action(indexed.as_ref(), runner);
 			let accepted = indexed.filter(|indexed| {
 				indexed.runner.as_ref() == Some(runner)
 					&& indexed.data.as_ref().is_some_and(|data| {
@@ -1108,12 +1136,20 @@ impl tangram_messenger::Payload for ServerMessage {
 	}
 }
 
-/// Decide what a runner does with the directory of a stopped sandbox that it reported. It removes the directory of a sandbox that the index records as destroyed or destroying, and keeps every other, including a sandbox that the index does not have, because a lagging index may not have a sandbox that the runner holds yet.
+/// Decide what a runner does with the directory of a sandbox that it reported and does not hold, from the index's record after indexing was awaited for an unrecorded sandbox. It removes and reports the destruction of a sandbox that the index records on the runner as destroyed or destroying, removes only the directory of a sandbox that the index does not record or records on another runner, and keeps the directory of every other sandbox that the index records on the runner or without a runner, which is stopped, or whose boot is queued for the runner or ends.
 fn stopped_sandbox_action(
 	indexed: Option<&tangram_index::sandbox::Sandbox>,
+	runner: &tg::runner::Id,
 ) -> tg::runner::control::StoppedSandboxAction {
-	let Some(indexed) = indexed else {
-		return tg::runner::control::StoppedSandboxAction::Keep;
+	let Some(indexed) = indexed.filter(|indexed| {
+		indexed
+			.runner
+			.as_ref()
+			.is_none_or(|indexed| indexed == runner)
+	}) else {
+		return tg::runner::control::StoppedSandboxAction::Remove(
+			tg::runner::control::StoppedSandboxRemoval::Unrecorded,
+		);
 	};
 	let status = indexed.data.as_ref().map(|data| data.data.status);
 	match status {

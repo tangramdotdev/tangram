@@ -88,6 +88,7 @@ pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome 
 			lender,
 			owner: request.owner.clone(),
 			parent: request.parent.clone(),
+			placed: request.runner.is_some(),
 			process: request.process.clone(),
 			sandbox: request.sandbox.clone(),
 			sequence: tangram_index::sandbox::put::FIRST_HOLDER_WRITE,

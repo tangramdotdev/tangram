@@ -839,7 +839,7 @@ impl Component {
 			let arg = super::runner::EndRunnerSandboxesArg {
 				accepted: Vec::new(),
 				checkpoint: "scheduler.runner.recovered",
-				directories: None,
+				deleted: false,
 				ended: Some(sender.clone()),
 				error: error.clone(),
 				held: Vec::new(),

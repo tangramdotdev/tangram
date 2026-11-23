@@ -24,6 +24,9 @@ pub struct SpawnSandboxTaskArg {
 
 	pub owner: tg::Principal,
 
+	/// Whether an earlier boot of the sandbox ran on this runner, so that a start without the sandbox's directory fails.
+	pub placed: bool,
+
 	pub process: Option<tg::runner::control::Process>,
 
 	/// Whether the spawn made the process public, which the runner carries to the process's home in the start of a process whose ID it derives.
@@ -151,7 +154,7 @@ pub struct Unaccepted {
 	process: tg::process::Id,
 }
 
-/// How a boot ends locally, which stops its sandbox or destroys it. The runner gives up a boot that its scheduler ended with a stop if the scheduler keeps the sandbox's directory, and with a destroy otherwise.
+/// How a boot ends locally, which stops its sandbox or destroys it. The runner gives up a boot that its scheduler ended with a stop, unless the index's record of the end that the runner learns of destroys the sandbox.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Teardown {
 	Destroy,
