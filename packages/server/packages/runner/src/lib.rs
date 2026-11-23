@@ -485,26 +485,48 @@ impl Component {
 			}
 		});
 
+		let control_stopper = Stopper::new();
 		let mut cleanup = true;
+		let mut drained = false;
 		let mut retries = None::<BoxStream<'static, ()>>;
 		loop {
 			let stop_future = stopper.wait();
 			let stop_future = pin!(stop_future);
 			let started = tokio::time::Instant::now();
-			let run_future =
-				self.runner_task_inner(session, &id, &previous, &mut cleanup, stopper.clone());
-			let run_future = pin!(run_future);
-			let (result, _) = match future::select(stop_future, run_future).await {
+			let run_future = self.runner_task_inner(
+				session,
+				&id,
+				&previous,
+				&mut cleanup,
+				stopper.clone(),
+				control_stopper.clone(),
+			);
+			let mut run_future = pin!(run_future);
+			let (result, _) = match future::select(stop_future, run_future.as_mut()).await {
 				future::Either::Left(((), _)) => {
-					// End the control stream with a message that tells the server that the runner shuts down gracefully, so that the server removes the runner at once, before the stream closes. A runner that terminates leaves its removal to its ttl and its next registration.
-					let interrupt =
-						matches!(*session.server.shutdown.borrow(), Some(Shutdown::Interrupt));
-					if interrupt && let Some(sender) = self.control.borrow().clone() {
-						let message = tg::runner::control::ClientMessage::Notification(
-							tg::runner::control::ClientNotification::End,
-						);
-						sender.try_send_untracked(message);
+					// Drain the sandbox tasks while the control stream keeps running, and then end the control stream with a message that tells the server that the runner shut down gracefully and holds nothing, so that the server removes the runner at once. A runner that terminates leaves its removal to its ttl and its next connection.
+					let shutdown = session
+						.server
+						.shutdown
+						.borrow()
+						.expect("the shutdown mode was not set");
+					if matches!(shutdown, Shutdown::Interrupt) {
+						let drain_future = self.shutdown_sandbox_tasks(shutdown);
+						let drain_future = pin!(drain_future);
+						if let future::Either::Right((_, drain_future)) =
+							future::select(drain_future, run_future).await
+						{
+							drain_future.await;
+						}
+						drained = true;
+						if let Some(sender) = self.control.borrow().clone() {
+							let message = tg::runner::control::ClientMessage::Notification(
+								tg::runner::control::ClientNotification::End,
+							);
+							sender.try_send_untracked(message);
+						}
 					}
+					control_stopper.stop();
 					break;
 				},
 				future::Either::Right(output) => output,
@@ -557,12 +579,19 @@ impl Component {
 			}
 		}
 
-		let shutdown = session
-			.server
-			.shutdown
-			.borrow()
-			.expect("the shutdown mode was not set");
+		// Shut down the sandbox tasks, unless they drained before the control stream ended.
+		if !drained {
+			let shutdown = session
+				.server
+				.shutdown
+				.borrow()
+				.expect("the shutdown mode was not set");
+			self.shutdown_sandbox_tasks(shutdown).await;
+		}
+	}
 
+	/// Stop the pools and shut down the sandbox tasks, waiting for them to end.
+	async fn shutdown_sandbox_tasks(&self, shutdown: Shutdown) {
 		// Stop the pools.
 		self.shutdown_sandbox_pool(shutdown).await;
 
@@ -573,11 +602,8 @@ impl Component {
 				Vec::new()
 			},
 			Shutdown::Terminate => {
-				let sandboxes = session
-					.server
-					.components
-					.runner
-					.state()
+				let sandboxes = self
+					.state
 					.sandboxes
 					.iter()
 					.filter_map(|sandbox| {
@@ -652,6 +678,7 @@ impl Component {
 		previous: &[tg::sandbox::Id],
 		cleanup: &mut bool,
 		stopper: Stopper,
+		control_stopper: Stopper,
 	) -> tg::Result<ControlFlow<(), tg::Error>> {
 		// Get the location.
 		let location = session.server.config.runner.remote.as_ref().map_or_else(
@@ -698,9 +725,16 @@ impl Component {
 			.set_scheduler(Some(header.scheduler));
 
 		// Handle new sandbox requests.
-		self.run_handle_runner_control_stream(session, location, control, index, stopper)
-			.boxed()
-			.await?;
+		self.run_handle_runner_control_stream(
+			session,
+			location,
+			control,
+			index,
+			stopper,
+			control_stopper,
+		)
+		.boxed()
+		.await?;
 
 		Ok(ControlFlow::Break(()))
 	}
@@ -1059,6 +1093,7 @@ impl Component {
 		>,
 		mut index: u64,
 		stopper: Stopper,
+		control_stopper: Stopper,
 	) -> tg::Result<()> {
 		let sender = control.sender();
 
@@ -1090,7 +1125,7 @@ impl Component {
 				message = control.recv_with_ack() => message.map_err(|source| {
 					tg::error!(!source, "failed to receive a runner control message")
 				})?,
-				() = stopper.wait() => break,
+				() = control_stopper.wait() => break,
 			};
 			let Some(message) = message else {
 				break;
@@ -1140,6 +1175,21 @@ impl Component {
 			if joined {
 				let output =
 					tg::runner::control::OfferSandboxClientResponseOutput { accepted: true };
+				let message = Self::create_runner_control_response(
+					id.clone(),
+					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
+						output,
+					)),
+				);
+				self.offers.finish(&id, message.clone());
+				sender.send(message).await?;
+				continue;
+			}
+
+			// Decline work while the runner drains its sandboxes before it shuts down.
+			if stopper.stopped() {
+				let output =
+					tg::runner::control::OfferSandboxClientResponseOutput { accepted: false };
 				let message = Self::create_runner_control_response(
 					id.clone(),
 					Ok(tg::runner::control::ClientResponseOutput::OfferSandbox(
