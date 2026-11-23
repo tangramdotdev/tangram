@@ -83,24 +83,48 @@ async fn process_keys_resolve_in_any_order() {
 	let scheduler = tg::scheduler::Id::new();
 	let sandbox = tg::sandbox::Id::new();
 
-	// A put records the spawn in the scheduler's queue, and a delete removes it.
+	// A put records the spawn in the scheduler's queue, a delete removes it, and the put applied again does not bring it back.
 	let process = tg::process::Id::new();
 	write(&index, put_process(&process, &sandbox, &scheduler)).await;
 	assert_eq!(processes(&index, &scheduler).await, vec![process.clone()]);
-	write(&index, delete_process(&process, &sandbox, &scheduler)).await;
+	write(&index, delete_process(&process, &sandbox, &scheduler, 1)).await;
+	write(&index, put_process(&process, &sandbox, &scheduler)).await;
 	assert_eq!(
 		processes(&index, &scheduler).await,
 		Vec::<tg::process::Id>::new()
 	);
 
-	// A delete that applies before its put wins.
+	// A delete that applies before its put wins, also when the put is applied again.
 	let other = tg::process::Id::new();
-	write(&index, delete_process(&other, &sandbox, &scheduler)).await;
+	write(&index, delete_process(&other, &sandbox, &scheduler, 1)).await;
+	write(&index, put_process(&other, &sandbox, &scheduler)).await;
 	write(&index, put_process(&other, &sandbox, &scheduler)).await;
 	assert_eq!(
 		processes(&index, &scheduler).await,
 		Vec::<tg::process::Id>::new()
 	);
+}
+
+#[tokio::test]
+async fn a_clean_removes_the_record_of_a_process_delete_by_its_age() {
+	let (_directory, index) = super::new_index();
+	let scheduler = tg::scheduler::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let process = tg::process::Id::new();
+	write(&index, delete_process(&process, &sandbox, &scheduler, 5)).await;
+
+	// A clean before the delete's age keeps the record, so that a put does not apply.
+	clean(&index, 4).await;
+	write(&index, put_process(&process, &sandbox, &scheduler)).await;
+	assert_eq!(
+		processes(&index, &scheduler).await,
+		Vec::<tg::process::Id>::new()
+	);
+
+	// A clean at the delete's age removes the record.
+	clean(&index, 5).await;
+	write(&index, put_process(&process, &sandbox, &scheduler)).await;
+	assert_eq!(processes(&index, &scheduler).await, vec![process]);
 }
 
 fn put(sandbox: &tg::sandbox::Id, boot: u64, scheduler: &tg::scheduler::Id) -> tangram_index::Item {
@@ -153,8 +177,10 @@ fn delete_process(
 	process: &tg::process::Id,
 	sandbox: &tg::sandbox::Id,
 	scheduler: &tg::scheduler::Id,
+	deleted_at: i64,
 ) -> tangram_index::Item {
 	let arg = tangram_index::scheduler::process::delete::Arg {
+		deleted_at,
 		process: process.clone(),
 		sandbox: sandbox.clone(),
 		scheduler: scheduler.clone(),
@@ -165,4 +191,17 @@ fn delete_process(
 async fn processes(index: &crate::Index, scheduler: &tg::scheduler::Id) -> Vec<tg::process::Id> {
 	let processes = index.get_scheduler_processes(scheduler).await.unwrap();
 	processes.into_iter().map(|process| process.id).collect()
+}
+
+async fn clean(index: &crate::Index, max_process_touched_at: i64) {
+	let arg = tangram_index::clean::Arg {
+		batch_size: 100,
+		max_object_touched_at: i64::MIN,
+		max_process_touched_at,
+		max_sandbox_touched_at: i64::MIN,
+		now: i64::MIN,
+		partition_end: 1,
+		partition_start: 0,
+	};
+	index.clean(arg).await.unwrap();
 }

@@ -44,7 +44,7 @@ impl Index {
 			let Key::Runner(crate::runner::Key::SchedulerProcess { process, .. }) = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
-			let Some(request) = SchedulerProcess::deserialize(value)?.request else {
+			let SchedulerProcess::Queued(request) = SchedulerProcess::deserialize(value)? else {
 				continue;
 			};
 			let process = tangram_index::scheduler::process::QueuedProcess {
@@ -70,7 +70,14 @@ impl Index {
 		let existing =
 			Self::try_get_scheduler_process_with_transaction(db, subspace, transaction, &key)?;
 		let change = SchedulerProcess::put(existing.as_ref(), &arg.request);
-		Self::apply_scheduler_process_change(db, subspace, transaction, &key, &change)?;
+		Self::apply_scheduler_process_change(
+			db,
+			subspace,
+			transaction,
+			&arg.scheduler,
+			&arg.process,
+			&change,
+		)?;
 
 		Ok(())
 	}
@@ -87,10 +94,78 @@ impl Index {
 		});
 		let existing =
 			Self::try_get_scheduler_process_with_transaction(db, subspace, transaction, &key)?;
-		let change = SchedulerProcess::delete(existing.as_ref());
-		Self::apply_scheduler_process_change(db, subspace, transaction, &key, &change)?;
+		let change = SchedulerProcess::delete(existing.as_ref(), arg.deleted_at);
+		Self::apply_scheduler_process_change(
+			db,
+			subspace,
+			transaction,
+			&arg.scheduler,
+			&arg.process,
+			&change,
+		)?;
 
 		Ok(())
+	}
+
+	/// Delete the records of the deletes of scheduler processes that are at least as old as the cutoff, in the order of their age.
+	pub(crate) fn delete_expired_scheduler_processes(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		max_deleted_at: i64,
+		limit: usize,
+	) -> tg::Result<usize> {
+		if limit == 0 {
+			return Ok(0);
+		}
+
+		// Collect the expired deletes in the order of their age.
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::SchedulerProcessDeletedAt.to_i32().unwrap(),),
+		);
+		let entries = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get the scheduler process deletes"))?;
+		let mut expired = Vec::new();
+		for entry in entries.take(limit) {
+			let (key, _) = entry
+				.map_err(|error| tg::error!(!error, "failed to read a scheduler process delete"))?;
+			let Key::Runner(crate::runner::Key::SchedulerProcessDeletedAt {
+				deleted_at,
+				process,
+				scheduler,
+			}) = Self::unpack(subspace, key)?
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			if deleted_at > max_deleted_at {
+				break;
+			}
+			expired.push((deleted_at, process, scheduler));
+		}
+
+		// Delete each expired record and its key.
+		let count = expired.len();
+		for (deleted_at, process, scheduler) in expired {
+			let key = Key::Runner(crate::runner::Key::SchedulerProcess {
+				process: process.clone(),
+				scheduler: scheduler.clone(),
+			});
+			db.delete(transaction, &Self::pack(subspace, &key))
+				.map_err(|error| tg::error!(!error, "failed to delete the scheduler process"))?;
+			let key = Key::Runner(crate::runner::Key::SchedulerProcessDeletedAt {
+				deleted_at,
+				process,
+				scheduler,
+			});
+			db.delete(transaction, &Self::pack(subspace, &key))
+				.map_err(|error| {
+					tg::error!(!error, "failed to delete the scheduler process delete")
+				})?;
+		}
+
+		Ok(count)
 	}
 
 	fn try_get_scheduler_process_with_transaction(
@@ -107,26 +182,35 @@ impl Index {
 		Ok(record)
 	}
 
+	/// Apply a change to the entry of a process in a scheduler's queue, and record a delete by its time, so that the clean removes the record of the delete by its age.
 	fn apply_scheduler_process_change(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		key: &Key,
+		scheduler: &tg::scheduler::Id,
+		process: &tg::process::Id,
 		change: &Change,
 	) -> tg::Result<()> {
-		match change {
-			Change::Clear => {
-				db.delete(transaction, &Self::pack(subspace, key))
-					.map_err(|error| {
-						tg::error!(!error, "failed to delete the scheduler process")
-					})?;
-			},
-			Change::Keep => (),
-			Change::Store(record) => {
-				let value = record.serialize()?;
-				db.put(transaction, &Self::pack(subspace, key), &value)
-					.map_err(|error| tg::error!(!error, "failed to put the scheduler process"))?;
-			},
+		let Change::Store(record) = change else {
+			return Ok(());
+		};
+		let key = Key::Runner(crate::runner::Key::SchedulerProcess {
+			process: process.clone(),
+			scheduler: scheduler.clone(),
+		});
+		let value = record.serialize()?;
+		db.put(transaction, &Self::pack(subspace, &key), &value)
+			.map_err(|error| tg::error!(!error, "failed to put the scheduler process"))?;
+		if let SchedulerProcess::Deleted(deleted_at) = record {
+			let key = Key::Runner(crate::runner::Key::SchedulerProcessDeletedAt {
+				deleted_at: *deleted_at,
+				process: process.clone(),
+				scheduler: scheduler.clone(),
+			});
+			db.put(transaction, &Self::pack(subspace, &key), &[])
+				.map_err(|error| {
+					tg::error!(!error, "failed to put the scheduler process delete")
+				})?;
 		}
 
 		Ok(())

@@ -617,15 +617,17 @@ async fn a_queued_process_of_a_boot_that_its_holder_ended_stays_queued() {
 	};
 	super::run(&options, async |index| {
 		for boot in [0, 1] {
-			// Record a sandbox at boot 1, so that its holder ended boot 0.
+			// Record a sandbox whose holder ended boot 0 with the number three, and that started boot 1.
 			let sandbox = tg::sandbox::Id::new();
 			let id = tg::process::Id::new();
-			let item = tangram_index::Item::PutSandbox(Box::new(sandbox_put_arg(
-				&sandbox,
-				1,
-				tg::sandbox::Status::Started,
-			)));
-			write_items(index, vec![item]).await.unwrap();
+			let started = sandbox_put_arg(&sandbox, 0, tg::sandbox::Status::Started);
+			let mut end = sandbox_put_arg(&sandbox, 0, tg::sandbox::Status::Stopped);
+			end.sequence = 3;
+			let next = sandbox_put_arg(&sandbox, 1, tg::sandbox::Status::Started);
+			for arg in [started, end, next] {
+				let item = tangram_index::Item::PutSandbox(Box::new(arg));
+				write_items(index, vec![item]).await.unwrap();
+			}
 
 			// Put a queued process of the boot, and verify that it stays queued, because a live holder finishes its own processes.
 			let mut arg = queued_process_arg(&id, &sandbox);

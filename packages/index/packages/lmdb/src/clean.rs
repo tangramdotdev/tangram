@@ -107,7 +107,15 @@ impl Index {
 			now,
 			batch_size.saturating_sub(permissions + delegations),
 		)?;
-		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations + syncs);
+		let scheduler_processes = Self::delete_expired_scheduler_processes(
+			db,
+			subspace,
+			transaction,
+			max_process_touched_at,
+			batch_size.saturating_sub(permissions + delegations + syncs),
+		)?;
+		let remaining_batch_size =
+			batch_size.saturating_sub(permissions + delegations + syncs + scheduler_processes);
 
 		// Preserve the numeric kind order when timestamps tie.
 		let cutoffs = [
@@ -221,6 +229,7 @@ impl Index {
 		)?;
 		output.done = delegations == 0
 			&& permissions == 0
+			&& scheduler_processes == 0
 			&& syncs == 0
 			&& candidates.is_empty()
 			&& propagated_versions == 0;

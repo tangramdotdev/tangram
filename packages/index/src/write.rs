@@ -7,6 +7,30 @@ pub struct Arg {
 	pub items: Vec<crate::Item>,
 }
 
+/// The puts of a write that change a stopped sandbox, whose sandboxes' records an index backend reads before it checks the write's conditions.
+pub fn conditional_sandbox_puts(
+	items: &[crate::Item],
+) -> impl Iterator<Item = &crate::sandbox::put::Arg> {
+	items.iter().filter_map(|item| match item {
+		crate::Item::PutSandbox(put) if put.stopped_boot.is_some() => Some(put.as_ref()),
+		_ => None,
+	})
+}
+
+/// Reject the whole write if it changes a stopped sandbox that is no longer stopped at the boot that the change names, so that a write that changes a stopped sandbox applies whole or not at all. Every index backend calls this with a function that returns the record of a sandbox that `conditional_sandbox_puts` names.
+pub fn check_conditions(
+	items: &[crate::Item],
+	mut get: impl FnMut(&tg::sandbox::Id) -> tg::Result<Option<crate::sandbox::Sandbox>>,
+) -> tg::Result<tg::Result<()>> {
+	for put in conditional_sandbox_puts(items) {
+		let existing = get(&put.id)?;
+		if let Err(error) = put.validate_stopped_boot(existing.as_ref()) {
+			return Ok(Err(error));
+		}
+	}
+	Ok(Ok(()))
+}
+
 impl Arg {
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)

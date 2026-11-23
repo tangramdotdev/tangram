@@ -342,17 +342,25 @@ impl Arg {
 			data.children = None;
 		}
 
-		// Record the process as failed if the end of its boot applies to the write and the write is numbered at or above the end, with the write's data even if it would not supersede the record's, because the failure ends an unfinished record.
-		let ended = boot
-			.and_then(|boot| context.sandbox?.ends.get(&boot).copied())
-			.is_some_and(|end| self.sequence >= end);
-		if ended
-			&& self.checks_end(existing)
-			&& let Some(mut finished) = self.data.clone()
+		// Record the process as failed if the end of its boot applies to the write and the write is numbered at or above the end, with the write's data even if it would not supersede the record's, because the failure ends an unfinished record. The failed record carries the end's number.
+		let end = boot
+			.and_then(|boot| context.sandbox?.ends.get(&boot))
+			.filter(|end| self.sequence >= end.sequence && self.checks_end(existing));
+		let mut sequence = sequence;
+		if let Some(end) = end
+			&& let Some(finished) = self.data.clone()
 		{
-			finished.children = None;
-			fail(&mut finished, context.sandbox, self.touched_at);
-			data = Some(finished);
+			data = Some(fail(finished, end));
+			sequence = end.sequence;
+		}
+
+		// Complete a finished record with the earliest start among the writes of the process, so that a record that the end of its boot failed is the same whichever write's data the end failed.
+		if data.is_none()
+			&& existing
+				.is_some_and(|existing| existing.status.is_some_and(|status| status.is_finished()))
+			&& let (Some(write), Some(existing_data)) = (&self.data, context.data)
+		{
+			data = complete(existing_data, write);
 		}
 		let status = data
 			.as_ref()
@@ -446,10 +454,14 @@ impl Arg {
 			)));
 		}
 
-		// Reject a write that changes the sandbox of a process whose record has one.
+		// Reject a write that changes the sandbox of a process whose record has one, with its data or without.
+		let sandbox = self
+			.data
+			.as_ref()
+			.map_or(self.sandbox.as_ref(), |data| data.sandbox.as_ref());
 		if existing.sandbox.is_some()
-			&& let Some(data) = &self.data
-			&& data.sandbox != existing.sandbox
+			&& (self.data.is_some() || self.sandbox.is_some())
+			&& sandbox != existing.sandbox.as_ref()
 		{
 			return Ok(Err(tg::error!(
 				id = %self.id,
@@ -457,14 +469,16 @@ impl Arg {
 			)));
 		}
 
-		// Accept the process's own writes in any order, which the merge orders, keeping the first end that arrives.
-		if self.principal == tg::Principal::Process(self.id.clone()) {
-			return Ok(Ok(()));
-		}
+		// Reject a write that changes the command of an existing process.
 		if self.command_id != existing.command_id {
 			return Ok(Err(
 				tg::error!(id = %self.id, "cannot replace an existing process"),
 			));
+		}
+
+		// Accept the process's own writes in any order, which the merge orders, keeping the first end that arrives.
+		if self.principal == tg::Principal::Process(self.id.clone()) {
+			return Ok(Ok(()));
 		}
 
 		if let (Some(data), Some(existing)) = (&self.data, existing_data) {
@@ -538,7 +552,7 @@ impl Arg {
 }
 
 impl Arg {
-	/// Create the write that records a process as failed because the end of its boot by the sandbox's scheduler covers it, or `None` if the index has no unfinished record with data for the process. Every index backend calls this for each process that it lists under the ended boot.
+	/// Create the write that records a process as failed because the end of its boot by the sandbox's scheduler covers it, or `None` if the index has no unfinished record with data for the process. Every index backend calls this for each process that it lists under the ended boot. The write carries the record's command, boot, sandbox, and time, so that the merge cannot reject it and leaves the record's time as it is.
 	#[must_use]
 	pub fn failed(
 		id: &tg::process::Id,
@@ -550,9 +564,11 @@ impl Arg {
 		if existing.status.is_none_or(|status| status.is_finished()) {
 			return None;
 		}
-		let mut data = data?;
-		let touched_at = sandbox.touched_at;
-		fail(&mut data, Some(sandbox), touched_at);
+		let end = sandbox.ends.get(&existing.boot?)?;
+		let mut data = fail(data?, end);
+		if let Some(sandbox) = &existing.sandbox {
+			data.sandbox = Some(sandbox.clone());
+		}
 		let arg = Self {
 			account: None,
 			boot: existing.boot,
@@ -573,21 +589,21 @@ impl Arg {
 			permissions: Vec::new(),
 			principal: tg::Principal::Process(id.clone()),
 			sandbox: None,
-			sequence: existing.sequence,
+			sequence: end.sequence,
 			storage: Set::default(),
 			time_to_touch: std::time::Duration::ZERO,
-			touched_at,
+			touched_at: existing.touched_at,
 		};
 
 		Some(arg)
 	}
 }
 
-/// Finish a process's data as failed with the error of its sandbox, or a cancellation if the sandbox has none.
-fn fail(data: &mut tg::process::Data, sandbox: Option<&crate::sandbox::Sandbox>, at: i64) {
-	let error = sandbox
-		.and_then(|sandbox| sandbox.data.as_ref())
-		.and_then(|data| data.data.error.clone())
+/// Finish a process's data as failed by the end of its boot, with the end's time and error, or a cancellation if the end has no error. Clear the log, the output, and the actual checksum, which only the process's own finish sets, so that the failed data is the same whichever write's data it fails.
+fn fail(mut data: tg::process::Data, end: &crate::sandbox::End) -> tg::process::Data {
+	let error = end
+		.error
+		.clone()
 		.unwrap_or_else(|| {
 			tg::Either::Left(tg::error::Data {
 				code: Some(tg::error::Code::Cancellation),
@@ -597,9 +613,28 @@ fn fail(data: &mut tg::process::Data, sandbox: Option<&crate::sandbox::Sandbox>,
 		})
 		.map_right(tg::Referent::with_node);
 	data.cacheable = false;
+	data.checksum.actual = None;
 	data.children = None;
 	data.exit = Some(1);
-	data.finished_at = Some(at);
+	data.finished_at = Some(end.at);
+	data.log = None;
+	data.output = None;
 	data.set_error(Some(error));
 	data.status = tg::process::Status::Finished;
+	data
+}
+
+/// Complete a finished process's data with the earliest start of another write of the process, or return `None` if the write does not start the process earlier.
+fn complete(data: &tg::process::Data, write: &tg::process::Data) -> Option<tg::process::Data> {
+	let started_at = write.started_at?;
+	if data
+		.started_at
+		.is_some_and(|existing| existing <= started_at)
+	{
+		return None;
+	}
+	let mut data = data.clone();
+	data.children = None;
+	data.started_at = Some(started_at);
+	Some(data)
 }

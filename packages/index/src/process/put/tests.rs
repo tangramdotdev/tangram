@@ -98,7 +98,7 @@ fn the_first_end_to_arrive_is_final() {
 fn a_process_write_at_or_above_its_boot_end_is_failed() {
 	let id = tg::process::Id::new();
 	let mut sandbox = sandbox_record(1, tg::sandbox::Status::Started);
-	sandbox.ends.insert(0, 3);
+	sandbox.ends.insert(0, end(3));
 	let sandbox_id = sandbox.data.as_ref().unwrap().data.id.clone();
 	for status in [
 		tg::process::Status::Queued,
@@ -123,7 +123,7 @@ fn a_process_write_at_or_above_its_boot_end_is_failed() {
 fn a_process_write_below_its_boot_end_applies() {
 	let id = tg::process::Id::new();
 	let mut sandbox = sandbox_record(1, tg::sandbox::Status::Started);
-	sandbox.ends.insert(0, 3);
+	sandbox.ends.insert(0, end(3));
 	let sandbox_id = sandbox.data.as_ref().unwrap().data.id.clone();
 	let mut started = arg(&id, data(&sandbox_id, tg::process::Status::Started));
 	started.boot = Some(0);
@@ -143,23 +143,37 @@ fn the_end_of_a_boot_and_the_writes_of_its_processes_keep_the_first_end_in_every
 	let second = tg::process::Id::new();
 	let sandbox_id = tg::sandbox::Id::new();
 
-	// The first process is queued by the scheduler, then started and finished by the runner.
+	// The first process is queued by the scheduler, then started and finished by the runner. Every write has its own time, and every write that records the start carries the same start, as the runner sets it once.
 	let mut queued = arg(&first, data(&sandbox_id, tg::process::Status::Queued));
 	queued.boot = Some(0);
 	queued.permissions = vec![permission(&first, 1)];
+	queued.touched_at = 10;
 	let mut started = arg(&first, data(&sandbox_id, tg::process::Status::Started));
 	started.boot = Some(0);
 	started.sequence = 1;
+	started.touched_at = 20;
 	let mut finished = arg(&first, data(&sandbox_id, tg::process::Status::Finished));
 	finished.boot = Some(0);
 	finished.sequence = 2;
+	finished.touched_at = 30;
+	let finished_data = finished.data.as_mut().unwrap();
+	finished_data.log = Some(tg::Referent::with_node(tg::blob::Id::new(b"log")));
+	finished_data.output = Some(tg::Referent::with_node(tg::value::Data::Null));
 
 	// The second process's first write carries no boot, such as a write of a parent by its child's spawn, and the runner's start sets its boot.
 	let mut unbooted = arg(&second, data(&sandbox_id, tg::process::Status::Started));
 	unbooted.principal = tg::Principal::Process(second.clone());
+	unbooted.touched_at = 40;
 	let mut booted = arg(&second, data(&sandbox_id, tg::process::Status::Started));
 	booted.boot = Some(0);
 	booted.sequence = 1;
+	booted.touched_at = 50;
+
+	// The sandbox's scheduler ends the boot with the number zero, and its holder ends it with the number three.
+	let mut zero = sandbox_arg(&sandbox_id, 0);
+	zero.touched_at = 60;
+	let mut holder = sandbox_arg(&sandbox_id, 3);
+	holder.touched_at = 70;
 
 	let writes = [
 		(0, Write::Process(queued)),
@@ -167,9 +181,10 @@ fn the_end_of_a_boot_and_the_writes_of_its_processes_keep_the_first_end_in_every
 		(0, Write::Process(finished)),
 		(1, Write::Process(unbooted)),
 		(1, Write::Process(booted)),
-		(2, Write::Sandbox(sandbox_arg(&sandbox_id, 0))),
-		(2, Write::Sandbox(sandbox_arg(&sandbox_id, 3))),
+		(2, Write::Sandbox(zero)),
+		(2, Write::Sandbox(holder)),
 	];
+	let mut expected = std::collections::BTreeMap::new();
 	for order in crate::tests::permutations(writes.len()) {
 		// Apply the writes in the order, failing with a zero end every unfinished process that the index lists under the boot, as the index backends do.
 		let mut states = [State::default(), State::default()];
@@ -203,29 +218,48 @@ fn the_end_of_a_boot_and_the_writes_of_its_processes_keep_the_first_end_in_every
 			}
 		}
 
-		// Each process keeps its own end if its finish or the holder's end of the boot arrived before the zero end, and is failed otherwise, with the same record in every such order.
+		// Each process keeps its own end if its finish or the holder's end of the boot arrived before the zero end, and is failed with the zero end's time otherwise.
 		let position = |index: usize| order.iter().position(|i| *i == index).unwrap();
 		let zero_first = position(5) < position(6);
+		let normal = !zero_first || position(2) < position(5);
 		let first_data = states[0].data.as_ref().unwrap();
 		assert_eq!(first_data.status, tg::process::Status::Finished);
-		let normal = !zero_first || position(2) < position(5);
 		assert_eq!(
-			first_data.exit,
-			Some(if normal { 0 } else { 1 }),
+			(first_data.exit, first_data.finished_at),
+			if normal {
+				(Some(0), Some(2))
+			} else {
+				(Some(1), Some(60))
+			},
 			"the order {order:?} did not keep the first end of the first process"
 		);
+		assert_eq!(first_data.started_at, Some(1));
 		let second_data = states[1].data.as_ref().unwrap();
-		let expected = if zero_first {
+		let expected_status = if zero_first {
 			tg::process::Status::Finished
 		} else {
 			tg::process::Status::Started
 		};
 		assert_eq!(
-			second_data.status, expected,
+			second_data.status, expected_status,
 			"the order {order:?} did not keep the first end of the second process"
 		);
 		assert_eq!(states[0].permissions.len(), 1);
 		assert!(states.iter().all(|state| state.rejected.is_empty()));
+
+		// Compare the whole records with those of the first order that keeps the same ends.
+		let outcomes = states.each_ref().map(outcome);
+		match expected.get(&(normal, zero_first)) {
+			None => {
+				expected.insert((normal, zero_first), (order, outcomes));
+			},
+			Some((first, expected)) => {
+				assert_eq!(
+					&outcomes, expected,
+					"the order {order:?} produced different records than the order {first:?}"
+				);
+			},
+		}
 	}
 }
 
@@ -233,7 +267,7 @@ fn the_end_of_a_boot_and_the_writes_of_its_processes_keep_the_first_end_in_every
 fn a_process_of_a_boot_that_its_holder_ended_keeps_its_own_end_in_every_order() {
 	let id = tg::process::Id::new();
 	let mut sandbox = sandbox_record(1, tg::sandbox::Status::Started);
-	sandbox.ends.insert(0, 3);
+	sandbox.ends.insert(0, end(3));
 	let sandbox_id = sandbox.data.as_ref().unwrap().data.id.clone();
 	let mut started = arg(&id, data(&sandbox_id, tg::process::Status::Started));
 	started.boot = Some(0);
@@ -278,6 +312,38 @@ fn a_write_that_changes_the_boot_is_rejected() {
 	apply(&mut state, 0, &queued, None);
 	apply(&mut state, 1, &started, None);
 	assert!(state.rejected.contains(&1));
+}
+
+#[test]
+fn a_write_that_changes_the_command_of_a_process_is_rejected() {
+	let id = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let queued = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	let mut started = arg(&id, data(&sandbox, tg::process::Status::Started));
+	started.command_id = tg::command::Id::new(b"other").into();
+	started.sequence = 1;
+	let mut state = State::default();
+	apply(&mut state, 0, &queued, None);
+	apply(&mut state, 1, &started, None);
+	assert!(state.rejected.contains(&1));
+}
+
+#[test]
+fn a_write_that_changes_the_sandbox_of_a_process_is_rejected() {
+	let id = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let other = tg::sandbox::Id::new();
+	let queued = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	let mut started = arg(&id, data(&other, tg::process::Status::Started));
+	started.sequence = 1;
+	let mut link = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	link.data = None;
+	link.sandbox = Some(other);
+	let mut state = State::default();
+	apply(&mut state, 0, &queued, None);
+	apply(&mut state, 1, &started, None);
+	apply(&mut state, 2, &link, None);
+	assert_eq!(state.rejected, BTreeSet::from([1, 2]));
 }
 
 /// Apply the writes in every order with the sandbox's record, and assert that every order leaves the same records and rejects the same writes. Return the records of the last order.
@@ -414,6 +480,14 @@ fn data(sandbox: &tg::sandbox::Id, status: tg::process::Status) -> tg::process::
 		stdin: tg::process::Stdio::default(),
 		stdout: tg::process::Stdio::default(),
 		tty: None,
+	}
+}
+
+fn end(sequence: u64) -> crate::sandbox::End {
+	crate::sandbox::End {
+		at: 0,
+		error: None,
+		sequence,
 	}
 }
 

@@ -6,13 +6,18 @@ pub mod put;
 #[cfg(test)]
 mod tests;
 
-/// The entry of a process in a scheduler's queue, which holds the process's spawn request while the scheduler holds the process, or records that the scheduler handed the process off before the put of the entry applied, so that the put and the delete of the entry resolve in any order and leave no record once both apply.
+/// The entry of a process in a scheduler's queue, which holds the process's spawn request while the scheduler holds the process, or records that the scheduler stopped holding the process, so that the puts and the deletes of the entry resolve in any order and any number of times. The index removes the record of a delete by its age.
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub struct SchedulerProcess {
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub request: Option<Vec<u8>>,
+pub enum SchedulerProcess {
+	/// The scheduler stopped holding the process at the time of the first delete of the entry to apply.
+	#[tangram_serialize(id = 0)]
+	Deleted(i64),
+
+	/// The scheduler holds the process with the spawn request.
+	#[tangram_serialize(id = 1)]
+	Queued(Vec<u8>),
 }
 
 /// A process in a scheduler's queue.
@@ -25,9 +30,6 @@ pub struct QueuedProcess {
 /// The change to the entry that a put or delete makes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Change {
-	/// Remove the entry.
-	Clear,
-
 	/// Leave the entry as it is.
 	Keep,
 
@@ -36,26 +38,22 @@ pub enum Change {
 }
 
 impl SchedulerProcess {
-	/// Resolve a put of a process's spawn request, which does not apply after the delete of the entry, and which removes the delete's record, so that no record of the entry remains once both apply.
+	/// Resolve a put of a process's spawn request, which does not apply after a delete of the entry.
 	#[must_use]
 	pub fn put(existing: Option<&Self>, request: &[u8]) -> Change {
-		if existing.is_some_and(|existing| existing.request.is_none()) {
-			return Change::Clear;
+		if let Some(Self::Deleted(_)) = existing {
+			return Change::Keep;
 		}
-		let stored = Self {
-			request: Some(request.to_vec()),
-		};
-		Change::Store(stored)
+		Change::Store(Self::Queued(request.to_vec()))
 	}
 
-	/// Resolve a delete of the entry, which removes the entry if its put applied, and otherwise records the delete, so that the put does not apply afterward.
+	/// Resolve a delete of the entry, which records the delete unless an earlier delete applied, so that no put applies afterward.
 	#[must_use]
-	pub fn delete(existing: Option<&Self>) -> Change {
-		match existing {
-			Some(Self { request: Some(_) }) => Change::Clear,
-			Some(Self { request: None }) => Change::Keep,
-			None => Change::Store(Self { request: None }),
+	pub fn delete(existing: Option<&Self>, deleted_at: i64) -> Change {
+		if let Some(Self::Deleted(_)) = existing {
+			return Change::Keep;
 		}
+		Change::Store(Self::Deleted(deleted_at))
 	}
 
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {

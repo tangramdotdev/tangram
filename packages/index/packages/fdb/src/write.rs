@@ -1,7 +1,7 @@
 use {
 	super::{Index, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	std::ops::ControlFlow,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 };
 
@@ -29,29 +29,32 @@ impl Index {
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
 
-		// Reject the whole write if it changes a stopped sandbox that is no longer stopped at the boot that the change names, so that a write that changes a stopped sandbox applies whole or not at all. Accept it as applied if an earlier attempt of this transaction may have committed and the index has what the write produces.
-		for item in items {
-			if let tangram_index::Item::PutSandbox(put) = item
-				&& put.stopped_boot.is_some()
-			{
-				let key = crate::Key::Sandbox(crate::sandbox::Key::Sandbox(put.id.clone()));
-				let key = Self::pack(subspace, &key);
-				let result = txn.get(&key, false).await;
-				let existing = crate::retry!(result)
-					.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
-					.transpose()?;
-				if let Err(error) = put.validate_stopped_boot(existing.as_ref()) {
-					if maybe_committed {
-						let applied = crate::propagate!(
-							Self::is_write_applied_with_transaction(txn, subspace, items).await
-						);
-						if applied {
-							return Ok(ControlFlow::Break(Ok(())));
-						}
-					}
-					return Ok(ControlFlow::Break(Err(error)));
+		// Read the records of the sandboxes that the write's conditional puts change.
+		let mut sandboxes = BTreeMap::new();
+		for put in tangram_index::write::conditional_sandbox_puts(items) {
+			let key = crate::Key::Sandbox(crate::sandbox::Key::Sandbox(put.id.clone()));
+			let key = Self::pack(subspace, &key);
+			let result = txn.get(&key, false).await;
+			let existing = crate::retry!(result)
+				.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
+				.transpose()?;
+			sandboxes.insert(put.id.clone(), existing);
+		}
+
+		// Reject the whole write if it changes a stopped sandbox that is no longer stopped at the boot that the change names. Accept it as applied if an earlier attempt of this transaction may have committed and the index has what the write produces.
+		let result = tangram_index::write::check_conditions(items, |id| {
+			Ok(sandboxes.get(id).cloned().flatten())
+		})?;
+		if let Err(error) = result {
+			if maybe_committed {
+				let applied = crate::propagate!(
+					Self::is_write_applied_with_transaction(txn, subspace, items).await
+				);
+				if applied {
+					return Ok(ControlFlow::Break(Ok(())));
 				}
 			}
+			return Ok(ControlFlow::Break(Err(error)));
 		}
 
 		let mut rejection = None;

@@ -213,7 +213,7 @@ impl Scheduler {
 			{
 				continue;
 			}
-			if indexed.ends.get(&boot) == Some(&0) {
+			if indexed.ends.get(&boot).is_some_and(|end| end.sequence == 0) {
 				self.component
 					.finish_ended_boot_processes(&self.server, &id, boot)
 					.await;

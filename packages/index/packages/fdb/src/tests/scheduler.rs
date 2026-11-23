@@ -2,34 +2,8 @@ use {super::super::Index, tangram_client::prelude::*};
 
 #[tokio::test]
 async fn sandbox_keys_resolve_by_boot() {
-	let Some(cluster) = tangram_tests_util::database::cluster() else {
+	let Some(options) = options() else {
 		return;
-	};
-	let options = crate::Options {
-		cleaning_partition_total: 1,
-		cluster,
-		instance: Some(format!(
-			"index_scheduler_test_{:032x}/",
-			rand::random::<u128>()
-		)),
-		max_process_depth: None,
-		object_permission_time_to_touch: std::time::Duration::ZERO,
-		max_write_operation_batch_size: 1024,
-		permission_update_partition_total: 1,
-		process_data_fragment_size: 16,
-		process_permission_time_to_touch: std::time::Duration::ZERO,
-		read_channel_capacity: 256,
-		read_request_batch_size: 4,
-		read_task_concurrency: 16,
-		read_task_count: 4,
-		storage_and_metadata_update_partition_total: 1,
-		storage_relation_batch_size: 8,
-		usage_partition_total: 1,
-		usage_update_partition_total: 1,
-		verification: crate::VerificationConfig { concurrency: 64 },
-		write_item_transaction_concurrency: 1,
-		write_operation_batch_size: 1024,
-		write_transaction_concurrency: 1,
 	};
 	super::run(&options, async |index| {
 		let first = tg::scheduler::Id::new();
@@ -67,6 +41,74 @@ async fn sandbox_keys_resolve_by_boot() {
 	.await;
 }
 
+#[tokio::test]
+async fn process_keys_resolve_in_any_order_and_a_clean_removes_a_delete_by_its_age() {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
+		let scheduler = tg::scheduler::Id::new();
+		let sandbox = tg::sandbox::Id::new();
+
+		// A put records the spawn in the scheduler's queue, a delete removes it, and the put applied again does not bring it back.
+		let process = tg::process::Id::new();
+		write(index, put_process(&process, &sandbox, &scheduler)).await;
+		assert_eq!(processes(index, &scheduler).await, vec![process.clone()]);
+		write(index, delete_process(&process, &sandbox, &scheduler, 5)).await;
+		write(index, put_process(&process, &sandbox, &scheduler)).await;
+		assert_eq!(
+			processes(index, &scheduler).await,
+			Vec::<tg::process::Id>::new()
+		);
+
+		// A clean before the delete's age keeps the record, so that a put does not apply.
+		clean(index, 4).await;
+		write(index, put_process(&process, &sandbox, &scheduler)).await;
+		assert_eq!(
+			processes(index, &scheduler).await,
+			Vec::<tg::process::Id>::new()
+		);
+
+		// A clean at the delete's age removes the record.
+		clean(index, 5).await;
+		write(index, put_process(&process, &sandbox, &scheduler)).await;
+		assert_eq!(processes(index, &scheduler).await, vec![process]);
+	})
+	.await;
+}
+
+fn options() -> Option<crate::Options> {
+	let cluster = tangram_tests_util::database::cluster()?;
+	let options = crate::Options {
+		cleaning_partition_total: 1,
+		cluster,
+		instance: Some(format!(
+			"index_scheduler_test_{:032x}/",
+			rand::random::<u128>()
+		)),
+		max_process_depth: None,
+		object_permission_time_to_touch: std::time::Duration::ZERO,
+		max_write_operation_batch_size: 1024,
+		permission_update_partition_total: 1,
+		process_data_fragment_size: 16,
+		process_permission_time_to_touch: std::time::Duration::ZERO,
+		read_channel_capacity: 256,
+		read_request_batch_size: 4,
+		read_task_concurrency: 16,
+		read_task_count: 4,
+		storage_and_metadata_update_partition_total: 1,
+		storage_relation_batch_size: 8,
+		usage_partition_total: 1,
+		usage_update_partition_total: 1,
+		verification: crate::VerificationConfig { concurrency: 64 },
+		write_item_transaction_concurrency: 1,
+		write_operation_batch_size: 1024,
+		write_transaction_concurrency: 1,
+	};
+
+	Some(options)
+}
+
 fn put(sandbox: &tg::sandbox::Id, boot: u64, scheduler: &tg::scheduler::Id) -> tangram_index::Item {
 	let arg = tangram_index::scheduler::sandbox::put::Arg {
 		boot,
@@ -97,4 +139,51 @@ async fn queue(index: &Index, scheduler: &tg::scheduler::Id) -> Vec<tg::sandbox:
 
 async fn owner(index: &Index, sandbox: &tg::sandbox::Id) -> Option<tg::scheduler::Id> {
 	index.try_get_sandbox_scheduler(sandbox).await.unwrap()
+}
+
+fn put_process(
+	process: &tg::process::Id,
+	sandbox: &tg::sandbox::Id,
+	scheduler: &tg::scheduler::Id,
+) -> tangram_index::Item {
+	let arg = tangram_index::scheduler::process::put::Arg {
+		process: process.clone(),
+		request: b"request".to_vec(),
+		sandbox: sandbox.clone(),
+		scheduler: scheduler.clone(),
+	};
+	tangram_index::Item::PutSchedulerProcess(Box::new(arg))
+}
+
+fn delete_process(
+	process: &tg::process::Id,
+	sandbox: &tg::sandbox::Id,
+	scheduler: &tg::scheduler::Id,
+	deleted_at: i64,
+) -> tangram_index::Item {
+	let arg = tangram_index::scheduler::process::delete::Arg {
+		deleted_at,
+		process: process.clone(),
+		sandbox: sandbox.clone(),
+		scheduler: scheduler.clone(),
+	};
+	tangram_index::Item::DeleteSchedulerProcess(Box::new(arg))
+}
+
+async fn processes(index: &Index, scheduler: &tg::scheduler::Id) -> Vec<tg::process::Id> {
+	let processes = index.get_scheduler_processes(scheduler).await.unwrap();
+	processes.into_iter().map(|process| process.id).collect()
+}
+
+async fn clean(index: &Index, max_process_touched_at: i64) {
+	let arg = tangram_index::clean::Arg {
+		batch_size: 100,
+		max_object_touched_at: i64::MIN,
+		max_process_touched_at,
+		max_sandbox_touched_at: i64::MIN,
+		now: i64::MIN,
+		partition_end: 1,
+		partition_start: 0,
+	};
+	index.clean(arg).await.unwrap();
 }

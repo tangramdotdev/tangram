@@ -12,9 +12,9 @@ pub struct Sandbox {
 
 	pub data: Option<tg::sandbox::get::Output>,
 
-	/// The number of the first end of each ended boot, which is the number of its holder's end, or zero for the end that the sandbox's scheduler writes for a dead runner. A process write numbered at or above its boot's end is recorded as failed.
+	/// The first end of each ended boot. A process write numbered at or above its boot's end is recorded as failed.
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub ends: BTreeMap<u64, u64>,
+	pub ends: BTreeMap<u64, End>,
 
 	pub location: Option<tg::Location>,
 
@@ -41,6 +41,20 @@ pub struct Sandbox {
 	/// The usage reported for each boot, which sums with the stopped usage to the usage in `data`.
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub usages: BTreeMap<u64, tg::sandbox::Usage>,
+}
+
+/// The first end of a boot, from which the index builds the record of every process that the end fails.
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct End {
+	/// The time of the end, which is the time at which a process that the end fails finished.
+	pub at: i64,
+
+	/// The error of the end, which is the error of a process that the end fails.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+
+	/// The number of the end, which is the number of its holder's end, or zero for the end that the sandbox's scheduler writes for a dead runner.
+	pub sequence: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]

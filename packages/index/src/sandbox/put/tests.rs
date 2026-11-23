@@ -148,19 +148,51 @@ fn the_lifecycle_writes_of_a_sandbox_converge_in_every_order() {
 
 #[test]
 fn a_late_write_of_an_earlier_boot_leaves_a_later_boot_and_its_runner() {
-	let first = tg::runner::Id::new();
-	let second = tg::runner::Id::new();
+	let runner = tg::runner::Id::new();
 	let mut existing = sandbox(data(1, tg::sandbox::Status::Starting, None));
-	existing.runner = Some(second.clone());
+	existing.runner = Some(runner.clone());
 	for status in [tg::sandbox::Status::Started, tg::sandbox::Status::Destroyed] {
 		let mut late = arg(data(0, status, None));
-		late.runner = Some(first.clone());
+		late.runner = Some(runner.clone());
 		let merge = late.merge(Some(&existing), None).unwrap().unwrap();
 		assert_eq!(
 			merge.sandbox.data.unwrap().data.status,
 			tg::sandbox::Status::Starting
 		);
-		assert_eq!(merge.sandbox.runner, Some(second.clone()));
+		assert_eq!(merge.sandbox.runner, Some(runner.clone()));
+	}
+}
+
+#[test]
+fn the_runner_of_a_sandbox_is_kept_from_the_first_put_that_names_one() {
+	let first = tg::runner::Id::new();
+	let second = tg::runner::Id::new();
+	let mut existing = sandbox(data(0, tg::sandbox::Status::Stopped, None));
+	existing.runner = Some(first.clone());
+	let mut later = arg(data(1, tg::sandbox::Status::Started, None));
+	later.runner = Some(second);
+	let merge = later.merge(Some(&existing), None).unwrap().unwrap();
+	assert_eq!(
+		merge.sandbox.data.unwrap().data.status,
+		tg::sandbox::Status::Started
+	);
+	assert_eq!(merge.sandbox.runner, Some(first));
+}
+
+#[test]
+fn a_write_that_changes_the_creator_or_the_owner_of_a_sandbox_is_rejected() {
+	let existing = sandbox(data(0, tg::sandbox::Status::Started, None));
+	let user = tg::Principal::User(tg::user::Id::new());
+	let mut creator = arg(data(0, tg::sandbox::Status::Stopped, None));
+	creator.data.as_mut().unwrap().data.creator = user.clone();
+	let mut owner = arg(data(0, tg::sandbox::Status::Stopped, None));
+	owner.data.as_mut().unwrap().data.owner = user;
+	for (field, write) in [("creator", creator), ("owner", owner)] {
+		let merge = write.merge(Some(&existing), None).unwrap();
+		assert!(
+			merge.is_err(),
+			"a write that changes the {field} was not rejected"
+		);
 	}
 }
 
@@ -238,7 +270,7 @@ fn the_first_end_of_a_boot_records_its_number() {
 		let first = order.iter().copied().find(|index| *index != 0).unwrap();
 		let expected = if first == 1 { 3 } else { 0 };
 		assert_eq!(
-			sandbox.ends.get(&1).copied(),
+			sandbox.ends.get(&1).map(|end| end.sequence),
 			Some(expected),
 			"the order {order:?} did not record the first end"
 		);
@@ -256,14 +288,14 @@ fn a_zero_end_of_an_ended_or_later_boot_does_not_apply() {
 
 	// The boot ended with its holder's end.
 	let mut existing = sandbox(data(1, tg::sandbox::Status::Stopped, None));
-	existing.ends = BTreeMap::from([(1, 4)]);
+	existing.ends = BTreeMap::from([(1, end(4))]);
 	let merge = zero.merge(Some(&existing), None).unwrap().unwrap();
 	assert_eq!(merge.zero_end, None);
-	assert_eq!(merge.sandbox.ends.get(&1), Some(&4));
+	assert_eq!(merge.sandbox.ends.get(&1).map(|end| end.sequence), Some(4));
 
 	// The sandbox has a later boot.
 	let mut existing = sandbox(data(2, tg::sandbox::Status::Started, None));
-	existing.ends = BTreeMap::from([(1, 4)]);
+	existing.ends = BTreeMap::from([(1, end(4))]);
 	let merge = zero.merge(Some(&existing), None).unwrap().unwrap();
 	assert_eq!(merge.zero_end, None);
 	assert_eq!(
@@ -305,7 +337,7 @@ fn a_start_applies_only_after_the_first_end_of_its_boot_in_every_order() {
 		let position = |index: usize| order.iter().position(|i| *i == index).unwrap();
 		let first_end = if position(0) < position(1) { 3 } else { 0 };
 		assert_eq!(
-			sandbox.ends.get(&0).copied(),
+			sandbox.ends.get(&0).map(|end| end.sequence),
 			Some(first_end),
 			"the order {order:?} did not record the first end"
 		);
@@ -326,6 +358,91 @@ fn a_start_applies_only_after_the_first_end_of_its_boot_in_every_order() {
 			"the order {order:?} left the wrong status"
 		);
 	}
+}
+
+#[test]
+fn of_a_start_and_a_destroy_of_a_stopped_sandbox_only_the_first_after_an_end_applies_in_every_order()
+ {
+	let stopped = data(0, tg::sandbox::Status::Stopped, None);
+	let id = stopped.data.id.clone();
+	let mut holder = arg(stopped.clone());
+	holder.principal = tg::Principal::Sandbox(id.clone());
+	holder.sequence = 3;
+	let zero = arg(stopped);
+	let mut starting = data(1, tg::sandbox::Status::Starting, None);
+	starting.data.id = id.clone();
+	let mut start = arg(starting);
+	start.stopped_boot = Some(0);
+	let mut destroying = data(0, tg::sandbox::Status::Destroying, None);
+	destroying.data.id = id.clone();
+	let mut destroy = arg(destroying);
+	destroy.stopped_boot = Some(0);
+	let args = [holder, zero, start, destroy];
+	for order in crate::tests::permutations(args.len()) {
+		// Apply the writes in the order to a started sandbox.
+		let mut sandbox = Some(sandbox(data(0, tg::sandbox::Status::Started, None)));
+		sandbox.as_mut().unwrap().data.as_mut().unwrap().data.id = id.clone();
+		let mut rejected = BTreeSet::new();
+		for &index in &order {
+			let Ok(merge) = args[index].merge(sandbox.as_ref(), None).unwrap() else {
+				rejected.insert(index);
+				continue;
+			};
+			sandbox = Some(merge.sandbox);
+		}
+
+		// Of the start and the destroy, only the first to arrive after the first end of the boot applies.
+		let sandbox = sandbox.unwrap();
+		let position = |index: usize| order.iter().position(|i| *i == index).unwrap();
+		let end = position(0).min(position(1));
+		let applied = [2, 3]
+			.into_iter()
+			.filter(|index| position(*index) > end)
+			.min_by_key(|index| position(*index));
+		let expected = [2, 3]
+			.into_iter()
+			.filter(|index| Some(*index) != applied)
+			.collect::<BTreeSet<_>>();
+		assert_eq!(
+			rejected, expected,
+			"the order {order:?} applied the wrong conditional writes"
+		);
+		let status = sandbox.data.unwrap().data.status;
+		let expected = match applied {
+			Some(2) => tg::sandbox::Status::Starting,
+			Some(_) => tg::sandbox::Status::Destroying,
+			None => tg::sandbox::Status::Stopped,
+		};
+		assert_eq!(
+			status, expected,
+			"the order {order:?} left the wrong status"
+		);
+		let first_end = if position(0) < position(1) { 3 } else { 0 };
+		assert_eq!(
+			sandbox.ends.get(&0).map(|end| end.sequence),
+			Some(first_end),
+			"the order {order:?} did not record the first end"
+		);
+	}
+}
+
+#[test]
+fn a_write_with_a_conditional_put_whose_condition_fails_is_rejected_whole() {
+	let stopped = sandbox(data(0, tg::sandbox::Status::Stopped, None));
+	let started = sandbox(data(1, tg::sandbox::Status::Started, None));
+	let mut start = arg(data(1, tg::sandbox::Status::Starting, None));
+	start.stopped_boot = Some(0);
+	let other = arg(data(0, tg::sandbox::Status::Started, None));
+	let items = [
+		crate::Item::PutSandbox(Box::new(other)),
+		crate::Item::PutSandbox(Box::new(start)),
+	];
+	let result = crate::write::check_conditions(&items, |_| Ok(Some(stopped.clone()))).unwrap();
+	assert!(result.is_ok());
+	let result = crate::write::check_conditions(&items, |_| Ok(Some(started.clone()))).unwrap();
+	assert!(result.is_err());
+	let result = crate::write::check_conditions(&items, |_| Ok(None)).unwrap();
+	assert!(result.is_err());
 }
 
 /// Apply the writes in every order, and assert that every order leaves the same record and rejects the same writes. Return the record of the last order.
@@ -420,6 +537,14 @@ fn data(
 		data,
 		location: None,
 		tokens: tg::authorization::Tokens::default(),
+	}
+}
+
+fn end(sequence: u64) -> super::super::End {
+	super::super::End {
+		at: 0,
+		error: None,
+		sequence,
 	}
 }
 

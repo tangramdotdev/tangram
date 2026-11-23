@@ -151,7 +151,17 @@ impl Index {
 			)
 			.await
 		);
-		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations + syncs);
+		let scheduler_processes = crate::propagate!(
+			Self::delete_expired_scheduler_processes(
+				txn,
+				subspace,
+				max_process_touched_at,
+				batch_size.saturating_sub(permissions + delegations + syncs),
+			)
+			.await
+		);
+		let remaining_batch_size =
+			batch_size.saturating_sub(permissions + delegations + syncs + scheduler_processes);
 
 		// Preserve the numeric kind order when timestamps tie.
 		let cutoffs = [
@@ -300,6 +310,7 @@ impl Index {
 		);
 		output.done = delegations == 0
 			&& permissions == 0
+			&& scheduler_processes == 0
 			&& syncs == 0
 			&& candidates.is_empty()
 			&& propagated_versions == 0
