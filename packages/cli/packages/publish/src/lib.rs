@@ -1520,6 +1520,7 @@ async fn publish_checkin(
 	let path_display = path.display().to_string();
 	let options = tg::checkin::Options {
 		lock: None,
+		root: true,
 		solve,
 		source_dependencies: false,
 		..tg::checkin::Options::default()
