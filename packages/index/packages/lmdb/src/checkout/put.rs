@@ -25,11 +25,16 @@ impl Index {
 			.map_err(|error| tg::error!(!error, "failed to get the checkout"))?
 			.and_then(|bytes| tangram_index::checkout::Checkout::deserialize(bytes).ok());
 
+		// Merge the existing checkout, keeping the larger put token and touch time.
+		let put = existing
+			.as_ref()
+			.map_or(arg.put, |existing| existing.put.max(arg.put));
 		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
 			existing.touched_at.max(arg.touched_at)
 		});
 
 		let value = tangram_index::checkout::Checkout {
+			put,
 			reference_count: 0,
 			touched_at,
 		}

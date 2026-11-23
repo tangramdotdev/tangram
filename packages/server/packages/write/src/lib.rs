@@ -630,6 +630,7 @@ impl Component {
 			vec![tangram_index::checkout::put::Arg {
 				dependencies: Vec::new(),
 				id: artifact.into(),
+				put: uuid::Uuid::now_v7().into_bytes(),
 				replace: false,
 				touched_at,
 			}]

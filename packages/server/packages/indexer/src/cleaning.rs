@@ -193,7 +193,7 @@ impl Component {
 		let (artifacts, named): (Vec<_>, Vec<_>) = output
 			.checkouts
 			.iter()
-			.cloned()
+			.map(|checkout| checkout.id.clone())
 			.partition(|id| tg::artifact::Id::try_from(id.clone()).is_ok());
 		let archive_args = output
 			.objects

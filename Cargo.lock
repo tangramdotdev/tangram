@@ -11167,6 +11167,7 @@ dependencies = [
  "tangram_server_watch_core",
  "tangram_uri",
  "tangram_util",
+ "tempfile",
  "tokio",
  "tokio-postgres",
  "tokio-rustls",

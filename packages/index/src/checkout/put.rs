@@ -8,6 +8,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 1)]
 	pub id: tg::Id,
 
+	/// The token of the write that published the checkout's files.
+	#[tangram_serialize(id = 4)]
+	pub put: [u8; 16],
+
 	/// Whether to delete the checkout's existing dependencies before putting the new ones.
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_default")]
 	pub replace: bool,

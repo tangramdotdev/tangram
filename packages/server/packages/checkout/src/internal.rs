@@ -484,6 +484,7 @@ impl Component {
 						tangram_index::checkout::put::Arg {
 							dependencies,
 							id: node.id.clone(),
+							put: uuid::Uuid::now_v7().into_bytes(),
 							replace: tag,
 							touched_at,
 						},
@@ -1456,6 +1457,7 @@ impl Component {
 		let arg = tangram_index::checkout::put::Arg {
 			dependencies: dependencies.iter().cloned().map(Into::into).collect(),
 			id: item.id.into(),
+			put: uuid::Uuid::now_v7().into_bytes(),
 			replace: false,
 			touched_at,
 		};

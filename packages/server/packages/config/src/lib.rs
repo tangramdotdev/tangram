@@ -31,6 +31,8 @@ pub struct Config {
 
 	pub checkin: Checkin,
 
+	pub checkout: Checkout,
+
 	pub checkouts: bool,
 
 	pub control: Control,
@@ -377,6 +379,11 @@ pub struct CheckinCheckout {
 #[derive(Clone, Debug)]
 pub struct CheckinSolve {
 	pub prefetch_concurrency: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct Checkout {
+	pub time_to_touch: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -2213,6 +2220,7 @@ impl Default for Config {
 			billing: None,
 			cache: Cache::default(),
 			checkin: Checkin::default(),
+			checkout: Checkout::default(),
 			checkouts: true,
 			control: Control::default(),
 			database: Database::default(),
@@ -2325,6 +2333,14 @@ impl Default for CheckinSolve {
 	fn default() -> Self {
 		Self {
 			prefetch_concurrency: 16,
+		}
+	}
+}
+
+impl Default for Checkout {
+	fn default() -> Self {
+		Self {
+			time_to_touch: default_time_to_touch(),
 		}
 	}
 }

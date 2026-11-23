@@ -9,7 +9,7 @@ use {
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_server_core::{
 		Session,
-		checkout::{Guard, Lock, NamedNode},
+		checkout::{Guard, Lock, NamedNode, Puts},
 	},
 };
 
@@ -40,6 +40,7 @@ pub struct Component(Arc<State>);
 pub struct State {
 	graph_tasks: GraphTasks,
 	lock: Lock,
+	puts: Puts,
 	tasks: Tasks,
 	xattr_value_size: Mutex<Option<usize>>,
 }
@@ -80,6 +81,9 @@ impl Component {
 		// Create the checkout lock.
 		let lock = Lock::new();
 
+		// Create the checkout puts.
+		let puts = Puts::new();
+
 		// Create the checkout tasks.
 		let tasks = tangram_futures::task::Map::default();
 
@@ -87,6 +91,7 @@ impl Component {
 		let state = State {
 			graph_tasks,
 			lock,
+			puts,
 			tasks,
 			xattr_value_size,
 		};
@@ -619,6 +624,10 @@ impl tangram_server_core::checkout::Component for Component {
 
 	fn lock(&self) -> &Lock {
 		&self.lock
+	}
+
+	fn puts(&self) -> &Puts {
+		&self.puts
 	}
 
 	fn named_checkout_maintenance_enabled(&self, server: &tangram_server_core::Server) -> bool {
