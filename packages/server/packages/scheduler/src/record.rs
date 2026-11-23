@@ -2,6 +2,7 @@ use {
 	super::{EnqueueSandboxRequestArg, Scheduler},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
+	tangram_index::prelude::*,
 };
 
 impl Scheduler {
@@ -56,6 +57,110 @@ impl Scheduler {
 			first,
 		)
 		.await
+	}
+
+	/// Reserve the next boot of a stopped sandbox with one index write that the index rejects unless the sandbox is still stopped at the boot before it, which records the starting boot and the boot's request in this scheduler's queue, from which a restarted scheduler recovers the boot. Return whether the index applied the write.
+	pub(super) async fn reserve_sandbox_boot(
+		&self,
+		request: &EnqueueSandboxRequestArg,
+	) -> tg::Result<bool> {
+		tangram_server_core::checkpoint!(self.server, "sandbox.start.reserve", sandbox = %request.sandbox)
+			.await;
+
+		// Create the starting record.
+		let session = self.server.session(&self.server.context);
+		let id = &request.sandbox;
+		let now = self.server.clock.unix_timestamp();
+		let data =
+			tangram_server_scheduler_core::sandbox_data(request, tg::sandbox::Status::Starting);
+		let location = tg::Location::Local(tg::location::Local {
+			region: self.server.config.region.clone(),
+		});
+		let data = tg::sandbox::get::Output {
+			data,
+			location: Some(location.clone()),
+			tokens: tg::authorization::Tokens::default(),
+		};
+		let account = self
+			.server
+			.components
+			.usage
+			.usage_account(&session, &request.owner)
+			.await?;
+		let stopped_boot = request
+			.boot
+			.checked_sub(1)
+			.ok_or_else(|| tg::error!(%id, "expected the start of a later boot"))?;
+		let put_arg = tangram_index::sandbox::put::Arg {
+			account,
+			created_at: request.created_at,
+			data: Some(data),
+			id: id.clone(),
+			location: Some(location),
+			permissions: Vec::new(),
+			principal: tg::Principal::Sandbox(id.clone()),
+			process: None,
+			processes: None,
+			registration: None,
+			runner: request.runner.clone(),
+			scheduler: Some(self.id.clone()),
+			sequence: 0,
+			stopped_boot: Some(stopped_boot),
+			stopped_usage: None,
+			touched_at: now,
+		};
+
+		// Create the entry in this scheduler's queue.
+		let stored = EnqueueSandboxRequestArg {
+			token: None,
+			..request.clone()
+		};
+		let stored = serde_json::to_vec(&stored)
+			.map_err(|error| tg::error!(!error, "failed to serialize the request"))?;
+		let queue_arg = tangram_index::scheduler::sandbox::put::Arg {
+			boot: request.boot,
+			request: stored,
+			sandbox: id.clone(),
+			scheduler: self.id.clone(),
+		};
+
+		// Write both in one transaction, which the index rejects unless the sandbox is still stopped at the boot before the start.
+		let items = vec![
+			tangram_index::Item::PutSandbox(Box::new(put_arg.clone())),
+			tangram_index::Item::PutSchedulerSandbox(Box::new(queue_arg)),
+		];
+		let arg = tangram_index::write::Arg { items };
+		let result = self.server.index.write(arg).await;
+
+		// Read the sandbox after a write that failed, because the write may have applied, and the scheduler must hold a boot whose reservation applied.
+		let reserved = match result {
+			Ok(result) => result.is_ok(),
+			Err(source) => {
+				let existing = loop {
+					match self.server.index.try_get_sandbox(id).await {
+						Ok(existing) => break existing,
+						Err(error) => {
+							tracing::error!(error = %error.trace(), %id, "failed to read the sandbox after its reservation failed");
+							tokio::time::sleep(super::recovery::READ_RETRY_INTERVAL).await;
+						},
+					}
+				};
+				if !put_arg.is_applied(existing.as_ref()) {
+					return Err(tg::error!(!source, %id, "failed to reserve the sandbox's boot"));
+				}
+				true
+			},
+		};
+		if reserved {
+			tangram_server_core::checkpoint!(self.server, "scheduler.sandbox.reserved", sandbox = %id)
+				.await;
+			self.server
+				.components
+				.sandbox
+				.spawn_publish_sandbox_status_task(&self.server, id);
+		}
+
+		Ok(reserved)
 	}
 
 	/// Record a failure after acceptance in the sandbox's error field. A new sandbox is destroyed, and a sandbox that was starting again is stopped.
@@ -125,6 +230,7 @@ impl Scheduler {
 			processes,
 			registration: None,
 			runner: request.runner.clone(),
+			scheduler: Some(self.id.clone()),
 			sequence: 0,
 			stopped_boot: None,
 			stopped_usage: None,

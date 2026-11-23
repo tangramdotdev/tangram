@@ -46,6 +46,7 @@ impl SchedulerState {
 			self.insert_child(parent, id, &runner.id);
 		}
 		self.sandboxes.entries.get_mut(id).unwrap().state = State::Accepted { runner };
+		self.stop_serving_process_holder(id);
 	}
 
 	/// Handle a runner's answer to an offer of a sandbox.
@@ -83,10 +84,9 @@ impl SchedulerState {
 				self.send_dequeue_responses(scheduler, dequeue_requests, false);
 				self.finish_accept(scheduler, id, Path::Handled, Ok(()));
 
-				// Drop the request of a sandbox whose control connection is established, and stop serving the sandbox's holder.
+				// Drop the request of a sandbox whose control connection is established, and keep serving the spawns into the sandbox, which this scheduler sends to its runner.
 				if connected {
 					self.sandboxes.entries.get_mut(id).unwrap().request = None;
-					self.stop_serving_sandbox_holder(id);
 				}
 				return;
 			},

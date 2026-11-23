@@ -149,6 +149,11 @@ enum Operation {
 		id: Option<String>,
 		result: tg::Result<RemoveRunnerResponseOutput>,
 	},
+	ReserveSandbox {
+		ids: Vec<String>,
+		request: EnqueueSandboxRequestArg,
+		result: tg::Result<bool>,
+	},
 	RetrySandbox {
 		sandbox: tg::sandbox::Id,
 	},
@@ -157,7 +162,7 @@ enum Operation {
 		sandbox: tg::sandbox::Id,
 	},
 	ServeSandboxHolder {
-		result: tg::Result<Vec<Task<tg::Result<()>>>>,
+		result: tg::Result<sandbox::HolderTasks>,
 		sandbox: tg::sandbox::Id,
 	},
 	WriteTerminalSandbox {
@@ -494,6 +499,10 @@ impl Component {
 					.await;
 				Some(scheduler)
 			},
+			EnqueueSandboxResponseOutput::Superseded => {
+				tracing::info!(%sandbox, %scheduler, "the sandbox is no longer stopped at the boot before the start");
+				None
+			},
 			EnqueueSandboxResponseOutput::Unplaceable => {
 				tracing::info!(%sandbox, %scheduler, "the scheduler declined the sandbox");
 				None
@@ -749,6 +758,9 @@ impl Scheduler {
 			RequestArg::AddRunner(request) => {
 				state.handle_add_runner_request(self, id, request);
 			},
+			RequestArg::AddRunnerSandbox(request) => {
+				state.handle_add_runner_sandbox_request(self, id, request);
+			},
 			RequestArg::AddSandboxParent(request) => {
 				let output = state.add_sandbox_parent(self, &request);
 				let response =
@@ -853,6 +865,13 @@ impl Scheduler {
 				} else if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "failed to remove the expired runner");
 				}
+			},
+			Operation::ReserveSandbox {
+				ids,
+				request,
+				result,
+			} => {
+				state.handle_reserve_sandbox(self, ids, request, result);
 			},
 			Operation::RetrySandbox { sandbox } => {
 				state.handle_retry_sandbox(self, &sandbox);

@@ -345,7 +345,11 @@ impl Component {
 	) -> tg::Result<tangram_server_runner_core::process::ConnectedEvent> {
 		// Carry the public flag only to a runner that derives the process's ID, because the spawn writes the public permission of a process whose ID it created.
 		let public = public && process.id.is_none();
-		let arg = tg::sandbox::control::SpawnProcessServerRequestArg { process, public };
+		let arg = tg::sandbox::control::SpawnProcessServerRequestArg {
+			boot: None,
+			process,
+			public,
+		};
 		let request = tg::sandbox::control::ServerRequestArg::SpawnProcess(arg);
 		let retry = session.server.config.control.request_retry.clone().into();
 		let timeout = session.server.config.control.request_timeout;
@@ -486,6 +490,7 @@ impl Component {
 				owner,
 				process: Some(process.clone()),
 				public: public && process.id.is_none(),
+				scheduled: false,
 				token,
 			};
 
