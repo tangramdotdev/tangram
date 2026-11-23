@@ -97,7 +97,8 @@ pub struct Boots {
 
 /// A boot that the runner holds. The boot numbers every write of the runner for it from its one counter, which gives no number once the runner gave the boot up, remembers every process that it accepted, and tracks the finish of each of its processes until a server answers it.
 pub struct Boot {
-	pub boot: u64,
+	/// How the runner abandoned the boot, once its scheduler ended it.
+	abandoned: tokio::sync::watch::Sender<Option<Teardown>>,
 
 	/// A change to the finishes of the boot's processes, which wakes the wait for every finish.
 	changed: tokio::sync::watch::Sender<()>,
@@ -105,13 +106,12 @@ pub struct Boot {
 	/// The number of the runner's first write of the boot.
 	first: u64,
 
-	/// How the runner gave up the boot, once its scheduler ended it.
-	abandoned: tokio::sync::watch::Sender<Option<Teardown>>,
-
 	inner: std::sync::Mutex<BootInner>,
 
 	/// The location of the sandbox's home.
 	pub location: tg::Location,
+
+	pub number: u64,
 
 	/// The proof of a boot on the shortcut path, which the runner reports when it connects to its scheduler.
 	pub proof: Option<tg::sandbox::id::Proof>,
@@ -231,7 +231,7 @@ impl State {
 		let id = self.id.clone();
 		let arg = &self.create;
 		let data = tg::sandbox::Data {
-			boot: self.boot.boot,
+			boot: self.boot.number,
 			cpu: arg.cpu,
 			creator: self.creator.clone(),
 			error: self.error.clone(),
@@ -281,7 +281,7 @@ impl Boots {
 	/// Remember a boot that the runner holds.
 	pub fn insert(&self, boot: Arc<Boot>) {
 		self.boots.send_modify(|boots| {
-			boots.insert((boot.sandbox.clone(), boot.boot), boot);
+			boots.insert((boot.sandbox.clone(), boot.number), boot);
 		});
 	}
 
@@ -332,7 +332,7 @@ impl Boot {
 	/// Create a boot whose first write the runner numbers with the sequence.
 	#[must_use]
 	pub fn new(
-		boot: u64,
+		number: u64,
 		sandbox: tg::sandbox::Id,
 		location: tg::Location,
 		proof: Option<tg::sandbox::id::Proof>,
@@ -347,12 +347,12 @@ impl Boot {
 			sequence,
 		};
 		Self {
-			boot,
+			abandoned: tokio::sync::watch::Sender::new(None),
 			changed: tokio::sync::watch::Sender::new(()),
 			first: sequence,
-			abandoned: tokio::sync::watch::Sender::new(None),
 			inner: std::sync::Mutex::new(inner),
 			location,
+			number,
 			proof,
 			sandbox,
 			scheduled,
@@ -813,7 +813,7 @@ mod tests {
 			true,
 			1,
 		)));
-		assert_eq!(boots.latest(&sandbox).unwrap().boot, 1);
+		assert_eq!(boots.latest(&sandbox).unwrap().number, 1);
 		let mut wait = std::pin::pin!(boots.wait_ended_before(&sandbox, 1));
 		assert!(poll(&mut wait).is_pending());
 		boots.remove(&other, 0);

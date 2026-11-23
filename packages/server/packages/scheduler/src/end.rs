@@ -37,11 +37,11 @@ impl SchedulerState {
 				let result = Ok(RunnerBootEndedResponseOutput {
 					retry: Some(tg::control::Retry::NotReady),
 				});
-				self.acknowledge_ended_runner_sandbox(scheduler, id, sandbox, boot, result);
+				self.acknowledge_ended_runner_boot(scheduler, id, sandbox, boot, result);
 				return;
 			},
 			Authorization::Refused(error) => {
-				self.acknowledge_ended_runner_sandbox(scheduler, id, sandbox, boot, Err(error));
+				self.acknowledge_ended_runner_boot(scheduler, id, sandbox, boot, Err(error));
 				return;
 			},
 		};
@@ -49,7 +49,7 @@ impl SchedulerState {
 		// Record the runner's yes to a boot whose offer is unanswered, because the runner reports only a boot that it held, and forget the boot.
 		match held {
 			Held::Accepted => {
-				self.end_held_sandbox(scheduler, &sandbox, None);
+				self.end_held_boot(scheduler, &sandbox, None);
 			},
 			Held::Derived => {
 				let ended = EndedBoot {
@@ -61,7 +61,7 @@ impl SchedulerState {
 			},
 			Held::Ended | Held::Removing => {},
 			Held::Offered(placement) => {
-				self.end_held_sandbox(scheduler, &sandbox, Some(placement));
+				self.end_held_boot(scheduler, &sandbox, Some(placement));
 			},
 		}
 
@@ -70,10 +70,10 @@ impl SchedulerState {
 		self.operations.push(
 			async move {
 				let result = scheduler
-					.end_runner_sandbox(&runner, end, processes)
+					.end_runner_boot(&runner, end, processes)
 					.await
 					.or_else(|error| {
-						tracing::warn!(error = %error.trace(), %sandbox, "failed to record the end of the sandbox");
+						tracing::warn!(error = %error.trace(), %sandbox, "failed to record the end of the boot");
 						Ok(RunnerBootEndedResponseOutput {
 							retry: Some(tg::control::Retry::NotReady),
 						})
@@ -87,7 +87,7 @@ impl SchedulerState {
 
 impl SchedulerState {
 	/// Forget a boot that a runner held and that ended, which frees its capacity, and remember it as ended. Record the runner's yes to a boot whose offer is unanswered, because the runner held it.
-	pub(super) fn end_held_sandbox(
+	pub(super) fn end_held_boot(
 		&mut self,
 		scheduler: &Scheduler,
 		sandbox: &tg::sandbox::Id,
@@ -98,13 +98,13 @@ impl SchedulerState {
 			self.remove_reservation(sandbox, &placement, true);
 			self.accept_sandbox(scheduler, sandbox, runner);
 		}
-		self.remove_ended_sandbox(scheduler, sandbox);
+		self.remove_ended_boot(scheduler, sandbox);
 		self.stop_serving_sandbox_holder(sandbox);
 		self.queue.wake();
 	}
 
 	/// Answer a report of the end of a boot that this scheduler cannot authorize. Acknowledge it without acting on it if the index records the sandbox as destroyed or at a later boot, such as a sandbox that was destroyed while this scheduler was down, so that the runner finishes its end, and give the answer of the authorization otherwise.
-	fn acknowledge_ended_runner_sandbox(
+	fn acknowledge_ended_runner_boot(
 		&mut self,
 		scheduler: &Scheduler,
 		id: String,
@@ -135,7 +135,7 @@ impl SchedulerState {
 
 impl Scheduler {
 	/// Remove the boot of an authorized report from this scheduler's queue, and record the end of the boot unless the runner recorded it through the boot's control stream, with the runner's data and with only the boot's processes that this scheduler offered into it, at the runner's boot and sequence, in one write, and publish the sandbox's status.
-	async fn end_runner_sandbox(
+	async fn end_runner_boot(
 		&self,
 		runner: &tg::runner::Id,
 		end: tg::runner::control::BootEndedClientRequestArg,
@@ -160,8 +160,7 @@ impl Scheduler {
 			.collect();
 
 		// Let tests observe the scheduler handling an authorized report.
-		tangram_server_core::checkpoint!(self.server, "scheduler.sandbox.end", %sandbox, boot)
-			.await;
+		tangram_server_core::checkpoint!(self.server, "scheduler.boot.end", %sandbox, boot).await;
 
 		// Remove the boot from this scheduler's queue, and record the end unless the runner recorded it at the sandbox's home through the boot's control stream, in one write.
 		let delete = tangram_index::scheduler::sandbox::delete::Arg {
@@ -208,7 +207,7 @@ impl Scheduler {
 			.write(&self.server, arg)
 			.await
 			.map_err(
-				|error| tg::error!(!error, %sandbox, "failed to record the end of the sandbox"),
+				|error| tg::error!(!error, %sandbox, "failed to record the end of the boot"),
 			)?;
 
 		// Publish the sandbox's status.

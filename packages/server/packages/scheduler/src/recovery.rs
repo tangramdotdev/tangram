@@ -168,10 +168,9 @@ impl Scheduler {
 		// Rebuild the boots that the index records on the runners, with their processes, so that this scheduler authorizes the runners' reports of them as before the restart. Remember the ended boots at once, whose ends their runners may still report, as declared if this scheduler ended them with an end numbered zero, so that it tells their runners when they connect again, and hold the running boots until their runners report.
 		let mut boots = HashMap::<_, Vec<_>, tg::id::BuildHasher>::default();
 		for runner in &runners {
-			for (recovered, running, declared) in
-				self.get_recovered_boots(runner, &requests).await?
+			for (recovered, active, declared) in self.get_recovered_boots(runner, &requests).await?
 			{
-				if running {
+				if active {
 					boots.entry(runner.clone()).or_default().push(recovered);
 				} else {
 					let ended = super::report::EndedBoot {
@@ -280,7 +279,7 @@ impl Scheduler {
 					.finish_ended_boot_processes(&self.server, &id, boot)
 					.await;
 			}
-			let running = matches!(
+			let active = matches!(
 				data.data.status,
 				tg::sandbox::Status::Started
 					| tg::sandbox::Status::Starting
@@ -292,7 +291,7 @@ impl Scheduler {
 				processes,
 				sandbox: id,
 			};
-			boots.push((recovered, running, declared));
+			boots.push((recovered, active, declared));
 		}
 
 		Ok(boots)
@@ -671,7 +670,7 @@ impl SchedulerState {
 		processes: BTreeSet<tg::process::Id>,
 		runner: super::placement::RunnerRef,
 	) {
-		self.remove_ended_sandbox(scheduler, id);
+		self.remove_ended_boot(scheduler, id);
 		let boot = request.boot;
 		let parent = request.parent.clone();
 		let state = super::sandbox::State::Accepted {
@@ -807,13 +806,13 @@ impl Component {
 					.boxed()
 					.await
 			} else {
-				self.end_runner_sandbox(server, &id, None, None, Some(error.clone()))
+				self.end_runner_boot(server, &id, None, None, Some(error.clone()))
 					.boxed()
 					.await
 					.map(|_| ())
 			};
 			if let Err(error) = result {
-				tracing::error!(sandbox = %id, error = %error.trace(), "failed to end the queued sandbox");
+				tracing::error!(sandbox = %id, error = %error.trace(), "failed to end the queued boot");
 			}
 		}
 
@@ -836,7 +835,7 @@ impl Component {
 			if local.as_ref() == Some(&runner) {
 				continue;
 			}
-			let arg = super::runner::EndRunnerSandboxesArg {
+			let arg = super::runner::EndRunnerBootsArg {
 				accepted: Vec::new(),
 				checkpoint: "scheduler.runner.recovered",
 				deleted: false,
@@ -848,9 +847,9 @@ impl Component {
 				scheduler: None,
 				written: Vec::new(),
 			};
-			let result = self.end_runner_sandboxes(server, &id, arg).boxed().await;
+			let result = self.end_runner_boots(server, &id, arg).boxed().await;
 			if let Err(error) = result {
-				tracing::error!(%runner, error = %error.trace(), "failed to end the runner's sandboxes");
+				tracing::error!(%runner, error = %error.trace(), "failed to end the runner's boots");
 			}
 		}
 		drop(sender);

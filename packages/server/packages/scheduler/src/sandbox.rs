@@ -335,7 +335,7 @@ impl SchedulerState {
 				},
 				State::Accepted { .. } | State::Terminal { .. } => {
 					if recovered {
-						self.remove_ended_sandbox(scheduler, &request.sandbox);
+						self.remove_ended_boot(scheduler, &request.sandbox);
 					}
 				},
 			}
@@ -416,7 +416,7 @@ impl SchedulerState {
 				self.finish_enqueue(scheduler, ids, &sandbox, Ok(()));
 			},
 			Ok(true) => {
-				self.remove_ended_sandbox(scheduler, &request.sandbox);
+				self.remove_ended_boot(scheduler, &request.sandbox);
 				let sandbox = request.sandbox.clone();
 				let result = self.enqueue_sandbox(scheduler, request, true);
 				self.finish_enqueue(scheduler, ids, &sandbox, result.map(|_| ()));
@@ -525,7 +525,7 @@ impl SchedulerState {
 	}
 
 	/// Remove the entry of a sandbox whose boot ended or that a later boot replaced, and remember a boot that a runner held as ended, so that the runner's late reports of it are authorized.
-	pub(super) fn remove_ended_sandbox(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) {
+	pub(super) fn remove_ended_boot(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) {
 		if let Some(sandbox) = self.remove_sandbox(scheduler, id) {
 			self.remember_ended_entry(id, &sandbox);
 		}
@@ -559,7 +559,7 @@ impl SchedulerState {
 	}
 
 	/// End a sandbox that this scheduler holds, and write its terminal state, numbered as this scheduler's second write of the boot. Keep the sandbox's entry until the index has recorded the terminal state, so that an enqueue of the sandbox that the lagging index sends again does not start it. Return the write, which a response that follows it awaits.
-	pub(super) fn end_sandbox(
+	pub(super) fn end_boot(
 		&mut self,
 		scheduler: &Scheduler,
 		id: &tg::sandbox::Id,
@@ -571,7 +571,7 @@ impl SchedulerState {
 			let scheduler = scheduler.clone();
 			let error = error.clone();
 			async move {
-				tangram_server_core::checkpoint!(scheduler.server, "scheduler.sandbox.end", sandbox = %request.sandbox, status = %status)
+				tangram_server_core::checkpoint!(scheduler.server, "scheduler.boot.end", sandbox = %request.sandbox, status = %status)
 					.await;
 				scheduler
 					.put_sandbox_status(&request, status, error, None, false, 1)
@@ -579,11 +579,11 @@ impl SchedulerState {
 			}
 			.boxed()
 		};
-		self.end_sandbox_with_write(scheduler, id, status, error, write)
+		self.end_boot_with_write(scheduler, id, status, error, write)
 	}
 
 	/// End a sandbox that no runner accepted with a write of its terminal state. Keep the sandbox's entry until the index has recorded the terminal state, and return the write, which a response that follows it awaits.
-	pub(super) fn end_sandbox_with_write(
+	pub(super) fn end_boot_with_write(
 		&mut self,
 		scheduler: &Scheduler,
 		id: &tg::sandbox::Id,
@@ -624,19 +624,19 @@ impl SchedulerState {
 	}
 
 	/// End a sandbox, and record the failure of its write if no response reports it.
-	pub(super) fn end_sandbox_and_log(
+	pub(super) fn end_boot_and_log(
 		&mut self,
 		scheduler: &Scheduler,
 		id: &tg::sandbox::Id,
 		status: tg::sandbox::Status,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 	) {
-		let write = self.end_sandbox(scheduler, id, status, error);
+		let write = self.end_boot(scheduler, id, status, error);
 		self.operations.push(
 			async move {
 				let result = write.await;
 				Operation::Finished {
-					context: "failed to record the ended sandbox",
+					context: "failed to record the ended boot",
 					result,
 				}
 			}
@@ -654,7 +654,7 @@ impl SchedulerState {
 		let error = error.to_data_or_id();
 		let request = self.sandboxes.entries[id].request().clone();
 		let status = failed_sandbox_status(&request);
-		let write = self.end_sandbox(scheduler, id, status, Some(error.clone()));
+		let write = self.end_boot(scheduler, id, status, Some(error.clone()));
 		DiscardedSandbox {
 			error,
 			request,
@@ -704,7 +704,7 @@ impl SchedulerState {
 			async move {
 				let result = scheduler.index().await;
 				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), "failed to await the indexing of the ended sandboxes");
+					tracing::error!(error = %error.trace(), "failed to await the indexing of the ended boots");
 				}
 				Operation::IndexTerminalSandboxes { sandboxes }
 			}
@@ -1072,7 +1072,7 @@ impl SchedulerState {
 			&& queued
 			&& self.sandboxes.offers < scheduler.config.max_offers
 		{
-			self.try_offer_sandbox(scheduler, &request.sandbox);
+			self.try_offer_boot(scheduler, &request.sandbox);
 		}
 
 		output
@@ -1120,7 +1120,7 @@ impl SchedulerState {
 			},
 
 			State::Queued => {
-				self.end_sandbox_and_log(scheduler, &id, tg::sandbox::Status::Destroyed, None);
+				self.end_boot_and_log(scheduler, &id, tg::sandbox::Status::Destroyed, None);
 				Some(DequeueSandboxResponseOutput { dequeued: true })
 			},
 

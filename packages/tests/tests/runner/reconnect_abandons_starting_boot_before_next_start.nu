@@ -38,7 +38,7 @@ let command = tg --url $remote.url --token $root_token build $'($id)#append' | s
 
 # Spawn the command in a new sandbox with a nonzero ttl, and hold the boot's task on the runner before it stores the boot's state, once the scheduler has handed the boot off to the runner and the runner has connected the boot's control stream.
 let take = checkpoint watch runner.sandbox.pool.take --url $runner.url
-let handoff = checkpoint watch scheduler.sandbox.handoff --token $root_token --url $remote.url
+let handoff = checkpoint watch scheduler.boot.handoff --token $root_token --url $remote.url
 let connected = checkpoint watch sandbox.control.index.submitted --token $root_token --url $remote.url
 let process = tg --url $remote.url --token $root_token spawn --sandbox --ttl 1h --mount $'($directory):($directory)' --no-tokens --verbose $command | from json | get process
 let sandbox = tg --url $remote.url --token $root_token process get $process | from json | get sandbox

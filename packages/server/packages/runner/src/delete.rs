@@ -98,7 +98,7 @@ impl Component {
 			.delete_runner(session, &runner)
 			.await
 			.map_err(
-				|error| tg::error!(!error, %runner, "failed to end the deleted runner's sandboxes"),
+				|error| tg::error!(!error, %runner, "failed to end the deleted runner's boots"),
 			)?;
 
 		Ok(Some(()))

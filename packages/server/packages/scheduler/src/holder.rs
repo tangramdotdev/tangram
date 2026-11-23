@@ -132,7 +132,7 @@ impl SchedulerState {
 				return;
 			},
 			HolderMessage::Held { sender } => {
-				sender.send(self.get_held_sandboxes()).ok();
+				sender.send(self.get_held_boots()).ok();
 				return;
 			},
 			HolderMessage::ProcessRequest { request, sandbox } => {
@@ -235,7 +235,7 @@ impl SchedulerState {
 			tg::sandbox::control::ServerRequestArg::Destroy(arg) => {
 				let status = tg::sandbox::Status::Destroyed;
 				let error = arg.error.map(tg::Either::Left);
-				let write = self.end_sandbox(scheduler, &sandbox, status, error).boxed();
+				let write = self.end_boot(scheduler, &sandbox, status, error).boxed();
 				self.queue.wake();
 				let output = tg::sandbox::control::ClientResponseOutput::Destroy(
 					tg::sandbox::control::DestroyClientResponseOutput { destroyed: true },
@@ -293,7 +293,7 @@ impl SchedulerState {
 					tg::sandbox::control::StopClientResponseOutput { stopped: true },
 				);
 				let status = tg::sandbox::Status::Stopped;
-				let write = self.end_sandbox(scheduler, &sandbox, status, None).boxed();
+				let write = self.end_boot(scheduler, &sandbox, status, None).boxed();
 				self.queue.wake();
 				self.publish_sandbox_holder_response(scheduler, sandbox, id, Some(write), output);
 			},
@@ -498,7 +498,7 @@ impl SchedulerState {
 					};
 					let status = tg::sandbox::Status::Destroyed;
 					let error = Some(tg::Either::Left(error));
-					let write = self.end_sandbox(scheduler, sandbox, status, error).boxed();
+					let write = self.end_boot(scheduler, sandbox, status, error).boxed();
 					self.queue.wake();
 					write
 				} else {

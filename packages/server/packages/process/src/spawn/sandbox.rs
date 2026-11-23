@@ -184,7 +184,7 @@ impl Component {
 			result = started_future.as_mut() => result,
 			result = destroyed_future => {
 				let started = Self::try_get_process_start_from_index(session, id).await?;
-				tangram_server_core::checkpoint!(session.server, "process.spawn.sandbox.ended", process = %id)
+				tangram_server_core::checkpoint!(session.server, "process.spawn.boot.ended", process = %id)
 					.await;
 				if started {
 					return Ok(());

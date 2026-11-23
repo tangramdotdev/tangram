@@ -24,7 +24,7 @@ success (timeout 30s tg --url $url --token $root_token sandbox start $sandbox | 
 
 # Hold the index writes, and stop the queued boot, so that the scheduler ends the boot while the index has not recorded the stop.
 let write = checkpoint watch index.write --token $root_token --url $url
-let end = checkpoint watch scheduler.sandbox.end --params { sandbox: $sandbox, status: stopped } --token $root_token --url $url
+let end = checkpoint watch scheduler.boot.end --params { sandbox: $sandbox, status: stopped } --token $root_token --url $url
 let stop = job spawn {
 	let id = job id
 	timeout 30s tg --url $url --token $root_token sandbox stop $sandbox | complete | job send --tag $id 0

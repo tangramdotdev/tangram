@@ -155,7 +155,7 @@ impl SchedulerState {
 		let Some(sandbox) = self.queue.next(&self.sandboxes.entries) else {
 			return;
 		};
-		self.try_offer_sandbox(scheduler, &sandbox);
+		self.try_offer_boot(scheduler, &sandbox);
 	}
 
 	/// Return a sandbox whose offer was not accepted to the queued state. The sandbox kept its place in the queue while it was offered.

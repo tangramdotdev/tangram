@@ -167,12 +167,12 @@ impl Scheduler {
 	}
 
 	/// Write the handoff of a boot to the runner that accepted it, which removes the boot from this scheduler's queue. The runner holds the boot from its yes, and its own first write records it as the sandbox's runner.
-	pub(super) async fn write_sandbox_handoff(
+	pub(super) async fn write_boot_handoff(
 		&self,
 		request: &EnqueueSandboxRequestArg,
 		runner: &tg::runner::Id,
 	) -> tg::Result<()> {
-		tangram_server_core::checkpoint!(self.server, "scheduler.sandbox.handoff", sandbox = %request.sandbox, %runner)
+		tangram_server_core::checkpoint!(self.server, "scheduler.boot.handoff", sandbox = %request.sandbox, %runner)
 			.await;
 		let id = &request.sandbox;
 		let delete = tangram_index::scheduler::sandbox::delete::Arg {

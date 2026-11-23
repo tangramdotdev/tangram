@@ -24,7 +24,7 @@ wait_for_log $runner 'the runner is ready to accept work'
 
 # Hold the scheduler's writes of the sandbox and the runner's control connection of the boot, and create a sandbox, which returns once the runner accepts it.
 let persist = checkpoint watch scheduler.sandbox.persist --token $root --url $scheduler.url
-let handoff = checkpoint watch scheduler.sandbox.handoff --token $root --url $scheduler.url
+let handoff = checkpoint watch scheduler.boot.handoff --token $root --url $scheduler.url
 let connect = checkpoint watch sandbox.control.connect --token $root --url $gateway.url
 let sandbox = tg --url $gateway.url --token $root sandbox create --no-tokens | referent node
 checkpoint wait $connect | ignore

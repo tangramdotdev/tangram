@@ -191,11 +191,11 @@ enum Operation {
 		request: EnqueueSandboxRequestArg,
 		result: tg::Result<bool>,
 	},
-	RetrySandbox {
+	RetryBootOffer {
+		offer: String,
 		sandbox: tg::sandbox::Id,
 	},
-	RetrySandboxOffer {
-		offer: String,
+	RetrySandbox {
 		sandbox: tg::sandbox::Id,
 	},
 	RunnerBootEnded {
@@ -989,11 +989,11 @@ impl Scheduler {
 			} => {
 				state.handle_reserve_sandbox(self, ids, request, result);
 			},
+			Operation::RetryBootOffer { offer, sandbox } => {
+				state.handle_retry_boot_offer(self, &sandbox, &offer);
+			},
 			Operation::RetrySandbox { sandbox } => {
 				state.handle_retry_sandbox(self, &sandbox);
-			},
-			Operation::RetrySandboxOffer { offer, sandbox } => {
-				state.handle_retry_sandbox_offer(self, &sandbox, &offer);
 			},
 			Operation::RunnerBootEnded { id, result } => {
 				let result = result.map(ResponseOutput::RunnerBootEnded);

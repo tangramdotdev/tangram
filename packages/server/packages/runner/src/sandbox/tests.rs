@@ -71,7 +71,7 @@ fn a_failed_boot_that_the_runner_abandoned_ends_as_the_scheduler_decided() {
 #[test]
 fn a_spawn_for_a_later_boot_is_sent_again_and_one_for_an_earlier_boot_is_refused() {
 	// A spawn for a later boot is sent again, so that it reaches the later boot, whatever the phase of this boot.
-	for phase in [Phase::Ended, Phase::Running { reported: true }] {
+	for phase in [Phase::Ended, Phase::Started { reported: true }] {
 		assert_eq!(
 			spawn_answer(phase, true, Some(2), 1),
 			SpawnAnswer::Retry(tg::control::Retry::NotHolder)
@@ -80,13 +80,13 @@ fn a_spawn_for_a_later_boot_is_sent_again_and_one_for_an_earlier_boot_is_refused
 
 	// A spawn for an earlier boot is refused, because the earlier boot is over.
 	assert_eq!(
-		spawn_answer(Phase::Running { reported: true }, true, Some(0), 1),
+		spawn_answer(Phase::Started { reported: true }, true, Some(0), 1),
 		SpawnAnswer::Earlier
 	);
 
 	// A spawn for this boot is accepted while the boot runs, and refused once it is over.
 	assert_eq!(
-		spawn_answer(Phase::Running { reported: true }, true, Some(1), 1),
+		spawn_answer(Phase::Started { reported: true }, true, Some(1), 1),
 		SpawnAnswer::Accept
 	);
 	assert_eq!(
@@ -96,11 +96,11 @@ fn a_spawn_for_a_later_boot_is_sent_again_and_one_for_an_earlier_boot_is_refused
 
 	// A server's spawn without a boot is sent again.
 	assert_eq!(
-		spawn_answer(Phase::Running { reported: false }, true, None, 0),
+		spawn_answer(Phase::Started { reported: false }, true, None, 0),
 		SpawnAnswer::Retry(tg::control::Retry::NotReady)
 	);
 	assert_eq!(
-		spawn_answer(Phase::Running { reported: false }, false, None, 0),
+		spawn_answer(Phase::Started { reported: false }, false, None, 0),
 		SpawnAnswer::Accept
 	);
 }

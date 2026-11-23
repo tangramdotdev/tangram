@@ -11,14 +11,14 @@ impl Component {
 		id: &tg::sandbox::Id,
 		location: Option<&tg::location::Arg>,
 	) -> Option<SandboxControl> {
-		let sandbox = self.state.try_get_held_sandbox(id)?;
+		let sandbox = self.state.try_get_held_boot(id)?;
 		Self::sandbox_runner(&sandbox, location)?;
 		let sender = &sandbox.control_sender;
 		if sender.is_closed() {
 			return None;
 		}
 		let control = SandboxControl {
-			boot: sandbox.boot.boot,
+			boot: sandbox.boot.number,
 			sender: sender.clone(),
 		};
 
@@ -30,7 +30,7 @@ impl Component {
 		id: &tg::sandbox::Id,
 		location: Option<&tg::location::Arg>,
 	) -> Option<Runner> {
-		let sandbox = self.state.try_get_held_sandbox(id)?;
+		let sandbox = self.state.try_get_held_boot(id)?;
 		Self::sandbox_runner(&sandbox, location)
 	}
 

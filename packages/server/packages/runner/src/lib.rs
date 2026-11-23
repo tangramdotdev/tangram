@@ -716,7 +716,7 @@ impl Component {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 
-		tracing::info!(runner = %id, scheduler = %header.scheduler, ended_sandboxes = header.ended.len(), "connected the runner to the scheduler");
+		tracing::info!(runner = %id, scheduler = %header.scheduler, ended_boots = header.ended.len(), "connected the runner to the scheduler");
 
 		// Remember the replies to offers for longer than the scheduler keeps the runner, so that the scheduler never sends an offer again after its reply is forgotten.
 		self.offers
@@ -839,9 +839,7 @@ impl Component {
 		let arg = tg::runner::control::ClientRequestArg::BootEnded(arg);
 		self.report_with_runner_control(arg)
 			.await
-			.map_err(
-				|error| tg::error!(!error, %sandbox, "failed to report the end of the sandbox"),
-			)?
+			.map_err(|error| tg::error!(!error, %sandbox, "failed to report the end of the boot"))?
 			.try_unwrap_boot_ended()
 			.map_err(|_| tg::error!("expected a boot ended response"))?;
 
@@ -1119,7 +1117,7 @@ impl Component {
 			.map(|boot| {
 				let (processes, proof) = boot.report();
 				tg::runner::control::ArgSandbox {
-					boot: boot.boot,
+					boot: boot.number,
 					id: boot.sandbox.clone(),
 					processes,
 					proof,
@@ -1250,10 +1248,10 @@ impl Component {
 			let joined = boots
 				.iter()
 				.flatten()
-				.any(|boot| boot.boot == request.boot && boot.abandoned().is_none());
+				.any(|boot| boot.number == request.boot && boot.abandoned().is_none());
 			let ended = boots.iter().flatten().any(|boot| {
-				boot.boot > request.boot
-					|| (boot.boot == request.boot && boot.abandoned().is_some())
+				boot.number > request.boot
+					|| (boot.number == request.boot && boot.abandoned().is_some())
 			});
 			let answer = if joined {
 				Some(tg::runner::control::Answer::Yes)

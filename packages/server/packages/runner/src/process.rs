@@ -994,7 +994,7 @@ impl Component {
 			return Err(tg::error!(%id, "the runner abandoned the process's boot"));
 		};
 		let start = tg::process::control::StartClientRequestArg {
-			boot: boot.boot,
+			boot: boot.number,
 			data: data.clone(),
 			lease,
 			options: options.clone(),
@@ -2075,7 +2075,7 @@ impl Component {
 		};
 		let put_process_arg = tangram_index::process::put::Arg {
 			account: None,
-			boot: Some(boot.boot),
+			boot: Some(boot.number),
 			cached: false,
 			captures,
 			children: None,

@@ -198,7 +198,7 @@ impl SchedulerState {
 		if let Some(sandbox) = sandbox
 			&& self.sandboxes.offers < scheduler.config.max_offers
 		{
-			self.try_offer_sandbox(scheduler, &sandbox);
+			self.try_offer_boot(scheduler, &sandbox);
 		}
 		self.queue.wake();
 	}
