@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+	systemctl daemon-reload
+fi
+if [ "$1" = purge ]; then
+	deb-systemd-helper purge tangram.service >/dev/null
+fi

@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+if [ "$1" = configure ]; then
+	if ! getent group tangram >/dev/null; then
+		addgroup --system tangram
+	fi
+	if [ -z "${2-}" ]; then
+		deb-systemd-helper enable tangram.service >/dev/null
+	fi
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload
+		if [ -z "${2-}" ]; then
+			deb-systemd-invoke start tangram.service
+		elif systemctl --quiet is-active tangram.service; then
+			deb-systemd-invoke restart tangram.service
+		fi
+	fi
+fi

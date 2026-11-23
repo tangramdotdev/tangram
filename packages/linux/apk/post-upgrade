@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+if [ -f /run/openrc/softlevel ] && rc-service tangram status >/dev/null 2>&1; then
+	rc-service tangram restart
+fi

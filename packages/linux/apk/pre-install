@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+if ! getent group tangram >/dev/null; then
+	addgroup -S tangram
+fi

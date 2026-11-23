@@ -1,0 +1,18 @@
+#!/sbin/openrc-run
+
+description="Tangram server"
+command=/usr/bin/tangram
+command_args="serve --config /etc/tangram/config.json --directory /var/lib/tangram --group-access"
+command_user=root:tangram
+supervisor=supervise-daemon
+pidfile=/run/tangram.pid
+umask=0077
+
+depend() {
+	need localmount
+	use net
+}
+
+start_pre() {
+	checkpath --directory --mode 0710 --owner root:tangram /var/lib/tangram
+}

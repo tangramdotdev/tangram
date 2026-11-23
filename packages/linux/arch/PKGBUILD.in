@@ -1,0 +1,25 @@
+# Maintainer: Tangram <support@tangram.dev>
+pkgname=tangramdotdev-bin
+pkgver=@PKGVER@
+pkgrel=1
+pkgdesc='Tangram build system and package manager'
+arch=(@ARCHITECTURES@)
+url='https://tangram.dev'
+license=('MIT')
+depends=('ca-certificates' 'fuse3' 'glibc' 'iptables' 'libcap-ng' 'libgcc'
+         'nftables' 'passt' 'squashfs-tools' 'systemd')
+backup=('etc/tangram/config.json')
+options=('!debug' '!strip')
+source=('config.json' 'tangram.service' 'tangram.sysusers' 'LICENSE')
+sha256sums=('@CONFIG_SHA256@' '@SERVICE_SHA256@' '@SYSUSERS_SHA256@' '@LICENSE_SHA256@')
+@ARCHIVE_SOURCES@
+
+package() {
+    install -Dm755 tangram "$pkgdir/usr/lib/tangram/tangram"
+    install -Dm755 tgx "$pkgdir/usr/bin/tgx"
+    ln -s ../lib/tangram/tangram "$pkgdir/usr/bin/tg"
+    install -Dm644 config.json "$pkgdir/etc/tangram/config.json"
+    install -Dm644 tangram.service "$pkgdir/usr/lib/systemd/system/tangram.service"
+    install -Dm644 tangram.sysusers "$pkgdir/usr/lib/sysusers.d/tangram.conf"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

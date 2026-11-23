@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+rc-update add tangram default
+if [ -f /run/openrc/softlevel ]; then
+	rc-service tangram start
+fi
