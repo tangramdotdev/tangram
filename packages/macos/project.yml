@@ -41,9 +41,11 @@ targets:
         name: Embed Tangram Helper
         inputFiles:
           - $(TANGRAM_HELPER_PATH)
+          - $(SRCROOT)/scripts/tg.sh
           - $(SRCROOT)/Tangram/Resources/TangramHelper.entitlements
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/tangram
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/tg
         basedOnDependencyAnalysis: false
         showEnvVars: false
     settings:

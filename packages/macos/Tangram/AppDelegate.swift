@@ -594,6 +594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		showWindow(nil)
 		refreshLaunchAtLoginStatus()
 		promptForLaunchAtLoginIfNeeded()
+		CommandLineTool.promptIfNeeded()
 	}
 
 	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -627,6 +628,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 	func hideWindow() {
 		window?.orderOut(nil)
 		NSApp.setActivationPolicy(.accessory)
+	}
+
+	@objc private func installCommandLineTools(_ sender: Any?) {
+		CommandLineTool.offerInstallation()
 	}
 
 	private var serverStatus: String {
@@ -1112,6 +1117,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
 		let menu = NSMenu()
 		menu.addItem(menuItem("Show Window", #selector(showWindow(_:))))
+		if CommandLineTool.canInstall {
+			menu.addItem(menuItem("Install Command-Line Tools…", #selector(installCommandLineTools(_:))))
+		}
 		menu.addItem(.separator())
 		serverMenuItem.isEnabled = false
 		menu.addItem(serverMenuItem)
@@ -1128,6 +1136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		let appMenu = NSMenu()
 		appItem.submenu = appMenu
 		appMenu.addItem(menuItem("Show Window", #selector(showWindow(_:))))
+		if CommandLineTool.canInstall {
+			appMenu.addItem(menuItem("Install Command-Line Tools…", #selector(installCommandLineTools(_:))))
+		}
 		appMenu.addItem(.separator())
 		appMenu.addItem(withTitle: "Quit Tangram", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 		NSApp.mainMenu = mainMenu
