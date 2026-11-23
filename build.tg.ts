@@ -1,20 +1,37 @@
 import bun from "bun" with { source: "../packages/packages/bun.tg.ts" };
+import cloudHypervisor from "cloud-hypervisor" with {
+	source: "../packages/packages/cloud-hypervisor.tg.ts",
+};
+import curl from "curl" with { source: "../packages/packages/curl.tg.ts" };
 import dash from "dash" with { source: "../packages/packages/dash.tg.ts" };
 import foundationdb from "foundationdb" with {
 	source: "../packages/packages/foundationdb.tg.ts",
 };
+import iptables from "iptables" with {
+	source: "../packages/packages/iptables.tg.ts",
+};
 import libcapNg from "libcap-ng" with {
 	source: "../packages/packages/libcap-ng.tg.ts",
+};
+import libfuse from "libfuse" with {
+	source: "../packages/packages/libfuse.tg.ts",
 };
 import libseccomp from "libseccomp" with {
 	source: "../packages/packages/libseccomp.tg.ts",
 };
 import { libclang } from "llvm" with { source: "../packages/packages/llvm" };
+import nftables from "nftables" with {
+	source: "../packages/packages/nftables.tg.ts",
+};
 import openssl from "openssl" with {
 	source: "../packages/packages/openssl.tg.ts",
 };
+import passt from "passt" with { source: "../packages/packages/passt.tg.ts" };
 import { cargo, rustTriple } from "rust" with {
 	source: "../packages/packages/rust",
+};
+import squashfsTools from "squashfs-tools" with {
+	source: "../packages/packages/squashfs-tools.tg.ts",
 };
 import xz from "xz" with { source: "../packages/packages/xz.tg.ts" };
 import zlib from "zlib-ng" with {
@@ -26,6 +43,8 @@ import { $ } from "std" with { source: "../packages/packages/std" };
 import source from "." with { type: "directory" };
 
 export type Arg = cargo.Arg & {
+	/** Enable every feature of the CLI, like `cargo build --all-features`. */
+	allFeatures?: boolean;
 	foundationdb?: boolean;
 	nats?: boolean;
 	postgres?: boolean;
@@ -70,7 +89,8 @@ export const build = async (...args: tg.Args<Arg>) => {
 	const host = merged.host ?? std.triple.host();
 	const build = merged.build ?? host;
 	const standalone = merged.standalone ?? false;
-	const useFoundationdb = merged.foundationdb ?? false;
+	const useFoundationdb =
+		(merged.allFeatures ?? false) || (merged.foundationdb ?? false);
 	const output = cargo.build(await buildArg(merged));
 
 	// Return standalone builds unwrapped.
@@ -151,10 +171,140 @@ export const cloud = async (...args: tg.Args<Arg>) => {
 	return output;
 };
 
+/** Build the server's container image for a Linux host, as a file that `docker load` reads. */
 export const image = async (...args: tg.Args<Arg>) => {
-	const dir = await build(...args);
-	return await std.image(dir, {
+	const merged = await mergeArgs(args);
+	const machine = std.triple.host();
+	const host = merged.host ?? machine;
+	const buildMachine = merged.build ?? machine;
+	const source_ = merged.source ?? source;
+	if (std.triple.os(host) !== "linux") {
+		throw new Error("the container image is only available for Linux hosts");
+	}
+
+	// Give each executable library paths that hold only the libraries that it needs, so that the image does not carry the toolchain.
+	const strategy = { TANGRAM_LINKER_LIBRARY_PATH_STRATEGY: "isolate" };
+	const packageArg = { build: buildMachine, env: strategy, host };
+	const executable = (directory: Promise<tg.Directory>, path: string) =>
+		directory.then((directory) => directory.get(path)).then(tg.File.expect);
+
+	// Collect the programs that the server runs, without the rest of their packages.
+	const squashfs = squashfsTools(packageArg);
+	const xtables = iptables(packageArg);
+	const bin: Record<string, tg.Unresolved<tg.Artifact>> = {
+		"cloud-hypervisor": executable(
+			cloudHypervisor({ host }),
+			"bin/cloud-hypervisor",
+		),
+		curl: executable(curl(packageArg), "bin/curl"),
+		fusermount3: executable(libfuse(packageArg), "bin/fusermount3"),
+		mksquashfs: executable(squashfs, "bin/mksquashfs"),
+		nft: executable(nftables(packageArg), "bin/nft"),
+		passt: executable(passt(packageArg), "bin/passt"),
+		pasta: tg.symlink("passt"),
+		unsquashfs: executable(squashfs, "bin/unsquashfs"),
+		"xtables-legacy-multi": executable(xtables, "bin/xtables-legacy-multi"),
+		"xtables-nft-multi": executable(xtables, "bin/xtables-nft-multi"),
+	};
+
+	// Make iptables use the nftables backend, like the distributions that the server otherwise runs on, and keep the legacy backend under its own names.
+	for (const name of ["iptables", "ip6tables"]) {
+		for (const suffix of ["", "-restore", "-save"]) {
+			bin[`${name}${suffix}`] = tg.symlink("xtables-nft-multi");
+			bin[`${name}-legacy${suffix}`] = tg.symlink("xtables-legacy-multi");
+		}
+	}
+
+	// Build tangram with every feature as a standalone executable that finds its libraries in the image, because the server starts itself again inside each sandbox, where a wrapped executable cannot find its interpreter.
+	const libraryDirectory = "/lib";
+	const tangram = executable(
+		build(
+			{
+				allFeatures: true,
+				env: {
+					RUSTFLAGS: tg.Mutation.suffix(
+						`-C link-arg=-Wl,-rpath,${libraryDirectory}`,
+						" ",
+					),
+				},
+				standalone: { glibcVersion: "2.39" },
+			},
+			merged,
+			{ build: buildMachine, host },
+		),
+		"bin/tangram",
+	);
+	bin["tangram"] = tangram;
+	bin["tg"] = tg.symlink("tangram");
+	bin["tgx"] = tg.file('#!/bin/sh\nexec tg run -b "$@"\n', {
+		executable: true,
+	});
+
+	// Collect the C library that the SDK links against, its loader, and the FoundationDB client.
+	const sdk =
+		buildMachine === host
+			? std.sdk()
+			: std.sdk({ host: buildMachine, target: host });
+	const { ldso, libDir } = await std.sdk.toolchainComponents({
+		env: await std.env.compose(await sdk),
+		host: buildMachine,
+		target: host,
+	});
+	tg.assert(ldso, "could not find the loader");
+	const fdb = foundationdb({ build: buildMachine, host });
+	const lib: Record<string, tg.Unresolved<tg.Artifact>> = {
+		[std.triple.arch(host) === "aarch64"
+			? "ld-linux-aarch64.so.1"
+			: "ld-linux-x86-64.so.2"]: ldso,
+		"libfdb_c.so": executable(fdb, "lib/libfdb_c.so"),
+	};
+	for (const name of [
+		"libc.so.6",
+		"libgcc_s.so.1",
+		"libm.so.6",
+		"libstdc++.so.6",
+	]) {
+		lib[name] = libDir.get(name).then(tg.File.expect);
+	}
+
+	// Create the root directory with the same layout as the Linux packages: the packaged configuration, the state directory, the certificate bundle, and the files and directories that the server and its programs expect.
+	const stateDirectory = "/var/lib/tangram";
+	const configPath = "/etc/tangram/config.json";
+	const root = await tg.directory({
+		bin,
+		"etc/group": tg.file("root:x:0:\n"),
+		"etc/passwd": tg.file("root:x:0:0:root:/root:/bin/sh\n"),
+		"etc/ssl/certs/ca-certificates.crt": std
+			.caCertificates()
+			.then((directory) => directory.get("cacert.pem")),
+		[configPath.slice(1)]: source_
+			.get("packages/linux/config.json")
+			.then(tg.File.expect),
+		lib,
+		lib64: tg.symlink("lib"),
+		root: tg.directory(),
+		tmp: tg.directory(),
+		[stateDirectory.slice(1)]: tg.directory(),
+	});
+
+	// Add a shell and the basic utilities as a layer of their own.
+	const utils = await std.bootstrap.utils(host).then(tg.Directory.expect);
+
+	// Serve from the state directory by default, and keep it in a volume.
+	return await std.image({
+		cmd: ["serve", "--config", configPath, "--directory", stateDirectory],
 		entrypoint: ["/bin/tangram"],
+		labels: {
+			"org.opencontainers.image.description":
+				"Tangram build system and package manager",
+			"org.opencontainers.image.source":
+				"https://github.com/tangramdotdev/tangram",
+			"org.opencontainers.image.title": "Tangram",
+			"org.opencontainers.image.url": "https://tangram.dev",
+		},
+		layers: [utils, root],
+		system: host,
+		volumes: [stateDirectory],
 	});
 };
 
@@ -202,12 +352,14 @@ export const testProxy = async () => {
 
 const buildArg = async (merged: Arg): Promise<cargo.Arg> => {
 	const {
+		allFeatures = false,
 		build: build_,
 		captureStderr = false,
+		channel = "stable",
 		disableDefaultFeatures = false,
 		env: env_,
-		foundationdb: useFoundationdb = false,
 		host: host_,
+		profile,
 		proxy = false,
 		sdk,
 		source: source_ = source,
@@ -215,7 +367,10 @@ const buildArg = async (merged: Arg): Promise<cargo.Arg> => {
 	} = merged;
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
-	const features = featureList(merged);
+	const useFoundationdb = allFeatures || (merged.foundationdb ?? false);
+	const features = allFeatures
+		? await allFeatureList(source_)
+		: featureList(merged);
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
 
 	// Compile the C libraries that a standalone Linux build links statically against the deployment libc's headers. Only the compiler flags apply, because the libraries' own executables link them dynamically.
@@ -287,19 +442,30 @@ const buildArg = async (merged: Arg): Promise<cargo.Arg> => {
 		PATH: tg.Mutation.suffix(tg`${nodeModulesArtifact}/node_modules/.bin`, ":"),
 	});
 
-	// Configure foundationdb.
+	// Configure foundationdb, whose bindings bindgen generates with libclang. Name libclang's resource directory, because bindgen does not find the compiler's own headers, such as `stdbool.h`, which the RocksDB bindings need.
 	let pre: tg.Unresolved<tg.Template.Arg> = null;
 	if (useFoundationdb) {
 		const fdbArtifact = foundationdb({ build, host });
+		const libclangArtifact = libclang({
+			build,
+			host,
+			...std.args.optional("sdk", sdk),
+		});
 		envs.push(fdbArtifact, {
-			LIBCLANG_PATH: tg`${libclang({ build, host, ...std.args.optional("sdk", sdk) })}/lib`,
+			LIBCLANG_PATH: tg`${libclangArtifact}/lib`,
 			FDB_LIB_PATH: tg`${fdbArtifact}/lib`,
 		});
+		const resourceDirectory = tg`
+			export BINDGEN_EXTRA_CLANG_ARGS="-resource-dir $(echo ${libclangArtifact}/lib/clang/*)"
+		`;
 		if (std.triple.os(host) === "linux") {
 			pre = tg`
 				export LD_LIBRARY_PATH=$LIBRARY_PATH
 				export CPATH=$CPATH:$(gcc -print-sysroot)/include
+				${resourceDirectory}
 			`;
+		} else {
+			pre = resourceDirectory;
 		}
 	}
 
@@ -308,10 +474,12 @@ const buildArg = async (merged: Arg): Promise<cargo.Arg> => {
 	return {
 		...(await std.triple.rotate({ build, host })),
 		captureStderr,
+		channel,
 		disableDefaultFeatures,
 		env,
 		features,
 		pre: await pre,
+		...std.args.optional("profile", profile),
 		proxy,
 		...std.args.optional("sdk", sdk),
 		source: source_,
@@ -350,6 +518,17 @@ const featureList = (arg: Arg) => {
 		features.push("lmdb");
 	}
 	return features;
+};
+
+const allFeatureList = async (source: tg.Directory) => {
+	const manifest = await source
+		.get("packages/cli/Cargo.toml")
+		.then(tg.File.expect)
+		.then((file) => file.text)
+		.then((text) => tg.encoding.toml.decode(text) as CargoManifest);
+	return Object.keys(manifest.features ?? {})
+		.filter((feature) => feature !== "default")
+		.sort();
 };
 
 const assertHelp = async (env: tg.Unresolved<std.env.Arg>) => {
@@ -639,6 +818,10 @@ const libpython = async (source: tg.Directory, build: string, host: string) => {
 
 type PythonDistributions = {
 	targets: Record<string, { sha256: string; url: string }>;
+};
+
+type CargoManifest = {
+	features?: Record<string, Array<string>>;
 };
 
 type CargoLock = {

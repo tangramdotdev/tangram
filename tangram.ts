@@ -142,6 +142,15 @@ export const imageBuild = async (...args: Array<string>) => {
 		.env(env);
 };
 
+export const imageBuildTangram = async (...args: Array<string>) => {
+	const { cwd, env } = await context();
+	await tg.run`nu scripts/image.nu build "$@"`
+		.executable("sh")
+		.args(["--", ...args])
+		.cwd(cwd)
+		.env(env);
+};
+
 export const imageClean = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
 	await tg.run`docker buildx prune --filter type=exec.cachemount "$@"`
@@ -163,6 +172,15 @@ export const imagePush = async (...args: Array<string>) => {
 export const imagePublish = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
 	await tg.run`docker buildx build --build-arg "TANGRAM_CLI_COMMIT_HASH=$(python3 scripts/version.py)" --platform linux/amd64,linux/arm64 --push . "$@"`
+		.executable("sh")
+		.args(["--", ...args])
+		.cwd(cwd)
+		.env(env);
+};
+
+export const imagePublishTangram = async (...args: Array<string>) => {
+	const { cwd, env } = await context();
+	await tg.run`nu scripts/image.nu publish "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
