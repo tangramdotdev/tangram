@@ -18,9 +18,8 @@ let runner = server spawn --name runner --config {
 }
 let url = $remote.url
 
-# Hold the runner after it accepts the boot and before it sends its yes, and watch the scheduler record the end of the boot.
+# Hold the runner after it accepts the boot and before it sends its yes.
 let accepted = checkpoint watch runner.control.offer_sandbox.accepted --url $runner.url
-let end = checkpoint watch scheduler.sandbox.end --url $remote.url
 
 # Create a sandbox whose creation fails on the runner.
 let job = job spawn {
@@ -30,15 +29,13 @@ let job = job spawn {
 let hit = checkpoint wait $accepted
 let sandbox = $hit.params.sandbox
 
-# The scheduler records the end of the failed boot from the runner's report while the runner's yes is held.
-checkpoint pass $end
-checkpoint unwatch $end
-checkpoint unwatch $accepted
-
-# The sandbox is destroyed with the creation error.
-let output = job recv --tag $job --timeout 60sec
-success $output "the create should return the sandbox"
-success (timeout 30s tg --url $url --token $root_token sandbox status --until destroyed $sandbox | complete) "the sandbox should be destroyed"
+# The sandbox is destroyed with the creation error while the runner's yes is held.
+success (timeout 30s tg --url $url --token $root_token sandbox status --until destroyed $sandbox | complete) "the sandbox should be destroyed while the yes is held"
 let data = tg --url $url --token $root_token sandbox get $sandbox | from json | get data
 assert equal $data.status destroyed
 assert equal $data.error.source.node.message "sandbox mounts at or beneath /dev, /proc, and /sys are not supported" "the sandbox should record the creation error"
+
+# Let the runner send its yes, and the create returns the sandbox.
+checkpoint unwatch $accepted
+let output = job recv --tag $job --timeout 60sec
+success $output "the create should return the sandbox"

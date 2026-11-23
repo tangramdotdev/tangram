@@ -246,7 +246,10 @@ impl Index {
 	}
 
 	/// Fail every unfinished process of a sandbox's boot, which the end of the boot by the sandbox's scheduler covers.
-	#[expect(clippy::too_many_arguments)]
+	#[expect(
+		clippy::too_many_arguments,
+		reason = "the failure of a boot's processes has this many inputs"
+	)]
 	fn fail_sandbox_boot_processes_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

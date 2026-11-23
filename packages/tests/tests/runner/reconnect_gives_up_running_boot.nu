@@ -2,6 +2,15 @@ use ../../util/test.nu *
 
 # A runner whose scheduler declares it dead while a boot runs on it gives the boot up and answers no request for its processes, also after it reconnects, so that a process of the boot shows the failure that the scheduler recorded.
 
+# Get the text of a process's error, which is inline or an error object.
+def error_text [url: string, token: string, error: any] {
+	if ($error | describe) == 'string' {
+		tg --url $url --token $token get $error
+	} else {
+		$error | to json --raw
+	}
+}
+
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true, multi_server: true },
@@ -42,6 +51,7 @@ tg --url $url --token $root_token process status --until started $process | igno
 
 # Hold the runner's heartbeats, and advance the remote's clock past the runner ttl, so that the scheduler declares the runner dead and ends the boot while the process runs. The runner learns that the boot ended and gives the boot up, which cancels the process, and the runner's finish of the process is held while the process's control stream stays open.
 let finish = checkpoint watch runner.process.finish --params { process: $process } --url $runner.url
+let given_up = checkpoint watch runner.boot.given_up --params { sandbox: $sandbox } --url $runner.url
 let heartbeat = checkpoint watch runner.control.heartbeat.received --params { runner: $created.data.id } --token $root_token --url $url
 checkpoint wait $heartbeat 0 | ignore
 let expired = checkpoint watch scheduler.runner.expired --params { runner: $created.data.id } --token $root_token --url $url
@@ -49,11 +59,20 @@ advance_time $remote 4sec
 checkpoint pass $expired | ignore
 checkpoint unwatch $expired
 checkpoint wait $finish | ignore
+checkpoint pass $given_up | ignore
+checkpoint unwatch $given_up
 
 # The process shows the failure that the scheduler recorded, because the runner answers no request for a process of a boot that it gave up.
 let data = tg --url $url --token $root_token process get $process | from json
 assert equal $data.status finished "the process should be finished"
 assert equal $data.error?.node?.message? "heartbeat expired" "the process should show the scheduler's failure"
+
+# The runner's own server shows the process failed and the sandbox stopped, because the runner records the end of a boot that it gave up in its server's copies of the remote's records.
+let local = tg --url $runner.url --token $root_token process get $process | from json
+assert equal $local.status finished "the runner's server should show the process finished"
+assert equal $local.exit 1 "the runner's server should show the process failed"
+assert (error_text $runner.url $root_token $local.error | str contains "the sandbox's scheduler ended the boot") "the runner's server should show the end of the boot"
+assert equal (tg --url $runner.url --token $root_token sandbox get $sandbox | from json | get data.status) stopped "the runner's server should show the sandbox stopped"
 
 # Let the runner stop the boot, let its heartbeats continue, and advance the remote's clock past the runner's scheduler ttl, so that the runner connects again.
 let stopped = checkpoint watch runner.sandbox.stopped --params { sandbox: $sandbox } --url $runner.url

@@ -19,6 +19,8 @@ use {
 };
 
 mod assets;
+#[cfg(test)]
+mod tests;
 
 pub mod control;
 pub mod create;
@@ -744,7 +746,7 @@ impl Component {
 		self.finish_sandbox_directories(session, &stopped, &header, *first)
 			.await?;
 		*first = false;
-		self.yield_runner_sandboxes(&header);
+		self.yield_runner_sandboxes(session, &header);
 		tracing::info!(runner = %id, "the runner is ready to accept work");
 		session
 			.server
@@ -814,17 +816,16 @@ impl Component {
 		Ok(())
 	}
 
-	/// Give up each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the boot, keeping its directory if the scheduler keeps it, or destroys it otherwise, which removes its directory, and a boot whose state is not stored yet starts no process.
-	fn yield_runner_sandboxes(&self, header: &tg::runner::control::Header) {
+	/// Give up each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the boot, keeping its directory if the scheduler keeps it, or destroys the sandbox otherwise, which removes its directory, and a boot whose state is not stored yet starts no process.
+	fn yield_runner_sandboxes(&self, session: &Session, header: &tg::runner::control::Header) {
 		for ended in &header.ended {
 			let kind = if header.kept.contains(&ended.id) {
-				tangram_server_runner_core::sandbox::Yield::Stop
+				tangram_server_runner_core::sandbox::Teardown::Stop
 			} else {
-				tangram_server_runner_core::sandbox::Yield::Destroy
+				tangram_server_runner_core::sandbox::Teardown::Destroy
 			};
 			if let Some(boot) = self.state.boots.get(&ended.id, ended.boot) {
-				tracing::warn!(sandbox = %ended.id, boot = ended.boot, "giving up a sandbox whose boot the scheduler ended");
-				boot.give_up(kind);
+				self.give_up_boot(session, &boot, kind);
 			}
 		}
 	}
@@ -998,13 +999,9 @@ impl Component {
 				return Ok(output);
 			}
 
-			// Wait for the stream to change after it is lost.
+			// Wait for a stream other than the one that was lost, which may already be the current one.
 			tracing::warn!("failed to send the report through the runner control stream");
-			control.mark_unchanged();
-			control
-				.changed()
-				.await
-				.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?;
+			wait_for_other_sender(&mut control, |current| current.same(&sender)).await?;
 		}
 	}
 
@@ -1192,11 +1189,17 @@ impl Component {
 			})
 			.collect::<Vec<_>>();
 
-		// Report the sandboxes with directories that the runner does not hold and the sandboxes that it runs on every connection, so that the scheduler decides which directories the runner keeps, and, on the first connection after the runner starts, ends the sandboxes that the runner no longer holds.
+		// Report the sandboxes with directories that the runner does not hold and the sandboxes of every boot that it has, including a boot that it gave up and that is still tearing down, on every connection, so that the scheduler decides which directories the runner keeps, and, on the first connection after the runner starts, ends the sandboxes that the runner no longer holds.
 		let directories = stopped
 			.iter()
 			.cloned()
-			.chain(sandboxes.iter().map(|sandbox| sandbox.id.clone()))
+			.chain(
+				self.state
+					.boots
+					.list()
+					.into_iter()
+					.map(|boot| boot.sandbox.clone()),
+			)
 			.collect::<BTreeSet<_>>()
 			.into_iter()
 			.collect();
@@ -1748,7 +1751,7 @@ impl tangram_server_core::runner::Component for Component {
 		&self,
 		id: &tg::sandbox::Id,
 		location: Option<&tg::location::Arg>,
-	) -> Option<tangram_server_sandbox_core::control::local::Local> {
+	) -> Option<tangram_server_core::runner::SandboxControl> {
 		self.try_get_sandbox_control_runner(id, location)
 	}
 
@@ -1862,4 +1865,17 @@ impl tangram_server_core::runner::Component for Component {
 	) -> BoxFuture<'a, tg::Result<http::Response<BoxBody>>> {
 		self.request(session, request).boxed()
 	}
+}
+
+/// Wait until the watched sender is one other than a lost sender, which it may already be, so that a sender that replaced the lost one before the wait began is not missed.
+async fn wait_for_other_sender<T>(
+	receiver: &mut tokio::sync::watch::Receiver<Option<T>>,
+	lost: impl Fn(&T) -> bool,
+) -> tg::Result<()> {
+	receiver
+		.wait_for(|sender| sender.as_ref().is_some_and(|sender| !lost(sender)))
+		.await
+		.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?;
+
+	Ok(())
 }

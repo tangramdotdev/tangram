@@ -42,7 +42,7 @@ checkpoint unwatch $connection
 checkpoint pass $added | ignore
 checkpoint unwatch $added
 
-# Let the boot's control connection proceed. The runner destroys the boot.
+# Let the boot's control connection proceed. The runner ends the boot, and the sandbox is destroyed.
 checkpoint unwatch $connect
 success (timeout 60s tg --url $gateway.url --token $root sandbox status $sandbox --until destroyed | complete) "the sandbox must be destroyed"
 assert equal (tg --url $gateway.url --token $root sandbox get $sandbox | from json | get data.status) destroyed

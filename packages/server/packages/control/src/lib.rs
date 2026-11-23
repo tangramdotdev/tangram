@@ -391,6 +391,12 @@ where
 	I: Send + 'static,
 	O: Output + Clone + Send + Sync + 'static,
 {
+	/// Get whether two senders send on the same stream.
+	#[must_use]
+	pub fn same(&self, other: &Self) -> bool {
+		Arc::ptr_eq(&self.outbox, &other.outbox)
+	}
+
 	pub fn try_send_untracked(&self, message: O) {
 		self.try_send_untracked_with_priority(message, Priority::High);
 	}

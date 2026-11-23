@@ -26,7 +26,9 @@ impl Component {
 			.components
 			.runner
 			.try_get_sandbox_runner(&sandbox, location)?;
-		let sandbox = state.sandboxes().get(runner.index)?;
+		let sandbox = state
+			.try_get_held_sandbox(&sandbox)
+			.filter(|sandbox| *sandbox.key() == runner.index)?;
 		let process = sandbox.processes.get(id)?;
 		let control = Control {
 			control_sender: process.control_sender.clone(),
@@ -77,7 +79,9 @@ impl Component {
 			.components
 			.runner
 			.try_get_sandbox_runner(&sandbox, location)?;
-		let sandbox = state.sandboxes().get(runner.index)?;
+		let sandbox = state
+			.try_get_held_sandbox(&sandbox)
+			.filter(|sandbox| *sandbox.key() == runner.index)?;
 		let process = sandbox.processes.get(id)?;
 
 		// Create the runner handle.

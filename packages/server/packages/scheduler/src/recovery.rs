@@ -545,7 +545,7 @@ impl SchedulerState {
 				.get(&claim.runner)
 				.map(|runner| runner.connection);
 			match connection {
-				// Destroy a boot that is being destroyed on its runner.
+				// Destroy a sandbox that is destroying on its runner.
 				Some(connection) if destroying => {
 					let destroy = super::sandbox::DestroySandbox {
 						error: error.and_then(tg::Either::left).unwrap_or_default(),

@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# The process that a new sandbox is created with finishes when the sandbox stops before the process connects.
+# The process that a new sandbox is created with fails when the sandbox stops before the process connects.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
@@ -42,6 +42,7 @@ let sandbox = tg --url $url --token $root_token process get $process | from json
 success (timeout 30s tg --url $url --token $root_token sandbox stop $sandbox | complete) "the stop should succeed"
 checkpoint unwatch $connect
 
-# The process finishes, and the sandbox stops.
-success (timeout 60s tg --url $url --token $root_token process status --until finished $process | complete) "the process should finish"
+# The process fails, and the sandbox stops.
+let outcome = timeout 60s tg --url $url --token $root_token wait $process | from json
+assert ($outcome.exit != 0) "the process should fail"
 success (timeout 30s tg --url $url --token $root_token sandbox status --until stopped $sandbox | complete) "the sandbox should stop"

@@ -26,7 +26,7 @@ pub(super) type ProcessControlSender = tg::process::control::Sender;
 pub(super) type ProcessControlResponseReceiver = tg::process::control::Response;
 
 pub(super) struct RunProcessControlTaskArg {
-	/// The boot of the process, which finishes the process as failed if no server accepts its finish.
+	/// The boot of the process, which finishes the process as failed if no server answers its finish.
 	pub boot: std::sync::Arc<tangram_server_runner_core::sandbox::Boot>,
 
 	pub control: tg::process::control::Connection,
@@ -37,7 +37,7 @@ pub(super) struct RunProcessControlTaskArg {
 	pub location: tg::Location,
 	pub outcome_sync: tokio::sync::oneshot::Receiver<()>,
 
-	/// The process, which the control task finishes as failed through its boot if no server accepts its finish.
+	/// The process, which the control task finishes as failed through its boot if no server answers its finish.
 	pub process: tg::runner::control::Process,
 
 	pub retention_stopper: Stopper,
@@ -285,7 +285,7 @@ impl Component {
 			},
 		);
 
-		// Wait for a server to accept the process's finish. If no server accepts it, finish the process as failed through its boot, whose finish counts as unaccepted until a server accepts it, so that the end of the boot still waits for a finish of the process.
+		// Wait for a server to answer the process's finish. If no server answers it, finish the process as failed through its boot before this finish is dropped, so that the end of the boot still waits for a finish of the process.
 		let result = async {
 			let receiver = finish.await.map_err(|_| {
 				tg::error!("failed to receive the process finish response receiver")
@@ -303,11 +303,11 @@ impl Component {
 		}
 		.await;
 		if let Err(error) = result {
-			self.finish_accepted_process(session, &boot, process, &error);
+			self.finish_accepted_processes(session, &boot, vec![process], error.to_data_or_id());
 			drop(finished);
 			return Err(error);
 		}
-		drop(finished);
+		finished.answered();
 
 		tangram_server_core::checkpoint!(session.server, "runner.process.control.finish.succeeded")
 			.await;
@@ -467,6 +467,23 @@ impl Component {
 			match message {
 				tg::process::control::ServerMessage::Request(message) => {
 					let request_id = message.id;
+
+					// Reply to every request that the runner does not hold the process once the runner has released it or gave up its boot, including the opens of relays and the leases.
+					let held = match &session.context.principal {
+						tg::Principal::Process(process) => session
+							.server
+							.components
+							.runner
+							.state()
+							.try_get_process(process)
+							.is_some(),
+						_ => true,
+					};
+					if !held {
+						let response = Self::process_control_not_holder_response(request_id);
+						sender.send(response).await?;
+						continue;
+					}
 
 					match message.arg {
 						tg::process::control::ServerRequestArg::AcquireLease(_) => {

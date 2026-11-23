@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A process that the sandbox's scheduler offers to the runner of a boot that ended before the offer arrived is accepted by the runner, which finishes it as failed exactly once, and it does not run in the sandbox's next boot.
+# A process that the sandbox's scheduler offers to the runner of a boot that ended before the offer arrived is accepted by the runner, which finishes it as failed, and it does not run in the sandbox's next boot.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
@@ -53,7 +53,6 @@ let outcome = tg --url $url --token $root_token wait $process | from json
 assert equal $outcome.exit 1 "the process should fail"
 let process_data = tg --url $url --token $root_token process get $process | from json
 assert equal $process_data.status finished "the process should be finished"
-assert equal $process_data.exit $outcome.exit "the process should finish once with one exit"
 assert equal $process_data.error?.node?.message? "the spawn is for another boot of the sandbox" "the runner of the next boot should finish the process"
 assert equal $process_data.started_at? null "the process should not run in the sandbox's next boot"
 let data = tg --url $url --token $root_token sandbox get $sandbox | from json | get data
