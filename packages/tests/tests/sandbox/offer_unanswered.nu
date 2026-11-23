@@ -31,7 +31,7 @@ let stop = job spawn {
 checkpoint pass $unanswered | ignore
 checkpoint unwatch $unanswered
 
-# Let the runner answer. The stop completes once the runner holds the sandbox.
+# Let the runner answer. The stop completes once the runner holds the boot.
 checkpoint unwatch $create
 let output = job recv --tag $stop --timeout 30sec
 success $output "the stop should succeed after the runner answers the offer"

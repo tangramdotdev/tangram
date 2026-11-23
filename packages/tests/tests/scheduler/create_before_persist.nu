@@ -11,7 +11,7 @@ let sandbox = tg sandbox create --no-tokens | referent node
 # The create returned while the index write is still held.
 checkpoint wait $persist | ignore
 
-# The sandbox runs a process once the index write is released.
+# A process runs in the sandbox once the index write is released.
 checkpoint unwatch $persist
 let output = tg run $'--sandbox=($sandbox)' --executable /bin/sh -- -c 'echo hello' | complete
 success $output 'the process should run in the sandbox'

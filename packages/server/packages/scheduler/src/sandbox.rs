@@ -16,7 +16,7 @@ use {
 #[cfg(test)]
 mod tests;
 
-/// The write of the terminal state of a sandbox that the scheduler ended, which the response that follows it and the removal of the sandbox's entry share.
+/// The write of the terminal state of a sandbox whose boot the scheduler ended, which the response that follows it and the removal of the sandbox's entry share.
 pub(super) type Write = future::Shared<future::BoxFuture<'static, tg::Result<()>>>;
 
 pub(super) type Entries = HashMap<tg::sandbox::Id, Sandbox, tg::id::BuildHasher>;
@@ -31,7 +31,7 @@ pub(super) struct Sandboxes {
 	/// The tasks that serve the requests to the holders of the sandboxes that this scheduler knows, and of their queued processes until a runner holds them, which are absent until the subscriptions are established.
 	pub(super) holders: HashMap<tg::sandbox::Id, Option<HolderTasks>, tg::id::BuildHasher>,
 
-	/// Whether the scheduler awaits indexing for sandboxes that it ended.
+	/// Whether the scheduler awaits indexing for sandboxes whose boots it ended.
 	pub(super) indexing: bool,
 
 	/// The number of offers that the scheduler is sending.
@@ -43,7 +43,7 @@ pub(super) struct Sandboxes {
 	/// The sandboxes whose next boot a start is reserving, with the number of reservations in flight for each, which the scheduler holds as in its queue, because a reservation's write records the boot in the scheduler's saved queue before the scheduler tracks it.
 	pub(super) reserving: HashMap<tg::sandbox::Id, usize, tg::id::BuildHasher>,
 
-	/// The sandboxes that the scheduler ended, with their boots, whose terminal states are written and which the next await of indexing covers.
+	/// The sandboxes whose boots the scheduler ended, with the boots, whose terminal states are written and which the next await of indexing covers.
 	pub(super) written: Vec<(tg::sandbox::Id, u64)>,
 }
 
@@ -61,9 +61,9 @@ pub(super) struct HolderTasks {
 	pub(super) requests: tangram_futures::task::Task<tg::Result<()>>,
 }
 
-/// What remains to be sent after the state is updated for a sandbox that a runner holds.
+/// What remains to be sent after the state is updated for a sandbox whose boot a runner holds.
 pub(super) enum Tracked {
-	/// The scheduler ended the sandbox as destroyed, so its runner destroys it.
+	/// The scheduler ended the boot with the sandbox destroyed, so its runner destroys the sandbox.
 	Destroy(DestroySandbox),
 
 	/// The scheduler's entry stays as it is.
@@ -94,14 +94,14 @@ pub(super) struct Sandbox {
 	/// The acceptance of the sandbox's enqueue requests, which is present until it is decided and the sandbox's index write is finished.
 	pub(super) accept: Option<Accepting>,
 
-	/// The runners that declined the sandbox, which the scheduler does not offer the sandbox to again until their next heartbeats.
+	/// The runners that declined the sandbox, which the scheduler does not offer the boot to again until their next heartbeats.
 	pub(super) blocked: HashMap<tg::runner::Id, Block, tg::id::BuildHasher>,
 
 	pub(super) boot: u64,
 
 	pub(super) capacity: tg::runner::Capacity,
 
-	/// The dequeue requests that wait for the runner's answer to the sandbox's offer.
+	/// The dequeue requests that wait for the runner's answer to the boot's offer.
 	pub(super) dequeue_requests: Vec<String>,
 
 	/// The number of offers of the sandbox that failed.
@@ -124,7 +124,7 @@ pub(super) struct Sandbox {
 	/// The processes that the scheduler offered into the boot, which are the boot's initial process and the spawns into it, and which are the only processes that the runner's reports of the boot may finish.
 	pub(super) processes: BTreeSet<tg::process::Id>,
 
-	/// The sandbox's request, which is absent once a runner holds the sandbox and its control connection is established, and for a sandbox that the scheduler knows only from its runner's report.
+	/// The sandbox's request, which is absent once a runner holds the boot and its control connection is established, and for a sandbox that the scheduler knows only from its runner's report.
 	pub(super) request: Option<EnqueueSandboxRequestArg>,
 
 	pub(super) retrying: bool,
@@ -144,7 +144,7 @@ pub(super) enum State {
 	/// A runner accepted the sandbox, and the scheduler tracks it until its runner reports that it ended or is removed, so that an enqueue of it or of an older boot is a no-op.
 	Accepted { runner: RunnerRef },
 
-	/// The scheduler offered the sandbox to a runner, and sends the same offer again until the runner answers. The sandbox keeps its place in the queue.
+	/// The scheduler offered the boot to a runner, and sends the same offer again until the runner answers. The sandbox keeps its place in the queue.
 	Offered {
 		/// Whether the sandbox's control connection is established, which can precede the runner's answer.
 		connected: bool,
@@ -159,7 +159,7 @@ pub(super) enum State {
 	/// The sandbox waits in the queue for a runner.
 	Queued,
 
-	/// The scheduler ended the sandbox before a runner accepted it, and holds it until the index has recorded its terminal state.
+	/// The scheduler ended the boot before a runner accepted it, and holds it until the index has recorded the sandbox's terminal state.
 	Terminal {
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 
@@ -181,7 +181,7 @@ pub(super) struct DiscardedSandbox {
 	pub(super) write: Write,
 }
 
-/// Decide whether a runner holds a sandbox at a boot at least as late as an enqueue's, from the scheduler's entry of the sandbox or from the running boot that a restarted scheduler rebuilt from the index, so that the scheduler answers the enqueue without queueing the sandbox.
+/// Decide whether a runner holds a boot of a sandbox at least as late as an enqueue's, from the scheduler's entry of the sandbox or from the active boot that a restarted scheduler rebuilt from the index, so that the scheduler answers the enqueue without queueing the sandbox.
 pub(super) fn is_held_by_runner(
 	boot: u64,
 	entry: Option<&Sandbox>,
@@ -241,7 +241,7 @@ impl Sandbox {
 		}
 	}
 
-	/// Get the request of a sandbox that no runner holds, which always has one.
+	/// Get the request of a sandbox whose boot no runner holds, which always has one.
 	pub(super) fn request(&self) -> &EnqueueSandboxRequestArg {
 		self.request.as_ref().unwrap()
 	}
@@ -313,7 +313,7 @@ impl SchedulerState {
 	) {
 		let ids = id.into_iter().collect::<Vec<_>>();
 
-		// Reply to an enqueue of a sandbox that a runner holds at the enqueue's boot or a later one without enqueueing it, including a boot that a restarted scheduler rebuilt from the index and whose runner has not reported yet, so that the scheduler never holds a boot that a runner holds.
+		// Reply to an enqueue of a sandbox whose boot a runner holds at the enqueue's boot or a later one without enqueueing it, including a boot that a restarted scheduler rebuilt from the index and whose runner has not reported yet, so that the scheduler never holds a boot that a runner holds.
 		let entry = self.sandboxes.entries.get(&request.sandbox);
 		let rebuilt = self.try_get_recovered_boot(&request.sandbox);
 		if is_held_by_runner(request.boot, entry, rebuilt) {
@@ -558,7 +558,7 @@ impl SchedulerState {
 		Some((sandbox, ids))
 	}
 
-	/// End a sandbox that this scheduler holds, and write its terminal state, numbered as this scheduler's second write of the boot. Keep the sandbox's entry until the index has recorded the terminal state, so that an enqueue of the sandbox that the lagging index sends again does not start it. Return the write, which a response that follows it awaits.
+	/// End a boot that this scheduler holds, and write the sandbox's terminal state, numbered as this scheduler's second write of the boot. Keep the sandbox's entry until the index has recorded the terminal state, so that an enqueue of the sandbox that the lagging index sends again does not start it. Return the write, which a response that follows it awaits.
 	pub(super) fn end_boot(
 		&mut self,
 		scheduler: &Scheduler,
@@ -582,7 +582,7 @@ impl SchedulerState {
 		self.end_boot_with_write(scheduler, id, status, error, write)
 	}
 
-	/// End a sandbox that no runner accepted with a write of its terminal state. Keep the sandbox's entry until the index has recorded the terminal state, and return the write, which a response that follows it awaits.
+	/// End a boot that no runner accepted with a write of the sandbox's terminal state. Keep the sandbox's entry until the index has recorded the terminal state, and return the write, which a response that follows it awaits.
 	pub(super) fn end_boot_with_write(
 		&mut self,
 		scheduler: &Scheduler,
@@ -591,7 +591,7 @@ impl SchedulerState {
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 		write: future::BoxFuture<'static, tg::Result<()>>,
 	) -> Write {
-		// End the sandbox, which leaves the queue.
+		// End the boot, whose sandbox leaves the queue.
 		self.remove_queued_sandbox(id);
 		let entry = self.sandboxes.entries.get_mut(id).unwrap();
 		entry.state = State::Terminal {
@@ -623,7 +623,7 @@ impl SchedulerState {
 		write
 	}
 
-	/// End a sandbox, and record the failure of its write if no response reports it.
+	/// End a boot, and record the failure of its write if no response reports it.
 	pub(super) fn end_boot_and_log(
 		&mut self,
 		scheduler: &Scheduler,
@@ -644,7 +644,7 @@ impl SchedulerState {
 		);
 	}
 
-	/// End a sandbox that this scheduler gives up on, which records the failure in the sandbox's error field. A new sandbox is destroyed, and a sandbox that was starting again is stopped.
+	/// Discard a sandbox whose boot this scheduler holds, which ends the boot and records the failure in the sandbox's error field. A new sandbox is destroyed, and a sandbox that was starting again is stopped.
 	pub(super) fn discard_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
@@ -663,7 +663,7 @@ impl SchedulerState {
 		}
 	}
 
-	/// Await indexing for a sandbox that this scheduler ended and whose terminal state is written, and remove the entry of a sandbox whose write failed.
+	/// Await indexing for a sandbox whose boot this scheduler ended and whose terminal state is written, and remove the entry of a sandbox whose write failed.
 	pub(super) fn handle_write_terminal_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
@@ -679,7 +679,7 @@ impl SchedulerState {
 		self.index_terminal_sandboxes(scheduler);
 	}
 
-	/// Remove the entries of the ended sandboxes that an await of indexing covered, and await indexing for the sandboxes that were ended since.
+	/// Remove the entries of the sandboxes whose boots ended and that an await of indexing covered, and await indexing for the boots that were ended since.
 	pub(super) fn handle_index_terminal_sandboxes(
 		&mut self,
 		scheduler: &Scheduler,
@@ -692,7 +692,7 @@ impl SchedulerState {
 		self.index_terminal_sandboxes(scheduler);
 	}
 
-	/// Await indexing once for all of the ended sandboxes whose terminal states are written, unless an await is running, which the next one follows.
+	/// Await indexing once for all of the ended boots whose sandboxes' terminal states are written, unless an await is running, which the next one follows.
 	fn index_terminal_sandboxes(&mut self, scheduler: &Scheduler) {
 		if self.sandboxes.indexing || self.sandboxes.written.is_empty() {
 			return;
@@ -712,7 +712,7 @@ impl SchedulerState {
 		);
 	}
 
-	/// Remove the entry of a sandbox that this scheduler ended once the index has recorded its terminal state, unless a later boot replaced it.
+	/// Remove the entry of a sandbox whose boot this scheduler ended once the index has recorded its terminal state, unless a later boot replaced it.
 	fn remove_terminal_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
@@ -728,7 +728,7 @@ impl SchedulerState {
 		}
 	}
 
-	/// Remove the entry of a sandbox that this scheduler ended, if the index has recorded its terminal state and no enqueue request waits for its index write.
+	/// Remove the entry of a sandbox whose boot this scheduler ended, if the index has recorded its terminal state and no enqueue request waits for its index write.
 	pub(super) fn try_remove_terminal_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
@@ -831,7 +831,7 @@ impl SchedulerState {
 		Ok(EnqueueSandboxResponseOutput::Enqueued)
 	}
 
-	/// Ask a runner to destroy a sandbox that it holds. Wait while this scheduler has not finished handling the runner's restart, because a runner that restarted is sent nothing until then.
+	/// Ask a runner to destroy a sandbox whose boot it holds. Wait while this scheduler has not finished handling the runner's restart, because a runner that restarted is sent nothing until then.
 	pub(super) fn send_destroy_sandbox(&mut self, scheduler: &Scheduler, destroy: DestroySandbox) {
 		let Some(connection) = self.destroy_connection(&destroy) else {
 			self.operations.push(
@@ -963,7 +963,7 @@ impl SchedulerState {
 		);
 	}
 
-	/// Track a sandbox that a runner holds, which a runner reports when it connects and which a restarted scheduler recovers, so that an enqueue of it or of an older boot is a no-op. The request is present if the sandbox's control connection may not be established. The processes are the ones that this scheduler offered into the boot before it restarted, which it rebuilt from the index.
+	/// Track a sandbox whose boot a runner holds, which a runner reports when it connects and which a restarted scheduler recovers, so that an enqueue of it or of an older boot is a no-op. The request is present if the sandbox's control connection may not be established. The processes are the ones that this scheduler offered into the boot before it restarted, which it rebuilt from the index.
 	pub(super) fn track_accepted_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
@@ -992,7 +992,7 @@ impl SchedulerState {
 		}
 	}
 
-	/// Update the state for a sandbox that a runner holds, and return what remains to be sent.
+	/// Update the state for a sandbox whose boot a runner holds, and return what remains to be sent.
 	pub(super) fn track_accepted_sandbox_inner(
 		&mut self,
 		id: &tg::sandbox::Id,
@@ -1054,7 +1054,7 @@ impl SchedulerState {
 		Tracked::Inserted { ids }
 	}
 
-	/// Add a parent to a sandbox that the scheduler holds, so that the sandbox can borrow the capacity of a sandbox whose process waits for its process after a cache hit, and offer a queued sandbox if the parent already lends its capacity. Reply with the sandbox's capacity, or with none if the scheduler does not hold the sandbox.
+	/// Add a parent to a sandbox whose boot the scheduler holds, so that the sandbox can borrow the capacity of a sandbox whose process waits for its process after a cache hit, and offer a queued sandbox if the parent already lends its capacity. Reply with the sandbox's capacity, or with none if the scheduler does not hold the sandbox's boot.
 	pub(super) fn add_sandbox_parent(
 		&mut self,
 		scheduler: &Scheduler,
@@ -1062,7 +1062,7 @@ impl SchedulerState {
 	) -> AddSandboxParentResponseOutput {
 		let output = self.add_sandbox_parent_inner(request);
 
-		// Offer the sandbox if the parent already lends its capacity.
+		// Offer the boot if the parent already lends its capacity.
 		let queued = self
 			.sandboxes
 			.entries
@@ -1078,7 +1078,7 @@ impl SchedulerState {
 		output
 	}
 
-	/// Add a parent to a sandbox that the scheduler holds as queued or offered, unless the sandbox has it already. Reply with the sandbox's capacity, or with none if the scheduler does not hold the sandbox.
+	/// Add a parent to a sandbox whose boot the scheduler holds as queued or offered, unless the sandbox has it already. Reply with the sandbox's capacity, or with none if the scheduler does not hold the sandbox's boot.
 	pub(super) fn add_sandbox_parent_inner(
 		&mut self,
 		request: &AddSandboxParentRequestArg,
@@ -1124,7 +1124,7 @@ impl SchedulerState {
 				Some(DequeueSandboxResponseOutput { dequeued: true })
 			},
 
-			// Report that a sandbox that this scheduler ended is dequeued only if it is destroyed, so that the caller destroys a stopped sandbox.
+			// Report that a sandbox whose boot this scheduler ended is dequeued only if it is destroyed, so that the caller destroys a stopped sandbox.
 			State::Terminal { status, .. } => Some(DequeueSandboxResponseOutput {
 				dequeued: status.is_destroyed(),
 			}),

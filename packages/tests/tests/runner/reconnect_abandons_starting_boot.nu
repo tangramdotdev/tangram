@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner whose scheduler declares it dead while a boot is still starting on it, and that then reconnects, gives up the boot without starting its process, so that the sandbox stays stopped and its next boot runs once.
+# A runner whose scheduler declares it dead while a boot is still starting on it, and that then reconnects, abandons the boot without starting its process, so that the sandbox stays stopped and its process runs once in its next boot.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires the sandbox pool'

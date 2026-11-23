@@ -27,7 +27,7 @@ struct Item<'a> {
 }
 
 impl Component {
-	/// Send a request to the holder of a sandbox while reading the sandbox from the index, and return the holder's reply or the index's answer, whichever is decisive first. Return `None` if the wakeups end.
+	/// Send a request to the holder of a sandbox's boot while reading the sandbox from the index, and return the holder's reply or the index's answer, whichever is decisive first. Return `None` if the wakeups end.
 	pub(crate) async fn request_sandbox_holder(
 		&self,
 		session: &Session,
@@ -56,7 +56,7 @@ impl Component {
 		tangram_server_core::holder::request(&item, arg, checkpoint, index_required).await
 	}
 
-	/// Serve the requests to the holder of a sandbox by passing each message to the holder, which answers a request or replies that it does not hold the sandbox.
+	/// Serve the requests to the holder of a sandbox's boot by passing each message to the holder, which answers a request or replies that it does not hold the sandbox's boot.
 	pub(crate) async fn serve_sandbox_holder<F>(
 		&self,
 		server: &Server,

@@ -196,7 +196,7 @@ pub struct AddRunnerRequestArg {
 	#[tangram_serialize(id = 3)]
 	pub runner: tg::runner::Id,
 
-	/// The sandboxes that the runner is running or starting, which a restarted scheduler treats as placed.
+	/// The boots that the runner holds, which a restarted scheduler treats as placed.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
 	pub sandboxes: Vec<tg::runner::control::ArgSandbox>,
@@ -215,7 +215,7 @@ pub struct AddRunnerResponseOutput {
 	#[tangram_serialize(id = 5)]
 	pub connection: u64,
 
-	/// The reported boots that the scheduler ended because it declared the runner dead, which the runner gives up without writing anything more for them.
+	/// The reported boots that the scheduler ended because it declared the runner dead, which the runner abandons without writing anything more for them.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
 	pub ended: Vec<tg::runner::control::AbandonBoot>,
@@ -282,7 +282,7 @@ pub struct AddSandboxParentRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct AddSandboxParentResponseOutput {
-	/// The capacity of the sandbox, which is absent if the scheduler does not hold the sandbox.
+	/// The capacity of the sandbox, which is absent if the scheduler does not hold the sandbox's boot.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub capacity: Option<tg::runner::Capacity>,

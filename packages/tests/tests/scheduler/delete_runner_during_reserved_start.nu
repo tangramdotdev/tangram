@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# Deleting a runner while a start of its stopped sandbox has reserved the sandbox's next boot leaves the reserved boot to the scheduler, so that the deletion neither ends nor destroys the boot that the start reserved.
+# Deleting a runner while a start of its stopped sandbox has reserved the sandbox's next boot leaves the reserved boot to the scheduler, so that the deletion neither ends the boot that the start reserved nor destroys the sandbox.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {

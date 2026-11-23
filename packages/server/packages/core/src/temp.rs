@@ -79,7 +79,7 @@ impl Temp {
 			tokio::fs::create_dir_all(parent).await?;
 		}
 		if self.path != path {
-			// Replace the link that points a sandbox's path at the temp while it runs.
+			// Replace the link that points a sandbox's path at the temp while the sandbox is started.
 			if tokio::fs::symlink_metadata(path)
 				.await
 				.is_ok_and(|metadata| metadata.file_type().is_symlink())

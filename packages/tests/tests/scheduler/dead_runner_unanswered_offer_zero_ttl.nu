@@ -17,7 +17,7 @@ let runner = server spawn --name runner --config {
 }
 wait_for_log $runner 'the runner is ready to accept work'
 
-# Hold the runner once it receives the offer of a sandbox with a zero ttl, and kill it before it answers.
+# Hold the runner once it receives the offer of the boot of a sandbox with a zero ttl, and kill it before it answers.
 let offer = checkpoint watch runner.control.offer_boot --url $runner.url
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens --ttl 0s | referent node
 checkpoint wait $offer | ignore

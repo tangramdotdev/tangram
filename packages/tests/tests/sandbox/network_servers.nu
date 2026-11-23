@@ -19,7 +19,7 @@ with socket.socket() as listener:
 '
 
 for firewall in [nft iptables] {
-	# Create a networked sandbox with a published port on each server, and keep all of them running.
+	# Create a networked sandbox with a published port on each server, and keep all of them started.
 	let servers = [a b c] | each {|name|
 		let server = server spawn --root --name $name --config {
 			runner: { backend: { kind: builtin }, sandbox_pool_size: 0 },

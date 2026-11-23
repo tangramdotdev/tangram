@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner that restarts while its first connection ends the sandboxes that it no longer holds has them ended by its next connection.
+# A runner that restarts while its first connection ends the boots that it no longer holds has them ended by its next connection.
 let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
@@ -36,7 +36,7 @@ let runner = server start $runner
 checkpoint wait $restarted 0 | ignore
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
 
-# Kill the runner again before its connection ends the sandbox, start it again, and let both connections continue, so that the newer connection ends the sandbox.
+# Kill the runner again before its connection ends the boot, start it again, and let both connections continue, so that the newer connection ends the boot.
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 wait_for_exit $pid "the runner must exit"

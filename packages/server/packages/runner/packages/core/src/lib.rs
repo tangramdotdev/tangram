@@ -269,7 +269,7 @@ impl State {
 		Some(update(&mut process))
 	}
 
-	/// Get the state of a sandbox whose latest boot the runner did not give up, which is the lookup through which the runner answers and acts as the holder of a sandbox and of its processes, so that a boot that the runner gave up answers nothing.
+	/// Get the state of a sandbox whose latest boot the runner did not abandon, which is the lookup through which the runner answers and acts as the holder of a sandbox's boot and of its processes, so that a boot that the runner abandoned answers nothing.
 	#[must_use]
 	pub fn try_get_held_boot(
 		&self,

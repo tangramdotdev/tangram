@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner whose scheduler declares it dead while a boot is still starting on it, and that reconnects after the sandbox was started again, gives up the first boot without starting its process, even though the scheduler offers it the sandbox's next boot on the same connection, and runs the next boot only after the first boot is done with the sandbox's directory.
+# A runner whose scheduler declares it dead while a boot is still starting on it, and that reconnects after the sandbox was started again, abandons the first boot without starting its process, even though the scheduler offers it the sandbox's next boot on the same connection, and runs the next boot only after the first boot is done with the sandbox's directory.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires the sandbox pool'

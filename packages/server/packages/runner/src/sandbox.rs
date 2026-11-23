@@ -204,7 +204,7 @@ struct RunSandboxTaskArg {
 	stopper: Stopper,
 }
 
-/// The end of a boot's run, with the boot's control stream, how the boot ended, and the process tasks that the runner retains.
+/// The end of a boot's task, with the boot's control stream, how the boot ended, and the process tasks that the runner retains.
 struct RunSandboxTaskOutput {
 	control: control::Control,
 	ending: Ending,
@@ -245,19 +245,19 @@ struct DestroyRequest {
 	error: Option<tg::error::Data>,
 }
 
-/// What serving a request of a boot's control stream leaves for the boot's run loop.
+/// What serving a request of a boot's control stream leaves for the loop of the boot's task.
 enum Handled {
 	/// The request was answered.
 	Done,
 
-	/// The request ends the boot's run, which stops the sandbox or destroys it.
+	/// The request ends the boot, which stops the sandbox or destroys it.
 	End(Teardown),
 
-	/// The request spawns a process that the boot accepted into its run.
+	/// The request spawns a process that the boot accepted.
 	Spawn(Spawn),
 }
 
-/// A spawn that a running boot accepted, which the run loop starts.
+/// A spawn that the boot of a started sandbox accepted, which the loop of the boot's task starts.
 struct Spawn {
 	process: tg::runner::control::Process,
 	public: bool,
@@ -267,7 +267,7 @@ struct Spawn {
 /// The answer of a boot to a spawn before the boot accepts the spawn's process.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SpawnAnswer {
-	/// The boot runs, and says yes if it accepts the process and no otherwise.
+	/// The sandbox is started at the boot, which says yes if it accepts the process and no otherwise.
 	Accept,
 
 	/// The boot says no, because the spawn is for an earlier boot of the sandbox, which is over.
@@ -537,7 +537,7 @@ impl Component {
 		}
 	}
 
-	/// End a boot that the runner held, which is the only function that writes a boot's end and reports it, whether the boot stopped, its sandbox was destroyed, or the boot failed. Write the end while serving the boot's control stream, and then report the end to the runner's scheduler, which records the end itself if the boot's control stream could not. Record and report nothing for a boot that the runner gave up, whose end the index already records, or for a boot on the shortcut path that numbered no write, because no index has a record of it.
+	/// End a boot that the runner held, which is the only function that writes a boot's end and reports it, whether its sandbox stopped or was destroyed, or the boot failed. Write the end while serving the boot's control stream, and then report the end to the runner's scheduler, which records the end itself if the boot's control stream could not. Record and report nothing for a boot that the runner abandoned, whose end the index already records, or for a boot on the shortcut path that numbered no write, because no index has a record of it.
 	async fn end_boot(
 		&self,
 		session: &Session,
@@ -549,7 +549,7 @@ impl Component {
 		let boot = &arg.boot;
 		let id = &boot.sandbox;
 
-		// Write the end while serving the boot's control stream, unless the runner gave the boot up or the boot is on the shortcut path and numbered no write.
+		// Write the end while serving the boot's control stream, unless the runner abandoned the boot or the boot is on the shortcut path and numbered no write.
 		let write = boot.writes_end();
 		let sender = control.as_ref().map(|control| control.sender());
 		let end = async {
@@ -627,7 +627,7 @@ impl Component {
 		}
 	}
 
-	/// Write the end of a boot. Finish the boot's unfinished processes from the runner's memory, wait for a server to answer every finish of the boot's processes, finishing again from memory a process whose finish was dropped before a server answered it, take the number of the end, and write the end on the boot's control stream once it is connected, which destroys a destroyed sandbox in the same write. Return the end's number, whether the control stream recorded the end, and the processes that the end finished from memory, or `None` if the runner gave the boot up meanwhile.
+	/// Write the end of a boot. Finish the boot's unfinished processes from the runner's memory, wait for a server to answer every finish of the boot's processes, finishing again from memory a process whose finish was dropped before a server answered it, take the number of the end, and write the end on the boot's control stream once it is connected, which destroys a destroyed sandbox in the same write. Return the end's number, whether the control stream recorded the end, and the processes that the end finished from memory, or `None` if the runner abandoned the boot meanwhile.
 	async fn write_boot_end(
 		&self,
 		session: &Session,
@@ -638,7 +638,7 @@ impl Component {
 		let boot = &arg.boot;
 		let id = &boot.sandbox;
 
-		// Finish the unfinished processes from the runner's memory, and take the number of the end once a server answered every finish of the boot's processes, unless the runner gives the boot up meanwhile.
+		// Finish the unfinished processes from the runner's memory, and take the number of the end once a server answered every finish of the boot's processes, unless the runner abandons the boot meanwhile.
 		let error = Self::ended_process_error(&ending.data);
 		let (sequence, finished) = boot
 			.end_after_finishes(|processes| {
@@ -706,7 +706,7 @@ impl Component {
 		tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox task failed");
 		arg.event_sender.send(Err(error.clone())).ok();
 
-		// Get how the failed boot ends. Reserve the storage of a stopped sandbox's remaining directory again, which the failed boot's allocation released, and remove the remaining directory of a sandbox that the scheduler destroyed when it ended the boot that the runner gave up.
+		// Get how the failed boot ends. Reserve the storage of a stopped sandbox's remaining directory again, which the failed boot's allocation released, and remove the remaining directory of a sandbox that the scheduler destroyed when it ended the boot that the runner abandoned.
 		let exists = tokio::fs::try_exists(Self::sandbox_path(session, id))
 			.await
 			.unwrap_or(false);
@@ -851,12 +851,12 @@ impl Component {
 					.wait_ended_before(&id, number)
 					.await;
 
-				// Create nothing for a boot that the runner gave up while it waited.
+				// Create nothing for a boot that the runner abandoned while it waited.
 				if boot.abandoned().is_some() {
 					return Err(tg::error!(%id, "the runner abandoned the boot"));
 				}
 
-				// Fail a restarted boot of a sandbox that ran on this runner and has no directory, because its files were lost, which destroys the sandbox, and create a sandbox that never ran on a runner.
+				// Fail a restarted boot of a sandbox that was on this runner and has no directory, because its files were lost, which destroys the sandbox, and create a sandbox that was never on a runner.
 				let path = Self::sandbox_path(&session, &id);
 				if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
 					if placed {
@@ -1102,7 +1102,7 @@ impl Component {
 		tangram_server_core::checkpoint!(session.server, "runner.sandbox.state.inserted", index, sandbox = %id)
 			.await;
 
-		// Start no process in a boot that the runner gave up while it was starting.
+		// Start no process in a boot that the runner abandoned while it was starting.
 		let process = process.filter(|_| boot.abandoned().is_none());
 
 		// Bind the pooled VFS to this sandbox before starting any processes.
@@ -1789,7 +1789,7 @@ impl Component {
 			vfs.wait().await;
 		}
 
-		// Keep the directory of a restarted sandbox or of a sandbox whose stop failed, so that it can start again, and remove the directory after any other early failure, which ends the sandbox without a stop or destroy.
+		// Keep the directory of a restarted sandbox or of a sandbox whose stop failed, so that it can start again, and remove the directory after any other early failure, which ends the boot without a stop or destroy.
 		let keep = self.state.sandboxes.get_by_id(&id).is_some_and(|sandbox| {
 			sandbox.boot.number > 0 || sandbox.status == tg::sandbox::Status::Stopping
 		});
@@ -1898,7 +1898,7 @@ impl Component {
 		// Track the sandbox's last use, which is its start and then each time it is left without processes, so that a stop records when its ttl expires.
 		let mut last_used_at = session.server.clock.unix_timestamp();
 
-		// Run the sandbox until it should be stopped or destroyed, destroying it with the error if the loop fails.
+		// Serve the started sandbox until it should be stopped or destroyed, destroying it with the error if the loop fails.
 		let result = async {
 			loop {
 				// Hit a checkpoint the first time that the sandbox is ready.
@@ -1954,7 +1954,7 @@ impl Component {
 							break;
 						};
 
-						// Serve the message, and start a process that the boot accepted, or end the boot's run.
+						// Serve the message, and start a process that the boot accepted, or end the boot.
 						let phase = Phase::Started { reported: reported.load(Ordering::Acquire) };
 						match self.serve_control(session, &boot, phase, message).boxed().await? {
 							Handled::Done => {},
@@ -1984,7 +1984,7 @@ impl Component {
 						}
 					},
 
-					// If the runner gives up the boot because its scheduler ended it, then stop the sandbox, or destroy it if the scheduler's end destroyed it, writing nothing more for the boot.
+					// If the runner abandons the boot because its scheduler ended it, then stop the sandbox, or destroy it if the scheduler's end destroyed it, writing nothing more for the boot.
 					kind = boot.wait_abandoned() => {
 						let status = match kind {
 							Teardown::Destroy => tg::sandbox::Status::Destroying,
@@ -2074,7 +2074,7 @@ impl Component {
 			teardown = Teardown::Destroy;
 		}
 
-		// Record a destroy that arrives during a stop, with its error. Get how the boot ends locally now, which is how the runner gave the boot up, because the scheduler's end decides whether the sandbox stays stopped, and otherwise a destroy if one arrived during the stop.
+		// Record a destroy that arrives during a stop, with its error. Get how the boot ends locally now, which is how the runner abandoned the boot, because the scheduler's end decides whether the sandbox stays stopped, and otherwise a destroy if one arrived during the stop.
 		let destroy_request = std::sync::Mutex::new(None::<DestroyRequest>);
 		let current = |teardown: Teardown| match boot.abandoned() {
 			Some(kind) => kind,
@@ -2170,7 +2170,7 @@ impl Component {
 				}
 			}
 
-			// Destroy the sandbox instead of stopping it if a destroy arrived during the stop or the scheduler's end destroyed it, and stop a sandbox that did not fail instead of destroying it if the runner gave the boot up and the scheduler's end left it stopped.
+			// Destroy the sandbox instead of stopping it if a destroy arrived during the stop or the scheduler's end destroyed it, and stop a sandbox that did not fail instead of destroying it if the runner abandoned the boot and the scheduler's end left it stopped.
 			match (teardown, current(teardown)) {
 				(Teardown::Stop, Teardown::Destroy) => {
 					tracing::info!(sandbox = %id, "destroying the stopping sandbox");
@@ -2428,7 +2428,7 @@ impl Component {
 		}
 	}
 
-	/// Serve a request of a boot's control stream, which is the only handler of the stream in every phase of the boot. Give up the boot first if the request says that the index records the boot as ended, and reply to every request for a boot that the runner gave up, local or remote, that the runner does not hold the boot, so that the boot neither answers nor acts for the sandbox's next boot.
+	/// Serve a request of a boot's control stream, which is the only handler of the stream in every phase of the boot. Abandon the boot first if the request says that the index records the boot as ended, and reply to every request for a boot that the runner abandoned, local or remote, that the runner does not hold the boot, so that the boot neither answers nor acts for the sandbox's next boot.
 	async fn serve_control(
 		&self,
 		session: &Session,
@@ -2438,7 +2438,7 @@ impl Component {
 	) -> tg::Result<Handled> {
 		let id = &boot.sandbox;
 
-		// Give up a boot that the index records as ended, and reply that the runner does not hold a boot that it gave up.
+		// Abandon a boot that the index records as ended, and reply that the runner does not hold a boot that it abandoned.
 		if let Some(kind) = ended_teardown(&message.arg) {
 			self.abandon_boot(session, boot, kind);
 		}
@@ -2453,7 +2453,7 @@ impl Component {
 			tg::sandbox::control::ServerRequestArg::Destroy(request) => {
 				let status = Self::sandbox_status(session, id);
 				match phase {
-					// End a running boot with a destroy.
+					// End the boot of a started sandbox with a destroy.
 					Phase::Started { .. } => {
 						Self::cancel_sandbox_processes(session, id, request.error)?;
 						Self::set_sandbox_status(session, id, tg::sandbox::Status::Destroying);
@@ -2534,7 +2534,7 @@ impl Component {
 				})
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
 			tg::sandbox::control::ServerRequestArg::Stop(_) => match phase {
-				// End a running boot with a stop.
+				// End the boot of a started sandbox with a stop.
 				Phase::Started { .. } => {
 					Self::cancel_sandbox_processes(session, id, None)?;
 					Self::set_sandbox_status(session, id, tg::sandbox::Status::Stopping);
@@ -2544,7 +2544,7 @@ impl Component {
 					))
 				},
 
-				// Reply that a boot that is no longer running did not stop now.
+				// Reply that a boot whose sandbox is no longer started did not stop now.
 				Phase::Ended | Phase::Stopping { .. } => {
 					if Self::sandbox_status(session, id)
 						.is_some_and(|status| !status.is_destroyed())
@@ -2567,7 +2567,7 @@ impl Component {
 		Ok(handled)
 	}
 
-	/// Give up a boot because its scheduler ended it, which is the only way that the runner gives up a boot, so that the runner writes nothing more for it. Then record the end at once in this server's local copies of a sandbox whose home is remote, in a sandbox task, because no write brings the scheduler's end of the boot to them, and let tests order events after the give-up. Return whether the boot was given up now.
+	/// Abandon a boot because its scheduler ended it, which is the only way that the runner abandons a boot, so that the runner writes nothing more for it. Then record the end at once in this server's local copies of a sandbox whose home is remote, in a sandbox task, because no write brings the scheduler's end of the boot to them, and let tests order events after the abandonment. Return whether the boot was abandoned now.
 	pub(crate) fn abandon_boot(&self, session: &Session, boot: &Arc<Boot>, kind: Teardown) -> bool {
 		if !boot.abandon(kind) {
 			return false;
@@ -2595,7 +2595,7 @@ impl Component {
 		true
 	}
 
-	/// Record the end of a boot that the runner gave up in this server's local copies of a sandbox whose home is remote: finish as failed each process of the boot whose finish no server answered, and record the sandbox as stopped or destroyed at the boot in its local copy.
+	/// Record the end of a boot that the runner abandoned in this server's local copies of a sandbox whose home is remote: finish as failed each process of the boot whose finish no server answered, and record the sandbox as stopped or destroyed at the boot in its local copy.
 	async fn record_abandoned_boot_local(
 		&self,
 		session: &Session,
@@ -2635,7 +2635,7 @@ impl Component {
 			}
 		}
 
-		// Record the sandbox's end in its local copy of the boot.
+		// Record the boot's end in the sandbox's local copy.
 		let indexed = session
 			.server
 			.index
@@ -2674,7 +2674,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// Serve a spawn into a boot, which is the one handler of a spawn on the runner. Reply to a server's spawn without a boot that the runner does not hold the sandbox, because the sandbox's scheduler sends the spawn to the runner with the boot, or that the runner is not ready until the scheduler has acknowledged the report of a boot on the shortcut path. Say yes to a spawn into the boot while the boot runs and accepts the process, which starts it, reply that the runner does not hold the sandbox to a spawn for a later boot, so that the sender finds the later boot, and say no, that the boot is over, to a spawn for an earlier boot of the sandbox and to a spawn into a boot that is not running, ending, or given up, so that the spawn's holder ends the process. Refuse a spawn whose process is not in the sandbox.
+	/// Serve a spawn into a boot, which is the one handler of a spawn on the runner. Reply to a server's spawn without a boot that the runner does not hold the sandbox's boot, because the sandbox's scheduler sends the spawn to the runner with the boot, or that the runner is not ready until the scheduler has acknowledged the report of a boot on the shortcut path. Say yes to a spawn into the boot while the sandbox is started at the boot and the boot accepts the process, which starts it, reply that the runner does not hold the boot to a spawn for a later boot, so that the sender finds the later boot, and say no, that the boot is over, to a spawn for an earlier boot of the sandbox and to a spawn into a boot that is not started, ending, or abandoned, so that the spawn's holder ends the process. Refuse a spawn whose process is not in the sandbox.
 	async fn serve_spawn(
 		&self,
 		session: &Session,
@@ -2695,7 +2695,7 @@ impl Component {
 			return Ok(Handled::Done);
 		}
 
-		// Say yes to a spawn into a running boot that accepts the process, which starts the process.
+		// Say yes to a spawn into the boot of a started sandbox that accepts the process, which starts the process.
 		if answer == SpawnAnswer::Accept {
 			let process = match Self::prepare_process(request.process, id) {
 				Ok(process) => process,
@@ -2845,7 +2845,7 @@ impl Component {
 		task.detach();
 	}
 
-	/// Finish as failed with the error a process that this server spawned into a boot and recorded, on this server, numbering the finish with the boot's counter. The write reaches this server's index, whose error is a refusal that is final, so the write is not sent again. Return whether this server answered the finish, which it does not for a boot that the runner gave up.
+	/// Finish as failed with the error a process that this server spawned into a boot and recorded, on this server, numbering the finish with the boot's counter. The write reaches this server's index, whose error is a refusal that is final, so the write is not sent again. Return whether this server answered the finish, which it does not for a boot that the runner abandoned.
 	async fn finish_local_process(
 		session: &Session,
 		boot: &Boot,
@@ -2992,7 +2992,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// Destroy a stopped sandbox on this runner by removing its directory, releasing its filesystem project ID, and reporting its destruction, or destroy a running sandbox through the control of its boot.
+	/// Destroy a stopped sandbox on this runner by removing its directory, releasing its filesystem project ID, and reporting its destruction, or destroy a started sandbox through the control of its boot.
 	pub(crate) async fn destroy_stopped_sandbox(
 		&self,
 		session: &Session,
@@ -3001,7 +3001,7 @@ impl Component {
 	) -> tg::Result<tg::runner::control::DestroySandboxClientResponseOutput> {
 		let tg::runner::control::DestroySandboxServerRequestArg { error, sandbox: id } = arg;
 
-		// Wait for a boot that is starting to be stored, and for a boot that the runner gave up to end locally, so that the destroy does not remove the directory that either uses, and does not ask a boot that the runner gave up to destroy the sandbox.
+		// Wait for a boot that is starting to be stored, and for a boot that the runner abandoned to end locally, so that the destroy does not remove the directory that either uses, and does not ask a boot that the runner abandoned to destroy the sandbox.
 		let control_sender = loop {
 			let updated = self.state.sandboxes.updated();
 			let sandbox = self.state.sandboxes.get_by_id(&id);
@@ -3023,7 +3023,7 @@ impl Component {
 			updated.await;
 		};
 
-		// Destroy a running sandbox through the control of its boot, which reports its destruction.
+		// Destroy a started sandbox through the control of its boot, which reports its destruction.
 		if let Some(control_sender) = control_sender {
 			let request = tg::sandbox::control::ServerRequestArg::Destroy(
 				tg::sandbox::control::DestroyServerRequestArg {
@@ -3295,7 +3295,7 @@ impl Component {
 				continue;
 			};
 
-			// Get when the sandbox stopped and when it expires, counting from when this runner first saw the boot stopped if its stop recorded neither, such as after a crash.
+			// Get when the sandbox stopped and when it expires, counting from when this runner first saw the sandbox stopped at the boot if its stop recorded neither, such as after a crash.
 			let first_seen_at = *first_seen
 				.entry((id.clone(), data.data.boot))
 				.or_insert(now);
@@ -3410,7 +3410,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// Get whether this runner holds a boot of the sandbox, which is starting, running, or ending, or retains the state of a running boot, so that the directory is never removed while a boot uses it or before the boot's end was accepted.
+	/// Get whether this runner holds a boot of the sandbox, which is starting, started, or ending, or retains the state of an active boot, so that the directory is never removed while a boot uses it or before the boot's end was accepted.
 	fn boot_is_held(&self, id: &tg::sandbox::Id) -> bool {
 		let boot = self.state.boots.latest(id).is_some();
 		let active = self
@@ -3493,7 +3493,7 @@ impl Component {
 		Ok(Some(usage))
 	}
 
-	/// Measure a stopped sandbox's directory with its filesystem project, or return `None` without one, because storage counts only with a filesystem project, as a running sandbox's storage does.
+	/// Measure a stopped sandbox's directory with its filesystem project, or return `None` without one, because storage counts only with a filesystem project, as a started sandbox's storage does.
 	#[cfg(target_os = "linux")]
 	fn stopped_sandbox_size(
 		&self,
@@ -3564,7 +3564,7 @@ impl Component {
 			}
 		}
 
-		// Record the sandbox's end.
+		// Record the boot's end.
 		self.index_remote_sandbox(
 			session,
 			id,
@@ -4043,7 +4043,7 @@ fn stopped_storage_usage(size: u64, seconds: i64) -> tg::sandbox::Usage {
 	}
 }
 
-/// Get how a boot whose task failed ends: as the runner gave the boot up, because the scheduler's end decides whether the sandbox stays stopped, and otherwise with a stop if the failed task kept the sandbox's directory or a directory of a boot after the first remains, such as for a start that fails before it runs, so that the sandbox can start again, and with a destroy otherwise.
+/// Get how a boot whose task failed ends: as the runner abandoned the boot, because the scheduler's end decides whether the sandbox stays stopped, and otherwise with a stop if the failed task kept the sandbox's directory or a directory of a boot after the first remains, such as for a start that fails before it runs, so that the sandbox can start again, and with a destroy otherwise.
 fn failed_teardown(abandoned: Option<Teardown>, kept: bool, boot: u64, exists: bool) -> Teardown {
 	match abandoned {
 		Some(kind) => kind,
@@ -4052,7 +4052,7 @@ fn failed_teardown(abandoned: Option<Teardown>, kept: bool, boot: u64, exists: b
 	}
 }
 
-/// Get how the runner gives up a boot whose end a request of the boot's control stream says that the index records, which the runner does in every phase of the boot.
+/// Get how the runner abandons a boot whose end a request of the boot's control stream says that the index records, which the runner does in every phase of the boot.
 fn ended_teardown(arg: &tg::sandbox::control::ServerRequestArg) -> Option<Teardown> {
 	match arg {
 		tg::sandbox::control::ServerRequestArg::Destroy(request) if request.ended => {

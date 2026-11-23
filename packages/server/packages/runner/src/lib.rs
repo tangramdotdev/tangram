@@ -722,7 +722,7 @@ impl Component {
 		self.offers
 			.set_time_to_live(header.runner_time_to_live.saturating_mul(2));
 
-		// Keep the previous run's directories on the first connection before accepting work, and give up the reported boots that the scheduler ended.
+		// Keep the previous run's directories on the first connection before accepting work, and abandon the reported boots that the scheduler ended.
 		let index = 1;
 		if *first {
 			self.keep_previous_sandbox_directories(session, previous)
@@ -771,7 +771,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// Give up each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the boot and keeps its directory, which the stopped sandbox task removes if the index records the sandbox as destroyed, and a boot whose state is not stored yet starts no process.
+	/// Abandon each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the sandbox and keeps its directory, which the stopped sandbox task removes if the index records the sandbox as destroyed, and a boot whose state is not stored yet starts no process.
 	fn abandon_ended_boots(&self, session: &Session, header: &tg::runner::control::Header) {
 		for ended in &header.ended {
 			if let Some(boot) = self.state.boots.get(&ended.id, ended.boot) {
@@ -1104,7 +1104,7 @@ impl Component {
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
 
-		// Report the latest boot of each sandbox that the runner holds and did not give up, with the processes that its scheduler offered into the boot and that did not finish, and the proof for a boot on the shortcut path, so that a restarted scheduler can tell which requests it already placed and cancel the boots and processes that the index does not have.
+		// Report each latest boot of a sandbox that the runner holds and did not abandon, with the processes that its scheduler offered into the boot and that did not finish, and the proof for a boot on the shortcut path, so that a restarted scheduler can tell which requests it already placed and cancel the boots and processes that the index does not have.
 		let sandboxes = self
 			.state
 			.boots
@@ -1235,7 +1235,7 @@ impl Component {
 				requested.storage = request.arg.storage.unwrap_or_default();
 			}
 
-			// Answer yes to a boot that this runner holds or ended itself, whose end it reports, because a scheduler can send a boot again after it restarts. Answer that a boot that this runner gave up or that a later boot of the sandbox replaced ended, because the runner never runs it again, so that the scheduler handles it as the end of a boot that the runner held.
+			// Answer yes to a boot that this runner holds or ended itself, whose end it reports, because a scheduler can send a boot again after it restarts. Answer that a boot that this runner abandoned or that a later boot of the sandbox replaced ended, because the runner never holds it again, so that the scheduler handles it as the end of a boot that the runner held.
 			let state = session.server.components.runner.state();
 			let boots = [
 				state.boots.get(&request.sandbox, request.boot),

@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A sandbox stops after it runs without processes for its time to stop, and it starts again with its files.
+# A sandbox stops after it is started without processes for its time to stop, and it starts again with its files.
 
 let local = server spawn --now '2026-01-01T00:00:00Z' --config { advanced: { checkpoints: true } }
 

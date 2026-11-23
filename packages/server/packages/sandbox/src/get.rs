@@ -283,7 +283,7 @@ impl Component {
 		Ok(Some(output))
 	}
 
-	/// Create the arg for a get request to the holder of a sandbox, which the index answers when the holder does not.
+	/// Create the arg for a get request to the holder of a sandbox's boot, which the index answers when the holder does not.
 	pub(super) fn get_sandbox_holder_arg<'a>(
 		session: &Session,
 		deadline: tokio::time::Instant,

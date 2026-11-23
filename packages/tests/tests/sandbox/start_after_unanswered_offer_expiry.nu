@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner that starts a boot whose offer's answer the scheduler never receives, and whose heartbeat then expires while it keeps running, stops the boot when it connects again, so the sandbox stays stopped and starts again with its files.
+# A runner that starts a sandbox at a boot whose offer's answer the scheduler never receives, and whose heartbeat then expires while it keeps the boot, stops the sandbox when it connects again, so the sandbox stays stopped and starts again with its files.
 
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {

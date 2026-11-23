@@ -297,7 +297,7 @@ fn an_unanswered_offer_whose_boot_an_earlier_connection_ended_is_never_offered_a
 		"the offer of the ended boot would be returned to the queue"
 	);
 
-	// A running boot that the runner wrote is ended by the connection, and a boot that only this scheduler wrote is offered again.
+	// An active boot that the runner wrote is ended by the connection, and a boot that only this scheduler wrote is offered again.
 	let decision = decide(indexed(
 		&sandbox,
 		1,

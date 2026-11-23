@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A runner runs no more sandboxes at once than its sandbox capacity, and a waiting parent lends its sandbox capacity to its children.
+# A runner has no more sandboxes started at once than its sandbox capacity, and a waiting parent lends its sandbox capacity to its children.
 
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux sandboxes' }
 

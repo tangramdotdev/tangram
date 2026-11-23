@@ -403,7 +403,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// Add a parent to a sandbox that a scheduler holds, and return the sandbox's capacity, or none if the scheduler does not hold the sandbox.
+	/// Add a parent to a sandbox whose boot a scheduler holds, and return the sandbox's capacity, or none if the scheduler does not hold the sandbox's boot.
 	pub(crate) async fn add_sandbox_parent(
 		&self,
 		session: &Session,

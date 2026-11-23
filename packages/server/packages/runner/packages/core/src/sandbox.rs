@@ -24,7 +24,7 @@ pub struct SpawnSandboxTaskArg {
 
 	pub owner: tg::Principal,
 
-	/// Whether an earlier boot of the sandbox ran on this runner, so that a start without the sandbox's directory fails.
+	/// Whether the sandbox was on this runner at an earlier boot, so that a start without the sandbox's directory fails.
 	pub placed: bool,
 
 	pub process: Option<tg::runner::control::Process>,
@@ -95,7 +95,7 @@ pub struct Boots {
 	boots: tokio::sync::watch::Sender<BTreeMap<(tg::sandbox::Id, u64), Arc<Boot>>>,
 }
 
-/// A boot that the runner holds. The boot numbers every write of the runner for it from its one counter, which gives no number once the runner gave the boot up, remembers every process that it accepted, and tracks the finish of each of its processes until a server answers it.
+/// A boot that the runner holds. The boot numbers every write of the runner for it from its one counter, which gives no number once the runner abandoned the boot, remembers every process that it accepted, and tracks the finish of each of its processes until a server answers it.
 pub struct Boot {
 	/// How the runner abandoned the boot, once its scheduler ended it.
 	abandoned: tokio::sync::watch::Sender<Option<Teardown>>,
@@ -123,7 +123,7 @@ pub struct Boot {
 }
 
 struct BootInner {
-	/// Whether the boot took the number of its end, after which the runner does not give it up.
+	/// Whether the boot took the number of its end, after which the runner does not abandon it.
 	ending: bool,
 
 	/// The finish of each process of the boot that has a finish under way or that a server answered. A process without an entry is unfinished, and the end of the boot finishes it from the runner's memory.
@@ -154,7 +154,7 @@ pub struct Unaccepted {
 	process: tg::process::Id,
 }
 
-/// How a boot ends locally, which stops its sandbox or destroys it. The runner gives up a boot that its scheduler ended with a stop, unless the index's record of the end that the runner learns of destroys the sandbox.
+/// How a boot ends locally, which stops its sandbox or destroys it. The runner abandons a boot that its scheduler ended with a stop, unless the index's record of the end that the runner learns of destroys the sandbox.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Teardown {
 	Destroy,
@@ -359,7 +359,7 @@ impl Boot {
 		}
 	}
 
-	/// Get the number of the boot's next write, or `None` once the runner gave the boot up, after which the runner writes nothing more for it.
+	/// Get the number of the boot's next write, or `None` once the runner abandoned the boot, after which the runner writes nothing more for it.
 	pub fn next(&self) -> Option<u64> {
 		let mut inner = self.inner.lock().unwrap();
 		if self.abandoned.borrow().is_some() {
@@ -370,14 +370,14 @@ impl Boot {
 		Some(sequence)
 	}
 
-	/// Get whether the runner writes and reports the boot's end, which it does unless it gave the boot up, or the boot is on the shortcut path and the runner numbered no write of it, so that no index has a record of it.
+	/// Get whether the runner writes and reports the boot's end, which it does unless it abandoned the boot, or the boot is on the shortcut path and the runner numbered no write of it, so that no index has a record of it.
 	#[must_use]
 	pub fn writes_end(&self) -> bool {
 		let inner = self.inner.lock().unwrap();
 		self.abandoned.borrow().is_none() && (self.scheduled || inner.sequence > self.first)
 	}
 
-	/// Take the number of the boot's end once a server has answered every finish of the boot's processes, which is the only way to get the end's number. First finish each unfinished process from the runner's memory with the function, and again each process whose finish was dropped before a server answered it, so that every process of the boot has a finish before its end. Return the end's number and the processes that the function finished, or `None` once the runner gave the boot up, after which the boot takes no end.
+	/// Take the number of the boot's end once a server has answered every finish of the boot's processes, which is the only way to get the end's number. First finish each unfinished process from the runner's memory with the function, and again each process whose finish was dropped before a server answered it, so that every process of the boot has a finish before its end. Return the end's number and the processes that the function finished, or `None` once the runner abandoned the boot, after which the boot takes no end.
 	pub async fn end_after_finishes(
 		&self,
 		mut finish: impl FnMut(Vec<tg::runner::control::Process>),
@@ -401,7 +401,7 @@ impl Boot {
 		}
 	}
 
-	/// Get the number of the boot's end, or `None` while a process of the boot is unfinished or once the runner gave the boot up. After this, the runner no longer gives the boot up, because its end is on the way to the index, and the boot accepts no process.
+	/// Get the number of the boot's end, or `None` while a process of the boot is unfinished or once the runner abandoned the boot. After this, the runner no longer abandons the boot, because its end is on the way to the index, and the boot accepts no process.
 	fn end(&self) -> Option<u64> {
 		let mut inner = self.inner.lock().unwrap();
 		let unfinished = inner.processes.iter().any(|process| {
@@ -419,7 +419,7 @@ impl Boot {
 		Some(sequence)
 	}
 
-	/// Give up the boot because its scheduler ended it, so that the runner writes nothing more for it, unless the boot already took the number of its end or was given up. Return whether the boot was given up now.
+	/// Abandon the boot because its scheduler ended it, so that the runner writes nothing more for it, unless the boot already took the number of its end or was abandoned. Return whether the boot was abandoned now.
 	pub fn abandon(&self, kind: Teardown) -> bool {
 		let inner = self.inner.lock().unwrap();
 		if inner.ending || self.abandoned.borrow().is_some() {
@@ -431,13 +431,13 @@ impl Boot {
 		true
 	}
 
-	/// Get how the runner gave up the boot, if it did.
+	/// Get how the runner abandoned the boot, if it did.
 	#[must_use]
 	pub fn abandoned(&self) -> Option<Teardown> {
 		*self.abandoned.borrow()
 	}
 
-	/// Wait until the runner gives up the boot, and get how.
+	/// Wait until the runner abandons the boot, and get how.
 	pub async fn wait_abandoned(&self) -> Teardown {
 		let mut abandoned = self.abandoned.subscribe();
 		let kind = abandoned.wait_for(Option::is_some).await.unwrap();
@@ -647,7 +647,7 @@ mod tests {
 		assert!(abandoned.abandon(Teardown::Stop));
 		assert!(
 			!abandoned.accept(process(&tg::process::Id::new()), false),
-			"a boot that was given up would accept a process"
+			"a boot that was abandoned would accept a process"
 		);
 	}
 

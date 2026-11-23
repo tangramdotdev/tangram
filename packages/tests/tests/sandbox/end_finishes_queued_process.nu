@@ -29,7 +29,7 @@ for command in [stop destroy] {
 	let loop = tg --url $remote.url --token $root_token build $'($id)#loop' | str trim
 	let finish = tg --url $remote.url --token $root_token build $'($id)#exit' | str trim
 
-	# Create a sandbox, and spawn a process that keeps it running.
+	# Create a sandbox, and spawn a process that keeps it started.
 	let sandbox = tg --url $remote.url --token $root_token sandbox create --wait --no-tokens | referent node
 	tg --url $remote.url --token $root_token spawn --no-tokens $'--sandbox=($sandbox)' $loop | ignore
 
@@ -45,13 +45,13 @@ for command in [stop destroy] {
 	assert equal ($queued | length) 1 'the process should be queued'
 	let process = $queued | first | get node
 
-	# End the sandbox, and let the scheduler send the process to the runner of the boot that ended.
+	# End the boot, and let the scheduler send the process to the runner of the boot that ended.
 	tg --url $remote.url --token $root_token sandbox $command --wait $sandbox
 	checkpoint unwatch $request
 
 	# The queued process finishes failed.
 	let outcome = tg --url $remote.url --token $root_token wait $process | from json
-	assert equal $outcome.exit 1 "the queued process should finish when the sandbox ends"
+	assert equal $outcome.exit 1 "the queued process should finish when the boot ends"
 	let data = tg --url $remote.url --token $root_token process get $process | from json
 	assert equal $data.status finished
 	server stop $runner

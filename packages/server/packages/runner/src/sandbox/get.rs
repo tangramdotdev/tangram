@@ -5,7 +5,7 @@ use {
 };
 
 impl Component {
-	/// Get the control of a sandbox whose boot the runner holds and the boot from one lookup, so that a give-up between two lookups cannot be missed.
+	/// Get the control of a sandbox whose boot the runner holds and the boot from one lookup, so that an abandonment between two lookups cannot be missed.
 	pub(crate) fn try_get_sandbox_control_runner(
 		&self,
 		id: &tg::sandbox::Id,

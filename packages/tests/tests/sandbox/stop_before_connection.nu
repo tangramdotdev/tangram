@@ -8,7 +8,7 @@ let local = server spawn --config {
 }
 
 # Fill the runner, so that the next sandbox waits in the queue.
-let running = tg sandbox create --wait --no-tokens --cpu 1 | referent node
+let started = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let queued = tg sandbox create --no-tokens --cpu 1 | referent node
 assert equal (tg sandbox get $queued | from json | get data.status) starting
 
@@ -18,6 +18,6 @@ assert equal (tg sandbox get $queued | from json | get data.status) stopped
 success (tg sandbox stop $queued | complete) "a repeated stop should be accepted"
 
 # Releasing the capacity does not start the stopped sandbox, so another sandbox gets the capacity.
-tg sandbox destroy --wait $running
+tg sandbox destroy --wait $started
 success (timeout 30s tg sandbox create --wait --no-tokens --cpu 1 | complete) "another sandbox should get the capacity"
 assert equal (tg sandbox get $queued | from json | get data.status) stopped

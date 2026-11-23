@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A spawn into a running sandbox returns once the runner accepts the process, without waiting for the scheduler's record of the process, and the process runs.
+# A spawn into a started sandbox returns once the runner accepts the process, without waiting for the scheduler's record of the process, and the process runs.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {

@@ -24,7 +24,7 @@ let runner = server spawn --name runner --config {
 }
 
 # Fill the runner, so that the next sandbox waits in the queue.
-let running = tg --url $remote.url --token $root_token sandbox create --wait --no-tokens --cpu 1 | referent node
+let started = tg --url $remote.url --token $root_token sandbox create --wait --no-tokens --cpu 1 | referent node
 let queued = tg --url $remote.url --token $root_token sandbox create --no-tokens --cpu 1 | referent node
 assert equal (tg --url $remote.url --token $root_token sandbox get $queued | from json | get data.status) starting
 
@@ -35,7 +35,7 @@ wait_for_exit $pid
 let remote = server start $remote
 
 # The queued sandbox starts once the capacity is released.
-tg --url $remote.url --token $root_token sandbox destroy --wait $running
+tg --url $remote.url --token $root_token sandbox destroy --wait $started
 let output = timeout 30s tg --url $remote.url --token $root_token sandbox status --until started $queued | complete
 success $output 'the queued sandbox should start'
 let statuses = $output.stdout | from json

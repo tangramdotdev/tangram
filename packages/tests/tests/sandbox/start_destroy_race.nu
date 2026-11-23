@@ -83,7 +83,7 @@ checkpoint unwatch $held.destroy_reserve
 success (timeout 30s tg sandbox destroy --wait $sandbox | complete) "the sandbox should be destroyed"
 assert equal (tg sandbox get $sandbox | from json | get data.status) destroyed
 
-# Release a start and a destroy together. Either the start fails because the destroy was first, or the start succeeds, and the sandbox ends destroyed.
+# Release a start and a destroy together. Either the start fails because the destroy was first, or the start succeeds, and the sandbox is then destroyed.
 let sandbox = stopped_sandbox $write
 let held = hold --wait $url $sandbox
 checkpoint unwatch $held.start_reserve

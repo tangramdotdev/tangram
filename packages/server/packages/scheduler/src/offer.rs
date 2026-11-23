@@ -20,9 +20,9 @@ pub(super) struct OfferArg<'a> {
 	pub(super) timeout: std::time::Duration,
 }
 
-/// A runner's answer to an offer of a sandbox.
+/// A runner's answer to an offer of a boot.
 pub(super) enum Outcome {
-	/// The runner holds the sandbox.
+	/// The runner holds the boot.
 	Accepted,
 
 	/// The runner does not have the capacity for the sandbox.
@@ -66,7 +66,7 @@ pub(super) fn decide_offer_outcome(outcome: Outcome) -> Decision {
 	}
 }
 
-/// Offer a sandbox to a runner, and wait for the runner's answer.
+/// Offer a boot to a runner, and wait for the runner's answer.
 #[tracing::instrument(name = "boot.offer", level = "debug", skip_all, fields(runner = %arg.runner.id, sandbox = %arg.request.sandbox, scheduler = %arg.scheduler))]
 pub(super) async fn send_offer(session: &Session, arg: OfferArg<'_>) -> Outcome {
 	let OfferArg {
@@ -215,7 +215,7 @@ impl SchedulerState {
 		id: &tg::sandbox::Id,
 		runner: RunnerRef,
 	) {
-		// Remove the sandbox from the queue, which an offered sandbox keeps its place in.
+		// Remove the sandbox from the queue, in which the sandbox of an offered boot keeps its place.
 		if matches!(
 			self.sandboxes.entries[id].state,
 			State::Offered { .. } | State::Queued
@@ -280,7 +280,7 @@ impl SchedulerState {
 		);
 	}
 
-	/// Handle a runner's answer to an offer of a sandbox.
+	/// Handle a runner's answer to an offer of a boot.
 	pub(super) fn handle_offer_outcome(
 		&mut self,
 		scheduler: &Scheduler,
@@ -304,7 +304,7 @@ impl SchedulerState {
 		let runner = placement.runner().clone();
 		let sandbox = self.sandboxes.entries.get_mut(id).unwrap();
 		let failure = match decide_offer_outcome(outcome) {
-			// Record that the runner holds the sandbox.
+			// Record that the runner holds the boot.
 			Decision::Accept => {
 				let connected = matches!(
 					sandbox.state,
@@ -355,20 +355,20 @@ impl SchedulerState {
 		self.remove_reservation(id, placement, false);
 		self.requeue_sandbox(id);
 		if !dequeue_requests.is_empty() {
-			// End a sandbox that a dequeue waits for.
+			// End the boot of a sandbox that a dequeue waits for.
 			self.end_boot_and_log(scheduler, id, tg::sandbox::Status::Destroyed, None);
 			scheduler.send_dequeue_responses(dequeue_requests, true);
 		} else if let Some(source) = failure
 			&& failures >= scheduler.config.max_offer_failures
 		{
-			// Give up on a sandbox whose offers failed too many times.
+			// Discard a sandbox whose offers failed too many times.
 			let error = tg::error!(
 				!source,
 				sandbox = %id,
 				%failures,
 				"failed to create the sandbox after too many attempts"
 			);
-			tracing::error!(error = %error.trace(), "giving up on the sandbox");
+			tracing::error!(error = %error.trace(), "discarding the sandbox");
 			let discarded = self.discard_sandbox(scheduler, id, &error);
 			scheduler.publish_sandbox_discarded(self, discarded);
 		} else {
@@ -461,7 +461,7 @@ impl SchedulerState {
 			let elapsed = now - since;
 			if elapsed >= timeout {
 				let error = tg::error!(sandbox = %id, "no runners available");
-				tracing::error!(error = %error.trace(), "giving up on the sandbox");
+				tracing::error!(error = %error.trace(), "discarding the sandbox");
 				let discarded = self.discard_sandbox(scheduler, id, &error);
 				scheduler.publish_sandbox_discarded(self, discarded);
 				return false;

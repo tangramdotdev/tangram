@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A sandbox handle can stop and start its sandbox, and the sandbox runs commands after it starts again.
+# A sandbox handle can stop and start its sandbox, and commands run in the sandbox after it starts again.
 
 let local = server spawn
 

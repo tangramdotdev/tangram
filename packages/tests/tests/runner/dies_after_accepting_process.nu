@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A process that a runner accepts into a running boot and that the runner never starts, because the runner dies, ends failed once the sandbox's scheduler declares the runner dead, and the sandbox is stopped.
+# A process that a runner accepts into the boot of a started sandbox and that the runner never starts, because the runner dies, ends failed once the sandbox's scheduler declares the runner dead, and the sandbox is stopped.
 
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {

@@ -89,7 +89,7 @@ impl Component {
 		parent: Option<&tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
 	) -> Option<tangram_server_runner_core::capacity::Allocation> {
-		// Leave the sandbox to the scheduler until the runner has connected for the first time after it starts, because the first connection ends the sandboxes that the index records on the runner and that the runner does not report.
+		// Leave the sandbox to the scheduler until the runner has connected for the first time after it starts, because the first connection ends the boots that the index records on the runner and that the runner does not report.
 		if session
 			.server
 			.components

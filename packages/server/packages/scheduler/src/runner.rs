@@ -28,13 +28,13 @@ pub(super) struct EndRunnerBootsArg {
 	/// The checkpoint that the routine hits once it has read the runner's sandboxes.
 	pub checkpoint: &'static str,
 
-	/// Whether the runner was deleted, which never runs a sandbox again, so that the end destroys every sandbox of the runner.
+	/// Whether the runner was deleted, which never holds a boot again, so that the end destroys every sandbox of the runner.
 	pub deleted: bool,
 
 	/// The receiver that the end tells of each boot that it ends, which is the scheduling task, so that it remembers the boot as ended and tells the runner when the runner connects again, or `None` if the runner does not hold the boots, because it restarted or was deleted.
 	pub ended: Option<tokio::sync::mpsc::UnboundedSender<super::HolderMessage>>,
 
-	/// The error that the ended sandboxes and their processes record.
+	/// The error that the sandboxes of the ended boots and their processes record.
 	pub error: tg::error::Data,
 
 	/// The boots that the runner holds.
@@ -59,7 +59,7 @@ pub(super) struct EndDeadRunnerBootArg<'a> {
 	/// Whether the sandbox cannot stay stopped once the boot ends, such as a sandbox with a zero ttl, a sandbox of a deleted runner, or a sandbox that a dequeue or a destroy waits for, which the end then destroys.
 	pub destroy: bool,
 
-	/// The error that the ended sandbox and its processes record.
+	/// The error that the sandbox of the ended boot and its processes record.
 	pub error: tg::error::Data,
 
 	/// The latest write of the boot's request that this scheduler started, which follows the boot's first record, and whose write and indexing the end waits for, or `None` if the caller read the boot from the index.
@@ -304,7 +304,7 @@ impl SchedulerState {
 			.as_ref()
 			.is_some_and(|recovery| recovery.has_runner(&request.runner));
 
-		// Get the reported boots that this scheduler declared ended, which it tells the runner from its memory, and which the runner gives up.
+		// Get the reported boots that this scheduler declared ended, which it tells the runner from its memory, and which the runner abandons.
 		let ended = self.get_declared_ended_boots(&request.runner, &request.sandboxes);
 
 		// Get the boots that the runner accepted and no longer reports.
@@ -996,7 +996,7 @@ impl SchedulerState {
 		}
 	}
 
-	/// Record that the scheduler failed to record a runner's connection, and keep the runner, so that it takes no sandboxes and its expiry ends the sandboxes that it accepted unless it connects again.
+	/// Record that the scheduler failed to record a runner's connection, and keep the runner, so that it takes no sandboxes and its expiry ends the boots that it accepted unless it connects again.
 	pub(super) fn fail_runner_connection(&mut self, id: &tg::runner::Id, connection: u64) {
 		if let Some(runner) = self.runners.entries.get_mut(id)
 			&& runner.connection == connection
@@ -1441,7 +1441,7 @@ impl Scheduler {
 		Ok(decided)
 	}
 
-	/// End the boots of a runner that this scheduler declared dead, and destroy the sandboxes of a deleted runner, which never runs them again. The queued sandboxes are the ones whose current boot this scheduler holds, which the runner never held.
+	/// End the boots of a runner that this scheduler declared dead, and destroy the sandboxes of a deleted runner, which never holds their boots again. The queued sandboxes are the ones whose current boot this scheduler holds, which the runner never held.
 	pub(super) async fn end_dead_runner(
 		&self,
 		runner: &tg::runner::Id,
@@ -1577,7 +1577,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// End a boot of a runner that this scheduler declared dead, which every end of a dead runner's boot by this scheduler goes through. Wait until the boot's first record is written and indexed, so that the end never reads the index before the record that it ends. Write the end numbered zero, which leaves the sandbox stopped, records the runner as the sandbox's runner, and removes the boot from the scheduler's queue, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Then destroy a sandbox that cannot stay stopped with the destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at the boot or is destroying, so that a start that reserved the next boot wins. Write each again until the index answers it, because the scheduler may remember the boot as ended and its runner then gives it up. Tell the scheduling task of the boot once the end applied, so that it remembers the boot as ended. Return whether the destroy applied.
+	/// End a boot of a runner that this scheduler declared dead, which every end of a dead runner's boot by this scheduler goes through. Wait until the boot's first record is written and indexed, so that the end never reads the index before the record that it ends. Write the end numbered zero, which leaves the sandbox stopped, records the runner as the sandbox's runner, and removes the boot from the scheduler's queue, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Then destroy a sandbox that cannot stay stopped with the destroy of a stopped sandbox, which the index applies only while the sandbox is stopped at the boot or is destroying, so that a start that reserved the next boot wins. Write each again until the index answers it, because the scheduler may remember the boot as ended and its runner then abandons it. Tell the scheduling task of the boot once the end applied, so that it remembers the boot as ended. Return whether the destroy applied.
 	pub(super) async fn end_dead_runner_boot(
 		&self,
 		server: &Server,
@@ -1676,7 +1676,7 @@ impl Component {
 			.map(|sandbox| sandbox.id)
 			.collect::<HashSet<_, tg::id::BuildHasher>>();
 
-		// Ask the scheduling task for the sandboxes that it holds in memory.
+		// Ask the scheduling task for the sandboxes whose boots it holds in memory.
 		if let Some(task) = task {
 			let (sender, receiver) = tokio::sync::oneshot::channel();
 			task.send(super::HolderMessage::Held { sender })
@@ -1690,7 +1690,7 @@ impl Component {
 		Ok(queue)
 	}
 
-	/// Destroy a sandbox of a runner, which the index applies only while the sandbox is stopped at its boot, because a stopped sandbox has no holder, or while it is destroying. End a running boot first.
+	/// Destroy a sandbox of a runner, which the index applies only while the sandbox is stopped at its boot, because a stopped sandbox has no holder, or while it is destroying. End an active boot first.
 	pub(crate) async fn destroy_runner_sandbox(
 		&self,
 		server: &Server,
@@ -1714,7 +1714,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// End the running boot of a runner's sandbox with the end numbered zero, which leaves the sandbox stopped, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Record the runner, if one is given, as the sandbox's runner, because the runner may hold the boot without having written it. Leave a sandbox that moved past the boot that the caller read. Return whether the end applied.
+	/// End the active boot of a runner's sandbox with the end numbered zero, which leaves the sandbox stopped, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Record the runner, if one is given, as the sandbox's runner, because the runner may hold the boot without having written it. Leave a sandbox that moved past the boot that the caller read. Return whether the end applied.
 	pub(crate) async fn end_runner_boot(
 		&self,
 		server: &Server,
@@ -1743,7 +1743,7 @@ impl Component {
 		Ok(ended.is_some())
 	}
 
-	/// Write the end of a runner's sandbox's boot numbered zero. A stop ends a running boot. A destroy applies only while the sandbox is stopped at its boot, because a stopped sandbox has no holder and the index decides its destroy, or while it is destroying. Return the boot that the write ended, if the index applied it.
+	/// Write the end of a runner's sandbox's boot numbered zero. A stop ends an active boot. A destroy applies only while the sandbox is stopped at its boot, because a stopped sandbox has no holder and the index decides its destroy, or while it is destroying. Return the boot that the write ended, if the index applied it.
 	async fn put_runner_sandbox_status(
 		&self,
 		server: &Server,
@@ -1788,7 +1788,7 @@ impl Component {
 		tracing::warn!(sandbox = %id, reason = error.as_ref().and_then(|error| error.message.as_deref()), %status, "ending the runner boot");
 		let stopped_boot = data.data.status.is_stopped().then_some(boot);
 
-		// Set the sandbox's error and status, and clear its usage, which the index already records for each boot, so that the sum of every boot is not recorded again as this boot's usage. Record no error if the sandbox ends without one, except that a destroying or stopped sandbox keeps the error that it recorded.
+		// Set the sandbox's error and status, and clear its usage, which the index already records for each boot, so that the sum of every boot is not recorded again as this boot's usage. Record no error if the boot ends without one, except that a destroying or stopped sandbox keeps the error that it recorded.
 		if error.is_some() || !(data.data.status.is_destroying() || data.data.status.is_stopped()) {
 			data.data.error = error.map(tg::Either::Left);
 		}

@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A start of a stopped sandbox that is reserved while the first connection of its restarted runner ends the runner's boots is left to the scheduler, so that the sandbox starts and runs with its files.
+# A start of a stopped sandbox that is reserved while the first connection of its restarted runner ends the runner's boots is left to the scheduler, so that the sandbox starts with its files.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {

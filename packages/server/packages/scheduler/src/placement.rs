@@ -249,7 +249,7 @@ impl SchedulerState {
 			candidates.push(candidate);
 		}
 
-		// Prefer the runner that runs the sandbox's parent, which the scheduler knows from the parent's boot, and then the runner that runs the most of its siblings.
+		// Prefer the runner that the sandbox's parent is on, which the scheduler knows from the parent's boot, and then the runner that the most of its siblings are on.
 		let parent_runner = sandbox
 			.parent
 			.as_ref()

@@ -396,7 +396,7 @@ pub struct OfferBootServerRequestArg {
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::sandbox::Id>,
 
-	/// Whether the index records the sandbox on the runner, because an earlier boot ran there, so that a start without the sandbox's files fails instead of creating an empty sandbox.
+	/// Whether the index records the sandbox on the runner, because the sandbox was on the runner at an earlier boot, so that a start without the sandbox's files fails instead of creating an empty sandbox.
 	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
 	#[tangram_serialize(id = 12, default, skip_serializing_if = "std::ops::Not::not")]
 	pub placed: bool,
@@ -449,7 +449,7 @@ pub struct OfferBootClientResponseOutput {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Answer {
-	/// The runner gave the boot up or a later boot of the sandbox replaced it, so the runner never runs it again and its holder ended it.
+	/// The runner abandoned the boot or a later boot of the sandbox replaced it, so the runner never holds it again and its holder ended it.
 	#[tangram_serialize(id = 0)]
 	Ended,
 
@@ -614,7 +614,7 @@ pub struct ReportSandboxUsageClientRequestSandbox {
 	#[tangram_serialize(id = 1)]
 	pub sandbox: tg::sandbox::Id,
 
-	/// The storage usage of the stopped directory since the boot stopped, if the runner measured it.
+	/// The storage usage of the stopped directory since the boot ended, if the runner measured it.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub usage: Option<tg::sandbox::Usage>,
@@ -744,7 +744,7 @@ pub struct FinishProcessesClientRequestArg {
 )]
 pub struct FinishProcessesServerResponseOutput {}
 
-/// A runner's report that a boot that it held ended, which is stopped or destroyed, which the runner sends after a server accepted the finish of every process of the boot.
+/// A runner's report that a boot that it held ended, which left its sandbox stopped or destroyed, which the runner sends after a server accepted the finish of every process of the boot.
 #[derive(
 	Clone,
 	Debug,
@@ -835,7 +835,7 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	/// The sandboxes that the runner is running.
+	/// The boots that the runner holds.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Vec::is_empty")]
 	pub sandboxes: Vec<ArgSandbox>,
@@ -882,7 +882,7 @@ pub struct ArgSandbox {
 	tangram_serialize::Serialize,
 )]
 pub struct Header {
-	/// The reported boots that the scheduler ended because it declared the runner dead, which the runner gives up without writing anything more for them.
+	/// The reported boots that the scheduler ended because it declared the runner dead, which the runner abandons without writing anything more for them.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
 	pub ended: Vec<AbandonBoot>,
@@ -897,7 +897,7 @@ pub struct Header {
 	pub scheduler: tg::scheduler::Id,
 }
 
-/// A boot of a sandbox that the scheduler ended because it declared the runner dead.
+/// A boot that the scheduler ended because it declared the runner dead, which the runner abandons.
 #[derive(
 	Clone,
 	Debug,
