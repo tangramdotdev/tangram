@@ -1518,7 +1518,6 @@ async fn publish_checkin(
 	solve: bool,
 ) -> tg::Result<tg::Referent<tg::object::Id>> {
 	let path_display = path.display().to_string();
-	// Check in the package as its own root, so that a root module in an ancestor directory, such as a repository's scripts module, does not make the checkin solve the dependencies of every module in that directory.
 	let options = tg::checkin::Options {
 		lock: None,
 		root: true,
