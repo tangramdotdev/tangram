@@ -840,6 +840,19 @@ impl Index {
 					})?;
 				}
 			}
+
+			// Delete the key of an unfinished process of its sandbox's boot.
+			if let (Some(boot), Some(sandbox)) = (process.boot, &process.sandbox) {
+				let key = crate::Key::Sandbox(crate::sandbox::Key::SandboxBootProcess {
+					boot,
+					process: id.clone(),
+					sandbox: sandbox.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				db.delete(transaction, &key).map_err(|error| {
+					tg::error!(!error, "failed to delete the sandbox boot process key")
+				})?;
+			}
 		}
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete process"))?;

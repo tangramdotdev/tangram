@@ -38,6 +38,7 @@ struct Syncs {
 
 struct IndexProcessControlArg {
 	assign: bool,
+	boot: u64,
 	data: tg::process::Data,
 	id: tg::process::Id,
 	options: tg::referent::Options,
@@ -213,6 +214,7 @@ impl Component {
 						.await;
 				}
 				let tg::process::control::StartClientRequestArg {
+					boot,
 					mut data,
 					lease: _,
 					mut options,
@@ -248,6 +250,7 @@ impl Component {
 				}
 				let index_arg = IndexProcessControlArg {
 					assign: shortcut,
+					boot,
 					data: data.clone(),
 					id: id.clone(),
 					options,
@@ -497,6 +500,7 @@ impl Component {
 	) -> tg::Result<ControlFlow<(), tg::Error>> {
 		let IndexProcessControlArg {
 			assign,
+			boot,
 			data,
 			id,
 			options,
@@ -512,14 +516,14 @@ impl Component {
 			.as_ref()
 			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
 		let sandbox = if let Some(sandbox) = sandbox {
-			Some(
-				session
-					.server
-					.components
-					.sandbox
-					.prepare_sandbox_control_index_arg(session, sandbox_id, sandbox)
-					.await?,
-			)
+			let mut sandbox = session
+				.server
+				.components
+				.sandbox
+				.prepare_sandbox_control_index_arg(session, sandbox_id, sandbox)
+				.await?;
+			sandbox.sequence = 1;
+			Some(sandbox)
 		} else {
 			None
 		};
@@ -583,6 +587,7 @@ impl Component {
 		}
 		let process_arg = tangram_index::process::put::Arg {
 			account,
+			boot: Some(boot),
 			cached: false,
 			captures,
 			children: None,
@@ -608,6 +613,7 @@ impl Component {
 			registration: None,
 			sandbox: Some(sandbox_id.clone()),
 			sandbox_boot: None,
+			sequence: 1,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at,

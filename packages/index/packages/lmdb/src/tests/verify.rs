@@ -107,6 +107,7 @@ fn put_process_with_set(
 	set: tangram_index::process::Set,
 ) {
 	let value = tangram_index::process::Process {
+		boot: None,
 		command_id: tg::command::Id::new(b"command").into(),
 		creator: tg::Principal::Root,
 		location: None,
@@ -114,6 +115,7 @@ fn put_process_with_set(
 		owner: tg::Principal::Root,
 		reference_count: 0,
 		sandbox: Some(sandbox.clone()),
+		sequence: 0,
 		set,
 		status: None,
 		storage: tg::process::storage::Set::NODE,
@@ -303,7 +305,9 @@ fn put_sandbox(index: &Index, txn: &mut lmdb::RwTxn<'_>, sandbox: &tg::sandbox::
 		account: None,
 		created_at: 0,
 		data: None,
+		ends: std::collections::BTreeMap::new(),
 		location: None,
+		sequence: 0,
 		set: tangram_index::sandbox::Set::default(),
 		reference_count: 0,
 		runner: None,

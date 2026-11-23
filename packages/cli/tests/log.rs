@@ -617,6 +617,7 @@ fn start(
 		},
 	};
 	let start = tg::process::control::StartClientRequestArg {
+		boot: 0,
 		data: started_data(finished),
 		lease: LEASE.parse()?,
 		options: tg::referent::Options::default(),

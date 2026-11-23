@@ -1016,6 +1016,17 @@ impl Index {
 					txn.clear(&key);
 				}
 			}
+
+			// Clear the key of an unfinished process of its sandbox's boot.
+			if let (Some(boot), Some(sandbox)) = (process.boot, &process.sandbox) {
+				let key = crate::Key::Sandbox(crate::sandbox::Key::SandboxBootProcess {
+					boot,
+					process: id.clone(),
+					sandbox: sandbox.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				txn.clear(&key);
+			}
 		}
 		txn.clear(&key);
 		Self::delete_process_data(txn, subspace, id);

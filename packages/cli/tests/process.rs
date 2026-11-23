@@ -339,6 +339,7 @@ fn start_arg(
 	shortcut: Option<tg::process::control::Shortcut>,
 ) -> tg::process::control::StartClientRequestArg {
 	tg::process::control::StartClientRequestArg {
+		boot: 0,
 		data: data.clone(),
 		lease: *lease,
 		options: tg::referent::Options::default(),

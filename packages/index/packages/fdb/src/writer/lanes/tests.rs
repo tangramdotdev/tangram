@@ -17,6 +17,7 @@ fn sandbox_put(id: &tg::sandbox::Id) -> tangram_index::Item {
 		processes: None,
 		registration: None,
 		runner: None,
+		sequence: 0,
 		stopped_boot: None,
 		stopped_usage: None,
 		touched_at: 0,

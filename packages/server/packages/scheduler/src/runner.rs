@@ -1020,6 +1020,7 @@ impl Component {
 					items: std::iter::once(tangram_index::Item::PutProcess(Box::new(
 						tangram_index::process::put::Arg {
 							account: None,
+							boot: None,
 							cached: false,
 							captures: tangram_index::permission::capture::Captures::default(),
 							children: None,
@@ -1045,6 +1046,7 @@ impl Component {
 							registration: registration.cloned(),
 							sandbox: None,
 							sandbox_boot: None,
+							sequence: 0,
 							storage: indexed.storage,
 							time_to_touch: server.config.process.time_to_touch,
 							touched_at: now,
@@ -1088,6 +1090,10 @@ impl Component {
 			.as_mut()
 			.ok_or_else(|| tg::error!(%id, "missing the sandbox data"))?;
 
+		// Destroy a stopped sandbox with a write that the index applies only while the sandbox is stopped at its boot, because a stopped sandbox has no holder and the index decides its destroy.
+		let stopped_boot =
+			(status.is_destroyed() && data.data.status.is_stopped()).then_some(data.data.boot);
+
 		// Record no error if the sandbox ends without one, except that a destroying sandbox keeps the error that its destroy recorded.
 		if error.is_some() || !data.data.status.is_destroying() {
 			data.data.error = error.map(tg::Either::Left);
@@ -1128,7 +1134,8 @@ impl Component {
 					processes: Some(processes),
 					registration: registration.cloned(),
 					runner: indexed.runner,
-					stopped_boot: None,
+					sequence: 0,
+					stopped_boot,
 					stopped_usage: None,
 					touched_at: now,
 				})),

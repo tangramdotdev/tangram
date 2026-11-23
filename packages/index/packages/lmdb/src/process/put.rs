@@ -36,8 +36,8 @@ impl Index {
 			.transpose()?;
 
 		// Get the records that the merge reads.
-		let sandbox = if let Some(sandbox) = arg.context_sandbox() {
-			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(sandbox.clone()));
+		let sandbox = if let Some(sandbox) = arg.context_sandbox(existing.as_ref()) {
+			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(sandbox));
 			let key = Self::pack(subspace, &key);
 			db.get(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
@@ -46,7 +46,7 @@ impl Index {
 		} else {
 			None
 		};
-		let existing_data = if arg.compares_data(existing.as_ref()) {
+		let existing_data = if arg.reads_data(existing.as_ref()) {
 			Self::try_get_process_data_with_transaction(db, subspace, transaction, id)?
 		} else {
 			None
@@ -133,6 +133,26 @@ impl Index {
 						|error| tg::error!(!error, %id, "failed to put a process principal key"),
 					)?;
 				}
+			}
+		}
+
+		// Record an unfinished process of a boot under its sandbox's boot, so that the end of the boot by the sandbox's scheduler fails it.
+		if let (Some(boot), Some(sandbox), Some(status)) = (process.boot, &process.sandbox, status)
+		{
+			let key = Key::Sandbox(crate::sandbox::Key::SandboxBootProcess {
+				boot,
+				process: id.clone(),
+				sandbox: sandbox.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			if status.is_finished() {
+				db.delete(transaction, &key).map_err(
+					|error| tg::error!(!error, %id, "failed to delete the sandbox boot process key"),
+				)?;
+			} else {
+				db.put(transaction, &key, &[]).map_err(
+					|error| tg::error!(!error, %id, "failed to put the sandbox boot process key"),
+				)?;
 			}
 		}
 

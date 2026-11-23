@@ -9,6 +9,7 @@ fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::
 	let command = tg::command::Id::new(b"command");
 	tangram_index::process::put::Arg {
 		account: None,
+		boot: None,
 		cached: false,
 		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
@@ -28,6 +29,7 @@ fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::
 		registration: None,
 		sandbox: None,
 		sandbox_boot: None,
+		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,
@@ -572,9 +574,11 @@ async fn a_write_cannot_change_the_sandbox_of_a_process() {
 	};
 	assert!(index.write(arg).await.unwrap().is_err());
 
-	// Start the process in its sandbox, and verify that the write is accepted.
+	// Start the process in its sandbox with a later number, and verify that the write is accepted.
 	data.status = tg::process::Status::Started;
-	put_process(&index, process_arg(&id, data)).await;
+	let mut arg = process_arg(&id, data);
+	arg.sequence = 1;
+	put_process(&index, arg).await;
 	let process = index.try_get_process(&id).await.unwrap().unwrap();
 	assert_eq!(process.status, Some(tg::process::Status::Started));
 	assert_eq!(process.sandbox, Some(sandbox));
@@ -620,6 +624,7 @@ fn sandbox_put_arg(
 		processes: None,
 		registration: None,
 		runner: None,
+		sequence: 0,
 		stopped_boot: None,
 		stopped_usage: None,
 		touched_at: 1,

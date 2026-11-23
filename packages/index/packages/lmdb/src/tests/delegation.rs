@@ -39,6 +39,7 @@ async fn delegation_traversal_and_propagation() {
 	// Attach the object after propagation to exercise the other insertion order.
 	let arg = tangram_index::process::put::Arg {
 		account: None,
+		boot: None,
 		cached: false,
 		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
@@ -58,6 +59,7 @@ async fn delegation_traversal_and_propagation() {
 		registration: None,
 		sandbox: None,
 		sandbox_boot: None,
+		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: Duration::ZERO,
 		touched_at: 0,
@@ -327,6 +329,7 @@ async fn node_requests_resolve_delegated_subtree_derivation() {
 fn process_object(process: &tg::process::Id, root: &tg::object::Id) -> tangram_index::Item {
 	let arg = tangram_index::process::put::Arg {
 		account: None,
+		boot: None,
 		cached: false,
 		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
@@ -346,6 +349,7 @@ fn process_object(process: &tg::process::Id, root: &tg::object::Id) -> tangram_i
 		registration: None,
 		sandbox: None,
 		sandbox_boot: None,
+		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: Duration::ZERO,
 		touched_at: 0,
@@ -770,6 +774,7 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 	let recipient = tg::authorization::Subject::Process(process.clone());
 	let process_arg = tangram_index::process::put::Arg {
 		account: None,
+		boot: None,
 		cached: false,
 		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
@@ -789,6 +794,7 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 		registration: None,
 		sandbox: None,
 		sandbox_boot: None,
+		sequence: 0,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: Duration::ZERO,
 		touched_at: 0,

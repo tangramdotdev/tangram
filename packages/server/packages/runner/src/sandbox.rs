@@ -345,15 +345,21 @@ impl Component {
 				})
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
 			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => {
-				// Reply to a server that the runner does not hold a boot that is stopping or stopped, so that the spawn reaches the sandbox's next boot.
+				// Refuse a spawn for a boot that is stopping or stopped, because the spawn was meant for this boot and must not run in the sandbox's next boot.
 				let destroyed =
 					Self::sandbox_status(session, id).is_none_or(|status| status.is_destroyed());
 				if destroyed {
-					Err(tg::error!(%id, "the sandbox was destroyed"))
-				} else if matches!(message.sender, Reply::Remote { .. }) {
-					return Self::send_sandbox_not_holder_response(message).await;
+					Err(tg::error!(
+						code = tg::error::Code::Cancellation,
+						%id,
+						"the sandbox was destroyed"
+					))
 				} else {
-					Err(tg::error!(%id, "the sandbox is not started"))
+					Err(tg::error!(
+						code = tg::error::Code::Cancellation,
+						%id,
+						"the sandbox is not started"
+					))
 				}
 			},
 			tg::sandbox::control::ServerRequestArg::Start(_) => session
@@ -834,6 +840,7 @@ impl Component {
 		let (sandbox_ready_sender, sandbox_ready_receiver) = tokio::sync::oneshot::channel();
 		let process_task_output = process.map(|process| {
 			let arg = SpawnProcessTaskArg {
+				boot,
 				guest_url: &create_output.guest_url,
 				location: location.clone(),
 				process,
@@ -1694,6 +1701,7 @@ impl Component {
 								// Spawn the process task.
 								let process = Self::prepare_process(request.process, &id)?;
 								let arg = SpawnProcessTaskArg {
+									boot,
 									guest_url: &guest_url,
 									location: location.clone(),
 									process,
@@ -3194,6 +3202,16 @@ impl Component {
 			data
 		});
 		let touched_at = session.server.clock.unix_timestamp();
+
+		// Order the local copy's writes of a boot by the boot's status, which only advances on the runner.
+		let sequence = data.as_ref().map_or(0, |data| match data.data.status {
+			tg::sandbox::Status::Starting => 0,
+			tg::sandbox::Status::Started => 1,
+			tg::sandbox::Status::Destroyed
+			| tg::sandbox::Status::Destroying
+			| tg::sandbox::Status::Stopped
+			| tg::sandbox::Status::Stopping => 2,
+		});
 		let sandbox = tangram_index::sandbox::put::Arg {
 			account: None,
 			created_at,
@@ -3206,6 +3224,7 @@ impl Component {
 			processes: processes.map(<[_]>::to_vec),
 			registration: None,
 			runner: None,
+			sequence,
 			stopped_boot: None,
 			stopped_usage: None,
 			touched_at,
