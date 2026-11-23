@@ -3027,7 +3027,7 @@ impl Component {
 		if let Some(control_sender) = control_sender {
 			let request = tg::sandbox::control::ServerRequestArg::Destroy(
 				tg::sandbox::control::DestroyServerRequestArg {
-					ended: false,
+					abandon: false,
 					error,
 				},
 			);
@@ -3410,15 +3410,15 @@ impl Component {
 		Ok(())
 	}
 
-	/// Get whether this runner holds a boot of the sandbox, which is starting, started, or ending, or retains the state of an active boot, so that the directory is never removed while a boot uses it or before the boot's end was accepted.
+	/// Get whether this runner holds a boot of the sandbox, which is starting, started, or ending, or retains the state of a live boot, so that the directory is never removed while a boot uses it or before the boot's end was accepted.
 	fn boot_is_held(&self, id: &tg::sandbox::Id) -> bool {
 		let boot = self.state.boots.latest(id).is_some();
-		let active = self
+		let live = self
 			.state
 			.sandboxes
 			.get_by_id(id)
 			.is_some_and(|sandbox| !sandbox.status.is_stopped_or_destroyed());
-		boot || active
+		boot || live
 	}
 
 	/// Report the storage usage of a restarted sandbox's previous boot in a task, because the start must not wait for it.
@@ -4055,10 +4055,10 @@ fn failed_teardown(abandoned: Option<Teardown>, kept: bool, boot: u64, exists: b
 /// Get how the runner abandons a boot whose end a request of the boot's control stream says that the index records, which the runner does in every phase of the boot.
 fn ended_teardown(arg: &tg::sandbox::control::ServerRequestArg) -> Option<Teardown> {
 	match arg {
-		tg::sandbox::control::ServerRequestArg::Destroy(request) if request.ended => {
+		tg::sandbox::control::ServerRequestArg::Destroy(request) if request.abandon => {
 			Some(Teardown::Destroy)
 		},
-		tg::sandbox::control::ServerRequestArg::Stop(request) if request.ended => {
+		tg::sandbox::control::ServerRequestArg::Stop(request) if request.abandon => {
 			Some(Teardown::Stop)
 		},
 		_ => None,

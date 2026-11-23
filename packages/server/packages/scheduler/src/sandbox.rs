@@ -181,7 +181,7 @@ pub(super) struct DiscardedSandbox {
 	pub(super) write: Write,
 }
 
-/// Decide whether a runner holds a boot of a sandbox at least as late as an enqueue's, from the scheduler's entry of the sandbox or from the active boot that a restarted scheduler rebuilt from the index, so that the scheduler answers the enqueue without queueing the sandbox.
+/// Decide whether a runner holds a boot of a sandbox at least as late as an enqueue's, from the scheduler's entry of the sandbox or from the live boot that a restarted scheduler rebuilt from the index, so that the scheduler answers the enqueue without queueing the sandbox.
 pub(super) fn is_held_by_runner(
 	boot: u64,
 	entry: Option<&Sandbox>,

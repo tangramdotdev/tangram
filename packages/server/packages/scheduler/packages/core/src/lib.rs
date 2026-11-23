@@ -211,14 +211,14 @@ pub struct AddRunnerRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct AddRunnerResponseOutput {
+	/// The reported boots that the runner abandons, because the scheduler ended them when it declared the runner dead, so that the runner writes nothing more for them.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
+	pub abandon: Vec<tg::runner::control::AbandonBoot>,
+
 	/// The number that the scheduler gave the runner's connection, which it keeps only in memory and which the runner's messages carry.
 	#[tangram_serialize(id = 5)]
 	pub connection: u64,
-
-	/// The reported boots that the scheduler ended because it declared the runner dead, which the runner abandons without writing anything more for them.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
-	pub ended: Vec<tg::runner::control::AbandonBoot>,
 
 	#[tangram_serialize(id = 0)]
 	pub runner: tg::runner::Id,

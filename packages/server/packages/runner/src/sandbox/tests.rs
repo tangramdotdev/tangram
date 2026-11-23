@@ -22,11 +22,11 @@ fn a_request_that_says_that_the_index_records_the_end_abandons_the_boot() {
 	// A stop or a destroy that says that the index records the boot's end abandons the boot whatever the boot's phase, after which the boot numbers nothing more and takes no end.
 	let stop =
 		tg::sandbox::control::ServerRequestArg::Stop(tg::sandbox::control::StopServerRequestArg {
-			ended: true,
+			abandon: true,
 		});
 	let destroy = tg::sandbox::control::ServerRequestArg::Destroy(
 		tg::sandbox::control::DestroyServerRequestArg {
-			ended: true,
+			abandon: true,
 			error: None,
 		},
 	);
@@ -42,7 +42,7 @@ fn a_request_that_says_that_the_index_records_the_end_abandons_the_boot() {
 	// A stop or a destroy that does not say so abandons nothing.
 	let stop =
 		tg::sandbox::control::ServerRequestArg::Stop(tg::sandbox::control::StopServerRequestArg {
-			ended: false,
+			abandon: false,
 		});
 	assert_eq!(ended_teardown(&stop), None);
 }

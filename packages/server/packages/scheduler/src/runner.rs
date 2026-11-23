@@ -75,11 +75,11 @@ pub(super) struct EndDeadRunnerBootArg<'a> {
 
 /// A runner's connection with its inputs, which this scheduler computes when the connection arrives and applies once the connection is added.
 pub(super) struct Connection {
+	/// The reported boots that this scheduler declared ended, which the connection tells the runner to abandon.
+	pub abandon: Vec<tg::runner::control::AbandonBoot>,
+
 	/// The boots that the runner accepted and no longer reports, which the end of a restarted runner's boots covers and which the connection forgets.
 	pub accepted: Vec<(tg::sandbox::Id, u64)>,
-
-	/// The reported boots that this scheduler declared ended, which the connection tells the runner.
-	pub ended: Vec<tg::runner::control::AbandonBoot>,
 
 	/// Whether the connection is the runner's first since it started, or a connection of a runner whose restart this scheduler is still handling.
 	pub first: bool,
@@ -305,7 +305,7 @@ impl SchedulerState {
 			.is_some_and(|recovery| recovery.has_runner(&request.runner));
 
 		// Get the reported boots that this scheduler declared ended, which it tells the runner from its memory, and which the runner abandons.
-		let ended = self.get_declared_ended_boots(&request.runner, &request.sandboxes);
+		let abandon = self.get_declared_ended_boots(&request.runner, &request.sandboxes);
 
 		// Get the boots that the runner accepted and no longer reports.
 		let accepted = self.get_unreported_sandboxes(&request.runner, &request.sandboxes);
@@ -345,8 +345,8 @@ impl SchedulerState {
 		let queued = self.get_held_boots();
 
 		Connection {
+			abandon,
 			accepted,
-			ended,
 			first: request.first,
 			number: connection,
 			queued,
@@ -365,8 +365,8 @@ impl SchedulerState {
 		output: AddRunnerOutput,
 	) {
 		let Connection {
+			abandon,
 			accepted,
-			ended,
 			first,
 			number: connection,
 			runner: id,
@@ -392,9 +392,9 @@ impl SchedulerState {
 			let kept = sandboxes
 				.iter()
 				.filter(|sandbox| {
-					!ended
+					!abandon
 						.iter()
-						.any(|ended| ended.id == sandbox.id && ended.boot == sandbox.boot)
+						.any(|abandon| abandon.id == sandbox.id && abandon.boot == sandbox.boot)
 				})
 				.map(|sandbox| (sandbox.id.clone(), sandbox.boot))
 				.collect::<Vec<_>>();
@@ -407,9 +407,9 @@ impl SchedulerState {
 
 		// Track the reported boots that this scheduler authorizes, which are the ones that it gave to the runner, the ones that it rebuilt from the index on the runner after it restarted, and the ones whose IDs the runner proves that it derived, and act on no other reported boot. Leave the ones that a restarted scheduler holds for recovery, which the runner's report claims and which the end of the recovery accepts, and the ones that ended.
 		for sandbox in &sandboxes {
-			let ended = ended
+			let ended = abandon
 				.iter()
-				.any(|ended| ended.id == sandbox.id && ended.boot == sandbox.boot);
+				.any(|abandon| abandon.id == sandbox.id && abandon.boot == sandbox.boot);
 			if self.is_recovering(&sandbox.id) || ended {
 				continue;
 			}
@@ -1244,8 +1244,8 @@ impl Scheduler {
 		connection: &Connection,
 	) -> tg::Result<AddRunnerOutput> {
 		let Connection {
+			abandon,
 			accepted,
-			ended,
 			number: connection,
 			queued,
 			recovering,
@@ -1350,8 +1350,8 @@ impl Scheduler {
 
 		tangram_server_core::checkpoint!(self.server, "scheduler.runner.added", runner = %request.runner).await;
 		let output = AddRunnerResponseOutput {
+			abandon: abandon.clone(),
 			connection,
-			ended: ended.clone(),
 			runner: request.runner,
 			scheduler: self.id.clone(),
 		};
@@ -1690,7 +1690,7 @@ impl Component {
 		Ok(queue)
 	}
 
-	/// Destroy a sandbox of a runner, which the index applies only while the sandbox is stopped at its boot, because a stopped sandbox has no holder, or while it is destroying. End an active boot first.
+	/// Destroy a sandbox of a runner, which the index applies only while the sandbox is stopped at its boot, because a stopped sandbox has no holder, or while it is destroying. End a live boot first.
 	pub(crate) async fn destroy_runner_sandbox(
 		&self,
 		server: &Server,
@@ -1714,7 +1714,7 @@ impl Component {
 		Ok(())
 	}
 
-	/// End the active boot of a runner's sandbox with the end numbered zero, which leaves the sandbox stopped, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Record the runner, if one is given, as the sandbox's runner, because the runner may hold the boot without having written it. Leave a sandbox that moved past the boot that the caller read. Return whether the end applied.
+	/// End the live boot of a runner's sandbox with the end numbered zero, which leaves the sandbox stopped, and which the index applies only if the boot has not ended, failing the boot's unfinished processes in the same transaction. Record the runner, if one is given, as the sandbox's runner, because the runner may hold the boot without having written it. Leave a sandbox that moved past the boot that the caller read. Return whether the end applied.
 	pub(crate) async fn end_runner_boot(
 		&self,
 		server: &Server,
@@ -1743,7 +1743,7 @@ impl Component {
 		Ok(ended.is_some())
 	}
 
-	/// Write the end of a runner's sandbox's boot numbered zero. A stop ends an active boot. A destroy applies only while the sandbox is stopped at its boot, because a stopped sandbox has no holder and the index decides its destroy, or while it is destroying. Return the boot that the write ended, if the index applied it.
+	/// Write the end of a runner's sandbox's boot numbered zero. A stop ends a live boot. A destroy applies only while the sandbox is stopped at its boot, because a stopped sandbox has no holder and the index decides its destroy, or while it is destroying. Return the boot that the write ended, if the index applied it.
 	async fn put_runner_sandbox_status(
 		&self,
 		server: &Server,

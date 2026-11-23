@@ -328,13 +328,13 @@ impl Component {
 				let arg = if destroyed {
 					tg::sandbox::control::ServerRequestArg::Destroy(
 						tg::sandbox::control::DestroyServerRequestArg {
-							ended: true,
+							abandon: true,
 							error: None,
 						},
 					)
 				} else {
 					tg::sandbox::control::ServerRequestArg::Stop(
-						tg::sandbox::control::StopServerRequestArg { ended: true },
+						tg::sandbox::control::StopServerRequestArg { abandon: true },
 					)
 				};
 				let request = tg::sandbox::control::ServerRequest {

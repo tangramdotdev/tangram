@@ -168,7 +168,7 @@ impl Component {
 				std::mem::replace(&mut next_request_id, tangram_server_core::control::id());
 			let request = tg::sandbox::control::ServerRequestArg::Destroy(
 				tg::sandbox::control::DestroyServerRequestArg {
-					ended: false,
+					abandon: false,
 					error: error.clone(),
 				},
 			);
@@ -297,7 +297,7 @@ impl Component {
 		// Send the request to the runner.
 		let request = tg::sandbox::control::ServerRequestArg::Destroy(
 			tg::sandbox::control::DestroyServerRequestArg {
-				ended: false,
+				abandon: false,
 				error,
 			},
 		);

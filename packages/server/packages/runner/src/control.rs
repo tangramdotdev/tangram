@@ -165,7 +165,7 @@ impl Component {
 
 		let runner_time_to_live = session.server.config.scheduler.runner_time_to_live;
 		let header = tg::runner::control::Header {
-			ended: output.ended,
+			abandon: output.abandon,
 			runner_time_to_live,
 			scheduler: scheduler.clone(),
 		};

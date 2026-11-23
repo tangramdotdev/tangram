@@ -146,7 +146,7 @@ fn a_saved_boot_that_the_index_shows_ended_is_never_offered_again() {
 		);
 	}
 
-	// An active boot that a runner wrote belongs to the runner.
+	// A live boot that a runner wrote belongs to the runner.
 	let decision = decide(Some(indexed(
 		&sandbox,
 		1,

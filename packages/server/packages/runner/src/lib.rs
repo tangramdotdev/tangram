@@ -716,7 +716,7 @@ impl Component {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 
-		tracing::info!(runner = %id, scheduler = %header.scheduler, ended_boots = header.ended.len(), "connected the runner to the scheduler");
+		tracing::info!(runner = %id, scheduler = %header.scheduler, abandon = header.abandon.len(), "connected the runner to the scheduler");
 
 		// Remember the replies to offers for longer than the scheduler keeps the runner, so that the scheduler never sends an offer again after its reply is forgotten.
 		self.offers
@@ -773,8 +773,8 @@ impl Component {
 
 	/// Abandon each reported boot that the scheduler ended because it declared the runner dead, so that the runner writes nothing more for it. The boot's task then stops the sandbox and keeps its directory, which the stopped sandbox task removes if the index records the sandbox as destroyed, and a boot whose state is not stored yet starts no process.
 	fn abandon_ended_boots(&self, session: &Session, header: &tg::runner::control::Header) {
-		for ended in &header.ended {
-			if let Some(boot) = self.state.boots.get(&ended.id, ended.boot) {
+		for abandon in &header.abandon {
+			if let Some(boot) = self.state.boots.get(&abandon.id, abandon.boot) {
 				self.abandon_boot(
 					session,
 					&boot,

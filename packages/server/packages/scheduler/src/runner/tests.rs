@@ -152,9 +152,9 @@ fn reconnects_of_a_runner_that_holds_a_boot_tell_it_that_nothing_ended() {
 
 	// The runner reconnects twice and reports the boot each time, and neither connection is told that the boot ended.
 	for connection in [2, 3] {
-		let ended = state.get_declared_ended_boots(&id, &[reported(&sandbox, 0)]);
+		let abandon = state.get_declared_ended_boots(&id, &[reported(&sandbox, 0)]);
 		assert!(
-			ended.is_empty(),
+			abandon.is_empty(),
 			"the connection {connection} was told that the boot ended"
 		);
 		let runner = RunnerRef {
@@ -164,9 +164,9 @@ fn reconnects_of_a_runner_that_holds_a_boot_tell_it_that_nothing_ended() {
 		let tracked = state.track_accepted_sandbox_inner(&sandbox, 0, None, runner);
 		assert!(matches!(tracked, Tracked::Ignored));
 	}
-	let ended = state.get_declared_ended_boots(&id, &[reported(&sandbox, 0)]);
+	let abandon = state.get_declared_ended_boots(&id, &[reported(&sandbox, 0)]);
 	assert!(
-		ended.is_empty(),
+		abandon.is_empty(),
 		"the next connection was told that the boot ended"
 	);
 
@@ -212,7 +212,7 @@ fn a_connection_is_told_only_the_boots_that_the_scheduler_declared_ended() {
 		state
 			.get_declared_ended_boots(&id, &sandboxes)
 			.into_iter()
-			.map(|ended| ended.id)
+			.map(|abandon| abandon.id)
 			.collect::<Vec<_>>()
 	};
 	assert_eq!(told(&state), vec![declared.clone()]);
@@ -251,7 +251,7 @@ fn a_declared_end_is_told_again_after_a_first_connection_fails() {
 		.insert(sandbox.clone(), 0, ended(&id, true));
 	let mut first = request(&id, true, vec![reported(&sandbox, 0)]);
 	let connection = state.connect_runner(&mut first, now);
-	assert_eq!(connection.ended.len(), 1);
+	assert_eq!(connection.abandon.len(), 1);
 
 	// The connection fails, and the runner connects again, which is told that the boot ended.
 	state.fail_runner_connection(&id, connection.number);
@@ -260,9 +260,9 @@ fn a_declared_end_is_told_again_after_a_first_connection_fails() {
 	assert!(connection.first);
 	assert_eq!(
 		connection
-			.ended
+			.abandon
 			.iter()
-			.map(|ended| ended.id.clone())
+			.map(|abandon| abandon.id.clone())
 			.collect::<Vec<_>>(),
 		vec![sandbox],
 		"the second connection was not told that the boot ended"
@@ -297,7 +297,7 @@ fn an_unanswered_offer_whose_boot_an_earlier_connection_ended_is_never_offered_a
 		"the offer of the ended boot would be returned to the queue"
 	);
 
-	// An active boot that the runner wrote is ended by the connection, and a boot that only this scheduler wrote is offered again.
+	// A live boot that the runner wrote is ended by the connection, and a boot that only this scheduler wrote is offered again.
 	let decision = decide(indexed(
 		&sandbox,
 		1,

@@ -882,10 +882,10 @@ pub struct ArgSandbox {
 	tangram_serialize::Serialize,
 )]
 pub struct Header {
-	/// The reported boots that the scheduler ended because it declared the runner dead, which the runner abandons without writing anything more for them.
+	/// The reported boots that the runner abandons, because the scheduler ended them when it declared the runner dead, so that the runner writes nothing more for them.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
-	pub ended: Vec<AbandonBoot>,
+	pub abandon: Vec<AbandonBoot>,
 
 	/// How long the scheduler keeps the runner after its last heartbeat, after which the scheduler no longer sends the runner a request again.
 	#[serde_as(as = "DurationSecondsWithFrac")]
