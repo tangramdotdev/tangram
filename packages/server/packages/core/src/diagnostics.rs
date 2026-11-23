@@ -5,29 +5,32 @@ impl Server {
 		if self.config.advanced.disable_version_check {
 			return Ok(());
 		}
+		let version = &self.version;
+		let Ok(current) = semver::Version::parse(version) else {
+			return Ok(());
+		};
 		loop {
 			let mut diagnostics = Vec::new();
-			if let Some(latest) = self.try_get_latest_version().await {
-				let version = &self.version;
-				if &latest != version {
-					diagnostics.push(tg::Diagnostic {
-						location: None,
-						severity: tg::diagnostic::Severity::Warning,
-						message: format!(
-							r#"A new version of tangram is available. The latest version is "{latest}". You are on version "{version}"."#,
-						),
-					});
-				}
+			if let Some(latest) = self.try_get_latest_version().await
+				&& latest.cmp_precedence(&current).is_gt()
+			{
+				diagnostics.push(tg::Diagnostic {
+					location: None,
+					severity: tg::diagnostic::Severity::Warning,
+					message: format!(
+						"A new version of tangram is available. The latest version is {latest}. You are on version {version}.",
+					),
+				});
 			}
 			*self.diagnostics.lock().unwrap() = diagnostics;
 			tokio::time::sleep(self.config.advanced.version_check_interval).await;
 		}
 	}
 
-	async fn try_get_latest_version(&self) -> Option<String> {
+	async fn try_get_latest_version(&self) -> Option<semver::Version> {
 		#[derive(serde::Deserialize)]
 		struct Output {
-			name: String,
+			tag_name: String,
 		}
 		let output: Output = reqwest::Client::new()
 			.request(
@@ -46,6 +49,6 @@ impl Server {
 				|error| tracing::debug!(%error, "failed to deserialize response from github"),
 			)
 			.ok()?;
-		Some(output.name)
+		semver::Version::parse(output.tag_name.strip_prefix('v')?).ok()
 	}
 }

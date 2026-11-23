@@ -11125,6 +11125,7 @@ dependencies = [
  "reqwest 0.13.5",
  "rustls",
  "rustls-pemfile",
+ "semver",
  "serde",
  "serde_json",
  "tangram_archive",
