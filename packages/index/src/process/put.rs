@@ -625,7 +625,7 @@ fn fail(mut data: tg::process::Data, end: &crate::sandbox::End) -> tg::process::
 		.unwrap_or_else(|| {
 			tg::Either::Left(tg::error::Data {
 				code: Some(tg::error::Code::Cancellation),
-				message: Some("the sandbox ended".to_owned()),
+				message: Some("the boot ended".to_owned()),
 				..Default::default()
 			})
 		})

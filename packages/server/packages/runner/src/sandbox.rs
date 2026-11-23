@@ -3585,7 +3585,7 @@ impl Component {
 		data.data.error.clone().unwrap_or_else(|| {
 			tg::Either::Left(tg::error::Data {
 				code: Some(tg::error::Code::Cancellation),
-				message: Some("the sandbox ended".to_owned()),
+				message: Some("the boot ended".to_owned()),
 				..Default::default()
 			})
 		})
