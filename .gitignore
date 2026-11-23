@@ -13,6 +13,7 @@
 /packages/clients/python/src/tangram/_native*.so
 __pycache__
 /packages/typescript/dist
+/keys/
 /release
 /target
 node_modules

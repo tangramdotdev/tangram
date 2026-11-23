@@ -37,7 +37,7 @@ export const checkScripts = async () => {
 	await task(
 		"scripts",
 		"check",
-		tg.run`oxlint tangram.ts build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff check scripts/version.py`
+		tg.run`oxlint tangram.ts build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff check scripts/*.py scripts/release/*.py`
 			.cwd(cwd)
 			.env(env),
 	);
@@ -62,7 +62,7 @@ export const formatScripts = async () => {
 	await task(
 		"scripts",
 		"format",
-		tg.run`oxfmt --write tangram.ts build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff format scripts/version.py`
+		tg.run`oxfmt --write tangram.ts build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff format scripts/*.py scripts/release/*.py`
 			.cwd(cwd)
 			.env(env),
 	);
@@ -189,7 +189,7 @@ export const installDev = async (...args: Array<string>) => {
 
 export const release = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
-	await tg.run`tg build ./build.tg.ts#release --arg-value "{\\"commit\\":\\"$(python3 scripts/version.py)\\"}" --checkout=release --checkout-force "$@"`
+	await tg.run`nu scripts/release.nu "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
