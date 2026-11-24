@@ -173,6 +173,7 @@ export const release = async (arg: { commit: string; host: string }) => {
 		env: { TANGRAM_CLI_COMMIT_HASH: arg.commit },
 		host,
 		proxy: true,
+		...(darwin ? {} : { sdk: { linker: "mold" as const } }),
 		standalone,
 	});
 	const packages = ["tangram_cli", ...(darwin ? ["tangram_vfs_provider"] : [])];
