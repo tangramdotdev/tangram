@@ -517,6 +517,11 @@ impl Watch {
 		true
 	}
 
+	pub fn reset_timeout(&self) {
+		let timeout = Self::spawn_timeout_task(&self.clock, self.time_to_live, &self.expire);
+		self.state.lock().unwrap().timeout_task.replace(timeout);
+	}
+
 	fn changes(event: &notify::Event) -> HashSet<&Path, fnv::FnvBuildHasher> {
 		let mut changes = HashSet::default();
 		match &event.kind {
