@@ -220,16 +220,8 @@ impl Component {
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the objects, then get their storage and metadata.
-		let touched_at = session.server.clock.unix_timestamp();
 		let (outputs, permissions) = self
-			.sync_get_touch_authorized_objects(
-				session,
-				&state.graph,
-				&state.id,
-				&ids,
-				touched_at,
-				session.server.config.object.time_to_touch,
-			)
+			.sync_get_touch_authorized_objects(session, &state.graph, &state.id, &ids)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch and get object metadata"))?;
 
@@ -432,15 +424,12 @@ impl Component {
 		state: &State,
 		id: &tg::object::Id,
 	) -> tg::Result<bool> {
-		let touched_at = session.server.clock.unix_timestamp();
 		let (mut objects, mut permissions) = self
 			.sync_get_touch_authorized_objects(
 				session,
 				&state.graph,
 				&state.id,
 				std::slice::from_ref(id),
-				touched_at,
-				session.server.config.object.time_to_touch,
 			)
 			.await?;
 		let Some(permissions) = permissions.pop().flatten() else {
@@ -537,14 +526,11 @@ impl Component {
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the processes, then get their storage and metadata.
-		let touched_at = session.server.clock.unix_timestamp();
 		let arg = super::SyncGetTouchAuthorizedProcessesWithDataArg {
 			graph: &state.graph,
 			ids: &ids,
 			sync: &state.id,
 			sync_arg: &state.arg,
-			time_to_touch: session.server.config.process.time_to_touch,
-			touched_at,
 		};
 		let (mut outputs, permissions) = self
 			.sync_get_touch_authorized_processes_with_data(session, arg)
@@ -690,14 +676,11 @@ impl Component {
 		state: &State,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<(tangram_index::process::Process, tg::process::Data)>> {
-		let touched_at = session.server.clock.unix_timestamp();
 		let arg = super::SyncGetTouchAuthorizedProcessesWithDataArg {
 			graph: &state.graph,
 			ids: std::slice::from_ref(id),
 			sync: &state.id,
 			sync_arg: &state.arg,
-			time_to_touch: session.server.config.process.time_to_touch,
-			touched_at,
 		};
 		let (mut outputs, mut permissions) = self
 			.sync_get_touch_authorized_processes_with_data(session, arg)

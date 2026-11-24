@@ -92,7 +92,6 @@ impl Component {
 		}
 
 		// Check the local storage.
-		let touched_at = session.server.clock.unix_timestamp();
 		let object_ids = arg
 			.nodes
 			.iter()
@@ -103,42 +102,23 @@ impl Component {
 			.iter()
 			.filter_map(|node| tg::process::Id::try_from(node.node.clone()).ok())
 			.collect::<Vec<_>>();
-		let account = session
-			.server
-			.components
-			.usage
-			.usage_account(session, &session.context.principal)
-			.await?;
-		let touch_objects_future = async {
+		let objects_future = async {
 			session
 				.server
 				.index
-				.touch_objects_with_account(
-					&object_ids,
-					account.as_ref(),
-					None,
-					touched_at,
-					session.server.config.object.time_to_touch,
-				)
+				.try_get_objects(&object_ids)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to touch the objects"))
+				.map_err(|error| tg::error!(!error, "failed to get the objects"))
 		};
-		let touch_processes_future = async {
+		let processes_future = async {
 			session
 				.server
 				.index
-				.touch_processes_with_account(
-					&process_ids,
-					account.as_ref(),
-					None,
-					touched_at,
-					session.server.config.process.time_to_touch,
-				)
+				.try_get_processes(&process_ids)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to touch the processes"))
+				.map_err(|error| tg::error!(!error, "failed to get the processes"))
 		};
-		let (objects, processes) =
-			futures::try_join!(touch_objects_future, touch_processes_future)?;
+		let (objects, processes) = futures::try_join!(objects_future, processes_future)?;
 		let objects_stored = objects.into_iter().all(|object| {
 			object.is_some_and(|object| object.storage.contains(tg::object::storage::Set::SUBTREE))
 		});
@@ -196,6 +176,32 @@ impl Component {
 			.zip(&required)
 			.all(|(output, required)| output.permissions.contains(*required))
 		{
+			return Ok(None);
+		}
+
+		// Touch the objects and processes with the verified permissions.
+		let mut object_permissions = Vec::with_capacity(object_ids.len());
+		let mut process_permissions = Vec::with_capacity(process_ids.len());
+		for (node, output) in std::iter::zip(&arg.nodes, &outputs) {
+			if node.node.kind().is_object() {
+				object_permissions.push(output.permissions);
+			} else {
+				process_permissions.push(output.permissions);
+			}
+		}
+		let touch_objects_future = session.server.components.object.touch_authorized_objects(
+			session,
+			&object_ids,
+			&object_permissions,
+		);
+		let touch_processes_future = session
+			.server
+			.components
+			.process
+			.touch_authorized_processes(session, &process_ids, &process_permissions);
+		let (objects, processes) =
+			futures::try_join!(touch_objects_future, touch_processes_future)?;
+		if !objects.iter().all(Option::is_some) || !processes.iter().all(Option::is_some) {
 			return Ok(None);
 		}
 

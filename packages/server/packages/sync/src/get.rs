@@ -51,8 +51,6 @@ struct SyncGetTouchAuthorizedProcessesArg<'a> {
 	ids: &'a [tg::process::Id],
 	sync: &'a tg::sync::Id,
 	sync_arg: &'a tg::sync::Arg,
-	time_to_touch: std::time::Duration,
-	touched_at: i64,
 }
 
 struct SyncGetTouchAuthorizedProcessesWithDataArg<'a> {
@@ -60,8 +58,6 @@ struct SyncGetTouchAuthorizedProcessesWithDataArg<'a> {
 	ids: &'a [tg::process::Id],
 	sync: &'a tg::sync::Id,
 	sync_arg: &'a tg::sync::Arg,
-	time_to_touch: std::time::Duration,
-	touched_at: i64,
 }
 
 impl Component {
@@ -378,8 +374,6 @@ impl Component {
 		graph: &Arc<Mutex<Graph>>,
 		sync: &tg::sync::Id,
 		ids: &[tg::object::Id],
-		touched_at: i64,
-		time_to_touch: std::time::Duration,
 	) -> tg::Result<(
 		Vec<Option<tangram_index::object::Object>>,
 		Vec<Option<tg::authorization::permission::Set>>,
@@ -397,24 +391,12 @@ impl Component {
 				touch_permissions.push(*permissions);
 			}
 		}
-		let account = session
-			.server
-			.components
-			.usage
-			.usage_account(session, &session.context.principal)
-			.await?;
 		let touched = session
 			.server
-			.index
-			.touch_objects_with_account(
-				&touch_ids,
-				account.as_ref(),
-				Some(&touch_permissions),
-				touched_at,
-				time_to_touch,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?;
+			.components
+			.object
+			.touch_authorized_objects(session, &touch_ids, &touch_permissions)
+			.await?;
 		let mut outputs = vec![None; ids.len()];
 		for (index, output) in std::iter::zip(touch_indices, touched) {
 			outputs[index] = output;
@@ -462,8 +444,6 @@ impl Component {
 			ids,
 			sync,
 			sync_arg,
-			time_to_touch,
-			touched_at,
 		} = arg;
 		let permissions = self
 			.sync_get_authorize_processes(session, graph, sync, ids, sync_arg)
@@ -478,24 +458,12 @@ impl Component {
 				touch_permissions.push(*permissions);
 			}
 		}
-		let account = session
-			.server
-			.components
-			.usage
-			.usage_account(session, &session.context.principal)
-			.await?;
 		let touched = session
 			.server
-			.index
-			.touch_processes_with_account(
-				&touch_ids,
-				account.as_ref(),
-				Some(&touch_permissions),
-				touched_at,
-				time_to_touch,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
+			.components
+			.process
+			.touch_authorized_processes(session, &touch_ids, &touch_permissions)
+			.await?;
 		let mut outputs = vec![None; ids.len()];
 		for (index, output) in std::iter::zip(touch_indices, touched) {
 			// Treat a process without data as absent.
@@ -517,8 +485,6 @@ impl Component {
 			ids,
 			sync,
 			sync_arg,
-			time_to_touch,
-			touched_at,
 		} = arg;
 		let permissions = self
 			.sync_get_authorize_processes(session, graph, sync, ids, sync_arg)
@@ -533,24 +499,12 @@ impl Component {
 				touch_permissions.push(*permissions);
 			}
 		}
-		let account = session
-			.server
-			.components
-			.usage
-			.usage_account(session, &session.context.principal)
-			.await?;
 		let touched = session
 			.server
-			.index
-			.touch_processes_with_data_with_account(
-				&touch_ids,
-				account.as_ref(),
-				Some(&touch_permissions),
-				touched_at,
-				time_to_touch,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
+			.components
+			.process
+			.touch_authorized_processes_with_data(session, &touch_ids, &touch_permissions)
+			.await?;
 		let mut outputs = vec![None; ids.len()];
 		for (index, output) in std::iter::zip(touch_indices, touched) {
 			// Treat a process without data as absent.

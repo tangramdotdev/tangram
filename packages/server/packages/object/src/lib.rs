@@ -296,6 +296,16 @@ impl tangram_server_core::object::Component for Component {
 			.boxed()
 	}
 
+	fn touch_authorized_objects<'a>(
+		&'a self,
+		session: &'a Session,
+		ids: &'a [tg::object::Id],
+		permissions: &'a [tg::authorization::permission::Set],
+	) -> BoxFuture<'a, tg::Result<Vec<Option<tangram_index::object::Object>>>> {
+		self.touch_authorized_objects(session, ids, permissions)
+			.boxed()
+	}
+
 	fn try_get_object_batch_local_with_server<'a>(
 		&'a self,
 		server: &'a Server,

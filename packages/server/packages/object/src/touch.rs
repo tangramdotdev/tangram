@@ -5,7 +5,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 	tangram_server_core::Session,
 };
 
@@ -83,25 +82,16 @@ impl Component {
 		let permissions = output.permissions;
 
 		// Touch the object.
-		let touched_at = session.server.clock.unix_timestamp();
-		let account = session
-			.server
-			.components
-			.usage
-			.usage_account(session, &session.context.principal)
-			.await?;
-		let Some(_) = session
-			.server
-			.index
-			.touch_object_with_account(
-				id,
-				account.as_ref(),
-				Some(&permissions),
-				touched_at,
-				session.server.config.object.time_to_touch,
+		let Some(_) = self
+			.touch_authorized_objects(
+				session,
+				std::slice::from_ref(id),
+				std::slice::from_ref(&permissions),
 			)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?
+			.pop()
+			.unwrap()
 		else {
 			return Ok(None);
 		};
@@ -230,6 +220,35 @@ impl Component {
 			return Ok(None);
 		};
 		Ok(Some(()))
+	}
+
+	/// Touch objects with the permissions that the caller has already proved for each, refreshing each object's touch time and the usage row of the session's usage account. This does no authorization.
+	pub async fn touch_authorized_objects(
+		&self,
+		session: &Session,
+		ids: &[tg::object::Id],
+		permissions: &[tg::authorization::permission::Set],
+	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
+		let touched_at = session.server.clock.unix_timestamp();
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
+		let objects = session
+			.server
+			.index
+			.touch_objects_with_account(
+				ids,
+				account.as_ref(),
+				Some(permissions),
+				touched_at,
+				session.server.config.object.time_to_touch,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?;
+		Ok(objects)
 	}
 
 	pub(crate) async fn try_touch_object_request(

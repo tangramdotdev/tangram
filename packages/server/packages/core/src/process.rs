@@ -376,6 +376,25 @@ pub trait Component: crate::component::Lifecycle {
 		error: tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>,
 	) -> BoxFuture<'a, tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>;
 
+	/// Touch processes with the permissions that the caller has already proved for each. This does no authorization.
+	fn touch_authorized_processes<'a>(
+		&'a self,
+		session: &'a Session,
+		ids: &'a [tg::process::Id],
+		permissions: &'a [tg::authorization::permission::Set],
+	) -> BoxFuture<'a, tg::Result<Vec<Option<tangram_index::process::Process>>>>;
+
+	/// Touch processes with the permissions that the caller has already proved for each, and get each process's data. This does no authorization.
+	fn touch_authorized_processes_with_data<'a>(
+		&'a self,
+		session: &'a Session,
+		ids: &'a [tg::process::Id],
+		permissions: &'a [tg::authorization::permission::Set],
+	) -> BoxFuture<
+		'a,
+		tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>>,
+	>;
+
 	fn try_acquire_scheduled_sandbox_capacity<'a>(
 		&'a self,
 		session: &'a Session,
