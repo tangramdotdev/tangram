@@ -182,16 +182,8 @@ impl Component {
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the objects, then get their storage and metadata.
-		let touched_at = session.server.clock.unix_timestamp();
 		let (outputs, permissions) = self
-			.sync_get_touch_authorized_objects(
-				session,
-				&state.graph,
-				&state.id,
-				&ids,
-				touched_at,
-				session.server.config.object.time_to_touch,
-			)
+			.sync_get_touch_authorized_objects(session, &state.graph, &state.id, &ids)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?;
 
@@ -455,14 +447,11 @@ impl Component {
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the processes, then get their storage and metadata.
-		let touched_at = session.server.clock.unix_timestamp();
 		let arg = super::SyncGetTouchAuthorizedProcessesArg {
 			graph: &state.graph,
 			ids: &ids,
 			sync: &state.id,
 			sync_arg: &state.arg,
-			time_to_touch: session.server.config.process.time_to_touch,
-			touched_at,
 		};
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_processes(session, arg)

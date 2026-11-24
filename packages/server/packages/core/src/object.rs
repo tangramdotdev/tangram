@@ -132,6 +132,14 @@ pub trait Component: crate::component::Lifecycle {
 		index: tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
+	/// Touch objects with the permissions that the caller has already proved for each. This does no authorization.
+	fn touch_authorized_objects<'a>(
+		&'a self,
+		session: &'a Session,
+		ids: &'a [tg::object::Id],
+		permissions: &'a [tg::authorization::permission::Set],
+	) -> BoxFuture<'a, tg::Result<Vec<Option<tangram_index::object::Object>>>>;
+
 	fn try_get_object_batch_local_with_server<'a>(
 		&'a self,
 		server: &'a Server,

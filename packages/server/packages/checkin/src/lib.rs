@@ -12,7 +12,6 @@ use {
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_ignore as ignore,
-	tangram_index::prelude::*,
 	tangram_server_checkin_core::{
 		Contents, Directory, File, Graph, Node, ObjectOptions, Referrer, Solution, Solutions,
 		Symlink, Variant,
@@ -944,27 +943,21 @@ impl Component {
 		};
 
 		// Touch the root object, which keeps its subtree alive.
-		let touched_at = session.server.clock.unix_timestamp();
 		let permissions =
 			tg::authorization::permission::Set::Object(graph.object_permissions(&object));
-		let account = session
-			.server
-			.components
-			.usage
-			.usage_account(session, &session.context.principal)
-			.await?;
 		let output = session
 			.server
-			.index
-			.touch_object_with_account(
-				&object,
-				account.as_ref(),
-				Some(&permissions),
-				touched_at,
-				session.server.config.object.time_to_touch,
+			.components
+			.object
+			.touch_authorized_objects(
+				session,
+				std::slice::from_ref(&object),
+				std::slice::from_ref(&permissions),
 			)
 			.await
-			.map_err(|error| tg::error!(!error, %object, "failed to touch the root object"))?;
+			.map_err(|error| tg::error!(!error, %object, "failed to touch the root object"))?
+			.pop()
+			.unwrap();
 		if output.is_none() {
 			return Ok(false);
 		}

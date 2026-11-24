@@ -690,6 +690,29 @@ impl tangram_server_core::process::Component for Component {
 		self.store_process_error(session, error).boxed()
 	}
 
+	fn touch_authorized_processes<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		ids: &'a [tg::process::Id],
+		permissions: &'a [tg::authorization::permission::Set],
+	) -> BoxFuture<'a, tg::Result<Vec<Option<tangram_index::process::Process>>>> {
+		self.touch_authorized_processes(session, ids, permissions)
+			.boxed()
+	}
+
+	fn touch_authorized_processes_with_data<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		ids: &'a [tg::process::Id],
+		permissions: &'a [tg::authorization::permission::Set],
+	) -> BoxFuture<
+		'a,
+		tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>>,
+	> {
+		self.touch_authorized_processes_with_data(session, ids, permissions)
+			.boxed()
+	}
+
 	fn try_acquire_scheduled_sandbox_capacity<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,

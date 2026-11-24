@@ -5,7 +5,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 	tangram_server_core::Session,
 };
 
@@ -82,25 +81,16 @@ impl Component {
 		let permissions = output.permissions;
 
 		// Touch the process.
-		let touched_at = session.server.clock.unix_timestamp();
-		let account = session
-			.server
-			.components
-			.usage
-			.usage_account(session, &session.context.principal)
-			.await?;
-		let Some(_) = session
-			.server
-			.index
-			.touch_process_with_account(
-				id,
-				account.as_ref(),
-				Some(&permissions),
-				touched_at,
-				session.server.config.process.time_to_touch,
+		let Some(_) = self
+			.touch_authorized_processes(
+				session,
+				std::slice::from_ref(id),
+				std::slice::from_ref(&permissions),
 			)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?
+			.pop()
+			.unwrap()
 		else {
 			return Ok(None);
 		};
@@ -232,6 +222,64 @@ impl Component {
 			return Ok(None);
 		};
 		Ok(Some(()))
+	}
+
+	/// Touch processes with the permissions that the caller has already proved for each, refreshing each process's touch time and the usage row of the session's usage account. This does no authorization.
+	pub async fn touch_authorized_processes(
+		&self,
+		session: &Session,
+		ids: &[tg::process::Id],
+		permissions: &[tg::authorization::permission::Set],
+	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
+		let touched_at = session.server.clock.unix_timestamp();
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
+		let processes = session
+			.server
+			.index
+			.touch_processes_with_account(
+				ids,
+				account.as_ref(),
+				Some(permissions),
+				touched_at,
+				session.server.config.process.time_to_touch,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
+		Ok(processes)
+	}
+
+	/// Touch processes with the permissions that the caller has already proved for each, as `touch_authorized_processes` does, and get each process's data. This does no authorization.
+	pub async fn touch_authorized_processes_with_data(
+		&self,
+		session: &Session,
+		ids: &[tg::process::Id],
+		permissions: &[tg::authorization::permission::Set],
+	) -> tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>> {
+		let touched_at = session.server.clock.unix_timestamp();
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
+		let processes = session
+			.server
+			.index
+			.touch_processes_with_data_with_account(
+				ids,
+				account.as_ref(),
+				Some(permissions),
+				touched_at,
+				session.server.config.process.time_to_touch,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
+		Ok(processes)
 	}
 
 	pub(crate) async fn try_touch_process_request(
