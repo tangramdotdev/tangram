@@ -5,7 +5,7 @@ use {
 	futures::stream::{self, StreamExt as _, TryStreamExt as _},
 	num::ToPrimitive,
 	std::{
-		collections::BTreeSet,
+		collections::{BTreeMap, BTreeSet},
 		os::unix::fs::PermissionsExt as _,
 		path::{Path, PathBuf},
 		pin::pin,
@@ -19,7 +19,7 @@ pub(super) struct CheckinCheckoutArg<'a> {
 	pub arg: &'a tg::checkin::Arg,
 	pub graph: &'a Graph,
 	pub graph_data: &'a mut GraphData,
-	pub index_checkout_args: &'a IndexCheckoutArgs,
+	pub index_checkout_args: &'a mut IndexCheckoutArgs,
 	pub next: usize,
 	pub progress: &'a tg::progress::Handle<super::TaskOutput>,
 	pub root: &'a Path,
@@ -31,7 +31,7 @@ impl Component {
 		&self,
 		session: &Session,
 		arg: CheckinCheckoutArg<'_>,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<[u8; 16]>> {
 		let CheckinCheckoutArg {
 			arg,
 			graph,
@@ -41,7 +41,7 @@ impl Component {
 			progress,
 			root,
 		} = arg;
-		if arg.options.destructive {
+		let put = if arg.options.destructive {
 			progress.spinner("checking", "checking");
 			self.checkin_ensure_dependencies_are_checked_out(
 				session,
@@ -54,9 +54,11 @@ impl Component {
 			.await?;
 			progress.finish("checking");
 			progress.spinner("copying", "copying");
-			self.checkin_checkout_destructive(session, graph, root)
+			let put = self
+				.checkin_checkout_destructive(session, graph, root)
 				.await?;
 			progress.finish("copying");
+			Some(put)
 		} else {
 			let files = graph
 				.nodes
@@ -102,25 +104,36 @@ impl Component {
 							Self::checkin_checkout_inner(&session, batch, &progress)
 						})
 						.await
-						.map_err(|error| {
-							tg::error!(!error, "the checkin checkout task panicked")
-						})??;
-						Ok::<_, tg::Error>(())
+						.map_err(|error| tg::error!(!error, "the checkin checkout task panicked"))?
 					}
 				})
 				.collect::<Vec<_>>();
-
-			stream::iter(batches)
+			let puts = stream::iter(batches)
 				.buffer_unordered(session.server.config.checkin.checkout.concurrency)
-				.try_collect::<()>()
+				.try_fold(BTreeMap::new(), |mut puts, batch| async move {
+					for (id, put) in batch {
+						let entry = puts.entry(id).or_insert(put);
+						*entry = put.max(*entry);
+					}
+					Ok(puts)
+				})
 				.await
 				.map_err(|error| tg::error!(!error, "the checkin checkout task failed"))?;
+
+			// Set the put tokens of the checkout index args.
+			for arg in index_checkout_args.iter_mut() {
+				if let Some(put) = puts.get(&arg.id) {
+					arg.put = *put;
+				}
+			}
 
 			progress.finish("copying");
 			progress.finish("files");
 			progress.finish("bytes");
-		}
-		Ok(())
+			None
+		};
+
+		Ok(put)
 	}
 
 	async fn checkin_checkout_destructive(
@@ -128,7 +141,7 @@ impl Component {
 		session: &Session,
 		graph: &Graph,
 		root: &Path,
-	) -> tg::Result<()> {
+	) -> tg::Result<[u8; 16]> {
 		let index = graph.paths.get(root).unwrap();
 		let node = graph.nodes.get(index).unwrap();
 		let id = node.id.as_ref().unwrap();
@@ -156,7 +169,16 @@ impl Component {
 			id = %id,
 		)
 		.await;
-		let done = match tangram_util::fs::rename_noreplace(src, &dst).await {
+
+		// Record a put token and rename the root while holding the mutex for the checkout, so that the cleaner cannot remove the checkout in between.
+		let checkout = tg::Id::from(id.clone());
+		let puts = session.server.components.checkout.puts();
+		let touched_at = session.server.clock.unix_timestamp();
+		let guard = puts.lock(&checkout).await;
+		let mut put = guard.put(touched_at);
+		let result = tangram_util::fs::rename_noreplace(src, &dst).await;
+		drop(guard);
+		let done = match result {
 			Ok(()) => {
 				crate::checkpoint!(
 					session.server,
@@ -167,8 +189,11 @@ impl Component {
 				false
 			},
 			Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
-				self.checkin_checkout_destructive_copy(session, graph, src, &dst)
-					.await?
+				let (done, put_) = self
+					.checkin_checkout_destructive_copy(session, graph, &checkout, src, &dst)
+					.await?;
+				put = put_;
+				done
 			},
 			Err(error)
 				if matches!(
@@ -200,7 +225,8 @@ impl Component {
 				|error| tg::error!(!error, path = %dst.display(), "failed to set the modified time"),
 			)?;
 		}
-		Ok(())
+
+		Ok(put)
 	}
 
 	fn checkin_checkout_destructive_xattrs(
@@ -289,11 +315,13 @@ impl Component {
 		&self,
 		session: &Session,
 		graph: &Graph,
+		id: &tg::Id,
 		src: &Path,
 		dst: &Path,
-	) -> tg::Result<bool> {
+	) -> tg::Result<(bool, [u8; 16])> {
 		let session = session.clone();
 		let graph = graph.clone();
+		let id = id.clone();
 		let src = src.to_owned();
 		let dst = dst.to_owned();
 		let temp = Temp::new(&session.server);
@@ -307,28 +335,21 @@ impl Component {
 					|error| tg::error!(!error, path = %temp_path.display(), "failed to set permissions"),
 				)?;
 			}
-			let done = match tangram_util::fs::rename_noreplace_sync(&temp_path, &dst) {
-				Ok(()) => false,
-				Err(error)
-					if matches!(
-						error.kind(),
-						std::io::ErrorKind::AlreadyExists
-							| std::io::ErrorKind::IsADirectory
-							| std::io::ErrorKind::PermissionDenied
-					) =>
-				{
-					true
-				},
-				Err(error) => {
-					return Err(tg::error!(!error, "failed to rename the root"));
-				},
-			};
+			let touched_at = session.server.clock.unix_timestamp();
+			let (put, renamed) = session
+				.server
+				.components
+				.checkout
+				.puts()
+				.publish_sync(&id, touched_at, &temp_path, &dst)
+				.map_err(|error| tg::error!(!error, "failed to rename the root"))?;
+			let done = !renamed;
 			if !done {
 				tangram_util::fs::remove_sync(&src).map_err(
 					|error| tg::error!(!error, path = %src.display(), "failed to remove the root"),
 				)?;
 			}
-			Ok(done)
+			Ok((done, put))
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "the destructive checkin copy task panicked"))?
@@ -379,16 +400,25 @@ impl Component {
 			u64,
 		)>,
 		progress: &tg::progress::Handle<super::TaskOutput>,
-	) -> tg::Result<()> {
+	) -> tg::Result<Vec<(tg::Id, [u8; 16])>> {
 		let xattr_capabilities = session
 			.server
 			.components
 			.checkout
 			.internal_xattr_capabilities(&session.server)?;
+		let puts = session.server.components.checkout.puts();
+		let touched_at = session.server.clock.unix_timestamp();
+		let mut output = Vec::with_capacity(batch.len());
 		for (path, metadata, id, references, size) in batch {
-			// If the file is already checked out, then continue.
+			// If the file is already checked out, then record a put token for it while holding its mutex, so that the cleaner cannot remove it, and continue.
+			let checkout = tg::Id::from(id.clone());
 			let checkout_path = session.server.checkout_path().join(id.to_string());
-			if checkout_path.exists() {
+			let guard = puts.lock_sync(&checkout);
+			let exists = checkout_path.exists();
+			let put = exists.then(|| guard.put(touched_at));
+			drop(guard);
+			if let Some(put) = put {
+				output.push((checkout, put));
 				continue;
 			}
 
@@ -441,22 +471,11 @@ impl Component {
 			// Rename the temp to the checkouts directory.
 			let src = temp.path();
 			let dst = &checkout_path;
-			let done = match tangram_util::fs::rename_noreplace_sync(src, dst) {
-				Ok(()) => false,
-				Err(error)
-					if matches!(
-						error.kind(),
-						std::io::ErrorKind::AlreadyExists
-							| std::io::ErrorKind::IsADirectory
-							| std::io::ErrorKind::PermissionDenied
-					) =>
-				{
-					true
-				},
-				Err(error) => {
-					return Err(tg::error!(!error, "failed to rename the file"));
-				},
-			};
+			let (put, renamed) = puts
+				.publish_sync(&checkout, touched_at, src, dst)
+				.map_err(|error| tg::error!(!error, "failed to rename the file"))?;
+			let done = !renamed;
+			output.push((checkout, put));
 
 			// Set the file times.
 			if !done {
@@ -472,7 +491,7 @@ impl Component {
 			progress.increment("bytes", size);
 		}
 
-		Ok(())
+		Ok(output)
 	}
 
 	async fn checkin_ensure_dependencies_are_checked_out(

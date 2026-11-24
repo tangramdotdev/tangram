@@ -50,6 +50,9 @@ pub struct Config {
 	pub checkin: Option<Checkin>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checkout: Option<Checkout>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checkouts: Option<bool>,
 
 	/// Configure the client.
@@ -644,6 +647,15 @@ pub struct CheckinCheckout {
 pub struct CheckinSolve {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub prefetch_concurrency: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Checkout {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "ttt", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_touch: Option<Duration>,
 }
 
 #[serde_as]

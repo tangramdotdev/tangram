@@ -23,7 +23,7 @@ pub struct Graph {
 	checkout_objects: BTreeMap<tg::object::Id, tg::artifact::Id>,
 	checkout_pointers: bool,
 	checkout_queued_objects: HashSet<tg::object::Id, tg::id::BuildHasher>,
-	checkouts: BTreeMap<tg::artifact::Id, Vec<tg::Id>>,
+	checkouts: BTreeMap<tg::artifact::Id, Checkout>,
 	get_end_received: bool,
 	get_open: bool,
 	local_pending_roots: usize,
@@ -43,6 +43,12 @@ pub struct Graph {
 	location_selector_tokens:
 		HashMap<tg::Specifier, tg::authorization::Tokens, fnv::FnvBuildHasher>,
 	location_tokens: HashMap<tg::Id, tg::authorization::Tokens, fnv::FnvBuildHasher>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Checkout {
+	pub dependencies: Vec<tg::Id>,
+	pub put: [u8; 16],
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -292,7 +298,7 @@ impl Graph {
 	}
 
 	#[must_use]
-	pub fn checkouts(&self) -> &BTreeMap<tg::artifact::Id, Vec<tg::Id>> {
+	pub fn checkouts(&self) -> &BTreeMap<tg::artifact::Id, Checkout> {
 		&self.checkouts
 	}
 
@@ -306,8 +312,11 @@ impl Graph {
 		&self.remote_roots
 	}
 
-	pub fn insert_checkout(&mut self, artifact: tg::artifact::Id, dependencies: Vec<tg::Id>) {
-		self.checkouts.entry(artifact).or_insert(dependencies);
+	pub fn insert_checkout(&mut self, artifact: tg::artifact::Id, checkout: Checkout) {
+		self.checkouts
+			.entry(artifact)
+			.and_modify(|existing| existing.put = existing.put.max(checkout.put))
+			.or_insert(checkout);
 	}
 
 	pub fn insert_checkout_object(&mut self, object: tg::object::Id, artifact: tg::artifact::Id) {

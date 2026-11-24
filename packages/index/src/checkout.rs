@@ -10,6 +10,9 @@ pub mod put;
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
 pub struct Checkout {
+	#[tangram_serialize(id = 2)]
+	pub put: [u8; 16],
+
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
 	pub reference_count: u64,
 

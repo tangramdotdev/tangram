@@ -37,6 +37,7 @@ merge! {
 		builtin: section,
 		cache,
 		checkin: section,
+		checkout: section,
 		checkouts,
 		client: section,
 		control: section,
@@ -106,6 +107,7 @@ merge! {
 	super::CheckinBlob { concurrency }
 	super::CheckinCheckout { batch_size, concurrency }
 	super::CheckinSolve { prefetch_concurrency }
+	super::Checkout { time_to_touch }
 	super::Control {
 		get_retry: section,
 		read_timeout,

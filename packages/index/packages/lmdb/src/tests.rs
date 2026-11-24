@@ -1,5 +1,6 @@
 mod ancestor;
 mod capture;
+mod checkout;
 mod clean;
 mod delegation;
 mod indexer;

@@ -19,12 +19,26 @@ impl Index {
 			crate::propagate!(Self::delete_checkout(txn, subspace, id, partition_total).await);
 		}
 
-		// Put the checkout.
+		// Read the existing checkout.
 		let key = Key::Checkout(crate::checkout::Key::Checkout(id.clone()));
 		let key = Self::pack(subspace, &key);
+		let result = txn.get(&key, false).await;
+		let existing = crate::retry!(result)
+			.and_then(|bytes| tangram_index::checkout::Checkout::deserialize(&bytes).ok());
+
+		// Merge the existing checkout, keeping the larger put token and touch time.
+		let put = existing
+			.as_ref()
+			.map_or(arg.put, |existing| existing.put.max(arg.put));
+		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
+			existing.touched_at.max(arg.touched_at)
+		});
+
+		// Put the checkout.
 		let value = tangram_index::checkout::Checkout {
+			put,
 			reference_count: 0,
-			touched_at: arg.touched_at,
+			touched_at,
 		}
 		.serialize()?;
 		txn.set(&key, &value);
@@ -50,7 +64,7 @@ impl Index {
 		let key = crate::Key::Clean(crate::clean::Key::Checkout {
 			id: arg.id.clone(),
 			partition,
-			touched_at: arg.touched_at,
+			touched_at,
 		});
 		let key = Self::pack(subspace, &key);
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)

@@ -189,15 +189,25 @@ impl Index {
 				)?;
 				(None, None)
 			} else {
-				let put = if let Item::Object(id) = &candidate.item {
-					let object =
-						Self::try_get_object_with_transaction(db, subspace, transaction, id)?
-							.ok_or_else(
+				let put = match &candidate.item {
+					Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
+					Item::Checkout(id) => {
+						let checkout =
+							Self::try_get_checkout_with_transaction(db, subspace, transaction, id)?
+								.ok_or_else(
+									|| tg::error!(%id, "the clean key referenced a missing checkout"),
+								)?;
+						Some(checkout.put)
+					},
+					Item::Object(id) => {
+						let object =
+							Self::try_get_object_with_transaction(db, subspace, transaction, id)?
+								.ok_or_else(
 								|| tg::error!(%id, "the clean key referenced a missing object"),
 							)?;
-					Some(object.put)
-				} else {
-					None
+						Some(object.put)
+					},
+					Item::Process(_) | Item::Sandbox(_) => None,
 				};
 				Self::delete_item(db, subspace, transaction, &candidate.item)?;
 				(Some(candidate.item.clone()), put)
@@ -208,7 +218,10 @@ impl Index {
 			if let Some(item) = item {
 				match item {
 					Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-					Item::Checkout(id) => output.checkouts.push(id),
+					Item::Checkout(id) => output.checkouts.push(tangram_index::clean::Checkout {
+						id,
+						put: put.unwrap(),
+					}),
 					Item::Object(id) => output.objects.push(tangram_index::clean::Object {
 						id,
 						put: put.unwrap(),

@@ -5,8 +5,8 @@ use {
 			Advanced, Archive, ArchiveQueue, Authentication, AuthenticationCache,
 			AuthenticationProviders, AuthenticationTokens, Authorization, Billing, BoolOr, Cache,
 			CapacityThreshold, CapacityThresholdDirection, Checkin, CheckinBlob, CheckinCheckout,
-			CheckinSolve, ClientProcessControl, CloudHypervisorBackend, Config, Control, Database,
-			DatabaseIndexQueue, DatabasePool, Dax, FdbIndex, FdbIndexVerification,
+			CheckinSolve, Checkout, ClientProcessControl, CloudHypervisorBackend, Config, Control,
+			Database, DatabaseIndexQueue, DatabasePool, Dax, FdbIndex, FdbIndexVerification,
 			FilesystemProjectIds, FjallCache, Github, Http, HttpListener, HttpTls, IdMap, Index,
 			IndexQueue, Indexer, IndexerBillingCleanup, IndexerCache, IndexerCleaning,
 			IndexerDatabaseIndexQueue, IndexerEnqueue, IndexerLogCache, IndexerPartitions,
@@ -74,6 +74,9 @@ pub fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	}
 	if let Some(source) = source.checkin {
 		target.checkin = resolve_checkin(source);
+	}
+	if let Some(source) = source.checkout {
+		target.checkout = resolve_checkout(source);
 	}
 	if let Some(checkouts) = source.checkouts {
 		target.checkouts = checkouts;
@@ -611,6 +614,14 @@ fn resolve_checkin_solve(source: CheckinSolve) -> server::CheckinSolve {
 	let mut target = server::CheckinSolve::default();
 	if let Some(value) = source.prefetch_concurrency {
 		target.prefetch_concurrency = value;
+	}
+	target
+}
+
+fn resolve_checkout(source: Checkout) -> server::Checkout {
+	let mut target = server::Checkout::default();
+	if let Some(value) = source.time_to_touch {
+		target.time_to_touch = value;
 	}
 	target
 }

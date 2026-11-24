@@ -13,6 +13,7 @@ use {
 
 pub(super) struct CheckinIndexArg<'a> {
 	pub arg: &'a tg::checkin::Arg,
+	pub checkout_put: Option<[u8; 16]>,
 	pub graph: &'a Graph,
 	pub index_checkout_args: IndexCheckoutArgs,
 	pub index_object_args: IndexObjectArgs,
@@ -27,6 +28,7 @@ impl Component {
 	) -> tg::Result<tangram_index::write::Arg> {
 		let CheckinIndexArg {
 			arg,
+			checkout_put,
 			graph,
 			index_checkout_args,
 			index_object_args,
@@ -49,9 +51,12 @@ impl Component {
 					.clone()
 					.try_into()
 					.unwrap();
+				let put = checkout_put
+					.ok_or_else(|| tg::error!("expected the put token of the checkout"))?;
 				put_index_checkout_args.push(tangram_index::checkout::put::Arg {
 					dependencies,
 					id: id.into(),
+					put,
 					replace: false,
 					touched_at,
 				});
@@ -61,6 +66,7 @@ impl Component {
 					put_index_checkout_args.push(tangram_index::checkout::put::Arg {
 						dependencies: arg.dependencies,
 						id: arg.id,
+						put: arg.put,
 						replace: arg.replace,
 						touched_at: arg.touched_at,
 					});

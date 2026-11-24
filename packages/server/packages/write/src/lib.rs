@@ -5,7 +5,6 @@ use {
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		io::{Read, Write as _},
-		path::PathBuf,
 		pin::pin,
 		sync::Arc,
 	},
@@ -78,29 +77,24 @@ impl Component {
 			});
 			let id = tg::file::Id::new(&data.serialize()?);
 			let path = session.server.checkout_path().join(id.to_string());
-			match tangram_util::fs::rename_noreplace(temp.path(), path).await {
-				Ok(()) => (),
-				Err(error)
-					if matches!(
-						error.kind(),
-						std::io::ErrorKind::AlreadyExists
-							| std::io::ErrorKind::IsADirectory
-							| std::io::ErrorKind::PermissionDenied
-					) => {},
-				Err(error) => {
-					return Err(tg::error!(
-						!error,
-						"failed to rename the file to the blobs directory"
-					));
-				},
-			}
-			Some((id.into(), None))
+			let (put, _) = session
+				.server
+				.components
+				.checkout
+				.puts()
+				.publish(&id.clone().into(), touched_at, temp.path(), &path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to publish the file checkout"))?;
+			Some((id.into(), put))
 		} else {
 			None
 		};
 
 		// Cache and index the blob.
-		let cache_args = Self::write_cache_args(&blob, checkout_pointer.as_ref());
+		let cache_args = Self::write_cache_args(
+			&blob,
+			checkout_pointer.as_ref().map(|(artifact, _)| artifact),
+		);
 		let index_arg = self
 			.write_index_arg(
 				session,
@@ -492,23 +486,24 @@ impl Component {
 
 	pub(crate) fn write_cache_args(
 		blob: &Output,
-		checkout_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
+		checkout: Option<&tg::artifact::Id>,
 	) -> Vec<tangram_server_core::cache::object::put::Arg> {
 		let mut args = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
-			if blob.bytes.is_none() && checkout_pointer.is_none() {
+			if blob.bytes.is_none() && checkout.is_none() {
 				stack.extend(&blob.children);
 				continue;
 			}
-			let checkout_pointer = checkout_pointer.as_ref().map(|(artifact, path)| {
-				tangram_server_core::cache::object::checkout::Pointer {
-					artifact: artifact.clone(),
-					length: blob.length,
-					path: path.clone(),
-					position: blob.position,
-				}
-			});
+			let checkout_pointer =
+				checkout.map(
+					|artifact| tangram_server_core::cache::object::checkout::Pointer {
+						artifact: artifact.clone(),
+						length: blob.length,
+						path: None,
+						position: blob.position,
+					},
+				);
 			args.push(tangram_server_core::cache::object::put::Arg {
 				bytes: blob.bytes.clone(),
 				checkout_pointer,
@@ -525,7 +520,7 @@ impl Component {
 		&self,
 		session: &Session,
 		blob: &Output,
-		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
+		checkout_pointer: Option<(tg::artifact::Id, [u8; 16])>,
 		touched_at: i64,
 		permission_expires_at: i64,
 	) -> tg::Result<tangram_index::write::Arg> {
@@ -581,7 +576,7 @@ impl Component {
 
 	pub(crate) fn write_index_args(
 		blob: &Output,
-		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
+		checkout_pointer: Option<(tg::artifact::Id, [u8; 16])>,
 		touched_at: i64,
 		principal: Option<&tg::Principal>,
 		permission_expires_at: i64,
@@ -626,10 +621,11 @@ impl Component {
 		}
 
 		// Create a checkout arg if necessary.
-		let put_checkout_args = if let Some((artifact, _)) = checkout_pointer {
+		let put_checkout_args = if let Some((artifact, put)) = checkout_pointer {
 			vec![tangram_index::checkout::put::Arg {
 				dependencies: Vec::new(),
 				id: artifact.into(),
+				put,
 				replace: false,
 				touched_at,
 			}]

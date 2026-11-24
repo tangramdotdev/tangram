@@ -1277,6 +1277,7 @@ impl Component {
 					index_checkout_args.push(tangram_index::checkout::put::Arg {
 						dependencies,
 						id: artifact.clone().into(),
+						put: uuid::Uuid::now_v7().into_bytes(),
 						replace: false,
 						touched_at,
 					});

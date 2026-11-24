@@ -12,6 +12,7 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod checkout;
 mod node;
 mod process;
 mod reader;

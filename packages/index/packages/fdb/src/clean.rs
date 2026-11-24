@@ -252,14 +252,27 @@ impl Index {
 				);
 				(None, None)
 			} else {
-				let put = if let Item::Object(id) = &candidate.item {
-					let object = crate::propagate!(
-						Self::try_get_object_with_transaction(txn, subspace, id).await
-					)
-					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing object"))?;
-					Some(object.put)
-				} else {
-					None
+				let put = match &candidate.item {
+					Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
+					Item::Checkout(id) => {
+						let checkout = crate::propagate!(
+							Self::try_get_checkout_with_transaction(txn, subspace, id).await
+						)
+						.ok_or_else(
+							|| tg::error!(%id, "the clean key referenced a missing checkout"),
+						)?;
+						Some(checkout.put)
+					},
+					Item::Object(id) => {
+						let object = crate::propagate!(
+							Self::try_get_object_with_transaction(txn, subspace, id).await
+						)
+						.ok_or_else(
+							|| tg::error!(%id, "the clean key referenced a missing object"),
+						)?;
+						Some(object.put)
+					},
+					Item::Process(_) | Item::Sandbox(_) => None,
 				};
 				crate::propagate!(
 					Self::delete_item(txn, subspace, &candidate.item, partition_total).await
@@ -272,7 +285,10 @@ impl Index {
 			if let Some(item) = item {
 				match item {
 					Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-					Item::Checkout(id) => output.checkouts.push(id),
+					Item::Checkout(id) => output.checkouts.push(tangram_index::clean::Checkout {
+						id,
+						put: put.unwrap(),
+					}),
 					Item::Object(id) => output.objects.push(tangram_index::clean::Object {
 						id,
 						put: put.unwrap(),

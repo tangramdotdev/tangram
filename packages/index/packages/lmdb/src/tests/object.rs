@@ -38,6 +38,7 @@ fn put_checkout_arg(id: tg::artifact::Id) -> tangram_index::checkout::put::Arg {
 	tangram_index::checkout::put::Arg {
 		dependencies: Vec::new(),
 		id: id.into(),
+		put: [1; 16],
 		replace: false,
 		touched_at: 0,
 	}
@@ -135,7 +136,7 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 		})
 		.await
 		.unwrap();
-	assert_eq!(output.checkouts, Vec::new());
+	assert!(output.checkouts.is_empty());
 
 	let arg = tangram_index::write::Arg {
 		items: vec![
@@ -171,7 +172,12 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 		})
 		.await
 		.unwrap();
-	assert_eq!(output.checkouts, vec![checkout_a.into()]);
+	let checkouts = output
+		.checkouts
+		.into_iter()
+		.map(|checkout| checkout.id)
+		.collect::<Vec<_>>();
+	assert_eq!(checkouts, vec![checkout_a.into()]);
 
 	let arg = tangram_index::write::Arg {
 		items: vec![tangram_index::Item::PutObject(Box::new(object_arg(
@@ -203,5 +209,10 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 		})
 		.await
 		.unwrap();
-	assert_eq!(output.checkouts, vec![checkout_b.into()]);
+	let checkouts = output
+		.checkouts
+		.into_iter()
+		.map(|checkout| checkout.id)
+		.collect::<Vec<_>>();
+	assert_eq!(checkouts, vec![checkout_b.into()]);
 }
