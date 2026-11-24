@@ -95,19 +95,23 @@ impl Index {
 		// Lower the cutoffs to the creation time of the oldest unfinished process, less the time to touch, so that the clean keeps every item that an unfinished process may use.
 		let oldest_unfinished_created_at =
 			Self::try_get_oldest_unfinished_process_created_at(db, subspace, transaction)?;
-		let cutoffs = tangram_index::clean::Cutoffs::new(
-			max_object_touched_at,
-			max_process_touched_at,
-			max_sandbox_touched_at,
-			time_to_touch,
-			oldest_unfinished_created_at,
-		);
+		let unfinished_cutoff =
+			tangram_index::clean::unfinished_cutoff(oldest_unfinished_created_at, time_to_touch);
+		let lower =
+			|cutoff: i64| unfinished_cutoff.map_or(cutoff, |unfinished| cutoff.min(unfinished));
+		let object_cutoff = lower(max_object_touched_at);
+		let process_cutoff = lower(max_process_touched_at);
+		let sandbox_cutoff = lower(max_sandbox_touched_at);
+		let lowered = object_cutoff < max_object_touched_at
+			|| process_cutoff < max_process_touched_at
+			|| sandbox_cutoff < max_sandbox_touched_at;
+		let unfinished_cutoff = unfinished_cutoff.filter(|_| lowered);
 
 		let permissions =
 			Self::delete_expired_permissions(db, subspace, transaction, now, batch_size)?;
 		let mut output = tangram_index::clean::Output {
 			permissions,
-			unfinished_cutoff: cutoffs.unfinished,
+			unfinished_cutoff,
 			..Default::default()
 		};
 		let delegations = Self::delete_expired_delegations(
@@ -136,12 +140,12 @@ impl Index {
 
 		// Preserve the numeric kind order when timestamps tie.
 		let cutoffs = [
-			(ItemKind::Checkout, cutoffs.object),
-			(ItemKind::Object, cutoffs.object),
-			(ItemKind::Process, cutoffs.process),
-			(ItemKind::Sandbox, cutoffs.sandbox),
-			(ItemKind::AccountObject, cutoffs.object),
-			(ItemKind::AccountProcess, cutoffs.process),
+			(ItemKind::Checkout, object_cutoff),
+			(ItemKind::Object, object_cutoff),
+			(ItemKind::Process, process_cutoff),
+			(ItemKind::Sandbox, sandbox_cutoff),
+			(ItemKind::AccountObject, object_cutoff),
+			(ItemKind::AccountProcess, process_cutoff),
 		];
 		let candidates =
 			Self::clean_candidates(db, subspace, transaction, &cutoffs, remaining_batch_size)?;

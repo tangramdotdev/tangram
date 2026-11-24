@@ -33,17 +33,6 @@ pub struct Output {
 	pub unfinished_cutoff: Option<i64>,
 }
 
-/// The latest touch times of the items that a clean removes, which the oldest unfinished process lowers, so that a clean never removes an item that was touched after the oldest unfinished process was created, less the time to touch.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Cutoffs {
-	pub object: i64,
-	pub process: i64,
-	pub sandbox: i64,
-
-	/// The cutoff of the oldest unfinished process, if it lowered a cutoff that the caller passed.
-	pub unfinished: Option<i64>,
-}
-
 #[derive(Clone, Debug)]
 pub struct Checkout {
 	pub id: tg::Id,
@@ -57,6 +46,17 @@ pub struct Object {
 	pub touched_at: i64,
 }
 
+/// Get the cutoff that the oldest unfinished process sets, which is its creation time, less the time to touch and one second, so that a clean keeps every item that was touched after the process was created, less the time to touch. The second keeps an item that was touched in the same whole second as the process's creation.
+#[must_use]
+pub fn unfinished_cutoff(
+	oldest_unfinished_created_at: Option<i64>,
+	time_to_touch: std::time::Duration,
+) -> Option<i64> {
+	let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap_or(i64::MAX);
+	oldest_unfinished_created_at
+		.map(|created_at| created_at.saturating_sub(time_to_touch).saturating_sub(1))
+}
+
 impl Output {
 	/// Merge the unfinished cutoff of another clean, keeping the earliest.
 	pub fn merge_unfinished_cutoff(&mut self, cutoff: Option<i64>) {
@@ -64,36 +64,5 @@ impl Output {
 			(Some(existing), Some(cutoff)) => Some(existing.min(cutoff)),
 			(existing, cutoff) => existing.or(cutoff),
 		};
-	}
-}
-
-impl Cutoffs {
-	/// Lower the caller's cutoffs to the creation time of the oldest unfinished process, less the time to touch and one second, or keep them if no process is unfinished. The second keeps an item touched in the same whole second as the process's creation.
-	#[must_use]
-	pub fn new(
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-		max_sandbox_touched_at: i64,
-		time_to_touch: std::time::Duration,
-		oldest_unfinished_created_at: Option<i64>,
-	) -> Self {
-		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap_or(i64::MAX);
-		let unfinished = oldest_unfinished_created_at
-			.map(|created_at| created_at.saturating_sub(time_to_touch).saturating_sub(1));
-		let lower = |cutoff: i64| unfinished.map_or(cutoff, |unfinished| cutoff.min(unfinished));
-		let object = lower(max_object_touched_at);
-		let process = lower(max_process_touched_at);
-		let sandbox = lower(max_sandbox_touched_at);
-		let unfinished = unfinished.filter(|unfinished| {
-			*unfinished < max_object_touched_at
-				|| *unfinished < max_process_touched_at
-				|| *unfinished < max_sandbox_touched_at
-		});
-		Self {
-			object,
-			process,
-			sandbox,
-			unfinished,
-		}
 	}
 }
