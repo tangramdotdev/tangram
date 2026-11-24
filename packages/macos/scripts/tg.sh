@@ -3,4 +3,5 @@
 set -eu
 
 wrapper=$(/bin/realpath "$0")
-exec "$(dirname "$wrapper")/../Helpers/tangram" --mode client "$@"
+export TANGRAM_MODE="${TANGRAM_MODE-client}"
+exec "$(dirname "$wrapper")/../Helpers/tangram" "$@"
