@@ -18,9 +18,9 @@ workspace = true
 
 [dependencies]
 anstream = { workspace = true }
-clap = { workspace = true }
 crossterm = { workspace = true }
 serde = { workspace = true }
 tangram_cli_core = { workspace = true }
 tangram_cli_update = { workspace = true }
 tangram_client = { workspace = true }
+usage-rs = { workspace = true }

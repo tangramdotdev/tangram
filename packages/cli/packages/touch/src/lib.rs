@@ -1,13 +1,12 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Touch an object or a process.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub locations: tangram_cli_core::location::Args,
 
-	#[arg(index = 1)]
 	pub reference: tg::Reference,
 }
 

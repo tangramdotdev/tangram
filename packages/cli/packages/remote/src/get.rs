@@ -1,17 +1,16 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get a remote.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long)]
+	#[usage(long)]
 	pub principal: Option<tg::principal::Selector>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
 	/// The remote's ID or name.
-	#[arg(index = 1)]
 	pub remote: tg::remote::Selector,
 }
 

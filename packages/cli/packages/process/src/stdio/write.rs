@@ -6,16 +6,15 @@ use {
 };
 
 /// Write to a process's stdio.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[arg(index = 1)]
 	pub reference: tg::Reference,
 
-	#[arg(long, value_delimiter = ',', visible_alias = "stream")]
+	#[usage(long, delimiter = ',', visible_alias = "stream")]
 	pub streams: Vec<tg::process::stdio::Stream>,
 }
 

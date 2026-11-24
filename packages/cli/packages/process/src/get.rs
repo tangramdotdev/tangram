@@ -1,31 +1,30 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get a process.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub options: Options,
 
-	#[arg(index = 1)]
 	pub reference: tg::Reference,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Options {
 	/// Get the process's availability.
-	#[arg(long)]
+	#[usage(long)]
 	pub availability: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub locations: tangram_cli_core::location::Args,
 
 	/// Get the process's metadata.
-	#[arg(long)]
+	#[usage(long)]
 	pub metadata: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 }
 

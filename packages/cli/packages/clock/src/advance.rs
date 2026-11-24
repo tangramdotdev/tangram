@@ -1,18 +1,17 @@
-use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Advance the server's virtual clock.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// The duration to advance the clock by.
-	#[arg(index = 1, value_parser = humantime::parse_duration)]
-	pub duration: Duration,
+	pub duration: humantime::Duration,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::clock::advance::Arg {
-		duration: args.duration,
+		duration: args.duration.into(),
 	};
 	let output = client
 		.advance_clock(arg)

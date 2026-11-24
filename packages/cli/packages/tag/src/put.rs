@@ -1,30 +1,29 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Put a tag.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub ancestors: tangram_cli_core::node::Ancestors,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub checkin: tangram_cli_checkin::Options,
 
 	/// Replace a conflicting named node and its descendants.
-	#[arg(long, short)]
+	#[usage(long, short)]
 	pub force: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[arg(id = "put.public", long = "public")]
+	#[usage(long = "public")]
 	pub public: bool,
 
-	#[arg(default_value = ".", index = 2)]
-	pub reference: tg::Reference,
-
-	#[arg(index = 1)]
 	pub specifier: Option<tg::Specifier>,
+
+	#[usage(default = ".")]
+	pub reference: tg::Reference,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {

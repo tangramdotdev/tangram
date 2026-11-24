@@ -6,10 +6,10 @@ use {
 };
 
 /// Update the shell environment from the current directory configuration.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 1)]
+	#[usage(value_enum)]
 	pub shell: Kind,
 }
 

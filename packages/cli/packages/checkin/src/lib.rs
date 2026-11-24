@@ -1,254 +1,227 @@
-use {
-	std::{path::PathBuf, time::Duration},
-	tangram_cli_core::Cli,
-	tangram_client::prelude::*,
-};
+use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Check in an artifact.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub options: Options,
 
 	/// The path to check in.
-	#[arg(default_value = ".", index = 1)]
+	#[usage(default = ".")]
 	pub path: PathBuf,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
 	/// Grant public read access.
-	#[arg(long)]
+	#[usage(long)]
 	pub public: bool,
 
-	#[arg(
-		action = clap::ArgAction::Append,
-		long = "update",
-		num_args = 1..,
-		short,
-	)]
+	#[usage(long = "update", num_args = 1.., short)]
 	pub updates: Option<Vec<tg::specifier::Pattern>>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Options {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub checkout_pointers: CheckoutPointers,
 
 	/// Check in the artifact more quickly by allowing it to be destroyed.
-	#[arg(id = "checkin.destructive", long = "destructive")]
+	#[usage(long = "destructive")]
 	pub destructive: bool,
 
 	/// Check in the artifact determnistically.
-	#[arg(id = "checkin.deterministic", long = "deterministic")]
+	#[usage(long = "deterministic")]
 	pub deterministic: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub ignore: Ignore,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub lock: Lock,
 
 	/// If this flag is set, the lock will not be updated.
-	#[arg(id = "checkin.locked", long = "locked")]
+	#[usage(long = "locked")]
 	pub locked: bool,
 
 	/// Treat the provided path as the root path.
-	#[arg(id = "checkin.root", long = "root")]
+	#[usage(long = "root")]
 	pub root: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub solve: Solve,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub source_dependencies: SourceDependencies,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub tag_time_to_live: TagTimeToLive,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub unsolved_dependencies: UnsolvedDependencies,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub watch: Watch,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct TagTimeToLive {
-	#[arg(
+	#[usage(
 		alias = "no-tag-ttl",
-		id = "checkin.tag_time_to_live.no_tag_time_to_live",
 		long = "no-tag-time-to-live",
-		overrides_with = "checkin.tag_time_to_live.tag_time_to_live"
+		overrides("--tag-time-to-live")
 	)]
 	pub no_tag_time_to_live: bool,
-	#[arg(alias = "tag-ttl", id = "checkin.tag_time_to_live.tag_time_to_live", long = "tag-time-to-live", overrides_with = "checkin.tag_time_to_live.no_tag_time_to_live", value_parser = humantime::parse_duration)]
-	pub tag_time_to_live: Option<Duration>,
+	#[usage(
+		alias = "tag-ttl",
+		long = "tag-time-to-live",
+		overrides("--no-tag-time-to-live")
+	)]
+	pub tag_time_to_live: Option<humantime::Duration>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Solve {
 	/// Whether to solve dependencies
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.solve.solve",
+	#[usage(
+		default_missing = "true",
 		long = "solve",
-		num_args = 0..=1,
-		overrides_with = "checkin.solve.no_solve",
-		require_equals = true,
+		overrides("--no-solve"),
+		require_equals = true
 	)]
 	solve: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.solve.no_solve",
+	#[usage(
+		default_missing = "true",
 		long = "no-solve",
-		num_args = 0..=1,
-		overrides_with = "checkin.solve.solve",
-		require_equals = true,
+		overrides("--solve"),
+		require_equals = true
 	)]
 	no_solve: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Ignore {
 	/// Whether to use ignore files.
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.ignore.ignore",
+	#[usage(
+		default_missing = "true",
 		long = "ignore",
-		num_args = 0..=1,
-		overrides_with = "checkin.ignore.no_ignore",
-		require_equals = true,
+		overrides("--no-ignore"),
+		require_equals = true
 	)]
 	ignore: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.ignore.no_ignore",
+	#[usage(
+		default_missing = "true",
 		long = "no-ignore",
-		num_args = 0..=1,
-		overrides_with = "checkin.ignore.ignore",
-		require_equals = true,
+		overrides("--ignore"),
+		require_equals = true
 	)]
 	no_ignore: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct SourceDependencies {
 	/// Whether to use source dependencies.
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.source_dependencies.source_dependencies",
+	#[usage(
+		default_missing = "true",
 		long = "source-dependencies",
-		num_args = 0..=1,
-		overrides_with = "checkin.source_dependencies.no_source_dependencies",
-		require_equals = true,
+		overrides("--no-source-dependencies"),
+		require_equals = true
 	)]
 	source_dependencies: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.source_dependencies.no_source_dependencies",
+	#[usage(
+		default_missing = "true",
 		long = "no-source-dependencies",
-		num_args = 0..=1,
-		overrides_with = "checkin.source_dependencies.source_dependencies",
-		require_equals = true,
+		overrides("--source-dependencies"),
+		require_equals = true
 	)]
 	no_source_dependencies: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Lock {
 	/// Whether to write the lock. Use `--lock=auto` to reuse an existing lock kind or prefer a lockattr for files. Use `--lock=file` to write a lockfile, and `--lock=attr` to write a lockattr. `auto` is the default if not specified.
-	#[arg(
-		default_missing_value = "auto",
-		id = "checkin.lock.lock",
+	#[usage(
+		default_missing = "auto",
 		long = "lock",
-		num_args = 0..=1,
-		overrides_with = "checkin.lock.no_lock",
-		require_equals = true,
+		overrides("--no-lock"),
+		require_equals = true
 	)]
 	lock: Option<tg::checkin::Lock>,
 
 	/// Disable writing the lock.
-	#[arg(
-		id = "checkin.lock.no_lock",
-		long = "no-lock",
-		overrides_with = "checkin.lock.lock"
-	)]
+	#[usage(long = "no-lock", overrides("--lock"))]
 	no_lock: bool,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct UnsolvedDependencies {
 	/// Whether to allow unsolved dependencies.
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.unsolved_dependencies.unsolved_dependencies",
+	#[usage(
+		default_missing = "true",
 		long = "unsolved-dependencies",
-		num_args = 0..=1,
-		overrides_with = "checkin.unsolved_dependencies.no_unsolved_dependencies",
-		require_equals = true,
+		overrides("--no-unsolved-dependencies"),
+		require_equals = true
 	)]
 	unsolved_dependencies: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.unsolved_dependencies.no_unsolved_dependencies",
+	#[usage(
+		default_missing = "true",
 		long = "no-unsolved-dependencies",
-		num_args = 0..=1,
-		overrides_with = "checkin.unsolved_dependencies.unsolved_dependencies",
-		require_equals = true,
+		overrides("--unsolved-dependencies"),
+		require_equals = true
 	)]
 	no_unsolved_dependencies: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct CheckoutPointers {
 	/// Whether to create checkout pointers.
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.checkout_pointers.checkout_pointers",
+	#[usage(
+		default_missing = "true",
 		long = "checkout-pointers",
-		num_args = 0..=1,
-		overrides_with = "checkin.checkout_pointers.no_checkout_pointers",
-		require_equals = true,
+		overrides("--no-checkout-pointers"),
+		require_equals = true
 	)]
 	checkout_pointers: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.checkout_pointers.no_checkout_pointers",
+	#[usage(
+		default_missing = "true",
 		long = "no-checkout-pointers",
-		num_args = 0..=1,
-		overrides_with = "checkin.checkout_pointers.checkout_pointers",
-		require_equals = true,
+		overrides("--checkout-pointers"),
+		require_equals = true
 	)]
 	no_checkout_pointers: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Watch {
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.watch.no_watch",
+	#[usage(
+		default_missing = "true",
 		long = "no-watch",
-		num_args = 0..=1,
-		overrides_with = "checkin.watch.watch",
-		require_equals = true,
+		overrides("--watch"),
+		require_equals = true
 	)]
 	no_watch: Option<bool>,
 
 	/// Whether to watch the source. Defaults to true for non-destructive checkins.
-	#[arg(
-		default_missing_value = "true",
-		id = "checkin.watch.watch",
+	#[usage(
+		default_missing = "true",
 		long = "watch",
-		num_args = 0..=1,
-		overrides_with = "checkin.watch.no_watch",
-		require_equals = true,
+		overrides("--no-watch"),
+		require_equals = true
 	)]
 	watch: Option<bool>,
 }
@@ -291,7 +264,7 @@ impl TagTimeToLive {
 			tg::remote::cache::TimeToLive::Infinite
 		} else {
 			self.tag_time_to_live
-				.map_or_default(tg::remote::cache::TimeToLive::Duration)
+				.map_or_default(|duration| tg::remote::cache::TimeToLive::Duration(duration.into()))
 		}
 	}
 }

@@ -1,13 +1,13 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get the current user.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 }
 

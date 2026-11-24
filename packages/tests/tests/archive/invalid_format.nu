@@ -9,7 +9,7 @@ let dir = tg put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' |
 let format_output = tg archive --format rar $dir | complete
 failure $format_output
 snapshot --normalize $format_output.stderr r#'
-	error: invalid value 'rar' for '--format <FORMAT>': Invalid `ArchiveFormat` string representation
+	error: invalid value 'rar' for '--format': Invalid `ArchiveFormat` string representation
 
 	For more information, try '--help'.
 
@@ -18,7 +18,7 @@ snapshot --normalize $format_output.stderr r#'
 let compression_output = tg archive --format tar --compression lz4 $dir | complete
 failure $compression_output
 snapshot --normalize $compression_output.stderr r#'
-	error: invalid value 'lz4' for '--compression <COMPRESSION>': Invalid `CompressionFormat` string representation
+	error: invalid value 'lz4' for '--compression': Invalid `CompressionFormat` string representation
 
 	For more information, try '--help'.
 

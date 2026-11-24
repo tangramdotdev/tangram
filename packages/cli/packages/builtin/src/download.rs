@@ -18,23 +18,22 @@ enum Mode {
 	Raw,
 }
 
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long)]
+	#[usage(long)]
 	pub checksum: Option<tg::checksum::Algorithm>,
 
-	#[arg(long, default_value_t)]
+	#[usage(long, default = "raw")]
 	pub mode: tg::DownloadMode,
 
-	#[arg(long = "output", conflicts_with = "output_positional")]
+	#[usage(long = "output", conflicts("output-positional"))]
 	pub output_named: Option<PathBuf>,
 
-	#[arg(index = 2, conflicts_with = "output_named")]
-	pub output_positional: Option<PathBuf>,
-
-	#[arg(index = 1)]
 	pub url: Uri,
+
+	#[usage(conflicts("--output"))]
+	pub output_positional: Option<PathBuf>,
 }
 
 pub async fn run(args: Args, progress_interval: std::time::Duration) -> tg::Result<()> {

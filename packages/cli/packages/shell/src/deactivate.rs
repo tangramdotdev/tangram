@@ -1,10 +1,10 @@
 use {crate::Kind, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Deactivate the shell environment.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 1)]
+	#[usage(value_enum)]
 	pub shell: Kind,
 }
 

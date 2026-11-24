@@ -1,16 +1,13 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 1)]
 	pub checkpoint: String,
 
-	#[arg(index = 3)]
-	pub hit: u64,
-
-	#[arg(index = 2)]
 	pub watch: u64,
+
+	pub hit: u64,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {

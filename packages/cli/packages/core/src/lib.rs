@@ -17,7 +17,7 @@ pub mod tracing;
 
 pub struct Cli {
 	pub args: Args,
-	argument_order: Vec<ArgumentKind>,
+	pub argument_order: Vec<ArgumentKind>,
 	pub client: Option<tg::Client>,
 	pub config: Option<Config>,
 	pub exit: Option<std::process::ExitCode>,
@@ -31,89 +31,78 @@ pub enum ArgumentKind {
 }
 
 /// The global args.
-#[derive(Clone, Debug, clap::Args)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// The path to the config file.
-	#[arg(env = "TANGRAM_CONFIG", long, short)]
+	#[usage(env = "TANGRAM_CONFIG", long, short)]
 	pub config: Option<PathBuf>,
 
 	/// Override the `directory` key in the config.
-	#[arg(env = "TANGRAM_DIRECTORY", long, short)]
+	#[usage(long, short)]
 	pub directory: Option<PathBuf>,
 
 	/// The mode.
-	#[arg(env = "TANGRAM_MODE", long, short)]
+	#[usage(env = "TANGRAM_MODE", long, short)]
 	pub mode: Option<Mode>,
 
-	#[clap(flatten)]
+	#[usage(flatten)]
 	pub quiet: Quiet,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub remotes: RemoteOptions,
 
-	#[arg(env = "TANGRAM_TOKEN", long)]
+	#[usage(long)]
 	pub token: Option<String>,
 
 	/// Override the tracing filter.
-	#[arg(env = "TANGRAM_TRACING", long)]
+	#[usage(env = "TANGRAM_TRACING", long)]
 	pub tracing: Option<String>,
 
 	/// Override the HTTP listener URL in the config.
-	#[arg(env = "TANGRAM_URL", long, short)]
+	#[usage(long, short)]
 	pub url: Option<Uri>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct RemoteOptions {
 	/// Override the `remotes` key in the config.
-	#[arg(
-		conflicts_with_all = ["main.remotes.remotes", "main.remotes.trusted_remotes"],
-		id = "main.remotes.no_remotes",
-		long = "no-remotes"
-	)]
+	#[usage(conflicts("--remotes", "--trusted-remotes"), long = "no-remotes")]
 	disabled: bool,
 
 	/// Mark remotes as trusted.
-	#[arg(
-		conflicts_with = "main.remotes.no_remotes",
-		id = "main.remotes.trusted_remotes",
-		long = "trusted-remotes",
-		value_delimiter = ','
-	)]
+	#[usage(conflicts("--no-remotes"), long = "trusted-remotes", delimiter = ',')]
 	trusted: Option<Vec<String>>,
 
 	/// Override the `remotes` key in the config.
-	#[arg(
-		conflicts_with = "main.remotes.no_remotes",
-		id = "main.remotes.remotes",
+	#[usage(
+		conflicts("--no-remotes"),
 		long = "remotes",
 		short = 'r',
-		value_delimiter = ','
+		delimiter = ','
 	)]
 	values: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Quiet {
 	/// Whether to show progress and other helpful information.
-	#[arg(
-		default_missing_value = "true",
-		id = "main.quiet.quiet",
+	#[usage(
+		default_missing = "true",
 		long = "quiet",
-		num_args = 0..=1,
-		overrides_with = "main.quiet.no_quiet",
+		overrides("--no-quiet"),
 		require_equals = true,
-		short = 'q',
+		short = 'q'
 	)]
 	quiet: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "main.quiet.no_quiet",
+	#[usage(
+		default_missing = "true",
 		long = "no-quiet",
-		num_args = 0..=1,
-		overrides_with = "main.quiet.quiet",
-		require_equals = true,
+		overrides("--quiet"),
+		require_equals = true
 	)]
 	no_quiet: Option<bool>,
 }
@@ -123,7 +112,7 @@ pub struct Quiet {
 	Copy,
 	Debug,
 	Default,
-	clap::ValueEnum,
+	usage_rs::ValueEnum,
 	derive_more::Display,
 	derive_more::FromStr,
 	serde::Deserialize,
@@ -154,6 +143,34 @@ pub fn version() -> String {
 		version.push_str(commit);
 	}
 	version
+}
+
+impl Args {
+	/// Apply the environment for the inherited server.
+	pub fn apply_server_env(&mut self) -> Result<(), usage_rs::Error<'static, 'static>> {
+		let explicit_server = self.directory.is_some() || self.url.is_some();
+		if self.directory.is_none() {
+			self.directory = std::env::var_os("TANGRAM_DIRECTORY").map(PathBuf::from);
+		}
+		let url = if self.url.is_none() {
+			parse_env("TANGRAM_URL", "--url")?
+		} else {
+			None
+		};
+		let token = if self.token.is_none() {
+			parse_env("TANGRAM_TOKEN", "--token")?
+		} else {
+			None
+		};
+		if !explicit_server {
+			self.url = url;
+			if self.token.is_none() {
+				self.token = token;
+			}
+		}
+
+		Ok(())
+	}
 }
 
 impl RemoteOptions {
@@ -204,10 +221,10 @@ impl Quiet {
 
 impl Cli {
 	#[must_use]
-	pub fn new(args: Args, argument_order: Vec<ArgumentKind>) -> Self {
+	pub fn new(args: Args) -> Self {
 		Self {
 			args,
-			argument_order,
+			argument_order: Vec::new(),
 			client: None,
 			config: None,
 			exit: None,
@@ -350,4 +367,23 @@ impl Cli {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to receive the thread result"))?
 	}
+}
+
+fn parse_env<T>(
+	variable: &str,
+	flag: &'static str,
+) -> Result<Option<T>, usage_rs::Error<'static, 'static>>
+where
+	T: std::str::FromStr,
+	T::Err: std::fmt::Display,
+{
+	let Some(value) = std::env::var_os(variable) else {
+		return Ok(None);
+	};
+	let value = String::from_utf8(value.into_encoded_bytes())
+		.map_err(|error| usage_rs::invalid_utf8_value(flag, error))?;
+	let value = value
+		.parse()
+		.map_err(|error| usage_rs::invalid_parsed_value(flag, value, &error))?;
+	Ok(Some(value))
 }

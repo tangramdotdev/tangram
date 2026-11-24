@@ -17,8 +17,8 @@ doctest = false
 workspace = true
 
 [dependencies]
-clap = { workspace = true }
 humantime = { workspace = true }
 tangram_cli_core = { workspace = true }
 tangram_client = { workspace = true }
 tangram_util = { workspace = true }
+usage-rs = { workspace = true }

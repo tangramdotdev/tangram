@@ -1,19 +1,18 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*, tangram_uri::Uri};
 
 /// Download a blob or an artifact.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long)]
+	#[usage(long)]
 	pub checksum_algorithm: Option<tg::checksum::Algorithm>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub build: tangram_cli_process::build::Options,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub mode: Option<tg::DownloadMode>,
 
-	#[arg(index = 1)]
 	pub url: Uri,
 }
 
@@ -49,7 +48,7 @@ pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 	let args = tangram_cli_process::build::Args {
 		options: options.clone(),
 		reference: Some(reference),
-		trailing: Vec::new(),
+		trailing: tangram_cli_process::Trailing::default(),
 	};
 	let output = tangram_cli_process::build::build(cli, args).await?;
 	let output = if transform && matches!(mode, tg::DownloadMode::Raw) && !output.is_null() {

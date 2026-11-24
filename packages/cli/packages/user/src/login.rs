@@ -1,23 +1,23 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Log in.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long)]
+	#[usage(long)]
 	pub email: Option<String>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[arg(hide = true, long, short)]
+	#[usage(hide = true, long, short)]
 	pub name: Option<tg::Specifier>,
 
 	/// Print the token and user.
-	#[arg(long)]
+	#[usage(long)]
 	pub verbose: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 }
 

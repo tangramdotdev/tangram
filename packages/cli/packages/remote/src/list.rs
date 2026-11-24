@@ -1,32 +1,32 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// List remotes.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Fetch all pages.
-	#[arg(long)]
+	#[usage(long)]
 	pub all: bool,
 
 	/// Continue from this cursor.
-	#[arg(long)]
+	#[usage(long)]
 	pub cursor: Option<String>,
 
 	/// Return each of the remotes with its data instead of a reference.
-	#[arg(long)]
+	#[usage(long)]
 	pub expand: bool,
 
 	/// The maximum number of entries per page (default: 100, maximum: 1000).
-	#[arg(long)]
+	#[usage(long)]
 	pub limit: Option<u64>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub output: tangram_cli_core::print::OutputOptions,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub principal: Option<tg::principal::Selector>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 }
 

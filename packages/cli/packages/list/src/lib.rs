@@ -1,133 +1,109 @@
-use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// List nodes.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Fetch all pages.
-	#[arg(long)]
+	#[usage(long)]
 	pub all: bool,
 
 	/// Only use cached remote results. Do not fetch from remotes.
-	#[arg(long)]
+	#[usage(long)]
 	pub cached: bool,
 
 	/// Continue from this cursor.
-	#[arg(long)]
+	#[usage(long)]
 	pub cursor: Option<String>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub entries: Entries,
 
 	/// The maximum number of entries per page (default: 100, maximum: 1000).
-	#[arg(long)]
+	#[usage(long)]
 	pub limit: Option<u64>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub locations: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub output: tangram_cli_core::print::OutputOptions,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub recursive: bool,
 
-	#[arg(index = 1)]
 	pub reference: Option<tg::Reference>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub reverse: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub time_to_live: TimeToLive,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Entries {
-	#[arg(
-		default_missing_value = "true",
-		id = "list.entries.groups",
+	#[usage(
+		default_missing = "true",
 		long = "groups",
-		num_args = 0..=1,
-		overrides_with = "list.entries.no_groups",
-		require_equals = true,
+		overrides("--no-groups"),
+		require_equals = true
 	)]
 	groups: Option<bool>,
 
-	#[arg(
-		id = "list.entries.no_groups",
-		long = "no-groups",
-		overrides_with = "list.entries.groups"
-	)]
+	#[usage(long = "no-groups", overrides("--groups"))]
 	no_groups: bool,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "list.entries.organizations",
+	#[usage(
+		default_missing = "true",
 		long = "organizations",
-		num_args = 0..=1,
-		overrides_with = "list.entries.no_organizations",
-		require_equals = true,
+		overrides("--no-organizations"),
+		require_equals = true
 	)]
 	organizations: Option<bool>,
 
-	#[arg(
-		id = "list.entries.no_organizations",
-		long = "no-organizations",
-		overrides_with = "list.entries.organizations"
-	)]
+	#[usage(long = "no-organizations", overrides("--organizations"))]
 	no_organizations: bool,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "list.entries.tags",
+	#[usage(
+		default_missing = "true",
 		long = "tags",
-		num_args = 0..=1,
-		overrides_with = "list.entries.no_tags",
-		require_equals = true,
+		overrides("--no-tags"),
+		require_equals = true
 	)]
 	tags: Option<bool>,
 
-	#[arg(
-		id = "list.entries.no_tags",
-		long = "no-tags",
-		overrides_with = "list.entries.tags"
-	)]
+	#[usage(long = "no-tags", overrides("--tags"))]
 	no_tags: bool,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "list.entries.users",
+	#[usage(
+		default_missing = "true",
 		long = "users",
-		num_args = 0..=1,
-		overrides_with = "list.entries.no_users",
-		require_equals = true,
+		overrides("--no-users"),
+		require_equals = true
 	)]
 	users: Option<bool>,
 
-	#[arg(
-		id = "list.entries.no_users",
-		long = "no-users",
-		overrides_with = "list.entries.users"
-	)]
+	#[usage(long = "no-users", overrides("--users"))]
 	no_users: bool,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct TimeToLive {
-	#[arg(
+	#[usage(
 		alias = "no-ttl",
-		id = "list.time_to_live.no_time_to_live",
 		long = "no-time-to-live",
-		overrides_with = "list.time_to_live.time_to_live"
+		overrides("--time-to-live")
 	)]
 	pub no_time_to_live: bool,
 
-	#[arg(alias = "ttl", id = "list.time_to_live.time_to_live", long = "time-to-live", overrides_with = "list.time_to_live.no_time_to_live", value_parser = humantime::parse_duration)]
-	pub time_to_live: Option<Duration>,
+	#[usage(alias = "ttl", long = "time-to-live", overrides("--no-time-to-live"))]
+	pub time_to_live: Option<humantime::Duration>,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -232,7 +208,7 @@ impl TimeToLive {
 			tg::remote::cache::TimeToLive::Infinite
 		} else {
 			self.time_to_live
-				.map_or_default(tg::remote::cache::TimeToLive::Duration)
+				.map_or_default(|duration| tg::remote::cache::TimeToLive::Duration(duration.into()))
 		}
 	}
 }

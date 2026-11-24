@@ -1,4 +1,9 @@
-use {super::*, clap::error::ErrorKind};
+use super::*;
+
+fn parse<'a>(words: &[&'a str]) -> Result<(Args, Vec<ArgumentKind>), Error<'static, 'a>> {
+	let mut argv = words.iter().map(|word| OsStr::new(*word)).collect();
+	parse_args(&mut argv)
+}
 
 #[test]
 fn implicit_run_matches_explicit_run() {
@@ -14,6 +19,7 @@ fn implicit_run_matches_explicit_run() {
 		),
 		(vec![], vec!["some-tag", "--watch", "--", "argument"]),
 		(vec![], vec!["--", ".#install"]),
+		(vec!["--directory", "-"], vec!["-"]),
 	] {
 		let implicit = [prefix.clone(), trailing.clone()].concat();
 		let explicit = [prefix, vec!["run"], trailing].concat();
@@ -27,50 +33,55 @@ fn implicit_run_matches_explicit_run() {
 
 #[test]
 fn builtins_and_aliases_take_precedence() {
-	let (args, _) = parse(&["check", "."]).unwrap();
-	assert!(matches!(args.command, Command::Check(_)));
-	let (args, _) = parse(&["health"]).unwrap();
-	assert!(matches!(args.command, Command::Health(_)));
-	let (args, _) = parse(&["r", ".#install"]).unwrap();
-	assert!(matches!(args.command, Command::Run(_)));
+	assert!(matches!(
+		parse(&["check", "."]).unwrap().0.command,
+		Command::Check(_)
+	));
+	assert!(matches!(
+		parse(&["health"]).unwrap().0.command,
+		Command::Health(_)
+	));
+	assert!(matches!(
+		parse(&["r", ".#install"]).unwrap().0.command,
+		Command::Run(_)
+	));
 }
 
 #[test]
 fn implicit_run_preserves_help_and_errors() {
-	for (args, expected) in [
-		(vec![".#install", "--help"], ErrorKind::DisplayHelp),
-		(
-			vec![".#install", "--not-a-real-option"],
-			ErrorKind::UnknownArgument,
-		),
-		(
-			vec!["check", "--not-a-real-option"],
-			ErrorKind::UnknownArgument,
-		),
+	for args in [
+		[".#install", "--not-a-real-option"],
+		["check", "--not-a-real-option"],
 	] {
-		let error = parse(&args).unwrap_err();
-		assert_eq!(error.kind(), expected);
+		assert!(matches!(parse(&args), Err(Error::UnknownFlag { .. })));
 	}
+	let Err(Error::Help { cmd, .. }) = parse(&[".#install", "--help"]) else {
+		panic!("expected run help");
+	};
+	assert_eq!(cmd.name, "run");
 }
 
 #[test]
 fn checkout_arguments_require_a_path_when_explicit() {
-	assert!(parse(&["run", ".#install", "--checkout="]).is_err());
+	assert!(matches!(
+		parse(&["run", ".#install", "--checkout="]),
+		Err(Error::InvalidValue(_)),
+	));
 	assert!(parse(&["run", ".#install", "--checkout"]).is_ok());
 }
 
 #[test]
 fn sandbox_run_preserves_fixed_arity_and_raw_argv() {
-	use std::os::unix::ffi::OsStringExt as _;
+	use std::os::unix::ffi::OsStrExt as _;
 
 	let mut argv = [
-		"tg", "sandbox", "run", "--bind", "/one", "/two", "--bind", "/three", "/four", "--",
+		"sandbox", "run", "--bind", "/one", "/two", "--bind", "/three", "/four", "--",
 	]
-	.map(OsString::from)
+	.map(OsStr::new)
 	.to_vec();
-	let raw = OsString::from_vec(vec![0xff]);
-	argv.push(raw.clone());
-	let (args, _) = parse_args(argv).unwrap();
+	let raw = OsStr::from_bytes(b"\xff");
+	argv.push(raw);
+	let (args, _) = parse_args(&mut argv).unwrap();
 	let Command::Sandbox(tangram_cli_sandbox::Args {
 		command: tangram_cli_sandbox::Command::Run(args),
 	}) = args.command
@@ -105,6 +116,7 @@ fn sandbox_run_preserves_fixed_arity_and_raw_argv() {
 		])
 		.is_err()
 	);
+
 	assert!(parse(&["sandbox", "run", "--bind", "/one", "--", "command"]).is_err());
 	assert!(
 		parse(&[
@@ -122,25 +134,18 @@ fn sandbox_run_preserves_fixed_arity_and_raw_argv() {
 
 #[test]
 fn repeated_scalar_flags_are_rejected() {
-	assert_eq!(
-		parse(&["run", ".#install", "--view", "inline", "--view", "none"])
-			.unwrap_err()
-			.kind(),
-		ErrorKind::ArgumentConflict
-	);
+	assert!(matches!(
+		parse(&["run", ".#install", "--view", "inline", "--view", "none"]),
+		Err(Error::DuplicateFlag { .. }),
+	));
 }
 
 #[test]
 fn valueless_flags_reject_attached_values() {
-	assert!(parse(&["build", ".#install", "--public=false"]).is_err());
+	assert!(matches!(
+		parse(&["build", ".#install", "--public=false"]),
+		Err(Error::UnexpectedArg { .. }),
+	));
 	assert!(parse(&["run", ".#install", "-a", "--public=false"]).is_ok());
 	assert!(parse(&["run", ".#install", "--arg-string="]).is_ok());
-}
-
-fn parse(words: &[&str]) -> clap::error::Result<(Args, Vec<ArgumentKind>)> {
-	let argv = std::iter::once("tg")
-		.chain(words.iter().copied())
-		.map(OsString::from)
-		.collect();
-	parse_args(argv)
 }

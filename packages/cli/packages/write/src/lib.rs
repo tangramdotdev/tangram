@@ -1,16 +1,15 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*, tokio_util::io::StreamReader};
 
 /// Write a blob.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 1)]
 	pub bytes: Option<String>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub checkout_pointers: tangram_cli_checkin::CheckoutPointers,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 }
 

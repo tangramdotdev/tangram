@@ -1,36 +1,35 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _};
 
 /// Get an object.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub options: Options,
 
 	/// The object to print.
-	#[arg(index = 1)]
 	pub reference: tg::Reference,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Options {
 	/// Get the object's availability.
-	#[arg(long)]
+	#[usage(long)]
 	pub availability: bool,
 
 	/// Get the object's raw bytes.
-	#[arg(long)]
+	#[usage(long)]
 	pub bytes: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub locations: tangram_cli_core::location::Args,
 
 	/// Get the object's metadata.
-	#[arg(long)]
+	#[usage(long)]
 	pub metadata: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 }
 

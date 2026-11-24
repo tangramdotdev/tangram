@@ -25,7 +25,6 @@ workspace = true
 astral-tokio-tar = { workspace = true }
 async-compression = { workspace = true }
 async_zip = { workspace = true }
-clap = { workspace = true }
 crossterm = { workspace = true }
 futures = { workspace = true }
 libc = { workspace = true }
@@ -43,3 +42,4 @@ tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+usage-rs = { workspace = true }

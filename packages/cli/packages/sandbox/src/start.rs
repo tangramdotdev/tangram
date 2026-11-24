@@ -1,14 +1,13 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Start a sandbox.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 1)]
 	pub sandbox: tg::Referent<tg::sandbox::Id>,
 
 	/// Wait for the sandbox to be started.
-	#[arg(long)]
+	#[usage(long)]
 	pub wait: bool,
 }
 

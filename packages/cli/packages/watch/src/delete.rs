@@ -1,10 +1,9 @@
 use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Delete a watch.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 1)]
 	pub path: PathBuf,
 }
 

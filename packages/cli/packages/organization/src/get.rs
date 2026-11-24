@@ -1,19 +1,18 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get an organization.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Only use cached remote results. Do not fetch from remotes.
-	#[arg(long)]
+	#[usage(long)]
 	pub cached: bool,
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
-	#[arg(index = 1)]
 	pub organization: tg::Referent<tg::organization::Selector>,
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub time_to_live: tangram_cli_reference::TimeToLive,
 }
 

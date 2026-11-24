@@ -3,7 +3,8 @@ use {
 	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
 };
 
-#[derive(Clone, Debug, clap::Args)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	pub id: Option<String>,
 }

@@ -1,19 +1,17 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get a runner token.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[arg(index = 1)]
 	pub runner: tg::runner::Id,
 
-	#[arg(index = 2)]
 	pub token: tg::Referent<tg::token::Id>,
 }
 

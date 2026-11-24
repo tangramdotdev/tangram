@@ -8,14 +8,14 @@ pub mod integration;
 pub mod util;
 
 /// Manage shell integration.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, clap::Subcommand)]
+#[derive(Clone, Debug, usage_rs::Subcommands)]
 pub enum Command {
 	Activate(self::activate::Args),
 	Completion(self::completion::Args),
@@ -24,7 +24,7 @@ pub enum Command {
 	Integration(self::integration::Args),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, usage_rs::ValueEnum)]
 pub enum Kind {
 	Bash,
 	Fish,
@@ -35,14 +35,14 @@ pub enum Kind {
 pub async fn run(
 	cli: &mut Cli,
 	args: Args,
-	command: impl FnOnce() -> clap::Command,
+	completion_script: fn(completion::Shell) -> String,
 ) -> tg::Result<()> {
 	match args.command {
 		Command::Activate(args) => {
 			crate::activate::run(cli, args).await?;
 		},
 		Command::Completion(args) => {
-			crate::completion::run(command(), &args)?;
+			print!("{}", completion_script(args.shell));
 		},
 		Command::Deactivate(args) => {
 			crate::deactivate::run(cli, args).await?;

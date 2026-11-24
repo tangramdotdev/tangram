@@ -1,20 +1,18 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*, tangram_uri::Uri};
 
 /// Put a remote.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long)]
+	#[usage(long)]
 	pub principal: Option<tg::principal::Selector>,
 
 	/// The remote's ID or name.
-	#[arg(index = 1)]
 	pub remote: tg::remote::Selector,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub trusted: bool,
 
-	#[arg(index = 2)]
 	pub url: Uri,
 }
 

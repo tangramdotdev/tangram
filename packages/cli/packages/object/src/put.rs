@@ -4,30 +4,28 @@ use {
 };
 
 /// Put an object.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Put the object's raw bytes.
-	#[arg(long)]
+	#[usage(long)]
 	pub bytes: bool,
 
-	#[arg(index = 1)]
 	pub id: Option<tg::object::Id>,
 
-	#[arg(index = 2)]
 	pub input: Option<String>,
 
-	#[arg(long, short)]
+	#[usage(long, short)]
 	pub kind: Option<tg::object::Kind>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
 	/// Grant public read access.
-	#[arg(long)]
+	#[usage(long)]
 	pub public: bool,
 }
 

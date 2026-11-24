@@ -5,48 +5,35 @@ use {
 };
 
 /// Run an export of a config module with the module's runtime.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Set arguments as strings.
-	#[arg(
-		action = clap::ArgAction::Append,
-		allow_hyphen_values = true,
-		long = "arg-string",
-		num_args = 1,
-		short = 'a',
-	)]
+	#[usage(allow_hyphen_values = true, long = "arg-string", short = 'a')]
 	pub arg_strings: Vec<String>,
 
 	/// Set arguments as values.
-	#[arg(
-		action = clap::ArgAction::Append,
-		allow_hyphen_values = true,
-		long = "arg-value",
-		num_args = 1,
-		short = 'A',
-	)]
+	#[usage(allow_hyphen_values = true, long = "arg-value", short = 'A')]
 	pub arg_values: Vec<String>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub export: Option<String>,
 
-	#[arg(index = 1, value_parser = tg::value::parse)]
 	pub module: tg::Value,
 
-	#[arg(index = 2, trailing_var_arg = true)]
+	#[usage(trailing_var_arg = true)]
 	pub trailing: Vec<String>,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// Get the args.
 	let mut args_ = Vec::new();
-	for (kind, arg) in cli.arguments(args.arg_strings, args.arg_values) {
+	for (kind, value) in cli.arguments(args.arg_strings, args.arg_values) {
 		let value = match kind {
-			ArgumentKind::String => tg::Value::String(arg),
-			ArgumentKind::Value => arg
+			ArgumentKind::String => tg::Value::String(value),
+			ArgumentKind::Value => value
 				.parse()
-				.map_err(|error| tg::error!(!error, %arg, "failed to parse the arg"))?,
+				.map_err(|error| tg::error!(!error, arg = %value, "failed to parse the arg"))?,
 		};
 		args_.push(value);
 	}

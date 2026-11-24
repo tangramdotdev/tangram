@@ -5,43 +5,42 @@ use {
 };
 
 /// Read a process's stdio.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long)]
+	#[usage(long)]
 	pub length: Option<i64>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub locations: tangram_cli_core::location::Args,
 
-	#[arg(long, value_parser = parse_seek_from)]
-	pub position: Option<std::io::SeekFrom>,
+	#[usage(long)]
+	pub position: Option<Position>,
 
-	#[arg(index = 1)]
 	pub reference: tg::Reference,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub size: Option<u64>,
 
-	#[arg(long, value_delimiter = ',', visible_alias = "stream")]
+	#[usage(long, delimiter = ',', visible_alias = "stream")]
 	pub streams: Vec<tg::process::stdio::Stream>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub timeout: Timeout,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Timeout {
-	#[arg(id = "read.timeout.timeout", long = "timeout", overrides_with = "read.timeout.no_timeout", value_parser = humantime::parse_duration)]
-	pub timeout: Option<Duration>,
+	#[usage(long = "timeout", overrides("--no-timeout"))]
+	pub timeout: Option<humantime::Duration>,
 
-	#[arg(
-		id = "read.timeout.no_timeout",
-		long = "no-timeout",
-		overrides_with = "read.timeout.timeout"
-	)]
+	#[usage(long = "no-timeout", overrides("--timeout"))]
 	pub no_timeout: bool,
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct Position(pub std::io::SeekFrom);
 
 #[serde_as]
 #[derive(serde::Deserialize)]
@@ -70,7 +69,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let options = tg::process::stdio::read::Options {
 		length: args.length,
 		location,
-		position: args.position,
+		position: args.position.map(|position| position.0),
 		size: args.size,
 		streams,
 		timeout: args.timeout.get(),
@@ -119,14 +118,18 @@ impl Timeout {
 		if self.no_timeout {
 			None
 		} else {
-			self.timeout.or(Some(Duration::ZERO))
+			self.timeout.map(Into::into).or(Some(Duration::ZERO))
 		}
 	}
 }
 
-fn parse_seek_from(value: &str) -> Result<std::io::SeekFrom, String> {
-	let value = serde_json::json!({ "position": value });
-	let position = serde_json::from_value::<PositionArg>(value)
-		.map_err(|error| format!("failed to parse the position: {error}"))?;
-	Ok(position.position)
+impl std::str::FromStr for Position {
+	type Err = String;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		let value = serde_json::json!({ "position": value });
+		let position = serde_json::from_value::<PositionArg>(value)
+			.map_err(|error| format!("failed to parse the position: {error}"))?;
+		Ok(Self(position.position))
+	}
 }

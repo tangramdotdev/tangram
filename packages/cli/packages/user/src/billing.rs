@@ -3,14 +3,14 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*};
 pub mod manage;
 
 /// Manage the user's billing.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, clap::Subcommand)]
+#[derive(Clone, Debug, usage_rs::Subcommands)]
 pub enum Command {
 	Manage(self::manage::Args),
 }

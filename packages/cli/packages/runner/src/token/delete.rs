@@ -1,16 +1,14 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Delete a runner token.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[arg(index = 1)]
 	pub runner: tg::runner::Id,
 
-	#[arg(index = 2)]
 	pub token: tg::Referent<tg::token::Id>,
 }
 

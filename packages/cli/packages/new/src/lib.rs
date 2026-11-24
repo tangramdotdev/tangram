@@ -1,10 +1,10 @@
 use {std::path::PathBuf, tangram_client::prelude::*};
 
 /// Create a new package.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(default_value = ".", index = 1)]
+	#[usage(default = ".")]
 	pub path: PathBuf,
 }
 

@@ -1,28 +1,27 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get a reference.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Get the availability.
-	#[arg(long)]
+	#[usage(long)]
 	pub availability: bool,
 	/// Get the object's raw bytes.
-	#[arg(long)]
+	#[usage(long)]
 	pub bytes: bool,
 	/// Only use cached remote results. Do not fetch from remotes.
-	#[arg(long)]
+	#[usage(long)]
 	pub cached: bool,
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub locations: tangram_cli_core::location::Args,
 	/// Get the metadata.
-	#[arg(long)]
+	#[usage(long)]
 	pub metadata: bool,
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
-	#[arg(index = 1)]
 	pub reference: tg::Reference,
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub time_to_live: tangram_cli_reference::TimeToLive,
 }
 

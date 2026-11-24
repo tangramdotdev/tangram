@@ -1,10 +1,9 @@
 use tangram_client::prelude::*;
 
 /// Decode an authorization token without verifying its signature.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 1)]
 	pub token: tg::authorization::Token,
 }
 

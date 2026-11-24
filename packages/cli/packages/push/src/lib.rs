@@ -1,154 +1,142 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Push nodes.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub ancestors: tangram_cli_core::node::Options,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub destination: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub eager: Eager,
 
 	/// Replace conflicting named nodes and their descendants.
-	#[arg(long, short)]
+	#[usage(long, short)]
 	pub force: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub group_children: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub metadata: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub organization_children: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub process_children: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub process_command_objects: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub process_error_objects: ProcessErrorObjects,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub process_log_objects: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub process_output_objects: ProcessOutputObjects,
 
 	/// Grant public read access.
-	#[arg(long)]
+	#[usage(long)]
 	pub public: bool,
 
-	#[arg(required = true)]
+	#[usage(required = true)]
 	pub references: Vec<tg::Reference>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub sandbox_processes: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub tag_targets: TagTargets,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub user_children: bool,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Eager {
-	#[arg(
-		default_missing_value = "true",
-		id = "push.eager.eager",
+	#[usage(
+		default_missing = "true",
 		long = "eager",
-		num_args = 0..=1,
-		overrides_with = "push.eager.lazy",
-		require_equals = true,
+		overrides("--lazy"),
+		require_equals = true
 	)]
 	eager: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "push.eager.lazy",
+	#[usage(
+		default_missing = "true",
 		long = "lazy",
-		num_args = 0..=1,
-		overrides_with = "push.eager.eager",
-		require_equals = true,
+		overrides("--eager"),
+		require_equals = true
 	)]
 	lazy: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct ProcessErrorObjects {
-	#[arg(
-		default_missing_value = "true",
-		id = "push.process_error_objects.no_process_error_objects",
+	#[usage(
+		default_missing = "true",
 		long = "no-process-error-objects",
-		num_args = 0..=1,
-		overrides_with = "push.process_error_objects.process_error_objects",
-		require_equals = true,
+		overrides("--process-error-objects"),
+		require_equals = true
 	)]
 	no_process_error_objects: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "push.process_error_objects.process_error_objects",
+	#[usage(
+		default_missing = "true",
 		long = "process-error-objects",
-		num_args = 0..=1,
-		overrides_with = "push.process_error_objects.no_process_error_objects",
-		require_equals = true,
+		overrides("--no-process-error-objects"),
+		require_equals = true
 	)]
 	process_error_objects: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct ProcessOutputObjects {
-	#[arg(
-		default_missing_value = "true",
-		id = "push.process_output_objects.no_process_output_objects",
+	#[usage(
+		default_missing = "true",
 		long = "no-process-output-objects",
-		num_args = 0..=1,
-		overrides_with = "push.process_output_objects.process_output_objects",
-		require_equals = true,
+		overrides("--process-output-objects"),
+		require_equals = true
 	)]
 	no_process_output_objects: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "push.process_output_objects.process_output_objects",
+	#[usage(
+		default_missing = "true",
 		long = "process-output-objects",
-		num_args = 0..=1,
-		overrides_with = "push.process_output_objects.no_process_output_objects",
-		require_equals = true,
+		overrides("--no-process-output-objects"),
+		require_equals = true
 	)]
 	process_output_objects: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct TagTargets {
-	#[arg(
-		default_missing_value = "true",
-		id = "push.tag_targets.no_tag_targets",
+	#[usage(
+		default_missing = "true",
 		long = "no-tag-targets",
-		num_args = 0..=1,
-		overrides_with = "push.tag_targets.tag_targets",
-		require_equals = true,
+		overrides("--tag-targets"),
+		require_equals = true
 	)]
 	no_tag_targets: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "push.tag_targets.tag_targets",
+	#[usage(
+		default_missing = "true",
 		long = "tag-targets",
-		num_args = 0..=1,
-		overrides_with = "push.tag_targets.no_tag_targets",
-		require_equals = true,
+		overrides("--no-tag-targets"),
+		require_equals = true
 	)]
 	tag_targets: Option<bool>,
 }

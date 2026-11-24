@@ -17,7 +17,6 @@ doctest = false
 workspace = true
 
 [dependencies]
-clap = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
 humantime = { workspace = true }
@@ -38,3 +37,4 @@ tangram_util = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+usage-rs = { workspace = true }

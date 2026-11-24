@@ -7,281 +7,221 @@ use {
 };
 
 /// Spawn a process.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub options: Options,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
 	/// The reference to the command, artifact, or process.
-	#[arg(index = 1, value_terminator = "--")]
 	pub reference: Option<tg::Reference>,
 
-	/// Set arguments.
-	#[arg(index = 2, trailing_var_arg = true)]
-	pub trailing: Vec<String>,
+	#[usage(flatten)]
+	pub trailing: crate::Trailing,
 
 	/// Print the full spawn output instead of just the process ID.
-	#[arg(long, short)]
+	#[usage(long, short)]
 	pub verbose: bool,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Options {
 	/// Set arguments as strings.
-	#[arg(
-		action = clap::ArgAction::Append,
-		allow_hyphen_values = true,
-		id = "spawn.arg_strings",
-		long = "arg-string",
-		num_args = 1,
-		short = 'a',
-	)]
+	#[usage(allow_hyphen_values = true, long = "arg-string", short = 'a')]
 	pub arg_strings: Vec<String>,
 
 	/// Set arguments as values.
-	#[arg(
-		action = clap::ArgAction::Append,
-		allow_hyphen_values = true,
-		id = "spawn.arg_values",
-		long = "arg-value",
-		num_args = 1,
-		short = 'A',
-	)]
+	#[usage(allow_hyphen_values = true, long = "arg-value", short = 'A')]
 	pub arg_values: Vec<String>,
 
 	/// If this flag is set, then build the specified target and run its output.
-	#[arg(id = "spawn.build", long = "build", short = 'b')]
+	#[usage(long = "build", short = 'b')]
 	pub build: bool,
 
 	/// Wait for the process to start.
-	#[arg(id = "spawn.wait", long = "wait")]
+	#[usage(long = "wait")]
 	pub wait: bool,
 
 	/// Set this flag to true to require a cached process. Set this flag to false to require a new process to be created. Omit this flag to use a cached process if possible, and create a new process if not.
-	#[arg(
-		default_missing_value = "true",
-		id = "spawn.cached",
-		long = "cached",
-		num_args = 0..=1,
-		require_equals = true,
-	)]
+	#[usage(default_missing = "true", long = "cached", require_equals = true)]
 	pub cached: Option<bool>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub checkin: tangram_cli_checkin::Options,
 
 	/// The output's expected checksum.
-	#[arg(id = "spawn.checksum", long = "checksum")]
+	#[usage(long = "checksum")]
 	pub checksum: Option<tg::Checksum>,
 
 	/// Set the working directory for the process.
-	#[arg(id = "spawn.cwd", long = "cwd", short = 'C')]
+	#[usage(long = "cwd", short = 'C')]
 	pub cwd: Option<PathBuf>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub debug: Debug,
 
 	/// Set environment variables as strings.
-	#[arg(
-		action = clap::ArgAction::Append,
-		id = "spawn.env_strings",
-		long = "env-string",
-		num_args = 1,
-		short = 'e',
-	)]
+	#[usage(long = "env-string", short = 'e')]
 	pub env_strings: Vec<String>,
 
 	/// Set environment variables as values.
-	#[arg(
-		action = clap::ArgAction::Append,
-		id = "spawn.env_values",
-		long = "env-value",
-		num_args = 1,
-		short = 'E',
-	)]
+	#[usage(long = "env-value", short = 'E')]
 	pub env_values: Vec<String>,
 
 	/// The executable to run.
-	#[arg(id = "spawn.executable", long = "executable", short = 'x')]
+	#[usage(long = "executable", short = 'x')]
 	pub executable: Option<tg::command::data::Executable>,
 
 	/// Set the host.
-	#[arg(id = "spawn.host", long = "host")]
+	#[usage(long = "host")]
 	pub host: Option<String>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
 	/// Grant temporary public read access to the process so that its result is reusable by anyone.
-	#[arg(id = "spawn.public", long = "public")]
+	#[usage(long = "public")]
 	pub public: bool,
 
 	/// Whether to retry failed processes.
-	#[arg(id = "spawn.retry", long = "retry")]
+	#[usage(long = "retry")]
 	pub retry: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub sandbox: Sandbox,
 
 	/// Set the stderr mode.
-	#[arg(id = "spawn.stderr", long = "stderr")]
+	#[usage(long = "stderr")]
 	pub stderr: Option<tg::process::Stdio>,
 
 	/// Set the stdin mode.
-	#[arg(id = "spawn.stdin", long = "stdin")]
+	#[usage(long = "stdin")]
 	pub stdin: Option<tg::process::Stdio>,
 
 	/// Set the stdout mode.
-	#[arg(id = "spawn.stdout", long = "stdout")]
+	#[usage(long = "stdout")]
 	pub stdout: Option<tg::process::Stdio>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub tag: tangram_cli_tag::Tag,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub tty: Tty,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Debug {
-	#[arg(
-		env = "TANGRAM_JAVASCRIPT_DEBUG_ADDR",
-		id = "spawn.debug.addr",
-		long = "debug-addr"
-	)]
+	#[usage(env = "TANGRAM_JAVASCRIPT_DEBUG_ADDR", long = "debug-addr")]
 	addr: Option<std::net::SocketAddr>,
 
-	#[arg(
-		env = "TANGRAM_JAVASCRIPT_DEBUG",
-		id = "spawn.debug.enabled",
-		long = "debug"
-	)]
+	#[usage(env = "TANGRAM_JAVASCRIPT_DEBUG", long = "debug")]
 	enabled: bool,
 
-	#[arg(
-		id = "spawn.debug.inspect",
+	#[usage(
 		long = "inspect",
-		default_missing_value = "127.0.0.1:9229",
-		num_args = 0..=1,
-		require_equals = true,
-		value_parser = parse_inspect_addr,
+		default_missing = "127.0.0.1:9229",
+		require_equals = true
 	)]
-	inspect: Option<std::net::SocketAddr>,
+	inspect: Option<InspectAddress>,
 
-	#[arg(
-		id = "spawn.debug.inspect_brk",
+	#[usage(
 		long = "inspect-brk",
-		default_missing_value = "127.0.0.1:9229",
-		num_args = 0..=1,
-		require_equals = true,
-		value_parser = parse_inspect_addr,
+		default_missing = "127.0.0.1:9229",
+		require_equals = true
 	)]
-	inspect_brk: Option<std::net::SocketAddr>,
+	inspect_brk: Option<InspectAddress>,
 
-	#[arg(
-		id = "spawn.debug.inspect_wait",
+	#[usage(
 		long = "inspect-wait",
-		default_missing_value = "127.0.0.1:9229",
-		num_args = 0..=1,
-		require_equals = true,
-		value_parser = parse_inspect_addr,
+		default_missing = "127.0.0.1:9229",
+		require_equals = true
 	)]
-	inspect_wait: Option<std::net::SocketAddr>,
+	inspect_wait: Option<InspectAddress>,
 
-	#[arg(
-		env = "TANGRAM_JAVASCRIPT_DEBUG_MODE",
-		long = "debug-mode",
-		id = "spawn.debug.mode"
-	)]
+	#[usage(env = "TANGRAM_JAVASCRIPT_DEBUG_MODE", long = "debug-mode")]
 	mode: Option<tg::process::debug::Mode>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Copy, Debug)]
+struct InspectAddress(std::net::SocketAddr);
+
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Sandbox {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub arg: tangram_cli_sandbox::Options,
-	#[arg(
-		default_missing_value = "true",
-		id = "spawn.sandbox.disabled",
+	#[usage(
+		default_missing = "true",
 		long = "no-sandbox",
-		num_args = 0..=1,
-		overrides_with = "spawn.sandbox.value",
-		require_equals = true,
+		overrides("--sandbox"),
+		require_equals = true
 	)]
 	disabled: Option<bool>,
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub time_to_live: TimeToLive,
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub time_to_stop: TimeToStop,
 	/// Whether to sandbox the process, or an existing sandbox to use.
-	#[arg(
-		default_missing_value = "true",
-		id = "spawn.sandbox.value",
+	#[usage(
+		default_missing = "true",
 		long = "sandbox",
-		num_args = 0..=1,
-		overrides_with = "spawn.sandbox.disabled",
-		require_equals = true,
+		overrides("--no-sandbox"),
+		require_equals = true
 	)]
 	value: Option<tg::Either<bool, tg::Referent<tg::sandbox::Id>>>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct TimeToLive {
 	/// Keep the sandbox until it is destroyed.
-	#[arg(
+	#[usage(
 		alias = "no-ttl",
-		id = "spawn.sandbox.time_to_live.no_time_to_live",
 		long = "no-time-to-live",
-		overrides_with = "spawn.sandbox.time_to_live.time_to_live"
+		overrides("--time-to-live")
 	)]
 	pub no_time_to_live: bool,
 
 	/// The time that the sandbox may go unused before it is destroyed.
-	#[arg(alias = "ttl", id = "spawn.sandbox.time_to_live.time_to_live", long = "time-to-live", overrides_with = "spawn.sandbox.time_to_live.no_time_to_live", value_parser = humantime::parse_duration)]
-	pub time_to_live: Option<Duration>,
+	#[usage(alias = "ttl", long = "time-to-live", overrides("--no-time-to-live"))]
+	pub time_to_live: Option<humantime::Duration>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct TimeToStop {
 	/// Keep the sandbox running until it is stopped.
-	#[arg(
-		id = "spawn.sandbox.time_to_stop.no_time_to_stop",
-		long = "no-time-to-stop",
-		overrides_with = "spawn.sandbox.time_to_stop.time_to_stop"
-	)]
+	#[usage(long = "no-time-to-stop", overrides("--time-to-stop"))]
 	pub no_time_to_stop: bool,
 
 	/// The time that the sandbox may run without processes before it is stopped.
-	#[arg(id = "spawn.sandbox.time_to_stop.time_to_stop", long = "time-to-stop", overrides_with = "spawn.sandbox.time_to_stop.no_time_to_stop", value_parser = humantime::parse_duration)]
-	pub time_to_stop: Option<Duration>,
+	#[usage(long = "time-to-stop", overrides("--no-time-to-stop"))]
+	pub time_to_stop: Option<humantime::Duration>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Tty {
 	/// Whether to allocate a tty for the process. Optionally set the size as rows,cols.
-	#[arg(
-		default_missing_value = "true",
-		id = "spawn.tty.tty",
+	#[usage(
+		default_missing = "true",
 		long = "tty",
-		num_args = 0..=1,
-		overrides_with = "spawn.tty.no_tty",
+		overrides("--no-tty"),
 		require_equals = true,
-		value_name = "ROWS,COLS",
+		value_name = "ROWS,COLS"
 	)]
 	pub(crate) tty: Option<tg::Either<bool, tg::process::tty::Size>>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "spawn.tty.no_tty",
+	#[usage(
+		default_missing = "true",
 		long = "no-tty",
-		num_args = 0..=1,
-		overrides_with = "spawn.tty.tty",
-		require_equals = true,
+		overrides("--tty"),
+		require_equals = true
 	)]
 	pub(crate) no_tty: Option<bool>,
 }
@@ -337,7 +277,7 @@ pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 		cli,
 		args.options,
 		args.reference,
-		args.trailing,
+		args.trailing.into_values(),
 		None,
 		tg::process::attach::Mode::Spawn,
 	)
@@ -464,7 +404,7 @@ pub(crate) async fn spawn_inner(
 				..Default::default()
 			},
 			reference,
-			trailing: vec![],
+			trailing: crate::Trailing::default(),
 		};
 		let output = Box::pin(crate::build::build(cli, build_args)).await?;
 		let object = output
@@ -547,11 +487,11 @@ pub(crate) async fn spawn_inner(
 
 	// Set the args.
 	let mut args_: Vec<tg::command::Value> = Vec::new();
-	for (kind, arg) in cli.arguments(options.arg_strings, options.arg_values) {
+	for (kind, value) in cli.arguments(options.arg_strings, options.arg_values) {
 		let value = match kind {
-			ArgumentKind::String => arg.into(),
+			ArgumentKind::String => value.into(),
 			ArgumentKind::Value => {
-				let value = arg
+				let value = value
 					.parse()
 					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
 				tg::command::Value::Value(value)
@@ -910,17 +850,17 @@ impl Debug {
 		if let Some(mode) = self.mode {
 			debug.get_or_insert_with(tg::process::Debug::default).mode = mode;
 		}
-		if let Some(addr) = self.inspect {
+		if let Some(InspectAddress(addr)) = self.inspect {
 			let debug = debug.get_or_insert_with(tg::process::Debug::default);
 			debug.addr = Some(addr);
 			debug.mode = tg::process::debug::Mode::Normal;
 		}
-		if let Some(addr) = self.inspect_brk {
+		if let Some(InspectAddress(addr)) = self.inspect_brk {
 			let debug = debug.get_or_insert_with(tg::process::Debug::default);
 			debug.addr = Some(addr);
 			debug.mode = tg::process::debug::Mode::Break;
 		}
-		if let Some(addr) = self.inspect_wait {
+		if let Some(InspectAddress(addr)) = self.inspect_wait {
 			let debug = debug.get_or_insert_with(tg::process::Debug::default);
 			debug.addr = Some(addr);
 			debug.mode = tg::process::debug::Mode::Wait;
@@ -959,7 +899,7 @@ impl TimeToLive {
 		if self.no_time_to_live {
 			None
 		} else {
-			self.time_to_live.or(Some(Duration::ZERO))
+			self.time_to_live.map(Into::into).or(Some(Duration::ZERO))
 		}
 	}
 }
@@ -969,7 +909,7 @@ impl TimeToStop {
 		if self.no_time_to_stop {
 			None
 		} else {
-			self.time_to_stop
+			self.time_to_stop.map(Into::into)
 		}
 	}
 }
@@ -981,6 +921,14 @@ impl Tty {
 			no_tty: Some(true),
 			tty: None,
 		}
+	}
+}
+
+impl std::str::FromStr for InspectAddress {
+	type Err = String;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		parse_inspect_addr(s).map(Self)
 	}
 }
 

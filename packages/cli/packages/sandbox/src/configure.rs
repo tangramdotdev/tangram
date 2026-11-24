@@ -1,11 +1,12 @@
 use tangram_client::prelude::*;
 
-#[derive(Clone, Copy, Debug, clap::Args)]
+#[derive(Clone, Copy, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long, requires = "user_namespace_fd")]
+	#[usage(long, requires("--user-namespace-fd"))]
 	pub network_namespace_fd: Option<i32>,
 
-	#[arg(long, requires = "network_namespace_fd")]
+	#[usage(long, requires("--network-namespace-fd"))]
 	pub user_namespace_fd: Option<i32>,
 }
 

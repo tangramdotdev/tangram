@@ -280,13 +280,13 @@ pub(super) async fn build_shell_executable(
 	reference: &tg::Reference,
 ) -> tg::Result<PathBuf> {
 	let options = tangram_cli_process::build::Options {
-		checkout: Some(tangram_cli_process::run::Checkout::Default),
+		checkout: Some(None),
 		..Default::default()
 	};
 	let args = tangram_cli_process::build::Args {
 		options,
 		reference: Some(reference.clone()),
-		trailing: Vec::new(),
+		trailing: tangram_cli_process::Trailing::default(),
 	};
 	let output = tangram_cli_process::build::build(cli, args).boxed().await?;
 	let path = output.unwrap_string();

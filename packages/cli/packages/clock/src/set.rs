@@ -1,11 +1,10 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Set the time of the server's virtual clock.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// The time as an RFC 3339 timestamp.
-	#[arg(index = 1)]
 	pub now: jiff::Timestamp,
 }
 

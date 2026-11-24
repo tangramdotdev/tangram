@@ -13,36 +13,36 @@ use {
 };
 
 /// Run the server in the foreground.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// The path to the config file.
-	#[arg(long, short)]
+	#[usage(long, short)]
 	pub config: Option<PathBuf>,
 
 	/// Override the `directory` key in the config.
-	#[arg(long, short)]
+	#[usage(long, short)]
 	pub directory: Option<PathBuf>,
 
 	/// Let members of the server's group use the local socket and checkouts.
-	#[arg(long)]
+	#[usage(long)]
 	pub group_access: bool,
 
-	#[arg(hide = true, long)]
+	#[usage(hide = true, long)]
 	pub ready_fd: Option<RawFd>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub remotes: RemoteOptions,
 
 	/// The token.
 	pub token: Option<String>,
 
 	/// Override the tracing filter.
-	#[arg(long)]
+	#[usage(long)]
 	pub tracing: Option<String>,
 
 	/// Override the HTTP listener URL in the config.
-	#[arg(long, short)]
+	#[usage(long, short)]
 	pub url: Option<Uri>,
 }
 

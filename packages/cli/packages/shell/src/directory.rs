@@ -6,22 +6,22 @@ pub mod put;
 pub mod update;
 
 /// Manage shell directories.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, clap::Subcommand)]
+#[derive(Clone, Debug, usage_rs::Subcommands)]
 pub enum Command {
-	#[command(alias = "rm", name = "remove")]
+	#[usage(alias = "rm", name = "remove")]
 	Delete(self::delete::Args),
-	#[command(alias = "ls")]
+	#[usage(alias = "ls")]
 	List(self::list::Args),
-	#[command(name = "add")]
+	#[usage(name = "add")]
 	Put(self::put::Args),
-	#[command(hide = true)]
+	#[usage(hide = true)]
 	Update(self::update::Args),
 }
 

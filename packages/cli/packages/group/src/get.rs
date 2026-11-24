@@ -1,23 +1,22 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get a group.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Only use cached remote results. Do not fetch from remotes.
-	#[arg(long)]
+	#[usage(long)]
 	pub cached: bool,
 
-	#[arg(index = 1)]
 	pub group: tg::Referent<tg::group::Selector>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub time_to_live: tangram_cli_reference::TimeToLive,
 }
 

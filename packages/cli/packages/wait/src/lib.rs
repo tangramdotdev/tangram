@@ -1,16 +1,15 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Wait for a process to finish or a sandbox to be destroyed.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub locations: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[arg(index = 1)]
 	pub reference: tg::Reference,
 }
 

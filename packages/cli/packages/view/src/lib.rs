@@ -6,62 +6,64 @@ use {
 };
 
 /// View a node.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Collapse process children when processes finish.
-	#[arg(long)]
+	#[usage(long)]
 	pub collapse_process_children: bool,
 
 	/// The maximum depth to render, in levels below the root. Zero renders only the root.
-	#[arg(long)]
+	#[usage(long)]
 	pub depth: Option<u32>,
 
 	/// Expand groups.
-	#[arg(long)]
+	#[usage(long)]
 	pub expand_groups: bool,
 
 	/// Expand metadata.
-	#[arg(long)]
+	#[usage(long)]
 	pub expand_metadata: bool,
 
 	/// Expand objects.
-	#[arg(long)]
+	#[usage(long)]
 	pub expand_objects: bool,
 
 	/// Expand organizations.
-	#[arg(long)]
+	#[usage(long)]
 	pub expand_organizations: bool,
 
 	/// Expand processes.
-	#[arg(long)]
+	#[usage(long)]
 	pub expand_processes: bool,
 
 	/// Expand sandboxes.
-	#[arg(long)]
+	#[usage(long)]
 	pub expand_sandboxes: bool,
 
 	/// Expand tags.
-	#[arg(long)]
+	#[usage(long)]
 	pub expand_tags: bool,
 
 	/// Expand users.
-	#[arg(long)]
+	#[usage(long)]
 	pub expand_users: bool,
 
 	/// Choose the mode, either inline or fullscreen.
-	#[arg(default_value = "fullscreen", long)]
+	#[usage(default = "fullscreen", long, value_enum)]
 	pub mode: Mode,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub alternate_screen: AlternateScreen,
 
 	/// The reference to view.
-	#[arg(default_value = ".", index = 1)]
+	#[usage(default = ".")]
 	pub reference: tg::Reference,
 }
 
-#[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone, Copy, Debug, Default, usage_rs::ValueEnum, serde::Deserialize, serde::Serialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
 	Inline,
@@ -69,27 +71,24 @@ pub enum Mode {
 	Fullscreen,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct AlternateScreen {
-	#[arg(
-		default_missing_value = "true",
+	#[usage(
+		default_missing = "true",
 		hide = true,
-		id = "view.alternate_screen.alternate_screen",
 		long = "alternate-screen",
-		num_args = 0..=1,
-		overrides_with = "view.alternate_screen.no_alternate_screen",
-		require_equals = true,
+		overrides("--no-alternate-screen"),
+		require_equals = true
 	)]
 	alternate_screen: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
+	#[usage(
+		default_missing = "true",
 		hide = true,
-		id = "view.alternate_screen.no_alternate_screen",
 		long = "no-alternate-screen",
-		num_args = 0..=1,
-		overrides_with = "view.alternate_screen.alternate_screen",
-		require_equals = true,
+		overrides("--alternate-screen"),
+		require_equals = true
 	)]
 	no_alternate_screen: Option<bool>,
 }

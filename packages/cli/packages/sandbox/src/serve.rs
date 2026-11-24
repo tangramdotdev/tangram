@@ -1,50 +1,47 @@
 use {std::path::PathBuf, tangram_client::prelude::*};
 
 /// Serve sandbox requests.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub http2: super::Http2,
 
-	#[arg(action = clap::ArgAction::Append, long = "library-path", num_args = 1)]
+	#[usage(long = "library-path")]
 	pub library_paths: Vec<PathBuf>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub listen: Listen,
 
-	#[arg(long, hide = true)]
+	#[usage(long, hide = true)]
 	pub namespaces: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub output_path: PathBuf,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub url: tangram_uri::Uri,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub tangram_path: PathBuf,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Listen {
-	#[arg(
-		default_missing_value = "true",
-		id = "serve.listen.connect",
+	#[usage(
+		default_missing = "true",
 		long = "connect",
-		num_args = 0..=1,
-		overrides_with = "serve.listen.listen",
-		require_equals = true,
+		overrides("--listen"),
+		require_equals = true
 	)]
 	connect: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "serve.listen.listen",
+	#[usage(
+		default_missing = "true",
 		long = "listen",
-		num_args = 0..=1,
-		overrides_with = "serve.listen.connect",
-		require_equals = true,
+		overrides("--connect"),
+		require_equals = true
 	)]
 	listen: Option<bool>,
 }

@@ -26,7 +26,6 @@ workspace = true
 [dependencies]
 anstream = { workspace = true }
 byteorder = { workspace = true }
-clap = { workspace = true }
 console-subscriber = { workspace = true }
 crossterm = { workspace = true }
 derive_more = { workspace = true }
@@ -63,5 +62,6 @@ tracing-subscriber = { workspace = true }
 tracing-tree = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
+usage-rs = { workspace = true }
 waitpid-any = { workspace = true }
 webbrowser = { workspace = true }

@@ -38,7 +38,6 @@ serde_json = { workspace = true }
 tangram_sandbox = { workspace = true }
 
 [dependencies]
-clap = { workspace = true }
 futures = { workspace = true }
 serde_json = { workspace = true }
 tangram_cli_core = { workspace = true }
@@ -48,3 +47,4 @@ tangram_pool = { workspace = true }
 tangram_server = { workspace = true }
 tangram_uri = { workspace = true }
 tokio = { workspace = true }
+usage-rs = { workspace = true }

@@ -4062,11 +4062,9 @@ mod tests {
 
 	#[test]
 	fn edits_tokens_in_the_destination_config() {
-		use clap::Parser as _;
-
-		#[derive(clap::Parser)]
+		#[derive(usage_rs::Cli)]
 		struct Args {
-			#[command(flatten)]
+			#[usage(flatten)]
 			global: crate::Args,
 		}
 
@@ -4077,8 +4075,8 @@ mod tests {
 		let system_contents = r#"{"checkouts":false,"server":{"start_timeout":9}}"#;
 		std::fs::write(&system, system_contents).unwrap();
 		std::fs::write(&user, r#"{"tracing":{"stderr_format":"json"}}"#).unwrap();
-		let args = Args::parse_from(["tg", "--config", user.to_str().unwrap()]);
-		let mut cli = Cli::new(args.global, Vec::new());
+		let args = Args::parse_from(&[std::ffi::OsStr::new("--config"), user.as_os_str()]).unwrap();
+		let mut cli = Cli::new(args.global);
 		cli.config = Cli::try_read_config_with_paths(None, &system, Some(&user)).unwrap();
 
 		cli.write_token("token".to_owned()).unwrap();

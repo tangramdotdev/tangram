@@ -1,76 +1,68 @@
 use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Check out nodes.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Whether to check out the artifact's dependencies.
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub dependencies: Dependencies,
 
 	/// Whether to overwrite an existing filesystem object at the path.
-	#[arg(long, requires = "path", short)]
+	#[usage(long, requires("--path"), short)]
 	pub force: bool,
 
 	/// Whether to write a lock.
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub lock: Lock,
 
 	/// The path to check out the artifact to.
-	#[arg(long)]
+	#[usage(long)]
 	pub path: Option<PathBuf>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
 	/// The nodes to check out.
-	#[arg(required = true)]
+	#[usage(required = true)]
 	pub references: Vec<tg::Reference>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Dependencies {
 	/// Whether to check out the artifact's dependencies.
-	#[arg(
-		default_missing_value = "true",
-		id = "checkout.dependencies.dependencies",
+	#[usage(
+		default_missing = "true",
 		long = "dependencies",
-		num_args = 0..=1,
-		overrides_with = "checkout.dependencies.no_dependencies",
-		require_equals = true,
+		overrides("--no-dependencies"),
+		require_equals = true
 	)]
 	dependencies: Option<bool>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "checkout.dependencies.no_dependencies",
+	#[usage(
+		default_missing = "true",
 		long = "no-dependencies",
-		num_args = 0..=1,
-		overrides_with = "checkout.dependencies.dependencies",
-		require_equals = true,
+		overrides("--dependencies"),
+		require_equals = true
 	)]
 	no_dependencies: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Lock {
 	/// Whether to write the lock. Use `--lock=auto` to reuse an existing lock kind or prefer a lockattr for files. Use `--lock=file` to write a lockfile, and `--lock=attr` to write a lockattr. `auto` is the default if not specified.
-	#[arg(
-		default_missing_value = "auto",
-		id = "checkout.lock.lock",
+	#[usage(
+		default_missing = "auto",
 		long = "lock",
-		num_args = 0..=1,
-		overrides_with = "checkout.lock.no_lock",
-		require_equals = true,
+		overrides("--no-lock"),
+		require_equals = true
 	)]
 	lock: Option<tg::checkout::Lock>,
 
 	/// Disable writing the lock.
-	#[arg(
-		id = "checkout.lock.no_lock",
-		long = "no-lock",
-		overrides_with = "checkout.lock.lock"
-	)]
+	#[usage(long = "no-lock", overrides("--lock"))]
 	no_lock: bool,
 }
 

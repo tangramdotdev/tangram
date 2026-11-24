@@ -4,13 +4,13 @@ use {
 };
 
 /// Remove unused checkouts, objects, processes, and sandboxes.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long, short)]
+	#[usage(long, short)]
 	force: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	print: tangram_cli_core::print::Options,
 }
 

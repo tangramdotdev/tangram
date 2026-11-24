@@ -1,13 +1,13 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get the server's health.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long, value_delimiter = ',')]
+	#[usage(long, delimiter = ',')]
 	pub fields: Option<Vec<String>>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 }
 

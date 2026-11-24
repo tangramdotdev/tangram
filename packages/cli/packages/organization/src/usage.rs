@@ -3,19 +3,18 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*};
 /// Get an organization's usage.
 ///
 /// Usage includes all regions of the selected server unless a specific region is selected with --location.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[arg(index = 1)]
 	pub organization: tg::Referent<tg::organization::Selector>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub period: tangram_cli_usage::PeriodArgs,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 }
 

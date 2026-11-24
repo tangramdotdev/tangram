@@ -4,20 +4,18 @@ use {
 };
 
 // Put a process.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 2)]
-	pub bytes: Option<String>,
-
-	#[arg(index = 1)]
 	pub id: tg::process::Id,
 
-	#[command(flatten)]
+	pub bytes: Option<String>,
+
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
 	/// Grant public read access.
-	#[arg(long)]
+	#[usage(long)]
 	pub public: bool,
 }
 

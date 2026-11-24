@@ -1,19 +1,17 @@
-use {
-	futures::FutureExt as _, std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*,
-};
+use {futures::FutureExt as _, tangram_cli_core::Cli, tangram_client::prelude::*};
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct TimeToLive {
-	#[arg(
+	#[usage(
 		alias = "no-ttl",
-		id = "get.time_to_live.no_time_to_live",
 		long = "no-time-to-live",
-		overrides_with = "get.time_to_live.time_to_live"
+		overrides("--time-to-live")
 	)]
 	pub no_time_to_live: bool,
 
-	#[arg(alias = "ttl", id = "get.time_to_live.time_to_live", long = "time-to-live", overrides_with = "get.time_to_live.no_time_to_live", value_parser = humantime::parse_duration)]
-	pub time_to_live: Option<Duration>,
+	#[usage(alias = "ttl", long = "time-to-live", overrides("--no-time-to-live"))]
+	pub time_to_live: Option<humantime::Duration>,
 }
 
 pub async fn get_with_follow(
@@ -306,12 +304,13 @@ pub async fn get_module(cli: &mut Cli, reference: &tg::Reference) -> tg::Result<
 }
 
 impl TimeToLive {
+	#[must_use]
 	pub fn get(&self) -> tg::remote::cache::TimeToLive {
 		if self.no_time_to_live {
 			tg::remote::cache::TimeToLive::Infinite
 		} else {
 			self.time_to_live
-				.map_or_default(tg::remote::cache::TimeToLive::Duration)
+				.map_or_default(|duration| tg::remote::cache::TimeToLive::Duration(duration.into()))
 		}
 	}
 }

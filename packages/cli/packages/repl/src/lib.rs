@@ -7,11 +7,11 @@ use {
 };
 
 /// Run a REPL.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// The JavaScript engine to use.
-	#[arg(default_value = "auto", long)]
+	#[usage(default = "auto", long, value_enum)]
 	pub engine: Engine,
 }
 

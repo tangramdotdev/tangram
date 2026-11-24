@@ -3,39 +3,38 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*};
 /// Get usage for a user or organization.
 ///
 /// Usage includes all regions of the selected server unless a specific region is selected with --location.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub period: PeriodArgs,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[arg(index = 1)]
 	pub selector: Option<tg::Referent<tg::Selector<tg::Id>>>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct PeriodArgs {
 	/// Get usage for a UTC day in YYYY-MM-DD format.
-	#[arg(long, conflicts_with_all = ["hour", "month", "week"])]
+	#[usage(long, conflicts("--hour", "--month", "--week"))]
 	pub day: Option<String>,
 
 	/// Get usage for a UTC hour as an hour-aligned RFC 3339 timestamp.
-	#[arg(long, conflicts_with_all = ["day", "month", "week"])]
+	#[usage(long, conflicts("--day", "--month", "--week"))]
 	pub hour: Option<String>,
 
 	/// Get usage for a UTC month in YYYY-MM format.
-	#[arg(long, conflicts_with_all = ["day", "hour", "week"])]
+	#[usage(long, conflicts("--day", "--hour", "--week"))]
 	pub month: Option<String>,
 
 	/// Get usage for an ISO week in YYYY-Www format.
-	#[arg(long, conflicts_with_all = ["day", "hour", "month"])]
+	#[usage(long, conflicts("--day", "--hour", "--month"))]
 	pub week: Option<String>,
 }
 

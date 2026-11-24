@@ -10,26 +10,22 @@ use {
 };
 
 /// Update a lock.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub checkin: tangram_cli_checkin::Options,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub json: bool,
 
-	#[arg(default_value = ".", index = 1)]
+	#[usage(default = ".")]
 	pub path: PathBuf,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[arg(
-		action = clap::ArgAction::Append,
-		index = 2,
-		num_args = 1..,
-	)]
+	#[usage(num_args = 1..)]
 	pub updates: Option<Vec<tg::specifier::Pattern>>,
 }
 

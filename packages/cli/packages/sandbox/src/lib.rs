@@ -15,17 +15,17 @@ pub mod stop;
 pub mod wait;
 
 /// Manage sandboxes.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, clap::Subcommand)]
+#[derive(Clone, Debug, usage_rs::Subcommands)]
 pub enum Command {
 	#[cfg(target_os = "linux")]
-	#[command(hide = true)]
+	#[usage(hide = true)]
 	Configure(self::configure::Args),
 
 	Create(self::create::Args),
@@ -34,16 +34,16 @@ pub enum Command {
 
 	Get(self::get::Args),
 
-	#[command(hide = true)]
+	#[usage(hide = true)]
 	Init(self::init::Args),
 
-	#[command(alias = "ls")]
+	#[usage(alias = "ls")]
 	List(self::list::Args),
 
-	#[command(hide = true)]
+	#[usage(hide = true)]
 	Run(self::run::Args),
 
-	#[command(hide = true)]
+	#[usage(hide = true)]
 	Serve(self::serve::Args),
 
 	Start(self::start::Args),
@@ -55,113 +55,102 @@ pub enum Command {
 	Wait(self::wait::Args),
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Options {
-	#[arg(alias = "cpu-max", id = "sandbox.cpu", long = "cpu")]
+	#[usage(alias = "cpu-max", long = "cpu")]
 	pub cpu: Option<tg::sandbox::Amount>,
 
-	#[arg(id = "sandbox.cpu_min", long = "cpu-min")]
+	#[usage(long = "cpu-min")]
 	pub cpu_min: Option<tg::sandbox::Amount>,
 
-	#[arg(id = "sandbox.hostname", long = "hostname")]
+	#[usage(long = "hostname")]
 	pub hostname: Option<String>,
 
-	#[arg(alias = "memory-max", id = "sandbox.memory", long = "memory", value_parser = parse_bytes)]
-	pub memory: Option<u64>,
+	#[usage(alias = "memory-max", long = "memory")]
+	pub memory: Option<Bytes>,
 
-	#[arg(id = "sandbox.memory_min", long = "memory-min", value_parser = parse_bytes)]
-	pub memory_min: Option<u64>,
+	#[usage(long = "memory-min")]
+	pub memory_min: Option<Bytes>,
 
-	#[arg(action = clap::ArgAction::Append, id = "sandbox.mounts", long = "mount", num_args = 1, short = 'm')]
+	#[usage(long = "mount", short = 'm')]
 	pub mounts: Vec<tg::sandbox::Mount>,
 
-	#[clap(flatten)]
+	#[usage(flatten)]
 	pub network: Network,
 
-	#[clap(flatten)]
+	#[usage(flatten)]
 	pub owner: Owner,
 
-	#[arg(action = clap::ArgAction::Append, id = "sandbox.ports", long = "port", num_args = 1, short = 'p')]
+	#[usage(long = "port", short = 'p')]
 	pub ports: Vec<tg::sandbox::Port>,
 
-	#[arg(alias = "storage-max", id = "sandbox.storage", long = "storage", value_parser = parse_bytes)]
-	pub storage: Option<u64>,
+	#[usage(alias = "storage-max", long = "storage")]
+	pub storage: Option<Bytes>,
 
-	#[arg(id = "sandbox.storage_min", long = "storage-min", value_parser = parse_bytes)]
-	pub storage_min: Option<u64>,
+	#[usage(long = "storage-min")]
+	pub storage_min: Option<Bytes>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Copy, Debug)]
+pub struct Bytes(pub u64);
+
+#[derive(Clone, Copy, Debug)]
+pub struct Name<T>(pub T);
+
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Network {
 	/// Enable networking.
-	#[arg(
-		default_missing_value = "",
-		id = "sandbox.network.network",
+	#[usage(
+		default_missing = "",
 		long = "network",
-		num_args = 0..=1,
-		overrides_with = "sandbox.network.no_network",
-		require_equals = true,
-		value_parser = parse_network,
+		overrides("--no-network"),
+		require_equals = true
 	)]
-	network: Option<tg::sandbox::Network>,
+	network: Option<NetworkName>,
 
-	#[arg(
-		default_missing_value = "true",
-		id = "sandbox.network.no_network",
-		long = "no-network",
-		num_args = 0..=1,
-		overrides_with = "sandbox.network.network",
-		require_equals = true,
-	)]
+	#[usage(long = "no-network", bool_value, overrides("--network"))]
 	no_network: bool,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug)]
+struct NetworkName(tg::sandbox::Network);
+
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Owner {
-	#[arg(id = "sandbox.owner.value", long = "owner", conflicts_with_all = ["sandbox.owner.user", "sandbox.owner.group", "sandbox.owner.organization"])]
+	#[usage(long = "owner", conflicts("--user", "--group", "--organization"))]
 	value: Option<tg::principal::Selector>,
 
-	#[arg(id = "sandbox.owner.user", long = "user", conflicts_with_all = ["sandbox.owner.value", "sandbox.owner.group", "sandbox.owner.organization"])]
+	#[usage(long = "user", conflicts("--owner", "--group", "--organization"))]
 	user: Option<tg::principal::Selector>,
 
-	#[arg(id = "sandbox.owner.group", long = "group", conflicts_with_all = ["sandbox.owner.value", "sandbox.owner.user", "sandbox.owner.organization"])]
+	#[usage(long = "group", conflicts("--owner", "--user", "--organization"))]
 	group: Option<tg::principal::Selector>,
 
-	#[arg(alias = "org", id = "sandbox.owner.organization", long = "organization", conflicts_with_all = ["sandbox.owner.value", "sandbox.owner.user", "sandbox.owner.group"])]
+	#[usage(
+		alias = "org",
+		long = "organization",
+		conflicts("--owner", "--user", "--group")
+	)]
 	organization: Option<tg::principal::Selector>,
 }
 
-#[derive(Clone, Copy, Debug, clap::Args)]
+#[derive(Clone, Copy, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Http2 {
-	#[arg(
-		id = "sandbox.http2.connection_window_size",
-		long = "http2-connection-window-size"
-	)]
+	#[usage(long = "http2-connection-window-size")]
 	connection_window_size: u32,
 
-	#[arg(
-		id = "sandbox.http2.max_concurrent_reset_streams",
-		long = "http2-max-concurrent-reset-streams"
-	)]
+	#[usage(long = "http2-max-concurrent-reset-streams")]
 	max_concurrent_reset_streams: usize,
 
-	#[arg(
-		id = "sandbox.http2.max_concurrent_streams",
-		long = "http2-max-concurrent-streams"
-	)]
+	#[usage(long = "http2-max-concurrent-streams")]
 	max_concurrent_streams: Option<u32>,
 
-	#[arg(
-		id = "sandbox.http2.stream_window_size",
-		long = "http2-stream-window-size"
-	)]
+	#[usage(long = "http2-stream-window-size")]
 	stream_window_size: u32,
-}
-
-pub(crate) fn parse_backend(value: &str) -> tg::Result<tangram_sandbox::Kind> {
-	serde_json::from_value(serde_json::Value::String(value.to_owned()))
-		.map_err(|error| tg::error!(!error, %value, "invalid sandbox backend"))
 }
 
 pub fn normalize_network(
@@ -175,10 +164,11 @@ pub fn normalize_network(
 			Err(tg::error!("ports require networking"))
 		};
 	}
+	let network = network.get();
 	if ports.is_empty() {
-		return Ok(network.network.clone());
+		return Ok(network);
 	}
-	match network.network.clone() {
+	match network {
 		Some(tg::sandbox::Network::Host) => {
 			Err(tg::error!("ports are not supported with host networking"))
 		},
@@ -203,7 +193,9 @@ pub fn cpu(options: &Options) -> Option<tg::sandbox::Cpu> {
 }
 
 #[must_use]
-pub fn resource(min: Option<u64>, max: Option<u64>) -> Option<tg::sandbox::Resource<u64>> {
+pub fn resource(min: Option<Bytes>, max: Option<Bytes>) -> Option<tg::sandbox::Resource<u64>> {
+	let min = min.map(|min| min.0);
+	let max = max.map(|max| max.0);
 	if min.is_none() && max.is_none() {
 		return None;
 	}
@@ -300,7 +292,7 @@ impl Network {
 	#[must_use]
 	pub fn with_network(network: tg::sandbox::Network) -> Self {
 		Self {
-			network: Some(network),
+			network: Some(NetworkName(network)),
 			no_network: false,
 		}
 	}
@@ -310,7 +302,7 @@ impl Network {
 		if self.no_network {
 			None
 		} else {
-			self.network.clone()
+			self.network.clone().map(|network| network.0)
 		}
 	}
 }
@@ -539,33 +531,54 @@ async fn resolve_organization_owner_specifier(
 	Ok(organization.map(|organization| tg::Principal::Organization(organization.data.id)))
 }
 
-fn parse_network(s: &str) -> tg::Result<tg::sandbox::Network> {
-	match s {
-		"" | "default" | "true" => Ok(tg::sandbox::Network::Default),
-		"bridge" => Ok(tg::sandbox::Network::Bridge(tg::sandbox::Bridge::default())),
-		"host" => Ok(tg::sandbox::Network::Host),
-		_ => Err(tg::error!(%s, "invalid network")),
+impl<T: serde::de::DeserializeOwned> std::str::FromStr for Name<T> {
+	type Err = serde_json::Error;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		serde_json::from_value(serde_json::Value::String(value.to_owned())).map(Self)
 	}
 }
 
-fn parse_bytes(value: &str) -> tg::Result<u64> {
-	let (value, multiplier) = [
-		("TiB", 1_u64 << 40),
-		("GiB", 1_u64 << 30),
-		("MiB", 1_u64 << 20),
-		("KiB", 1_u64 << 10),
-		("GB", 1_000_000_000),
-		("MB", 1_000_000),
-		("KB", 1_000),
-		("B", 1),
-	]
-	.into_iter()
-	.find_map(|(suffix, multiplier)| value.strip_suffix(suffix).map(|value| (value, multiplier)))
-	.unwrap_or((value, 1));
-	let value = value
-		.parse::<u64>()
-		.map_err(|error| tg::error!(!error, "invalid resource byte count"))?;
-	value
-		.checked_mul(multiplier)
-		.ok_or_else(|| tg::error!("the resource byte count is too large"))
+impl std::str::FromStr for NetworkName {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> tg::Result<Self> {
+		match s {
+			"" | "default" | "true" => Ok(Self(tg::sandbox::Network::Default)),
+			"bridge" => Ok(Self(tg::sandbox::Network::Bridge(
+				tg::sandbox::Bridge::default(),
+			))),
+			"host" => Ok(Self(tg::sandbox::Network::Host)),
+			_ => Err(tg::error!(%s, "invalid network")),
+		}
+	}
+}
+
+impl std::str::FromStr for Bytes {
+	type Err = tg::Error;
+
+	fn from_str(value: &str) -> tg::Result<Self> {
+		let (value, multiplier) = [
+			("TiB", 1_u64 << 40),
+			("GiB", 1_u64 << 30),
+			("MiB", 1_u64 << 20),
+			("KiB", 1_u64 << 10),
+			("GB", 1_000_000_000),
+			("MB", 1_000_000),
+			("KB", 1_000),
+			("B", 1),
+		]
+		.into_iter()
+		.find_map(|(suffix, multiplier)| {
+			value.strip_suffix(suffix).map(|value| (value, multiplier))
+		})
+		.unwrap_or((value, 1));
+		let value = value
+			.parse::<u64>()
+			.map_err(|error| tg::error!(!error, "invalid resource byte count"))?;
+		value
+			.checked_mul(multiplier)
+			.map(Self)
+			.ok_or_else(|| tg::error!("the resource byte count is too large"))
+	}
 }

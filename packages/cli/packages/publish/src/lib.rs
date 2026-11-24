@@ -11,48 +11,48 @@ use {
 };
 
 /// Publish packages with their transitive source dependencies.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(default_value = "false", long)]
+	#[usage(default = "false", long)]
 	pub dry_run: bool,
 
 	/// Build only these exports of the published packages. Can be specified multiple times.
-	#[arg(action = clap::ArgAction::Append, long = "export")]
+	#[usage(long = "export")]
 	pub exports: Vec<String>,
 
 	/// Replace conflicting named nodes and their descendants.
-	#[arg(long, short)]
+	#[usage(long, short)]
 	pub force: bool,
 
 	/// Build only on these hosts. Can be specified multiple times.
-	#[arg(action = clap::ArgAction::Append, long = "host")]
+	#[usage(long = "host")]
 	pub hosts: Vec<String>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
 	/// Do not build the exports of the published packages.
-	#[arg(long)]
+	#[usage(long)]
 	pub no_builds: bool,
 
 	/// The paths of the packages to publish.
-	#[arg(default_value = ".", index = 1)]
+	#[usage(default = ".")]
 	pub paths: Vec<PathBuf>,
 
 	/// Grant public read access.
-	#[arg(long)]
+	#[usage(long)]
 	pub public: bool,
 
 	/// Retry failed builds.
-	#[arg(long)]
+	#[usage(long)]
 	pub retry: bool,
 
-	#[arg(long, short)]
+	#[usage(long, short)]
 	pub tag: Option<String>,
 
 	/// Write the interface beside each config whose interface differs from the interface that its runtime generates.
-	#[arg(default_value = "false", long)]
+	#[usage(default = "false", long)]
 	pub update_interfaces: bool,
 }
 
@@ -1406,7 +1406,7 @@ async fn publish_build_spawn(
 	let args = tangram_cli_process::run::Args {
 		options,
 		reference: Some(reference),
-		trailing: Vec::new(),
+		trailing: tangram_cli_process::Trailing::default(),
 	};
 	let output = tangram_cli_process::build::build(cli, args)
 		.boxed_local()

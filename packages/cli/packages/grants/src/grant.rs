@@ -1,24 +1,21 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Grant permissions to a subject on a resource.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Create a new grant instead of adding to the creator's existing grant.
-	#[arg(long)]
+	#[usage(long)]
 	pub create: bool,
 
-	#[arg(index = 2)]
-	pub permissions: tg::Either<tg::authorization::permission::Set, String>,
+	pub subject: tg::authorization::subject::Selector,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[arg(index = 3)]
-	pub resource: tg::Referent<tg::Selector<tg::Id>>,
+	pub permissions: tg::Either<tg::authorization::permission::Set, String>,
 
-	#[arg(index = 1)]
-	pub subject: tg::authorization::subject::Selector,
+	pub resource: tg::Referent<tg::Selector<tg::Id>>,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {

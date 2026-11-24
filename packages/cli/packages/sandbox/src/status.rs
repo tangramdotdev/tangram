@@ -10,36 +10,32 @@ use {
 };
 
 /// Get a sandbox's status.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub locations: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[arg(index = 1)]
 	pub sandbox: tg::Referent<tg::sandbox::Id>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub timeout: Timeout,
 
 	/// Wait until the sandbox's status is this status, and fail if the sandbox can no longer have it.
-	#[arg(long)]
+	#[usage(long)]
 	pub until: Option<tg::sandbox::Status>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Timeout {
-	#[arg(id = "status.timeout.timeout", long = "timeout", overrides_with = "status.timeout.no_timeout", value_parser = humantime::parse_duration)]
-	pub timeout: Option<Duration>,
+	#[usage(long = "timeout", overrides("--no-timeout"))]
+	pub timeout: Option<humantime::Duration>,
 
-	#[arg(
-		id = "status.timeout.no_timeout",
-		long = "no-timeout",
-		overrides_with = "status.timeout.timeout"
-	)]
+	#[usage(long = "no-timeout", overrides("--timeout"))]
 	pub no_timeout: bool,
 }
 
@@ -107,9 +103,9 @@ impl Timeout {
 		if self.no_timeout {
 			None
 		} else if follow {
-			self.timeout
+			self.timeout.map(Into::into)
 		} else {
-			self.timeout.or(Some(Duration::ZERO))
+			self.timeout.map(Into::into).or(Some(Duration::ZERO))
 		}
 	}
 }

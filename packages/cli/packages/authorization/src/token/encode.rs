@@ -1,23 +1,23 @@
 use tangram_client::prelude::*;
 
 /// Encode an authorization token signed with an all-zero secret, which no server accepts, for tests of how clients handle tokens.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// The Unix time in seconds at which the token expires.
-	#[arg(long)]
+	#[usage(long)]
 	pub expires_at: i64,
 
 	/// A permission that the token grants.
-	#[arg(long = "permission", required = true)]
+	#[usage(long = "permission", required = true)]
 	pub permissions: Vec<tg::authorization::Permission>,
 
 	/// The resource that the token authorizes.
-	#[arg(long)]
+	#[usage(long)]
 	pub resource: tg::Id,
 
 	/// The ID of the secret that the token names.
-	#[arg(default_value_t = 0, long)]
+	#[usage(default = "0", long)]
 	pub secret_id: u64,
 }
 

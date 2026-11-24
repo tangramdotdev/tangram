@@ -1,24 +1,24 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Document a package.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
 	/// If this flag is set, the lock will not be updated.
-	#[arg(long)]
+	#[usage(long)]
 	pub locked: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[arg(default_value = ".", index = 1)]
+	#[usage(default = ".")]
 	pub reference: tg::Reference,
 
 	/// Generate the documentation for the runtime.
-	#[arg(long)]
+	#[usage(long)]
 	pub runtime: bool,
 }
 

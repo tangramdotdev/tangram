@@ -4,14 +4,14 @@ pub mod decode;
 pub mod encode;
 
 /// Work with authorization tokens.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, clap::Subcommand)]
+#[derive(Clone, Debug, usage_rs::Subcommands)]
 pub enum Command {
 	Decode(self::decode::Args),
 	Encode(self::encode::Args),

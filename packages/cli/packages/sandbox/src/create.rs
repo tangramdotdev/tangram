@@ -1,61 +1,58 @@
 use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Create a sandbox.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub arg: super::Options,
 
-	#[arg(id = "create.host", long = "host")]
+	#[usage(long = "host")]
 	pub host: Option<String>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub time_to_live: TimeToLive,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub time_to_stop: TimeToStop,
 
 	/// Wait for the sandbox to start.
-	#[arg(id = "create.wait", long = "wait")]
+	#[usage(long = "wait")]
 	pub wait: bool,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct TimeToLive {
 	/// Keep the sandbox until it is destroyed.
-	#[arg(
+	#[usage(
 		alias = "no-ttl",
-		id = "create.time_to_live.no_time_to_live",
 		long = "no-time-to-live",
-		overrides_with = "create.time_to_live.time_to_live"
+		overrides("--time-to-live")
 	)]
 	pub no_time_to_live: bool,
 
 	/// The time that the sandbox may go unused before it is destroyed.
-	#[arg(alias = "ttl", id = "create.time_to_live.time_to_live", long = "time-to-live", overrides_with = "create.time_to_live.no_time_to_live", value_parser = humantime::parse_duration)]
-	pub time_to_live: Option<Duration>,
+	#[usage(alias = "ttl", long = "time-to-live", overrides("--no-time-to-live"))]
+	pub time_to_live: Option<humantime::Duration>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct TimeToStop {
 	/// Keep the sandbox running until it is stopped.
-	#[arg(
-		id = "create.time_to_stop.no_time_to_stop",
-		long = "no-time-to-stop",
-		overrides_with = "create.time_to_stop.time_to_stop"
-	)]
+	#[usage(long = "no-time-to-stop", overrides("--time-to-stop"))]
 	pub no_time_to_stop: bool,
 
 	/// The time that the sandbox may run without processes before it is stopped.
-	#[arg(id = "create.time_to_stop.time_to_stop", long = "time-to-stop", overrides_with = "create.time_to_stop.no_time_to_stop", value_parser = humantime::parse_duration)]
-	pub time_to_stop: Option<Duration>,
+	#[usage(long = "time-to-stop", overrides("--no-time-to-stop"))]
+	pub time_to_stop: Option<humantime::Duration>,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -97,7 +94,7 @@ impl TimeToLive {
 		if self.no_time_to_live {
 			None
 		} else {
-			self.time_to_live.or(default)
+			self.time_to_live.map(Into::into).or(default)
 		}
 	}
 }
@@ -107,7 +104,7 @@ impl TimeToStop {
 		if self.no_time_to_stop {
 			None
 		} else {
-			self.time_to_stop.or(default)
+			self.time_to_stop.map(Into::into).or(default)
 		}
 	}
 }

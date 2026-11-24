@@ -1,18 +1,17 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Compute a checksum.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// The checksum algorithm to use.
-	#[arg(default_value = "sha256", long)]
+	#[usage(default = "sha256", long)]
 	pub algorithm: tg::checksum::Algorithm,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub build: tangram_cli_process::build::Options,
 
 	/// The blob or file to checksum.
-	#[arg(index = 1)]
 	pub reference: tg::Reference,
 }
 
@@ -42,7 +41,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let args = tangram_cli_process::build::Args {
 		options: options.clone(),
 		reference: Some(reference),
-		trailing: Vec::new(),
+		trailing: tangram_cli_process::Trailing::default(),
 	};
 	let output = tangram_cli_process::build::build(cli, args).await?;
 	let output = if transform && !output.is_null() {

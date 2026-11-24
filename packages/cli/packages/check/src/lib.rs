@@ -1,14 +1,14 @@
 use {futures::FutureExt as _, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Check.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// If this flag is set, the lock will not be updated.
-	#[arg(long)]
+	#[usage(long)]
 	pub locked: bool,
 
-	#[arg(default_value = ".", index = 1)]
+	#[usage(default = ".")]
 	pub references: Vec<tg::Reference>,
 }
 

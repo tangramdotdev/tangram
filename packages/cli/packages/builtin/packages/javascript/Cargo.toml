@@ -22,7 +22,6 @@ workspace = true
 
 [dependencies]
 deno_core_icudata = { workspace = true, optional = true }
-clap = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
 serde_json = { workspace = true }
@@ -31,4 +30,5 @@ tangram_cli_process = { workspace = true }
 tangram_client = { workspace = true }
 tangram_javascript = { workspace = true }
 tokio = { workspace = true }
+usage-rs = { workspace = true }
 v8 = { workspace = true, optional = true }

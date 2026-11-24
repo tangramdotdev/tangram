@@ -3,239 +3,239 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long, conflicts_with_all = ["config_fd", "launch"])]
+	#[usage(conflicts("--config-fd"), long)]
 	pub config: Option<PathBuf>,
 
-	#[arg(long, conflicts_with = "launch")]
+	#[usage(long)]
 	pub config_fd: Option<i32>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub options: Options,
 }
 
-#[derive(Clone, Debug, clap::Args)]
-#[group(id = "launch", multiple = true)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Options {
-	#[arg(long)]
+	#[usage(long)]
 	pub as_pid_1: bool,
 
-	#[arg(long, value_parser = crate::parse_backend)]
-	pub backend: Option<tangram_sandbox::Kind>,
+	#[usage(long)]
+	pub backend: Option<crate::Name<tangram_sandbox::Kind>>,
 
-	#[arg(long = "bind", action = clap::ArgAction::Append, num_args = 2)]
+	#[usage(long = "bind", num_args = 2)]
 	pub binds: Vec<PathBuf>,
 
-	#[arg(long = "cap-drop", action = clap::ArgAction::Append)]
+	#[usage(long = "cap-drop")]
 	pub cap_drop: Vec<String>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub cgroup: Option<String>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub cgroup_cpu: Option<u64>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub cgroup_delegate: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub cgroup_memory: Option<u64>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub cgroup_memory_oom_group: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub cgroup_pids: Option<u64>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub cgroup_readonly: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub chdir: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub clearenv: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub cloud_hypervisor_path: Option<PathBuf>,
 
-	#[arg(trailing_var_arg = true)]
+	#[usage(trailing_var_arg = true)]
 	pub command: Vec<OsString>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub cpu: Option<u64>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub create_snapshot: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub dax: Option<u64>,
 
-	#[arg(long = "dev", action = clap::ArgAction::Append, num_args = 1)]
+	#[usage(long = "dev")]
 	pub devs: Vec<PathBuf>,
 
-	#[arg(long, action = clap::ArgAction::Append)]
+	#[usage(long)]
 	pub dns: Vec<std::net::Ipv4Addr>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub filesystem_fd: Option<i32>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub filesystem_path: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub firewall: Option<tangram_sandbox::network::Firewall>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub fuse_fd: Option<i32>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub fuse_path: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub gateway_ip: Option<std::net::Ipv4Addr>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub gid: Option<u32>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub guest_ip: Option<std::net::Ipv4Addr>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub host_ip: Option<std::net::Ipv4Addr>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub hostname: Option<String>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub http2_connection_window_size: Option<u32>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub http2_max_concurrent_reset_streams: Option<usize>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub http2_max_concurrent_streams: Option<u32>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub http2_stream_window_size: Option<u32>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub image_path: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub index: Option<u64>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub kernel_path: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub max_cpu: Option<u64>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub max_memory: Option<u64>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub memory: Option<u64>,
 
-	#[arg(long = "mount", action = clap::ArgAction::Append)]
+	#[usage(long = "mount")]
 	pub mounts: Vec<tg::sandbox::Mount>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub network: Option<String>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub network_fd: Option<i32>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub network_interface: Option<String>,
 
-	#[arg(long, value_parser = humantime::parse_duration)]
-	pub network_interface_timeout: Option<std::time::Duration>,
+	#[usage(long)]
+	pub network_interface_timeout: Option<humantime::Duration>,
 
-	#[arg(long, value_parser = humantime::parse_duration)]
-	pub network_startup_timeout: Option<std::time::Duration>,
+	#[usage(long)]
+	pub network_startup_timeout: Option<humantime::Duration>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub nice: Option<u8>,
 
-	#[arg(long = "overlay-src", action = clap::ArgAction::Append, num_args = 1)]
+	#[usage(long = "overlay-src")]
 	pub overlay_sources: Vec<PathBuf>,
 
-	#[arg(long = "overlay", action = clap::ArgAction::Append, num_args = 3)]
+	#[usage(long = "overlay", num_args = 3)]
 	pub overlays: Vec<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub path: Option<PathBuf>,
 
-	#[arg(long, value_parser = parse_platform)]
-	pub platform: Option<tangram_sandbox::Platform>,
+	#[usage(long)]
+	pub platform: Option<crate::Name<tangram_sandbox::Platform>>,
 
-	#[arg(long = "port", action = clap::ArgAction::Append)]
+	#[usage(long = "port")]
 	pub ports: Vec<tg::sandbox::Port>,
 
-	#[arg(long = "proc", action = clap::ArgAction::Append, num_args = 1)]
+	#[usage(long = "proc")]
 	pub procs: Vec<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub profile: Option<PathBuf>,
 
-	#[arg(long, value_parser = humantime::parse_duration)]
-	pub ready_timeout: Option<std::time::Duration>,
+	#[usage(long)]
+	pub ready_timeout: Option<humantime::Duration>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub rlimit_nofile: Option<u64>,
 
-	#[arg(long = "ro-bind", action = clap::ArgAction::Append, num_args = 2)]
+	#[usage(long = "ro-bind", num_args = 2)]
 	pub ro_binds: Vec<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub rootfs_path: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub runtime_path: Option<PathBuf>,
 
-	#[arg(long, value_parser = parse_seccomp)]
-	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+	#[usage(long)]
+	pub seccomp: Option<crate::Name<tangram_sandbox::SeccompPolicy>>,
 
-	#[arg(long, value_parser = humantime::parse_duration)]
-	pub serial_connect_interval: Option<std::time::Duration>,
+	#[usage(long)]
+	pub serial_connect_interval: Option<humantime::Duration>,
 
-	#[arg(long, value_parser = humantime::parse_duration)]
-	pub serial_connect_timeout: Option<std::time::Duration>,
+	#[usage(long)]
+	pub serial_connect_timeout: Option<humantime::Duration>,
 
-	#[arg(long = "setenv", action = clap::ArgAction::Append, num_args = 2)]
+	#[usage(long = "setenv", num_args = 2)]
 	pub setenvs: Vec<String>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub snapshot: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub snapshot_cpu: Option<u64>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub snapshot_memory: Option<u64>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub store_path: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub tangram_path: Option<PathBuf>,
 
-	#[arg(long = "tmpfs", action = clap::ArgAction::Append, num_args = 1)]
+	#[usage(long = "tmpfs")]
 	pub tmpfs: Vec<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub uid: Option<u32>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub unshare_all: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub url: Option<tangram_uri::Uri>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub user_namespace_fd: Option<i32>,
 }
 
@@ -280,15 +280,38 @@ pub fn run(args: Args) -> tg::Result<std::process::ExitCode> {
 	tangram_sandbox::run::run(arg)
 }
 
+impl Args {
+	pub fn validate(&self) -> Result<(), usage_rs::Error<'static, 'static>> {
+		use usage_rs::spec::CommandArgs as _;
+		let config = if self.config.is_some() {
+			"--config"
+		} else if self.config_fd.is_some() {
+			"--config-fd"
+		} else {
+			return Ok(());
+		};
+		if let Some(option) = Options::any_standing(&self.options) {
+			return Err(usage_rs::Error::ConflictingFlags {
+				name: config,
+				other: option,
+			});
+		}
+		Ok(())
+	}
+}
+
 impl Options {
 	fn arg(self) -> tg::Result<tangram_sandbox::run::Arg> {
-		let backend = self.backend.unwrap_or({
-			if cfg!(target_os = "macos") {
-				tangram_sandbox::Kind::Seatbelt
-			} else {
-				tangram_sandbox::Kind::Builtin
-			}
-		});
+		let backend = self.backend.map_or_else(
+			|| {
+				if cfg!(target_os = "macos") {
+					tangram_sandbox::Kind::Seatbelt
+				} else {
+					tangram_sandbox::Kind::Builtin
+				}
+			},
+			|backend| backend.0,
+		);
 		self.validate(backend)?;
 		let arg = match backend {
 			#[cfg(target_os = "linux")]
@@ -621,7 +644,7 @@ impl Options {
 					gid: self.gid.unwrap_or(0),
 					hostname: self.hostname,
 					root: None,
-					seccomp: self.seccomp,
+					seccomp: self.seccomp.map(|seccomp| seccomp.0),
 					uid: self.uid.unwrap_or(0),
 				})
 			},
@@ -634,7 +657,7 @@ impl Options {
 						.runtime_path
 						.unwrap_or_else(|| tangram_sandbox::bubblewrap::run::Arg::default().path),
 					root: None,
-					seccomp: self.seccomp,
+					seccomp: self.seccomp.map(|seccomp| seccomp.0),
 					uid: self.uid.unwrap_or(0),
 				})
 			},
@@ -645,7 +668,7 @@ impl Options {
 					path: self
 						.runtime_path
 						.unwrap_or_else(|| tangram_sandbox::gvisor::run::Arg::default().path),
-					platform: self.platform.unwrap_or_default(),
+					platform: self.platform.map_or_default(|platform| platform.0),
 					uid: self.uid.unwrap_or(0),
 					..Default::default()
 				})
@@ -760,9 +783,11 @@ impl Options {
 			network,
 			network_interface_timeout: self
 				.network_interface_timeout
+				.map(Into::into)
 				.unwrap_or(std::time::Duration::from_secs(30)),
 			network_startup_timeout: self
 				.network_startup_timeout
+				.map(Into::into)
 				.unwrap_or(std::time::Duration::from_secs(30)),
 			path: self
 				.path
@@ -770,15 +795,18 @@ impl Options {
 			ports: self.ports,
 			ready_timeout: self
 				.ready_timeout
+				.map(Into::into)
 				.unwrap_or(std::time::Duration::from_secs(30)),
 			rootfs_path: self
 				.rootfs_path
 				.ok_or_else(|| tg::error!("the rootfs path is required"))?,
 			serial_connect_interval: self
 				.serial_connect_interval
+				.map(Into::into)
 				.unwrap_or(std::time::Duration::from_millis(100)),
 			serial_connect_timeout: self
 				.serial_connect_timeout
+				.map(Into::into)
 				.unwrap_or(std::time::Duration::from_secs(30)),
 			snapshot: self.snapshot,
 			snapshot_cpu: self.snapshot_cpu.unwrap_or(1),
@@ -870,14 +898,4 @@ impl Options {
 fn read_config(contents: &[u8]) -> tg::Result<tangram_sandbox::run::Arg> {
 	serde_json::from_slice(contents)
 		.map_err(|error| tg::error!(!error, "failed to parse the sandbox launch configuration"))
-}
-
-fn parse_platform(value: &str) -> tg::Result<tangram_sandbox::Platform> {
-	serde_json::from_value(serde_json::Value::String(value.to_owned()))
-		.map_err(|error| tg::error!(!error, "invalid gvisor platform"))
-}
-
-fn parse_seccomp(value: &str) -> tg::Result<tangram_sandbox::SeccompPolicy> {
-	serde_json::from_value(serde_json::Value::String(value.to_owned()))
-		.map_err(|error| tg::error!(!error, "invalid seccomp policy"))
 }

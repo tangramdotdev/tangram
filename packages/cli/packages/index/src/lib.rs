@@ -1,19 +1,19 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Index processes and objects.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Also wait for the permission capture queue to be empty, and for the index updates that the captures produce.
-	#[arg(long)]
+	#[usage(long)]
 	pub capture: bool,
 
 	/// Also wait for the database index queue to be empty, so that the index reflects every database write.
-	#[arg(long)]
+	#[usage(long)]
 	pub database: bool,
 
 	/// Also do everything that --capture does, and aggregate usage for every hour before the server's current hour.
-	#[arg(long)]
+	#[usage(long)]
 	pub usage: bool,
 }
 

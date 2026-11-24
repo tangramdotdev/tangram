@@ -6,17 +6,16 @@ use {
 };
 
 /// Activate a shell environment.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long)]
+	#[usage(long)]
 	pub permanent: bool,
 
-	#[arg(index = 2)]
-	pub reference: tg::Reference,
-
-	#[arg(index = 1)]
+	#[usage(value_enum)]
 	pub shell: Kind,
+
+	pub reference: tg::Reference,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {

@@ -5,19 +5,19 @@ use {
 	tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _},
 };
 
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long = "input", conflicts_with = "input_positional")]
+	#[usage(long = "input", conflicts("input-positional"))]
 	pub input_named: Option<PathBuf>,
 
-	#[arg(index = 1, conflicts_with = "input_named")]
+	#[usage(conflicts("--input"))]
 	pub input_positional: Option<PathBuf>,
 
-	#[arg(long = "output", conflicts_with = "output_positional")]
+	#[usage(long = "output", conflicts("output-positional"))]
 	pub output_named: Option<PathBuf>,
 
-	#[arg(index = 2, conflicts_with = "output_named")]
+	#[usage(conflicts("--output"))]
 	pub output_positional: Option<PathBuf>,
 }
 

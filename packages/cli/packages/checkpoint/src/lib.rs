@@ -7,14 +7,14 @@ pub mod unwatch;
 pub mod wait;
 pub mod watch;
 
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, clap::Subcommand)]
+#[derive(Clone, Debug, usage_rs::Subcommands)]
 pub enum Command {
 	Abort(self::abort::Args),
 	Continue(self::continue_::Args),
@@ -23,6 +23,9 @@ pub enum Command {
 	Wait(self::wait::Args),
 	Watch(self::watch::Args),
 }
+
+#[derive(Clone, Debug)]
+pub struct Params(tg::checkpoint::Params);
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
@@ -46,4 +49,12 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		},
 	}
 	Ok(())
+}
+
+impl std::str::FromStr for Params {
+	type Err = serde_json::Error;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		serde_json::from_str(value).map(Self)
+	}
 }

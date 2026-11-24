@@ -7,21 +7,21 @@ pub mod list;
 pub mod revoke;
 
 /// Manage grants.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, clap::Subcommand)]
+#[derive(Clone, Debug, usage_rs::Subcommands)]
 pub enum Command {
-	#[command(alias = "remove", alias = "rm")]
+	#[usage(alias = "remove", alias = "rm")]
 	Delete(self::delete::Args),
 
 	Get(self::get::Args),
 
-	#[command(alias = "ls")]
+	#[usage(alias = "ls")]
 	List(self::list::Args),
 }
 

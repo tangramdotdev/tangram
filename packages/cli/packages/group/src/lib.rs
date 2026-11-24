@@ -6,19 +6,19 @@ pub mod get;
 pub mod members;
 
 /// Manage groups.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, clap::Subcommand)]
+#[derive(Clone, Debug, usage_rs::Subcommands)]
 pub enum Command {
-	#[command(alias = "add")]
+	#[usage(alias = "add")]
 	Create(self::create::Args),
 
-	#[command(alias = "remove", alias = "rm")]
+	#[usage(alias = "remove", alias = "rm")]
 	Delete(self::delete::Args),
 
 	Get(self::get::Args),

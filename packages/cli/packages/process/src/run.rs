@@ -6,81 +6,59 @@ use {
 	tokio::signal::unix::{Signal, SignalKind, signal},
 };
 
-const DEFAULT_CHECKOUT_VALUE: &str = "\0";
-
 /// Spawn and await a process.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub options: Options,
 
 	/// The reference to the command, artifact, or process.
-	#[arg(index = 1, value_terminator = "--")]
 	pub reference: Option<tg::Reference>,
 
-	/// Set arguments.
-	#[arg(index = 2, trailing_var_arg = true)]
-	pub trailing: Vec<String>,
+	#[usage(flatten)]
+	pub trailing: crate::Trailing,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Options {
 	/// Whether to check out the output.
-	#[arg(
-		default_missing_value = DEFAULT_CHECKOUT_VALUE,
-		id = "run.checkout",
-		long = "checkout",
-		num_args = 0..=1,
-		require_equals = true,
-		short = 'c',
-		value_parser = checkout_parser()
-	)]
-	pub checkout: Option<Checkout>,
+	#[usage(long = "checkout", require_equals = true, short = 'c')]
+	pub checkout: Option<Option<PathBuf>>,
 
 	/// Whether to overwrite an existing file system object at the path.
-	#[arg(
-		id = "run.checkout_force",
-		long = "checkout-force",
-		requires = "run.checkout"
-	)]
+	#[usage(long = "checkout-force", requires("--checkout"))]
 	pub checkout_force: bool,
 
 	/// If this flag is set, then exit immediately instead of waiting for the process to finish.
-	#[arg(id = "run.detach", long = "detach", short = 'd')]
+	#[usage(long = "detach", short = 'd')]
 	pub detach: bool,
 
 	/// Echo the process's logged stdout and stderr to stdout and stderr while waiting for the process to finish.
-	#[arg(conflicts_with = "run.detach", id = "run.echo", long = "echo")]
+	#[usage(conflicts("--detach"), long = "echo")]
 	pub echo: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub spawn: crate::spawn::Options,
 
 	/// Print the full spawn output instead of just the process ID.
-	#[arg(id = "run.verbose", long = "verbose", short = 'v')]
+	#[usage(long = "verbose", short = 'v')]
 	pub verbose: bool,
 
 	/// The view to display if the process's stdio is not attached.
-	#[arg(id = "run.view", long = "view")]
+	#[usage(long = "view", value_enum)]
 	pub view: Option<View>,
-}
-
-#[derive(Clone, Debug)]
-pub enum Checkout {
-	Default,
-	Path(PathBuf),
 }
 
 #[derive(
 	Clone,
 	Copy,
 	Debug,
-	clap::ValueEnum,
+	usage_rs::ValueEnum,
 	derive_more::IsVariant,
 	serde::Deserialize,
 	serde::Serialize,
@@ -220,7 +198,7 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 			cli,
 			options.spawn,
 			reference,
-			trailing,
+			trailing.into_values(),
 			print,
 			mode,
 		));
@@ -485,7 +463,7 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 		let artifact: tg::Artifact = output
 			.try_into()
 			.map_err(|_| tg::error!("expected an artifact"))?;
-		let path = if let Checkout::Path(path) = checkout {
+		let path = if let Some(path) = checkout {
 			let path = tangram_util::fs::canonicalize_parent(path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
@@ -684,45 +662,31 @@ async fn stop_view_task(view_task: Task<tg::Result<()>>) {
 	}
 }
 
-fn checkout_parser() -> impl clap::builder::TypedValueParser<Value = Checkout> {
-	use clap::builder::TypedValueParser as _;
-	clap::builder::PathBufValueParser::new().map(|value| {
-		// Use an internal missing-value marker that cannot occur in a command-line argument.
-		if value.as_os_str() == DEFAULT_CHECKOUT_VALUE {
-			Checkout::Default
-		} else {
-			Checkout::Path(value)
-		}
-	})
-}
-
 #[cfg(test)]
 mod tests {
 	use {
-		super::{Checkout, Options},
-		clap::Parser as _,
-		std::path::Path,
+		super::Options,
+		std::{ffi::OsStr, path::Path},
 	};
 
 	#[test]
 	fn checkout_flag() {
-		#[derive(clap::Parser)]
+		#[derive(usage_rs::Cli)]
 		struct Cli {
-			#[command(flatten)]
+			#[usage(flatten)]
 			options: Options,
 		}
 
 		for args in [["tg", "--checkout"], ["tg", "-c"]] {
-			let cli = Cli::try_parse_from(args).unwrap();
-			assert!(matches!(cli.options.checkout, Some(Checkout::Default)));
+			let cli = Cli::try_parse_from(&args.map(OsStr::new)).unwrap();
+			assert!(matches!(cli.options.checkout, Some(None)));
 		}
-		let cli = Cli::try_parse_from(["tg"]).unwrap();
+		let cli = Cli::try_parse_from(&["tg"].map(OsStr::new)).unwrap();
 		assert!(cli.options.checkout.is_none());
-		let cli = Cli::try_parse_from(["tg", "--checkout=output", "--checkout-force"]).unwrap();
-		assert!(
-			matches!(cli.options.checkout, Some(Checkout::Path(path)) if path == Path::new("output"))
-		);
-		assert!(Cli::try_parse_from(["tg", "--checkout="]).is_err());
-		assert!(Cli::try_parse_from(["tg", "--checkout-force"]).is_err());
+		let cli =
+			Cli::try_parse_from(&["tg", "--checkout=output", "--checkout-force"].map(OsStr::new))
+				.unwrap();
+		assert!(matches!(cli.options.checkout, Some(Some(path)) if path == Path::new("output")));
+		assert!(Cli::try_parse_from(&["tg", "--checkout-force"].map(OsStr::new)).is_err());
 	}
 }

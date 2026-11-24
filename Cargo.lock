@@ -1346,25 +1346,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clap_complete"
-version = "4.6.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "037e2a1a92236d0aff7e845093f64661d6df4c02c9fcc61a60e9e1d736fa392f"
-dependencies = [
- "clap",
-]
-
-[[package]]
-name = "clap_complete_nushell"
-version = "4.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffb66bc82eb9c92b1727310ae2c5868df22ae7cf46185bc5c544a4fa71955e49"
-dependencies = [
- "clap",
- "clap_complete",
-]
-
-[[package]]
 name = "clap_derive"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9255,7 +9236,6 @@ dependencies = [
 name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
- "clap",
  "foundationdb",
  "futures",
  "rustls",
@@ -9323,39 +9303,40 @@ dependencies = [
  "tangram_server_authentication_common",
  "tangram_tests_util",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_archive"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_process",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_authorization"
 version = "0.0.0"
 dependencies = [
- "clap",
  "serde",
  "serde_json",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_availability"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_object",
  "tangram_cli_process",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
@@ -9365,7 +9346,6 @@ dependencies = [
  "astral-tokio-tar",
  "async-compression",
  "async_zip",
- "clap",
  "crossterm",
  "futures",
  "libc",
@@ -9383,23 +9363,23 @@ dependencies = [
  "tangram_util",
  "tokio",
  "tokio-util",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_builtin_config"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_client",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_builtin_javascript"
 version = "0.0.0"
 dependencies = [
- "clap",
  "deno_core_icudata",
  "derive_more",
  "futures",
@@ -9409,6 +9389,7 @@ dependencies = [
  "tangram_client",
  "tangram_javascript",
  "tokio",
+ "usage-rs",
  "v8",
 ]
 
@@ -9416,112 +9397,112 @@ dependencies = [
 name = "tangram_cli_builtin_python"
 version = "0.0.0"
 dependencies = [
- "clap",
  "serde_json",
  "tangram_cli_core",
  "tangram_client",
  "tangram_python",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_bundle"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_check"
 version = "0.0.0"
 dependencies = [
- "clap",
  "futures",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_checkin"
 version = "0.0.0"
 dependencies = [
- "clap",
  "humantime",
  "tangram_cli_core",
  "tangram_client",
  "tangram_util",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_checkout"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
  "tangram_util",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_checkpoint"
 version = "0.0.0"
 dependencies = [
- "clap",
  "humantime",
  "serde_json",
  "tangram_cli_core",
  "tangram_client",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_checksum"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_process",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_clean"
 version = "0.0.0"
 dependencies = [
- "clap",
  "num",
  "tangram_cli_core",
  "tangram_client",
  "tangram_futures",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_clock"
 version = "0.0.0"
 dependencies = [
- "clap",
  "humantime",
  "jiff 1.0.0",
  "tangram_cli_core",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_compress"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_process",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
@@ -9530,7 +9511,6 @@ version = "0.0.0"
 dependencies = [
  "anstream",
  "byteorder",
- "clap",
  "console-subscriber",
  "crossterm",
  "derive_more",
@@ -9567,6 +9547,7 @@ dependencies = [
  "tracing-tree",
  "unicode-segmentation",
  "unicode-width 0.2.3",
+ "usage-rs",
  "waitpid-any",
  "webbrowser",
 ]
@@ -9575,191 +9556,191 @@ dependencies = [
 name = "tangram_cli_decompress"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_process",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_document"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_download"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_process",
  "tangram_cli_sandbox",
  "tangram_client",
  "tangram_uri",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_extract"
 version = "0.0.0"
 dependencies = [
- "clap",
  "futures",
  "tangram_cli_core",
  "tangram_cli_process",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_format"
 version = "0.0.0"
 dependencies = [
- "clap",
  "futures",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
  "tangram_compiler",
  "tangram_util",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_get"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_object",
  "tangram_cli_process",
  "tangram_cli_reference",
  "tangram_cli_sandbox",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_grants"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_group"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_health"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_id"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_client",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_index"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_init"
 version = "0.0.0"
 dependencies = [
- "clap",
  "indoc",
  "tangram_client",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_interface"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_list"
 version = "0.0.0"
 dependencies = [
- "clap",
  "humantime",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_lsp"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_client",
  "tangram_util",
  "tokio",
  "tokio-util",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_match"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_list",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_metadata"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_object",
  "tangram_cli_process",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_new"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_init",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
@@ -9767,7 +9748,6 @@ name = "tangram_cli_object"
 version = "0.0.0"
 dependencies = [
  "bytes",
- "clap",
  "serde_json",
  "tangram_cli_core",
  "tangram_cli_reference",
@@ -9775,17 +9755,18 @@ dependencies = [
  "tangram_util",
  "tokio",
  "tokio-util",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_organization"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_cli_usage",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
@@ -9793,19 +9774,18 @@ name = "tangram_cli_outdated"
 version = "0.0.0"
 dependencies = [
  "anstream",
- "clap",
  "crossterm",
  "serde",
  "tangram_cli_core",
  "tangram_cli_update",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_process"
 version = "0.0.0"
 dependencies = [
- "clap",
  "derive_more",
  "futures",
  "humantime",
@@ -9826,6 +9806,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "usage-rs",
 ]
 
 [[package]]
@@ -9833,7 +9814,6 @@ name = "tangram_cli_publish"
 version = "0.0.0"
 dependencies = [
  "byte-unit",
- "clap",
  "futures",
  "petgraph",
  "radix_trie",
@@ -9846,17 +9826,18 @@ dependencies = [
  "tangram_compiler",
  "tangram_util",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_pull"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_push",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
@@ -9864,61 +9845,60 @@ name = "tangram_cli_push"
 version = "0.0.0"
 dependencies = [
  "byte-unit",
- "clap",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_put"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_object",
  "tangram_cli_process",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_read"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_reference"
 version = "0.0.0"
 dependencies = [
- "clap",
  "futures",
  "humantime",
  "tangram_cli_core",
  "tangram_client",
  "tangram_util",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_remote"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_client",
  "tangram_uri",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_repl"
 version = "0.0.0"
 dependencies = [
- "clap",
  "nu-ansi-term",
  "reedline",
  "syntect",
@@ -9927,25 +9907,26 @@ dependencies = [
  "tangram_client",
  "tangram_javascript",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_runner"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_sandbox"
 version = "0.0.0"
 dependencies = [
- "clap",
  "futures",
  "humantime",
  "libc",
+ "serde",
  "serde_json",
  "tangram_cli_core",
  "tangram_cli_reference",
@@ -9954,13 +9935,13 @@ dependencies = [
  "tangram_http",
  "tangram_sandbox",
  "tangram_uri",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_server"
 version = "0.0.0"
 dependencies = [
- "clap",
  "futures",
  "serde_json",
  "tangram_cli_core",
@@ -9971,15 +9952,13 @@ dependencies = [
  "tangram_server",
  "tangram_uri",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_shell"
 version = "0.0.0"
 dependencies = [
- "clap",
- "clap_complete",
- "clap_complete_nushell",
  "futures",
  "rand 0.10.3",
  "serde",
@@ -9988,48 +9967,49 @@ dependencies = [
  "tangram_cli_process",
  "tangram_client",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_tag"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_checkin",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_tangram"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_client",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_touch"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_object",
  "tangram_cli_process",
  "tangram_cli_reference",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_tree"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_view",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
@@ -10037,7 +10017,6 @@ name = "tangram_cli_update"
 version = "0.0.0"
 dependencies = [
  "anstream",
- "clap",
  "crossterm",
  "serde",
  "serde_json",
@@ -10046,33 +10025,33 @@ dependencies = [
  "tangram_client",
  "tangram_util",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_usage"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_user"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_cli_usage",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_view"
 version = "0.0.0"
 dependencies = [
- "clap",
  "serde",
  "tangram_cli_core",
  "tangram_cli_reference",
@@ -10080,6 +10059,7 @@ dependencies = [
  "tangram_client",
  "tangram_futures",
  "tokio",
+ "usage-rs",
 ]
 
 [[package]]
@@ -10111,35 +10091,35 @@ dependencies = [
 name = "tangram_cli_wait"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_core",
  "tangram_cli_process",
  "tangram_cli_reference",
  "tangram_cli_sandbox",
  "tangram_client",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_watch"
 version = "0.0.0"
 dependencies = [
- "clap",
  "futures",
  "tangram_cli_core",
  "tangram_client",
  "tangram_util",
+ "usage-rs",
 ]
 
 [[package]]
 name = "tangram_cli_write"
 version = "0.0.0"
 dependencies = [
- "clap",
  "tangram_cli_checkin",
  "tangram_cli_core",
  "tangram_client",
  "tangram_util",
  "tokio-util",
+ "usage-rs",
 ]
 
 [[package]]
@@ -14251,6 +14231,43 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde_derive",
+]
+
+[[package]]
+name = "usage-argv"
+version = "7.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0680cd07fc24555ee52e775d5f7ca54967920dc13301a7c51d14c1ce588b20c5"
+
+[[package]]
+name = "usage-derive"
+version = "7.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "879d9c148d936f0d1ff9e937054683ffb1a69b61cc881ef470ffec4fd45fe472"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
+name = "usage-rs"
+version = "7.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a1c4c3b6945e9501462e61c8ef09a1ad6f97c60d845ca4a171dde224282b8c3"
+dependencies = [
+ "usage-argv",
+ "usage-derive",
+ "usage-test",
+]
+
+[[package]]
+name = "usage-test"
+version = "7.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "667e8f3a72b4a8c9f929b595663e76284abcb29ee42af8a263065fcf3aa53e3e"
+dependencies = [
+ "usage-argv",
 ]
 
 [[package]]

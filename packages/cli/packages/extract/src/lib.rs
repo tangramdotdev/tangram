@@ -1,13 +1,12 @@
 use {futures::FutureExt as _, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Extract an artifact from a blob.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub build: tangram_cli_process::build::Options,
 
-	#[arg(index = 1)]
 	pub reference: tg::Reference,
 }
 
@@ -26,7 +25,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let args = tangram_cli_process::build::Args {
 		options: args.build,
 		reference: Some(reference),
-		trailing: Vec::new(),
+		trailing: tangram_cli_process::Trailing::default(),
 	};
 	tangram_cli_process::build::run(cli, args).boxed().await?;
 	Ok(())

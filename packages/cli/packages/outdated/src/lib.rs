@@ -8,16 +8,16 @@ use {
 };
 
 /// Get a package's outdated dependencies.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long)]
+	#[usage(long)]
 	pub json: bool,
 
-	#[arg(default_value = ".", index = 1)]
+	#[usage(default = ".")]
 	pub path: PathBuf,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 }
 

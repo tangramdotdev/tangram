@@ -1,31 +1,24 @@
 use tangram_client::prelude::*;
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Use the local server.
-	#[arg(
-		conflicts_with_all = ["location.location"],
-		default_missing_value = "true",
-		id = "location.local",
-		long = "local",
-		num_args = 0,
-	)]
-	local: Option<bool>,
+	#[usage(conflicts("--location"), long)]
+	local: bool,
 
-	#[arg(id = "location.location", long = "location")]
+	#[usage(long = "location")]
 	location: Option<tg::location::Arg>,
 
 	/// Use the specified remotes. Pass --remote for the default remote or --remote=<name>[,<name>...] for specific remotes. Can be specified multiple times or comma-separated.
-	#[arg(
-		conflicts_with_all = ["location.location"],
-		default_missing_value = "default",
-		id = "location.remotes",
+	#[usage(
+		conflicts("--location"),
+		default_missing = "default",
 		long = "remotes",
-		num_args = 0..=1,
 		require_equals = true,
 		short = 'r',
-		value_delimiter = ',',
-		visible_alias = "remote",
+		delimiter = ',',
+		visible_alias = "remote"
 	)]
 	remotes: Option<Vec<String>>,
 }
@@ -46,7 +39,7 @@ impl Args {
 	#[must_use]
 	pub fn with_location(location: tg::location::Arg) -> Self {
 		Self {
-			local: None,
+			local: false,
 			location: Some(location),
 			remotes: None,
 		}
@@ -79,13 +72,11 @@ impl Args {
 
 		let mut arg: Option<tg::location::Arg> = None;
 
-		if let Some(local) = self.local {
+		if self.local {
 			let arg = arg.get_or_insert_default();
-			if local {
-				arg.0.push(tg::location::arg::Component::Local(
-					tg::location::arg::LocalComponent::default(),
-				));
-			}
+			arg.0.push(tg::location::arg::Component::Local(
+				tg::location::arg::LocalComponent::default(),
+			));
 		}
 
 		if let Some(remotes) = &self.remotes {

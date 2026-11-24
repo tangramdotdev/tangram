@@ -5,23 +5,21 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	/// The paths to touch.
-	#[arg(index = 2)]
-	paths: Vec<PathBuf>,
+	/// The watch path.
+	path: PathBuf,
 
 	/// The file system event kind.
-	#[arg(default_value = "any", long, value_enum)]
+	#[usage(default = "any", long, value_enum)]
 	kind: Kind,
 
-	/// The watch path.
-	#[arg(index = 1)]
-	path: PathBuf,
+	/// The paths to touch.
+	paths: Vec<PathBuf>,
 }
 
-#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, usage_rs::ValueEnum)]
 enum Kind {
 	Any,
 	Remove,

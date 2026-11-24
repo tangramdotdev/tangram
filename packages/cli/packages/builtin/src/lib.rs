@@ -15,14 +15,14 @@ pub use tangram_cli_builtin_javascript as javascript;
 #[cfg(feature = "cpython")]
 pub use tangram_cli_builtin_python as python;
 
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, clap::Subcommand)]
+#[derive(Clone, Debug, usage_rs::Subcommands)]
 pub enum Command {
 	Archive(archive::Args),
 	Checksum(checksum::Args),
@@ -32,10 +32,10 @@ pub enum Command {
 	Download(download::Args),
 	Extract(extract::Args),
 	#[cfg(any(feature = "quickjs", feature = "v8"))]
-	#[command(name = "javascript", alias = "js")]
+	#[usage(name = "javascript", alias = "js")]
 	JavaScript(javascript::Args),
 	#[cfg(feature = "cpython")]
-	#[command(alias = "py")]
+	#[usage(alias = "py")]
 	Python(python::Args),
 }
 

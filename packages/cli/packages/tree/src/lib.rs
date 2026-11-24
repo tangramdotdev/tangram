@@ -1,18 +1,17 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Display a tree for a node.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub alternate_screen: tangram_cli_view::AlternateScreen,
 
 	/// The maximum depth to render, in levels below the root. Zero renders only the root.
-	#[arg(long)]
+	#[usage(long)]
 	pub depth: Option<u32>,
 
 	/// The reference to display a tree for.
-	#[arg(index = 1)]
 	pub reference: tg::Reference,
 }
 

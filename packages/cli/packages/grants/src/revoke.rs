@@ -1,17 +1,14 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Revoke permissions from the grant to a subject on a resource.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 2)]
+	pub subject: tg::authorization::subject::Selector,
+
 	pub permissions: tg::Either<tg::authorization::permission::Set, String>,
 
-	#[arg(index = 3)]
 	pub resource: tg::Referent<tg::Selector<tg::Id>>,
-
-	#[arg(index = 1)]
-	pub subject: tg::authorization::subject::Selector,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {

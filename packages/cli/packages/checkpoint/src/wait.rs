@@ -1,27 +1,24 @@
-use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 1)]
 	pub checkpoint: String,
 
-	#[arg(index = 3)]
-	pub hit: u64,
+	pub watch: u64,
 
 	/// Fail if the hit does not occur within this duration.
-	#[arg(long, value_parser = humantime::parse_duration)]
-	pub timeout: Option<Duration>,
+	#[usage(long)]
+	pub timeout: Option<humantime::Duration>,
 
-	#[arg(index = 2)]
-	pub watch: u64,
+	pub hit: u64,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let future = client.wait_checkpoint_hit(&args.checkpoint, args.watch, args.hit);
 	let output = match args.timeout {
-		Some(timeout) => tokio::time::timeout(timeout, future)
+		Some(timeout) => tokio::time::timeout(timeout.into(), future)
 			.await
 			.map_err(|error| {
 				tg::error!(

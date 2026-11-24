@@ -7,7 +7,7 @@ let local = server spawn
 let output = tg sandbox create --no-tokens --mount "::bad::" | complete
 failure $output
 snapshot --normalize $output.stderr r#'
-	error: invalid value '::bad::' for '--mount <sandbox.mounts>': expected an absolute path
+	error: invalid value '::bad::' for '--mount': expected an absolute path
 
 	For more information, try '--help'.
 

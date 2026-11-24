@@ -1,11 +1,11 @@
 #![recursion_limit = "256"]
 
 use {
-	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
-	std::ffi::OsString,
+	std::ffi::{OsStr, OsString},
 	tangram_cli_core::{ArgumentKind, Cli},
 	tangram_client::prelude::*,
+	usage_rs::{DoubleDash, Error, Event, Parser},
 };
 
 // Include the FoundationDB native library search path.
@@ -15,25 +15,28 @@ use tangram_fdb as _;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, clap::Parser)]
-#[command(
+#[derive(Debug, usage_rs::Cli)]
+#[usage(
 	about = "Tangram is a build system and package manager.",
 	after_help = "Run a process directly with: tg <reference> [options] [-- args]",
-	arg_required_else_help = true,
-	before_help = tangram_cli_core::before_help(),
-	disable_help_subcommand = true,
-	name = "tangram",
-	version = tangram_cli_core::version(),
+	arg_required_else_help,
+	args_override_self = false,
+	bin = "tangram",
+	completion,
+	default_subcommand = "run",
+	disable_help_subcommand,
+	unknown_flags = "error",
+	version
 )]
 struct Args {
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	command: Command,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	global: tangram_cli_core::Args,
 }
 
-#[derive(Debug, clap::Subcommand)]
+#[derive(Debug, usage_rs::Subcommands)]
 enum Command {
 	Archive(tangram_cli_archive::Args),
 
@@ -41,10 +44,10 @@ enum Command {
 
 	Availability(tangram_cli_availability::Args),
 
-	#[command(alias = "b")]
+	#[usage(alias = "b")]
 	Build(tangram_cli_process::build::Args),
 
-	#[command(hide = true)]
+	#[usage(hide = true)]
 	Builtin(tangram_cli_builtin::Args),
 
 	Bundle(tangram_cli_bundle::Args),
@@ -53,27 +56,27 @@ enum Command {
 
 	Check(tangram_cli_check::Args),
 
-	#[command(hide = true)]
+	#[usage(hide = true)]
 	Checkpoint(tangram_cli_checkpoint::Args),
 
-	#[command(alias = "ci")]
+	#[usage(alias = "ci")]
 	Checkin(tangram_cli_checkin::Args),
 
-	#[command(alias = "co")]
+	#[usage(alias = "co")]
 	Checkout(tangram_cli_checkout::Args),
 
 	Checksum(tangram_cli_checksum::Args),
 
 	Clean(tangram_cli_clean::Args),
 
-	#[command(hide = true)]
+	#[usage(hide = true)]
 	Clock(tangram_cli_clock::Args),
 
 	Compress(tangram_cli_compress::Args),
 
 	Decompress(tangram_cli_decompress::Args),
 
-	#[command(alias = "doc")]
+	#[usage(alias = "doc")]
 	Document(tangram_cli_document::Args),
 
 	Download(tangram_cli_download::Args),
@@ -90,12 +93,12 @@ enum Command {
 
 	Grants(tangram_cli_grants::Args),
 
-	#[command(alias = "groups")]
+	#[usage(alias = "groups")]
 	Group(tangram_cli_group::Args),
 
 	Health(tangram_cli_health::Args),
 
-	#[command(hide = true)]
+	#[usage(hide = true)]
 	Id(tangram_cli_id::Args),
 
 	Index(tangram_cli_index::Args),
@@ -104,7 +107,7 @@ enum Command {
 
 	Interface(tangram_cli_interface::Args),
 
-	#[command(alias = "ls")]
+	#[usage(alias = "ls")]
 	List(tangram_cli_list::Args),
 
 	Login(tangram_cli_user::login::Args),
@@ -121,17 +124,17 @@ enum Command {
 
 	New(tangram_cli_new::Args),
 
-	#[command(alias = "obj")]
+	#[usage(alias = "obj")]
 	Object(tangram_cli_object::Args),
 
-	#[command(alias = "org")]
+	#[usage(alias = "org")]
 	Organization(tangram_cli_organization::Args),
 
 	Outdated(tangram_cli_outdated::Args),
 
 	Output(tangram_cli_process::output::Args),
 
-	#[command(alias = "pcs")]
+	#[usage(alias = "pcs")]
 	Process(tangram_cli_process::Args),
 
 	Ps(tangram_cli_process::list::Args),
@@ -142,10 +145,10 @@ enum Command {
 
 	Push(tangram_cli_push::Args),
 
-	#[command(alias = "add")]
+	#[usage(alias = "add")]
 	Put(tangram_cli_put::Args),
 
-	#[command(alias = "cat")]
+	#[usage(alias = "cat")]
 	Read(tangram_cli_read::Args),
 
 	Remote(tangram_cli_remote::Args),
@@ -155,18 +158,15 @@ enum Command {
 	#[cfg(any(feature = "quickjs", feature = "v8"))]
 	Repl(tangram_cli_repl::Args),
 
-	#[command(alias = "r")]
+	#[usage(alias = "r")]
 	Run(tangram_cli_process::run::Args),
-
-	#[command(external_subcommand)]
-	Run_(Vec<OsString>),
 
 	Runner(tangram_cli_runner::Args),
 
-	#[command(alias = "sbx")]
+	#[usage(alias = "sbx")]
 	Sandbox(tangram_cli_sandbox::Args),
 
-	#[command(name = "self")]
+	#[usage(name = "self")]
 	Self_(tangram_cli_tangram::Args),
 
 	Shell(tangram_cli_shell::Args),
@@ -175,7 +175,7 @@ enum Command {
 
 	Server(tangram_cli_server::Args),
 
-	#[command(alias = "kill")]
+	#[usage(alias = "kill")]
 	Signal(tangram_cli_process::signal::Args),
 
 	Spawn(tangram_cli_process::spawn::Args),
@@ -184,7 +184,7 @@ enum Command {
 
 	Touch(tangram_cli_touch::Args),
 
-	#[command(hide = true)]
+	#[usage(hide = true)]
 	Tree(tangram_cli_tree::Args),
 
 	Update(tangram_cli_update::Args),
@@ -206,8 +206,17 @@ enum Command {
 
 fn main() -> std::process::ExitCode {
 	// Parse the args.
-	let (args, argument_order) =
-		parse_args(std::env::args_os().collect()).unwrap_or_else(|error| error.exit());
+	let argv = std::env::args_os().collect::<Vec<OsString>>();
+	let argv = argv.get(1..).unwrap_or_default();
+	if let Some(output) = Args::completion_request(argv) {
+		print!("{output}");
+		return std::process::ExitCode::SUCCESS;
+	}
+	let mut argv = argv.iter().map(OsString::as_os_str).collect();
+	let (args, argument_order) = match parse_args(&mut argv) {
+		Ok(output) => output,
+		Err(error) => return render_parse_error(&argv, &error),
+	};
 
 	// Run native sandbox commands before initializing the runtime.
 	let result = match args.command {
@@ -236,61 +245,187 @@ fn main() -> std::process::ExitCode {
 	}
 }
 
-fn parse_args(mut argv: Vec<OsString>) -> clap::error::Result<(Args, Vec<ArgumentKind>)> {
-	let mut matches = Args::command().try_get_matches_from(&argv)?;
-	let mut args = Args::from_arg_matches(&matches)?;
-	if let Command::Run_(trailing) = &args.command {
-		// Insert run before the captured reference, retaining global args and raw trailing values.
-		let mut index = argv.len() - trailing.len();
-		if index > 1 && argv[index - 1] == "--" {
-			index -= 1;
-		}
-		argv.insert(index, "run".into());
-		matches = Args::command().try_get_matches_from(argv)?;
-		args = Args::from_arg_matches(&matches)?;
+fn parse_args<'a>(
+	argv: &mut Vec<&'a OsStr>,
+) -> Result<(Args, Vec<ArgumentKind>), Error<'static, 'a>> {
+	let mut args = match Args::parse_from(argv) {
+		Err(error @ Error::UnexpectedArg { .. }) => {
+			let Some(index) = implicit_run_offset(argv) else {
+				return Err(error);
+			};
+			argv.insert(index, OsStr::new("run"));
+			Args::parse_from(argv)?
+		},
+		result => result?,
+	};
+	if let Command::Sandbox(tangram_cli_sandbox::Args {
+		command: tangram_cli_sandbox::Command::Run(args),
+	}) = &args.command
+	{
+		args.validate()?;
 	}
-
-	// Clear the URL and token inherited from the environment if the command line names a server.
-	let source = |id| matches.value_source(id);
-	let command_line = Some(clap::parser::ValueSource::CommandLine);
-	let environment = Some(clap::parser::ValueSource::EnvVariable);
-	if source("url") == command_line || source("directory") == command_line {
-		if source("url") == environment {
-			args.global.url = None;
-		}
-		if source("token") == environment {
-			args.global.token = None;
-		}
+	args.global.apply_server_env()?;
+	let (argument_order, separator) = inspect_args(argv)?;
+	if let Some(index) = separator {
+		insert_trailing_separator(&mut args.command, index);
 	}
-
-	let argument_order = argument_order(&matches);
-
 	Ok((args, argument_order))
 }
 
-fn argument_order(mut matches: &clap::ArgMatches) -> Vec<ArgumentKind> {
-	while let Some((_, subcommand)) = matches.subcommand() {
-		matches = subcommand;
-	}
-	for (strings, values) in [
-		("spawn.arg_strings", "spawn.arg_values"),
-		("arg_strings", "arg_values"),
-	] {
-		if !matches.try_contains_id(strings).unwrap_or(false)
-			|| !matches.try_contains_id(values).unwrap_or(false)
-		{
+fn implicit_run_offset(argv: &[&OsStr]) -> Option<usize> {
+	let command = Args::command();
+	for (index, word) in argv.iter().enumerate() {
+		if *word != "--" && *word != "-" {
 			continue;
 		}
-		let strings = matches.indices_of(strings).unwrap_or_default();
-		let values = matches.indices_of(values).unwrap_or_default();
-		let mut order = strings
-			.map(|index| (index, ArgumentKind::String))
-			.chain(values.map(|index| (index, ArgumentKind::Value)))
-			.collect::<Vec<_>>();
-		order.sort_unstable_by_key(|&(index, _)| index);
-		return order.into_iter().map(|(_, kind)| kind).collect();
+		let mut parser = Parser::new(command, &argv[..=index]);
+		let error = loop {
+			match parser.next_event() {
+				Some(Ok(_)) => (),
+				Some(Err(error)) => break Some(error),
+				None => break None,
+			}
+		};
+		if !std::ptr::eq(parser.command(), command) {
+			return None;
+		}
+		if parser.double_dash_seen() || matches!(error, Some(Error::UnexpectedArg { token: b"-" }))
+		{
+			return Some(index);
+		}
 	}
-	Vec::new()
+	None
+}
+
+fn inspect_args<'a>(
+	argv: &[&'a OsStr],
+) -> Result<(Vec<ArgumentKind>, Option<usize>), Error<'static, 'a>> {
+	// Skip the event walk when argv cannot need compatibility handling.
+	let mut has_string = false;
+	let mut has_value = false;
+	let mut has_empty_value = false;
+	let mut has_separator = false;
+	let mut attachments = Vec::new();
+	for word in argv {
+		let word = word.as_encoded_bytes();
+		has_separator |= word == b"--";
+		has_empty_value |= word.starts_with(b"-") && word.ends_with(b"=");
+		if let Some(long) = word.strip_prefix(b"--") {
+			let name = if let Some(index) = long.iter().position(|byte| *byte == b'=') {
+				attachments.push((word, &long[index + 1..]));
+				&long[..index]
+			} else {
+				long
+			};
+			has_string |= name == b"arg-string";
+			has_value |= name == b"arg-value";
+		} else if let Some(short) = word.strip_prefix(b"-") {
+			has_string |= short.contains(&b'a');
+			has_value |= short.contains(&b'A');
+		}
+	}
+	let mixed = has_string && has_value;
+	if !mixed && !has_empty_value && !has_separator && attachments.is_empty() {
+		return Ok((Vec::new(), None));
+	}
+
+	// Read the flag order and keep a separator typed after trailing arguments began.
+	let mut order = Vec::new();
+	let mut separator = None;
+	let mut trailing = 0;
+	let mut parser = Parser::new(Args::command(), argv);
+	loop {
+		let after_trailing = parser.flags_stopped() && !parser.double_dash_seen();
+		let event = parser.next_event().transpose()?;
+		if after_trailing && parser.double_dash_seen() {
+			separator = Some(trailing);
+		}
+		// Remove attachments consumed as either a flag value or literal input.
+		if let Some(
+			Event::Flag {
+				value: Some(value), ..
+			}
+			| Event::Arg { value, .. },
+		) = event
+		{
+			attachments.retain(|(word, attached)| {
+				!std::ptr::eq(value, *word) && !std::ptr::eq(value, *attached)
+			});
+		}
+		match event {
+			Some(Event::Arg { arg, .. }) if arg.double_dash == DoubleDash::Automatic => {
+				trailing += 1;
+			},
+			Some(Event::Flag { flag, value, .. }) => match flag.longs.first().copied() {
+				Some("arg-string") if mixed => order.push(ArgumentKind::String),
+				Some("arg-value") if mixed => order.push(ArgumentKind::Value),
+				Some("checkout") if value == Some(b"") => {
+					let error = usage_rs::ValidationError::field("--checkout")
+						.reason("expected a non-empty path");
+					return Err(error.into_parse_error());
+				},
+				_ => (),
+			},
+			Some(_) => (),
+			None => break,
+		}
+	}
+	if let Some(&(token, _)) = attachments.first() {
+		return Err(Error::UnexpectedArg { token });
+	}
+
+	Ok((order, separator))
+}
+
+fn insert_trailing_separator(command: &mut Command, index: usize) {
+	match command {
+		Command::Build(args) | Command::Run(args) => args.trailing.insert_separator(index),
+		Command::Exec(args)
+		| Command::Spawn(args)
+		| Command::Process(tangram_cli_process::Args {
+			command:
+				tangram_cli_process::Command::Exec(args) | tangram_cli_process::Command::Spawn(args),
+		}) => args.trailing.insert_separator(index),
+		Command::Sandbox(tangram_cli_sandbox::Args {
+			command: tangram_cli_sandbox::Command::Run(args),
+		}) => args.options.command.insert(index, OsString::from("--")),
+		Command::Builtin(args) => match &mut args.command {
+			tangram_cli_builtin::Command::Config(args) => {
+				args.trailing.insert(index, "--".to_owned());
+			},
+			#[cfg(any(feature = "quickjs", feature = "v8"))]
+			tangram_cli_builtin::Command::JavaScript(args) => args.trailing.insert(index, "--".to_owned()),
+			#[cfg(feature = "cpython")]
+			tangram_cli_builtin::Command::Python(args) => args.trailing.insert(index, "--".to_owned()),
+			_ => (),
+		},
+		_ => (),
+	}
+}
+
+fn render_parse_error(argv: &[&OsStr], error: &Error<'static, '_>) -> std::process::ExitCode {
+	match error {
+		Error::Help { cmd, long } => {
+			if std::ptr::eq(*cmd, Args::command()) {
+				println!("{}\n", tangram_cli_core::before_help());
+			}
+			print!("{}", Args::render_help(cmd, *long).unwrap_or_default());
+			std::process::ExitCode::SUCCESS
+		},
+		Error::MissingArgsHelp { cmd } if std::ptr::eq(*cmd, Args::command()) => {
+			eprintln!("{}\n", tangram_cli_core::before_help());
+			eprint!("{}", Args::render_failure(argv, error));
+			std::process::ExitCode::from(2)
+		},
+		Error::Version { .. } => {
+			println!("tangram {}", tangram_cli_core::version());
+			std::process::ExitCode::SUCCESS
+		},
+		_ => {
+			eprint!("{}", Args::render_failure(argv, error));
+			std::process::ExitCode::from(2)
+		},
+	}
 }
 
 async fn main_inner(
@@ -299,7 +434,8 @@ async fn main_inner(
 	command: Command,
 ) -> std::process::ExitCode {
 	// Create the CLI.
-	let mut cli = Cli::new(args, argument_order);
+	let mut cli = Cli::new(args);
+	cli.argument_order = argument_order;
 
 	// Handle internal commands.
 	let command = match command {
@@ -471,6 +607,7 @@ async fn main_inner(
 	exit
 }
 
+// Run the command.
 fn finish_internal_command(cli: &Cli, result: tg::Result<()>) -> std::process::ExitCode {
 	match result {
 		Ok(()) => cli.exit.unwrap_or_default(),
@@ -629,8 +766,6 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 
 		Command::Run(args) => tangram_cli_process::run::run(cli, args).boxed_local().await,
 
-		Command::Run_(_) => unreachable!("implicit run args must be normalized before dispatch"),
-
 		Command::Runner(args) => tangram_cli_runner::run(cli, args).boxed_local().await,
 
 		Command::Sandbox(args) => tangram_cli_sandbox::run(cli, args).boxed_local().await,
@@ -638,7 +773,7 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 		Command::Self_(args) => tangram_cli_tangram::run(args).boxed_local().await,
 
 		Command::Shell(args) => {
-			tangram_cli_shell::run(cli, args, Args::command)
+			tangram_cli_shell::run(cli, args, completion_script)
 				.boxed_local()
 				.await
 		},
@@ -681,4 +816,19 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 
 		Command::Write(args) => tangram_cli_write::run(cli, args).boxed_local().await,
 	}
+}
+
+fn completion_script(shell: tangram_cli_shell::completion::Shell) -> String {
+	let shell = match shell {
+		tangram_cli_shell::completion::Shell::Bash => usage_rs::complete::Shell::Bash,
+		tangram_cli_shell::completion::Shell::Fish => usage_rs::complete::Shell::Fish,
+		tangram_cli_shell::completion::Shell::Nu => usage_rs::complete::Shell::Nu,
+		tangram_cli_shell::completion::Shell::Zsh => usage_rs::complete::Shell::Zsh,
+	};
+	let mut script = Args::completion_script(shell);
+	script.push_str(&Args::completion_script_for_alias("tg", shell));
+	if shell == usage_rs::complete::Shell::Nu {
+		script = format!("export-env {{\n{script}\n}}\nexport alias tg = tangram\n");
+	}
+	script
 }

@@ -18,7 +18,7 @@ workspace = true
 
 [dependencies]
 byte-unit = { workspace = true }
-clap = { workspace = true }
 tangram_cli_core = { workspace = true }
 tangram_cli_reference = { workspace = true }
 tangram_client = { workspace = true }
+usage-rs = { workspace = true }

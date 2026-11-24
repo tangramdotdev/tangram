@@ -1,59 +1,59 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Pull nodes.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub ancestors: tangram_cli_core::node::Options,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub eager: tangram_cli_push::Eager,
 
 	/// Replace conflicting named nodes and their descendants.
-	#[arg(long, short)]
+	#[usage(long, short)]
 	pub force: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub group_children: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub metadata: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub organization_children: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub process_children: bool,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub process_command_objects: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub process_error_objects: tangram_cli_push::ProcessErrorObjects,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub process_log_objects: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub process_output_objects: tangram_cli_push::ProcessOutputObjects,
 
-	#[arg(required = true)]
+	#[usage(required = true)]
 	pub references: Vec<tg::Reference>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub sandbox_processes: bool,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub source: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub tag_targets: tangram_cli_push::TagTargets,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub user_children: bool,
 }
 

@@ -10,7 +10,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		..
 	} = args;
 	let options: Options = options;
-	let output = crate::spawn::spawn_inner(cli, options, reference, trailing).await?;
+	let output = crate::spawn::spawn_inner(cli, options, reference, trailing.into_values()).await?;
 
 	if output.tag.specifier.is_some() {
 		return Err(tg::error!("a tag is not supported for an exec"));

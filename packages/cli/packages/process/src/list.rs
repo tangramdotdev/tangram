@@ -1,47 +1,47 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// List processes.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Fetch all pages.
-	#[arg(long)]
+	#[usage(long)]
 	pub all: bool,
 
 	/// List processes with any status.
-	#[arg(long, conflicts_with = "status")]
+	#[usage(long, conflicts("--status"))]
 	pub any_status: bool,
 
 	/// List the processes created by this principal. This defaults to the current principal when no owner is given.
-	#[arg(conflicts_with_all = ["sandbox.owner.value", "sandbox.owner.user", "sandbox.owner.group", "sandbox.owner.organization"], long)]
+	#[usage(conflicts("--owner", "--user", "--group", "--organization"), long)]
 	pub creator: Option<tg::principal::Selector>,
 
 	/// Continue from this cursor.
-	#[arg(long)]
+	#[usage(long)]
 	pub cursor: Option<String>,
 
 	/// Return each of the processes with its data instead of a reference.
-	#[arg(long)]
+	#[usage(long)]
 	pub expand: bool,
 
 	/// The maximum number of entries per page (default: 100, maximum: 1000).
-	#[arg(long)]
+	#[usage(long)]
 	pub limit: Option<u64>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub locations: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub output: tangram_cli_core::print::OutputOptions,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub owner: tangram_cli_sandbox::Owner,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
 	/// List processes with this status.
-	#[arg(default_value = "started", long)]
+	#[usage(default = "started", long)]
 	pub status: tg::process::Status,
 }
 

@@ -11,7 +11,7 @@ failure $output "tg organization list should not be a command"
 snapshot --normalize $output.stderr r#'
 	error: unrecognized subcommand 'list'
 
-	Usage: tg organization <COMMAND>
+	Usage: tangram organization <SUBCOMMAND>
 
 	For more information, try '--help'.
 

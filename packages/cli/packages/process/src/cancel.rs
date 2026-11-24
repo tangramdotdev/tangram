@@ -1,17 +1,15 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Cancel a process.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 2)]
-	pub lease: tg::process::Lease,
+	pub reference: tg::Reference,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[arg(index = 1)]
-	pub reference: tg::Reference,
+	pub lease: tg::process::Lease,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {

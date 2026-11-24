@@ -6,10 +6,10 @@ const NU: &str = include_str!("integration.nu");
 const ZSH: &str = include_str!("integration.zsh");
 
 /// Generate shell integration.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(index = 1, value_enum)]
+	#[usage(value_enum)]
 	shell: Kind,
 }
 

@@ -10,57 +10,55 @@ use {
 
 const INDENTATION: &str = "  ";
 
-#[derive(Clone, Debug, Default, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Options {
 	/// Whether to print blobs in the value.
-	#[arg(id = "print.blobs", long = "blobs")]
+	#[usage(long = "blobs")]
 	pub blobs: bool,
 
 	/// The depth with which to print the value.
-	#[arg(id = "print.depth", long = "depth")]
+	#[usage(long = "depth")]
 	pub depth: Option<Depth>,
 
 	/// Whether to pretty print the value.
-	#[arg(id = "print.pretty", long = "pretty")]
+	#[usage(long = "pretty")]
 	pub pretty: bool,
 
 	/// Whether to print the tokens of the value's referents.
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub tokens: Tokens,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Tokens {
 	/// Do not print the tokens of the value's referents.
-	#[arg(
-		default_missing_value = "true",
-		id = "print.tokens.no_tokens",
+	#[usage(
+		default_missing = "true",
 		long = "no-tokens",
-		num_args = 0..=1,
-		overrides_with = "print.tokens.tokens",
+		overrides("--tokens"),
 		require_equals = true,
-		value_name = "BOOL",
+		value_name = "BOOL"
 	)]
 	no_tokens: Option<bool>,
 
 	/// Print the tokens of the value's referents.
-	#[arg(
-		default_missing_value = "true",
-		id = "print.tokens.tokens",
+	#[usage(
+		default_missing = "true",
 		long = "tokens",
-		num_args = 0..=1,
-		overrides_with = "print.tokens.no_tokens",
+		overrides("--no-tokens"),
 		require_equals = true,
-		value_name = "BOOL",
+		value_name = "BOOL"
 	)]
 	tokens: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct OutputOptions {
 	/// Print the complete operation output.
-	#[arg(long)]
+	#[usage(long)]
 	pub verbose: bool,
 }
 

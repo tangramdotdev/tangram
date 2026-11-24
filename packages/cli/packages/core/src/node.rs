@@ -1,84 +1,74 @@
 use tangram_client::prelude::*;
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Ancestors {
 	/// Create missing ancestors after pulling.
-	#[arg(
-		default_missing_value = "true",
-		id = "ancestors.create_ancestors",
+	#[usage(
+		default_missing = "true",
 		long = "create-ancestors",
-		num_args = 0..=1,
-		overrides_with = "ancestors.no_create_ancestors",
+		overrides("--no-create-ancestors"),
 		require_equals = true,
 		short = 'p',
 		value_name = "BOOL",
-		visible_alias = "create-parents",
+		visible_alias = "create-parents"
 	)]
 	create: Option<bool>,
 
 	/// Do not create missing ancestors.
-	#[arg(
-		default_missing_value = "true",
-		id = "ancestors.no_create_ancestors",
+	#[usage(
+		default_missing = "true",
 		long = "no-create-ancestors",
-		num_args = 0..=1,
-		overrides_with = "ancestors.create_ancestors",
+		overrides("--create-ancestors"),
 		require_equals = true,
 		value_name = "BOOL",
-		visible_alias = "no-create-parents",
+		visible_alias = "no-create-parents"
 	)]
 	no_create: Option<bool>,
 
 	/// Do not pull ancestors.
-	#[arg(
-		default_missing_value = "true",
-		id = "ancestors.no_pull_ancestors",
+	#[usage(
+		default_missing = "true",
 		long = "no-pull-ancestors",
-		num_args = 0..=1,
-		overrides_with = "ancestors.pull_ancestors",
+		overrides("--pull-ancestors"),
 		require_equals = true,
 		value_name = "BOOL",
-		visible_alias = "no-pull-parents",
+		visible_alias = "no-pull-parents"
 	)]
 	no_pull: Option<bool>,
 
 	/// Pull ancestors using the specified policy: always, missing, or never.
-	#[arg(
-		default_missing_value = "always",
-		id = "ancestors.pull_ancestors",
+	#[usage(
+		default_missing = "always",
 		long = "pull-ancestors",
-		num_args = 0..=1,
-		overrides_with = "ancestors.no_pull_ancestors",
+		overrides("--no-pull-ancestors"),
 		require_equals = true,
 		value_name = "POLICY",
-		visible_alias = "pull-parents",
+		visible_alias = "pull-parents"
 	)]
 	pull: Option<tg::node::AncestorsPull>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Options {
 	/// Transfer ancestors using the specified policy: always, missing, or never.
-	#[arg(
-		default_missing_value = "always",
-		id = "ancestor_options.ancestors",
+	#[usage(
+		default_missing = "always",
 		long = "ancestors",
-		num_args = 0..=1,
-		overrides_with = "ancestor_options.no_ancestors",
+		overrides("--no-ancestors"),
 		require_equals = true,
-		value_name = "POLICY",
+		value_name = "POLICY"
 	)]
 	ancestors: Option<tg::node::AncestorsPull>,
 
 	/// Do not transfer ancestors.
-	#[arg(
-		default_missing_value = "true",
-		id = "ancestor_options.no_ancestors",
+	#[usage(
+		default_missing = "true",
 		long = "no-ancestors",
-		num_args = 0..=1,
-		overrides_with = "ancestor_options.ancestors",
+		overrides("--ancestors"),
 		require_equals = true,
-		value_name = "BOOL",
+		value_name = "BOOL"
 	)]
 	no_ancestors: Option<bool>,
 }

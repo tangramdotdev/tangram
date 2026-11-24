@@ -19,14 +19,14 @@ pub mod touch;
 pub mod wait;
 
 /// Manage processes.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, clap::Subcommand)]
+#[derive(Clone, Debug, usage_rs::Subcommands)]
 pub enum Command {
 	Availability(self::availability::Args),
 	Cancel(self::cancel::Args),
@@ -37,15 +37,25 @@ pub enum Command {
 	Log(self::stdio::read::Args),
 	Metadata(self::metadata::Args),
 	Output(self::output::Args),
-	#[command(alias = "add")]
+	#[usage(alias = "add")]
 	Put(self::put::Args),
-	#[command(alias = "kill")]
+	#[usage(alias = "kill")]
 	Signal(self::signal::Args),
 	Spawn(self::spawn::Args),
 	Status(self::status::Args),
 	Stdio(self::stdio::Args),
 	Touch(self::touch::Args),
 	Wait(self::wait::Args),
+}
+
+#[derive(Clone, Debug, Default, usage_rs::Args)]
+pub struct Trailing {
+	/// Set arguments.
+	#[usage(trailing_var_arg)]
+	arguments: Vec<String>,
+
+	#[usage(double_dash = "required", hide)]
+	separated: Vec<String>,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -100,4 +110,18 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		},
 	}
 	Ok(())
+}
+
+impl Trailing {
+	pub fn insert_separator(&mut self, index: usize) {
+		self.arguments.insert(index, "--".to_owned());
+	}
+
+	fn into_values(mut self) -> Vec<String> {
+		if self.arguments.is_empty() {
+			return self.separated;
+		}
+		self.arguments.append(&mut self.separated);
+		self.arguments
+	}
 }

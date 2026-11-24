@@ -1,46 +1,46 @@
 use {std::path::PathBuf, tangram_client::prelude::*};
 
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
-	#[arg(long, default_value = "builtin", value_parser = crate::parse_backend)]
-	pub backend: tangram_sandbox::Kind,
+	#[usage(long, default = "builtin")]
+	pub backend: crate::Name<tangram_sandbox::Kind>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub options: Options,
 }
 
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Options {
-	#[arg(long)]
+	#[usage(long)]
 	pub http2_connection_window_size: Option<u32>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub http2_max_concurrent_reset_streams: Option<usize>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub http2_max_concurrent_streams: Option<u32>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub http2_stream_window_size: Option<u32>,
 
-	#[arg(action = clap::ArgAction::Append, long = "library-path", num_args = 1)]
+	#[usage(long = "library-path")]
 	pub library_paths: Vec<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub listen: bool,
 
-	#[arg(long, hide = true)]
+	#[usage(long, hide = true)]
 	pub namespaces: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub output_path: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub tangram_path: Option<PathBuf>,
 
-	#[arg(long)]
+	#[usage(long)]
 	pub url: Option<tangram_uri::Uri>,
 }
 
@@ -51,13 +51,13 @@ pub fn run(args: Args) -> tg::Result<std::process::ExitCode> {
 
 impl Args {
 	fn arg(self) -> tg::Result<tangram_sandbox::init::Arg> {
-		let arg = match self.backend {
+		let arg = match self.backend.0 {
 			#[cfg(target_os = "linux")]
 			tangram_sandbox::Kind::Builtin
 			| tangram_sandbox::Kind::Bubblewrap
 			| tangram_sandbox::Kind::Gvisor => {
 				let serve = self.options.serve()?;
-				match self.backend {
+				match self.backend.0 {
 					tangram_sandbox::Kind::Builtin => {
 						tangram_sandbox::init::Arg::Builtin(tangram_sandbox::builtin::init::Arg {
 							serve,
@@ -143,19 +143,20 @@ impl Options {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-	use {super::*, clap::Parser as _};
+	use {super::*, std::ffi::OsStr};
 
-	#[derive(clap::Parser)]
+	#[derive(usage_rs::Cli)]
 	struct Parser {
-		#[command(flatten)]
+		#[usage(flatten)]
 		args: Args,
 	}
 
 	#[test]
 	fn cloud_hypervisor_init_reads_its_guest_configuration() {
-		let args = Parser::try_parse_from(["test", "--backend", "cloud-hypervisor"])
-			.unwrap()
-			.args;
+		let args =
+			Parser::try_parse_from(&["test", "--backend", "cloud-hypervisor"].map(OsStr::new))
+				.unwrap()
+				.args;
 		assert!(matches!(
 			args.arg().unwrap(),
 			tangram_sandbox::init::Arg::CloudHypervisor(_)
@@ -166,27 +167,30 @@ mod tests {
 	fn linux_init_dispatch_preserves_the_server_settings() {
 		for backend in ["builtin", "bubblewrap", "gvisor"] {
 			// Parse the backend init configuration.
-			let args = Parser::try_parse_from([
-				"test",
-				"--backend",
-				backend,
-				"--namespaces",
-				"/namespaces.sock",
-				"--output-path",
-				"/output",
-				"--tangram-path",
-				"/tangram",
-				"--url",
-				"http+stdio://localhost",
-				"--http2-connection-window-size",
-				"1234",
-				"--http2-max-concurrent-reset-streams",
-				"5",
-				"--http2-max-concurrent-streams",
-				"6",
-				"--http2-stream-window-size",
-				"7890",
-			])
+			let args = Parser::try_parse_from(
+				&[
+					"test",
+					"--backend",
+					backend,
+					"--namespaces",
+					"/namespaces.sock",
+					"--output-path",
+					"/output",
+					"--tangram-path",
+					"/tangram",
+					"--url",
+					"http+stdio://localhost",
+					"--http2-connection-window-size",
+					"1234",
+					"--http2-max-concurrent-reset-streams",
+					"5",
+					"--http2-max-concurrent-streams",
+					"6",
+					"--http2-stream-window-size",
+					"7890",
+				]
+				.map(OsStr::new),
+			)
 			.unwrap()
 			.args;
 
@@ -216,7 +220,7 @@ mod tests {
 
 	#[test]
 	fn linux_init_requires_the_server_paths() {
-		let args = Parser::try_parse_from(["test", "--backend", "builtin"])
+		let args = Parser::try_parse_from(&["test", "--backend", "builtin"].map(OsStr::new))
 			.unwrap()
 			.args;
 		assert!(args.arg().is_err());

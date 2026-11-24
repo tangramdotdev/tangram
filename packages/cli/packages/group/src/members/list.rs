@@ -1,31 +1,30 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// List group members.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
+#[derive(Clone, Debug, usage_rs::Args)]
+#[usage(args_override_self = false)]
 pub struct Args {
 	/// Fetch all pages.
-	#[arg(long)]
+	#[usage(long)]
 	pub all: bool,
 
 	/// Continue from this cursor.
-	#[arg(long)]
+	#[usage(long)]
 	pub cursor: Option<String>,
 
-	#[arg(index = 1)]
 	pub group: tg::Referent<tg::group::Selector>,
 
 	/// The maximum number of entries per page (default: 100, maximum: 1000).
-	#[arg(long)]
+	#[usage(long)]
 	pub limit: Option<u64>,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub location: tangram_cli_core::location::Args,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub output: tangram_cli_core::print::OutputOptions,
 
-	#[command(flatten)]
+	#[usage(flatten)]
 	pub print: tangram_cli_core::print::Options,
 }
 
