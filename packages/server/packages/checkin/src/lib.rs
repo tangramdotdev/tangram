@@ -12,6 +12,7 @@ use {
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_ignore as ignore,
+	tangram_index::prelude::*,
 	tangram_server_checkin_core::{
 		Contents, Directory, File, Graph, Node, ObjectOptions, Referrer, Solution, Solutions,
 		Symlink, Variant,
@@ -526,7 +527,7 @@ impl Component {
 		};
 
 		// Get the next node index.
-		let next = graph.next;
+		let mut next = graph.next;
 
 		// Spawn the fixup task.
 		let (fixup_task, fixup_sender) = if arg.options.destructive {
@@ -542,52 +543,82 @@ impl Component {
 			(None, None)
 		};
 
-		// Collect input.
-		let mut graph = tokio::task::spawn_blocking({
-			let session = session.clone();
-			let arg = arg.clone();
-			let store_path = store_path.clone();
-			let lock = lock.clone();
-			let progress = progress.clone();
-			let root = root.to_owned();
-			move || {
-				let arg = input::CheckinInputArg {
-					arg: &arg,
-					fixup_sender,
-					graph: &mut graph,
-					ignorer,
-					lock: lock.as_deref(),
-					next,
-					progress,
-					root: &root,
-					store_path: store_path.as_deref(),
-				};
-				Self::checkin_input(&session, arg)?;
-				Ok::<_, tg::Error>(graph)
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "the checkin input task panicked"))??;
+		// Collect input, and collect it again from an empty graph when the index has no record of a reused graph's root object.
+		let mut ignorer = ignorer;
+		let mut reuse = true;
+		let mut graph = loop {
+			// Collect input.
+			let collected = tokio::task::spawn_blocking({
+				let session = session.clone();
+				let arg = arg.clone();
+				let ignorer = ignorer.take();
+				let fixup_sender = fixup_sender.clone();
+				let store_path = store_path.clone();
+				let lock = lock.clone();
+				let progress = progress.clone();
+				let root = root.to_owned();
+				move || {
+					let arg = input::CheckinInputArg {
+						arg: &arg,
+						fixup_sender,
+						graph: &mut graph,
+						ignorer,
+						lock: lock.as_deref(),
+						next,
+						progress,
+						root: &root,
+						store_path: store_path.as_deref(),
+					};
+					Self::checkin_input(&session, arg)?;
+					Ok::<_, tg::Error>(graph)
+				}
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "the checkin input task panicked"))??;
 
-		// Return immediately when a compatible watched checkin has no changes.
-		if let WatchObservation::Compatible { id, version } = watch_observation
-			&& graph.next == next
-		{
-			let current = session
-				.server
-				.components
-				.watch
-				.watches()
-				.get(&watch_key)
-				.filter(|watch| watch.id() == id && watch.options() == &arg.options)
-				.is_some_and(|watch| watch.can_reuse(&graph, version));
-			if !current {
-				return Err(tg::error!("files were modified during checkin"));
-			}
-			let output = TaskOutput { graph };
+			// Return immediately when a compatible watched checkin has no changes and the index has a record of its root object.
+			if reuse
+				&& let WatchObservation::Compatible { id, version } = watch_observation
+				&& collected.next == next
+			{
+				let current = session
+					.server
+					.components
+					.watch
+					.watches()
+					.get(&watch_key)
+					.filter(|watch| watch.id() == id && watch.options() == &arg.options)
+					.is_some_and(|watch| watch.can_reuse(&collected, version));
+				if !current {
+					return Err(tg::error!("files were modified during checkin"));
+				}
+				if self
+					.checkin_touch_watched_root(session, &collected, root, &watch_key, id)
+					.await?
+				{
+					let output = TaskOutput { graph: collected };
+					return Ok(output);
+				}
 
-			return Ok(output);
-		}
+				// Discard the reused graph and solutions, so that the checkin stores and indexes every object again.
+				graph = Graph::default();
+				next = graph.next;
+				solutions = Solutions::default();
+				ignorer = arg
+					.options
+					.ignore
+					.then(tangram_server_checkin_common::create_ignorer)
+					.transpose()
+					.map_err(|error| tg::error!(!error, "failed to create the ignorer"))?;
+				reuse = false;
+				continue;
+			}
+
+			break collected;
+		};
+
+		// Drop the fixup sender, so that the fixup task ends once the input is collected.
+		drop(fixup_sender);
 
 		// Solve.
 		if arg.options.solve {
@@ -892,6 +923,62 @@ impl Component {
 		let output = TaskOutput { graph };
 
 		Ok(output)
+	}
+
+	async fn checkin_touch_watched_root(
+		&self,
+		session: &Session,
+		graph: &Graph,
+		root: &Path,
+		watch_key: &watch::Key,
+		id: watch::Id,
+	) -> tg::Result<bool> {
+		// Get the root object.
+		let Some(object) = graph
+			.paths
+			.get(root)
+			.and_then(|index| graph.nodes.get(index))
+			.and_then(|node| node.id.clone())
+		else {
+			return Ok(false);
+		};
+
+		// Touch the root object, which keeps its subtree alive.
+		let touched_at = session.server.clock.unix_timestamp();
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
+		let output = session
+			.server
+			.index
+			.touch_object_with_account(
+				&object,
+				account.as_ref(),
+				touched_at,
+				session.server.config.object.time_to_touch,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, %object, "failed to touch the root object"))?;
+		if output.is_none() {
+			return Ok(false);
+		}
+
+		// Reset the watch's ttl timer.
+		if let Some(watch) = session
+			.server
+			.components
+			.watch
+			.watches()
+			.get(watch_key)
+			.filter(|watch| watch.id() == id)
+		{
+			watch.reset_timeout();
+		}
+
+		Ok(true)
 	}
 
 	fn checkin_watch_expire(session: &Session, key: &watch::Key, id: watch::Id) -> watch::Expire {
