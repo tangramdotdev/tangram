@@ -654,6 +654,7 @@ impl Component {
 		Self::checkin_compute_permissions(&mut graph, &index_object_args, next)?;
 
 		// Check out.
+		let mut checkout_put = None;
 		if arg.options.checkout_pointers {
 			if let Some(task) = fixup_task {
 				task.await
@@ -663,12 +664,13 @@ impl Component {
 				arg: &arg,
 				graph: &graph,
 				graph_data: &mut graph_data,
-				index_checkout_args: &index_checkout_args,
+				index_checkout_args: &mut index_checkout_args,
 				next,
 				progress,
 				root,
 			};
-			self.checkin_checkout(session, checkout_arg)
+			checkout_put = self
+				.checkin_checkout(session, checkout_arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check out"))?;
 		}
@@ -732,6 +734,7 @@ impl Component {
 			.await?;
 		let index_arg = index::CheckinIndexArg {
 			arg: &arg,
+			checkout_put,
 			graph: &graph,
 			index_checkout_args,
 			index_object_args,
