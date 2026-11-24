@@ -153,6 +153,7 @@ impl Index {
 		&self,
 		ids: &[tg::process::Id],
 		account: Option<&index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::process::Process>>> {
@@ -160,13 +161,25 @@ impl Index {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {
 				index
-					.touch_processes_with_account(ids, account, touched_at, time_to_touch)
+					.touch_processes_with_account(
+						ids,
+						account,
+						permissions,
+						touched_at,
+						time_to_touch,
+					)
 					.await
 			},
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => {
 				index
-					.touch_processes_with_account(ids, account, touched_at, time_to_touch)
+					.touch_processes_with_account(
+						ids,
+						account,
+						permissions,
+						touched_at,
+						time_to_touch,
+					)
 					.await
 			},
 		}
@@ -176,6 +189,7 @@ impl Index {
 		&self,
 		ids: &[tg::process::Id],
 		account: Option<&index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<(index::process::Process, Option<tg::process::Data>)>>> {
@@ -183,13 +197,25 @@ impl Index {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {
 				index
-					.touch_processes_with_data_with_account(ids, account, touched_at, time_to_touch)
+					.touch_processes_with_data_with_account(
+						ids,
+						account,
+						permissions,
+						touched_at,
+						time_to_touch,
+					)
 					.await
 			},
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => {
 				index
-					.touch_processes_with_data_with_account(ids, account, touched_at, time_to_touch)
+					.touch_processes_with_data_with_account(
+						ids,
+						account,
+						permissions,
+						touched_at,
+						time_to_touch,
+					)
 					.await
 			},
 		}
@@ -287,10 +313,11 @@ impl index::process::Index for Index {
 		&self,
 		ids: &[tg::process::Id],
 		account: Option<&index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::process::Process>>> {
-		self.touch_processes_with_account(ids, account, touched_at, time_to_touch)
+		self.touch_processes_with_account(ids, account, permissions, touched_at, time_to_touch)
 			.await
 	}
 
@@ -298,10 +325,17 @@ impl index::process::Index for Index {
 		&self,
 		ids: &[tg::process::Id],
 		account: Option<&index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<(index::process::Process, Option<tg::process::Data>)>>> {
-		self.touch_processes_with_data_with_account(ids, account, touched_at, time_to_touch)
-			.await
+		self.touch_processes_with_data_with_account(
+			ids,
+			account,
+			permissions,
+			touched_at,
+			time_to_touch,
+		)
+		.await
 	}
 }

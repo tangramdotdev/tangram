@@ -24,6 +24,7 @@ impl Index {
 			account,
 			data,
 			ids,
+			permissions,
 			put_account,
 			time_to_touch,
 			touched_at,
@@ -44,13 +45,16 @@ impl Index {
 			{
 				let result = future::try_join_all(
 					std::iter::zip(ids, &processes)
-						.filter(|(_, process)| process.is_some())
-						.map(|(id, _)| {
+						.enumerate()
+						.filter(|(_, (_, process))| process.is_some())
+						.map(|(index, (id, _))| {
 							let arg = tangram_index::usage::storage::put::ProcessArg {
 								account: account.clone(),
 								process: id.clone(),
 								touched_at: *touched_at,
 							};
+							let permissions =
+								permissions.as_ref().map(|permissions| permissions[index]);
 							async move {
 								if *put_account
 									&& crate::propagate!(
@@ -73,8 +77,9 @@ impl Index {
 										txn,
 										subspace,
 										&arg,
+										permissions,
 										*time_to_touch,
-										partition_total,
+										partition_totals,
 									)
 									.await
 								);

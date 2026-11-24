@@ -193,6 +193,7 @@ pub trait Index {
 		&self,
 		ids: &[tg::process::Id],
 		account: Option<&crate::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
@@ -201,6 +202,7 @@ pub trait Index {
 		&self,
 		ids: &[tg::process::Id],
 		account: Option<&crate::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<
@@ -237,12 +239,14 @@ pub trait Index {
 		&self,
 		id: &tg::process::Id,
 		account: Option<&crate::usage::Account>,
+		permissions: Option<&tg::authorization::permission::Set>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
 		self.touch_processes_with_account(
 			std::slice::from_ref(id),
 			account,
+			permissions.map(std::slice::from_ref),
 			touched_at,
 			time_to_touch,
 		)

@@ -940,6 +940,7 @@ async fn touching_does_not_create_a_storage_entry() {
 		.touch_objects_with_account(
 			std::slice::from_ref(&object),
 			Some(&account),
+			None,
 			2,
 			std::time::Duration::ZERO,
 		)
@@ -971,6 +972,7 @@ async fn touching_an_object_with_its_account_updates_both_lifetimes() {
 		.touch_objects_with_account(
 			std::slice::from_ref(&object),
 			Some(&account),
+			None,
 			10,
 			std::time::Duration::ZERO,
 		)
@@ -1023,6 +1025,7 @@ async fn touching_a_process_with_its_account_updates_both_lifetimes() {
 		.touch_processes_with_account(
 			std::slice::from_ref(&process),
 			Some(&account),
+			None,
 			10,
 			std::time::Duration::ZERO,
 		)
@@ -1068,6 +1071,7 @@ async fn touching_with_an_account_honors_time_to_touch() {
 		.touch_objects_with_account(
 			std::slice::from_ref(&object),
 			Some(&account),
+			None,
 			10,
 			std::time::Duration::from_secs(100),
 		)
@@ -1088,6 +1092,259 @@ async fn touching_with_an_account_honors_time_to_touch() {
 		.unwrap();
 	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage, tangram_index::usage::Aggregate::default());
+}
+
+#[tokio::test]
+async fn touching_puts_a_missing_storage_entry_with_the_subtree_permission() {
+	let (_dir, index) = new_index(1);
+	let child = object_id(34);
+	let parent = object_id(35);
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	put_objects(
+		&index,
+		vec![
+			object_arg(child.clone(), [], 4),
+			object_arg(parent.clone(), [child], 3),
+		],
+	)
+	.await;
+	let permissions = object_permissions(tg::authorization::permission::object::Set::SUBTREE);
+	index
+		.touch_objects_with_account(
+			std::slice::from_ref(&parent),
+			Some(&account),
+			Some(std::slice::from_ref(&permissions)),
+			2,
+			std::time::Duration::ZERO,
+		)
+		.await
+		.unwrap();
+	update_usage(&index).await;
+	let usage = get_usage(&index, &account).await;
+	assert_eq!(usage.object_count, 2);
+	assert_eq!(usage.object_size, 7);
+	let entry = get_account_object_entry(&index, &account, &parent).unwrap();
+	assert_eq!(entry.permissions, permissions);
+}
+
+#[tokio::test]
+async fn touching_puts_a_missing_storage_entry_with_the_node_permission() {
+	let (_dir, index) = new_index(1);
+	let child = object_id(36);
+	let parent = object_id(37);
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	put_objects(
+		&index,
+		vec![
+			object_arg(child.clone(), [], 4),
+			object_arg(parent.clone(), [child.clone()], 3),
+		],
+	)
+	.await;
+	let permissions = object_permissions(tg::authorization::permission::object::Set::NODE);
+	index
+		.touch_objects_with_account(
+			std::slice::from_ref(&parent),
+			Some(&account),
+			Some(std::slice::from_ref(&permissions)),
+			2,
+			std::time::Duration::ZERO,
+		)
+		.await
+		.unwrap();
+	update_usage(&index).await;
+	let usage = get_usage(&index, &account).await;
+	assert_eq!(usage.object_count, 1);
+	assert_eq!(usage.object_size, 3);
+	let entry = get_account_object_entry(&index, &account, &parent).unwrap();
+	assert_eq!(entry.permissions, permissions);
+	assert!(get_account_object_entry(&index, &account, &child).is_none());
+}
+
+#[tokio::test]
+async fn touching_does_not_change_the_permissions_of_an_existing_storage_entry() {
+	let (_dir, index) = new_index(1);
+	let child = object_id(38);
+	let parent = object_id(39);
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let arg = tangram_index::write::Arg {
+		items: vec![
+			tangram_index::Item::PutObject(Box::new(object_arg(child.clone(), [], 4))),
+			tangram_index::Item::PutObject(Box::new(object_arg(parent.clone(), [child], 3))),
+			tangram_index::Item::PutAccountObject(Box::new(
+				tangram_index::usage::storage::put::ObjectArg {
+					account: account.clone(),
+					object: parent.clone(),
+					touched_at: 1,
+				},
+			)),
+		],
+	};
+	index.write(arg).await.unwrap().unwrap();
+	update_usage(&index).await;
+	let mut permissions = tg::authorization::permission::object::Set::NODE;
+	permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
+	let permissions = object_permissions(permissions);
+	index
+		.touch_objects_with_account(
+			std::slice::from_ref(&parent),
+			Some(&account),
+			Some(std::slice::from_ref(&permissions)),
+			10,
+			std::time::Duration::ZERO,
+		)
+		.await
+		.unwrap();
+	update_usage(&index).await;
+	let entry = get_account_object_entry(&index, &account, &parent).unwrap();
+	assert_eq!(
+		entry.permissions,
+		object_permissions(tg::authorization::permission::object::Set::SUBTREE)
+	);
+	assert_eq!(entry.touched_at, 10);
+	let usage = get_usage(&index, &account).await;
+	assert_eq!(usage.object_count, 2);
+	assert_eq!(usage.object_size, 7);
+}
+
+#[tokio::test]
+async fn touching_puts_a_missing_storage_entry_within_the_time_to_touch() {
+	let (_dir, index) = new_index(1);
+	let object = object_id(40);
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	put_objects(&index, vec![object_arg(object.clone(), [], 5)]).await;
+	let permissions = object_permissions(tg::authorization::permission::object::Set::SUBTREE);
+	let objects = index
+		.touch_objects_with_account(
+			std::slice::from_ref(&object),
+			Some(&account),
+			Some(std::slice::from_ref(&permissions)),
+			10,
+			std::time::Duration::from_secs(100),
+		)
+		.await
+		.unwrap();
+	assert_eq!(objects[0].as_ref().unwrap().touched_at, 1);
+	update_usage(&index).await;
+	let usage = get_usage(&index, &account).await;
+	assert_eq!(usage.object_count, 1);
+	assert_eq!(usage.object_size, 5);
+}
+
+#[tokio::test]
+async fn touching_a_missing_object_with_permissions_reports_it_missing() {
+	let (_dir, index) = new_index(1);
+	let object = object_id(41);
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let permissions = object_permissions(tg::authorization::permission::object::Set::SUBTREE);
+	let objects = index
+		.touch_objects_with_account(
+			std::slice::from_ref(&object),
+			Some(&account),
+			Some(std::slice::from_ref(&permissions)),
+			10,
+			std::time::Duration::ZERO,
+		)
+		.await
+		.unwrap();
+	assert!(objects[0].is_none());
+	update_usage(&index).await;
+	assert!(get_account_object_entry(&index, &account, &object).is_none());
+	let usage = get_usage(&index, &account).await;
+	assert_eq!(usage, tangram_index::usage::Aggregate::default());
+}
+
+#[tokio::test]
+async fn touching_puts_a_missing_process_storage_entry_with_the_permissions() {
+	let (_dir, index) = new_index(1);
+	let command = object_id(42);
+	let process = tg::process::Id::new();
+	let missing = tg::process::Id::new();
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let arg = tangram_index::write::Arg {
+		items: vec![
+			tangram_index::Item::PutObject(Box::new(object_arg(command.clone(), [], 5))),
+			tangram_index::Item::PutProcess(Box::new(process_arg(
+				process.clone(),
+				Vec::new(),
+				command,
+			))),
+		],
+	};
+	index.write(arg).await.unwrap().unwrap();
+	let permissions = tg::authorization::permission::Set::Process(
+		tg::authorization::permission::process::Set::NODE,
+	);
+	let processes = index
+		.touch_processes_with_account(
+			&[process.clone(), missing],
+			Some(&account),
+			Some(&[permissions, permissions]),
+			10,
+			std::time::Duration::ZERO,
+		)
+		.await
+		.unwrap();
+	assert!(processes[0].is_some());
+	assert!(processes[1].is_none());
+	update_usage(&index).await;
+	let usage = get_usage(&index, &account).await;
+	assert_eq!(usage.process_count, 1);
+	assert_eq!(usage.object_count, 0);
+	let transaction = index.env.read_txn().unwrap();
+	let key = super::super::Key::Usage(super::super::usage::Key::AccountProcess {
+		account: account.clone(),
+		process,
+	});
+	let key = Index::pack(&index.subspace, &key);
+	let entry = tangram_index::usage::storage::Entry::deserialize(
+		index.db.get(&transaction, &key).unwrap().unwrap(),
+	)
+	.unwrap();
+	assert_eq!(entry.permissions, permissions);
+}
+
+fn object_permissions(
+	permissions: tg::authorization::permission::object::Set,
+) -> tg::authorization::permission::Set {
+	tg::authorization::permission::Set::Object(permissions)
+}
+
+async fn put_objects(index: &Index, objects: Vec<tangram_index::object::put::Arg>) {
+	let items = objects
+		.into_iter()
+		.map(|arg| tangram_index::Item::PutObject(Box::new(arg)))
+		.collect();
+	let arg = tangram_index::write::Arg { items };
+	index.write(arg).await.unwrap().unwrap();
+}
+
+async fn update_usage(index: &Index) {
+	loop {
+		let output = index
+			.update_batch(tangram_index::update::Kind::Usage, 100)
+			.await
+			.unwrap();
+		if output.count == 0 {
+			break;
+		}
+	}
+}
+
+fn get_account_object_entry(
+	index: &Index,
+	account: &tangram_index::usage::Account,
+	object: &tg::object::Id,
+) -> Option<tangram_index::usage::storage::Entry> {
+	let transaction = index.env.read_txn().unwrap();
+	let key = super::super::Key::Usage(super::super::usage::Key::AccountObject {
+		account: account.clone(),
+		object: object.clone(),
+	});
+	let key = Index::pack(&index.subspace, &key);
+	let value = index.db.get(&transaction, &key).unwrap()?;
+	let entry = tangram_index::usage::storage::Entry::deserialize(value).unwrap();
+	Some(entry)
 }
 
 #[test]
@@ -1911,7 +2168,9 @@ async fn account_storage_uses_cached_references_until_a_parent_changes() {
 		&index.subspace,
 		&mut transaction,
 		&arg,
+		None,
 		std::time::Duration::ZERO,
+		1,
 	)
 	.unwrap();
 	let clean_key = super::super::Key::Clean(super::super::clean::Key::AccountObject {
@@ -1951,7 +2210,9 @@ async fn account_storage_uses_cached_references_until_a_parent_changes() {
 		&index.subspace,
 		&mut transaction,
 		&arg,
+		None,
 		std::time::Duration::ZERO,
+		1,
 	)
 	.unwrap();
 	Index::clean_account_object_entry(

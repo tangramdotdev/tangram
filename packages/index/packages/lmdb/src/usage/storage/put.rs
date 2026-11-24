@@ -7,12 +7,15 @@ use {
 };
 
 impl Index {
+	/// Touch the account's storage entry for the object, or put it with the permissions if it is missing.
 	pub(crate) fn touch_account_object(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::usage::storage::put::ObjectArg,
+		permissions: Option<tg::authorization::permission::Set>,
 		time_to_touch: std::time::Duration,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Key::Usage(crate::usage::Key::AccountObject {
 			account: arg.account.clone(),
@@ -23,6 +26,18 @@ impl Index {
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get the account object"))?
 		else {
+			if let Some(permissions) = permissions {
+				Self::put_account_object(
+					db,
+					subspace,
+					transaction,
+					arg,
+					usage_partition_total,
+					Some(permissions),
+					None,
+					None,
+				)?;
+			}
 			return Ok(());
 		};
 		let mut entry = tangram_index::usage::storage::Entry::deserialize(value)?;
@@ -39,12 +54,15 @@ impl Index {
 		Ok(())
 	}
 
+	/// Touch the account's storage entry for the process, or put it with the permissions if it is missing.
 	pub(crate) fn touch_account_process(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::usage::storage::put::ProcessArg,
+		permissions: Option<tg::authorization::permission::Set>,
 		time_to_touch: std::time::Duration,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Key::Usage(crate::usage::Key::AccountProcess {
 			account: arg.account.clone(),
@@ -55,6 +73,17 @@ impl Index {
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get the account process"))?
 		else {
+			if let Some(permissions) = permissions {
+				Self::put_account_process(
+					db,
+					subspace,
+					transaction,
+					arg,
+					usage_partition_total,
+					Some(permissions),
+					None,
+				)?;
+			}
 			return Ok(());
 		};
 		let mut entry = tangram_index::usage::storage::Entry::deserialize(value)?;

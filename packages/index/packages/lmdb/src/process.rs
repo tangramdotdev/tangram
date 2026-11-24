@@ -169,7 +169,7 @@ impl Index {
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
 		let processes = self
-			.touch_processes_inner(ids, None, false, false, touched_at, time_to_touch)
+			.touch_processes_inner(ids, None, None, false, false, touched_at, time_to_touch)
 			.await?;
 		let processes = processes
 			.into_iter()
@@ -179,10 +179,12 @@ impl Index {
 		Ok(processes)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	async fn touch_processes_inner(
 		&self,
 		ids: &[tg::process::Id],
 		account: Option<&tangram_index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		put_account: bool,
 		data: bool,
 		touched_at: i64,
@@ -191,10 +193,16 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
+		if permissions.is_some_and(|permissions| permissions.len() != ids.len()) {
+			return Err(tg::error!(
+				"expected one permission set for each process to touch"
+			));
+		}
 		let request = Request::TouchProcesses(crate::TouchProcesses {
 			account: account.cloned(),
 			data,
 			ids: ids.to_vec(),
+			permissions: permissions.map(<[_]>::to_vec),
 			put_account,
 			time_to_touch,
 			touched_at,
@@ -214,7 +222,15 @@ impl Index {
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
 		let processes = self
-			.touch_processes_inner(ids, Some(account), true, false, touched_at, time_to_touch)
+			.touch_processes_inner(
+				ids,
+				Some(account),
+				None,
+				true,
+				false,
+				touched_at,
+				time_to_touch,
+			)
 			.await?;
 		let processes = processes
 			.into_iter()
@@ -228,11 +244,20 @@ impl Index {
 		&self,
 		ids: &[tg::process::Id],
 		account: Option<&tangram_index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
 		let processes = self
-			.touch_processes_inner(ids, account, false, false, touched_at, time_to_touch)
+			.touch_processes_inner(
+				ids,
+				account,
+				permissions,
+				false,
+				false,
+				touched_at,
+				time_to_touch,
+			)
 			.await?;
 		let processes = processes
 			.into_iter()
@@ -246,11 +271,20 @@ impl Index {
 		&self,
 		ids: &[tg::process::Id],
 		account: Option<&tangram_index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>> {
-		self.touch_processes_inner(ids, account, false, true, touched_at, time_to_touch)
-			.await
+		self.touch_processes_inner(
+			ids,
+			account,
+			permissions,
+			false,
+			true,
+			touched_at,
+			time_to_touch,
+		)
+		.await
 	}
 }
 
@@ -351,10 +385,11 @@ impl tangram_index::process::Index for Index {
 		&self,
 		ids: &[tg::process::Id],
 		account: Option<&tangram_index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		self.touch_processes_with_account(ids, account, touched_at, time_to_touch)
+		self.touch_processes_with_account(ids, account, permissions, touched_at, time_to_touch)
 			.await
 	}
 
@@ -362,10 +397,17 @@ impl tangram_index::process::Index for Index {
 		&self,
 		ids: &[tg::process::Id],
 		account: Option<&tangram_index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>> {
-		self.touch_processes_with_data_with_account(ids, account, touched_at, time_to_touch)
-			.await
+		self.touch_processes_with_data_with_account(
+			ids,
+			account,
+			permissions,
+			touched_at,
+			time_to_touch,
+		)
+		.await
 	}
 }

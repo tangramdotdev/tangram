@@ -49,7 +49,7 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
-		self.touch_objects_with_account(ids, None, touched_at, time_to_touch)
+		self.touch_objects_with_account(ids, None, None, touched_at, time_to_touch)
 			.await
 	}
 
@@ -57,15 +57,22 @@ impl Index {
 		&self,
 		ids: &[tg::object::Id],
 		account: Option<&tangram_index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
+		if permissions.is_some_and(|permissions| permissions.len() != ids.len()) {
+			return Err(tg::error!(
+				"expected one permission set for each object to touch"
+			));
+		}
 		let request = Request::TouchObjects(crate::TouchObjects {
 			account: account.cloned(),
 			ids: ids.to_vec(),
+			permissions: permissions.map(<[_]>::to_vec),
 			time_to_touch,
 			touched_at,
 		});
@@ -105,10 +112,11 @@ impl tangram_index::object::Index for Index {
 		&self,
 		ids: &[tg::object::Id],
 		account: Option<&tangram_index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
-		self.touch_objects_with_account(ids, account, touched_at, time_to_touch)
+		self.touch_objects_with_account(ids, account, permissions, touched_at, time_to_touch)
 			.await
 	}
 }

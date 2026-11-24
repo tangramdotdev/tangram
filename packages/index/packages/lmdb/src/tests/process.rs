@@ -199,6 +199,7 @@ async fn touching_a_process_with_data_returns_its_data() {
 		.touch_processes_with_data_with_account(
 			&[id.clone(), missing],
 			None,
+			None,
 			1,
 			std::time::Duration::ZERO,
 		)

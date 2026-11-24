@@ -53,6 +53,152 @@ async fn completed_usage_updates_preserve_the_oldest_version() {
 	.await;
 }
 
+#[tokio::test]
+async fn touching_puts_a_missing_storage_entry_with_the_subtree_permission() {
+	super::run(async |index| {
+		let leaf = super::directory(&[]);
+		let middle = super::directory(&[("leaf", leaf.id.clone())]);
+		super::put(index, vec![leaf.clone(), middle.clone()]).await;
+		super::drain(index).await;
+		let account = tangram_index::usage::Account::User(tg::user::Id::new());
+		let permissions = object_permissions(tg::authorization::permission::object::Set::SUBTREE);
+		index
+			.touch_objects_with_account(
+				std::slice::from_ref(&middle.id),
+				Some(&account),
+				Some(std::slice::from_ref(&permissions)),
+				1,
+				std::time::Duration::ZERO,
+			)
+			.await
+			.unwrap();
+		drain(index).await;
+		assert_eq!(
+			entry(index, &account, &middle.id)
+				.await
+				.unwrap()
+				.permissions,
+			permissions
+		);
+		assert!(associated(index, &account, &leaf.id).await);
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn touching_puts_a_missing_storage_entry_with_the_node_permission() {
+	super::run(async |index| {
+		let leaf = super::directory(&[]);
+		let middle = super::directory(&[("leaf", leaf.id.clone())]);
+		super::put(index, vec![leaf.clone(), middle.clone()]).await;
+		super::drain(index).await;
+		let account = tangram_index::usage::Account::User(tg::user::Id::new());
+		let permissions = object_permissions(tg::authorization::permission::object::Set::NODE);
+		index
+			.touch_objects_with_account(
+				std::slice::from_ref(&middle.id),
+				Some(&account),
+				Some(std::slice::from_ref(&permissions)),
+				1,
+				std::time::Duration::ZERO,
+			)
+			.await
+			.unwrap();
+		drain(index).await;
+		assert_eq!(
+			entry(index, &account, &middle.id)
+				.await
+				.unwrap()
+				.permissions,
+			permissions
+		);
+		assert!(!associated(index, &account, &leaf.id).await);
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn touching_does_not_change_the_permissions_of_an_existing_storage_entry() {
+	super::run(async |index| {
+		let leaf = super::directory(&[]);
+		let middle = super::directory(&[("leaf", leaf.id.clone())]);
+		super::put(index, vec![leaf.clone(), middle.clone()]).await;
+		super::drain(index).await;
+		let account = tangram_index::usage::Account::User(tg::user::Id::new());
+		associate(index, &account, &middle.id, 0).await;
+		drain(index).await;
+		let mut permissions = tg::authorization::permission::object::Set::NODE;
+		permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
+		let permissions = object_permissions(permissions);
+		index
+			.touch_objects_with_account(
+				std::slice::from_ref(&middle.id),
+				Some(&account),
+				Some(std::slice::from_ref(&permissions)),
+				10,
+				std::time::Duration::ZERO,
+			)
+			.await
+			.unwrap();
+		drain(index).await;
+		let entry = entry(index, &account, &middle.id).await.unwrap();
+		assert_eq!(
+			entry.permissions,
+			object_permissions(tg::authorization::permission::object::Set::SUBTREE)
+		);
+		assert_eq!(entry.touched_at, 10);
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn touching_puts_a_missing_storage_entry_within_the_time_to_touch() {
+	super::run(async |index| {
+		let leaf = super::directory(&[]);
+		super::put(index, vec![leaf.clone()]).await;
+		super::drain(index).await;
+		let account = tangram_index::usage::Account::User(tg::user::Id::new());
+		let permissions = object_permissions(tg::authorization::permission::object::Set::SUBTREE);
+		let objects = index
+			.touch_objects_with_account(
+				std::slice::from_ref(&leaf.id),
+				Some(&account),
+				Some(std::slice::from_ref(&permissions)),
+				10,
+				std::time::Duration::from_secs(100),
+			)
+			.await
+			.unwrap();
+		assert_eq!(objects[0].as_ref().unwrap().touched_at, 0);
+		drain(index).await;
+		assert!(associated(index, &account, &leaf.id).await);
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn touching_a_missing_object_with_permissions_reports_it_missing() {
+	super::run(async |index| {
+		let leaf = super::directory(&[]);
+		let account = tangram_index::usage::Account::User(tg::user::Id::new());
+		let permissions = object_permissions(tg::authorization::permission::object::Set::SUBTREE);
+		let objects = index
+			.touch_objects_with_account(
+				std::slice::from_ref(&leaf.id),
+				Some(&account),
+				Some(std::slice::from_ref(&permissions)),
+				10,
+				std::time::Duration::ZERO,
+			)
+			.await
+			.unwrap();
+		assert!(objects[0].is_none());
+		drain(index).await;
+		assert!(!associated(index, &account, &leaf.id).await);
+	})
+	.await;
+}
+
 async fn puts(index: &Index, late: bool) {
 	// Two directory roots reach the same account through a shared middle directory.
 	let leaf = super::directory(&[]);
@@ -124,7 +270,7 @@ async fn puts(index: &Index, late: bool) {
 	// Collect the account associations while retaining the cached objects.
 	let ids = [leaf.id.clone(), middle.id, first.id.clone(), second.id];
 	index
-		.touch_objects_with_account(&ids, None, 100, std::time::Duration::ZERO)
+		.touch_objects_with_account(&ids, None, None, 100, std::time::Duration::ZERO)
 		.await
 		.unwrap();
 	let arg = tangram_index::clean::Arg {
@@ -280,6 +426,33 @@ async fn associated(
 	})
 	.await
 	.unwrap()
+}
+
+async fn entry(
+	index: &Index,
+	account: &tangram_index::usage::Account,
+	object: &tg::object::Id,
+) -> Option<tangram_index::usage::storage::Entry> {
+	crate::run(&index.database, async |txn| {
+		let key = crate::Key::Usage(crate::usage::Key::AccountObject {
+			account: account.clone(),
+			object: object.clone(),
+		});
+		let result = txn.get(&Index::pack(&index.subspace, &key), false).await;
+		let value = crate::retry!(result);
+		let entry = value
+			.map(|value| tangram_index::usage::storage::Entry::deserialize(&value))
+			.transpose()?;
+		Ok(ControlFlow::Break(entry))
+	})
+	.await
+	.unwrap()
+}
+
+fn object_permissions(
+	permissions: tg::authorization::permission::object::Set,
+) -> tg::authorization::permission::Set {
+	tg::authorization::permission::Set::Object(permissions)
 }
 
 async fn enqueue(

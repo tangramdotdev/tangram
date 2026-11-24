@@ -58,19 +58,30 @@ impl Component {
 		id: &tg::process::Id,
 		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<()>> {
+		// Authorize the node permission, and get the other process permissions that the caller holds.
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);
+		let requested = tg::authorization::permission::Set::Process(
+			tg::authorization::permission::process::Set::all(),
+		);
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
-		if !session
-			.authorize(resource, permission)
+		let output = session
+			.authorize_batch_with_required_with_exhaustive(
+				[(resource, requested)],
+				permission.into(),
+				true,
+			)
 			.await?
-			.check_exhaustion()?
-			.permissions
-			.contains(permission)
-		{
+			.pop()
+			.unwrap()
+			.check_exhaustion()?;
+		if !output.permissions.contains(permission) {
 			return Ok(None);
 		}
+		let permissions = output.permissions;
+
+		// Touch the process.
 		let touched_at = session.server.clock.unix_timestamp();
 		let account = session
 			.server
@@ -84,6 +95,7 @@ impl Component {
 			.touch_process_with_account(
 				id,
 				account.as_ref(),
+				Some(&permissions),
 				touched_at,
 				session.server.config.process.time_to_touch,
 			)
@@ -92,6 +104,7 @@ impl Component {
 		else {
 			return Ok(None);
 		};
+
 		Ok(Some(()))
 	}
 

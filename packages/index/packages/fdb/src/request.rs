@@ -51,6 +51,7 @@ pub(super) struct TouchCheckouts {
 pub(super) struct TouchObjects {
 	pub account: Option<tangram_index::usage::Account>,
 	pub ids: Vec<tg::object::Id>,
+	pub permissions: Option<Vec<tg::authorization::permission::Set>>,
 	pub time_to_touch: std::time::Duration,
 	pub touched_at: i64,
 }
@@ -60,6 +61,7 @@ pub(super) struct TouchProcesses {
 	pub account: Option<tangram_index::usage::Account>,
 	pub data: bool,
 	pub ids: Vec<tg::process::Id>,
+	pub permissions: Option<Vec<tg::authorization::permission::Set>>,
 	pub put_account: bool,
 	pub time_to_touch: std::time::Duration,
 	pub touched_at: i64,
@@ -80,8 +82,8 @@ pub(super) enum Operation {
 	ExpireUsage,
 	GetUsage,
 	TouchCheckout(tg::Id),
-	TouchObject(tg::object::Id),
-	TouchProcess(tg::process::Id),
+	TouchObject(tg::object::Id, Option<tg::authorization::permission::Set>),
+	TouchProcess(tg::process::Id, Option<tg::authorization::permission::Set>),
 	Update,
 }
 

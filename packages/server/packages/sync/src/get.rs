@@ -389,10 +389,12 @@ impl Component {
 			.await?;
 		let mut touch_indices = Vec::new();
 		let mut touch_ids = Vec::new();
+		let mut touch_permissions = Vec::new();
 		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
-			if permissions.is_some() {
+			if let Some(permissions) = permissions {
 				touch_indices.push(index);
 				touch_ids.push(id.clone());
+				touch_permissions.push(*permissions);
 			}
 		}
 		let account = session
@@ -404,7 +406,13 @@ impl Component {
 		let touched = session
 			.server
 			.index
-			.touch_objects_with_account(&touch_ids, account.as_ref(), touched_at, time_to_touch)
+			.touch_objects_with_account(
+				&touch_ids,
+				account.as_ref(),
+				Some(&touch_permissions),
+				touched_at,
+				time_to_touch,
+			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?;
 		let mut outputs = vec![None; ids.len()];
@@ -462,10 +470,12 @@ impl Component {
 			.await?;
 		let mut touch_indices = Vec::new();
 		let mut touch_ids = Vec::new();
+		let mut touch_permissions = Vec::new();
 		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
-			if permissions.is_some() {
+			if let Some(permissions) = permissions {
 				touch_indices.push(index);
 				touch_ids.push(id.clone());
+				touch_permissions.push(*permissions);
 			}
 		}
 		let account = session
@@ -477,7 +487,13 @@ impl Component {
 		let touched = session
 			.server
 			.index
-			.touch_processes_with_account(&touch_ids, account.as_ref(), touched_at, time_to_touch)
+			.touch_processes_with_account(
+				&touch_ids,
+				account.as_ref(),
+				Some(&touch_permissions),
+				touched_at,
+				time_to_touch,
+			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
 		let mut outputs = vec![None; ids.len()];
@@ -509,10 +525,12 @@ impl Component {
 			.await?;
 		let mut touch_indices = Vec::new();
 		let mut touch_ids = Vec::new();
+		let mut touch_permissions = Vec::new();
 		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
-			if permissions.is_some() {
+			if let Some(permissions) = permissions {
 				touch_indices.push(index);
 				touch_ids.push(id.clone());
+				touch_permissions.push(*permissions);
 			}
 		}
 		let account = session
@@ -527,6 +545,7 @@ impl Component {
 			.touch_processes_with_data_with_account(
 				&touch_ids,
 				account.as_ref(),
+				Some(&touch_permissions),
 				touched_at,
 				time_to_touch,
 			)

@@ -17,6 +17,7 @@ impl Index {
 			account,
 			data,
 			ids,
+			permissions,
 			put_account,
 			time_to_touch,
 			touched_at,
@@ -31,7 +32,7 @@ impl Index {
 			*time_to_touch,
 		)?;
 		if let Some(account) = account.as_ref() {
-			for (id, process) in std::iter::zip(ids, &processes) {
+			for (index, (id, process)) in std::iter::zip(ids, &processes).enumerate() {
 				if process.is_none() {
 					continue;
 				}
@@ -56,7 +57,16 @@ impl Index {
 						continue;
 					}
 				}
-				Self::touch_account_process(db, subspace, transaction, &arg, *time_to_touch)?;
+				let permissions = permissions.as_ref().map(|permissions| permissions[index]);
+				Self::touch_account_process(
+					db,
+					subspace,
+					transaction,
+					&arg,
+					permissions,
+					*time_to_touch,
+					usage_partition_total,
+				)?;
 			}
 		}
 

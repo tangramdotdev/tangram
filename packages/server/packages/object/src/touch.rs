@@ -58,19 +58,31 @@ impl Component {
 		id: &tg::object::Id,
 		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<()>> {
+		// Authorize the node permission, and get the subtree permission if the caller holds it.
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
+		let mut requested = tg::authorization::permission::object::Set::empty();
+		requested.insert(tg::authorization::permission::object::Set::NODE);
+		requested.insert(tg::authorization::permission::object::Set::SUBTREE);
+		let requested = tg::authorization::permission::Set::Object(requested);
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
-		if !session
-			.authorize(resource, permission)
+		let output = session
+			.authorize_batch_with_required_with_exhaustive(
+				[(resource, requested)],
+				permission.into(),
+				true,
+			)
 			.await?
-			.check_exhaustion()?
-			.permissions
-			.contains(permission)
-		{
+			.pop()
+			.unwrap()
+			.check_exhaustion()?;
+		if !output.permissions.contains(permission) {
 			return Ok(None);
 		}
+		let permissions = output.permissions;
+
+		// Touch the object.
 		let touched_at = session.server.clock.unix_timestamp();
 		let account = session
 			.server
@@ -84,6 +96,7 @@ impl Component {
 			.touch_object_with_account(
 				id,
 				account.as_ref(),
+				Some(&permissions),
 				touched_at,
 				session.server.config.object.time_to_touch,
 			)
@@ -92,6 +105,7 @@ impl Component {
 		else {
 			return Ok(None);
 		};
+
 		Ok(Some(()))
 	}
 

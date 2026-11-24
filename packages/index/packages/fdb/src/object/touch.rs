@@ -11,41 +11,49 @@ impl Index {
 	pub(crate) async fn touch_objects_with_account_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-		ids: &[tg::object::Id],
-		account: Option<&tangram_index::usage::Account>,
-		touched_at: i64,
-		time_to_touch: Duration,
-		partition_total: u64,
+		arg: &crate::TouchObjects,
+		partition_totals: crate::PartitionTotals,
 	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::object::Object>>, fdb::FdbError>> {
+		let crate::TouchObjects {
+			account,
+			ids,
+			permissions,
+			time_to_touch,
+			touched_at,
+		} = arg;
 		let objects = crate::propagate!(
 			Self::touch_objects_with_transaction(
 				txn,
 				subspace,
 				ids,
-				touched_at,
-				time_to_touch,
-				partition_total,
+				*touched_at,
+				*time_to_touch,
+				partition_totals.cleaning,
 			)
 			.await
 		);
-		if let Some(account) = account {
+		if let Some(account) = account.as_ref() {
 			{
 				let result = future::try_join_all(
 					std::iter::zip(ids, &objects)
-						.filter(|(_, object)| object.is_some())
-						.map(|(id, _)| {
+						.enumerate()
+						.filter(|(_, (_, object))| object.is_some())
+						.map(|(index, (id, _))| {
 							let arg = tangram_index::usage::storage::put::ObjectArg {
 								account: account.clone(),
 								object: id.clone(),
-								touched_at,
+								touched_at: *touched_at,
 							};
+							let permissions =
+								permissions.as_ref().map(|permissions| permissions[index]);
 							async move {
 								Self::touch_account_object(
 									txn,
 									subspace,
 									&arg,
-									time_to_touch,
-									partition_total,
+									permissions,
+									*time_to_touch,
+									partition_totals,
 								)
 								.await
 							}

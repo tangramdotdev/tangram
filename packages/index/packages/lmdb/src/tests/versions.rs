@@ -136,7 +136,7 @@ async fn late_storage_puts_preserve_the_oldest_version() {
 	// Collection removes the retained versions without evicting the cached objects.
 	let ids = [leaf.id.clone(), middle.id, top.id.clone()];
 	index
-		.touch_objects_with_account(&ids, None, 100, std::time::Duration::ZERO)
+		.touch_objects_with_account(&ids, None, None, 100, std::time::Duration::ZERO)
 		.await
 		.unwrap();
 	let arg = tangram_index::clean::Arg {
