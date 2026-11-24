@@ -15,6 +15,10 @@ success $output "the inherited token should authenticate with the inherited serv
 let output = with-env { TANGRAM_CONFIG: $config, TANGRAM_TOKEN: $alice.token } { tg --url $remote.url user whoami | complete }
 failure $output "the inherited token should not apply to a server named on the command line"
 
+# An explicit directory selects its own server and clears the inherited URL and token.
+let output = with-env { TANGRAM_CONFIG: $config, TANGRAM_TOKEN: $alice.token } { tg --directory $remote.directory user whoami | complete }
+failure $output "the inherited token should not apply to a server named by directory"
+
 # An explicit token still applies to a named server.
 let output = with-env { TANGRAM_CONFIG: $config } { tg --url $remote.url --token $alice.token user whoami | complete }
 success $output "an explicit token should authenticate with a named server"

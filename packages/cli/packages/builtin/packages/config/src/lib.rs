@@ -1,4 +1,8 @@
-use {std::collections::BTreeMap, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {
+	std::collections::BTreeMap,
+	tangram_cli_core::{ArgumentKind, Cli},
+	tangram_client::prelude::*,
+};
 
 /// Run an export of a config module with the module's runtime.
 #[derive(Clone, Debug, clap::Args)]
@@ -37,24 +41,15 @@ pub struct Args {
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// Get the args.
 	let mut args_ = Vec::new();
-	let mut matches = &cli.matches;
-	while let Some((_, matches_)) = matches.subcommand() {
-		matches = matches_;
+	for (kind, arg) in cli.arguments(args.arg_strings, args.arg_values) {
+		let value = match kind {
+			ArgumentKind::String => tg::Value::String(arg),
+			ArgumentKind::Value => arg
+				.parse()
+				.map_err(|error| tg::error!(!error, %arg, "failed to parse the arg"))?,
+		};
+		args_.push(value);
 	}
-	let arg_string_indices = matches.indices_of("arg_strings").unwrap_or_default();
-	let arg_value_indices = matches.indices_of("arg_values").unwrap_or_default();
-	let mut indexed = Vec::new();
-	for (index, value) in arg_string_indices.zip(args.arg_strings) {
-		indexed.push((index, tg::Value::String(value)));
-	}
-	for (index, value) in arg_value_indices.zip(args.arg_values) {
-		let value = value
-			.parse()
-			.map_err(|error| tg::error!(!error, arg = %value, "failed to parse the arg"))?;
-		indexed.push((index, value));
-	}
-	indexed.sort_by_key(|&(index, _)| index);
-	args_.extend(indexed.into_iter().map(|(_, value)| value));
 	args_.extend(args.trailing.into_iter().map(tg::Value::String));
 
 	// Get the module.

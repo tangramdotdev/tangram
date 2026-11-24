@@ -1,4 +1,4 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use tangram_client::prelude::*;
 
 /// Generate shell completions.
 #[derive(Clone, Debug, clap::Args)]
@@ -17,8 +17,7 @@ enum Shell {
 	Nu,
 }
 
-pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
-	let mut command = cli.command.clone();
+pub fn run(mut command: clap::Command, args: &Args) -> tg::Result<()> {
 	let mut stdout = std::io::stdout();
 
 	match args.shell {

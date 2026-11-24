@@ -48,11 +48,11 @@ for name in ($configs | columns) {
 	assert equal ($output.stdout | from json) $expected $name
 
 	# Building an export passes its name, and the caller's args follow the config's args.
-	let output = tg build $'($path | path join $name)#greet' --arg-string hey --arg-value '1' | complete
+	let output = tg build $'($path | path join $name)#greet' --arg-value '1' --arg-string hey | complete
 	success $output
 	let output = $output.stdout | from json
 	assert equal $output.export greet
-	assert equal $output.args [config, hey, 1]
+	assert equal $output.args [config, 1, hey]
 }
 
 # A package whose root is a config module receives the package.

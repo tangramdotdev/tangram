@@ -1,7 +1,7 @@
 use {
 	futures::prelude::*,
 	std::{fmt::Write as _, net::ToSocketAddrs as _, path::PathBuf, time::Duration},
-	tangram_cli_core::Cli,
+	tangram_cli_core::{ArgumentKind, Cli},
 	tangram_client::prelude::*,
 	tg::Client,
 };
@@ -547,51 +547,17 @@ pub(crate) async fn spawn_inner(
 
 	// Set the args.
 	let mut args_: Vec<tg::command::Value> = Vec::new();
-	let mut matches = &cli.matches;
-	while let Some((_, matches_)) = matches.subcommand() {
-		matches = matches_;
-	}
-	let arg_string_indices = if matches
-		.try_contains_id("spawn.arg_strings")
-		.unwrap_or(false)
-	{
-		matches
-			.indices_of("spawn.arg_strings")
-			.map_or_default(std::iter::Iterator::collect)
-	} else {
-		Vec::new()
-	};
-	let arg_value_indices = if matches.try_contains_id("spawn.arg_values").unwrap_or(false) {
-		matches
-			.indices_of("spawn.arg_values")
-			.map_or_default(std::iter::Iterator::collect)
-	} else {
-		Vec::new()
-	};
-	if arg_string_indices.is_empty() && arg_value_indices.is_empty() {
-		for value in options.arg_strings {
-			args_.push(value.into());
-		}
-		for value in options.arg_values {
-			let value = value
-				.parse()
-				.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
-			args_.push(tg::command::Value::Value(value));
-		}
-	} else {
-		let mut indexed: Vec<(usize, tg::command::Value)> = Vec::new();
-		for (index, value) in arg_string_indices.into_iter().zip(options.arg_strings) {
-			let value = value.into();
-			indexed.push((index, value));
-		}
-		for (index, value) in arg_value_indices.into_iter().zip(options.arg_values) {
-			let value = value
-				.parse()
-				.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
-			indexed.push((index, tg::command::Value::Value(value)));
-		}
-		indexed.sort_by_key(|&(index, _)| index);
-		args_.extend(indexed.into_iter().map(|(_, value)| value));
+	for (kind, arg) in cli.arguments(options.arg_strings, options.arg_values) {
+		let value = match kind {
+			ArgumentKind::String => arg.into(),
+			ArgumentKind::Value => {
+				let value = arg
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
+				tg::command::Value::Value(value)
+			},
+		};
+		args_.push(value);
 	}
 	for arg in trailing {
 		args_.push(arg.into());

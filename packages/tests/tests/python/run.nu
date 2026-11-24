@@ -29,7 +29,7 @@ let path = artifact {
         from .namespace.leaf import leaf
 
         async def default(*args):
-            assert args == ("hello", True, "trailing")
+            assert args == (True, "hello", 42, "trailing")
             assert tg.process.module.kind == "python"
             assert value == 42
             assert cycle_a.result == 7
@@ -61,7 +61,7 @@ let path = artifact {
 }
 let checked = tg checkin ($path | path join main.tg.py)
 rm --recursive $path
-let output = tg run -a hello -A true $checked trailing | complete
+let output = tg run -A true -a hello -A '42' $checked trailing | complete
 success $output
 assert equal ($output.stdout | str trim) "checked-in Python\n17"
 

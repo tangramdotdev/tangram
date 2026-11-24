@@ -32,13 +32,17 @@ pub enum Kind {
 	Zsh,
 }
 
-pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(
+	cli: &mut Cli,
+	args: Args,
+	command: impl FnOnce() -> clap::Command,
+) -> tg::Result<()> {
 	match args.command {
 		Command::Activate(args) => {
 			crate::activate::run(cli, args).await?;
 		},
 		Command::Completion(args) => {
-			crate::completion::run(cli, args).await?;
+			crate::completion::run(command(), &args)?;
 		},
 		Command::Deactivate(args) => {
 			crate::deactivate::run(cli, args).await?;

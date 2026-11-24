@@ -4062,7 +4062,7 @@ mod tests {
 
 	#[test]
 	fn edits_tokens_in_the_destination_config() {
-		use {clap::CommandFactory as _, clap::FromArgMatches as _};
+		use clap::Parser as _;
 
 		#[derive(clap::Parser)]
 		struct Args {
@@ -4077,12 +4077,8 @@ mod tests {
 		let system_contents = r#"{"checkouts":false,"server":{"start_timeout":9}}"#;
 		std::fs::write(&system, system_contents).unwrap();
 		std::fs::write(&user, r#"{"tracing":{"stderr_format":"json"}}"#).unwrap();
-		let command = Args::command();
-		let matches = command
-			.clone()
-			.get_matches_from(["tg", "--config", user.to_str().unwrap()]);
-		let args = Args::from_arg_matches(&matches).unwrap();
-		let mut cli = Cli::new(args.global, command, matches);
+		let args = Args::parse_from(["tg", "--config", user.to_str().unwrap()]);
+		let mut cli = Cli::new(args.global, Vec::new());
 		cli.config = Cli::try_read_config_with_paths(None, &system, Some(&user)).unwrap();
 
 		cli.write_token("token".to_owned()).unwrap();

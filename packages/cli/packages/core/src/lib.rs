@@ -17,12 +17,17 @@ pub mod tracing;
 
 pub struct Cli {
 	pub args: Args,
+	argument_order: Vec<ArgumentKind>,
 	pub client: Option<tg::Client>,
-	pub command: clap::Command,
 	pub config: Option<Config>,
 	pub exit: Option<std::process::ExitCode>,
 	pub health: Option<tg::Health>,
-	pub matches: clap::ArgMatches,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArgumentKind {
+	String,
+	Value,
 }
 
 /// The global args.
@@ -151,24 +156,6 @@ pub fn version() -> String {
 	version
 }
 
-impl Args {
-	/// Clear the URL and token inherited from the environment if the command line names a server.
-	fn clear_inherited_server(&mut self, matches: &clap::ArgMatches) {
-		let source = |id| matches.value_source(id);
-		let command_line = Some(clap::parser::ValueSource::CommandLine);
-		let environment = Some(clap::parser::ValueSource::EnvVariable);
-		if source("url") != command_line && source("directory") != command_line {
-			return;
-		}
-		if source("url") == environment {
-			self.url = None;
-		}
-		if source("token") == environment {
-			self.token = None;
-		}
-	}
-}
-
 impl RemoteOptions {
 	pub fn overlay(&mut self, options: &Self) {
 		if options.disabled {
@@ -217,17 +204,41 @@ impl Quiet {
 
 impl Cli {
 	#[must_use]
-	pub fn new(mut args: Args, command: clap::Command, matches: clap::ArgMatches) -> Self {
-		args.clear_inherited_server(&matches);
+	pub fn new(args: Args, argument_order: Vec<ArgumentKind>) -> Self {
 		Self {
 			args,
+			argument_order,
 			client: None,
-			command,
 			config: None,
 			exit: None,
 			health: None,
-			matches,
 		}
+	}
+
+	pub fn arguments(
+		&self,
+		strings: Vec<String>,
+		values: Vec<String>,
+	) -> impl Iterator<Item = (ArgumentKind, String)> + '_ {
+		let mut strings = strings.into_iter();
+		let mut values = values.into_iter();
+		let order = if strings.len() > 0
+			&& values.len() > 0
+			&& self.argument_order.len() == strings.len() + values.len()
+		{
+			self.argument_order.as_slice()
+		} else {
+			&[]
+		};
+		let mut order = order.iter().copied();
+		std::iter::from_fn(move || match order.next() {
+			Some(ArgumentKind::String) => strings.next().map(|value| (ArgumentKind::String, value)),
+			Some(ArgumentKind::Value) => values.next().map(|value| (ArgumentKind::Value, value)),
+			None => strings
+				.next()
+				.map(|value| (ArgumentKind::String, value))
+				.or_else(|| values.next().map(|value| (ArgumentKind::Value, value))),
+		})
 	}
 
 	fn config_path(&self) -> Option<PathBuf> {

@@ -1,4 +1,7 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use {
+	tangram_cli_core::{ArgumentKind, Cli},
+	tangram_client::prelude::*,
+};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -42,25 +45,15 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 async fn run_inner(cli: &Cli, args: Args) -> tg::Result<u8> {
 	// Get the args.
 	let mut args_: Vec<tg::Value> = Vec::new();
-	let mut matches = &cli.matches;
-	while let Some((_, matches_)) = matches.subcommand() {
-		matches = matches_;
+	for (kind, arg) in cli.arguments(args.arg_strings, args.arg_values) {
+		let value = match kind {
+			ArgumentKind::String => tg::Value::String(arg),
+			ArgumentKind::Value => arg
+				.parse()
+				.map_err(|error| tg::error!(!error, %arg, "failed to parse the arg"))?,
+		};
+		args_.push(value);
 	}
-	let arg_string_indices = matches.indices_of("arg_strings").unwrap_or_default();
-	let arg_value_indices = matches.indices_of("arg_values").unwrap_or_default();
-	let mut indexed: Vec<(usize, tg::Value)> = Vec::new();
-	for (index, value) in arg_string_indices.zip(args.arg_strings) {
-		let value = tg::Value::String(value);
-		indexed.push((index, value));
-	}
-	for (index, value) in arg_value_indices.zip(args.arg_values) {
-		let value = value
-			.parse()
-			.map_err(|error| tg::error!(!error, arg = %value, "failed to parse the arg"))?;
-		indexed.push((index, value));
-	}
-	indexed.sort_by_key(|&(index, _)| index);
-	args_.extend(indexed.into_iter().map(|(_, value)| value));
 	for arg in args.trailing {
 		args_.push(tg::Value::String(arg));
 	}

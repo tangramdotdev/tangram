@@ -4,7 +4,7 @@ use {
 	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
 	std::ffi::OsString,
-	tangram_cli_core::Cli,
+	tangram_cli_core::{ArgumentKind, Cli},
 	tangram_client::prelude::*,
 };
 
@@ -15,7 +15,7 @@ use tangram_fdb as _;
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Debug, clap::Parser)]
+#[derive(Debug, clap::Parser)]
 #[command(
 	about = "Tangram is a build system and package manager.",
 	after_help = "Run a process directly with: tg <reference> [options] [-- args]",
@@ -33,7 +33,7 @@ struct Args {
 	global: tangram_cli_core::Args,
 }
 
-#[derive(Clone, Debug, clap::Subcommand)]
+#[derive(Debug, clap::Subcommand)]
 enum Command {
 	Archive(tangram_cli_archive::Args),
 
@@ -206,66 +206,103 @@ enum Command {
 
 fn main() -> std::process::ExitCode {
 	// Parse the args.
-	let command = Args::command();
-	let (matches, args) =
-		parse_args(&command, std::env::args_os().collect()).unwrap_or_else(|error| error.exit());
-	if let Command::Sandbox(tangram_cli_sandbox::Args { command }) = args.command.clone() {
-		let result = match command {
-			#[cfg(target_os = "linux")]
-			tangram_cli_sandbox::Command::Configure(args) => Some(tangram_cli_sandbox::configure::run(args)),
-			tangram_cli_sandbox::Command::Run(args) => Some(tangram_cli_sandbox::run::run(args)),
-			_ => None,
-		};
-		if let Some(result) = result {
-			return match result {
-				Ok(exit) => exit,
-				Err(error) => {
-					Cli::print_error_basic(tg::Referent::with_node(error), false);
-					std::process::ExitCode::FAILURE
-				},
-			};
-		}
-	}
-	let runtime = tokio::runtime::Builder::new_current_thread()
-		.enable_all()
-		.build()
-		.unwrap();
-	runtime.block_on(main_inner(command, matches, args))
-}
+	let (args, argument_order) =
+		parse_args(std::env::args_os().collect()).unwrap_or_else(|error| error.exit());
 
-fn parse_args(
-	command: &clap::Command,
-	mut argv: Vec<OsString>,
-) -> clap::error::Result<(clap::ArgMatches, Args)> {
-	let matches = command.clone().try_get_matches_from(&argv)?;
-	let args = Args::from_arg_matches(&matches)?;
-	let Command::Run_(trailing) = &args.command else {
-		return Ok((matches, args));
+	// Run native sandbox commands before initializing the runtime.
+	let result = match args.command {
+		#[cfg(target_os = "linux")]
+		Command::Sandbox(tangram_cli_sandbox::Args {
+			command: tangram_cli_sandbox::Command::Configure(args),
+		}) => tangram_cli_sandbox::configure::run(args),
+		Command::Sandbox(tangram_cli_sandbox::Args {
+			command: tangram_cli_sandbox::Command::Run(args),
+		}) => tangram_cli_sandbox::run::run(args),
+		command => {
+			let runtime = tokio::runtime::Builder::new_current_thread()
+				.enable_all()
+				.build()
+				.unwrap();
+			return runtime.block_on(main_inner(args.global, argument_order, command));
+		},
 	};
 
-	// Insert run before the captured reference, retaining global args and raw trailing values.
-	let mut index = argv.len() - trailing.len();
-	if index > 1 && argv[index - 1] == "--" {
-		index -= 1;
+	match result {
+		Ok(exit) => exit,
+		Err(error) => {
+			Cli::print_error_basic(tg::Referent::with_node(error), false);
+			std::process::ExitCode::FAILURE
+		},
 	}
-	argv.insert(index, "run".into());
-	let matches = command.clone().try_get_matches_from(argv)?;
-	let args = Args::from_arg_matches(&matches)?;
+}
 
-	Ok((matches, args))
+fn parse_args(mut argv: Vec<OsString>) -> clap::error::Result<(Args, Vec<ArgumentKind>)> {
+	let mut matches = Args::command().try_get_matches_from(&argv)?;
+	let mut args = Args::from_arg_matches(&matches)?;
+	if let Command::Run_(trailing) = &args.command {
+		// Insert run before the captured reference, retaining global args and raw trailing values.
+		let mut index = argv.len() - trailing.len();
+		if index > 1 && argv[index - 1] == "--" {
+			index -= 1;
+		}
+		argv.insert(index, "run".into());
+		matches = Args::command().try_get_matches_from(argv)?;
+		args = Args::from_arg_matches(&matches)?;
+	}
+
+	// Clear the URL and token inherited from the environment if the command line names a server.
+	let source = |id| matches.value_source(id);
+	let command_line = Some(clap::parser::ValueSource::CommandLine);
+	let environment = Some(clap::parser::ValueSource::EnvVariable);
+	if source("url") == command_line || source("directory") == command_line {
+		if source("url") == environment {
+			args.global.url = None;
+		}
+		if source("token") == environment {
+			args.global.token = None;
+		}
+	}
+
+	let argument_order = argument_order(&matches);
+
+	Ok((args, argument_order))
+}
+
+fn argument_order(mut matches: &clap::ArgMatches) -> Vec<ArgumentKind> {
+	while let Some((_, subcommand)) = matches.subcommand() {
+		matches = subcommand;
+	}
+	for (strings, values) in [
+		("spawn.arg_strings", "spawn.arg_values"),
+		("arg_strings", "arg_values"),
+	] {
+		if !matches.try_contains_id(strings).unwrap_or(false)
+			|| !matches.try_contains_id(values).unwrap_or(false)
+		{
+			continue;
+		}
+		let strings = matches.indices_of(strings).unwrap_or_default();
+		let values = matches.indices_of(values).unwrap_or_default();
+		let mut order = strings
+			.map(|index| (index, ArgumentKind::String))
+			.chain(values.map(|index| (index, ArgumentKind::Value)))
+			.collect::<Vec<_>>();
+		order.sort_unstable_by_key(|&(index, _)| index);
+		return order.into_iter().map(|(_, kind)| kind).collect();
+	}
+	Vec::new()
 }
 
 async fn main_inner(
-	command: clap::Command,
-	matches: clap::ArgMatches,
-	args: Args,
+	args: tangram_cli_core::Args,
+	argument_order: Vec<ArgumentKind>,
+	command: Command,
 ) -> std::process::ExitCode {
 	// Create the CLI.
-	let mut cli = Cli::new(args.global, command, matches);
-	let command = args.command;
+	let mut cli = Cli::new(args, argument_order);
 
 	// Handle internal commands.
-	let result = match command.clone() {
+	let command = match command {
 		Command::Builtin(command_args) => {
 			#[cfg(feature = "v8")]
 			if let tangram_cli_builtin::Command::JavaScript(args) = &command_args.command
@@ -273,7 +310,8 @@ async fn main_inner(
 			{
 				tangram_cli_builtin::javascript::initialize_v8(0);
 			}
-			Some(tangram_cli_builtin::run(&mut cli, command_args).await)
+			let result = tangram_cli_builtin::run(&mut cli, command_args).await;
+			return finish_internal_command(&cli, result);
 		},
 
 		Command::Sandbox(tangram_cli_sandbox::Args {
@@ -282,7 +320,7 @@ async fn main_inner(
 		}) => {
 			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
 			let result = tangram_cli_sandbox::serve::run(command_args).await;
-			Some(result)
+			return finish_internal_command(&cli, result);
 		},
 
 		Command::Sandbox(tangram_cli_sandbox::Args {
@@ -292,26 +330,11 @@ async fn main_inner(
 			let result = tangram_cli_sandbox::init::run(command_args).map(|exit| {
 				cli.exit = Some(exit);
 			});
-			Some(result)
+			return finish_internal_command(&cli, result);
 		},
 
-		_ => None,
+		command => command,
 	};
-	if let Some(result) = result {
-		return match result {
-			Ok(()) => cli.exit.unwrap_or_default(),
-			Err(error) => {
-				let internal = Cli::try_read_config(cli.args.config.as_deref())
-					.ok()
-					.flatten()
-					.and_then(|config| config.advanced)
-					.and_then(|advanced| advanced.internal_error_locations)
-					.unwrap_or(false);
-				Cli::print_error_basic(tg::Referent::with_node(error), internal);
-				std::process::ExitCode::FAILURE
-			},
-		};
-	}
 
 	// Override args from the serve args.
 	if let Command::Serve(serve_args)
@@ -446,6 +469,22 @@ async fn main_inner(
 	}
 
 	exit
+}
+
+fn finish_internal_command(cli: &Cli, result: tg::Result<()>) -> std::process::ExitCode {
+	match result {
+		Ok(()) => cli.exit.unwrap_or_default(),
+		Err(error) => {
+			let internal = Cli::try_read_config(cli.args.config.as_deref())
+				.ok()
+				.flatten()
+				.and_then(|config| config.advanced)
+				.and_then(|advanced| advanced.internal_error_locations)
+				.unwrap_or(false);
+			Cli::print_error_basic(tg::Referent::with_node(error), internal);
+			std::process::ExitCode::FAILURE
+		},
+	}
 }
 
 // Run the command.
@@ -598,7 +637,11 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 
 		Command::Self_(args) => tangram_cli_tangram::run(args).boxed_local().await,
 
-		Command::Shell(args) => tangram_cli_shell::run(cli, args).boxed_local().await,
+		Command::Shell(args) => {
+			tangram_cli_shell::run(cli, args, Args::command)
+				.boxed_local()
+				.await
+		},
 
 		Command::Serve(args) => tangram_cli_server::run::run(cli, args).boxed_local().await,
 
