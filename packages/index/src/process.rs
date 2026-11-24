@@ -285,6 +285,12 @@ impl Process {
 		self.set.complete() && storage && metadata
 	}
 
+	/// Whether the clean may delete the process, which it never may while the process has a status that is not finished.
+	#[must_use]
+	pub fn cleanable(&self) -> bool {
+		self.status.is_none_or(|status| status.is_finished())
+	}
+
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
 			.map_err(|error| tg::error!(!error, "failed to serialize the process"))

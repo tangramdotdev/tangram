@@ -105,6 +105,28 @@ async fn put_process(index: &Index, arg: tangram_index::process::put::Arg) {
 	index.write(arg).await.unwrap().unwrap();
 }
 
+/// Clean with a ttl of zero until the clean is done, and return the cleaned processes.
+async fn clean_processes(index: &Index) -> Vec<tg::process::Id> {
+	let mut processes = Vec::new();
+	for _ in 0..100 {
+		let arg = tangram_index::clean::Arg {
+			batch_size: 100,
+			max_object_touched_at: 0,
+			max_process_touched_at: 0,
+			max_sandbox_touched_at: 0,
+			now: 0,
+			partition_end: 1,
+			partition_start: 0,
+		};
+		let output = index.clean(arg).await.unwrap();
+		processes.extend(output.processes);
+		if output.done {
+			return processes;
+		}
+	}
+	panic!("the clean did not finish");
+}
+
 #[tokio::test]
 async fn rewriting_process_data_replaces_its_fragments() {
 	let (_dir, index) = super::new_index();
@@ -155,6 +177,50 @@ async fn cleaning_a_process_deletes_its_data() {
 	// Verify that the process and its data are gone.
 	assert!(index.try_get_process(&id).await.unwrap().is_none());
 	assert_eq!(count_process_data_fragments(&index, &id), 0);
+}
+
+#[tokio::test]
+async fn an_unfinished_process_is_cleaned_only_after_it_finishes() {
+	let (_dir, index) = super::new_index();
+	let id = tg::process::Id::new();
+
+	// Verify that a clean keeps the started process.
+	let data = process_data(tg::process::Status::Started, String::new());
+	put_process(&index, process_arg(&id, data)).await;
+	assert_eq!(clean_processes(&index).await, Vec::new());
+	assert!(index.try_get_process(&id).await.unwrap().is_some());
+
+	// Verify that a clean deletes the process after it finishes with the same touch time.
+	let data = process_data(tg::process::Status::Finished, String::new());
+	put_process(&index, process_arg(&id, data)).await;
+	assert_eq!(clean_processes(&index).await, vec![id.clone()]);
+	assert!(index.try_get_process(&id).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn a_finished_process_is_cleaned() {
+	let (_dir, index) = super::new_index();
+	let id = tg::process::Id::new();
+	let data = process_data(tg::process::Status::Finished, String::new());
+	put_process(&index, process_arg(&id, data)).await;
+	assert_eq!(clean_processes(&index).await, vec![id.clone()]);
+	assert!(index.try_get_process(&id).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn a_process_without_a_status_is_cleaned() {
+	let (_dir, index) = super::new_index();
+	let id = tg::process::Id::new();
+	let data = process_data(tg::process::Status::Finished, String::new());
+	let mut arg = process_arg(&id, data);
+	arg.data = None;
+	put_process(&index, arg).await;
+	assert_eq!(
+		index.try_get_process(&id).await.unwrap().unwrap().status,
+		None
+	);
+	assert_eq!(clean_processes(&index).await, vec![id.clone()]);
+	assert!(index.try_get_process(&id).await.unwrap().is_none());
 }
 
 #[tokio::test]

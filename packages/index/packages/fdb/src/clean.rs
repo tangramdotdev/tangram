@@ -227,6 +227,18 @@ impl Index {
 				continue;
 			}
 
+			// Keep an unfinished process and delete its clean key, because the put that finishes the process writes a new one.
+			if let Item::Process(id) = &candidate.item {
+				let process = crate::propagate!(
+					Self::try_get_process_with_transaction(txn, subspace, id).await
+				)
+				.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing process"))?;
+				if !process.cleanable() {
+					Self::delete_clean_key(txn, subspace, candidate);
+					continue;
+				}
+			}
+
 			let reference_count = match &candidate.item {
 				Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 				Item::Checkout(id) => {
