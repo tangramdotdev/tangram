@@ -8,13 +8,16 @@ use {
 };
 
 impl Index {
+	/// Touch the account's storage entry for the object, or put it with the permissions if it is missing.
 	pub(crate) async fn touch_account_object(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::storage::put::ObjectArg,
+		permissions: Option<tg::authorization::permission::Set>,
 		time_to_touch: std::time::Duration,
-		partition_total: u64,
+		partition_totals: crate::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let partition_total = partition_totals.cleaning;
 		let key = Key::Usage(crate::usage::Key::AccountObject {
 			account: arg.account.clone(),
 			object: arg.object.clone(),
@@ -22,6 +25,20 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let result = txn.get(&key, false).await;
 		let Some(value) = crate::retry!(result) else {
+			if let Some(permissions) = permissions {
+				crate::propagate!(
+					Self::put_account_object(
+						txn,
+						subspace,
+						arg,
+						partition_totals,
+						Some(permissions),
+						None,
+						None,
+					)
+					.await
+				);
+			}
 			return Ok(ControlFlow::Break(()));
 		};
 		let mut entry = tangram_index::usage::storage::Entry::deserialize(&value)?;
@@ -37,13 +54,16 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 
+	/// Touch the account's storage entry for the process, or put it with the permissions if it is missing.
 	pub(crate) async fn touch_account_process(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::storage::put::ProcessArg,
+		permissions: Option<tg::authorization::permission::Set>,
 		time_to_touch: std::time::Duration,
-		partition_total: u64,
+		partition_totals: crate::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let partition_total = partition_totals.cleaning;
 		let key = Key::Usage(crate::usage::Key::AccountProcess {
 			account: arg.account.clone(),
 			process: arg.process.clone(),
@@ -51,6 +71,19 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let result = txn.get(&key, false).await;
 		let Some(value) = crate::retry!(result) else {
+			if let Some(permissions) = permissions {
+				crate::propagate!(
+					Self::put_account_process(
+						txn,
+						subspace,
+						arg,
+						partition_totals,
+						Some(permissions),
+						None,
+					)
+					.await
+				);
+			}
 			return Ok(ControlFlow::Break(()));
 		};
 		let mut entry = tangram_index::usage::storage::Entry::deserialize(&value)?;

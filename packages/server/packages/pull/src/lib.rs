@@ -116,6 +116,7 @@ impl Component {
 				.touch_objects_with_account(
 					&object_ids,
 					account.as_ref(),
+					None,
 					touched_at,
 					session.server.config.object.time_to_touch,
 				)
@@ -129,6 +130,7 @@ impl Component {
 				.touch_processes_with_account(
 					&process_ids,
 					account.as_ref(),
+					None,
 					touched_at,
 					session.server.config.process.time_to_touch,
 				)

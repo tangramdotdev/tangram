@@ -310,10 +310,14 @@ impl Index {
 			Request::TouchObjects(crate::TouchObjects {
 				account,
 				ids,
+				permissions,
 				time_to_touch,
 				touched_at,
 			}) => {
-				let items = ids.into_iter().map(Operation::TouchObject).collect();
+				let permissions = Self::operation_permissions(permissions, ids.len());
+				let items = std::iter::zip(ids, permissions)
+					.map(|(id, permissions)| Operation::TouchObject(id, permissions))
+					.collect();
 				(
 					items,
 					Kind::TouchObjects {
@@ -327,11 +331,15 @@ impl Index {
 				account,
 				data,
 				ids,
+				permissions,
 				put_account,
 				time_to_touch,
 				touched_at,
 			}) => {
-				let items = ids.into_iter().map(Operation::TouchProcess).collect();
+				let permissions = Self::operation_permissions(permissions, ids.len());
+				let items = std::iter::zip(ids, permissions)
+					.map(|(id, permissions)| Operation::TouchProcess(id, permissions))
+					.collect();
 				(
 					items,
 					Kind::TouchProcesses {
@@ -443,16 +451,18 @@ impl Index {
 				time_to_touch,
 				touched_at,
 			} => {
-				let ids = items
+				let (ids, permissions): (Vec<_>, Vec<_>) = items
 					.into_iter()
 					.map(|item| match item {
-						Operation::TouchObject(id) => id,
+						Operation::TouchObject(id, permissions) => (id, permissions),
 						_ => unreachable!(),
 					})
-					.collect();
+					.unzip();
+				let permissions = permissions.into_iter().collect();
 				Request::TouchObjects(crate::TouchObjects {
 					account: account.clone(),
 					ids,
+					permissions,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})
@@ -464,17 +474,19 @@ impl Index {
 				time_to_touch,
 				touched_at,
 			} => {
-				let ids = items
+				let (ids, permissions): (Vec<_>, Vec<_>) = items
 					.into_iter()
 					.map(|item| match item {
-						Operation::TouchProcess(id) => id,
+						Operation::TouchProcess(id, permissions) => (id, permissions),
 						_ => unreachable!(),
 					})
-					.collect();
+					.unzip();
+				let permissions = permissions.into_iter().collect();
 				Request::TouchProcesses(crate::TouchProcesses {
 					account: account.clone(),
 					data: *data,
 					ids,
+					permissions,
 					put_account: *put_account,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
@@ -490,6 +502,16 @@ impl Index {
 				partition_start: *partition_start,
 				partition_end: *partition_end,
 			}),
+		}
+	}
+
+	fn operation_permissions(
+		permissions: Option<Vec<tg::authorization::permission::Set>>,
+		length: usize,
+	) -> Vec<Option<tg::authorization::permission::Set>> {
+		match permissions {
+			Some(permissions) => permissions.into_iter().map(Some).collect(),
+			None => vec![None; length],
 		}
 	}
 
@@ -906,20 +928,12 @@ impl Index {
 				let output = crate::propagate!(result);
 				Response::Checkouts(output)
 			},
-			Request::TouchObjects(crate::TouchObjects {
-				account,
-				ids,
-				time_to_touch,
-				touched_at,
-			}) => {
+			Request::TouchObjects(arg) => {
 				let result = Self::touch_objects_with_account_with_transaction(
 					txn,
 					subspace,
-					ids,
-					account.as_ref(),
-					*touched_at,
-					*time_to_touch,
-					partition_total,
+					arg,
+					partition_totals,
 				)
 				.await;
 				let output = crate::propagate!(result);

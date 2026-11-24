@@ -10,30 +10,44 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		ids: &[tg::object::Id],
-		account: Option<&tangram_index::usage::Account>,
-		touched_at: i64,
-		time_to_touch: Duration,
+		arg: &crate::TouchObjects,
+		usage_partition_total: u64,
 	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
+		let crate::TouchObjects {
+			account,
+			ids,
+			permissions,
+			time_to_touch,
+			touched_at,
+		} = arg;
 		let objects = Self::touch_objects_with_transaction(
 			db,
 			subspace,
 			transaction,
 			ids,
-			touched_at,
-			time_to_touch,
+			*touched_at,
+			*time_to_touch,
 		)?;
-		if let Some(account) = account {
-			for (id, object) in std::iter::zip(ids, &objects) {
+		if let Some(account) = account.as_ref() {
+			for (index, (id, object)) in std::iter::zip(ids, &objects).enumerate() {
 				if object.is_none() {
 					continue;
 				}
 				let entry = tangram_index::usage::storage::put::ObjectArg {
 					account: account.clone(),
 					object: id.clone(),
-					touched_at,
+					touched_at: *touched_at,
 				};
-				Self::touch_account_object(db, subspace, transaction, &entry, time_to_touch)?;
+				let permissions = permissions.as_ref().map(|permissions| permissions[index]);
+				Self::touch_account_object(
+					db,
+					subspace,
+					transaction,
+					&entry,
+					permissions,
+					*time_to_touch,
+					usage_partition_total,
+				)?;
 			}
 		}
 

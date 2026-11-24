@@ -43,6 +43,7 @@ impl Index {
 		&self,
 		ids: &[tg::object::Id],
 		account: Option<&index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::object::Object>>> {
@@ -50,13 +51,25 @@ impl Index {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {
 				index
-					.touch_objects_with_account(ids, account, touched_at, time_to_touch)
+					.touch_objects_with_account(
+						ids,
+						account,
+						permissions,
+						touched_at,
+						time_to_touch,
+					)
 					.await
 			},
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => {
 				index
-					.touch_objects_with_account(ids, account, touched_at, time_to_touch)
+					.touch_objects_with_account(
+						ids,
+						account,
+						permissions,
+						touched_at,
+						time_to_touch,
+					)
 					.await
 			},
 		}
@@ -91,10 +104,11 @@ impl index::object::Index for Index {
 		&self,
 		ids: &[tg::object::Id],
 		account: Option<&index::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::object::Object>>> {
-		self.touch_objects_with_account(ids, account, touched_at, time_to_touch)
+		self.touch_objects_with_account(ids, account, permissions, touched_at, time_to_touch)
 			.await
 	}
 }

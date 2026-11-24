@@ -60,6 +60,7 @@ pub trait Index {
 		&self,
 		ids: &[tg::object::Id],
 		account: Option<&crate::usage::Account>,
+		permissions: Option<&[tg::authorization::permission::Set]>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::object::Object>>>> + Send;
@@ -78,12 +79,14 @@ pub trait Index {
 		&self,
 		id: &tg::object::Id,
 		account: Option<&crate::usage::Account>,
+		permissions: Option<&tg::authorization::permission::Set>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<crate::object::Object>>> + Send {
 		self.touch_objects_with_account(
 			std::slice::from_ref(id),
 			account,
+			permissions.map(std::slice::from_ref),
 			touched_at,
 			time_to_touch,
 		)
