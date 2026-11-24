@@ -525,7 +525,7 @@ impl Component {
 		permission_expires_at: i64,
 	) -> tg::Result<tangram_index::write::Arg> {
 		// Create the index args.
-		let (put_checkout_args, mut put_object_args, put_permission_args) = Self::write_index_args(
+		let (put_checkout_args, put_object_args, put_permission_args) = Self::write_index_args(
 			blob,
 			checkout_pointer,
 			touched_at,
@@ -547,29 +547,35 @@ impl Component {
 			.usage_account(session, &session.context.principal)
 			.await?;
 
-		// Put the account's storage entry with the root object.
-		let root_object = tg::object::Id::from(blob.id.clone());
-		if let Some(arg) = put_object_args.iter_mut().find(|arg| arg.id == root_object) {
-			arg.account = account;
+		// Create the items.
+		let mut items = put_checkout_args
+			.into_iter()
+			.map(|arg| tangram_index::Item::PutCheckout(Box::new(arg)))
+			.chain(
+				put_object_args
+					.into_iter()
+					.map(|arg| tangram_index::Item::PutObject(Box::new(arg))),
+			)
+			.chain(
+				put_permission_args
+					.into_iter()
+					.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))),
+			)
+			.collect::<Vec<_>>();
+
+		// Put the account's storage entries for the objects in the blob's subtree.
+		if let Some(account) = &account {
+			let root = tg::object::Id::from(blob.id.clone());
+			tangram_index::usage::storage::put::put_account_objects(
+				&mut items,
+				account,
+				&[root],
+				touched_at,
+			);
 		}
 
 		// Create the batch.
-		let arg = tangram_index::write::Arg {
-			items: put_checkout_args
-				.into_iter()
-				.map(|arg| tangram_index::Item::PutCheckout(Box::new(arg)))
-				.chain(
-					put_object_args
-						.into_iter()
-						.map(|arg| tangram_index::Item::PutObject(Box::new(arg))),
-				)
-				.chain(
-					put_permission_args
-						.into_iter()
-						.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))),
-				)
-				.collect(),
-		};
+		let arg = tangram_index::write::Arg { items };
 
 		Ok(arg)
 	}
