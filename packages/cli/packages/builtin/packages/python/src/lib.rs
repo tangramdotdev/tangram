@@ -1,9 +1,10 @@
 use {
 	tangram_cli_core::{ArgumentKind, Cli},
 	tangram_client::prelude::*,
+	usage_rs as usage,
 };
 
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// Set arguments as strings.

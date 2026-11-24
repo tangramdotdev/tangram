@@ -5,10 +5,11 @@ use {
 	tangram_cli_core::Cli,
 	tangram_cli_update::{find_root, normalize_root, try_read_lock},
 	tangram_client::prelude::*,
+	usage_rs as usage,
 };
 
 /// Get a package's outdated dependencies.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(long)]

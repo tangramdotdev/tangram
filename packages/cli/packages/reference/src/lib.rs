@@ -1,6 +1,8 @@
-use {futures::FutureExt as _, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {
+	futures::FutureExt as _, tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage,
+};
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct TimeToLive {
 	#[usage(

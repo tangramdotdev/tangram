@@ -1,7 +1,7 @@
-use tangram_client::prelude::*;
+use {tangram_client::prelude::*, usage_rs as usage};
 
 /// Encode an authorization token signed with an all-zero secret, which no server accepts, for tests of how clients handle tokens.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// The Unix time in seconds at which the token expires.

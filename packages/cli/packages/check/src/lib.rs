@@ -1,7 +1,9 @@
-use {futures::FutureExt as _, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {
+	futures::FutureExt as _, tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage,
+};
 
 /// Check.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// If this flag is set, the lock will not be updated.

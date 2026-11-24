@@ -1,7 +1,7 @@
-use {crate::Kind, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {crate::Kind, tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 /// Deactivate the shell environment.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(value_enum)]

@@ -1,7 +1,7 @@
-use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 /// Create a sandbox.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(flatten)]
@@ -27,7 +27,7 @@ pub struct Args {
 	pub wait: bool,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct TimeToLive {
 	/// Keep the sandbox until it is destroyed.
@@ -43,7 +43,7 @@ pub struct TimeToLive {
 	pub time_to_live: Option<humantime::Duration>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct TimeToStop {
 	/// Keep the sandbox running until it is stopped.

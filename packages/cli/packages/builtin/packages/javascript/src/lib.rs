@@ -2,9 +2,10 @@ use {
 	futures::FutureExt as _,
 	tangram_cli_core::{ArgumentKind, Cli},
 	tangram_client::prelude::*,
+	usage_rs as usage,
 };
 
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// Set arguments as strings.
@@ -31,7 +32,7 @@ pub struct Args {
 	pub trailing: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, usage_rs::ValueEnum, derive_more::IsVariant)]
+#[derive(Clone, Copy, Debug, Default, derive_more::IsVariant, usage::ValueEnum)]
 #[usage(rename_all = "lowercase")]
 pub enum Engine {
 	#[default]

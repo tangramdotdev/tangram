@@ -1,11 +1,11 @@
 use {
 	futures::TryStreamExt as _, serde_with::serde_as, std::time::Duration, tangram_cli_core::Cli,
 	tangram_client::prelude::*, tangram_util::serde::SeekFromNumberOrString,
-	tokio::io::AsyncWriteExt as _,
+	tokio::io::AsyncWriteExt as _, usage_rs as usage,
 };
 
 /// Read a process's stdio.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(long)]
@@ -29,7 +29,7 @@ pub struct Args {
 	pub timeout: Timeout,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Timeout {
 	#[usage(long = "timeout", overrides("--no-timeout"))]

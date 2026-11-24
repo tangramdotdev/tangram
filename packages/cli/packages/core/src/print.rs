@@ -6,11 +6,12 @@ use {
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tokio::io::AsyncWriteExt as _,
+	usage_rs as usage,
 };
 
 const INDENTATION: &str = "  ";
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Options {
 	/// Whether to print blobs in the value.
@@ -30,7 +31,7 @@ pub struct Options {
 	pub tokens: Tokens,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Tokens {
 	/// Do not print the tokens of the value's referents.
@@ -54,7 +55,7 @@ pub struct Tokens {
 	tokens: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct OutputOptions {
 	/// Print the complete operation output.

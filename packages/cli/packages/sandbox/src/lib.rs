@@ -1,4 +1,4 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 #[cfg(target_os = "linux")]
 pub mod configure;
@@ -15,14 +15,14 @@ pub mod stop;
 pub mod wait;
 
 /// Manage sandboxes.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, usage_rs::Subcommands)]
+#[derive(Clone, Debug, usage::Subcommands)]
 pub enum Command {
 	#[cfg(target_os = "linux")]
 	#[usage(hide = true)]
@@ -55,7 +55,7 @@ pub enum Command {
 	Wait(self::wait::Args),
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Options {
 	#[usage(alias = "cpu-max", long = "cpu")]
@@ -98,7 +98,7 @@ pub struct Bytes(pub u64);
 #[derive(Clone, Copy, Debug)]
 pub struct Name<T>(pub T);
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Network {
 	/// Enable networking.
@@ -117,7 +117,7 @@ pub struct Network {
 #[derive(Clone, Debug)]
 struct NetworkName(tg::sandbox::Network);
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Owner {
 	#[usage(long = "owner", conflicts("--user", "--group", "--organization"))]
@@ -137,7 +137,7 @@ pub struct Owner {
 	organization: Option<tg::principal::Selector>,
 }
 
-#[derive(Clone, Copy, Debug, usage_rs::Args)]
+#[derive(Clone, Copy, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Http2 {
 	#[usage(long = "http2-connection-window-size")]

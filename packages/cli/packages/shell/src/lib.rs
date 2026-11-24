@@ -1,4 +1,4 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 pub mod activate;
 pub mod completion;
@@ -8,14 +8,14 @@ pub mod integration;
 pub mod util;
 
 /// Manage shell integration.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, usage_rs::Subcommands)]
+#[derive(Clone, Debug, usage::Subcommands)]
 pub enum Command {
 	Activate(self::activate::Args),
 	Completion(self::completion::Args),
@@ -24,7 +24,7 @@ pub enum Command {
 	Integration(self::integration::Args),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, usage_rs::ValueEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, usage::ValueEnum)]
 pub enum Kind {
 	Bash,
 	Fish,

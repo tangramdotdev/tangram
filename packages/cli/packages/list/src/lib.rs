@@ -1,7 +1,7 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 /// List nodes.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// Fetch all pages.
@@ -44,7 +44,7 @@ pub struct Args {
 	pub time_to_live: TimeToLive,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Entries {
 	#[usage(
@@ -92,7 +92,7 @@ pub struct Entries {
 	no_users: bool,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct TimeToLive {
 	#[usage(

@@ -1,9 +1,9 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 /// Get usage for a user or organization.
 ///
 /// Usage includes all regions of the selected server unless a specific region is selected with --location.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(flatten)]
@@ -18,7 +18,7 @@ pub struct Args {
 	pub selector: Option<tg::Referent<tg::Selector<tg::Id>>>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct PeriodArgs {
 	/// Get usage for a UTC day in YYYY-MM-DD format.

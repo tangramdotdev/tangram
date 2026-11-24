@@ -1,5 +1,9 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
+mod args;
+
+pub use self::args::{Args, Command};
+
 pub mod billing;
 pub mod get;
 pub mod login;
@@ -7,25 +11,6 @@ pub mod logout;
 pub mod token;
 pub mod usage;
 pub mod whoami;
-
-/// Manage the user.
-#[derive(Clone, Debug, usage_rs::Args)]
-#[usage(args_override_self = false)]
-pub struct Args {
-	#[usage(subcommand)]
-	pub command: Command,
-}
-
-#[derive(Clone, Debug, usage_rs::Subcommands)]
-pub enum Command {
-	Billing(self::billing::Args),
-	Get(self::get::Args),
-	Login(self::login::Args),
-	Logout(self::logout::Args),
-	Token(self::token::Args),
-	Usage(self::usage::Args),
-	Whoami(self::whoami::Args),
-}
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {

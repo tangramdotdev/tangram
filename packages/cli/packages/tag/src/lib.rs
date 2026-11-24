@@ -1,10 +1,10 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 pub mod delete;
 pub mod get;
 pub mod put;
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Tag {
 	/// Create the tag's missing ancestors after pulling.
@@ -65,7 +65,7 @@ pub struct Tag {
 }
 
 /// Manage tags.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 #[usage(
 	args_conflicts_with_subcommands = true,
@@ -80,7 +80,7 @@ pub struct Args {
 	pub command: Option<Command>,
 }
 
-#[derive(Clone, Debug, usage_rs::Subcommands)]
+#[derive(Clone, Debug, usage::Subcommands)]
 pub enum Command {
 	#[usage(alias = "remove", alias = "rm")]
 	Delete(self::delete::Args),

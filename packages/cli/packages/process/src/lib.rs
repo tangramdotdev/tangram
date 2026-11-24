@@ -1,4 +1,4 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 pub mod availability;
 pub mod build;
@@ -19,14 +19,14 @@ pub mod touch;
 pub mod wait;
 
 /// Manage processes.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, usage_rs::Subcommands)]
+#[derive(Clone, Debug, usage::Subcommands)]
 pub enum Command {
 	Availability(self::availability::Args),
 	Cancel(self::cancel::Args),
@@ -48,7 +48,7 @@ pub enum Command {
 	Wait(self::wait::Args),
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 pub struct Trailing {
 	/// Set arguments.
 	#[usage(trailing_var_arg)]

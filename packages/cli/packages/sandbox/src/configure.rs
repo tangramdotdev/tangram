@@ -1,6 +1,6 @@
-use tangram_client::prelude::*;
+use {tangram_client::prelude::*, usage_rs as usage};
 
-#[derive(Clone, Copy, Debug, usage_rs::Args)]
+#[derive(Clone, Copy, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(long, requires("--user-namespace-fd"))]

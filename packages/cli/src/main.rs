@@ -5,7 +5,8 @@ use {
 	std::ffi::{OsStr, OsString},
 	tangram_cli_core::{ArgumentKind, Cli},
 	tangram_client::prelude::*,
-	usage_rs::{DoubleDash, Error, Event, Parser},
+	usage::{DoubleDash, Error, Event, Parser},
+	usage_rs as usage,
 };
 
 // Include the FoundationDB native library search path.
@@ -15,7 +16,7 @@ use tangram_fdb as _;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, usage_rs::Cli)]
+#[derive(Debug, usage::Cli)]
 #[usage(
 	about = "Tangram is a build system and package manager.",
 	after_help = "Run a process directly with: tg <reference> [options] [-- args]",
@@ -36,7 +37,7 @@ struct Args {
 	global: tangram_cli_core::Args,
 }
 
-#[derive(Debug, usage_rs::Subcommands)]
+#[derive(Debug, usage::Subcommands)]
 enum Command {
 	Archive(tangram_cli_archive::Args),
 
@@ -360,7 +361,7 @@ fn inspect_args<'a>(
 				Some("arg-string") if mixed => order.push(ArgumentKind::String),
 				Some("arg-value") if mixed => order.push(ArgumentKind::Value),
 				Some("checkout") if value == Some(b"") => {
-					let error = usage_rs::ValidationError::field("--checkout")
+					let error = usage::ValidationError::field("--checkout")
 						.reason("expected a non-empty path");
 					return Err(error.into_parse_error());
 				},
@@ -820,14 +821,14 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 
 fn completion_script(shell: tangram_cli_shell::completion::Shell) -> String {
 	let shell = match shell {
-		tangram_cli_shell::completion::Shell::Bash => usage_rs::complete::Shell::Bash,
-		tangram_cli_shell::completion::Shell::Fish => usage_rs::complete::Shell::Fish,
-		tangram_cli_shell::completion::Shell::Nu => usage_rs::complete::Shell::Nu,
-		tangram_cli_shell::completion::Shell::Zsh => usage_rs::complete::Shell::Zsh,
+		tangram_cli_shell::completion::Shell::Bash => usage::complete::Shell::Bash,
+		tangram_cli_shell::completion::Shell::Fish => usage::complete::Shell::Fish,
+		tangram_cli_shell::completion::Shell::Nu => usage::complete::Shell::Nu,
+		tangram_cli_shell::completion::Shell::Zsh => usage::complete::Shell::Zsh,
 	};
 	let mut script = Args::completion_script(shell);
 	script.push_str(&Args::completion_script_for_alias("tg", shell));
-	if shell == usage_rs::complete::Shell::Nu {
+	if shell == usage::complete::Shell::Nu {
 		script = format!("export-env {{\n{script}\n}}\nexport alias tg = tangram\n");
 	}
 	script

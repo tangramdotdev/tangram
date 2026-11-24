@@ -10,10 +10,11 @@ use {
 	tangram_client::prelude::*,
 	tangram_server::{Owned as Server, Shutdown},
 	tangram_uri::Uri,
+	usage_rs as usage,
 };
 
 /// Run the server in the foreground.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// The path to the config file.

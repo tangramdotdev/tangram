@@ -1,7 +1,7 @@
-use {indoc::formatdoc, std::path::PathBuf, tangram_client::prelude::*};
+use {indoc::formatdoc, std::path::PathBuf, tangram_client::prelude::*, usage_rs as usage};
 
 /// Initialize a package.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(default = ".")]

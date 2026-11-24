@@ -10,6 +10,7 @@ use {
 	tangram_uri::Uri,
 	tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _},
 	tokio_util::io::StreamReader,
+	usage_rs as usage,
 };
 
 enum Mode {
@@ -18,7 +19,7 @@ enum Mode {
 	Raw,
 }
 
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(long)]

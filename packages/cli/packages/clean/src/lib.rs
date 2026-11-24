@@ -1,10 +1,10 @@
 use {
 	num::ToPrimitive as _, std::os::unix::fs::PermissionsExt as _, tangram_cli_core::Cli,
-	tangram_client::prelude::*, tangram_futures::stream::Ext as _,
+	tangram_client::prelude::*, tangram_futures::stream::Ext as _, usage_rs as usage,
 };
 
 /// Remove unused checkouts, objects, processes, and sandboxes.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(long, short)]

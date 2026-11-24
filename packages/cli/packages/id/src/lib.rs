@@ -1,9 +1,10 @@
 use {
 	tangram_client::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
+	usage_rs as usage,
 };
 
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	pub id: Option<String>,

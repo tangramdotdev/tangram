@@ -1,9 +1,10 @@
 use {
 	std::{ffi::OsString, io::Read as _, os::fd::FromRawFd as _, path::PathBuf},
 	tangram_client::prelude::*,
+	usage_rs as usage,
 };
 
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(conflicts("--config-fd"), long)]
@@ -16,7 +17,7 @@ pub struct Args {
 	pub options: Options,
 }
 
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Options {
 	#[usage(long)]
@@ -281,8 +282,8 @@ pub fn run(args: Args) -> tg::Result<std::process::ExitCode> {
 }
 
 impl Args {
-	pub fn validate(&self) -> Result<(), usage_rs::Error<'static, 'static>> {
-		use usage_rs::spec::CommandArgs as _;
+	pub fn validate(&self) -> Result<(), usage::Error<'static, 'static>> {
+		use usage::spec::CommandArgs as _;
 		let config = if self.config.is_some() {
 			"--config"
 		} else if self.config_fd.is_some() {
@@ -291,7 +292,7 @@ impl Args {
 			return Ok(());
 		};
 		if let Some(option) = Options::any_standing(&self.options) {
-			return Err(usage_rs::Error::ConflictingFlags {
+			return Err(usage::Error::ConflictingFlags {
 				name: config,
 				other: option,
 			});

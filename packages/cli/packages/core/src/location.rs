@@ -1,6 +1,6 @@
-use tangram_client::prelude::*;
+use {tangram_client::prelude::*, usage_rs as usage};
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// Use the local server.

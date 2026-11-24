@@ -1,7 +1,7 @@
-use tangram_client::prelude::*;
+use {tangram_client::prelude::*, usage_rs as usage};
 
 /// Update Tangram to the latest version.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {}
 

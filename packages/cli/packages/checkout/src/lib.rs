@@ -1,7 +1,7 @@
-use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 /// Check out nodes.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// Whether to check out the artifact's dependencies.
@@ -28,7 +28,7 @@ pub struct Args {
 	pub references: Vec<tg::Reference>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Dependencies {
 	/// Whether to check out the artifact's dependencies.
@@ -49,7 +49,7 @@ pub struct Dependencies {
 	no_dependencies: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Lock {
 	/// Whether to write the lock. Use `--lock=auto` to reuse an existing lock kind or prefer a lockattr for files. Use `--lock=file` to write a lockfile, and `--lock=attr` to write a lockattr. `auto` is the default if not specified.

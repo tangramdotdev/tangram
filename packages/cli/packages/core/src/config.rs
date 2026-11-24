@@ -3979,7 +3979,7 @@ fn required<T>(value: Option<T>, field: &'static str) -> tg::Result<T> {
 
 #[cfg(test)]
 mod tests {
-	use {super::*, tangram_util::fs::Temp};
+	use {super::*, tangram_util::fs::Temp, usage_rs as usage};
 
 	#[test]
 	fn reads_layered_configs() {
@@ -4062,7 +4062,7 @@ mod tests {
 
 	#[test]
 	fn edits_tokens_in_the_destination_config() {
-		#[derive(usage_rs::Cli)]
+		#[derive(usage::Cli)]
 		struct Args {
 			#[usage(flatten)]
 			global: crate::Args,

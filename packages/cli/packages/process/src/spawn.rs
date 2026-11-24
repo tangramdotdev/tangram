@@ -4,10 +4,11 @@ use {
 	tangram_cli_core::{ArgumentKind, Cli},
 	tangram_client::prelude::*,
 	tg::Client,
+	usage_rs as usage,
 };
 
 /// Spawn a process.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(flatten)]
@@ -27,7 +28,7 @@ pub struct Args {
 	pub verbose: bool,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Options {
 	/// Set arguments as strings.
@@ -113,7 +114,7 @@ pub struct Options {
 	pub tty: Tty,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Debug {
 	#[usage(env = "TANGRAM_JAVASCRIPT_DEBUG_ADDR", long = "debug-addr")]
@@ -150,7 +151,7 @@ pub struct Debug {
 #[derive(Clone, Copy, Debug)]
 struct InspectAddress(std::net::SocketAddr);
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Sandbox {
 	#[usage(flatten)]
@@ -176,7 +177,7 @@ pub struct Sandbox {
 	value: Option<tg::Either<bool, tg::Referent<tg::sandbox::Id>>>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct TimeToLive {
 	/// Keep the sandbox until it is destroyed.
@@ -192,7 +193,7 @@ pub struct TimeToLive {
 	pub time_to_live: Option<humantime::Duration>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct TimeToStop {
 	/// Keep the sandbox running until it is stopped.
@@ -204,7 +205,7 @@ pub struct TimeToStop {
 	pub time_to_stop: Option<humantime::Duration>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Tty {
 	/// Whether to allocate a tty for the process. Optionally set the size as rows,cols.

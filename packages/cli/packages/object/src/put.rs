@@ -1,10 +1,10 @@
 use {
 	bytes::Bytes, tangram_cli_core::Cli, tangram_client::prelude::*, tokio::io::AsyncReadExt as _,
-	tokio_util::io::StreamReader,
+	tokio_util::io::StreamReader, usage_rs as usage,
 };
 
 /// Put an object.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// Put the object's raw bytes.

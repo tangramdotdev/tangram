@@ -1,7 +1,10 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _};
+use {
+	tangram_cli_core::Cli, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _,
+	usage_rs as usage,
+};
 
 /// Get an object.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(flatten)]
@@ -11,7 +14,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Options {
 	/// Get the object's availability.

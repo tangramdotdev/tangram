@@ -4,10 +4,11 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tokio::signal::unix::{Signal, SignalKind, signal},
+	usage_rs as usage,
 };
 
 /// Spawn and await a process.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(flatten)]
@@ -20,7 +21,7 @@ pub struct Args {
 	pub trailing: crate::Trailing,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Options {
 	/// Whether to check out the output.
@@ -58,10 +59,10 @@ pub struct Options {
 	Clone,
 	Copy,
 	Debug,
-	usage_rs::ValueEnum,
 	derive_more::IsVariant,
 	serde::Deserialize,
 	serde::Serialize,
+	usage::ValueEnum,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum View {
@@ -667,11 +668,12 @@ mod tests {
 	use {
 		super::Options,
 		std::{ffi::OsStr, path::Path},
+		usage_rs as usage,
 	};
 
 	#[test]
 	fn checkout_flag() {
-		#[derive(usage_rs::Cli)]
+		#[derive(usage::Cli)]
 		struct Cli {
 			#[usage(flatten)]
 			options: Options,

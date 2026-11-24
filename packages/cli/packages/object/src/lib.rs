@@ -1,4 +1,4 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 pub mod availability;
 pub mod children;
@@ -8,14 +8,14 @@ pub mod put;
 pub mod touch;
 
 /// Manage objects.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, usage_rs::Subcommands)]
+#[derive(Clone, Debug, usage::Subcommands)]
 pub enum Command {
 	Availability(self::availability::Args),
 	Children(self::children::Args),

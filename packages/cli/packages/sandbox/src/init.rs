@@ -1,6 +1,6 @@
-use {std::path::PathBuf, tangram_client::prelude::*};
+use {std::path::PathBuf, tangram_client::prelude::*, usage_rs as usage};
 
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(long, default = "builtin")]
@@ -10,7 +10,7 @@ pub struct Args {
 	pub options: Options,
 }
 
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Options {
 	#[usage(long)]
@@ -145,7 +145,7 @@ impl Options {
 mod tests {
 	use {super::*, std::ffi::OsStr};
 
-	#[derive(usage_rs::Cli)]
+	#[derive(usage::Cli)]
 	struct Parser {
 		#[usage(flatten)]
 		args: Args,

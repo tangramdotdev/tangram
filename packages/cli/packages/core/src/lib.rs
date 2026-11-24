@@ -1,4 +1,4 @@
-use {std::path::PathBuf, tangram_client::prelude::*, tangram_uri::Uri};
+use {std::path::PathBuf, tangram_client::prelude::*, tangram_uri::Uri, usage_rs as usage};
 
 pub use self::config::Config;
 
@@ -31,7 +31,7 @@ pub enum ArgumentKind {
 }
 
 /// The global args.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// The path to the config file.
@@ -64,7 +64,7 @@ pub struct Args {
 	pub url: Option<Uri>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct RemoteOptions {
 	/// Override the `remotes` key in the config.
@@ -85,7 +85,7 @@ pub struct RemoteOptions {
 	values: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Quiet {
 	/// Whether to show progress and other helpful information.
@@ -112,11 +112,11 @@ pub struct Quiet {
 	Copy,
 	Debug,
 	Default,
-	usage_rs::ValueEnum,
 	derive_more::Display,
 	derive_more::FromStr,
 	serde::Deserialize,
 	serde::Serialize,
+	usage::ValueEnum,
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
@@ -147,7 +147,7 @@ pub fn version() -> String {
 
 impl Args {
 	/// Apply the environment for the inherited server.
-	pub fn apply_server_env(&mut self) -> Result<(), usage_rs::Error<'static, 'static>> {
+	pub fn apply_server_env(&mut self) -> Result<(), usage::Error<'static, 'static>> {
 		let explicit_server = self.directory.is_some() || self.url.is_some();
 		if self.directory.is_none() {
 			self.directory = std::env::var_os("TANGRAM_DIRECTORY").map(PathBuf::from);
@@ -372,7 +372,7 @@ impl Cli {
 fn parse_env<T>(
 	variable: &str,
 	flag: &'static str,
-) -> Result<Option<T>, usage_rs::Error<'static, 'static>>
+) -> Result<Option<T>, usage::Error<'static, 'static>>
 where
 	T: std::str::FromStr,
 	T::Err: std::fmt::Display,
@@ -381,9 +381,9 @@ where
 		return Ok(None);
 	};
 	let value = String::from_utf8(value.into_encoded_bytes())
-		.map_err(|error| usage_rs::invalid_utf8_value(flag, error))?;
+		.map_err(|error| usage::invalid_utf8_value(flag, error))?;
 	let value = value
 		.parse()
-		.map_err(|error| usage_rs::invalid_parsed_value(flag, value, &error))?;
+		.map_err(|error| usage::invalid_parsed_value(flag, value, &error))?;
 	Ok(Some(value))
 }

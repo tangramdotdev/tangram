@@ -1,9 +1,10 @@
 use {
-	std::pin::pin, tangram_cli_core::Cli, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _,
+	std::pin::pin, tangram_cli_core::Cli, tangram_client::prelude::*,
+	tokio::io::AsyncWriteExt as _, usage_rs as usage,
 };
 
 /// Read files and blobs.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	pub references: Vec<tg::Reference>,

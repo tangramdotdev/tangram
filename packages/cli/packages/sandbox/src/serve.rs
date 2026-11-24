@@ -1,7 +1,7 @@
-use {std::path::PathBuf, tangram_client::prelude::*};
+use {std::path::PathBuf, tangram_client::prelude::*, usage_rs as usage};
 
 /// Serve sandbox requests.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(flatten)]
@@ -26,7 +26,7 @@ pub struct Args {
 	pub tangram_path: PathBuf,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Listen {
 	#[usage(

@@ -1,7 +1,7 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 /// Push nodes.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(flatten)]
@@ -61,7 +61,7 @@ pub struct Args {
 	pub user_children: bool,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Eager {
 	#[usage(
@@ -81,7 +81,7 @@ pub struct Eager {
 	lazy: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct ProcessErrorObjects {
 	#[usage(
@@ -101,7 +101,7 @@ pub struct ProcessErrorObjects {
 	process_error_objects: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct ProcessOutputObjects {
 	#[usage(
@@ -121,7 +121,7 @@ pub struct ProcessOutputObjects {
 	process_output_objects: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct TagTargets {
 	#[usage(

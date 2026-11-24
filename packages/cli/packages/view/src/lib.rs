@@ -3,10 +3,11 @@ use {
 	tangram_cli_core::Cli,
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
+	usage_rs as usage,
 };
 
 /// View a node.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// Collapse process children when processes finish.
@@ -61,9 +62,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-#[derive(
-	Clone, Copy, Debug, Default, usage_rs::ValueEnum, serde::Deserialize, serde::Serialize,
-)]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize, usage::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
 	Inline,
@@ -71,7 +70,7 @@ pub enum Mode {
 	Fullscreen,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct AlternateScreen {
 	#[usage(

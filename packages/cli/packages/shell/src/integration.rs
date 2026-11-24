@@ -1,4 +1,4 @@
-use {crate::Kind, tangram_client::prelude::*};
+use {crate::Kind, tangram_client::prelude::*, usage_rs as usage};
 
 const BASH: &str = include_str!("integration.bash");
 const FISH: &str = include_str!("integration.fish");
@@ -6,7 +6,7 @@ const NU: &str = include_str!("integration.nu");
 const ZSH: &str = include_str!("integration.zsh");
 
 /// Generate shell integration.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(value_enum)]

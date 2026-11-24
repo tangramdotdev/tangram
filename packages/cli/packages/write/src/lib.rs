@@ -1,7 +1,10 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*, tokio_util::io::StreamReader};
+use {
+	tangram_cli_core::Cli, tangram_client::prelude::*, tokio_util::io::StreamReader,
+	usage_rs as usage,
+};
 
 /// Write a blob.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	pub bytes: Option<String>,

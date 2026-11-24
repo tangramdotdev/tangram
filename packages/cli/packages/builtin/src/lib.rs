@@ -1,4 +1,4 @@
-use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 mod archive;
 mod checksum;
@@ -15,14 +15,14 @@ pub use tangram_cli_builtin_javascript as javascript;
 #[cfg(feature = "cpython")]
 pub use tangram_cli_builtin_python as python;
 
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(subcommand)]
 	pub command: Command,
 }
 
-#[derive(Clone, Debug, usage_rs::Subcommands)]
+#[derive(Clone, Debug, usage::Subcommands)]
 pub enum Command {
 	Archive(archive::Args),
 	Checksum(checksum::Args),

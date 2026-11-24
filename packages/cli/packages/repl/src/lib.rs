@@ -4,10 +4,11 @@ use {
 	tangram_cli_builtin_javascript::Engine,
 	tangram_cli_core::Cli,
 	tangram_client::prelude::*,
+	usage_rs as usage,
 };
 
 /// Run a REPL.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	/// The JavaScript engine to use.

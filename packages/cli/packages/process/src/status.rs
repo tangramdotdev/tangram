@@ -7,10 +7,11 @@ use {
 	tangram_cli_core::Cli,
 	tangram_client::prelude::*,
 	tangram_futures::stream::Ext as _,
+	usage_rs as usage,
 };
 
 /// Get a process's status.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(flatten)]
@@ -29,7 +30,7 @@ pub struct Args {
 	pub until: Option<tg::process::Status>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Timeout {
 	#[usage(long = "timeout", overrides("--no-timeout"))]

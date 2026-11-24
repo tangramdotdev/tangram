@@ -9,9 +9,10 @@ use {
 	tangram_futures::read::{Ext as _, shared_position_reader::SharedPositionReader},
 	tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _},
 	tokio_util::compat::FuturesAsyncReadCompatExt as _,
+	usage_rs as usage,
 };
 
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(long = "input", conflicts("input-positional"))]

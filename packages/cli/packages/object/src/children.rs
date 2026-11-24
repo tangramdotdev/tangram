@@ -1,7 +1,10 @@
-use {std::collections::BTreeSet, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {
+	std::collections::BTreeSet, tangram_cli_core::Cli, tangram_client::prelude::*,
+	usage_rs as usage,
+};
 
 /// Get an object's children.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(flatten)]
@@ -10,7 +13,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Options {
 	#[usage(flatten)]

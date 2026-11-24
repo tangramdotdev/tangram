@@ -1,7 +1,7 @@
-use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*, usage_rs as usage};
 
 /// Check in an artifact.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(flatten)]
@@ -22,7 +22,7 @@ pub struct Args {
 	pub updates: Option<Vec<tg::specifier::Pattern>>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Options {
 	#[usage(flatten)]
@@ -66,7 +66,7 @@ pub struct Options {
 	pub watch: Watch,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct TagTimeToLive {
 	#[usage(
@@ -83,7 +83,7 @@ pub struct TagTimeToLive {
 	pub tag_time_to_live: Option<humantime::Duration>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Solve {
 	/// Whether to solve dependencies
@@ -104,7 +104,7 @@ pub struct Solve {
 	no_solve: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Ignore {
 	/// Whether to use ignore files.
@@ -125,7 +125,7 @@ pub struct Ignore {
 	no_ignore: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct SourceDependencies {
 	/// Whether to use source dependencies.
@@ -146,7 +146,7 @@ pub struct SourceDependencies {
 	no_source_dependencies: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Lock {
 	/// Whether to write the lock. Use `--lock=auto` to reuse an existing lock kind or prefer a lockattr for files. Use `--lock=file` to write a lockfile, and `--lock=attr` to write a lockattr. `auto` is the default if not specified.
@@ -163,7 +163,7 @@ pub struct Lock {
 	no_lock: bool,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct UnsolvedDependencies {
 	/// Whether to allow unsolved dependencies.
@@ -184,7 +184,7 @@ pub struct UnsolvedDependencies {
 	no_unsolved_dependencies: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct CheckoutPointers {
 	/// Whether to create checkout pointers.
@@ -205,7 +205,7 @@ pub struct CheckoutPointers {
 	no_checkout_pointers: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Watch {
 	#[usage(

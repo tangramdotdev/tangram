@@ -1,7 +1,7 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*, tangram_uri::Uri};
+use {tangram_cli_core::Cli, tangram_client::prelude::*, tangram_uri::Uri, usage_rs as usage};
 
 /// Download a blob or an artifact.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(long)]

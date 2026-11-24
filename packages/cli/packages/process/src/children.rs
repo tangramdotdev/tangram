@@ -3,10 +3,11 @@ use {
 	std::time::Duration,
 	tangram_cli_core::Cli,
 	tangram_client::prelude::*,
+	usage_rs as usage,
 };
 
 /// Get a process's children.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(flatten)]
@@ -15,7 +16,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Options {
 	#[usage(long)]
@@ -37,7 +38,7 @@ pub struct Options {
 	pub timeout: Timeout,
 }
 
-#[derive(Clone, Debug, Default, usage_rs::Args)]
+#[derive(Clone, Debug, Default, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Timeout {
 	#[usage(long = "timeout", overrides("--no-timeout"))]

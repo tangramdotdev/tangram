@@ -1,9 +1,10 @@
 use {
 	futures::FutureExt as _, std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*,
+	usage_rs as usage,
 };
 
 /// Format.
-#[derive(Clone, Debug, usage_rs::Args)]
+#[derive(Clone, Debug, usage::Args)]
 #[usage(args_override_self = false)]
 pub struct Args {
 	#[usage(default = ".")]
