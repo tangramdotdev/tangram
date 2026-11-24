@@ -120,6 +120,7 @@ impl Index {
 			data,
 			parent: parent_changed,
 			process,
+			unfinished,
 		} = update;
 		let touched_at = process.touched_at;
 		let status = process.status;
@@ -166,6 +167,24 @@ impl Index {
 			} else {
 				txn.set(&key, &[]);
 			}
+		}
+
+		// Move the key that lists the process as unfinished by its creation time, which the clean reads to keep what the oldest unfinished process may use.
+		if let Some(created_at) = unfinished.delete {
+			let key = Key::Process(crate::process::Key::UnfinishedProcess {
+				created_at,
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+		}
+		if let Some(created_at) = unfinished.put {
+			let key = Key::Process(crate::process::Key::UnfinishedProcess {
+				created_at,
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
 		}
 
 		// Replace the stored data with the written data.

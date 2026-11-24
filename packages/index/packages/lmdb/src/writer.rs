@@ -191,6 +191,7 @@ impl Index {
 						max_process_touched_at,
 						max_sandbox_touched_at,
 						now,
+						time_to_touch,
 					}) => Self::clean_with_transaction(crate::clean::TransactionArg {
 						batch_size,
 						db,
@@ -199,6 +200,7 @@ impl Index {
 						max_sandbox_touched_at,
 						now,
 						subspace,
+						time_to_touch,
 						usage_partition_total,
 						transaction: &mut transaction,
 					})
@@ -493,6 +495,7 @@ impl Index {
 				max_process_touched_at,
 				max_sandbox_touched_at,
 				now,
+				time_to_touch,
 			}) => {
 				let items = Vec::from_fn(batch_size, |_| Operation::Clean);
 				(
@@ -502,6 +505,7 @@ impl Index {
 						max_process_touched_at,
 						max_sandbox_touched_at,
 						now,
+						time_to_touch,
 					},
 				)
 			},
@@ -599,12 +603,14 @@ impl Index {
 				max_process_touched_at,
 				max_sandbox_touched_at,
 				now,
+				time_to_touch,
 			} => Request::Clean(crate::Clean {
 				batch_size: items.len(),
 				max_object_touched_at: *max_object_touched_at,
 				max_process_touched_at: *max_process_touched_at,
 				max_sandbox_touched_at: *max_sandbox_touched_at,
 				now: *now,
+				time_to_touch: *time_to_touch,
 			}),
 			Kind::ExpireUsage(arg) => {
 				let items: [Operation; 1] = items.try_into().ok().unwrap();
@@ -740,6 +746,7 @@ impl Index {
 				existing.objects.extend(new.objects);
 				existing.processes.extend(new.processes);
 				existing.sandboxes.extend(new.sandboxes);
+				existing.merge_unfinished_cutoff(new.unfinished_cutoff);
 				existing.done = new.done;
 			},
 			(Response::ExpireUsageOutput(existing), Response::ExpireUsageOutput(new)) => {

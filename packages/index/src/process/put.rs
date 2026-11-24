@@ -144,6 +144,19 @@ pub struct Update {
 	pub parent: bool,
 
 	pub process: super::Process,
+
+	/// How the put moves the key that lists the process as unfinished.
+	pub unfinished: Unfinished,
+}
+
+/// How a process put moves the key that lists an unfinished process by its creation time, so that the index holds exactly one such key for each unfinished record and none for any other record.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Unfinished {
+	/// The creation time of the key to delete.
+	pub delete: Option<i64>,
+
+	/// The creation time of the key to put.
+	pub put: Option<i64>,
 }
 
 impl Arg {
@@ -320,6 +333,13 @@ impl Arg {
 			data = complete(existing_data, write);
 		}
 
+		// Take the earliest creation time of the existing record and the arg's data, so that the creation time is the same in every order of the writes.
+		let created_at = existing
+			.and_then(|existing| existing.created_at)
+			.into_iter()
+			.chain(self.data.as_ref().map(|data| data.created_at))
+			.min();
+
 		// Take the status, creator, owner, location, and sandbox from the data, or keep the existing ones.
 		let status = data
 			.as_ref()
@@ -358,7 +378,8 @@ impl Arg {
 					|| existing.set != set
 					|| existing.storage != storage
 			});
-		if !changed && !touch {
+		if !changed && !touch && existing.is_some_and(|existing| existing.created_at == created_at)
+		{
 			let merge = Merge {
 				permissions,
 				update: None,
@@ -371,6 +392,7 @@ impl Arg {
 		let process = super::Process {
 			boot,
 			command_id: arg.command_id.clone(),
+			created_at,
 			creator,
 			location,
 			metadata,
@@ -383,12 +405,14 @@ impl Arg {
 			storage,
 			touched_at,
 		};
+		let unfinished = Unfinished::new(existing, &process);
 		let update = Update {
 			added,
 			changed,
 			data,
 			parent,
 			process,
+			unfinished,
 		};
 		let merge = Merge {
 			permissions,
@@ -614,6 +638,22 @@ impl Arg {
 		};
 
 		Some(arg)
+	}
+}
+
+impl Unfinished {
+	/// Get how a put that replaces the existing record with the process moves the unfinished key, which it deletes if the existing record had one at another creation time or none, and puts if the process has one that the existing record did not.
+	#[must_use]
+	pub fn new(existing: Option<&super::Process>, process: &super::Process) -> Self {
+		let previous = existing.and_then(super::Process::unfinished);
+		let current = process.unfinished();
+		if previous == current {
+			return Self::default();
+		}
+		Self {
+			delete: previous,
+			put: current,
+		}
 	}
 }
 

@@ -105,6 +105,7 @@ pub enum Kind {
 	SchedulerProcess = 96,
 	SandboxBootProcess = 97,
 	SchedulerProcessDeletedAt = 98,
+	UnfinishedProcess = 99,
 }
 
 impl fdbt::TuplePack for Key {
@@ -385,6 +386,16 @@ impl fdbt::TuplePack for Key {
 				Kind::OwnerProcess.to_i32().unwrap(),
 				owner.to_string(),
 				status.to_string(),
+				process.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Process(crate::process::Key::UnfinishedProcess {
+				created_at,
+				process,
+			}) => (
+				Kind::UnfinishedProcess.to_i32().unwrap(),
+				*created_at,
 				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
@@ -1245,6 +1256,20 @@ impl fdbt::TupleUnpack<'_> for Key {
 						creator,
 						process,
 						status,
+					}),
+				))
+			},
+
+			Kind::UnfinishedProcess => {
+				let (input, created_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let process = tg::process::Id::from_slice(&process)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((
+					input,
+					Key::Process(crate::process::Key::UnfinishedProcess {
+						created_at,
+						process,
 					}),
 				))
 			},

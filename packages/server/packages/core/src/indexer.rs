@@ -59,6 +59,9 @@ pub struct CleanBatchArg {
 	pub partition_start: u64,
 	pub process_time_to_live: Duration,
 	pub sandbox_time_to_live: Duration,
+
+	/// The margin before the creation of the oldest unfinished process, within which the clean keeps every item.
+	pub time_to_touch: Duration,
 }
 
 /// The archive and index batches to enqueue with an indexer.

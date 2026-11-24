@@ -281,6 +281,7 @@ async fn puts(index: &Index, late: bool) {
 		now: 1,
 		partition_end: 2,
 		partition_start: 0,
+		time_to_touch: std::time::Duration::ZERO,
 	};
 	for _ in 0..20 {
 		let done = index.clean(arg.clone()).await.unwrap().done;

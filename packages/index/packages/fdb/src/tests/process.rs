@@ -145,6 +145,7 @@ async fn clean_processes(index: &Index) -> Vec<tg::process::Id> {
 			now: 0,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		};
 		let output = index.clean(arg).await.unwrap();
 		processes.extend(output.processes);
@@ -153,6 +154,98 @@ async fn clean_processes(index: &Index) -> Vec<tg::process::Id> {
 		}
 	}
 	panic!("the clean did not finish");
+}
+
+/// Clean until the clean is done with the cutoff and the time to touch, and return the cleaned processes and the earliest unfinished cutoff.
+async fn clean_with_cutoff(
+	index: &Index,
+	max_touched_at: i64,
+	time_to_touch: u64,
+) -> (Vec<tg::process::Id>, Option<i64>) {
+	let mut processes = Vec::new();
+	let mut unfinished_cutoff = None;
+	for _ in 0..100 {
+		let arg = tangram_index::clean::Arg {
+			batch_size: 100,
+			max_object_touched_at: max_touched_at,
+			max_process_touched_at: max_touched_at,
+			max_sandbox_touched_at: max_touched_at,
+			now: max_touched_at,
+			partition_end: 1,
+			partition_start: 0,
+			time_to_touch: std::time::Duration::from_secs(time_to_touch),
+		};
+		let output = index.clean(arg).await.unwrap();
+		processes.extend(output.processes);
+		unfinished_cutoff = unfinished_cutoff.or(output.unfinished_cutoff);
+		if output.done {
+			return (processes, unfinished_cutoff);
+		}
+	}
+	panic!("the clean did not finish");
+}
+
+/// Get the creation times and the IDs of the processes that the index lists as unfinished.
+async fn unfinished_processes(index: &Index) -> Vec<(i64, tg::process::Id)> {
+	crate::run(&index.database, async |txn| {
+		let prefix = Index::pack(
+			&index.subspace,
+			&(Kind::UnfinishedProcess.to_i32().unwrap(),),
+		);
+		let range = foundationdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix));
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let entries = crate::retry!(result);
+		let processes = entries
+			.iter()
+			.map(|entry| {
+				let crate::Key::Process(crate::process::Key::UnfinishedProcess {
+					created_at,
+					process,
+				}) = Index::unpack(&index.subspace, entry.key()).unwrap()
+				else {
+					panic!("expected an unfinished process key");
+				};
+				(created_at, process)
+			})
+			.collect();
+		Ok(ControlFlow::Break(processes))
+	})
+	.await
+	.unwrap()
+}
+
+/// Get every order of the numbers below the length.
+fn permutations(length: usize) -> Vec<Vec<usize>> {
+	if length == 0 {
+		return vec![Vec::new()];
+	}
+	let mut output = Vec::new();
+	for order in permutations(length - 1) {
+		for position in 0..=order.len() {
+			let mut order = order.clone();
+			order.insert(position, length - 1);
+			output.push(order);
+		}
+	}
+	output
+}
+
+/// Create the queued, started, and finished writes of a process, with different creation times.
+fn lifecycle_args(id: &tg::process::Id) -> [tangram_index::process::put::Arg; 3] {
+	let mut queued = queued_process_arg(id, &sandbox_id());
+	queued.data.as_mut().unwrap().created_at = 5;
+	let mut data = process_data(tg::process::Status::Started, String::new());
+	data.created_at = 3;
+	let mut started = process_arg(id, data);
+	started.sequence = 1;
+	let mut data = process_data(tg::process::Status::Finished, String::new());
+	data.created_at = 5;
+	let mut finished = process_arg(id, data);
+	finished.sequence = 2;
+	[queued, started, finished]
 }
 
 async fn try_get_process(
@@ -302,6 +395,7 @@ async fn cleaning_a_process_deletes_its_data() {
 				now: i64::MAX,
 				partition_end: 1,
 				partition_start: 0,
+				time_to_touch: std::time::Duration::ZERO,
 			};
 			let output = index.clean(arg).await.unwrap();
 			if output.done {
@@ -784,6 +878,12 @@ async fn a_zero_end_fails_the_unfinished_processes_of_exactly_its_boot() {
 			process_status(index, &other).await,
 			Some(tg::process::Status::Queued)
 		);
+		let listed = unfinished_processes(index)
+			.await
+			.into_iter()
+			.map(|(_, process)| process)
+			.collect::<Vec<_>>();
+		assert_eq!(listed, vec![other.clone()]);
 
 		// Put a late queued process of the boot, and verify that it is finished, because its write is numbered at the boot's end.
 		let late = tg::process::Id::new();
@@ -795,6 +895,101 @@ async fn a_zero_end_fails_the_unfinished_processes_of_exactly_its_boot() {
 			process_status(index, &late).await,
 			Some(tg::process::Status::Finished)
 		);
+		let listed = unfinished_processes(index)
+			.await
+			.into_iter()
+			.map(|(_, process)| process)
+			.collect::<Vec<_>>();
+		assert_eq!(listed, vec![other]);
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn an_unfinished_process_is_listed_once_under_its_earliest_creation_time_in_every_order() {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
+		for length in [2, 3] {
+			for order in permutations(length) {
+				// Apply the writes in the order.
+				let id = tg::process::Id::new();
+				let args = lifecycle_args(&id);
+				for index_ in &order {
+					put_process(index, args[*index_].clone()).await;
+				}
+
+				// Verify that the unstarted and started writes list the process once under the earliest creation time, and that the finish removes it.
+				let listed = unfinished_processes(index)
+					.await
+					.into_iter()
+					.filter(|(_, process)| *process == id)
+					.collect::<Vec<_>>();
+				let expected = if length == 2 {
+					vec![(3, id.clone())]
+				} else {
+					Vec::new()
+				};
+				assert_eq!(
+					listed, expected,
+					"the order {order:?} listed the process wrongly"
+				);
+			}
+		}
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn the_clean_keeps_what_was_touched_after_the_oldest_unfinished_process_was_created() {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
+		// Put two unfinished processes and a finished process that was touched after both were created.
+		let first = tg::process::Id::new();
+		let mut arg = queued_process_arg(&first, &sandbox_id());
+		arg.data.as_mut().unwrap().created_at = 100;
+		put_process(index, arg).await;
+		let second = tg::process::Id::new();
+		let mut arg = queued_process_arg(&second, &sandbox_id());
+		arg.data.as_mut().unwrap().created_at = 50;
+		put_process(index, arg).await;
+		let finished = tg::process::Id::new();
+		let data = process_data(tg::process::Status::Finished, String::new());
+		let mut arg = process_arg(&finished, data);
+		arg.touched_at = 200;
+		put_process(index, arg).await;
+
+		// Verify that the oldest of several unfinished processes lowers the cutoff and keeps the finished process.
+		let (processes, cutoff) = clean_with_cutoff(index, 1000, 10).await;
+		assert_eq!(processes, Vec::new());
+		assert_eq!(cutoff, Some(39));
+
+		// Finish the oldest process, and verify that the remaining unfinished process sets the cutoff.
+		let mut data = process_data(tg::process::Status::Finished, String::new());
+		data.created_at = 50;
+		let mut arg = process_arg(&second, data);
+		arg.sequence = 1;
+		put_process(index, arg).await;
+		let (processes, cutoff) = clean_with_cutoff(index, 1000, 10).await;
+		assert_eq!(processes, vec![second.clone()]);
+		assert_eq!(cutoff, Some(89));
+
+		// Finish the last process, and verify that the clean uses the caller's cutoff and removes both finished processes.
+		let mut data = process_data(tg::process::Status::Finished, String::new());
+		data.created_at = 100;
+		let mut arg = process_arg(&first, data);
+		arg.sequence = 1;
+		put_process(index, arg).await;
+		let (mut processes, cutoff) = clean_with_cutoff(index, 1000, 10).await;
+		processes.sort();
+		let mut expected = vec![first, finished];
+		expected.sort();
+		assert_eq!(processes, expected);
+		assert_eq!(cutoff, None);
+		assert_eq!(unfinished_processes(index).await, Vec::new());
 	})
 	.await;
 }

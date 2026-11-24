@@ -214,6 +214,7 @@ async fn cleans_command_cache_key_without_command_objects() {
 			now: 1,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		};
 		if index.clean(arg).await.unwrap().done {
 			break;
@@ -314,6 +315,7 @@ async fn account_storage_deduplicates_a_diamond_and_cleans() {
 				now: now(),
 				partition_end: 1,
 				partition_start: 0,
+				time_to_touch: std::time::Duration::ZERO,
 			})
 			.await
 			.unwrap();
@@ -592,6 +594,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 				now: now(),
 				partition_end: 1,
 				partition_start: 0,
+				time_to_touch: std::time::Duration::ZERO,
 			})
 			.await
 			.unwrap();
@@ -751,6 +754,7 @@ async fn account_storage_is_retained_by_a_tag() {
 			now: now(),
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		})
 		.await
 		.unwrap();
@@ -778,6 +782,7 @@ async fn account_storage_is_retained_by_a_tag() {
 				now: now(),
 				partition_end: 1,
 				partition_start: 0,
+				time_to_touch: std::time::Duration::ZERO,
 			})
 			.await
 			.unwrap();
@@ -908,6 +913,7 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 					now: created_at + 2 * 3600,
 					partition_end: 1,
 					partition_start: 0,
+					time_to_touch: std::time::Duration::ZERO,
 				};
 				if index.clean(arg).await.unwrap().done {
 					break;
@@ -989,6 +995,7 @@ async fn touching_an_object_with_its_account_updates_both_lifetimes() {
 			now: now(),
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		})
 		.await
 		.unwrap();
@@ -1042,6 +1049,7 @@ async fn touching_a_process_with_its_account_updates_both_lifetimes() {
 			now: now(),
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		})
 		.await
 		.unwrap();
@@ -1087,6 +1095,7 @@ async fn touching_with_an_account_honors_time_to_touch() {
 			now: now(),
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		})
 		.await
 		.unwrap();
@@ -1537,6 +1546,7 @@ async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
 					now: created_at + 2,
 					partition_end: 1,
 					partition_start: 0,
+					time_to_touch: std::time::Duration::ZERO,
 				};
 				if index.clean(arg).await.unwrap().done {
 					break;
@@ -1680,6 +1690,7 @@ async fn tag_storage_follows_captured_object_permissions() {
 					now: created_at + 2 * 3600,
 					partition_end: 1,
 					partition_start: 0,
+					time_to_touch: std::time::Duration::ZERO,
 				};
 				if index.clean(arg).await.unwrap().done {
 					break;
@@ -1716,6 +1727,7 @@ async fn tag_storage_follows_captured_object_permissions() {
 					now: created_at + 2 * 3600,
 					partition_end: 1,
 					partition_start: 0,
+					time_to_touch: std::time::Duration::ZERO,
 				};
 				if index.clean(arg).await.unwrap().done {
 					break;
@@ -1901,6 +1913,7 @@ async fn tag_storage_follows_captured_process_permissions() {
 					now: created_at + 2 * 3600,
 					partition_end: 1,
 					partition_start: 0,
+					time_to_touch: std::time::Duration::ZERO,
 				};
 				if index.clean(arg).await.unwrap().done {
 					break;
@@ -1993,6 +2006,7 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 			now: created_at + 2 * 3600,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		};
 		if index.clean(arg).await.unwrap().done {
 			break;
@@ -2324,6 +2338,7 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 			now: created_at + 2 * 3600,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		};
 		if index.clean(arg).await.unwrap().done {
 			break;
@@ -2761,6 +2776,7 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 				now: 18000,
 				partition_end: 1,
 				partition_start: 0,
+				time_to_touch: std::time::Duration::ZERO,
 			};
 			if index.clean(arg).await.unwrap().done {
 				break;

@@ -41,6 +41,7 @@ pub(super) struct TransactionArg<'a, 'b> {
 	pub max_sandbox_touched_at: i64,
 	pub now: i64,
 	pub subspace: &'a fdbt::Subspace,
+	pub time_to_touch: std::time::Duration,
 	pub usage_partition_total: u64,
 	pub transaction: &'a mut lmdb::RwTxn<'b>,
 }
@@ -58,6 +59,7 @@ impl Index {
 			now,
 			partition_end: _,
 			partition_start: _,
+			time_to_touch,
 		} = arg;
 		let request = Request::Clean(crate::Clean {
 			batch_size,
@@ -65,6 +67,7 @@ impl Index {
 			max_process_touched_at,
 			max_sandbox_touched_at,
 			now,
+			time_to_touch,
 		});
 		let response = self.send_write_request(request).await?;
 		match response {
@@ -84,13 +87,31 @@ impl Index {
 			max_sandbox_touched_at,
 			now,
 			subspace,
+			time_to_touch,
 			usage_partition_total,
 			transaction,
 		} = arg;
+
+		// Lower the cutoffs to the creation time of the oldest unfinished process, less the time to touch, so that the clean keeps every item that an unfinished process may use.
+		let oldest_unfinished_created_at =
+			Self::try_get_oldest_unfinished_process_created_at(db, subspace, transaction)?;
+		let unfinished_cutoff =
+			tangram_index::clean::unfinished_cutoff(oldest_unfinished_created_at, time_to_touch);
+		let lower =
+			|cutoff: i64| unfinished_cutoff.map_or(cutoff, |unfinished| cutoff.min(unfinished));
+		let object_cutoff = lower(max_object_touched_at);
+		let process_cutoff = lower(max_process_touched_at);
+		let sandbox_cutoff = lower(max_sandbox_touched_at);
+		let lowered = object_cutoff < max_object_touched_at
+			|| process_cutoff < max_process_touched_at
+			|| sandbox_cutoff < max_sandbox_touched_at;
+		let unfinished_cutoff = unfinished_cutoff.filter(|_| lowered);
+
 		let permissions =
 			Self::delete_expired_permissions(db, subspace, transaction, now, batch_size)?;
 		let mut output = tangram_index::clean::Output {
 			permissions,
+			unfinished_cutoff,
 			..Default::default()
 		};
 		let delegations = Self::delete_expired_delegations(
@@ -119,12 +140,12 @@ impl Index {
 
 		// Preserve the numeric kind order when timestamps tie.
 		let cutoffs = [
-			(ItemKind::Checkout, max_object_touched_at),
-			(ItemKind::Object, max_object_touched_at),
-			(ItemKind::Process, max_process_touched_at),
-			(ItemKind::Sandbox, max_sandbox_touched_at),
-			(ItemKind::AccountObject, max_object_touched_at),
-			(ItemKind::AccountProcess, max_process_touched_at),
+			(ItemKind::Checkout, object_cutoff),
+			(ItemKind::Object, object_cutoff),
+			(ItemKind::Process, process_cutoff),
+			(ItemKind::Sandbox, sandbox_cutoff),
+			(ItemKind::AccountObject, object_cutoff),
+			(ItemKind::AccountProcess, process_cutoff),
 		];
 		let candidates =
 			Self::clean_candidates(db, subspace, transaction, &cutoffs, remaining_batch_size)?;
@@ -261,6 +282,30 @@ impl Index {
 			&& propagated_versions == 0;
 
 		Ok(output)
+	}
+
+	fn try_get_oldest_unfinished_process_created_at(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RwTxn<'_>,
+	) -> tg::Result<Option<i64>> {
+		let prefix = (Kind::UnfinishedProcess.to_i32().unwrap(),);
+		let prefix = Self::pack(subspace, &prefix);
+		let entry = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get the unfinished processes"))?
+			.next()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to read an unfinished process"))?;
+		let Some((key, _)) = entry else {
+			return Ok(None);
+		};
+		let crate::Key::Process(crate::process::Key::UnfinishedProcess { created_at, .. }) =
+			Self::unpack(subspace, key)?
+		else {
+			return Err(tg::error!("expected an unfinished process key"));
+		};
+		Ok(Some(created_at))
 	}
 
 	fn clean_candidates(
@@ -886,6 +931,18 @@ impl Index {
 				let key = Self::pack(subspace, &key);
 				db.delete(transaction, &key).map_err(|error| {
 					tg::error!(!error, "failed to delete the sandbox boot process key")
+				})?;
+			}
+
+			// Delete the key that lists the process as unfinished.
+			if let Some(created_at) = process.unfinished() {
+				let key = crate::Key::Process(crate::process::Key::UnfinishedProcess {
+					created_at,
+					process: id.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				db.delete(transaction, &key).map_err(|error| {
+					tg::error!(!error, "failed to delete the unfinished process key")
 				})?;
 			}
 		}

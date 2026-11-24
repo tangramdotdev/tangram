@@ -55,6 +55,7 @@ async fn put_keeps_the_larger_token_in_every_order() {
 				now: 20,
 				partition_end: 1,
 				partition_start: 0,
+				time_to_touch: std::time::Duration::ZERO,
 			})
 			.await
 			.unwrap();

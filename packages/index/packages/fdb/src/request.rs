@@ -38,6 +38,7 @@ pub(super) struct Clean {
 	pub now: i64,
 	pub partition_end: u64,
 	pub partition_start: u64,
+	pub time_to_touch: std::time::Duration,
 }
 
 #[derive(Clone)]
@@ -97,6 +98,7 @@ pub(super) enum Kind {
 		now: i64,
 		partition_end: u64,
 		partition_start: u64,
+		time_to_touch: std::time::Duration,
 	},
 	ExpireUsage(tangram_index::usage::expire::Arg),
 	GetUsage {

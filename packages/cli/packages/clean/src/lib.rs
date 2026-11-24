@@ -39,7 +39,17 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.await
 		.map_err(|error| tg::error!(!error, "failed to clean"))?;
 	let output = cli.render_progress_stream(stream).await?;
+	let unfinished_cutoff = output.unfinished_cutoff;
 	cli.print_serde(output, args.print).await?;
+
+	// Print the time after which the clean kept every item because processes are running.
+	if let Some(cutoff) = unfinished_cutoff {
+		let cutoff = jiff::Timestamp::from_second(cutoff)
+			.map_or_else(|_| cutoff.to_string(), |cutoff| cutoff.to_string());
+		let message =
+			format!("kept the items touched after {cutoff} because processes are running");
+		cli.print_info_message(&message);
+	}
 
 	Ok(())
 }

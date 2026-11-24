@@ -78,6 +78,7 @@ async fn delegation_traversal_and_propagation() {
 		now: 1000,
 		partition_end: 1,
 		partition_start: 0,
+		time_to_touch: std::time::Duration::ZERO,
 	};
 	index.clean(arg).await.unwrap();
 	drain(&index).await;
@@ -119,6 +120,7 @@ async fn expired_delegations_remove_temporary_permissions() {
 		now: 1000,
 		partition_end: 1,
 		partition_start: 0,
+		time_to_touch: std::time::Duration::ZERO,
 	};
 	index.clean(arg).await.unwrap();
 	drain(&index).await;
@@ -361,6 +363,7 @@ async fn clean(index: &Index) {
 		now: 1000,
 		partition_end: 1,
 		partition_start: 0,
+		time_to_touch: std::time::Duration::ZERO,
 	};
 	index.clean(arg).await.unwrap();
 	drain(index).await;

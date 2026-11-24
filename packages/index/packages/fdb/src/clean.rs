@@ -44,6 +44,7 @@ pub(super) struct TransactionArg<'a> {
 	pub partition_start: u64,
 	pub partition_totals: crate::PartitionTotals,
 	pub subspace: &'a Subspace,
+	pub time_to_touch: std::time::Duration,
 	pub txn: &'a fdb::Transaction,
 }
 
@@ -60,6 +61,7 @@ impl Index {
 			now,
 			partition_end,
 			partition_start,
+			time_to_touch,
 		} = arg;
 		let request = Request::Clean(crate::Clean {
 			batch_size,
@@ -69,6 +71,7 @@ impl Index {
 			now,
 			partition_end,
 			partition_start,
+			time_to_touch,
 		});
 		let response = self.send_write_request(request).await?;
 		let Response::CleanOutput(output) = response else {
@@ -90,6 +93,7 @@ impl Index {
 			partition_start,
 			partition_totals,
 			subspace,
+			time_to_touch,
 			txn,
 		} = arg;
 		let partition_total = partition_totals.cleaning;
@@ -110,11 +114,34 @@ impl Index {
 				kind,
 				partition_totals.update(kind),
 			);
-		let (oldest_permission_update, oldest_storage_and_metadata_update) =
-			futures::join!(oldest_permission_update, oldest_storage_and_metadata_update);
+		let oldest_unfinished_created_at =
+			Self::try_get_oldest_unfinished_process_created_at(txn, subspace);
+		let (
+			oldest_permission_update,
+			oldest_storage_and_metadata_update,
+			oldest_unfinished_created_at,
+		) = futures::join!(
+			oldest_permission_update,
+			oldest_storage_and_metadata_update,
+			oldest_unfinished_created_at
+		);
 		let oldest_permission_update = crate::propagate!(oldest_permission_update);
 		let oldest_storage_and_metadata_update =
 			crate::propagate!(oldest_storage_and_metadata_update);
+		let oldest_unfinished_created_at = crate::propagate!(oldest_unfinished_created_at);
+
+		// Lower the cutoffs to the creation time of the oldest unfinished process, less the time to touch, so that the clean keeps every item that an unfinished process may use.
+		let unfinished_cutoff =
+			tangram_index::clean::unfinished_cutoff(oldest_unfinished_created_at, time_to_touch);
+		let lower =
+			|cutoff: i64| unfinished_cutoff.map_or(cutoff, |unfinished| cutoff.min(unfinished));
+		let object_cutoff = lower(max_object_touched_at);
+		let process_cutoff = lower(max_process_touched_at);
+		let sandbox_cutoff = lower(max_sandbox_touched_at);
+		let lowered = object_cutoff < max_object_touched_at
+			|| process_cutoff < max_process_touched_at
+			|| sandbox_cutoff < max_sandbox_touched_at;
+		let unfinished_cutoff = unfinished_cutoff.filter(|_| lowered);
 
 		let permissions = crate::propagate!(
 			Self::delete_expired_permissions(
@@ -130,6 +157,7 @@ impl Index {
 		);
 		let mut output = tangram_index::clean::Output {
 			permissions,
+			unfinished_cutoff,
 			..Default::default()
 		};
 		let delegations = crate::propagate!(
@@ -165,12 +193,12 @@ impl Index {
 
 		// Preserve the numeric kind order when timestamps tie.
 		let cutoffs = [
-			(ItemKind::Checkout, max_object_touched_at),
-			(ItemKind::Object, max_object_touched_at),
-			(ItemKind::Process, max_process_touched_at),
-			(ItemKind::Sandbox, max_sandbox_touched_at),
-			(ItemKind::AccountObject, max_object_touched_at),
-			(ItemKind::AccountProcess, max_process_touched_at),
+			(ItemKind::Checkout, object_cutoff),
+			(ItemKind::Object, object_cutoff),
+			(ItemKind::Process, process_cutoff),
+			(ItemKind::Sandbox, sandbox_cutoff),
+			(ItemKind::AccountObject, object_cutoff),
+			(ItemKind::AccountProcess, process_cutoff),
 		];
 		let candidates = crate::propagate!(
 			Self::clean_candidates(
@@ -345,6 +373,36 @@ impl Index {
 			&& propagations == 0;
 
 		Ok(ControlFlow::Break(output))
+	}
+
+	async fn try_get_oldest_unfinished_process_created_at(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+	) -> tg::Result<ControlFlow<Option<i64>, fdb::FdbError>> {
+		let kind = Kind::UnfinishedProcess.to_i32().unwrap();
+		let begin = Self::pack(subspace, &(kind,));
+		let end = Self::pack(subspace, &(kind.saturating_add(1),));
+		let range = fdb::RangeOption {
+			begin: fdb::KeySelector::first_greater_or_equal(begin),
+			end: fdb::KeySelector::first_greater_or_equal(end),
+			limit: Some(1),
+			mode: fdb::options::StreamingMode::WantAll,
+			..Default::default()
+		};
+
+		// Read without a snapshot, so that a process that becomes unfinished before the oldest one during the clean conflicts with the clean.
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::retry!(result);
+		let Some(entry) = entries.first() else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let crate::Key::Process(crate::process::Key::UnfinishedProcess { created_at, .. }) =
+			Self::unpack(subspace, entry.key())?
+		else {
+			return Err(tg::error!("expected an unfinished process key"));
+		};
+
+		Ok(ControlFlow::Break(Some(created_at)))
 	}
 
 	async fn clean_candidates(
@@ -1062,6 +1120,16 @@ impl Index {
 					boot,
 					process: id.clone(),
 					sandbox: sandbox.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				txn.clear(&key);
+			}
+
+			// Clear the key that lists the process as unfinished.
+			if let Some(created_at) = process.unfinished() {
+				let key = crate::Key::Process(crate::process::Key::UnfinishedProcess {
+					created_at,
+					process: id.clone(),
 				});
 				let key = Self::pack(subspace, &key);
 				txn.clear(&key);

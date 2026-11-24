@@ -81,12 +81,14 @@ impl Component {
 			objects: 0,
 			processes: 0,
 			sandboxes: 0,
+			unfinished_cutoff: None,
 		};
 		let batch_size = session.server.config.indexer.cleaning.batch_size;
 		let now = session.server.clock.unix_timestamp();
 		let object_time_to_live = Duration::from_secs(0);
 		let process_time_to_live = Duration::from_secs(0);
 		let sandbox_time_to_live = Duration::from_secs(0);
+		let time_to_touch = session.server.config.clean_time_to_touch();
 		progress.start(
 			"checkouts".into(),
 			"checkouts".into(),
@@ -133,6 +135,7 @@ impl Component {
 						partition_start: 0,
 						process_time_to_live,
 						sandbox_time_to_live,
+						time_to_touch,
 					},
 				)
 				.await
@@ -156,6 +159,11 @@ impl Component {
 			output.objects += objects;
 			output.processes += processes;
 			output.sandboxes += sandboxes;
+			output.unfinished_cutoff =
+				match (output.unfinished_cutoff, inner_output.unfinished_cutoff) {
+					(Some(existing), Some(cutoff)) => Some(existing.min(cutoff)),
+					(existing, cutoff) => existing.or(cutoff),
+				};
 			progress.increment("checkouts", checkouts);
 			progress.increment("objects", objects);
 			progress.increment("processes", processes);

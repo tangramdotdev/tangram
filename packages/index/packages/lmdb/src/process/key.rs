@@ -39,6 +39,10 @@ pub enum Key {
 		process: tg::process::Id,
 		status: tg::process::Status,
 	},
+	UnfinishedProcess {
+		created_at: i64,
+		process: tg::process::Id,
+	},
 }
 
 impl Key {

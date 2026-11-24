@@ -147,6 +147,7 @@ async fn late_storage_puts_preserve_the_oldest_version() {
 		now: 1,
 		partition_end: 1,
 		partition_start: 0,
+		time_to_touch: std::time::Duration::ZERO,
 	};
 	for _ in 0..20 {
 		if index.clean(arg.clone()).await.unwrap().done {
@@ -257,6 +258,7 @@ async fn propagation_versions_reset_and_repeated_updates_stop() {
 		now: 0,
 		partition_end: 1,
 		partition_start: 0,
+		time_to_touch: std::time::Duration::ZERO,
 	};
 	let mut done = false;
 	for _ in 0..10 {

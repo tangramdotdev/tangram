@@ -61,6 +61,7 @@ async fn object_output_includes_the_deleted_put_and_touched_at() {
 			now: touched_at,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		};
 		let output = index.clean(arg).await.unwrap();
 		assert_eq!(output.objects.len(), 1);
@@ -160,6 +161,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 				now: i64::MAX,
 				partition_end: 1,
 				partition_start: 0,
+				time_to_touch: std::time::Duration::ZERO,
 			})
 			.await
 			.unwrap();
@@ -210,6 +212,7 @@ async fn account_and_entity_candidates_share_the_clean_batch() {
 			now: i64::MAX,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		})
 		.await
 		.unwrap();
@@ -249,6 +252,7 @@ async fn cleaning_does_not_decode_keys_newer_than_their_kind_cutoff() {
 		now: 20,
 		partition_end: 1,
 		partition_start: 0,
+		time_to_touch: std::time::Duration::ZERO,
 	};
 	let output = index.clean(arg).await.unwrap();
 	assert!(output.done);
@@ -289,6 +293,7 @@ async fn cleaning_respects_each_kind_cutoff() {
 		now: 20,
 		partition_end: 1,
 		partition_start: 0,
+		time_to_touch: std::time::Duration::ZERO,
 	};
 	let output = index.clean(arg.clone()).await.unwrap();
 	assert_eq!(output.objects.len(), 1);

@@ -91,6 +91,7 @@ impl Index {
 			data,
 			parent: parent_changed,
 			process,
+			unfinished,
 		} = update;
 		let touched_at = process.touched_at;
 		let status = process.status;
@@ -146,6 +147,28 @@ impl Index {
 					|error| tg::error!(!error, %id, "failed to put the sandbox boot process key"),
 				)?;
 			}
+		}
+
+		// Move the key that lists the process as unfinished by its creation time, which the clean reads to keep what the oldest unfinished process may use.
+		if let Some(created_at) = unfinished.delete {
+			let key = Key::Process(crate::process::Key::UnfinishedProcess {
+				created_at,
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key).map_err(
+				|error| tg::error!(!error, %id, "failed to delete the unfinished process key"),
+			)?;
+		}
+		if let Some(created_at) = unfinished.put {
+			let key = Key::Process(crate::process::Key::UnfinishedProcess {
+				created_at,
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[]).map_err(
+				|error| tg::error!(!error, %id, "failed to put the unfinished process key"),
+			)?;
 		}
 
 		// Replace the stored data with the written data.
