@@ -945,6 +945,8 @@ impl Component {
 
 		// Touch the root object, which keeps its subtree alive.
 		let touched_at = session.server.clock.unix_timestamp();
+		let permissions =
+			tg::authorization::permission::Set::Object(graph.object_permissions(&object));
 		let account = session
 			.server
 			.components
@@ -957,6 +959,7 @@ impl Component {
 			.touch_object_with_account(
 				&object,
 				account.as_ref(),
+				Some(&permissions),
 				touched_at,
 				session.server.config.object.time_to_touch,
 			)
