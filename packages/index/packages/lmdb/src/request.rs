@@ -36,6 +36,7 @@ pub(super) struct Clean {
 	pub max_process_touched_at: i64,
 	pub max_sandbox_touched_at: i64,
 	pub now: i64,
+	pub time_to_touch: std::time::Duration,
 }
 
 #[derive(Clone)]
@@ -89,6 +90,7 @@ pub(super) enum Kind {
 		max_process_touched_at: i64,
 		max_sandbox_touched_at: i64,
 		now: i64,
+		time_to_touch: std::time::Duration,
 	},
 	ExpireUsage(tangram_index::usage::expire::Arg),
 	GetUsage {

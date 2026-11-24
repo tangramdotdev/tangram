@@ -285,6 +285,7 @@ async fn concurrent_propagation_conflicts_with_cleaning() {
 			partition_start: 0,
 			partition_totals: index.partition_totals,
 			subspace: &index.subspace,
+			time_to_touch: std::time::Duration::ZERO,
 			txn: &transaction,
 		};
 		let ControlFlow::Break(output) = Index::clean_with_transaction(arg).await.unwrap() else {
@@ -334,6 +335,7 @@ async fn unrelated_queue_progress_does_not_conflict_with_cleaning() {
 			partition_start: 0,
 			partition_totals: index.partition_totals,
 			subspace: &index.subspace,
+			time_to_touch: std::time::Duration::ZERO,
 			txn: &transaction,
 		};
 		let ControlFlow::Break(output) = Index::clean_with_transaction(arg).await.unwrap() else {
@@ -495,6 +497,7 @@ fn clean_arg(
 		now: 0,
 		partition_end,
 		partition_start,
+		time_to_touch: std::time::Duration::ZERO,
 	}
 }
 

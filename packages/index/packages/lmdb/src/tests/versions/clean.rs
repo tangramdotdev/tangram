@@ -262,6 +262,7 @@ fn clean_arg(batch_size: usize) -> tangram_index::clean::Arg {
 		now: 0,
 		partition_end: 1,
 		partition_start: 0,
+		time_to_touch: std::time::Duration::ZERO,
 	}
 }
 

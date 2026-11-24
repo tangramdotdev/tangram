@@ -184,6 +184,7 @@ async fn clean(index: &Index, max_process_touched_at: i64) {
 		now: i64::MIN,
 		partition_end: 1,
 		partition_start: 0,
+		time_to_touch: std::time::Duration::ZERO,
 	};
 	index.clean(arg).await.unwrap();
 }

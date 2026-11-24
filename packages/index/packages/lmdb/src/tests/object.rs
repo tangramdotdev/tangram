@@ -133,6 +133,7 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 			now: 0,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		})
 		.await
 		.unwrap();
@@ -169,6 +170,7 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 			now: 0,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		})
 		.await
 		.unwrap();
@@ -206,6 +208,7 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 			now: 0,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		})
 		.await
 		.unwrap();

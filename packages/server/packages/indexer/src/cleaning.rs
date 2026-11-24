@@ -76,6 +76,7 @@ impl Indexer {
 				),
 			};
 			let batch_size = config.batch_size;
+			let time_to_touch = self.server.config.clean_time_to_touch();
 
 			let futures = partition::ranges(partition_start, partition_end, config.concurrency)
 				.map(|range| {
@@ -89,6 +90,7 @@ impl Indexer {
 							partition_start: range.start,
 							process_time_to_live,
 							sandbox_time_to_live,
+							time_to_touch,
 						},
 					)
 				});
@@ -161,6 +163,7 @@ impl Component {
 			partition_start,
 			process_time_to_live,
 			sandbox_time_to_live,
+			time_to_touch,
 		} = arg;
 		let max_object_touched_at = now - object_time_to_live.as_secs().to_i64().unwrap();
 		let max_process_touched_at = now - process_time_to_live.as_secs().to_i64().unwrap();
@@ -177,6 +180,7 @@ impl Component {
 				now,
 				partition_end,
 				partition_start,
+				time_to_touch,
 			})
 			.await?;
 

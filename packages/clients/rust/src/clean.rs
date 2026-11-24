@@ -25,6 +25,10 @@ pub struct Output {
 	pub processes: u64,
 
 	pub sandboxes: u64,
+
+	/// The time after which the clean kept every item because a process created then is unfinished, if this limited the clean.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub unfinished_cutoff: Option<i64>,
 }
 
 impl tg::Session {

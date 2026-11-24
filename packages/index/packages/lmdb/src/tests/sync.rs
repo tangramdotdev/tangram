@@ -35,6 +35,7 @@ async fn finished_syncs_are_recorded_until_they_expire() {
 		now: 1000,
 		partition_end: 1,
 		partition_start: 0,
+		time_to_touch: std::time::Duration::ZERO,
 	};
 	index.clean(arg).await.unwrap();
 	let syncs = index.try_get_syncs(&ids).await.unwrap();

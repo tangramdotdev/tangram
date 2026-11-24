@@ -13,6 +13,7 @@ struct State {
 	permissions: BTreeSet<String>,
 	process: Option<crate::process::Process>,
 	rejected: BTreeSet<usize>,
+	unfinished: BTreeSet<i64>,
 }
 
 #[test]
@@ -314,6 +315,45 @@ fn a_process_of_an_active_boot_is_not_finished() {
 }
 
 #[test]
+fn an_unfinished_process_is_listed_under_its_earliest_creation_time_in_every_order() {
+	let id = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let mut queued = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	queued.data.as_mut().unwrap().created_at = 5;
+	let mut started = arg(&id, data(&sandbox, tg::process::Status::Started));
+	started.data.as_mut().unwrap().created_at = 3;
+	started.sequence = 1;
+	let mut later = arg(&id, data(&sandbox, tg::process::Status::Started));
+	later.data.as_mut().unwrap().created_at = 4;
+	later.sequence = 2;
+	let state = assert_every_order_converges(&[queued.clone(), started.clone(), later], None);
+	assert_eq!(state.process.as_ref().unwrap().created_at, Some(3));
+	assert_eq!(state.unfinished, BTreeSet::from([3]));
+
+	// Check that the finish of the process deletes its unfinished key in every order.
+	let mut finished = arg(&id, data(&sandbox, tg::process::Status::Finished));
+	finished.data.as_mut().unwrap().created_at = 5;
+	finished.sequence = 3;
+	let state = assert_every_order_converges(&[queued, started, finished], None);
+	assert!(state.unfinished.is_empty());
+}
+
+#[test]
+fn a_record_without_a_status_is_not_listed_as_unfinished() {
+	let id = tg::process::Id::new();
+	let parent = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let mut link = arg(&id, data(&sandbox, tg::process::Status::Queued));
+	link.boot = None;
+	link.data = None;
+	link.parent = Some(parent.clone());
+	link.principal = tg::Principal::Process(parent);
+	let state = assert_every_order_converges(&[link], None);
+	assert_eq!(state.process.as_ref().unwrap().status, None);
+	assert!(state.unfinished.is_empty());
+}
+
+#[test]
 fn a_write_that_changes_the_boot_is_rejected() {
 	let id = tg::process::Id::new();
 	let sandbox = tg::sandbox::Id::new();
@@ -447,6 +487,20 @@ fn apply(state: &mut State, index: usize, arg: &Arg, sandbox: Option<&crate::san
 		if let Some(data) = update.data {
 			state.data = Some(data);
 		}
+
+		// Move the unfinished key as the index backends do, and check that the index lists the record under exactly its unfinished key.
+		if let Some(created_at) = update.unfinished.delete {
+			assert!(state.unfinished.remove(&created_at));
+		}
+		if let Some(created_at) = update.unfinished.put {
+			assert!(state.unfinished.insert(created_at));
+		}
+		let expected = update
+			.process
+			.unfinished()
+			.into_iter()
+			.collect::<BTreeSet<_>>();
+		assert_eq!(state.unfinished, expected);
 		state.process = Some(update.process);
 	}
 }
@@ -458,6 +512,7 @@ fn outcome(
 	Option<serde_json::Value>,
 	Vec<String>,
 	Vec<usize>,
+	Vec<i64>,
 ) {
 	let process = state
 		.process
@@ -469,7 +524,8 @@ fn outcome(
 		.map(|data| serde_json::to_value(data).unwrap());
 	let permissions = state.permissions.iter().cloned().collect();
 	let rejected = state.rejected.iter().copied().collect();
-	(process, data, permissions, rejected)
+	let unfinished = state.unfinished.iter().copied().collect();
+	(process, data, permissions, rejected, unfinished)
 }
 
 fn arg(id: &tg::process::Id, data: tg::process::Data) -> Arg {

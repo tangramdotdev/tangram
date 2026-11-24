@@ -22,6 +22,10 @@ pub struct Process {
 	#[tangram_serialize(id = 8)]
 	pub command_id: tg::object::Id,
 
+	/// The earliest creation time among the process's data that the index accepted, which lists an unfinished process by its creation time.
+	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]
+	pub created_at: Option<i64>,
+
 	#[tangram_serialize(default, id = 10, skip_serializing_if = "tg::Principal::is_root")]
 	pub creator: tg::Principal,
 
@@ -289,6 +293,15 @@ impl Process {
 	#[must_use]
 	pub fn cleanable(&self) -> bool {
 		self.status.is_none_or(|status| status.is_finished())
+	}
+
+	/// The creation time under which the index lists the process as unfinished, or `None` if the process has no status or is finished.
+	#[must_use]
+	pub fn unfinished(&self) -> Option<i64> {
+		if self.cleanable() {
+			return None;
+		}
+		self.created_at
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {

@@ -264,6 +264,7 @@ impl Index {
 				now,
 				partition_end,
 				partition_start,
+				time_to_touch,
 			}) => {
 				let items = Vec::from_fn(batch_size, |_| Operation::Clean);
 				(
@@ -275,6 +276,7 @@ impl Index {
 						now,
 						partition_end,
 						partition_start,
+						time_to_touch,
 					},
 				)
 			},
@@ -396,6 +398,7 @@ impl Index {
 				now,
 				partition_end,
 				partition_start,
+				time_to_touch,
 			} => Request::Clean(crate::Clean {
 				batch_size: items.len(),
 				max_object_touched_at: *max_object_touched_at,
@@ -404,6 +407,7 @@ impl Index {
 				now: *now,
 				partition_end: *partition_end,
 				partition_start: *partition_start,
+				time_to_touch: *time_to_touch,
 			}),
 			Kind::ExpireUsage(arg) => {
 				let items: [Operation; 1] = items.try_into().ok().unwrap();
@@ -545,6 +549,7 @@ impl Index {
 				existing.objects.extend(new.objects);
 				existing.processes.extend(new.processes);
 				existing.sandboxes.extend(new.sandboxes);
+				existing.merge_unfinished_cutoff(new.unfinished_cutoff);
 				existing.done = new.done;
 			},
 			(Response::ExpireUsageOutput(existing), Response::ExpireUsageOutput(new)) => {
@@ -858,6 +863,7 @@ impl Index {
 				now,
 				partition_end,
 				partition_start,
+				time_to_touch,
 			}) => {
 				let arg = super::clean::TransactionArg {
 					batch_size: *batch_size,
@@ -869,6 +875,7 @@ impl Index {
 					partition_start: *partition_start,
 					partition_totals,
 					subspace,
+					time_to_touch: *time_to_touch,
 					txn,
 				};
 				let result = Self::clean_with_transaction(arg).await;

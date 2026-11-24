@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 clap = { workspace = true }
+jiff = { workspace = true }
 num = { workspace = true }
 tangram_cli_core = { workspace = true }
 tangram_client = { workspace = true }

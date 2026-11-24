@@ -500,6 +500,7 @@ async fn process_child_tokens_belong_to_the_parent() {
 			now: 1,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		};
 		index.clean(arg).await.unwrap();
 	}
@@ -837,6 +838,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			now: 1,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		};
 		if index.clean(arg).await.unwrap().done {
 			break;
@@ -864,6 +866,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			now: 2,
 			partition_end: 1,
 			partition_start: 0,
+			time_to_touch: std::time::Duration::ZERO,
 		};
 		if index.clean(arg).await.unwrap().done {
 			break;

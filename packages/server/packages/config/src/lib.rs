@@ -1966,6 +1966,15 @@ impl IdMap {
 }
 
 impl Config {
+	/// The margin before the creation of the oldest unfinished process within which a clean keeps every item, which is the largest of the object, process, and checkout times to touch, because a put or a touch of an item within its time to touch writes nothing.
+	#[must_use]
+	pub fn clean_time_to_touch(&self) -> Duration {
+		self.object
+			.time_to_touch
+			.max(self.process.time_to_touch)
+			.max(self.checkout.time_to_touch)
+	}
+
 	#[must_use]
 	pub fn primary_region(&self) -> Option<&str> {
 		self.primary_region.as_deref()
