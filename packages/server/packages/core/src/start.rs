@@ -112,14 +112,43 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
+		// Remove the temps that a previous run left in the background. Every temp that this run creates has a new name, so the listing never includes one.
+		let mut temps = Vec::new();
+		let mut entries = tokio::fs::read_dir(&temp_path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read the temp directory"))?;
+		while let Some(entry) = entries
+			.next_entry()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read the temp directory"))?
+		{
+			temps.push(entry.path());
+		}
+		if !temps.is_empty() {
+			tokio::spawn(async move {
+				for path in temps {
+					if let Err(error) = remove(&path).await
+						&& error.kind() != std::io::ErrorKind::NotFound
+					{
+						tracing::warn!(%error, path = %path.display(), "failed to remove a previous temp");
+					}
+				}
+			});
+		}
+
 		#[cfg(target_os = "linux")]
 		if config.roles.contains(&crate::config::Role::Runner) {
+			// Ensure the sandboxes directory exists, and validate the filesystem that holds the sandboxes' directories.
+			let sandboxes_path = path.join("sandboxes");
+			tokio::fs::create_dir_all(&sandboxes_path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to create the sandboxes directory"))?;
 			let container = config.runner.backend.resources(&config.runner.resources);
 			let options = tangram_sandbox::host::Options {
 				harden: config.runner.backend.harden(),
 				id_mapped_mounts: container.uid_map.is_some() || container.gid_map.is_some(),
 			};
-			tangram_sandbox::host::validate(&temp_path, &options).map_err(|error| {
+			tangram_sandbox::host::validate(&sandboxes_path, &options).map_err(|error| {
 				tg::error!(
 					!error,
 					"the host does not satisfy the container prerequisites"

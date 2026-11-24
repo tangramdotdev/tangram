@@ -5,6 +5,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_server_core::{Session, Shutdown, temp::Temp},
+	tangram_server_runner_core::sandbox::directory,
 };
 
 pub struct Pool {
@@ -36,6 +37,8 @@ enum PoolSetting<T> {
 }
 
 pub struct CreateSandboxOutput {
+	pub directory: directory::Id,
+
 	pub guest_url: tangram_uri::Uri,
 
 	pub sandbox: tangram_sandbox::Sandbox,
@@ -49,6 +52,7 @@ pub struct CreateSandboxOutput {
 
 pub(super) async fn destroy(output: CreateSandboxOutput) -> tg::Result<()> {
 	let CreateSandboxOutput {
+		directory: _,
 		guest_url: _,
 		sandbox,
 		serve_task,
@@ -75,11 +79,11 @@ pub(super) async fn destroy(output: CreateSandboxOutput) -> tg::Result<()> {
 		.await
 		.map_err(|error| tg::error!(!error, "the pooled sandbox serve task panicked"));
 
-	// Remove the temp directory.
+	// Remove the directory.
 	let temp_result = temp
 		.remove()
 		.await
-		.map_err(|error| tg::error!(!error, "failed to remove the pooled sandbox temp directory"));
+		.map_err(|error| tg::error!(!error, "failed to remove the pooled sandbox directory"));
 	serve_result?;
 	sandbox_result?;
 	temp_result?;
@@ -252,7 +256,7 @@ fn spawn(component: &Component, session: &Session) -> Task<tg::Result<CreateSand
 		move |_| async move {
 			let arg = warm_arg(&session);
 			component
-				.create_sandbox_inner(&session, arg, None)
+				.create_sandbox_inner(&session, arg, super::Directory::Pooled)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to warm a sandbox"))
 		}

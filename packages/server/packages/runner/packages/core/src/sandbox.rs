@@ -9,6 +9,8 @@ use {
 	tangram_client::prelude::*,
 };
 
+pub mod directory;
+
 pub struct SpawnSandboxTaskArg {
 	pub allocation: crate::capacity::Allocation,
 

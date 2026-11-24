@@ -18,6 +18,8 @@ workspace = true
 
 [dependencies]
 dashmap = { workspace = true }
+data-encoding = { workspace = true }
+data-encoding-macro = { workspace = true }
 fnv = { workspace = true }
 indexmap = { workspace = true }
 tangram_client = { workspace = true }
@@ -27,3 +29,8 @@ tangram_server_process_core = { workspace = true }
 tangram_server_sandbox_core = { workspace = true }
 tangram_server_vfs_core = { workspace = true }
 tokio = { workspace = true }
+uuid = { workspace = true }
+xattr = { workspace = true }
+
+[dev-dependencies]
+tangram_util = { workspace = true }

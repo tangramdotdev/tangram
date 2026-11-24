@@ -151,13 +151,9 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tangram_server_runner_core::sandbox::SpawnSandboxTaskArg,
 	) -> tangram_server_runner_core::sandbox::SpawnSandboxTaskOutput;
 
-	fn start_sandbox_pool<'a>(&'a self, session: &'a Session) -> ();
-
 	fn state(&self) -> &tangram_server_runner_core::State;
 
 	fn stop_runner_task(&self);
-
-	fn stop_sandbox_pool(&self) -> BoxFuture<'_, ()>;
 
 	fn try_get_process_inner_token<'a>(
 		&'a self,
