@@ -74,7 +74,7 @@ where
 						limits.request_buffer_size,
 						&request_sender,
 					) {
-						if error.raw_os_error() == Some(libc::ENOTCONN) {
+						if matches!(error.raw_os_error(), Some(libc::ENODEV | libc::ENOTCONN)) {
 							tracing::debug!(%error, %reader_id, "ReadWrite reader exited during shutdown");
 						} else {
 							tracing::error!(%error, %reader_id, "ReadWrite reader failed");
@@ -281,7 +281,7 @@ where
 			let size = loop {
 				match rustix::io::read(fd.as_ref(), &mut buffer) {
 					Err(Errno::INTR) => {},
-					Err(Errno::NOTCONN) => return Ok(()),
+					Err(Errno::NODEV | Errno::NOTCONN) => return Ok(()),
 					Err(error) => return Err(error.into()),
 					Ok(size) => break size,
 				}
