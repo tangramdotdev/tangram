@@ -245,6 +245,11 @@ const buildArg = async (merged: Arg): Promise<cargo.Arg> => {
 		sandboxRootfs(host),
 	];
 
+	// Run the v8 build script directly rather than in the rustc proxy's sandbox, because it writes the V8 library outside of its `OUT_DIR`, where the sandbox does not keep it.
+	if (proxy) {
+		envs.push({ TGRUSTC_RUNNER_PASSTHROUGH: "v8" });
+	}
+
 	// On Linux, `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`, and `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp. On macOS, `native-tls` uses the Security framework, so none of these libraries are in the dependency graph. Standalone builds link them statically.
 	if (std.triple.os(host) === "linux") {
 		const capNg = libcapNg(cLibraryArg);
