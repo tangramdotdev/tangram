@@ -18,11 +18,12 @@ let runner = server spawn --name runner --config {
 # Create a sandbox, which stops rather than being destroyed when its runner is lost.
 let sandbox = tg --url $remote.url --token $root_token sandbox create --wait --no-tokens | referent node
 
-# Kill the runner, remove the sandbox's directory, and start the runner again.
+# Kill the runner, remove the sandboxes' directories, and start the runner again.
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 wait_for_exit $pid
-rm --recursive --force ($runner.directory | path join 'sandboxes' $sandbox)
+^chmod -R u+rwx ($runner.directory | path join 'sandboxes')
+rm --recursive --force ($runner.directory | path join 'sandboxes')
 let runner = server start $runner
 
 # The restarted runner's first connection stops the sandbox with the restart's error.

@@ -60,6 +60,7 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to write the blob"))?;
 		let blob = Arc::new(blob);
+		tangram_server_core::checkpoint!(session.server, "write.written").await;
 
 		// Rename the temp file to the checkouts directory if necessary.
 		let checkout_pointers = arg

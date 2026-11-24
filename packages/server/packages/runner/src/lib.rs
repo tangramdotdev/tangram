@@ -466,13 +466,7 @@ impl Component {
 			.replace(id.clone());
 
 		// Get the sandboxes that the previous run left directories for, before the pool starts, which the first connection keeps.
-		let previous = match Self::sandbox_directory_ids(session).await {
-			Ok(previous) => previous,
-			Err(error) => {
-				tracing::error!(error = %error.trace(), "failed to get the previous sandboxes");
-				Vec::new()
-			},
-		};
+		let previous = self.sandbox_directory_ids();
 		self.start_sandbox_pool(session);
 
 		// Report the stopped sandboxes' storage usage and destroy the expired ones periodically, until the runner stops.
@@ -674,16 +668,12 @@ impl Component {
 		Some(id)
 	}
 
-	pub fn start_sandbox_pool(&self, session: &Session) {
+	pub(crate) fn start_sandbox_pool(&self, session: &Session) {
 		self.sandbox_pool.start(self, session);
 	}
 
 	pub(crate) async fn shutdown_sandbox_pool(&self, shutdown: Shutdown) {
 		self.sandbox_pool.shutdown(shutdown).await;
-	}
-
-	pub async fn stop_sandbox_pool(&self) {
-		self.shutdown_sandbox_pool(Shutdown::Interrupt).await;
 	}
 
 	async fn runner_task_inner(
@@ -1495,13 +1485,13 @@ impl std::ops::Deref for Component {
 impl tangram_server_core::component::Lifecycle for Component {
 	fn start<'a>(&'a self, server: &'a Server) -> BoxFuture<'a, tg::Result<()>> {
 		async move {
-			// Reclaim the directories of stopped sandboxes before accepting work.
+			// Load the directories of the sandboxes on this runner before accepting work.
 			if server
 				.config
 				.roles
 				.contains(&tangram_server_core::config::Role::Runner)
 			{
-				self.reclaim_sandbox_directories(server).await;
+				self.load_sandbox_directories(server).await;
 			}
 
 			// Spawn the runner task.
@@ -1638,20 +1628,12 @@ impl tangram_server_core::runner::Component for Component {
 		self.spawn_sandbox_task(server, arg)
 	}
 
-	fn start_sandbox_pool<'a>(&'a self, session: &'a tangram_server_core::Session) {
-		self.start_sandbox_pool(session);
-	}
-
 	fn state(&self) -> &tangram_server_runner_core::State {
 		&self.state
 	}
 
 	fn stop_runner_task(&self) {
 		self.stop_runner_task();
-	}
-
-	fn stop_sandbox_pool(&self) -> BoxFuture<'_, ()> {
-		self.stop_sandbox_pool().boxed()
 	}
 
 	fn try_get_process_inner_token<'a>(

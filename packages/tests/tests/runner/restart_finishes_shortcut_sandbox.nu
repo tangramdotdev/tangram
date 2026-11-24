@@ -16,12 +16,13 @@ for directory in [true false] {
 	assert equal ($queued | length) 1 'the process should be queued'
 	let process = $queued | first | get node
 
-	# Crash the server, remove the sandbox's directory to leave the state of a crash before the runner created it if requested, and start the server again.
+	# Crash the server, remove the sandboxes' directories to leave the state of a crash before the runner created the sandbox's directory if requested, and start the server again.
 	let pid = open ($server.directory | path join 'lock') | into int
 	kill --signal 9 $pid
 	wait_for_exit $pid
 	if not $directory {
-		rm --recursive --force ($server.directory | path join 'sandboxes' $sandbox)
+		^chmod -R u+rwx ($server.directory | path join 'sandboxes')
+		rm --recursive --force ($server.directory | path join 'sandboxes')
 	}
 	let server = server start $server
 

@@ -73,28 +73,16 @@ impl Temp {
 		assert!(self.filesystem_project_id.replace(project_id).is_none());
 	}
 
-	/// Move the temp to a path that outlives it, returning its filesystem project ID so that the caller keeps it reserved.
-	pub async fn persist(mut self, path: &Path) -> std::io::Result<Option<ProjectId>> {
-		if let Some(parent) = path.parent() {
-			tokio::fs::create_dir_all(parent).await?;
-		}
-		if self.path != path {
-			// Replace the link that points a sandbox's path at the temp while the sandbox is started.
-			if tokio::fs::symlink_metadata(path)
-				.await
-				.is_ok_and(|metadata| metadata.file_type().is_symlink())
-			{
-				tokio::fs::remove_file(path).await?;
-			}
-			tokio::fs::rename(&self.path, path).await?;
-		}
+	/// Keep the temp's path after the temp is dropped, returning its filesystem project ID so that the caller keeps it reserved.
+	#[must_use]
+	pub fn persist(mut self) -> Option<ProjectId> {
 		self.preserve = true;
 		self.server.temps.remove(&self.path);
 		#[cfg(target_os = "linux")]
 		let project_id = self.filesystem_project_id.take();
 		#[cfg(not(target_os = "linux"))]
 		let project_id = None;
-		Ok(project_id)
+		project_id
 	}
 
 	pub async fn remove(&mut self) -> std::io::Result<()> {

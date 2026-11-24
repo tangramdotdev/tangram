@@ -72,41 +72,6 @@ impl Component {
 		session: &Session,
 		progress: &tg::progress::Handle<tg::clean::Output>,
 	) -> tg::Result<tg::clean::Output> {
-		// Stop the sandbox pool.
-		session.server.components.runner.stop_sandbox_pool().await;
-
-		// Run the clean task.
-		let result = self.clean_task_inner(session, progress).await;
-
-		// Restart the sandbox pool.
-		session.server.components.runner.start_sandbox_pool(session);
-
-		result
-	}
-
-	async fn clean_task_inner(
-		&self,
-		session: &Session,
-		progress: &tg::progress::Handle<tg::clean::Output>,
-	) -> tg::Result<tg::clean::Output> {
-		// Clean the temporary directory.
-		let result = tangram_util::fs::remove(session.server.temp_path()).await;
-		match result {
-			Ok(()) => {},
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					"failed to remove the temporary directory"
-				));
-			},
-		}
-		tokio::fs::create_dir_all(session.server.temp_path())
-			.await
-			.map_err(|error| {
-				tg::error!(source = error, "failed to recreate the temporary directory")
-			})?;
-
 		let mut output = tg::clean::Output {
 			cached_responses: 0,
 			checkout_bytes: 0,

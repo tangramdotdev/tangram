@@ -51,6 +51,9 @@ pub struct State {
 
 	pub reservations: crate::capacity::Reservations,
 
+	/// The directory of each sandbox with a directory on this runner.
+	pub sandbox_directories: dashmap::DashMap<tg::sandbox::Id, crate::sandbox::directory::Id>,
+
 	pub sandboxes: crate::sandbox::Sandboxes,
 
 	pub scheduler: tokio::sync::watch::Sender<Option<tg::scheduler::Id>>,
@@ -98,6 +101,8 @@ impl State {
 			processes: tangram_server_process_core::Map::default(),
 
 			reservations: crate::capacity::Reservations::new(),
+
+			sandbox_directories: dashmap::DashMap::new(),
 
 			sandboxes: crate::sandbox::Sandboxes::default(),
 

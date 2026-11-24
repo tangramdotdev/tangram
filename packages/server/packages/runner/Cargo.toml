@@ -56,6 +56,7 @@ tangram_server_sandbox_core = { workspace = true }
 tangram_server_scheduler_core = { workspace = true }
 tangram_server_vfs_core = { workspace = true }
 tangram_uri = { workspace = true }
+tangram_util = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }

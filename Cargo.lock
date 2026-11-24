@@ -11768,6 +11768,7 @@ dependencies = [
  "tangram_server_scheduler_core",
  "tangram_server_vfs_core",
  "tangram_uri",
+ "tangram_util",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -11780,6 +11781,8 @@ name = "tangram_server_runner_core"
 version = "0.0.0"
 dependencies = [
  "dashmap",
+ "data-encoding",
+ "data-encoding-macro",
  "fnv",
  "indexmap 2.14.2",
  "tangram_client",
@@ -11788,7 +11791,10 @@ dependencies = [
  "tangram_server_process_core",
  "tangram_server_sandbox_core",
  "tangram_server_vfs_core",
+ "tangram_util",
  "tokio",
+ "uuid",
+ "xattr",
 ]
 
 [[package]]
