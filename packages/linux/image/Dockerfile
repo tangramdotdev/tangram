@@ -20,13 +20,11 @@ COPY --chmod=755 tangram tgx /usr/bin/
 RUN ln -s tangram /usr/bin/tg
 COPY --chmod=644 config.json /etc/tangram/config.json
 
-# Keep the server's state in a volume, at the same path that the Linux packages use, because overlayfs refuses a sandbox upper directory on the container's overlay filesystem.
+# Keep the server's state in a volume, at the same path that the Linux packages use.
 VOLUME /var/lib/tangram
 
-# Start a server on demand for a command that needs one.
 ENV TANGRAM_START=true
 
-# Run the server by default. The entrypoint runs a server command directly, and stops the server that any other command started when the command exits.
 COPY --chmod=755 entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["serve"]

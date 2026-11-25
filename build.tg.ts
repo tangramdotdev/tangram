@@ -298,7 +298,7 @@ export const image = async (...args: tg.Args<Arg>) => {
 	// Add a shell and the basic utilities as a layer of their own.
 	const utils = await std.bootstrap.utils(host).then(tg.Directory.expect);
 
-	// Run the server by default with the entrypoint that the Dockerfiles use, which also runs a server around any other command and starts one on demand, and keep the state directory in a volume.
+	// Serve from the state directory by default, and keep it in a volume.
 	return await std.image({
 		cmd: ["serve"],
 		entrypoint: ["/bin/docker-entrypoint.sh"],
