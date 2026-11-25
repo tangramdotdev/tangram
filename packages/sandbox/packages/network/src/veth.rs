@@ -5,6 +5,9 @@ use {
 	tokio::io::{AsyncReadExt, AsyncWriteExt},
 };
 
+/// The locally administered MAC address of the bridge, which is the same for every server on the host.
+const BRIDGE_ADDRESS: [u8; 6] = [0x02, 0x74, 0x67, 0x00, 0x00, 0x01];
+
 pub const BRIDGE_NAME: &str = "tangram0";
 const GUEST_INTERFACE_NAME_PREFIX: &str = "tg-vc-";
 const HOST_INTERFACE_NAME_PREFIX: &str = "tg-vh-";
@@ -199,12 +202,18 @@ pub fn create_bridge(
 	if !netlink.link_exists(name)? {
 		netlink.link_add_bridge(name)?;
 	}
+
+	// Set the address of the bridge, so that it does not change as ports join and leave, because sandboxes cache it as the address of their gateway.
+	netlink.link_set_address(name, BRIDGE_ADDRESS)?;
+
+	// Configure the bridge.
 	host::disable_ipv6(name)?;
 	netlink.addr_replace_v4(name, ip, 16)?;
 	netlink.link_set_up(name)?;
 	host::enable_ipv4_forwarding()?;
 	host::enable_route_localnet(name)?;
 	host::setup_bridge_networking(firewall, name, ip, dns)?;
+
 	Ok(())
 }
 

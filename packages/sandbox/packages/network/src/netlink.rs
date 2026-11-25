@@ -197,6 +197,26 @@ impl Netlink {
 			.map_err(|error| tg::error!(!error, "failed to set link master"))
 	}
 
+	pub fn link_set_address(&mut self, name: &str, address: [u8; 6]) -> tg::Result<()> {
+		let index = index_of(name)?;
+		let mut attrs = RtBuffer::<Ifla, Buffer>::new();
+		attrs.push(
+			RtattrBuilder::default()
+				.rta_type(Ifla::Address)
+				.rta_payload(address.to_vec())
+				.build()
+				.map_err(|error| tg::error!(!error, "failed to build the address attribute"))?,
+		);
+		let msg = IfinfomsgBuilder::default()
+			.ifi_family(RtAddrFamily::Unspecified)
+			.ifi_index(index)
+			.rtattrs(attrs)
+			.build()
+			.map_err(|error| tg::error!(!error, "failed to build the ifinfomsg"))?;
+		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::ACK, msg)
+			.map_err(|error| tg::error!(!error, "failed to set the link address"))
+	}
+
 	pub fn link_set_netns_pid(&mut self, name: &str, pid: u32) -> tg::Result<()> {
 		let index = index_of(name)?;
 		let mut attrs = RtBuffer::<Ifla, Buffer>::new();
