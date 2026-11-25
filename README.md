@@ -213,6 +213,10 @@ docker run --detach --name tangram --privileged --volume tangram:/var/lib/tangra
 docker exec tangram tg health
 ```
 
+Like the image that the root Dockerfile builds, it runs the server by default,
+and any other command starts a server on demand and stops it when the command
+exits, such as `docker run --rm --privileged --volume tangram:/var/lib/tangram <image> health`.
+
 Keep build and runtime libc versions aligned rather than copying a binary
 linked on a rolling host into an older runtime image. ARM execution and build
 workloads still need verification on native ARM hardware.

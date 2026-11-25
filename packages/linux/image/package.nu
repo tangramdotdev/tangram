@@ -16,6 +16,7 @@ def main [tarball: path, architecture: string, version: string] {
 		mkdir $context
 		^tar -xzf $tarball -C $context tangram tgx
 		^install -m 644 ($source | path join ../config.json) ($context | path join config.json)
+		^install -m 755 ($source | path join ../../../scripts/image/entrypoint.sh) ($context | path join entrypoint.sh)
 		^docker buildx build --build-arg $'TANGRAM_VERSION=($version)' --file ($source | path join Dockerfile) --load --platform $'linux/($architecture)' --tag $tag $context
 		let name = $'tangram_($version)_($architecture).tar'
 		let archive = $temporary | path join $name

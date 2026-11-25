@@ -23,5 +23,8 @@ COPY --chmod=644 config.json /etc/tangram/config.json
 # Keep the server's state in a volume, at the same path that the Linux packages use.
 VOLUME /var/lib/tangram
 
-ENTRYPOINT ["tangram"]
-CMD ["serve", "--config", "/etc/tangram/config.json", "--directory", "/var/lib/tangram"]
+ENV TANGRAM_START=true
+
+COPY --chmod=755 entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["serve"]
