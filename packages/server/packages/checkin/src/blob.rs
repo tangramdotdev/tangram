@@ -3,10 +3,13 @@ use {
 		Component, {CacheArgs, Contents, Graph, IndexObjectArgs},
 	},
 	futures::{StreamExt as _, TryStreamExt as _, stream},
-	std::collections::BTreeSet,
+	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
-	tangram_server_core::{Session, write::Destination},
+	tangram_server_core::{Session, temp::Temp, write::Destination},
 };
+
+/// The temps that hold the copies of the files that were hashed, by node index.
+pub(super) type Temps = BTreeMap<usize, Temp>;
 
 pub(super) struct CheckinCreateBlobsArg<'a> {
 	pub arg: &'a tg::checkin::Arg,
@@ -24,7 +27,7 @@ impl Component {
 		&self,
 		session: &Session,
 		arg: CheckinCreateBlobsArg<'_>,
-	) -> tg::Result<()> {
+	) -> tg::Result<Temps> {
 		let CheckinCreateBlobsArg {
 			arg,
 			graph,
@@ -59,15 +62,26 @@ impl Component {
 		);
 
 		let checkout_pointers = arg.options.checkout_pointers;
-		let blobs = stream::iter(nodes)
+		let copy = checkout_pointers && !arg.options.destructive;
+		let outputs = stream::iter(nodes)
 			.map(|(index, path, _)| {
 				let progress = progress.clone();
 				let session = session.clone();
 				async move {
-					let blob = tokio::task::spawn_blocking({
+					let (blob, temp) = tokio::task::spawn_blocking({
 						let path = path.clone();
 						move || {
-							let file = std::fs::File::open(&path).map_err(
+							// Copy the file to a temp, so that the bytes that are hashed are the bytes that are checked out.
+							let temp = copy.then(|| Temp::new(&session.server));
+							if let Some(temp) = &temp {
+								reflink_copy::reflink_or_copy(&path, temp.path()).map_err(
+									|error| tg::error!(!error, path = %path.display(), "failed to copy the file"),
+								)?;
+							}
+
+							// Hash the file.
+							let path = temp.as_ref().map_or(path.as_path(), Temp::path);
+							let mut file = std::fs::File::open(path).map_err(
 								|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
 							)?;
 							let destination = if checkout_pointers {
@@ -75,8 +89,7 @@ impl Component {
 							} else {
 								Some(Destination::Cache)
 							};
-							let mut file = file;
-							session
+							let blob = session
 								.server
 								.components
 								.write
@@ -88,17 +101,27 @@ impl Component {
 								)
 								.map_err(
 									|error| tg::error!(!error, path = %path.display(), "failed to create the blob"),
-								)
+								)?;
+
+							Ok::<_, tg::Error>((blob, temp))
 						}
 					})
 					.await
 					.map_err(|error| tg::error!(!error, "the blob task panicked"))??;
-					Ok::<_, tg::Error>((index, blob))
+					Ok::<_, tg::Error>((index, blob, temp))
 				}
 			})
 			.buffer_unordered(session.server.config.checkin.blob.concurrency)
 			.try_collect::<Vec<_>>()
 			.await?;
+		let mut blobs = Vec::with_capacity(outputs.len());
+		let mut temps = Temps::new();
+		for (index, blob, temp) in outputs {
+			blobs.push((index, blob));
+			if let Some(temp) = temp {
+				temps.insert(index, temp);
+			}
+		}
 
 		progress.finish("hashing");
 		progress.finish("bytes");
@@ -170,6 +193,6 @@ impl Component {
 			file.contents = Some(Contents::Write(Box::new(output)));
 		}
 
-		Ok(())
+		Ok(temps)
 	}
 }

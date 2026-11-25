@@ -10922,6 +10922,7 @@ dependencies = [
  "mime",
  "num",
  "petgraph",
+ "reflink-copy",
  "serde_json",
  "tangram_cache",
  "tangram_client",

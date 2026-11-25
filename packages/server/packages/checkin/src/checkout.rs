@@ -7,7 +7,7 @@ use {
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		os::unix::fs::PermissionsExt as _,
-		path::{Path, PathBuf},
+		path::Path,
 		pin::pin,
 	},
 	tangram_client::prelude::*,
@@ -23,6 +23,7 @@ pub(super) struct CheckinCheckoutArg<'a> {
 	pub next: usize,
 	pub progress: &'a tg::progress::Handle<super::TaskOutput>,
 	pub root: &'a Path,
+	pub temps: &'a mut super::blob::Temps,
 }
 
 impl Component {
@@ -40,6 +41,7 @@ impl Component {
 			next,
 			progress,
 			root,
+			temps,
 		} = arg;
 		let put = if arg.options.destructive {
 			progress.spinner("checking", "checking");
@@ -63,14 +65,14 @@ impl Component {
 			let files = graph
 				.nodes
 				.range(next..)
-				.filter_map(|(_, node)| {
-					let path = node.path.as_ref()?.clone();
+				.filter_map(|(index, node)| {
 					let metadata = node.path_metadata.as_ref()?.clone();
 					let file = node.variant.try_unwrap_file_ref().ok()?;
 					let id = node.id.as_ref()?.clone();
+					let temp = temps.remove(index)?;
 					let references = file.dependencies.keys().cloned().collect::<Vec<_>>();
 					let size = metadata.len();
-					Some((path, metadata, id, references, size))
+					Some((temp, metadata, id, references, size))
 				})
 				.collect::<Vec<_>>();
 
@@ -393,7 +395,7 @@ impl Component {
 	fn checkin_checkout_inner(
 		session: &Session,
 		batch: Vec<(
-			PathBuf,
+			Temp,
 			std::fs::Metadata,
 			tg::object::Id,
 			Vec<tg::Reference>,
@@ -409,8 +411,8 @@ impl Component {
 		let puts = session.server.components.checkout.puts();
 		let touched_at = session.server.clock.unix_timestamp();
 		let mut output = Vec::with_capacity(batch.len());
-		for (path, metadata, id, references, size) in batch {
-			// If the file is already checked out, then record a put token for it while holding its mutex, so that the cleaner cannot remove it, and continue.
+		for (temp, metadata, id, references, size) in batch {
+			// If the file is already checked out, then record a put token for it while holding its mutex, so that the cleaner cannot remove it, and continue. Dropping the temp removes it.
 			let checkout = tg::Id::from(id.clone());
 			let checkout_path = session.server.checkout_path().join(id.to_string());
 			let guard = puts.lock_sync(&checkout);
@@ -422,14 +424,8 @@ impl Component {
 				continue;
 			}
 
-			// Copy the file to a temp.
-			let src = &path;
-			let temp = Temp::new(&session.server);
-			let dst = temp.path();
-			std::fs::copy(src, dst)
-				.map_err(|error| tg::error!(!error, "failed to copy the file"))?;
-
 			// Make the copied file writable so its xattrs can be updated.
+			let dst = temp.path();
 			let mode = metadata.permissions().mode();
 			if mode & 0o200 == 0 {
 				let permissions = std::fs::Permissions::from_mode(mode | 0o200);
