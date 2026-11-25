@@ -1,5 +1,9 @@
 use {
-	crate::{Cli, Mode, server::Stop, version},
+	crate::{
+		Cli,
+		server::{Action, Stop, server_manager_hint},
+		version,
+	},
 	tangram_client::prelude::*,
 };
 
@@ -10,14 +14,17 @@ impl Cli {
 			return Ok(client);
 		}
 
-		let mode = self
+		// Connect to the server, and start a local server if none is running and start is enabled.
+		let start = self
 			.args
-			.mode
-			.or_else(|| self.config.as_ref()?.client.as_ref()?.mode)
-			.unwrap_or_default();
-		let client = match mode {
-			Mode::Auto => self.client_with_auto_mode().await?,
-			Mode::Client => self.client_with_client_mode().await?,
+			.start
+			.get()
+			.or_else(|| self.config.as_ref()?.client.as_ref()?.start)
+			.unwrap_or(false);
+		let client = if start {
+			self.client_with_start().await?
+		} else {
+			self.client_without_start().await?
 		};
 
 		if self.health.is_none() {
@@ -67,18 +74,30 @@ impl Cli {
 		Ok(client)
 	}
 
-	async fn client_with_client_mode(&mut self) -> tg::Result<tg::Client> {
+	async fn client_without_start(&mut self) -> tg::Result<tg::Client> {
 		let client = self.create_client()?;
-		client.connect().await.map_err(
-			|error| tg::error!(!error, url = %client.url(), "failed to connect to the server"),
-		)?;
+		if let Err(error) = client.connect().await {
+			// Report that no server is running, with a hint for how to start one, if the server is local and nothing is listening.
+			if is_local(&client) && is_absent(&client) {
+				let manager = self
+					.server_manager()
+					.filter(|manager| *manager != tg::server::Manager::Cli);
+				let hint = server_manager_hint(manager, Action::Start);
+				return Err(tg::error!(
+					!error,
+					%hint,
+					url = %client.url(),
+					"no server is running"
+				));
+			}
+			return Err(tg::error!(!error, url = %client.url(), "failed to connect to the server"));
+		}
 		Ok(client)
 	}
 
-	async fn client_with_auto_mode(&mut self) -> tg::Result<tg::Client> {
+	async fn client_with_start(&mut self) -> tg::Result<tg::Client> {
 		let client = self.create_client()?;
-		let local = client.url().scheme() == Some("http+unix")
-			|| matches!(client.url().host_raw(), Some("localhost" | "0.0.0.0"));
+		let local = is_local(&client);
 		match client.connect().await {
 			Ok(()) => (),
 			Err(error) => {
@@ -303,4 +322,26 @@ impl Cli {
 		}
 		Ok(())
 	}
+}
+
+/// Check whether nothing is listening at the client's URL, as opposed to a server that the client cannot reach, such as one whose socket the user may not access.
+fn is_absent(client: &tg::Client) -> bool {
+	if client.url().scheme() != Some("http+unix") {
+		return true;
+	}
+	let Some(path) = client.url().host() else {
+		return true;
+	};
+	match std::fs::symlink_metadata(path) {
+		Ok(_) => (),
+		Err(error) => return error.kind() == std::io::ErrorKind::NotFound,
+	}
+	std::os::unix::net::UnixStream::connect(path)
+		.is_err_and(|error| error.kind() == std::io::ErrorKind::ConnectionRefused)
+}
+
+/// Check whether the client's server is local, so that the CLI can start it.
+fn is_local(client: &tg::Client) -> bool {
+	client.url().scheme() == Some("http+unix")
+		|| matches!(client.url().host_raw(), Some("localhost" | "0.0.0.0"))
 }

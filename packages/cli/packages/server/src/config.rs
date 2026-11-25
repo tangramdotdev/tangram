@@ -103,6 +103,9 @@ pub fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(instance) = source.instance {
 		target.instance = Some(instance);
 	}
+	if let Some(manager) = source.manager {
+		target.manager = Some(manager);
+	}
 	if let Some(source) = source.messenger {
 		target.messenger = resolve_messenger(source)?;
 	}

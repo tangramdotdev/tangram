@@ -45,8 +45,5 @@ def main [] {
 	if not ($helper_path | path exists) {
 		error make { msg: "the unsigned app does not contain the Tangram helper" }
 	}
-	if (^test -x ($app_path | path join "Contents/Resources/tg") | complete).exit_code != 0 {
-		error make { msg: "the unsigned app does not contain the executable tg wrapper" }
-	}
 	print $"the unsigned macOS app compiled successfully at ($app_path)"
 }

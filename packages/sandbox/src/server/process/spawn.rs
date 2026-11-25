@@ -35,8 +35,8 @@ impl Server {
 		for key in [
 			"TANGRAM_CONFIG",
 			"TANGRAM_DIRECTORY",
-			"TANGRAM_MODE",
 			"TANGRAM_OUTPUT",
+			"TANGRAM_START",
 			"TANGRAM_TOKEN",
 			"TANGRAM_TRACING",
 			"TANGRAM_URL",

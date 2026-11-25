@@ -21,7 +21,7 @@ enum CommandLineTool {
 	}
 
 	private static let app = URL(filePath: "/Applications/Tangram.app", directoryHint: .isDirectory)
-	private static let executable = app.appending(path: "Contents/Resources/tg")
+	private static let executable = app.appending(path: "Contents/Helpers/tangram")
 	private static let names = ["tg", "tangram"]
 	private static let promptKey = "TangramCommandLineToolPrompted"
 
@@ -122,7 +122,7 @@ enum CommandLineTool {
 		let source = #"""
 		do shell script "
 		set -eu
-		source=/Applications/Tangram.app/Contents/Resources/tg
+		source=/Applications/Tangram.app/Contents/Helpers/tangram
 		[ -x \"$source\" ] && [ ! -L /usr/local ] && [ ! -L /usr/local/bin ] || exit 1
 		/bin/mkdir -p /usr/local/bin
 		for name in tg tangram; do

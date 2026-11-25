@@ -59,7 +59,7 @@ proxy.on("stream", (stream, headers) => {
 await new Promise((resolve) => proxy.listen(0, "127.0.0.1", resolve));
 const url = `http://127.0.0.1:${proxy.address().port}`;
 async function run(args, input = "") {
-	const child = spawn(tangram, ["--mode", "client", "--url", url, ...args]);
+	const child = spawn(tangram, ["--url", url, ...args]);
 	child.stdin.end(input);
 	let stdout = "";
 	let stderr = "";

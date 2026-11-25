@@ -16,9 +16,6 @@ destination="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/tangram"
 mkdir -p "$(dirname "$destination")"
 cp "$TANGRAM_HELPER_PATH" "$destination"
 chmod +x "$destination"
-wrapper="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/tg"
-mkdir -p "$(dirname "$wrapper")"
-install -m 755 "$SRCROOT/scripts/tg.sh" "$wrapper"
 
 if [ "${CODE_SIGNING_ALLOWED:-NO}" = "YES" ]; then
 	if [ -z "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then

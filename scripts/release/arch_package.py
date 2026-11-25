@@ -1,6 +1,7 @@
 """Prepare the AUR source package from staged GNU tarballs."""
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -42,8 +43,13 @@ def main(version, targets):
     service = service.replace(
         b"ExecStart=/usr/bin/tangram ", b"ExecStart=/usr/lib/tangram/tangram "
     )
+    config = json.loads((LINUX / "config.json").read_text())
+    if "manager" in config:
+        raise ValueError("expected the shared Linux config to leave the manager unset")
+    config["manager"] = "systemd"
+    config = (json.dumps(config, indent="\t") + "\n").encode()
     files = {
-        "config.json": (LINUX / "config.json").read_bytes(),
+        "config.json": config,
         "tangram.service": service,
         "tangram.sysusers": (LINUX / "arch" / "tangram.sysusers").read_bytes(),
         "LICENSE": (ROOT / "LICENSE").read_bytes(),

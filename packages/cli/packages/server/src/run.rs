@@ -23,7 +23,7 @@ pub struct Args {
 	#[arg(long)]
 	pub group_access: bool,
 
-	/// The manager that starts and stops the server: `app`, `cli`, `openrc`, or `systemd`. A server run without a manager can only be stopped by stopping its process.
+	/// Override the `manager` key in the config, which names the manager that starts and stops the server: `app`, `cli`, `openrc`, or `systemd`. A server run without a manager can only be stopped by stopping its process.
 	#[arg(long)]
 	pub manager: Option<tg::server::Manager>,
 
@@ -61,7 +61,9 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// Set the directory, manager, and version.
 	config.directory = Some(directory);
 	config.group_access = args.group_access;
-	config.manager = args.manager;
+	if let Some(manager) = args.manager {
+		config.manager = Some(manager);
+	}
 	config.version = Some(tangram_cli_core::version());
 
 	// Set the URL.

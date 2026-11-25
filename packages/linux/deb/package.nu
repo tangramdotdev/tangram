@@ -13,7 +13,8 @@ def main [tarball: path, architecture: string, version: string] {
 		let units = $root | path join usr lib systemd system
 		mkdir $control $bin $config $units
 		^tar -xzf $tarball -C $bin tangram tg tgx
-		^install -m 644 ($source | path join ../config.json) ($config | path join config.json)
+		open ($source | path join ../config.json) | insert manager systemd | to json --tabs 1 | save ($config | path join config.json)
+		^chmod 644 ($config | path join config.json)
 		^install -m 644 ($source | path join ../systemd/tangram.service) ($units | path join tangram.service)
 		for script in [postinst prerm postrm] {
 			^install -m 755 ($source | path join $script) ($control | path join $script)

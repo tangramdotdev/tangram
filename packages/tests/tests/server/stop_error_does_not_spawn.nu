@@ -1,13 +1,12 @@
 use ../../util/test.nu *
 
-# Printing an error from a failing `server stop` does not spawn a server.
+# Printing an error from a failing `server stop` does not spawn a server, even when start is enabled.
 
 # Write a lock file that names a running process managed by systemd, so that the stop is refused.
 let directory = mktemp -d
 { manager: systemd, pid: $nu.pid } | to json | save -f ($directory | path join 'lock')
 
-# The harness sets client mode, which never spawns. Auto mode is the default a user gets.
-let output = with-env { TANGRAM_MODE: auto } { tg -d $directory server stop | complete }
+let output = tg --start -d $directory server stop | complete
 failure $output
 
 # Record whether a server appeared, then stop it before asserting, so that a failure of this test does not leak a server the harness cannot reap.

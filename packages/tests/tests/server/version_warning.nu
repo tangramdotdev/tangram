@@ -21,10 +21,10 @@ server.listen(0, "127.0.0.1", () => {
 '
 tangram_tests_supervisor start --directory $supervisor --name server --ready-fd 3 -- node --input-type=module -e $source $port
 let url = $'http://127.0.0.1:(open --raw $port | str trim)'
-let output = tg --no-quiet --url $url --mode client health --fields version | complete
+let output = tg --no-quiet --url $url health --fields version | complete
 success $output
 assert ($output.stderr | str contains 'old-test-version') $output.stderr
 assert ($output.stderr | str contains 'differs from the CLI version') $output.stderr
-let output = tg --quiet --url $url --mode client health --fields version | complete
+let output = tg --quiet --url $url health --fields version | complete
 success $output
 assert (not ($output.stderr | str contains 'differs from the CLI version')) $output.stderr

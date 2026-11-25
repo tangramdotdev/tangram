@@ -41,15 +41,14 @@ pub struct Args {
 	#[arg(env = "TANGRAM_DIRECTORY", long, short)]
 	pub directory: Option<PathBuf>,
 
-	/// The mode.
-	#[arg(env = "TANGRAM_MODE", long, short)]
-	pub mode: Option<Mode>,
-
 	#[clap(flatten)]
 	pub quiet: Quiet,
 
 	#[command(flatten)]
 	pub remotes: RemoteOptions,
+
+	#[clap(flatten)]
+	pub start: Start,
 
 	#[arg(env = "TANGRAM_TOKEN", long)]
 	pub token: Option<String>,
@@ -118,25 +117,28 @@ pub struct Quiet {
 	no_quiet: Option<bool>,
 }
 
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	Default,
-	clap::ValueEnum,
-	derive_more::Display,
-	derive_more::FromStr,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-#[display(rename_all = "snake_case")]
-#[from_str(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
-pub enum Mode {
-	#[default]
-	Auto,
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Start {
+	/// Whether to start a local server if none is running.
+	#[arg(
+		default_missing_value = "true",
+		id = "main.start.start",
+		long = "start",
+		num_args = 0..=1,
+		overrides_with = "main.start.no_start",
+		require_equals = true,
+	)]
+	start: Option<bool>,
 
-	Client,
+	#[arg(
+		default_missing_value = "true",
+		id = "main.start.no_start",
+		long = "no-start",
+		num_args = 0..=1,
+		overrides_with = "main.start.start",
+		require_equals = true,
+	)]
+	no_start: Option<bool>,
 }
 
 #[must_use]
@@ -199,6 +201,20 @@ impl Quiet {
 					.and_then(|value| value.parse().ok())
 			})
 			.unwrap_or(false)
+	}
+}
+
+impl Start {
+	/// Get whether to start a local server from the flags or the `TANGRAM_START` environment variable, returning `None` if neither sets it.
+	#[must_use]
+	pub fn get(&self) -> Option<bool> {
+		self.start
+			.or(self.no_start.map(|value| !value))
+			.or_else(|| {
+				std::env::var("TANGRAM_START")
+					.ok()
+					.and_then(|value| value.parse().ok())
+			})
 	}
 }
 
