@@ -32,7 +32,7 @@ let build = job spawn {
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.connect $connect_watch 0 | complete) "the runner must reach the process control connect checkpoint"
 success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.spawn.connection.wait $wait_watch 0 | complete) "the spawner must reach the connection wait checkpoint"
 
-let runner_pid = open ($runner.directory | path join 'lock') | into int
+let runner_pid = server_pid $runner.directory
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 tg --url $remote.url --token $root_token checkpoint continue process.spawn.connection.wait $wait_watch 0

@@ -5,7 +5,7 @@ let local = server spawn
 let prefixes = [$local.config.index.posix_sem_prefix $local.config.cache.posix_sem_prefix]
 let names = $prefixes | each {|prefix| [$'($prefix)r' $'($prefix)w'] } | flatten
 success (tangram_tests_runner semaphore exists ...$names | complete)
-let pid = open ($local.directory | path join lock) | into int
+let pid = server_pid $local.directory
 kill --signal 9 $pid
 wait_for_exit $pid 'the killed server should stop'
 success (tangram_tests_runner semaphore exists ...$names | complete)

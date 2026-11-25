@@ -8,7 +8,7 @@ if $nu.os-info.name != 'linux' {
 }
 
 def stop [instance: record] {
-	let pid = open ($instance.directory | path join 'lock') | into int
+	let pid = server_pid $instance.directory
 	kill --signal 2 $pid
 	wait_for_exit $pid 'the server should stop'
 }

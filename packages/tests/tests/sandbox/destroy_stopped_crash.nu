@@ -25,7 +25,7 @@ job spawn {
 	tg --url $url --token $root_token sandbox destroy $sandbox | complete | ignore
 } | ignore
 checkpoint wait $remove | ignore
-let pid = open ($remote.directory | path join 'lock') | into int
+let pid = server_pid $remote.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 

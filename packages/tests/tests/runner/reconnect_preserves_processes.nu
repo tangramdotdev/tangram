@@ -32,7 +32,7 @@ assert equal (tg --url $remote.url --token $root_token get $id | from json | get
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.exit $exit_watch 0 | complete) "the process must run on the runner"
 
 # Restart the remote while the runner holds the process.
-let remote_pid = open ($remote.directory | path join 'lock') | into int
+let remote_pid = server_pid $remote.directory
 kill --signal 9 $remote_pid
 wait_for_exit $remote_pid "the remote server must exit"
 let remote = server start $remote

@@ -53,7 +53,7 @@ checkpoint wait $enqueue | ignore
 
 # Crash the runner, start it again, and wait for the scheduler to finish its connection.
 let added = checkpoint watch scheduler.runner.added --params { runner: $created.data.id } --token $root_token --url $remote.url
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 let runner = server start $runner

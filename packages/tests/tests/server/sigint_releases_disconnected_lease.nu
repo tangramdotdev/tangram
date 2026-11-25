@@ -21,7 +21,7 @@ tg checkpoint unwatch process.wait.attach $watch
 success (timeout 30s tg log --no-timeout --length 6 $hit.params.process | complete) 'the build must start'
 
 # Stop accepting requests while the build client remains connected.
-let server_pid = open --raw ($local.directory | path join lock) | str trim | into int
+let server_pid = server_pid $local.directory
 kill --signal 2 $server_pid
 wait_for_log $local 'stopped listening on'
 

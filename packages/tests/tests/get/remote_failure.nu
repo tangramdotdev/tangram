@@ -13,7 +13,7 @@ let local = server spawn --name local --config {
 
 tg --url $remote_alpha.url group create foo | ignore
 
-let pid = open ($remote_zeta.directory | path join lock) | into int
+let pid = server_pid $remote_zeta.directory
 kill --signal 2 $pid
 wait_for_exit $pid "the zeta remote should stop"
 

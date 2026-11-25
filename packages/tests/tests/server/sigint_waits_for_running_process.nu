@@ -31,7 +31,7 @@ for multi_server in [false true] {
 	wait_for_log $local 'started the process, command='
 
 	# Send SIGINT to the server and wait for its shutdown to reach the runner.
-	let pid = open ($local.directory | path join 'lock') | into int
+	let pid = server_pid $local.directory
 	^kill -INT $pid
 	wait_for_log $local 'TRACE http task'
 

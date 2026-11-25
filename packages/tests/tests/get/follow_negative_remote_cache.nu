@@ -20,7 +20,7 @@ let first = tg --url $local.url get "foo?follow=true" | complete
 failure $first
 
 # The same negative response should be available after the remote stops.
-let pid = open ($remote.directory | path join lock) | into int
+let pid = server_pid $remote.directory
 kill --signal 2 $pid
 wait_for_exit $pid "the remote should stop"
 

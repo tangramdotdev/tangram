@@ -19,7 +19,7 @@ tg index
 assert equal (tg process get $second | from json | get status) queued
 
 # Crash the server, and start it again.
-let pid = open ($server.directory | path join 'lock') | into int
+let pid = server_pid $server.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 let server = server start $server

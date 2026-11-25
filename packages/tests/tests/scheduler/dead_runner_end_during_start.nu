@@ -44,7 +44,7 @@ tg --url $remote.url --token $root_token sandbox stop --wait $sandbox
 
 # Kill the runner, start it again, and hold its connection once it has read the sandboxes that the index records on it.
 let restarted = checkpoint watch scheduler.runner.restarted --params { runner: $created.data.id } --token $root_token --url $remote.url
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid "the runner must exit"
 let runner = server start $runner

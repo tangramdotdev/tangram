@@ -53,7 +53,7 @@ success $foo "the foo build must populate the remote's process cache."
 success (tg --url $local.url cat ($foo.stdout | str trim) | complete) "the output must reach the remote before runner 1 stops."
 
 # Kill runner1 to force runner 2 to pick up the next build.
-let pid = open ($runner_one.directory | path join 'lock') | into int
+let pid = server_pid $runner_one.directory
 kill --signal 2 $pid
 wait_for_exit $pid
 

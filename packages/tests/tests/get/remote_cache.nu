@@ -19,7 +19,7 @@ assert equal ($output.stderr | lines | length) 1 "remote get should print only t
 assert ($output.stderr | str contains "location=remote") "the resolved referent should include its location"
 assert ($output.stderr | str contains "tokens") "the resolved referent should include its tokens"
 
-let pid = open ($remote.directory | path join lock) | into int
+let pid = server_pid $remote.directory
 kill --signal 2 $pid
 wait_for_exit $pid "the remote should stop"
 

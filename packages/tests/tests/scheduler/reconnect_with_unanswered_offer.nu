@@ -47,7 +47,7 @@ let process = tg --url $local.url run --no-tokens --detach $path --remote | refe
 checkpoint wait $offer | ignore
 
 # Break the first runner's control connection by crashing the gateway, and start the gateway again.
-let pid = open ($gateway.directory | path join 'lock') | into int
+let pid = server_pid $gateway.directory
 kill --signal 9 $pid
 wait_for_exit $pid "the gateway must exit"
 let gateway = server start $gateway

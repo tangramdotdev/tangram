@@ -27,7 +27,7 @@ wait_for_log $runner 'the runner is ready to accept work'
 let offer = checkpoint watch runner.control.offer_boot --url $runner.url
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens --cpu 1 | referent node
 checkpoint wait $offer | ignore
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 

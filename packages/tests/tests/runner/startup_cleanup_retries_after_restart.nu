@@ -29,7 +29,7 @@ assert equal (tg --url $remote.url --token $root_token get $id | from json | get
 
 # Kill the runner, start it again, and hold its connection once it has read the sandboxes that it no longer holds.
 let restarted = checkpoint watch scheduler.runner.restarted --params { runner: $created.data.id } --token $root_token --url $remote.url
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid "the runner must exit"
 let runner = server start $runner
@@ -37,7 +37,7 @@ checkpoint wait $restarted 0 | ignore
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
 
 # Kill the runner again before its connection ends the boot, start it again, and let both connections continue, so that the newer connection ends the boot.
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid "the runner must exit"
 let runner = server start $runner

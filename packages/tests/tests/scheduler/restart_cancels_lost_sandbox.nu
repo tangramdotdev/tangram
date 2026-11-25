@@ -31,7 +31,7 @@ checkpoint wait $connect | ignore
 
 # Hold the runner's next connection, and crash the scheduler before its writes of the sandbox.
 let connection = checkpoint watch runner.connection.start --token $root --url $gateway.url --params { runner: $created.data.id }
-let pid = open ($scheduler.directory | path join 'lock') | into int
+let pid = server_pid $scheduler.directory
 kill --signal 9 $pid
 wait_for_exit $pid "the scheduler must exit"
 let scheduler = server start $scheduler

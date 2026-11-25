@@ -21,7 +21,7 @@ tg --url $url --token $root_token sandbox stop --wait $sandbox
 tg --url $url --token $root_token sandbox start --wait $sandbox
 
 # Kill the runner, then start it again and wait for it to stop the sandbox.
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 let runner = server start $runner

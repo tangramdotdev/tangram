@@ -37,7 +37,7 @@ tg --url $runner.url --token $runner_root_token wait --local $process | ignore
 # Restart the runner without its remote so all remaining reads must be served locally.
 let runner_directory = $runner.directory
 let runner_url = $runner.url
-let pid = open ($runner.directory | path join lock) | into int
+let pid = server_pid $runner.directory
 kill --signal 2 $pid
 wait_for_exit $pid "the runner should stop"
 let runner = server spawn --name runner --directory $runner_directory --url $runner_url --config {

@@ -8,6 +8,25 @@ use {
 /// The maximum number of bytes of the server's log to include in a startup error.
 const LOG_TAIL_LENGTH: u64 = 8192;
 
+/// The outcome of an attempt to stop the server.
+#[derive(Clone, Copy, Debug)]
+pub enum Stop {
+	/// The server was left running, because `tangram server start` did not start it.
+	Refused {
+		manager: Option<tg::server::Manager>,
+	},
+
+	/// The server stopped, or no server was running.
+	Stopped,
+}
+
+/// A command that only the server's manager may run.
+#[derive(Clone, Copy, Debug)]
+enum Action {
+	Restart,
+	Stop,
+}
+
 impl Cli {
 	/// Spawn a server.
 	pub async fn spawn_server(&self, client: &tg::Client) -> tg::Result<()> {
@@ -119,6 +138,8 @@ impl Cli {
 			args.push(tracing.clone());
 		}
 		args.push("serve".to_owned());
+		args.push("--manager".to_owned());
+		args.push(tg::server::Manager::Cli.to_string());
 		command
 			.args(args)
 			.current_dir("/")
@@ -200,49 +221,72 @@ impl Cli {
 		Ok(url)
 	}
 
-	/// Stop the server.
+	/// Stop the server if `tangram server start` started it, and refuse otherwise.
 	pub async fn stop_server(&self) -> tg::Result<()> {
-		// Read the PID from the lock file.
-		let lock_path = self.directory_path()?.join("lock");
-		let lock = match tokio::fs::read_to_string(&lock_path).await {
-			Ok(lock) => lock,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				return Ok(());
-			},
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					"failed to read the pid from the lock file"
-				));
-			},
-		};
-		if lock.is_empty() {
-			return Ok(());
+		match self.try_stop_server().await? {
+			Stop::Refused { manager } => Err(server_manager_error(manager, Action::Stop)),
+			Stop::Stopped => Ok(()),
 		}
-		let pid = lock
-			.parse::<i32>()
-			.map_err(|error| tg::error!(!error, "invalid lock file"))?;
+	}
 
-		// Open a wait handle for the process.
-		let handle = match waitpid_any::WaitHandle::open(pid) {
-			Ok(handle) => handle,
-			Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
-				return Ok(());
+	/// Restart the server if `tangram server start` started it, and refuse otherwise.
+	pub async fn restart_server(&self, client: &tg::Client) -> tg::Result<()> {
+		match self.try_stop_server().await {
+			Ok(Stop::Refused { manager }) => {
+				return Err(server_manager_error(manager, Action::Restart));
 			},
+			Ok(Stop::Stopped) => (),
 			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					"failed to open a handle to the server process"
-				));
+				Self::print_warning_message(&format!("failed to stop existing server. {error}"));
 			},
+		}
+		self.spawn_server(client).await?;
+		Ok(())
+	}
+
+	/// Stop the server if `tangram server start` started it, and leave it running otherwise.
+	pub async fn try_stop_server(&self) -> tg::Result<Stop> {
+		// Open a handle to the process that holds the lock, then read the lock again to confirm that the process still holds it, so that the manager belongs to the process that the handle refers to.
+		let (lock, pid, handle) = loop {
+			let Some(lock) = self.try_read_server_lock().await? else {
+				return Ok(Stop::Stopped);
+			};
+			let pid = i32::try_from(lock.pid)
+				.map_err(|error| tg::error!(!error, pid = %lock.pid, "invalid lock file"))?;
+			let handle = match waitpid_any::WaitHandle::open(pid) {
+				Ok(handle) => handle,
+				Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+					return Ok(Stop::Stopped);
+				},
+				Err(error) => {
+					return Err(tg::error!(
+						!error,
+						"failed to open a handle to the server process"
+					));
+				},
+			};
+			let Some(confirmation) = self.try_read_server_lock().await? else {
+				return Ok(Stop::Stopped);
+			};
+			if confirmation.pid == lock.pid {
+				break (confirmation, pid, handle);
+			}
 		};
+
+		// Refuse to stop a server that `tangram server start` did not start.
+		if lock.manager != Some(tg::server::Manager::Cli) {
+			let stop = Stop::Refused {
+				manager: lock.manager,
+			};
+			return Ok(stop);
+		}
 
 		// Send SIGINT to the server.
 		let ret = unsafe { libc::kill(pid, libc::SIGINT) };
 		if ret != 0 {
 			let error = std::io::Error::last_os_error();
 			if error.raw_os_error() == Some(libc::ESRCH) {
-				return Ok(());
+				return Ok(Stop::Stopped);
 			}
 			return Err(tg::error!(!error, "failed to send SIGINT to the server"));
 		}
@@ -259,7 +303,7 @@ impl Cli {
 		.map_err(|error| tg::error!(!error, "the server wait task panicked"))?
 		.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
 		if status.is_some() {
-			return Ok(());
+			return Ok(Stop::Stopped);
 		}
 
 		// If the server has still not exited, then send SIGTERM to the server.
@@ -267,7 +311,7 @@ impl Cli {
 		if ret != 0 {
 			let error = std::io::Error::last_os_error();
 			if error.raw_os_error() == Some(libc::ESRCH) {
-				return Ok(());
+				return Ok(Stop::Stopped);
 			}
 			return Err(tg::error!(!error, "failed to send SIGTERM to the server"));
 		}
@@ -279,11 +323,29 @@ impl Cli {
 			.map_err(|error| tg::error!(!error, "the server wait task panicked"))?
 			.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
 		if status.is_some() {
-			return Ok(());
+			return Ok(Stop::Stopped);
 		}
 
 		// If the server has still not exited, then return an error.
 		Err(tg::error!("failed to terminate the server"))
+	}
+
+	/// Read the lock file in the server's directory, returning `None` if no server holds the lock.
+	pub async fn try_read_server_lock(&self) -> tg::Result<Option<tg::server::Lock>> {
+		let path = self.directory_path()?.join("lock");
+		let bytes = match tokio::fs::read(&path).await {
+			Ok(bytes) => bytes,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(None);
+			},
+			Err(error) => {
+				return Err(
+					tg::error!(!error, path = %path.display(), "failed to read the lock file"),
+				);
+			},
+		};
+		let lock = tg::server::Lock::try_parse(&bytes);
+		Ok(lock)
 	}
 }
 
@@ -315,4 +377,43 @@ async fn read_log_tail(path: &Path, offset: u64) -> String {
 		return String::new();
 	}
 	String::from_utf8_lossy(&bytes).trim().to_owned()
+}
+
+/// Create the error for a command that only the server's manager may run, with a hint for how to run it.
+fn server_manager_error(manager: Option<tg::server::Manager>, action: Action) -> tg::Error {
+	let verb = match action {
+		Action::Restart => "restart",
+		Action::Stop => "stop",
+	};
+	let (message, hint) = match manager {
+		Some(tg::server::Manager::App) => (
+			"the server is managed by the Tangram app".to_owned(),
+			format!("use the Tangram app to {verb} the server"),
+		),
+		Some(tg::server::Manager::Cli) => (
+			"the server is managed by `tangram server start`".to_owned(),
+			format!("run `tangram server {verb}`"),
+		),
+		Some(tg::server::Manager::Openrc) => (
+			"the server is managed by OpenRC".to_owned(),
+			format!("run `rc-service tangram {verb}`"),
+		),
+		Some(tg::server::Manager::Systemd) => (
+			"the server is managed by systemd".to_owned(),
+			format!("run `systemctl {verb} tangram`"),
+		),
+		None => {
+			let hint = match action {
+				Action::Restart => {
+					"stop the process that is running `tangram server run`, then run `tangram server start`"
+				},
+				Action::Stop => "stop the process that is running `tangram server run`",
+			};
+			(
+				"the server was not started by `tangram server start`".to_owned(),
+				hint.to_owned(),
+			)
+		},
+	};
+	tg::error!(%hint, "{message}")
 }

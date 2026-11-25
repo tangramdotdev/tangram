@@ -27,7 +27,7 @@ let path = artifact {
 let id = tg --url $local.url build --wait --no-tokens --remote --detach $path | referent node
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
 
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid "the runner must exit"
 let runner = server start $runner

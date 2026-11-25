@@ -44,7 +44,7 @@ let signal = job spawn {
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.signal.received $signal_watch 0 | complete) "the runner must receive the signal request"
 
 # Kill the runner while it holds the acknowledged signal request, so that it never sends a response.
-let runner_pid = open ($runner.directory | path join 'lock') | into int
+let runner_pid = server_pid $runner.directory
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 

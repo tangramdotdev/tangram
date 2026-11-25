@@ -29,7 +29,7 @@ let queued = tg --url $remote.url --token $root_token sandbox create --no-tokens
 assert equal (tg --url $remote.url --token $root_token sandbox get $queued | from json | get data.status) starting
 
 # Kill the scheduler and restart it with the same ID.
-let pid = open ($remote.directory | path join 'lock') | into int
+let pid = server_pid $remote.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 let remote = server start $remote

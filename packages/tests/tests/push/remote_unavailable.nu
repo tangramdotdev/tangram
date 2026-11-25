@@ -10,7 +10,7 @@ let local = server spawn --name local --config {
 let id = tg put --no-tokens 'tg.file("test")' | referent node
 
 # Kill the remote server.
-let pid = open ($remote.directory | path join 'lock') | into int
+let pid = server_pid $remote.directory
 kill --signal 2 $pid
 wait_for_exit $pid "the remote should stop"
 

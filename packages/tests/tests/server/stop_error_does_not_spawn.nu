@@ -2,8 +2,9 @@ use ../../util/test.nu *
 
 # Printing an error from a failing `server stop` does not spawn a server.
 
+# Write a lock file that names a running process managed by systemd, so that the stop is refused.
 let directory = mktemp -d
-'not a pid' | save -f ($directory | path join 'lock')
+{ manager: systemd, pid: $nu.pid } | to json | save -f ($directory | path join 'lock')
 
 # The harness sets client mode, which never spawns. Auto mode is the default a user gets.
 let output = with-env { TANGRAM_MODE: auto } { tg -d $directory server stop | complete }

@@ -38,7 +38,7 @@ let process = tg --url $url --token $root_token process spawn --no-tokens --verb
 checkpoint wait $accepted | ignore
 
 # Kill the runner, and advance the remote's clock past the runner ttl, so that the scheduler declares the runner dead.
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid "the runner must exit"
 advance_time $remote 4sec

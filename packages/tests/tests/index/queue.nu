@@ -16,7 +16,7 @@ let watch = tg --url $local.url checkpoint watch index.write | from json | get w
 let id = tg --url $local.url put --no-tokens 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | referent node
 tg --url $local.url checkpoint wait index.write $watch 0 | ignore
 
-let pid = open ($local.directory | path join 'lock') | into int
+let pid = server_pid $local.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 

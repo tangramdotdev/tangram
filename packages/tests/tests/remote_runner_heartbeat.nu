@@ -72,7 +72,7 @@ for stream in [stdout stderr] {
 	assert equal ($output | get $stream) $expected
 }
 
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 
 # Wait for the runner to stop, and advance the remote's clock past the runner ttl so that the scheduler expires the runner.

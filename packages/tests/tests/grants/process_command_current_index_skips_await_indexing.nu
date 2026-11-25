@@ -37,7 +37,7 @@ let config = (
 )
 
 # Restart without an indexer so attempting to await indexing fails.
-let pid = open ($local.directory | path join 'lock') | into int
+let pid = server_pid $local.directory
 kill --signal 2 $pid
 wait_for_exit $pid
 let local = server spawn --directory $directory --config $config

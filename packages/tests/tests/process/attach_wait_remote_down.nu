@@ -40,7 +40,7 @@ success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.run $
 tg --url $runner.url checkpoint unwatch runner.process.run $run_watch
 
 # Crash the remote and leave it down while the child runs.
-let pid = open --raw ($remote.directory | path join lock) | str trim | into int
+let pid = server_pid $remote.directory
 kill --signal 9 $pid
 
 # The build fails instead of waiting for the remote forever.

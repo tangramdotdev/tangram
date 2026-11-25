@@ -35,7 +35,7 @@ success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.contr
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $run_watch 1 | complete)
 
 # Kill rather than gracefully drain the queued write.
-let pid = open --raw ($remote.directory | path join lock) | str trim | into int
+let pid = server_pid $remote.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 let remote = server start $remote

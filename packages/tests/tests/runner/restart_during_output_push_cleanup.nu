@@ -43,7 +43,7 @@ let store = tg --url $remote.url --token $root_token checkpoint watch sync.get.s
 let id = tg --url $local.url build --remote --detach $path | referent node
 success (tg --url $remote.url --token $root_token checkpoint wait --timeout 60s sync.get.store.object $store 0 | complete) "the runner must push the child's output"
 
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid "the runner must exit"
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store
