@@ -1068,6 +1068,44 @@ export def wait_for_exit [
 	}
 }
 
+# Spawn a process in place of a server that holds the lock in a directory and names itself in the lock file with a manager, and that ignores SIGINT and SIGTERM, so that only SIGKILL stops it. `stubborn_server ping` returns once the process answers, and the process's job sends its completed output to the main job when it exits.
+export def stubborn_server [directory: string, manager: string = 'cli'] {
+	mkdir $directory
+	let fifos = mktemp --directory
+	let ready = $fifos | path join 'ready'
+	let ping = $fifos | path join 'ping'
+	let pong = $fifos | path join 'pong'
+	^mkfifo $ready $ping $pong
+	let script = '
+import fcntl, json, os, signal, sys
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+lock = open(sys.argv[1], "w")
+fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+lock.write(json.dumps({"manager": sys.argv[2], "pid": os.getpid()}))
+lock.flush()
+with open(sys.argv[3], "w") as ready:
+	ready.write("ready")
+while True:
+	with open(sys.argv[4]) as ping:
+		ping.read()
+	with open(sys.argv[5], "w") as pong:
+		pong.write("pong")
+'
+	let lock = $directory | path join 'lock'
+	let job = job spawn {
+		^python3 -c $script $lock $manager $ready $ping $pong | complete | job send 0
+	}
+	open --raw $ready | ignore
+	{ job: $job, ping: $ping, pong: $pong }
+}
+
+# Wait for a stubborn server to answer, which shows that it is still running.
+export def "stubborn_server ping" [server: record] {
+	'ping' | save --append $server.ping
+	open --raw $server.pong | ignore
+}
+
 # Wait until a server's log contains some text, following the log rather than polling it.
 export def wait_for_log [
 	server: record

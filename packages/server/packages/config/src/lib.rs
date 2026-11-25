@@ -15,6 +15,8 @@ pub use tangram_sandbox::ip::Range as IpRange;
 
 #[derive(Clone, Debug)]
 pub struct Config {
+	pub access: tg::server::Access,
+
 	pub accounts: bool,
 
 	pub advanced: Advanced,
@@ -40,8 +42,6 @@ pub struct Config {
 	pub database: Database,
 
 	pub directory: Option<PathBuf>,
-
-	pub group_access: bool,
 
 	pub http: Http,
 
@@ -2236,6 +2236,7 @@ impl From<&IdMap> for tangram_sandbox::IdMap {
 impl Default for Config {
 	fn default() -> Self {
 		Self {
+			access: tg::server::Access::User,
 			accounts: false,
 			advanced: Advanced::default(),
 			archive: None,
@@ -2249,7 +2250,6 @@ impl Default for Config {
 			control: Control::default(),
 			database: Database::default(),
 			directory: None,
-			group_access: false,
 			http: Http::default(),
 			index: Index::default(),
 			indexer: Indexer::default(),

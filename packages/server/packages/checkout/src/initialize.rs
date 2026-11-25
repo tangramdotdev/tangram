@@ -91,7 +91,7 @@ impl Component {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
 		}
-		if server.config.group_access {
+		if server.config.access == tg::server::Access::Group {
 			let path = server.checkout_path();
 			let permissions = std::fs::Permissions::from_mode(0o750);
 			tokio::fs::set_permissions(&path, permissions)

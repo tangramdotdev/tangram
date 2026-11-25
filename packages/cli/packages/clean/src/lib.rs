@@ -58,8 +58,8 @@ pub async fn run_force(cli: &mut Cli) -> tg::Result<()> {
 	let path = cli.server_directory_path()?;
 	let store_path = path.join("store");
 
-	// Stop the server if it is running, and fail without removing anything if the stop is refused or fails.
-	cli.stop_server()
+	// Stop the server if it is running, sending SIGKILL if it does not exit after SIGTERM, and fail without removing anything if the stop is refused or fails.
+	cli.force_stop_server()
 		.await
 		.map_err(|error| tg::error!(!error, "failed to stop the server before cleaning"))?;
 
@@ -97,7 +97,7 @@ pub async fn run_force(cli: &mut Cli) -> tg::Result<()> {
 			None,
 		);
 		let mut paths = Vec::new();
-		let mut stack = vec![path];
+		let mut stack = vec![path.clone()];
 		while let Some(path) = stack.pop() {
 			let metadata = std::fs::symlink_metadata(&path)
 				.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
@@ -140,10 +140,20 @@ pub async fn run_force(cli: &mut Cli) -> tg::Result<()> {
 			Some(0),
 			Some(paths.len().to_u64().unwrap()),
 		);
+		let root = path;
 		for (path, metadata) in paths.into_iter().rev() {
 			if metadata.is_dir() {
-				std::fs::remove_dir(&path)
-					.map_err(|error| tg::error!(!error, "failed to remove the directory"))?;
+				match std::fs::remove_dir(&path) {
+					Ok(()) => {},
+
+					// Keep the empty directory if it is a mount point, such as a container volume, which cannot be removed.
+					Err(error)
+						if path == root && error.kind() == std::io::ErrorKind::ResourceBusy => {},
+
+					Err(error) => {
+						return Err(tg::error!(!error, "failed to remove the directory"));
+					},
+				}
 			} else {
 				std::fs::remove_file(&path)
 					.map_err(|error| tg::error!(!error, "failed to remove the file"))?;

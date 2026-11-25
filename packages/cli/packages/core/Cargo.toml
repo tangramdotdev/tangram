@@ -62,5 +62,7 @@ tracing-subscriber = { workspace = true }
 tracing-tree = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
-waitpid-any = { workspace = true }
 webbrowser = { workspace = true }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+waitpid-any = { workspace = true }
