@@ -75,6 +75,9 @@ def 'main publish' [
 
 # Build the image for a platform and load it into Docker under a tag.
 def load [platform: string, tag: string, fast: bool] {
+	if $nu.os-info.name != 'linux' {
+		error make {msg: 'building the container image with Tangram requires Linux'}
+	}
 	let host = $platforms | get --optional $platform
 	if $host == null {
 		error make {msg: $'unsupported platform ($platform), expected one of ($platforms | columns | str join ", ")'}

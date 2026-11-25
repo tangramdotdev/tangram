@@ -223,7 +223,8 @@ As an alternative to the Dockerfile, Tangram can build the container image
 itself. `build.tg.ts#image` builds the CLI with every feature, collects the
 programs that the server runs, and assembles them with `std.image`. This image
 has no base distribution, and Docker is needed only to load, tag, and push it.
-The build uses the packages repository checked out next to this one.
+Building it requires Linux, and uses the packages repository checked out next to
+this one.
 
 ```nu
 tg run .#imageBuildTangram

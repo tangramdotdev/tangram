@@ -345,8 +345,12 @@ def package [selected_targets: list<string>, version: string, sign: bool, build_
 		}
 	}
 
-	# Check before packaging that this machine runs containers for the architecture of each container image, because its Dockerfile runs commands in the image.
-	for target in ($selected_targets | where {|target| $target ends-with '-linux-gnu' }) {
+	# Check before packaging that this machine can build each container image. Tangram builds one only on Linux, and the Dockerfile runs commands in the image, so it needs a machine that runs containers for the image's architecture.
+	let image_targets = $selected_targets | where {|target| $target ends-with '-linux-gnu' }
+	if $tangram_image and not ($image_targets | is-empty) and $nu.os-info.name != 'linux' {
+		error make {msg: '--tangram-image requires Linux'}
+	}
+	for target in (if $tangram_image { [] } else { $image_targets }) {
 		let platform = if ($target starts-with 'aarch64-') { 'linux/arm64' } else { 'linux/amd64' }
 		let output = ^docker run --rm --platform $platform debian:trixie-slim true | complete
 		if $output.exit_code != 0 {
