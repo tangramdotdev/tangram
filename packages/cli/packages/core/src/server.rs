@@ -22,14 +22,22 @@ pub enum Stop {
 
 /// A command that only the server's manager may run.
 #[derive(Clone, Copy, Debug)]
-enum Action {
+pub(crate) enum Action {
 	Restart,
+	Start,
 	Stop,
 }
 
 impl Cli {
-	/// Spawn a server.
+	/// Spawn a server, and refuse if the config declares a manager other than `tangram server start`.
 	pub async fn spawn_server(&self, client: &tg::Client) -> tg::Result<()> {
+		// Refuse to start a server that another manager starts.
+		if let Some(manager) = self.server_manager()
+			&& manager != tg::server::Manager::Cli
+		{
+			return Err(server_manager_error(Some(manager), Action::Start));
+		}
+
 		// Ensure the directory exists.
 		let directory = self.directory_path()?;
 		let directory = std::path::absolute(&directory)
@@ -201,6 +209,19 @@ impl Cli {
 		Ok(())
 	}
 
+	/// Get the manager that starts and stops the server, which the config declares, or on macOS, the Tangram app if this executable is in an app bundle.
+	#[must_use]
+	pub fn server_manager(&self) -> Option<tg::server::Manager> {
+		if let Some(manager) = self.config.as_ref().and_then(|config| config.manager) {
+			return Some(manager);
+		}
+		#[cfg(target_os = "macos")]
+		if tangram_util::env::current_exe().is_ok_and(|path| is_app_helper_path(&path)) {
+			return Some(tg::server::Manager::App);
+		}
+		None
+	}
+
 	/// Make a unix socket URL absolute.
 	pub fn absolute_url(url: &tangram_uri::Uri) -> tg::Result<tangram_uri::Uri> {
 		if url.scheme() != Some("http+unix") {
@@ -246,6 +267,16 @@ impl Cli {
 
 	/// Stop the server if `tangram server start` started it, and leave it running otherwise.
 	pub async fn try_stop_server(&self) -> tg::Result<Stop> {
+		// Refuse to stop a server that the config declares another manager for, whose lock file may not be in this directory or readable by this user.
+		if let Some(manager) = self.server_manager()
+			&& manager != tg::server::Manager::Cli
+		{
+			let stop = Stop::Refused {
+				manager: Some(manager),
+			};
+			return Ok(stop);
+		}
+
 		// Open a handle to the process that holds the lock, then read the lock again to confirm that the process still holds it, so that the manager belongs to the process that the handle refers to.
 		let (lock, pid, handle) = loop {
 			let Some(lock) = self.try_read_server_lock().await? else {
@@ -381,39 +412,100 @@ async fn read_log_tail(path: &Path, offset: u64) -> String {
 
 /// Create the error for a command that only the server's manager may run, with a hint for how to run it.
 fn server_manager_error(manager: Option<tg::server::Manager>, action: Action) -> tg::Error {
+	let message = match manager {
+		Some(tg::server::Manager::App) => "the server is managed by the Tangram app",
+		Some(tg::server::Manager::Cli) => "the server is managed by `tangram server start`",
+		Some(tg::server::Manager::Openrc) => "the server is managed by OpenRC",
+		Some(tg::server::Manager::Systemd) => "the server is managed by systemd",
+		None => "the server was not started by `tangram server start`",
+	};
+	let hint = server_manager_hint(manager, action);
+	tg::error!(%hint, "{message}")
+}
+
+/// Create the hint for how to run a command that only the server's manager may run.
+#[must_use]
+pub(crate) fn server_manager_hint(manager: Option<tg::server::Manager>, action: Action) -> String {
 	let verb = match action {
 		Action::Restart => "restart",
+		Action::Start => "start",
 		Action::Stop => "stop",
 	};
-	let (message, hint) = match manager {
-		Some(tg::server::Manager::App) => (
-			"the server is managed by the Tangram app".to_owned(),
-			format!("use the Tangram app to {verb} the server"),
-		),
-		Some(tg::server::Manager::Cli) => (
-			"the server is managed by `tangram server start`".to_owned(),
-			format!("run `tangram server {verb}`"),
-		),
-		Some(tg::server::Manager::Openrc) => (
-			"the server is managed by OpenRC".to_owned(),
-			format!("run `rc-service tangram {verb}`"),
-		),
-		Some(tg::server::Manager::Systemd) => (
-			"the server is managed by systemd".to_owned(),
-			format!("run `systemctl {verb} tangram`"),
-		),
-		None => {
-			let hint = match action {
-				Action::Restart => {
-					"stop the process that is running `tangram server run`, then run `tangram server start`"
-				},
-				Action::Stop => "stop the process that is running `tangram server run`",
-			};
-			(
-				"the server was not started by `tangram server start`".to_owned(),
-				hint.to_owned(),
-			)
+	match (manager, action) {
+		(Some(tg::server::Manager::App), Action::Start) => "open the Tangram app".to_owned(),
+		(Some(tg::server::Manager::App), Action::Restart | Action::Stop) => {
+			format!("use the Tangram app to {verb} the server")
 		},
-	};
-	tg::error!(%hint, "{message}")
+		(Some(tg::server::Manager::Cli) | None, Action::Start) => {
+			"run `tangram server start` or pass `--start`".to_owned()
+		},
+		(Some(tg::server::Manager::Cli), Action::Restart | Action::Stop) => {
+			format!("run `tangram server {verb}`")
+		},
+		(Some(tg::server::Manager::Openrc), _) => format!("run `rc-service tangram {verb}`"),
+		(Some(tg::server::Manager::Systemd), _) => format!("run `systemctl {verb} tangram`"),
+		(None, Action::Restart) => {
+			"stop the process that is running `tangram server run`, then run `tangram server start`"
+				.to_owned()
+		},
+		(None, Action::Stop) => "stop the process that is running `tangram server run`".to_owned(),
+	}
+}
+
+/// Check whether a path is that of an executable in the `Contents/Helpers` directory of an app bundle.
+#[cfg_attr(
+	not(target_os = "macos"),
+	allow(dead_code, reason = "the app bundle is only inferred on macOS")
+)]
+fn is_app_helper_path(path: &Path) -> bool {
+	path.file_name().is_some()
+		&& path
+			.parent()
+			.filter(|helpers| helpers.file_name().is_some_and(|name| name == "Helpers"))
+			.and_then(Path::parent)
+			.filter(|contents| contents.file_name().is_some_and(|name| name == "Contents"))
+			.and_then(Path::parent)
+			.is_some_and(|bundle| {
+				bundle
+					.extension()
+					.is_some_and(|extension| extension == "app")
+			})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	// An executable in the helpers directory of an app bundle is an app helper.
+	#[test]
+	fn app_helper_path() {
+		assert!(is_app_helper_path(Path::new(
+			"/Applications/Tangram.app/Contents/Helpers/tangram"
+		)));
+		assert!(is_app_helper_path(Path::new(
+			"/Users/me/Applications/Tangram Dev.app/Contents/Helpers/tangram"
+		)));
+	}
+
+	// An executable outside the helpers directory of an app bundle is not an app helper.
+	#[test]
+	fn app_helper_path_invalid() {
+		assert!(!is_app_helper_path(Path::new("/usr/local/bin/tangram")));
+		assert!(!is_app_helper_path(Path::new(
+			"/Applications/Tangram.app/Contents/Resources/tg"
+		)));
+		assert!(!is_app_helper_path(Path::new(
+			"/Applications/Tangram.app/Contents/MacOS/Tangram"
+		)));
+		assert!(!is_app_helper_path(Path::new(
+			"/Applications/Tangram/Contents/Helpers/tangram"
+		)));
+		assert!(!is_app_helper_path(Path::new(
+			"/Applications/Tangram.app/Helpers/tangram"
+		)));
+		assert!(!is_app_helper_path(Path::new("Contents/Helpers/tangram")));
+		assert!(!is_app_helper_path(Path::new(
+			"/Applications/Tangram.app/Contents/Helpers"
+		)));
+	}
 }

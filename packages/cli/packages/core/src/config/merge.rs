@@ -47,6 +47,7 @@ merge! {
 		index,
 		indexer: section,
 		instance,
+		manager,
 		messenger,
 		object: section,
 		pagination: section,
@@ -427,13 +428,13 @@ merge! {
 	super::Write { checkout_pointers }
 	super::Client {
 		http: section,
-		mode,
 		pool: section,
 		process: section,
 		progress: section,
 		reconnect: section,
 		retry: section,
 		sandbox: section,
+		start,
 		stream_retry: section,
 		sync: section,
 		url,

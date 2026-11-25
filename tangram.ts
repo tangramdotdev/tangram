@@ -98,7 +98,7 @@ const cli = async (...args: Array<string>) => {
 		`${path}:${tg.path.join(cwd, "node_modules/.bin")}`,
 		":",
 	);
-	await tg.run`cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m client "$@"`
+	await tg.run`cargo run --all-features -- -c .config/tangram/config.json -d .tangram "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
@@ -112,7 +112,7 @@ export const cliRelease = async (...args: Array<string>) => {
 		`${path}:${tg.path.join(cwd, "node_modules/.bin")}`,
 		":",
 	);
-	await tg.run`cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram -m client "$@"`
+	await tg.run`cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
@@ -126,7 +126,7 @@ export const cliSudo = async (...args: Array<string>) => {
 		`${path}:${tg.path.join(cwd, "node_modules/.bin")}`,
 		":",
 	);
-	await tg.run`cargo build --all-features && sudo target/debug/tangram -c .config/tangram/config.json -d .tangram -m client "$@"`
+	await tg.run`cargo build --all-features && sudo target/debug/tangram -c .config/tangram/config.json -d .tangram "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
@@ -203,7 +203,7 @@ export const run = async (...args: Array<string>) => {
 		`${path}:${tg.path.join(cwd, "node_modules/.bin")}`,
 		":",
 	);
-	await tg.run`cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m client run -b "$@"`
+	await tg.run`cargo run --all-features -- -c .config/tangram/config.json -d .tangram run -b "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
@@ -217,7 +217,7 @@ export const runRelease = async (...args: Array<string>) => {
 		`${path}:${tg.path.join(cwd, "node_modules/.bin")}`,
 		":",
 	);
-	await tg.run`cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram -m client run -b "$@"`
+	await tg.run`cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram run -b "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)

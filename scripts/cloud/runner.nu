@@ -1,7 +1,7 @@
 # Register once, then run the remote runner in the foreground.
 let config_path = '.tangram/cloud/runner.json'
 if not ($config_path | path exists) {
-	let created = cargo run --quiet --release --all-features -- --config $config_path --mode client --url http://127.0.0.1:8476 runner create | from json
+	let created = cargo run --quiet --release --all-features -- --config $config_path --url http://127.0.0.1:8476 runner create | from json
 	{
 		advanced: { disable_version_check: true },
 		remotes: {

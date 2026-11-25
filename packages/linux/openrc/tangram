@@ -2,7 +2,7 @@
 
 description="Tangram server"
 command=/usr/bin/tangram
-command_args="serve --config /etc/tangram/config.json --directory /var/lib/tangram --group-access --manager openrc"
+command_args="serve --config /etc/tangram/config.json --directory /var/lib/tangram --group-access"
 command_user=root:tangram
 supervisor=supervise-daemon
 notify=socket:ready

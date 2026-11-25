@@ -99,7 +99,6 @@ impl Server {
 			command.env_remove(key);
 		}
 		command
-			.env("TANGRAM_MODE", "client")
 			.env("TANGRAM_QUIET", "true")
 			.arg("--config")
 			.arg(self.temp.path().join("client.json"))

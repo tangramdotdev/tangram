@@ -322,7 +322,6 @@ fn environment(options: &Options, temp_path: &Path) -> Vec<(String, String)> {
 			"TANGRAM_CONFIG".to_owned(),
 			temp_path.join("config.json").display().to_string(),
 		),
-		("TANGRAM_MODE".to_owned(), "client".to_owned()),
 		("TANGRAM_QUIET".to_owned(), "true".to_owned()),
 		("TANGRAM_TEST_CLOUD".to_owned(), flag(options.cloud)),
 		(

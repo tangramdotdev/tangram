@@ -122,8 +122,8 @@ def main [
 	if not ($app_path | path exists) {
 		error make { msg: $"the app was not found at ($app_path)" }
 	}
-	if (^test -x ($app_path | path join "Contents/Resources/tg") | complete).exit_code != 0 {
-		error make {msg: 'the app does not contain the executable tg wrapper'}
+	if (^test -x ($app_path | path join "Contents/Helpers/tangram") | complete).exit_code != 0 {
+		error make {msg: 'the app does not contain the executable Tangram helper'}
 	}
 	let identity = if $no_sign {
 		null

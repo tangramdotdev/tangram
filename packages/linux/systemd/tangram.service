@@ -10,7 +10,7 @@ Group=tangram
 UMask=0077
 StateDirectory=tangram
 StateDirectoryMode=0710
-ExecStart=/usr/bin/tangram serve --config /etc/tangram/config.json --directory /var/lib/tangram --group-access --manager systemd
+ExecStart=/usr/bin/tangram serve --config /etc/tangram/config.json --directory /var/lib/tangram --group-access
 Delegate=yes
 Restart=on-failure
 

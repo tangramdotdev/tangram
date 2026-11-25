@@ -1,6 +1,6 @@
 use {
 	self::merge::Merge as _,
-	crate::{Cli, Mode},
+	crate::Cli,
 	serde_with::{DisplayFromStr, DurationSecondsWithFrac, serde_as},
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -79,6 +79,10 @@ pub struct Config {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub instance: Option<String>,
+
+	/// The manager that starts and stops the server: `app`, `cli`, `openrc`, or `systemd`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub manager: Option<tg::server::Manager>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub messenger: Option<Messenger>,
@@ -3002,10 +3006,6 @@ pub struct Client {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub http: Option<ClientHttp>,
 
-	/// Configure how the CLI connects to the server.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub mode: Option<Mode>,
-
 	/// Configure the client connection pool.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub pool: Option<Pool>,
@@ -3029,6 +3029,10 @@ pub struct Client {
 	/// Configure sandboxes.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sandbox: Option<ClientSandbox>,
+
+	/// Start a local server if none is running.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub start: Option<bool>,
 
 	/// Configure the retry options for reconnecting long-lived streams.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

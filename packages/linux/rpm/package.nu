@@ -14,7 +14,7 @@ def main [tarball: path, architecture: string, version: string] {
 		let spec = $temporary | path join tangram.spec
 		mkdir $sources
 		^cp $tarball ($sources | path join tangram.tar.gz)
-		^cp ($source | path join ../config.json) ($sources | path join config.json)
+		open ($source | path join ../config.json) | insert manager systemd | to json --tabs 1 | save ($sources | path join config.json)
 		^cp ($source | path join ../systemd/tangram.service) ($sources | path join tangram.service)
 		^cp ($source | path join ../../../LICENSE) ($sources | path join LICENSE)
 		^cp ($source | path join tangram.spec) $spec

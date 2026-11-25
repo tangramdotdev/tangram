@@ -12,7 +12,7 @@ def main [tarball: path, architecture: string, version: string] {
 	let temporary = ^mktemp -d ($destination | path join '.apk.XXXXXXXX') | str trim
 	try {
 		^ln $tarball ($temporary | path join tangram.tar.gz)
-		^cp ($source | path join ../config.json) ($temporary | path join config.json)
+		open ($source | path join ../config.json) | insert manager openrc | to json --tabs 1 | save ($temporary | path join config.json)
 		^cp ($source | path join ../openrc/tangram) ($temporary | path join tangram)
 		^cp ($source | path join ../../../LICENSE) ($temporary | path join LICENSE)
 		^cp ($source | path join pack.sh) ($temporary | path join pack.sh)
