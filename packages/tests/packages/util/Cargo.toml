@@ -17,7 +17,7 @@ doctest = false
 workspace = true
 
 [features]
-cli = ["instance"]
+cli = ["dep:tangram_util", "instance"]
 database = ["dep:futures", "dep:regex", "dep:tokio"]
 instance = ["database", "dep:serde", "dep:tangram_client", "dep:tangram_uri"]
 server = ["dep:tangram_cli_core", "dep:tangram_cli_server", "dep:tangram_server", "instance"]
@@ -34,4 +34,5 @@ tangram_cli_server = { workspace = true, optional = true }
 tangram_client = { workspace = true, optional = true }
 tangram_server = { workspace = true, features = ["lmdb", "sqlite"], optional = true }
 tangram_uri = { workspace = true, optional = true }
+tangram_util = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }

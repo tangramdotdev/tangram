@@ -1,12 +1,6 @@
 use {
 	futures::FutureExt as _,
-	std::{
-		collections::BTreeMap,
-		ffi::OsString,
-		io::Write as _,
-		os::fd::{FromRawFd as _, RawFd},
-		path::PathBuf,
-	},
+	std::{collections::BTreeMap, ffi::OsString, path::PathBuf},
 	tangram_cli_core::{Cli, RemoteOptions},
 	tangram_client::prelude::*,
 	tangram_server::{Owned as Server, Shutdown},
@@ -32,9 +26,6 @@ pub struct Args {
 	/// The service manager's notify socket, which is taken from the `NOTIFY_SOCKET` environment variable.
 	#[arg(skip)]
 	pub notify_socket: Option<OsString>,
-
-	#[arg(hide = true, long)]
-	pub ready_fd: Option<RawFd>,
 
 	#[command(flatten)]
 	pub remotes: RemoteOptions,
@@ -116,7 +107,6 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	}
 
 	let notify_socket = args.notify_socket;
-	let ready_fd = args.ready_fd;
 
 	let future = async move {
 		let mut interrupt =
@@ -136,17 +126,6 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 				return Ok::<_, tg::Error>(());
 			},
 		};
-
-		if let Some(ready_fd) = ready_fd {
-			let ready_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(ready_fd) };
-			let mut ready = std::fs::File::from(ready_fd);
-			ready
-				.write_all(&[0x00])
-				.map_err(|error| tg::error!(!error, "failed to write the ready signal"))?;
-			ready
-				.flush()
-				.map_err(|error| tg::error!(!error, "failed to flush the ready signal"))?;
-		}
 
 		// Notify the service manager that the server is ready.
 		if let Some(notify_socket) = notify_socket {

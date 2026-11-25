@@ -689,9 +689,9 @@ export def --env "server start" [server: record] {
 	track_supervisor $supervisor
 	rm -f ($supervisor | path join 'error')
 	let remove = if $macos_app_group_socket == null { [] } else { [--remove $macos_app_group_socket] }
-	let command = [-c $server.config_path -d $server.directory -u $server.url serve --ready-fd '3']
+	let command = [-c $server.config_path -d $server.directory -u $server.url serve]
 	let command = if $server.root_tangram? != null {
-		root_command $supervisor $server.directory [$server.root_tangram ...$command]
+		root_command $server.directory [$server.root_tangram ...$command]
 	} else if $server.inotify_limit? != null {
 		inotify_limit_command $server.inotify_limit [tangram ...$command]
 	} else {
@@ -699,7 +699,7 @@ export def --env "server start" [server: record] {
 	}
 	let output = try {
 		with-env $environment {
-			^tangram_tests_supervisor start --description server --directory $supervisor --name $server.name --ready-fd 3 ...$remove -- ...$command
+			^tangram_tests_supervisor start --description server --directory $supervisor --name $server.name --notify ...$remove -- ...$command
 		} | from json
 	} catch {
 		let error_path = $supervisor | path join 'error'
@@ -732,18 +732,15 @@ export def --env "server restart" [server: record] {
 	$server
 }
 
-# Create a command that runs a server as root with passwordless sudo, without the capability to exceed resource limits, so that the kernel enforces its quotas. Sudo closes the readiness file descriptor, so the server writes its readiness byte to a FIFO, which a process outside sudo copies to the descriptor. The server creates its socket with an empty umask so that the client can connect, keeps its temporary files in its directory so that the runner removes them, and is killed by the parent death signal if sudo is killed.
-def root_command [supervisor: string, directory: string, command: list<string>] {
-	let fifo = $supervisor | path join 'ready'
-	rm -f $fifo
-	^mkfifo $fifo
+# Create a command that runs a server as root with passwordless sudo, without the capability to exceed resource limits, so that the kernel enforces its quotas. Sudo clears the environment, so the command passes the notify socket through sudo explicitly. The server creates its socket with an empty umask so that the client can connect, keeps its temporary files in its directory so that the runner removes them, and is killed by the parent death signal if sudo is killed.
+def root_command [directory: string, command: list<string>] {
 	let temp = $directory | path join 'root_tmp'
 	mkdir $temp
 	^chmod 1777 $temp
-	let relay = 'cat "$0" >&3 & exec "$@"'
-	let server = 'umask 000 && exec "$@" 3>"$0"'
+	let relay = 'exec sudo -n env "NOTIFY_SOCKET=$NOTIFY_SOCKET" "$@"'
+	let server = 'umask 000 && exec "$@"'
 
-	[sh -c $relay $fifo sudo -n env $'TMPDIR=($temp)' setpriv --pdeathsig KILL --bounding-set=-sys_resource -- sh -c $server $fifo ...$command]
+	[sh -c $relay sh $'TMPDIR=($temp)' setpriv --pdeathsig KILL --bounding-set=-sys_resource -- sh -c $server sh ...$command]
 }
 
 # Limit an inotify resource in an outer user namespace, then map the server back to its original user in an inner namespace that inherits the limit.

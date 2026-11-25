@@ -9530,7 +9530,6 @@ name = "tangram_cli_core"
 version = "0.0.0"
 dependencies = [
  "anstream",
- "byteorder",
  "clap",
  "console-subscriber",
  "crossterm",
@@ -12156,6 +12155,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "libc",
+ "tangram_util",
 ]
 
 [[package]]
@@ -12173,6 +12173,7 @@ dependencies = [
  "tangram_client",
  "tangram_server",
  "tangram_uri",
+ "tangram_util",
  "tokio",
 ]
 
