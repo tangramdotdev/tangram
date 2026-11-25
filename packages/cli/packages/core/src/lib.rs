@@ -270,6 +270,28 @@ impl Cli {
 		Some(path)
 	}
 
+	/// Get the server's directory, which is the `--directory` argument, the `server.directory` key in the config, or the directory of this command.
+	pub fn server_directory_path(&self) -> tg::Result<PathBuf> {
+		if let Some(directory) = &self.args.directory {
+			return Ok(directory.clone());
+		}
+		let directory = self
+			.config
+			.as_ref()
+			.and_then(|config| config.server.as_ref())
+			.and_then(|server| server.directory.as_ref());
+		if let Some(directory) = directory {
+			if !directory.is_absolute() {
+				return Err(tg::error!(
+					path = %directory.display(),
+					"the config server directory path must be absolute"
+				));
+			}
+			return Ok(directory.clone());
+		}
+		self.directory_path()
+	}
+
 	pub fn directory_path(&self) -> tg::Result<PathBuf> {
 		if let Some(directory) = &self.args.directory {
 			return Ok(directory.clone());

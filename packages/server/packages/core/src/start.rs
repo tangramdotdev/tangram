@@ -98,6 +98,14 @@ impl Server {
 			));
 		}
 
+		// Let members of the server's group read the lock file if the server has group access.
+		if config.group_access {
+			let permissions = std::fs::Permissions::from_mode(0o640);
+			lock.set_permissions(permissions).await.map_err(|error| {
+				tg::error!(!error, "failed to set permissions on the lock file")
+			})?;
+		}
+
 		// Write the manager and the pid to the lock file in place, because the server holds its lock on this file.
 		let pid = std::process::id();
 		let contents = tg::server::Lock {

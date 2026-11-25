@@ -176,7 +176,7 @@ impl Cli {
 			})
 			.map_or_else(
 				|| {
-					let path = self.directory_path()?.join("socket");
+					let path = self.server_directory_path()?.join("socket");
 					let path = path.to_str().unwrap();
 					let url = tangram_uri::Uri::builder()
 						.scheme("http+unix")

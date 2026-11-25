@@ -474,7 +474,7 @@ merge! {
 	super::BuiltinOptions { progress_interval }
 	super::PublishOptions { build_concurrency, tag_concurrency }
 	super::ReplOptions { history_size }
-	super::ServerOptions { kill_timeout, start_timeout, stop_timeout }
+	super::ServerOptions { directory, group_access, kill_timeout, start_timeout, stop_timeout }
 	super::ViewerOptions {
 		blob_length_limit,
 		loading_delay,
