@@ -76,11 +76,20 @@ impl CommentMatcher<'_> {
 	}
 }
 
-/// Remove the rules that earlier versions of the server installed in the shared chains for a bridge. If the `iptables` binary reports a permission error, log a warning and return Ok rather than failing; the server can still start without networking, and the operator may not have `CAP_NET_ADMIN`.
-fn delete_legacy_bridge_rules(bridge: &str) -> tg::Result<()> {
-	for rule in legacy_bridge_rules(bridge) {
+/// Remove the rules that earlier versions of the server and the `nft` backend installed in the shared chains for a bridge. If the `iptables` binary reports a permission error, log a warning and return Ok rather than failing; the server can still start without networking, and the operator may not have `CAP_NET_ADMIN`.
+fn delete_forward_accept_rules(bridge: &str) -> tg::Result<()> {
+	for rule in forward_accept_rules(bridge) {
 		let rule_args = rule.rule.iter().map(String::as_str).collect::<Vec<_>>();
 		delete_iptables_rule(rule.table, &rule_args)?;
+	}
+	Ok(())
+}
+
+/// Accept the traffic of an interface in the `FORWARD` chain, for an interface whose traffic is filtered by another table. Only replies and published ports are accepted toward the interface.
+pub fn accept_forwarded_traffic(interface: &str) -> tg::Result<()> {
+	for rule in forward_accept_rules(interface) {
+		let rule_args = rule.rule.iter().map(String::as_str).collect::<Vec<_>>();
+		get_or_set_iptables_rule(rule.table, &rule_args)?;
 	}
 	Ok(())
 }
@@ -131,7 +140,7 @@ pub fn setup_tap_networking() -> tg::Result<()> {
 
 pub fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr, dns: &[Ipv4Addr]) -> tg::Result<()> {
 	// Remove the legacy rules and set up the port forwarding chains.
-	if let Err(error) = delete_legacy_bridge_rules(bridge) {
+	if let Err(error) = delete_forward_accept_rules(bridge) {
 		tracing::warn!(%error, "failed to clean up persistent sandbox rules");
 	}
 	setup_port_forwarding()?;
@@ -380,24 +389,28 @@ fn setup_port_forwarding_inner() -> tg::Result<()> {
 	Ok(())
 }
 
-fn legacy_bridge_rules(bridge: &str) -> Vec<IptablesRule> {
-	vec![
-		IptablesRule::new(FILTER_TABLE, ["FORWARD", "-i", bridge, "-j", "ACCEPT"]),
-		IptablesRule::new(
+fn forward_accept_rules(interface: &str) -> Vec<IptablesRule> {
+	let mut rules = vec![IptablesRule::new(
+		FILTER_TABLE,
+		["FORWARD", "-i", interface, "-j", "ACCEPT"],
+	)];
+	for state in ["ESTABLISHED,RELATED", "DNAT"] {
+		rules.push(IptablesRule::new(
 			FILTER_TABLE,
 			[
 				"FORWARD",
 				"-o",
-				bridge,
+				interface,
 				"-m",
 				"conntrack",
 				"--ctstate",
-				"ESTABLISHED,RELATED",
+				state,
 				"-j",
 				"ACCEPT",
 			],
-		),
-	]
+		));
+	}
+	rules
 }
 
 fn ensure_iptables_chain(table: &[&str], chain: &str) -> tg::Result<()> {
@@ -934,6 +947,23 @@ mod tests {
 			"TANGRAM-BRIDGE -o tangram0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
 		);
 		assert_eq!(rules[rules.len() - 1], "TANGRAM-BRIDGE -o tangram0 -j DROP");
+	}
+
+	#[test]
+	fn forward_accept_rules_only_accept_replies_and_published_ports_inbound() {
+		let rules = forward_accept_rules("tangram0")
+			.into_iter()
+			.map(|rule| rule.rule.join(" "))
+			.collect::<Vec<_>>();
+
+		assert_eq!(
+			rules,
+			[
+				"FORWARD -i tangram0 -j ACCEPT",
+				"FORWARD -o tangram0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+				"FORWARD -o tangram0 -m conntrack --ctstate DNAT -j ACCEPT",
+			]
+		);
 	}
 
 	#[test]

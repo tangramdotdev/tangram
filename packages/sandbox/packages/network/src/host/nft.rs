@@ -106,6 +106,8 @@ pub fn setup_tap_networking() -> tg::Result<()> {
 		TANGRAM_TAP_COMMENT_PREFIX,
 		&rules,
 	)?;
+	let interface = format!("{TAP_INTERFACE_NAME_PREFIX}+");
+	accept_forwarded_traffic(&interface)?;
 	Ok(())
 }
 
@@ -178,6 +180,9 @@ pub fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr, dns: &[Ipv4Addr]) -
 		&rules,
 	)?;
 
+	// Accept the bridge's traffic in the host's filter table.
+	accept_forwarded_traffic(bridge)?;
+
 	Ok(())
 }
 
@@ -245,6 +250,22 @@ pub fn add_port_forwarding_rules(
 fn setup_firewall() -> tg::Result<()> {
 	static SETUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
 	SETUP.get_or_init(setup_firewall_inner).clone()
+}
+
+/// Accept the traffic of an interface in the host's `ip filter FORWARD` chain if it exists, because an accept in the Tangram table does not override a drop in another table, such as the policy that Docker sets. The rules are added with `iptables`, which cannot read a chain that contains other rules.
+fn accept_forwarded_traffic(interface: &str) -> tg::Result<()> {
+	let output = run_nft(&["list", "chain", "ip", "filter", "FORWARD"])?;
+	if !output.status.success() {
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		if !is_nft_missing_table_or_chain_error(&stderr) {
+			tracing::warn!(%stderr, "failed to list the host's forward chain");
+		}
+		return Ok(());
+	}
+	if let Err(error) = super::iptables::accept_forwarded_traffic(interface) {
+		tracing::warn!(%error, %interface, "failed to accept sandbox traffic in the host's forward chain, so it may be dropped by the chain's policy");
+	}
+	Ok(())
 }
 
 fn cleanup_dynamic_port_forwarding_rules(identity: &str) -> tg::Result<()> {
