@@ -960,6 +960,36 @@ impl Sandbox {
 		Ok(())
 	}
 
+	/// Get whether the sandbox can terminate, which is whether every process that can write the sandbox's files is gone once the sandbox process exits. For builtin, bubblewrap, and gVisor, the launcher runs the backend as PID 1 of a PID namespace, which the kernel empties before the launcher reaps it. For cloud-hypervisor, the only host processes that can write the sandbox's files are the virtiofsd helpers, which the launcher kills and reaps before it exits.
+	#[must_use]
+	pub fn can_terminate(&self) -> bool {
+		#[cfg(target_os = "linux")]
+		{
+			matches!(
+				self.0.arg.backend,
+				Backend::Builtin
+					| Backend::Bubblewrap { .. }
+					| Backend::CloudHypervisor(_)
+					| Backend::Gvisor { .. }
+			)
+		}
+		#[cfg(not(target_os = "linux"))]
+		{
+			false
+		}
+	}
+
+	/// Shut down the sandbox server while retaining its resources and directory, and return whether every process in the sandbox is gone, which holds once the sandbox process exits after a graceful shutdown for a sandbox that can terminate.
+	pub async fn terminate(&self) -> tg::Result<bool> {
+		if !self.can_terminate() {
+			return Ok(false);
+		}
+		let _destroy = self.0.destroy.lock().await;
+		self.0.stopped.store(true, Ordering::SeqCst);
+		let graceful = self.stop_process().await?;
+		Ok(graceful)
+	}
+
 	/// Stop the sandbox and settle its usage, keeping its directory so that a new sandbox with the same path can start on it.
 	#[tracing::instrument(name = "sandbox.stop_physical", level = "debug", skip_all, fields(sandbox_index = self.index()), err(level = "debug"))]
 	pub async fn stop(&self) -> tg::Result<Output> {
@@ -1016,9 +1046,10 @@ impl Sandbox {
 		Ok(output)
 	}
 
-	async fn stop_process(&self) -> tg::Result<()> {
+	/// Stop the sandbox process, and return whether it exited after a graceful shutdown.
+	async fn stop_process(&self) -> tg::Result<bool> {
 		if self.0.exit.borrow().is_some() {
-			return Ok(());
+			return Ok(false);
 		}
 
 		// Gracefully shut down the sandbox process.
@@ -1029,7 +1060,7 @@ impl Sandbox {
 		})
 		.await;
 		if matches!(result, Ok(Ok(()))) {
-			return Ok(());
+			return Ok(true);
 		}
 
 		// Find the sandbox's processes before they lose their parent, because only a cgroup waits for them otherwise.
@@ -1056,7 +1087,7 @@ impl Sandbox {
 				.map_err(|error| tg::error!(!error, "the process wait task panicked"))??;
 		}
 
-		Ok(())
+		Ok(false)
 	}
 
 	/// Stop the sandbox's network, because a network sidecar that holds host ports outlives a sandbox without a cgroup.

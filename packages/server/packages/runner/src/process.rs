@@ -96,11 +96,13 @@ struct FinishProcessRunArg {
 	boot: Arc<Boot>,
 	command_push: Option<Task<tg::Result<()>>>,
 	control: control::ProcessControlSender,
+	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 	exited: Stopper,
 	finish_sender: tokio::sync::oneshot::Sender<control::ProcessControlResponseReceiver>,
 	id: tg::process::Id,
 	index_receiver: tokio::sync::oneshot::Receiver<()>,
 	location: tg::Location,
+	log_buffered_receiver: tokio::sync::oneshot::Receiver<tg::Result<()>>,
 	log_task: Option<Task<tg::Result<tg::Referent<tg::blob::Id>>>>,
 	outcome_sync: tokio::sync::oneshot::Sender<()>,
 	processes: Arc<tangram_server_process_core::Processes>,
@@ -108,9 +110,14 @@ struct FinishProcessRunArg {
 	run_task: Task<tg::Result<RunProcessOutcome>>,
 	sandbox: tangram_sandbox::Sandbox,
 	state: tg::process::State,
+	stderr_buffered_receiver: tokio::sync::oneshot::Receiver<tg::Result<()>>,
+	stdout_buffered_receiver: tokio::sync::oneshot::Receiver<tg::Result<()>>,
 }
 
 struct FinishProcessRunOutput {
+	/// Whether the process's output reached the end of file.
+	buffered: bool,
+
 	index_task: Option<tangram_server_process_core::IndexTask>,
 }
 
@@ -121,7 +128,6 @@ struct IndexFinishedProcessTaskArg {
 }
 
 struct FinishProcessTaskArg {
-	buffered_task: Task<tg::Result<()>>,
 	control_task: Task<tg::Result<()>>,
 	id: tg::process::Id,
 	log_task: Option<Task<tg::Result<()>>>,
@@ -159,13 +165,21 @@ struct CollectProcessOutcomeArg<'a> {
 	exit: u8,
 	path: PathBuf,
 	state: &'a tg::process::State,
+
+	/// Whether the sandbox ended every process in it, so that nothing else can write the output, which the checkin then renames in place without copying it first.
+	trusted: bool,
 }
 
 pub(super) enum Event {
 	Buffered,
 	Connected(ConnectedEvent),
-	Exited,
+	Exited(ExitedEvent),
 	Released,
+}
+
+/// The event that a process exited and its output reached the end of file, whose sender receives whether the sandbox ended every process in it.
+pub(super) struct ExitedEvent {
+	pub sender: tokio::sync::oneshot::Sender<bool>,
 }
 
 #[derive(Clone, Debug)]
@@ -880,16 +894,20 @@ impl Component {
 			.transpose()?;
 
 		// Collect and store the output concurrently with the control connection.
+		let (stderr_buffered_sender, stderr_buffered_receiver) = tokio::sync::oneshot::channel();
+		let (stdout_buffered_sender, stdout_buffered_receiver) = tokio::sync::oneshot::channel();
 		let exited = Stopper::new();
 		let finish_arg = FinishProcessRunArg {
 			boot: boot.clone(),
 			command_push,
 			control: control.sender(),
+			event_sender: event_sender.clone(),
 			exited: exited.clone(),
 			finish_sender,
 			id: id.clone(),
 			index_receiver,
 			location: location.clone(),
+			log_buffered_receiver,
 			log_task: log_write_task,
 			outcome_sync: outcome_sync_sender,
 			processes: processes.clone(),
@@ -897,6 +915,8 @@ impl Component {
 			run_task,
 			sandbox: sandbox.clone(),
 			state: state.clone(),
+			stderr_buffered_receiver,
+			stdout_buffered_receiver,
 		};
 		let finish_span = tracing::Span::current();
 		let finish_task = Task::spawn({
@@ -914,8 +934,6 @@ impl Component {
 		});
 
 		// Spawn the process control task.
-		let (stderr_buffered_sender, stderr_buffered_receiver) = tokio::sync::oneshot::channel();
-		let (stdout_buffered_sender, stdout_buffered_receiver) = tokio::sync::oneshot::channel();
 		let control_task = Task::spawn({
 			let boot = boot.clone();
 			let component = self.clone();
@@ -1100,47 +1118,28 @@ impl Component {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "the process finish task panicked"))??;
-		let FinishProcessRunOutput { index_task } = output;
-		event_sender.send(Ok(Event::Exited)).ok();
+		let FinishProcessRunOutput {
+			buffered,
+			index_task,
+		} = output;
 		self.release_finished_process_children(&session, &id, &processes)
 			.await?;
 
-		let buffered_task = Task::spawn({
-			let event_sender = event_sender.clone();
-			let id = id.clone();
-			let server = session.server.clone();
-			move |_| {
-				async move {
-					let log_buffered = log_buffered_receiver
-						.await
-						.is_ok_and(|result| result.is_ok());
-					let stderr_buffered = stderr_buffered_receiver
-						.await
-						.is_ok_and(|result| result.is_ok());
-					let stdout_buffered = stdout_buffered_receiver
-						.await
-						.is_ok_and(|result| result.is_ok());
-					let buffered = log_buffered && stderr_buffered && stdout_buffered;
-					let event = if buffered {
-						tangram_server_core::checkpoint!(
-							server,
-							"runner.process.buffered",
-							process = %id,
-						)
-						.await;
-						Event::Buffered
-					} else {
-						Event::Released
-					};
-					event_sender.send(Ok(event)).ok();
+		// Tell the sandbox whether the process's output was buffered.
+		let event = if buffered {
+			tangram_server_core::checkpoint!(
+				session.server,
+				"runner.process.buffered",
+				process = %id,
+			)
+			.await;
+			Event::Buffered
+		} else {
+			Event::Released
+		};
+		event_sender.send(Ok(event)).ok();
 
-					Ok::<_, tg::Error>(())
-				}
-				.in_current_span()
-			}
-		});
 		let arg = FinishProcessTaskArg {
-			buffered_task,
 			control_task,
 			id: id.clone(),
 			log_task,
@@ -1210,11 +1209,13 @@ impl Component {
 			boot,
 			command_push,
 			control,
+			event_sender,
 			exited,
 			finish_sender,
 			id,
 			index_receiver,
 			location,
+			log_buffered_receiver,
 			log_task,
 			outcome_sync,
 			processes,
@@ -1222,6 +1223,8 @@ impl Component {
 			run_task,
 			sandbox,
 			state,
+			stderr_buffered_receiver,
+			stdout_buffered_receiver,
 		} = arg;
 		let result = run_task
 			.wait()
@@ -1232,6 +1235,24 @@ impl Component {
 		tangram_server_core::checkpoint!(session.server, "runner.process.exited", process = %id)
 			.await;
 		exited.stop();
+
+		// Wait for the process's output to reach the end of file.
+		let log_buffered = log_buffered_receiver
+			.await
+			.is_ok_and(|result| result.is_ok());
+		let stderr_buffered = stderr_buffered_receiver
+			.await
+			.is_ok_and(|result| result.is_ok());
+		let stdout_buffered = stdout_buffered_receiver
+			.await
+			.is_ok_and(|result| result.is_ok());
+		let buffered = log_buffered && stderr_buffered && stdout_buffered;
+
+		// Tell the sandbox that the process exited and its output is drained, and get whether the sandbox ended every process in it.
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let event = ExitedEvent { sender };
+		event_sender.send(Ok(Event::Exited(event))).ok();
+		let terminated = receiver.await.unwrap_or(false);
 
 		let finish = processes
 			.get_mut(&id)
@@ -1255,6 +1276,7 @@ impl Component {
 						exit: outcome.exit,
 						path: outcome.path,
 						state: &state,
+						trusted: terminated,
 					},
 				)
 				.await
@@ -1407,7 +1429,10 @@ impl Component {
 
 		// Number the finish with the process's boot, and write nothing more for a boot that the runner abandoned, whose abandonment records the end in this server's local copies.
 		let Some(sequence) = boot.next() else {
-			return Ok(FinishProcessRunOutput { index_task: None });
+			return Ok(FinishProcessRunOutput {
+				buffered,
+				index_task: None,
+			});
 		};
 
 		// Index completion and capture permissions independently of the output transfer.
@@ -1499,7 +1524,10 @@ impl Component {
 			.in_current_span()
 		});
 		outcome_task.detach();
-		let output = FinishProcessRunOutput { index_task };
+		let output = FinishProcessRunOutput {
+			buffered,
+			index_task,
+		};
 
 		Ok(output)
 	}
@@ -1882,7 +1910,6 @@ impl Component {
 	#[tracing::instrument(name = "process.retain", level = "debug", skip_all, fields(process = %arg.id), err(level = "debug"))]
 	async fn finish_process_task(&self, arg: FinishProcessTaskArg) -> tg::Result<()> {
 		let FinishProcessTaskArg {
-			buffered_task,
 			control_task,
 			id,
 			log_task,
@@ -1897,17 +1924,11 @@ impl Component {
 		} else {
 			Ok(())
 		};
-		let buffered_result = match buffered_task.wait().await {
-			Ok(result) => result,
-			Err(error) => Err(tg::error!(!error, %id, "the process buffered task panicked")),
-		};
-
 		let control_result = match control_task.wait().await {
 			Ok(result) => result,
 			Err(error) => Err(tg::error!(!error, %id, "the process control task panicked")),
 		};
 		log_result?;
-		buffered_result?;
 		control_result?;
 
 		Ok::<_, tg::Error>(())
@@ -2461,7 +2482,12 @@ impl Component {
 		session: &Session,
 		arg: CollectProcessOutcomeArg<'_>,
 	) -> tg::Result<Outcome> {
-		let CollectProcessOutcomeArg { exit, path, state } = arg;
+		let CollectProcessOutcomeArg {
+			exit,
+			path,
+			state,
+			trusted,
+		} = arg;
 		let mut outcome = Outcome {
 			checksum: None,
 			error: None,
@@ -2541,8 +2567,12 @@ impl Component {
 				path,
 				updates: Vec::new(),
 			};
+			let options = tangram_server_core::checkin::Options { trusted };
 			let checkin_output = session
-				.checkin(arg)
+				.server
+				.components
+				.checkin
+				.checkin_with_options(session, arg, options)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check in the output"))?
 				.try_last()

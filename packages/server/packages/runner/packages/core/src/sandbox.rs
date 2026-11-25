@@ -125,6 +125,9 @@ pub struct Boot {
 }
 
 struct BootInner {
+	/// Whether the runner is closing the boot because it ends every process in the sandbox, after which the boot accepts no process.
+	closing: bool,
+
 	/// Whether the boot took the number of its end, after which the runner does not abandon it.
 	ending: bool,
 
@@ -342,6 +345,7 @@ impl Boot {
 		sequence: u64,
 	) -> Self {
 		let inner = BootInner {
+			closing: false,
 			ending: false,
 			finishes: BTreeMap::new(),
 			local: BTreeSet::new(),
@@ -446,11 +450,16 @@ impl Boot {
 		kind.unwrap()
 	}
 
-	/// Accept a process into the boot, and remember it and whether this server spawned it, unless the boot took the number of its end or the runner gave it up, after which the boot is over and accepts no process. Return whether the boot accepted the process. A process without an ID is remembered once the runner derives its ID.
+	/// Close the boot because the runner ends every process in the sandbox, so that the boot accepts no process, as if it were over. The boot still takes the number of its end only once a server has answered every finish of its processes.
+	pub fn close(&self) {
+		self.inner.lock().unwrap().closing = true;
+	}
+
+	/// Accept a process into the boot, and remember it and whether this server spawned it, unless the runner closed the boot, the boot took the number of its end, or the runner gave it up, after which the boot is over and accepts no process. Return whether the boot accepted the process. A process without an ID is remembered once the runner derives its ID.
 	#[must_use]
 	pub fn accept(&self, process: tg::runner::control::Process, local: bool) -> bool {
 		let mut inner = self.inner.lock().unwrap();
-		if inner.ending || self.abandoned.borrow().is_some() {
+		if inner.closing || inner.ending || self.abandoned.borrow().is_some() {
 			return false;
 		}
 		let Some(id) = &process.id else {
@@ -651,6 +660,19 @@ mod tests {
 			!abandoned.accept(process(&tg::process::Id::new()), false),
 			"a boot that was abandoned would accept a process"
 		);
+	}
+
+	#[test]
+	fn a_closed_boot_accepts_no_process_and_still_numbers_its_writes_and_its_end() {
+		let boot = boot(1);
+		assert!(boot.accept(process(&tg::process::Id::new()), false));
+		boot.close();
+		assert!(
+			!boot.accept(process(&tg::process::Id::new()), false),
+			"a closed boot would accept a process"
+		);
+		assert_eq!(boot.next(), Some(1));
+		assert!(boot.end().is_none(), "the end should wait for the process");
 	}
 
 	#[test]

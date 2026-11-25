@@ -1917,6 +1917,9 @@ impl Component {
 		let mut teardown = Teardown::Destroy;
 		let mut stopping = false;
 
+		// Track whether the runner shut down the sandbox server to end every process in the sandbox, after which the sandbox process's exit is deliberate.
+		let mut terminated = false;
+
 		// Track the sandbox's last use, which is its start and then each time it is left without processes, so that a stop records when its ttl expires.
 		let mut last_used_at = session.server.clock.unix_timestamp();
 
@@ -2048,7 +2051,28 @@ impl Component {
 							ProcessEvent::Connected(_) => {
 								return Err(tg::error!(%process, "received a duplicate process connected event"));
 							},
-							ProcessEvent::Exited => {},
+							ProcessEvent::Exited(event) => {
+								// End every process in the sandbox when the last process of a sandbox with a ttl of zero exits, which is when the idle timer would destroy it, so that nothing else can write the process's output. Close the boot first, so that it accepts no process from then on.
+								let last = time_to_live == Some(std::time::Duration::ZERO)
+									&& ready
+									&& !stopping
+									&& process_events.len() == 1
+									&& pending.is_empty();
+								let ended = if last && !terminated && sandbox.can_terminate() {
+									boot.close();
+									terminated = true;
+									match sandbox.terminate().await {
+										Ok(ended) => ended,
+										Err(error) => {
+											tracing::error!(error = %error.trace(), sandbox = %id, "failed to terminate the sandbox");
+											false
+										},
+									}
+								} else {
+									false
+								};
+								event.sender.send(ended).ok();
+							},
 						}
 					},
 
@@ -2067,8 +2091,8 @@ impl Component {
 						}
 					},
 
-					// If the sandbox process exits, then break and destroy the sandbox with the error that describes its exit.
-					result = &mut sandbox_wait => {
+					// If the sandbox process exits, then break and destroy the sandbox with the error that describes its exit, unless the runner terminated the sandbox.
+					result = &mut sandbox_wait, if !terminated => {
 						if let Err(error) = result {
 							tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox process exited");
 							failure = Some(error);
@@ -2188,7 +2212,9 @@ impl Component {
 							tg::error!(%process, "received a duplicate process connected event"),
 						);
 					},
-					ProcessEvent::Exited => {},
+					ProcessEvent::Exited(event) => {
+						event.sender.send(false).ok();
+					},
 				}
 			}
 
@@ -4128,14 +4154,24 @@ fn wait_for_process_control_connection(
 	} = output;
 	async move {
 		let result = async {
-			let event = events
-				.recv()
-				.await
-				.ok_or_else(|| tg::error!("the process event sender was dropped"))??;
-			let ProcessEvent::Connected(event) = event else {
-				return Err(tg::error!("expected the process connected event"));
-			};
-			Ok(event)
+			loop {
+				let event = events
+					.recv()
+					.await
+					.ok_or_else(|| tg::error!("the process event sender was dropped"))??;
+				match event {
+					ProcessEvent::Connected(event) => return Ok(event),
+
+					// Reply to a process that exits before the sandbox knows of it that the sandbox did not end every process in it.
+					ProcessEvent::Exited(event) => {
+						event.sender.send(false).ok();
+					},
+
+					ProcessEvent::Buffered | ProcessEvent::Released => {
+						return Err(tg::error!("expected the process connected event"));
+					},
+				}
+			}
 		}
 		.await;
 		(result, events, process, reply)

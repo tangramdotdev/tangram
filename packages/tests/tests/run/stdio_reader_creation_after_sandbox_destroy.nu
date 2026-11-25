@@ -21,8 +21,8 @@ let reader_watch = (
 	| from json
 	| get watch
 )
-let finish_watch = (
-	tg checkpoint watch runner.process.finish
+let exited_watch = (
+	tg checkpoint watch runner.process.exited
 	| from json
 	| get watch
 )
@@ -35,9 +35,9 @@ let run = job spawn {
 
 # Hold stdout reader creation while allowing the process to exit.
 tg checkpoint wait runner.process.control.reader.create $reader_watch 0 | ignore
-tg checkpoint wait runner.process.finish $finish_watch 0 | ignore
-tg checkpoint continue runner.process.finish $finish_watch 0
-tg checkpoint unwatch runner.process.finish $finish_watch
+tg checkpoint wait runner.process.exited $exited_watch 0 | ignore
+tg checkpoint continue runner.process.exited $exited_watch 0
+tg checkpoint unwatch runner.process.exited $exited_watch
 
 # Release the stdout reader creation after the process has exited.
 tg checkpoint continue runner.process.control.reader.create $reader_watch 0
