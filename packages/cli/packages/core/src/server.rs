@@ -1,6 +1,6 @@
 use {
 	crate::Cli,
-	std::path::Path,
+	std::{os::fd::AsRawFd as _, path::Path},
 	tangram_client::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _, Interest, unix::AsyncFd},
 };
@@ -28,6 +28,32 @@ pub(crate) enum Action {
 	Stop,
 }
 
+/// The outcome of an attempt to terminate the server with SIGINT and then SIGTERM.
+enum Terminate {
+	/// The server was left running, because `tangram server start` did not start it.
+	Refused {
+		manager: Option<tg::server::Manager>,
+	},
+
+	/// The server is still running after SIGTERM.
+	Running(Process),
+
+	/// The server stopped, or no server was running.
+	Stopped,
+}
+
+/// A handle to a process that is not a child of this process. On Linux, it is a pidfd, which signals and waits for the process that it was opened for even if that process exits and its pid is reused.
+struct Process {
+	#[cfg(not(target_os = "linux"))]
+	handle: std::sync::Arc<std::sync::Mutex<waitpid_any::WaitHandle>>,
+
+	#[cfg(not(target_os = "linux"))]
+	pid: libc::pid_t,
+
+	#[cfg(target_os = "linux")]
+	pidfd: AsyncFd<std::os::fd::OwnedFd>,
+}
+
 impl Cli {
 	/// Spawn a server, and refuse if the config declares a manager other than `tangram server start`.
 	pub async fn spawn_server(&self, client: &tg::Client) -> tg::Result<()> {
@@ -38,14 +64,14 @@ impl Cli {
 			return Err(server_manager_error(Some(manager), Action::Start));
 		}
 
-		// Ensure the directory exists, and with group access, create it so that only the owner may list it and only the group may enter it, as the packaged service does.
+		// Ensure the directory exists, and when the access is `group`, create it so that only the owner may list it and only the group may enter it, as the packaged service does.
 		let directory = self.server_directory_path()?;
 		let directory = std::path::absolute(&directory)
 			.map_err(|error| tg::error!(!error, "failed to get the absolute directory path"))?;
-		let group_access = self.server_config().group_access;
+		let access = self.server_config().access;
 		let mut builder = tokio::fs::DirBuilder::new();
 		builder.recursive(true);
-		if group_access {
+		if access == tg::server::Access::Group {
 			builder.mode(0o710);
 		}
 		builder
@@ -153,9 +179,8 @@ impl Cli {
 			args.push(tracing.clone());
 		}
 		args.push("serve".to_owned());
-		if group_access {
-			args.push("--group-access".to_owned());
-		}
+		args.push("--access".to_owned());
+		args.push(access.to_string());
 		args.push("--manager".to_owned());
 		args.push(tg::server::Manager::Cli.to_string());
 		command
@@ -173,8 +198,8 @@ impl Cli {
 					return Err(std::io::Error::last_os_error());
 				}
 
-				// Restrict the permissions of the server's files with group access, so that the group may use only what group access opens, as the packaged service's umask does.
-				if group_access {
+				// Restrict the permissions of the server's files when the access is `group`, so that the group may use only what that access opens, as the packaged service's umask does.
+				if access == tg::server::Access::Group {
 					libc::umask(0o077);
 				}
 
@@ -276,6 +301,14 @@ impl Cli {
 		}
 	}
 
+	/// Stop the server if `tangram server start` started it, sending SIGKILL if it does not exit after SIGTERM, and refuse otherwise.
+	pub async fn force_stop_server(&self) -> tg::Result<()> {
+		match self.try_force_stop_server().await? {
+			Stop::Refused { manager } => Err(server_manager_error(manager, Action::Stop)),
+			Stop::Stopped => Ok(()),
+		}
+	}
+
 	/// Restart the server if `tangram server start` started it, and refuse otherwise.
 	pub async fn restart_server(&self, client: &tg::Client) -> tg::Result<()> {
 		match self.try_stop_server().await {
@@ -293,57 +326,88 @@ impl Cli {
 
 	/// Stop the server if `tangram server start` started it, and leave it running otherwise.
 	pub async fn try_stop_server(&self) -> tg::Result<Stop> {
+		match self.try_stop_server_inner().await? {
+			Terminate::Refused { manager } => Ok(Stop::Refused { manager }),
+			Terminate::Running(_) => Err(tg::error!("failed to terminate the server")),
+			Terminate::Stopped => Ok(Stop::Stopped),
+		}
+	}
+
+	/// Stop the server if `tangram server start` started it, sending SIGKILL if it does not exit after SIGTERM, and leave it running otherwise.
+	pub async fn try_force_stop_server(&self) -> tg::Result<Stop> {
+		// Terminate the server.
+		let process = match self.try_stop_server_inner().await? {
+			Terminate::Refused { manager } => {
+				return Ok(Stop::Refused { manager });
+			},
+			Terminate::Running(process) => process,
+			Terminate::Stopped => {
+				return Ok(Stop::Stopped);
+			},
+		};
+
+		// Send SIGKILL to the server.
+		if let Err(error) = process.signal(libc::SIGKILL) {
+			if error.raw_os_error() == Some(libc::ESRCH) {
+				return Ok(Stop::Stopped);
+			}
+			return Err(tg::error!(!error, "failed to send SIGKILL to the server"));
+		}
+
+		// Wait for the server to exit, which it cannot prevent after SIGKILL.
+		process
+			.wait_for_exit()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
+
+		Ok(Stop::Stopped)
+	}
+
+	/// Send SIGINT and then SIGTERM to the server if `tangram server start` started it, and return the server's process if it is still running.
+	async fn try_stop_server_inner(&self) -> tg::Result<Terminate> {
 		// Refuse to stop a server that the config declares another manager for, whose lock file may not be in this directory or readable by this user.
 		if let Some(manager) = self.server_manager()
 			&& manager != tg::server::Manager::Cli
 		{
-			let stop = Stop::Refused {
+			let terminate = Terminate::Refused {
 				manager: Some(manager),
 			};
-			return Ok(stop);
+			return Ok(terminate);
 		}
 
-		// Open a handle to the process that holds the lock, then read the lock again to confirm that the process still holds it, so that the manager belongs to the process that the handle refers to.
-		let (lock, pid, handle) = loop {
+		// Open a handle to the process whose pid the lock file contains, then read the lock again to confirm that a process still holds the lock and that the pid is unchanged, so that the handle refers to the server and the manager belongs to it.
+		let (lock, pid, process) = loop {
 			let Some(lock) = self.try_read_server_lock().await? else {
-				return Ok(Stop::Stopped);
+				return Ok(Terminate::Stopped);
 			};
-			let pid = i32::try_from(lock.pid)
+			let pid = libc::pid_t::try_from(lock.pid)
 				.map_err(|error| tg::error!(!error, pid = %lock.pid, "invalid lock file"))?;
-			let handle = match waitpid_any::WaitHandle::open(pid) {
-				Ok(handle) => handle,
-				Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
-					return Ok(Stop::Stopped);
-				},
-				Err(error) => {
-					return Err(tg::error!(
-						!error,
-						"failed to open a handle to the server process"
-					));
-				},
+			let process = Process::try_open(pid).map_err(
+				|error| tg::error!(!error, %pid, "failed to open a handle to the server process"),
+			)?;
+			let Some(process) = process else {
+				return Ok(Terminate::Stopped);
 			};
 			let Some(confirmation) = self.try_read_server_lock().await? else {
-				return Ok(Stop::Stopped);
+				return Ok(Terminate::Stopped);
 			};
 			if confirmation.pid == lock.pid {
-				break (confirmation, pid, handle);
+				break (confirmation, pid, process);
 			}
 		};
 
 		// Refuse to stop a server that `tangram server start` did not start.
 		if lock.manager != Some(tg::server::Manager::Cli) {
-			let stop = Stop::Refused {
+			let terminate = Terminate::Refused {
 				manager: lock.manager,
 			};
-			return Ok(stop);
+			return Ok(terminate);
 		}
 
 		// Send SIGINT to the server.
-		let ret = unsafe { libc::kill(pid, libc::SIGINT) };
-		if ret != 0 {
-			let error = std::io::Error::last_os_error();
+		if let Err(error) = process.signal(libc::SIGINT) {
 			if error.raw_os_error() == Some(libc::ESRCH) {
-				return Ok(Stop::Stopped);
+				return Ok(Terminate::Stopped);
 			}
 			if error.raw_os_error() == Some(libc::EPERM) {
 				let hint = "run the command as the user that started the server";
@@ -359,53 +423,45 @@ impl Cli {
 
 		// Wait for the server to exit.
 		let server_config = self.server_config();
-		let stop_timeout = server_config.stop_timeout;
-		let (mut handle, status) = tokio::task::spawn_blocking(move || {
-			let mut handle = handle;
-			let status = handle.wait_timeout(stop_timeout)?;
-			Ok::<_, std::io::Error>((handle, status))
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "the server wait task panicked"))?
-		.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
-		if status.is_some() {
-			return Ok(Stop::Stopped);
+		let exited = process
+			.wait(server_config.stop_timeout)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
+		if exited {
+			return Ok(Terminate::Stopped);
 		}
 
 		// If the server has still not exited, then send SIGTERM to the server.
-		let ret = unsafe { libc::kill(pid, libc::SIGTERM) };
-		if ret != 0 {
-			let error = std::io::Error::last_os_error();
+		if let Err(error) = process.signal(libc::SIGTERM) {
 			if error.raw_os_error() == Some(libc::ESRCH) {
-				return Ok(Stop::Stopped);
+				return Ok(Terminate::Stopped);
 			}
 			return Err(tg::error!(!error, "failed to send SIGTERM to the server"));
 		}
 
 		// Wait for the server to exit.
-		let kill_timeout = server_config.kill_timeout;
-		let status = tokio::task::spawn_blocking(move || handle.wait_timeout(kill_timeout))
+		let exited = process
+			.wait(server_config.kill_timeout)
 			.await
-			.map_err(|error| tg::error!(!error, "the server wait task panicked"))?
 			.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
-		if status.is_some() {
-			return Ok(Stop::Stopped);
+		if exited {
+			return Ok(Terminate::Stopped);
 		}
 
-		// If the server has still not exited, then return an error.
-		Err(tg::error!("failed to terminate the server"))
+		// If the server has still not exited, then return its process.
+		Ok(Terminate::Running(process))
 	}
 
 	/// Read the lock file in the server's directory, returning `None` if no server holds the lock.
 	pub async fn try_read_server_lock(&self) -> tg::Result<Option<tg::server::Lock>> {
 		let path = self.server_directory_path()?.join("lock");
-		let bytes = match tokio::fs::read(&path).await {
-			Ok(bytes) => bytes,
+		let lock = match try_read_lock(&path).await {
+			Ok(lock) => lock,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 				return Ok(None);
 			},
 			Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-				let hint = "run the command as the user that runs the server, or as a member of its group if the server has group access";
+				let hint = "run the command as the user that runs the server, or as a member of its group if the server's access is `group`";
 				return Err(tg::error!(
 					!error,
 					%hint,
@@ -419,15 +475,14 @@ impl Cli {
 				);
 			},
 		};
-		let lock = tg::server::Lock::try_parse(&bytes);
 		Ok(lock)
 	}
 
 	/// Read the lock file in the server's directory, returning `None` if no server holds the lock or if this user may not read it.
 	pub async fn try_read_server_lock_if_readable(&self) -> tg::Result<Option<tg::server::Lock>> {
 		let path = self.server_directory_path()?.join("lock");
-		let bytes = match tokio::fs::read(&path).await {
-			Ok(bytes) => bytes,
+		let lock = match try_read_lock(&path).await {
+			Ok(lock) => lock,
 			Err(error)
 				if matches!(
 					error.kind(),
@@ -442,9 +497,187 @@ impl Cli {
 				);
 			},
 		};
-		let lock = tg::server::Lock::try_parse(&bytes);
 		Ok(lock)
 	}
+}
+
+impl Process {
+	/// Open a handle to the process, returning `None` if it does not exist.
+	#[cfg(target_os = "linux")]
+	fn try_open(pid: libc::pid_t) -> std::io::Result<Option<Self>> {
+		// SAFETY: The system call takes only scalar arguments and returns a new descriptor.
+		let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+		if fd < 0 {
+			let error = std::io::Error::last_os_error();
+			if error.raw_os_error() == Some(libc::ESRCH) {
+				return Ok(None);
+			}
+			return Err(error);
+		}
+		let fd = std::os::fd::RawFd::try_from(fd).map_err(std::io::Error::other)?;
+		// SAFETY: The system call succeeded, so the descriptor is open and nothing else owns it.
+		let pidfd = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
+		// SAFETY: The handle owns the pidfd, which stays open and unchanged for the lifetime of the `AsyncFd`.
+		let pidfd = unsafe { AsyncFd::register_with_interest(pidfd, Interest::READABLE) }?;
+		let process = Self { pidfd };
+		Ok(Some(process))
+	}
+
+	/// Open a handle to the process, returning `None` if it does not exist.
+	#[cfg(not(target_os = "linux"))]
+	fn try_open(pid: libc::pid_t) -> std::io::Result<Option<Self>> {
+		let handle = match waitpid_any::WaitHandle::open(pid) {
+			Ok(handle) => handle,
+			Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+				return Ok(None);
+			},
+			Err(error) => {
+				return Err(error);
+			},
+		};
+		let handle = std::sync::Arc::new(std::sync::Mutex::new(handle));
+		let process = Self { handle, pid };
+		Ok(Some(process))
+	}
+
+	/// Send a signal to the process through its pidfd.
+	#[cfg(target_os = "linux")]
+	fn signal(&self, signal: libc::c_int) -> std::io::Result<()> {
+		// SAFETY: The descriptor is an open pidfd, and a null info pointer asks the kernel to fill in the signal's info.
+		let ret = unsafe {
+			libc::syscall(
+				libc::SYS_pidfd_send_signal,
+				self.pidfd.as_raw_fd(),
+				signal,
+				std::ptr::null::<libc::siginfo_t>(),
+				0,
+			)
+		};
+		if ret != 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+		Ok(())
+	}
+
+	/// Send a signal to the process by its pid.
+	#[cfg(not(target_os = "linux"))]
+	fn signal(&self, signal: libc::c_int) -> std::io::Result<()> {
+		// SAFETY: The call takes only scalar arguments.
+		let ret = unsafe { libc::kill(self.pid, signal) };
+		if ret != 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+		Ok(())
+	}
+
+	/// Wait for the process to exit.
+	#[cfg(target_os = "linux")]
+	async fn wait_for_exit(&self) -> std::io::Result<()> {
+		let _guard = self.pidfd.readable().await?;
+		Ok(())
+	}
+
+	/// Wait for the process to exit.
+	#[cfg(not(target_os = "linux"))]
+	async fn wait_for_exit(&self) -> std::io::Result<()> {
+		let handle = self.handle.clone();
+		tokio::task::spawn_blocking(move || handle.lock().unwrap().wait())
+			.await
+			.map_err(std::io::Error::other)??;
+		Ok(())
+	}
+
+	/// Wait for the process to exit, returning whether it exited before the timeout.
+	#[cfg(target_os = "linux")]
+	async fn wait(&self, timeout: std::time::Duration) -> std::io::Result<bool> {
+		match tokio::time::timeout(timeout, self.pidfd.readable()).await {
+			Ok(Ok(_)) => Ok(true),
+			Ok(Err(error)) => Err(error),
+			Err(_) => Ok(false),
+		}
+	}
+
+	/// Wait for the process to exit, returning whether it exited before the timeout.
+	#[cfg(not(target_os = "linux"))]
+	async fn wait(&self, timeout: std::time::Duration) -> std::io::Result<bool> {
+		let handle = self.handle.clone();
+		let status =
+			tokio::task::spawn_blocking(move || handle.lock().unwrap().wait_timeout(timeout))
+				.await
+				.map_err(std::io::Error::other)??;
+		let exited = status.is_some();
+		Ok(exited)
+	}
+}
+
+/// Read and parse the lock file at the path, returning `None` if it is empty or invalid, or if no process holds the lock on it, because the server that wrote it exited without truncating it.
+async fn try_read_lock(path: &Path) -> std::io::Result<Option<tg::server::Lock>> {
+	// Read the lock file.
+	let mut file = tokio::fs::File::open(path).await?;
+	let mut bytes = Vec::new();
+	file.read_to_end(&mut bytes).await?;
+	let Some(lock) = tg::server::Lock::try_parse(&bytes) else {
+		return Ok(None);
+	};
+
+	// Return `None` if no process holds the lock on the file.
+	let file = file.into_std().await;
+	if !is_lock_held(&file, lock.pid)? {
+		return Ok(None);
+	}
+
+	Ok(Some(lock))
+}
+
+/// Check whether the process holds the server's `flock` lock on the file, without taking the lock, by finding the lock in `/proc/locks`. The lock is matched by the inode of the file and by the pid, because `/proc/locks` reports the device of the superblock, which differs from the device that `stat` reports on some file systems.
+#[cfg(target_os = "linux")]
+fn is_lock_held(file: &std::fs::File, pid: u32) -> std::io::Result<bool> {
+	let inode = std::os::unix::fs::MetadataExt::ino(&file.metadata()?);
+	let locks = std::fs::read_to_string("/proc/locks")?;
+	let held = locks.lines().any(|line| is_flock_line(line, inode, pid));
+	Ok(held)
+}
+
+/// Check whether a process holds a `flock` lock on the file, without taking the lock, with `F_GETLK`, which reports `flock` locks on macOS. The pid is not checked, because `F_GETLK` does not report the pid of a `flock` lock.
+#[cfg(not(target_os = "linux"))]
+fn is_lock_held(file: &std::fs::File, _pid: u32) -> std::io::Result<bool> {
+	#[expect(
+		clippy::cast_possible_truncation,
+		reason = "`SEEK_SET` is zero, which fits in a short"
+	)]
+	let mut lock = libc::flock {
+		l_len: 0,
+		l_pid: 0,
+		l_start: 0,
+		l_type: libc::F_WRLCK,
+		l_whence: libc::SEEK_SET as libc::c_short,
+	};
+	// SAFETY: The descriptor is open, and the pointer refers to a valid `flock` for the duration of the call.
+	let ret = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETLK, &raw mut lock) };
+	if ret != 0 {
+		return Err(std::io::Error::last_os_error());
+	}
+	let held = lock.l_type != libc::F_UNLCK;
+	Ok(held)
+}
+
+/// Check whether a line of `/proc/locks` is a `flock` lock that the process holds on the inode. A line whose type follows `->` is a request that waits for the lock, which it does not hold.
+#[cfg_attr(
+	not(target_os = "linux"),
+	allow(dead_code, reason = "`/proc/locks` exists only on Linux")
+)]
+fn is_flock_line(line: &str, inode: u64, pid: u32) -> bool {
+	let mut fields = line.split_ascii_whitespace().skip(1);
+	if fields.next() != Some("FLOCK") {
+		return false;
+	}
+	let mut fields = fields.skip(2);
+	let holder = fields.next().and_then(|field| field.parse::<u32>().ok());
+	let file_inode = fields
+		.next()
+		.and_then(|field| field.rsplit(':').next())
+		.and_then(|field| field.parse::<u64>().ok());
+	holder == Some(pid) && file_inode == Some(inode)
 }
 
 /// Wait for the server to send `READY=1` to the notify socket.
@@ -634,6 +867,37 @@ mod tests {
 			tg::server::Manager::Systemd,
 			temp.path()
 		));
+	}
+
+	// A `flock` lock in `/proc/locks` matches only the inode and the pid of its holder, and a request that waits for the lock does not match.
+	#[test]
+	fn flock_line() {
+		assert!(is_flock_line(
+			"1: FLOCK  ADVISORY  WRITE 1234 00:1a:5678 0 EOF",
+			5678,
+			1234
+		));
+		assert!(!is_flock_line(
+			"1: FLOCK  ADVISORY  WRITE 1234 00:1a:5678 0 EOF",
+			5679,
+			1234
+		));
+		assert!(!is_flock_line(
+			"1: FLOCK  ADVISORY  WRITE 1234 00:1a:5678 0 EOF",
+			5678,
+			1235
+		));
+		assert!(!is_flock_line(
+			"1: POSIX  ADVISORY  WRITE 1234 00:1a:5678 0 EOF",
+			5678,
+			1234
+		));
+		assert!(!is_flock_line(
+			"1: -> FLOCK  ADVISORY  WRITE 1234 00:1a:5678 0 EOF",
+			5678,
+			1234
+		));
+		assert!(!is_flock_line("", 5678, 1234));
 	}
 
 	// An executable in the helpers directory of an app bundle is an app helper.

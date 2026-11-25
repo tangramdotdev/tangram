@@ -3285,13 +3285,13 @@ pub struct Repl {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServerOptions {
+	/// Who may use the local socket, the lock file, and checkouts: `user`, the default, for only the server's user, or `group` for the members of the server's group too.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub access: Option<tg::server::Access>,
+
 	/// The server's directory, which overrides the `directory` key for `tangram server run` and for the commands that start, stop, and find the server, but not for other commands.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<PathBuf>,
-
-	/// Let members of the server's group use the local socket, the lock file, and checkouts.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub group_access: Option<bool>,
 
 	/// The time to wait for the server to exit after sending SIGTERM, before sending SIGKILL.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -3311,11 +3311,11 @@ pub struct ServerOptions {
 
 #[derive(Clone, Debug)]
 pub struct Server {
+	/// Who may use the local socket, the lock file, and checkouts.
+	pub access: tg::server::Access,
+
 	/// The server's directory.
 	pub directory: Option<PathBuf>,
-
-	/// Let members of the server's group use the local socket, the lock file, and checkouts.
-	pub group_access: bool,
 
 	/// The time to wait for the server to exit after sending SIGTERM, before sending SIGKILL.
 	pub kill_timeout: Duration,
@@ -3876,8 +3876,8 @@ impl ServerOptions {
 	fn resolve(self) -> Server {
 		let default = Server::default();
 		Server {
+			access: self.access.unwrap_or(default.access),
 			directory: self.directory,
-			group_access: self.group_access.unwrap_or(default.group_access),
 			kill_timeout: self.kill_timeout.unwrap_or(default.kill_timeout),
 			start_timeout: self.start_timeout.unwrap_or(default.start_timeout),
 			stop_timeout: self.stop_timeout.unwrap_or(default.stop_timeout),
@@ -3947,8 +3947,8 @@ impl Default for Repl {
 impl Default for Server {
 	fn default() -> Self {
 		Self {
+			access: tg::server::Access::User,
 			directory: None,
-			group_access: false,
 			kill_timeout: Duration::from_secs(1),
 			start_timeout: Duration::from_secs(5),
 			stop_timeout: Duration::from_secs(1),
@@ -4078,14 +4078,14 @@ mod tests {
 	}
 
 	#[test]
-	fn merges_server_directory_and_group_access() {
+	fn merges_server_access_and_directory() {
 		let temp = Temp::new().unwrap();
 		std::fs::create_dir(temp.path()).unwrap();
 		let system = temp.path().join("system.json");
 		let user = temp.path().join("user.json");
 		std::fs::write(
 			&system,
-			r#"{"server": {"directory": "/var/lib/tangram", "group_access": true}}"#,
+			r#"{"server": {"access": "group", "directory": "/var/lib/tangram"}}"#,
 		)
 		.unwrap();
 		std::fs::write(&user, r#"{"server": {"stop_timeout": 6}}"#).unwrap();
@@ -4093,10 +4093,10 @@ mod tests {
 			.unwrap()
 			.unwrap();
 		let server = config.server.unwrap().resolve();
+		assert_eq!(server.access, tg::server::Access::Group);
 		assert_eq!(server.directory, Some(PathBuf::from("/var/lib/tangram")));
-		assert!(server.group_access);
 		assert_eq!(server.stop_timeout, Duration::from_secs(6));
-		assert!(!Server::default().group_access);
+		assert_eq!(Server::default().access, tg::server::Access::User);
 	}
 
 	#[test]

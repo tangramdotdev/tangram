@@ -3,8 +3,8 @@
 		"url": "http+unix://%2Fvar%2Flib%2Ftangram%2Fsocket"
 	},
 	"server": {
-		"directory": "/var/lib/tangram",
-		"group_access": true
+		"access": "group",
+		"directory": "/var/lib/tangram"
 	},
 	"vfs": {
 		"kind": "fuse",

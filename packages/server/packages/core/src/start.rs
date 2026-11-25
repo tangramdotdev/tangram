@@ -98,8 +98,8 @@ impl Server {
 			));
 		}
 
-		// Let members of the server's group read the lock file if the server has group access.
-		if config.group_access {
+		// Let members of the server's group read the lock file if the server's access is `group`.
+		if config.access == tg::server::Access::Group {
 			let permissions = std::fs::Permissions::from_mode(0o640);
 			lock.set_permissions(permissions).await.map_err(|error| {
 				tg::error!(!error, "failed to set permissions on the lock file")
@@ -797,7 +797,7 @@ impl Server {
 							"failed to listen on the http url"
 						)
 					})?;
-					if self.config.group_access
+					if self.config.access == tg::server::Access::Group
 						&& let Listener::Unix { guard, .. } = &listener
 						&& guard.path() == self.path.join("socket")
 					{

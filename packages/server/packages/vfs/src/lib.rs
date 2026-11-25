@@ -136,7 +136,8 @@ impl Server {
 					};
 					// Allow access to the shared store through the group-restricted server directory.
 					let options = vfs::fuse::Options {
-						allow_other: server.config.group_access && path == server.store_path(),
+						allow_other: server.config.access == tg::server::Access::Group
+							&& path == server.store_path(),
 						io,
 						io_uring_completion_batch_size: fuse.io_uring_completion_batch_size,
 						io_uring_max_retired_slots_per_worker: fuse

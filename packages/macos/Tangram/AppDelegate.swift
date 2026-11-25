@@ -70,6 +70,7 @@ private let appGroupIdentifier: String = {
 
 // The content of the server's lock file.
 private struct ServerLock: Decodable {
+	let manager: String?
 	let pid: pid_t
 }
 
@@ -553,6 +554,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 	private var logTailTimer: Timer?
 	private var lastError: String?
 	private var isStopping = false
+	// The lock of a running server that another manager started, which the app leaves running.
+	private var otherServer: ServerLock?
 	private var vfsBroker: VfsBroker?
 	private let launchAtLoginPromptKey = "TangramLaunchAtLoginPrompted"
 
@@ -649,6 +652,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 	private var serverStatus: String {
 		if let process, process.isRunning {
 			"running, pid \(process.processIdentifier)"
+		} else if let otherServer {
+			otherServerStatus(otherServer)
 		} else if let lastError {
 			"stopped, \(lastError)"
 		} else {
@@ -678,15 +683,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 			return
 		}
 
+		appendDiagnostic("starting the server")
+		appendDiagnostic("home: \(homeDirectory.path())")
+		appendDiagnostic("real home: \(realHomeDirectory.path())")
+		appendDiagnostic("data: \(dataDirectory.path())")
+		appendDiagnostic("config: \(configFile.path())")
+		appendDiagnostic("log: \(logFile.path())")
+		appendDiagnostic("helper: \(tangramExecutable.path())")
+		appendDiagnostic("helper exists: \(FileManager.default.fileExists(atPath: tangramExecutable.path()))")
+
+		// Stop a server that the app started in an earlier launch, and leave running a server that another manager started, along with its VFS state.
 		do {
-			appendDiagnostic("starting the server")
-			appendDiagnostic("home: \(homeDirectory.path())")
-			appendDiagnostic("real home: \(realHomeDirectory.path())")
-			appendDiagnostic("data: \(dataDirectory.path())")
-			appendDiagnostic("config: \(configFile.path())")
-			appendDiagnostic("log: \(logFile.path())")
-			appendDiagnostic("helper: \(tangramExecutable.path())")
-			appendDiagnostic("helper exists: \(FileManager.default.fileExists(atPath: tangramExecutable.path()))")
+			otherServer = try stopExistingServer()
+		} catch {
+			appendDiagnostic("failed to stop the existing server: \(error.localizedDescription)")
+			lastError = error.localizedDescription
+			updateStatus()
+			return
+		}
+		if let otherServer {
+			appendDiagnostic("left running the server with pid \(otherServer.pid), which the app did not start")
+			updateStatus()
+			return
+		}
+
+		do {
 			try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
 			appendDiagnostic("created the data directory")
 			// Ensure the shared app group container exists so the server can bind its
@@ -714,7 +735,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 				try Data("{\"vfs\":{}}\n".utf8).write(to: configFile)
 				appendDiagnostic("created the config file")
 			}
-			try stopExistingServer()
 			cleanupExistingVfsState()
 			appendDiagnostic("stopped any existing server and VFS")
 			if !FileManager.default.fileExists(atPath: logFile.path()) {
@@ -795,8 +815,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 	}
 
 	private func stopServer() {
+		// Without a server that the app started, clean up the VFS state only if no other manager's server is running, so that the app never tears down a server that it did not start.
 		guard let process else {
-			cleanupExistingVfsState()
+			if let lock = try? readHeldServerLock(), lock.manager != "app" {
+				otherServer = lock
+			} else {
+				otherServer = nil
+				cleanupExistingVfsState()
+			}
 			updateStatus()
 			return
 		}
@@ -813,12 +839,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		isStopping = false
 	}
 
-	private func stopExistingServer() throws {
-		guard let pid = try readServerPid(), pid != getpid(), processIsRunning(pid) else {
-			return
+	// Stop a running server whose manager is the app, and return the lock of a running server that another manager or no manager started, which the app leaves running.
+	private func stopExistingServer() throws -> ServerLock? {
+		guard let lock = try readHeldServerLock(), lock.pid != getpid() else {
+			return nil
 		}
+		guard lock.manager == "app" else {
+			return lock
+		}
+		let pid = lock.pid
 		try stopProcess(pid) {
 			self.processIsRunning(pid)
+		}
+		return nil
+	}
+
+	// Describe a running server that another manager or no manager started, with a hint for how to stop it that matches the CLI's hint.
+	private func otherServerStatus(_ lock: ServerLock) -> String {
+		switch lock.manager {
+		case "cli":
+			"a server started by the CLI is running, pid \(lock.pid); run `tangram server stop`"
+		case "openrc":
+			"a server managed by OpenRC is running, pid \(lock.pid); run `rc-service tangram stop`"
+		case "systemd":
+			"a server managed by systemd is running, pid \(lock.pid); run `systemctl stop tangram`"
+		case .none:
+			"a server started by hand is running, pid \(lock.pid); stop the process that is running `tangram server run`"
+		case let .some(manager):
+			"a server managed by \(manager) is running, pid \(lock.pid)"
 		}
 	}
 
@@ -935,20 +983,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		model.log += line
 	}
 
-	// Read the pid from the server's lock file, which is empty or invalid when no server holds the lock.
-	private func readServerPid() throws -> pid_t? {
-		do {
-			let data = try Data(contentsOf: pidFile)
-			guard let lock = try? JSONDecoder().decode(ServerLock.self, from: data), lock.pid > 0 else {
+	// Read the server's lock file, returning nil if it is missing, empty, or invalid, or if no process holds its lock, because the server that wrote it exited without truncating it.
+	private func readHeldServerLock() throws -> ServerLock? {
+		// Read the lock file.
+		let fd = open(pidFile.path(), O_RDONLY | O_CLOEXEC)
+		if fd < 0 {
+			let error = errno
+			if error == ENOENT {
 				return nil
 			}
-			return lock.pid
-		} catch {
-			if let error = error as? CocoaError, error.code == .fileReadNoSuchFile {
-				return nil
-			}
-			throw error
+			throw POSIXError(POSIXErrorCode(rawValue: error) ?? .EIO)
 		}
+		let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+		defer {
+			try? handle.close()
+		}
+		let data = try handle.readToEnd() ?? Data()
+		guard let lock = try? JSONDecoder().decode(ServerLock.self, from: data), lock.pid > 0 else {
+			return nil
+		}
+
+		// Check whether a process holds the server's flock lock without taking it, with F_GETLK, which reports flock locks on macOS, so that the check cannot make a starting server fail to take the lock.
+		var probe = flock()
+		probe.l_start = 0
+		probe.l_len = 0
+		probe.l_type = Int16(F_WRLCK)
+		probe.l_whence = Int16(SEEK_SET)
+		if fcntl(fd, F_GETLK, &probe) != 0 {
+			throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+		}
+		guard probe.l_type != Int16(F_UNLCK) else {
+			return nil
+		}
+
+		return lock
 	}
 
 	private func processIsRunning(_ pid: pid_t) -> Bool {

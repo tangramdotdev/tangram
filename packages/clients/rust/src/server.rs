@@ -1,5 +1,30 @@
 use crate::prelude::*;
 
+/// Who may use a server's local socket, lock file, and checkouts.
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum Access {
+	/// The server's user and the members of the server's group.
+	Group,
+
+	/// Only the server's user.
+	#[default]
+	User,
+}
+
 /// The content of the lock file in a server's directory, which the server writes while it holds the lock on the file.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Lock {

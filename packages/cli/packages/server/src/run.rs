@@ -11,6 +11,10 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Override the `server.access` key in the config, which says who may use the local socket, the lock file, and checkouts: `user` for only the server's user, or `group` for the members of the server's group too.
+	#[arg(long)]
+	pub access: Option<tg::server::Access>,
+
 	/// The path to the config file.
 	#[arg(long, short)]
 	pub config: Option<PathBuf>,
@@ -18,10 +22,6 @@ pub struct Args {
 	/// Override the `server.directory` and `directory` keys in the config.
 	#[arg(long, short)]
 	pub directory: Option<PathBuf>,
-
-	/// Let members of the server's group use the local socket, the lock file, and checkouts, as the `server.group_access` key in the config does.
-	#[arg(long)]
-	pub group_access: bool,
 
 	/// Override the `manager` key in the config, which names the manager that starts and stops the server: `app`, `cli`, `openrc`, or `systemd`. A server run without a manager can only be stopped by stopping its process.
 	#[arg(long)]
@@ -58,9 +58,9 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// Get the directory.
 	let directory = cli.server_directory_path()?;
 
-	// Set the directory, group access, manager, and version.
+	// Set the access, directory, manager, and version.
+	config.access = args.access.unwrap_or(cli.server_config().access);
 	config.directory = Some(directory);
-	config.group_access = args.group_access || cli.server_config().group_access;
 	config.manager = args.manager.or_else(|| cli.declared_server_manager());
 	config.version = Some(tangram_cli_core::version());
 
