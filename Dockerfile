@@ -82,5 +82,15 @@ RUN set -eu; \
     ldconfig
 
 COPY --from=build /output/tangram /usr/local/bin/tangram
+RUN ln -s tangram /usr/local/bin/tg
 
-ENTRYPOINT ["tangram"]
+# Store the default data directory in a volume, because overlayfs refuses a sandbox upper directory on the container's overlay filesystem.
+VOLUME /root/.tangram
+
+# Start a server on demand for a command that needs one.
+ENV TANGRAM_START=true
+
+# Run the server by default. The entrypoint runs a server command directly, and stops the server that any other command started when the command exits.
+COPY --chmod=755 scripts/image/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["serve"]
