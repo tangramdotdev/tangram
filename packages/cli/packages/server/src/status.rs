@@ -35,9 +35,9 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		Status::Stopped
 	};
 
-	// Read the manager and the pid from the lock file of a started server, and fall back to the manager that the config declares.
+	// Read the manager and the pid from the lock file of a started server if this user may read it, and fall back to the manager that the config declares.
 	let lock = match status {
-		Status::Started => cli.try_read_server_lock().await?,
+		Status::Started => cli.try_read_server_lock_if_readable().await?,
 		Status::Stopped => None,
 	};
 

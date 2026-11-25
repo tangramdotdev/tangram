@@ -55,11 +55,13 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 }
 
 pub async fn run_force(cli: &mut Cli) -> tg::Result<()> {
-	let path = cli.directory_path()?;
+	let path = cli.server_directory_path()?;
 	let store_path = path.join("store");
 
-	// Stop the server if it is running.
-	cli.stop_server().await.ok();
+	// Stop the server if it is running, and fail without removing anything if the stop is refused or fails.
+	cli.stop_server()
+		.await
+		.map_err(|error| tg::error!(!error, "failed to stop the server before cleaning"))?;
 
 	// Force unmount the VFS store path if it is mounted.
 	force_unmount_vfs(&store_path).await;

@@ -15,11 +15,11 @@ pub struct Args {
 	#[arg(long, short)]
 	pub config: Option<PathBuf>,
 
-	/// Override the `directory` key in the config.
+	/// Override the `server.directory` and `directory` keys in the config.
 	#[arg(long, short)]
 	pub directory: Option<PathBuf>,
 
-	/// Let members of the server's group use the local socket and checkouts.
+	/// Let members of the server's group use the local socket, the lock file, and checkouts, as the `server.group_access` key in the config does.
 	#[arg(long)]
 	pub group_access: bool,
 
@@ -56,14 +56,12 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let mut config = crate::config::resolve_config(cli)?;
 
 	// Get the directory.
-	let directory = cli.directory_path()?;
+	let directory = cli.server_directory_path()?;
 
-	// Set the directory, manager, and version.
+	// Set the directory, group access, manager, and version.
 	config.directory = Some(directory);
-	config.group_access = args.group_access;
-	if let Some(manager) = args.manager {
-		config.manager = Some(manager);
-	}
+	config.group_access = args.group_access || cli.server_config().group_access;
+	config.manager = args.manager.or_else(|| cli.declared_server_manager());
 	config.version = Some(tangram_cli_core::version());
 
 	// Set the URL.

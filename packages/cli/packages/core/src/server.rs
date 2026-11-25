@@ -38,11 +38,18 @@ impl Cli {
 			return Err(server_manager_error(Some(manager), Action::Start));
 		}
 
-		// Ensure the directory exists.
-		let directory = self.directory_path()?;
+		// Ensure the directory exists, and with group access, create it so that only the owner may list it and only the group may enter it, as the packaged service does.
+		let directory = self.server_directory_path()?;
 		let directory = std::path::absolute(&directory)
 			.map_err(|error| tg::error!(!error, "failed to get the absolute directory path"))?;
-		tokio::fs::create_dir_all(&directory)
+		let group_access = self.server_config().group_access;
+		let mut builder = tokio::fs::DirBuilder::new();
+		builder.recursive(true);
+		if group_access {
+			builder.mode(0o710);
+		}
+		builder
+			.create(&directory)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
 
@@ -146,6 +153,9 @@ impl Cli {
 			args.push(tracing.clone());
 		}
 		args.push("serve".to_owned());
+		if group_access {
+			args.push("--group-access".to_owned());
+		}
 		args.push("--manager".to_owned());
 		args.push(tg::server::Manager::Cli.to_string());
 		command
@@ -155,12 +165,19 @@ impl Cli {
 			.stdin(std::process::Stdio::null())
 			.stdout(stdout)
 			.stderr(stderr);
+		// SAFETY: The closure calls only `setsid` and `umask`, which are async-signal-safe.
 		unsafe {
-			command.pre_exec(|| {
+			command.pre_exec(move || {
 				let id = libc::setsid();
 				if id < 0 {
 					return Err(std::io::Error::last_os_error());
 				}
+
+				// Restrict the permissions of the server's files with group access, so that the group may use only what group access opens, as the packaged service's umask does.
+				if group_access {
+					libc::umask(0o077);
+				}
+
 				Ok(())
 			});
 		}
@@ -209,10 +226,10 @@ impl Cli {
 		Ok(())
 	}
 
-	/// Get the manager that starts and stops the server, which the config declares, or on macOS, the Tangram app if this executable is in an app bundle.
+	/// Get the manager that starts and stops the server, which the config declares if it is running, or on macOS, the Tangram app if this executable is in an app bundle.
 	#[must_use]
 	pub fn server_manager(&self) -> Option<tg::server::Manager> {
-		if let Some(manager) = self.config.as_ref().and_then(|config| config.manager) {
+		if let Some(manager) = self.declared_server_manager() {
 			return Some(manager);
 		}
 		#[cfg(target_os = "macos")]
@@ -220,6 +237,15 @@ impl Cli {
 			return Some(tg::server::Manager::App);
 		}
 		None
+	}
+
+	/// Get the manager that the config declares, if it is running, so that a server whose declared manager is not running is managed as if the config declared no manager.
+	#[must_use]
+	pub fn declared_server_manager(&self) -> Option<tg::server::Manager> {
+		self.config
+			.as_ref()
+			.and_then(|config| config.manager)
+			.filter(|manager| is_manager_running(*manager))
 	}
 
 	/// Make a unix socket URL absolute.
@@ -319,6 +345,15 @@ impl Cli {
 			if error.raw_os_error() == Some(libc::ESRCH) {
 				return Ok(Stop::Stopped);
 			}
+			if error.raw_os_error() == Some(libc::EPERM) {
+				let hint = "run the command as the user that started the server";
+				return Err(tg::error!(
+					!error,
+					%hint,
+					%pid,
+					"permission denied to stop the server"
+				));
+			}
 			return Err(tg::error!(!error, "failed to send SIGINT to the server"));
 		}
 
@@ -363,10 +398,42 @@ impl Cli {
 
 	/// Read the lock file in the server's directory, returning `None` if no server holds the lock.
 	pub async fn try_read_server_lock(&self) -> tg::Result<Option<tg::server::Lock>> {
-		let path = self.directory_path()?.join("lock");
+		let path = self.server_directory_path()?.join("lock");
 		let bytes = match tokio::fs::read(&path).await {
 			Ok(bytes) => bytes,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(None);
+			},
+			Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+				let hint = "run the command as the user that runs the server, or as a member of its group if the server has group access";
+				return Err(tg::error!(
+					!error,
+					%hint,
+					path = %path.display(),
+					"permission denied to read the server's lock file"
+				));
+			},
+			Err(error) => {
+				return Err(
+					tg::error!(!error, path = %path.display(), "failed to read the lock file"),
+				);
+			},
+		};
+		let lock = tg::server::Lock::try_parse(&bytes);
+		Ok(lock)
+	}
+
+	/// Read the lock file in the server's directory, returning `None` if no server holds the lock or if this user may not read it.
+	pub async fn try_read_server_lock_if_readable(&self) -> tg::Result<Option<tg::server::Lock>> {
+		let path = self.server_directory_path()?.join("lock");
+		let bytes = match tokio::fs::read(&path).await {
+			Ok(bytes) => bytes,
+			Err(error)
+				if matches!(
+					error.kind(),
+					std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+				) =>
+			{
 				return Ok(None);
 			},
 			Err(error) => {
@@ -452,6 +519,31 @@ pub(crate) fn server_manager_hint(manager: Option<tg::server::Manager>, action: 
 	}
 }
 
+/// Check whether a manager is running. The `app` and `cli` managers are always running, and the `openrc` and `systemd` managers run only on Linux.
+fn is_manager_running(manager: tg::server::Manager) -> bool {
+	#[cfg(target_os = "linux")]
+	{
+		is_manager_running_with_root(manager, Path::new("/"))
+	}
+	#[cfg(not(target_os = "linux"))]
+	{
+		matches!(manager, tg::server::Manager::App | tg::server::Manager::Cli)
+	}
+}
+
+/// Check whether a manager is running on the system whose root is the path. The `systemd` manager is running if `/run/systemd/system` is a directory, as `sd_booted` checks, and the `openrc` manager is running if `/run/openrc/softlevel` exists.
+#[cfg_attr(
+	not(target_os = "linux"),
+	allow(dead_code, reason = "systemd and OpenRC run only on Linux")
+)]
+fn is_manager_running_with_root(manager: tg::server::Manager, root: &Path) -> bool {
+	match manager {
+		tg::server::Manager::App | tg::server::Manager::Cli => true,
+		tg::server::Manager::Openrc => root.join("run/openrc/softlevel").exists(),
+		tg::server::Manager::Systemd => root.join("run/systemd/system").is_dir(),
+	}
+}
+
 /// Check whether a path is that of an executable in the `Contents/Helpers` directory of an app bundle.
 #[cfg_attr(
 	not(target_os = "macos"),
@@ -474,7 +566,75 @@ fn is_app_helper_path(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+	use {super::*, tangram_util::fs::Temp};
+
+	// The Tangram app and the CLI are running on a system with no runtime directories.
+	#[test]
+	fn manager_running_app_and_cli() {
+		let temp = Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		assert!(is_manager_running_with_root(
+			tg::server::Manager::App,
+			temp.path()
+		));
+		assert!(is_manager_running_with_root(
+			tg::server::Manager::Cli,
+			temp.path()
+		));
+	}
+
+	// systemd and OpenRC are not running on a system with no runtime directories.
+	#[test]
+	fn manager_running_none() {
+		let temp = Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		assert!(!is_manager_running_with_root(
+			tg::server::Manager::Openrc,
+			temp.path()
+		));
+		assert!(!is_manager_running_with_root(
+			tg::server::Manager::Systemd,
+			temp.path()
+		));
+	}
+
+	// systemd is running when its runtime directory is a directory, and not when it is a file.
+	#[test]
+	fn manager_running_systemd() {
+		let temp = Temp::new().unwrap();
+		std::fs::create_dir_all(temp.path().join("run/systemd")).unwrap();
+		std::fs::write(temp.path().join("run/systemd/system"), "").unwrap();
+		assert!(!is_manager_running_with_root(
+			tg::server::Manager::Systemd,
+			temp.path()
+		));
+		std::fs::remove_file(temp.path().join("run/systemd/system")).unwrap();
+		std::fs::create_dir(temp.path().join("run/systemd/system")).unwrap();
+		assert!(is_manager_running_with_root(
+			tg::server::Manager::Systemd,
+			temp.path()
+		));
+		assert!(!is_manager_running_with_root(
+			tg::server::Manager::Openrc,
+			temp.path()
+		));
+	}
+
+	// OpenRC is running when its softlevel file exists.
+	#[test]
+	fn manager_running_openrc() {
+		let temp = Temp::new().unwrap();
+		std::fs::create_dir_all(temp.path().join("run/openrc")).unwrap();
+		std::fs::write(temp.path().join("run/openrc/softlevel"), "default").unwrap();
+		assert!(is_manager_running_with_root(
+			tg::server::Manager::Openrc,
+			temp.path()
+		));
+		assert!(!is_manager_running_with_root(
+			tg::server::Manager::Systemd,
+			temp.path()
+		));
+	}
 
 	// An executable in the helpers directory of an app bundle is an app helper.
 	#[test]

@@ -12,6 +12,27 @@ export def foundationdb_cluster_description [] {
 	if $nu.os-info.name == 'linux' { 'local:local@127.0.0.1:4500' } else { 'docker:docker@127.0.0.1:4500' }
 }
 
+# Determine whether systemd is running, which it is on Linux when `/run/systemd/system` is a directory.
+export def systemd_running [] {
+	$nu.os-info.name == 'linux' and (('/run/systemd/system' | path type) == 'dir')
+}
+
+# Determine whether OpenRC is running, which it is on Linux when `/run/openrc/softlevel` exists.
+export def openrc_running [] {
+	$nu.os-info.name == 'linux' and ('/run/openrc/softlevel' | path exists)
+}
+
+# Get a service manager that is not running on this system, or skip the test.
+export def manager_not_running [] {
+	if not (systemd_running) {
+		return 'systemd'
+	}
+	if not (openrc_running) {
+		return 'openrc'
+	}
+	skip_test 'this test requires a system on which systemd or OpenRC is not running'
+}
+
 export def container_cgroup_parent [controllers: list<string>] {
 	let current = ^awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup | str trim
 	let current = $'/sys/fs/cgroup($current)'

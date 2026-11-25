@@ -1,6 +1,10 @@
 use ../../util/test.nu *
 
-# With a config that declares systemd as the manager, neither `--start` nor `tangram server start` starts a server, `tangram server stop` and `tangram server restart` refuse, and each fails with a hint to use systemctl.
+# Where systemd is running, with a config that declares systemd as the manager, neither `--start` nor `tangram server start` starts a server, `tangram server stop` and `tangram server restart` refuse, and each fails with a hint to use systemctl.
+
+if not (systemd_running) {
+	skip_test 'this test requires a system on which systemd is running'
+}
 
 let directory = mktemp -d
 let config_path = $directory | path join 'config.json'
