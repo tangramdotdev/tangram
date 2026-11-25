@@ -195,18 +195,24 @@ impl Server {
 
 		// Spawn the task.
 		let task = tangram_futures::task::Shared::spawn(move |_| async move {
-			child
+			// Wait for the process.
+			let status = child
 				.wait()
 				.await
-				.map_err(|error| tg::error!(!error, "failed to wait for the process"))
-				.map(|status| {
-					status
-						.code()
-						.or(status.signal().map(|signal| 128 + signal))
-						.unwrap_or(1)
-						.try_into()
-						.unwrap_or(u8::MAX)
-				})
+				.map_err(|error| tg::error!(!error, "failed to wait for the process"))?;
+
+			// Kill the process group, so that the processes left behind in it end and its stdio reaches the end of file.
+			// SAFETY: kill has no memory safety preconditions.
+			unsafe { libc::kill(-pid, libc::SIGKILL) };
+
+			let status: u8 = status
+				.code()
+				.or(status.signal().map(|signal| 128 + signal))
+				.unwrap_or(1)
+				.try_into()
+				.unwrap_or(u8::MAX);
+
+			Ok(status)
 		});
 
 		// Insert the process.
