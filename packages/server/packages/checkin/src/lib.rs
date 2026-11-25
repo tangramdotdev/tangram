@@ -660,7 +660,8 @@ impl Component {
 			touched_at,
 			progress,
 		};
-		self.checkin_create_blobs(session, create_blobs_arg)
+		let mut temps = self
+			.checkin_create_blobs(session, create_blobs_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create blobs"))?;
 
@@ -698,6 +699,7 @@ impl Component {
 				next,
 				progress,
 				root,
+				temps: &mut temps,
 			};
 			checkout_put = self
 				.checkin_checkout(session, checkout_arg)
