@@ -24,6 +24,7 @@ def --wrapped main [...args: string] {
 	mut force = false
 	mut retry = false
 	mut sign = true
+	mut tangram_image = false
 	mut selected_stages = []
 	mut selected_targets = []
 	mut version = ''
@@ -34,7 +35,7 @@ def --wrapped main [...args: string] {
 		$remaining = $remaining | skip 1
 		match $flag {
 			'-h' | '--help' => {
-				print 'Usage: tg run .#release -- [--cargo] [--force] [--retry] [--no-sign] [--stage <compile|push|pull|package|publish>] [--target <target>] [--target-dir <path>] [--version <version>] [--build-number <number>]
+				print 'Usage: tg run .#release -- [--cargo] [--force] [--retry] [--no-sign] [--tangram-image] [--stage <compile|push|pull|package|publish>] [--target <target>] [--target-dir <path>] [--version <version>] [--build-number <number>]
 
 Repeat --stage or --target to select more than one.
 The default stage is package, or compile followed by package with --cargo.
@@ -47,6 +48,7 @@ A push does not replace a tag that has a different target unless --force is pass
 Each staged target includes its source revision and file checksums. Push and package reject stale or changed files, and macOS targets require both the helper and its matching provider library.
 The package stage signs Linux repositories using the authenticated cf CLI.
 The package stage builds a container image for each GNU Linux target with Docker Buildx, and saves it under release/image/.
+With --tangram-image, it builds that image from this checkout with Tangram and std.image instead of from the staged binary with the Dockerfile.
 Signed macOS packaging requires a Mac and a positive --build-number, and includes Tangram.dmg and its Sparkle appcast.
 The package stage signs and notarizes the macOS binaries when TANGRAM_APPLE_P12, TANGRAM_APPLE_P12_PASSWORD_FILE, and TANGRAM_APPLE_API_KEY are set.
 Downloaded keys are stored temporarily under keys/. Use --no-sign for local unsigned packages.
@@ -74,6 +76,7 @@ Existing assets can be replaced, including for version 0.0.0.'
 				$remaining = $remaining | skip 1
 			}
 			'--no-sign' => { $sign = false }
+			'--tangram-image' => { $tangram_image = true }
 			'--stage' => {
 				let stage = $remaining | get -o 0
 				if $stage not-in $stages {
@@ -121,7 +124,7 @@ Existing assets can be replaced, including for version 0.0.0.'
 				compile => { compile $cargo $selected_targets $retry }
 				push => { push $selected_targets $force }
 				pull => { pull $selected_targets }
-				package => { package $selected_targets $version $sign $build_number }
+				package => { package $selected_targets $version $sign $build_number $tangram_image }
 				publish => { ^python3 scripts/release/publish.py publish $version ...$selected_targets }
 			}
 		}
@@ -314,7 +317,7 @@ def tagged-targets [commit: string] {
 	$tagged
 }
 
-def package [selected_targets: list<string>, version: string, sign: bool, build_number: string] {
+def package [selected_targets: list<string>, version: string, sign: bool, build_number: string, tangram_image: bool] {
 	let selected_targets = if ($selected_targets | is-empty) {
 		$targets | where {|target| (staged-binary $target | path type) == file }
 	} else {
@@ -342,8 +345,12 @@ def package [selected_targets: list<string>, version: string, sign: bool, build_
 		}
 	}
 
-	# Check before packaging that this machine runs containers for the architecture of each container image, because its Dockerfile runs commands in the image.
-	for target in ($selected_targets | where {|target| $target ends-with '-linux-gnu' }) {
+	# Check before packaging that this machine can build each container image. Tangram builds one only on Linux, and the Dockerfile runs commands in the image, so it needs a machine that runs containers for the image's architecture.
+	let image_targets = $selected_targets | where {|target| $target ends-with '-linux-gnu' }
+	if $tangram_image and not ($image_targets | is-empty) and $nu.os-info.name != 'linux' {
+		error make {msg: '--tangram-image requires Linux'}
+	}
+	for target in (if $tangram_image { [] } else { $image_targets }) {
 		let platform = if ($target starts-with 'aarch64-') { 'linux/arm64' } else { 'linux/amd64' }
 		let output = ^docker run --rm --platform $platform debian:trixie-slim true | complete
 		if $output.exit_code != 0 {
@@ -395,7 +402,7 @@ def package [selected_targets: list<string>, version: string, sign: bool, build_
 		if $sign {
 			^nu scripts/release/sign.nu --directory $temporary ...$darwin_targets
 		}
-		package-binaries $selected_targets $version $sign $temporary
+		package-binaries $selected_targets $version $sign $temporary $tangram_image
 	} catch {|error|
 		rm -rf $temporary
 		error make $error.raw
@@ -403,7 +410,7 @@ def package [selected_targets: list<string>, version: string, sign: bool, build_
 	rm -rf $temporary
 }
 
-def package-binaries [selected_targets: list<string>, version: string, sign: bool, directory: path] {
+def package-binaries [selected_targets: list<string>, version: string, sign: bool, directory: path, tangram_image: bool] {
 	for target in $selected_targets {
 		let binary = if ($target ends-with '-darwin') {
 			$directory | path join $'tangram_($target)'
@@ -440,7 +447,11 @@ exec tg run -b "$@"
 				}
 				^nu packages/linux/deb/package.nu $archive $architectures.deb $version
 				^nu packages/linux/rpm/package.nu $archive $architectures.rpm $version
-				^nu packages/linux/image/package.nu $archive $architectures.deb $version
+				if $tangram_image {
+					^nu scripts/image.nu package --platform $'linux/($architectures.deb)' --version $version
+				} else {
+					^nu packages/linux/image/package.nu $archive $architectures.deb $version
+				}
 			}
 			aarch64-linux-musl | x86_64-linux-musl => {
 				let architecture = $target | str replace '-linux-musl' ''

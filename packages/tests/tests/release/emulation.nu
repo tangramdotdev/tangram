@@ -21,3 +21,11 @@ failure $output
 assert ($output.stderr | str contains 'cannot run linux/arm64 containers')
 assert ($output.stderr | str contains 'exec format error')
 assert not ('release/tangram_aarch64-linux-gnu.tar.gz' | path exists)
+
+# Building the container image with Tangram requires Linux.
+if $nu.os-info.name != 'linux' {
+	let output = tg run .#release -- --stage package --no-sign --tangram-image --target $target | complete
+	failure $output
+	assert ($output.stderr | str contains '--tangram-image requires Linux')
+	assert not ('release/tangram_aarch64-linux-gnu.tar.gz' | path exists)
+}

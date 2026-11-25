@@ -146,6 +146,7 @@ have their hooks invoked automatically.
 | `test`, `testRust` | Full test suite or the Rust tests |
 | `imageBuild`, `imagePush`, `imagePublish` | Build or publish the container image |
 | `imageClean` | Remove unused Docker build cache mounts |
+| `imageBuildTangram`, `imagePublishTangram` | Build or publish the container image with Tangram instead of the Dockerfile |
 | `canary` | Build and publish the canary release |
 | `clean` | Remove checkout state, dependencies, and build output |
 
@@ -215,6 +216,46 @@ docker exec tangram tg health
 Keep build and runtime libc versions aligned rather than copying a binary
 linked on a rolling host into an older runtime image. ARM execution and build
 workloads still need verification on native ARM hardware.
+
+### Container image built with Tangram
+
+As an alternative to the Dockerfile, Tangram can build the container image
+itself. `build.tg.ts#image` builds the CLI with every feature, collects the
+programs that the server runs, and assembles them with `std.image`. This image
+has no base distribution, and Docker is needed only to load, tag, and push it.
+Building it requires Linux, and uses the packages repository checked out next to
+this one.
+
+```nu
+tg run .#imageBuildTangram
+```
+
+This loads the image for this machine's architecture into Docker as
+`ghcr.io/tangramdotdev/tangram:latest`. Pass `-- --platform linux/arm64` to
+build for another architecture, which cross-compiles, `-- --tag <tag>` to
+choose another tag, and `-- --fast` to compile each crate in its own cached
+process with the `fast` profile, so that a small change rebuilds quickly. Push
+the loaded image with `tg run .#imagePush`.
+
+To build both architectures, push them, and publish a multiarchitecture image
+index:
+
+```nu
+tg run .#imagePublishTangram -- --tag ghcr.io/tangramdotdev/tangram:latest
+```
+
+This image has the same layout as the one that the release script builds from
+the Dockerfile: the packaged configuration is at `/etc/tangram/config.json`,
+the state directory `/var/lib/tangram` is a volume, and the default command
+serves from it. To make the release script's package stage build this image
+instead, for the same file under `release/image/` and the same tag, pass
+`--tangram-image`:
+
+```nu
+tg run .#release -- --stage package --tangram-image --target x86_64-linux-gnu
+```
+
+This needs a std with the `volumes` option of `std.image`.
 
 Cross-built V8 runtimes initialize the bundled JavaScript on the target instead
 of embedding a snapshot generated for the build host's architecture. Native
