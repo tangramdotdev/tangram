@@ -5,20 +5,21 @@ use {
 			Advanced, Archive, ArchiveQueue, Authentication, AuthenticationCache,
 			AuthenticationProviders, AuthenticationTokens, Authorization, Billing, BoolOr, Cache,
 			CapacityThreshold, CapacityThresholdDirection, Checkin, CheckinBlob, CheckinCheckout,
-			CheckinSolve, Checkout, ClientProcessControl, CloudHypervisorBackend, Config, Control,
-			Database, DatabaseIndexQueue, DatabasePool, Dax, FdbIndex, FdbIndexVerification,
-			FilesystemProjectIds, FjallCache, Github, Http, HttpListener, HttpTls, IdMap, Index,
-			IndexQueue, Indexer, IndexerBillingCleanup, IndexerCache, IndexerCleaning,
-			IndexerDatabaseIndexQueue, IndexerEnqueue, IndexerLogCache, IndexerPartitions,
-			IndexerPermissionCapture, IndexerQueue, IndexerRequest, IndexerUpdate, IndexerUpdates,
-			IndexerUsage, IndexerUsageAggregation, IndexerUsageExpiration, IndexerWriter, Insecure,
-			JavaScript, JavaScriptEngine, LmdbCache, LmdbIndex, MemoryMessenger, Messenger,
-			NatsMessenger, Object, ObjectCache, Pagination, PermissionSearch, PermissionSearches,
-			PermissionSubtree, Pool, PostgresDatabase, PostgresDatabaseConnection, Process,
-			Progress, Read, Reconnect, Region, Remote, RemoteCache, Retry, RocksdbCache, Role,
-			RootAuthentication, Runner, RunnerBackend, RunnerResources, S3Archive, Sandbox,
-			SandboxNetwork, SandboxNetworkFirewall, Scheduler, SchedulerCache, SchedulerRequest,
-			ScyllaCache, ScyllaCacheCapacity, ScyllaCachePercentileSpeculativeExecution,
+			CheckinCopy, CheckinSolve, Checkout, ClientProcessControl, CloudHypervisorBackend,
+			Config, Control, Database, DatabaseIndexQueue, DatabasePool, Dax, FdbIndex,
+			FdbIndexVerification, FilesystemProjectIds, FjallCache, Github, Http, HttpListener,
+			HttpTls, IdMap, Index, IndexQueue, Indexer, IndexerBillingCleanup, IndexerCache,
+			IndexerCleaning, IndexerDatabaseIndexQueue, IndexerEnqueue, IndexerLogCache,
+			IndexerPartitions, IndexerPermissionCapture, IndexerQueue, IndexerRequest,
+			IndexerUpdate, IndexerUpdates, IndexerUsage, IndexerUsageAggregation,
+			IndexerUsageExpiration, IndexerWriter, Insecure, JavaScript, JavaScriptEngine,
+			LmdbCache, LmdbIndex, MemoryMessenger, Messenger, NatsMessenger, Object, ObjectCache,
+			Pagination, PermissionSearch, PermissionSearches, PermissionSubtree, Pool,
+			PostgresDatabase, PostgresDatabaseConnection, Process, Progress, Read, Reconnect,
+			Region, Remote, RemoteCache, Retry, RocksdbCache, Role, RootAuthentication, Runner,
+			RunnerBackend, RunnerResources, S3Archive, Sandbox, SandboxNetwork,
+			SandboxNetworkFirewall, Scheduler, SchedulerCache, SchedulerRequest, ScyllaCache,
+			ScyllaCacheCapacity, ScyllaCachePercentileSpeculativeExecution,
 			ScyllaCacheSimpleSpeculativeExecution, ScyllaCacheSpeculativeExecution, ServerClient,
 			Service, Spawn, SqliteDatabase, SyncGet, SyncGetCheckout, SyncGetDatabase,
 			SyncGetIndex, SyncGetQueue, SyncGetStore, SyncGetStoreObject, SyncOptions, SyncPut,
@@ -585,6 +586,9 @@ fn resolve_checkin(source: Checkin) -> server::Checkin {
 	if let Some(source) = source.checkout {
 		target.checkout = resolve_checkin_checkout(source);
 	}
+	if let Some(source) = source.copy {
+		target.copy = resolve_checkin_copy(source);
+	}
 	if let Some(source) = source.solve {
 		target.solve = resolve_checkin_solve(source);
 	}
@@ -608,6 +612,13 @@ fn resolve_checkin_checkout(source: CheckinCheckout) -> server::CheckinCheckout 
 		target.concurrency = value;
 	}
 	target
+}
+
+fn resolve_checkin_copy(source: CheckinCopy) -> server::CheckinCopy {
+	match source {
+		CheckinCopy::Reflink => server::CheckinCopy::Reflink,
+		CheckinCopy::Stream => server::CheckinCopy::Stream,
+	}
 }
 
 fn resolve_checkin_solve(source: CheckinSolve) -> server::CheckinSolve {

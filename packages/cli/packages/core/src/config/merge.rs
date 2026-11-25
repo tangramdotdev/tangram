@@ -103,7 +103,7 @@ merge! {
 	super::Verification { index: section, permissions: section, write_retry: section }
 	super::VerificationPermissions { final_, initial }
 	super::VerificationIndex { delay }
-	super::Checkin { blob: section, checkout: section, solve: section }
+	super::Checkin { blob: section, checkout: section, copy, solve: section }
 	super::CheckinBlob { concurrency }
 	super::CheckinCheckout { batch_size, concurrency }
 	super::CheckinSolve { prefetch_concurrency }
