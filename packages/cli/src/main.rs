@@ -216,7 +216,8 @@ fn main() -> std::process::ExitCode {
 		..
 	}) = &mut args.command
 	{
-		serve_args.notify_socket = std::env::var_os("NOTIFY_SOCKET");
+		serve_args.notify_socket =
+			std::env::var_os("NOTIFY_SOCKET").filter(|socket| !socket.is_empty());
 		// SAFETY: The process is single-threaded here, because no runtime has been created and no thread has been spawned.
 		unsafe { std::env::remove_var("NOTIFY_SOCKET") };
 	}

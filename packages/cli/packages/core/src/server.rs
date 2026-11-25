@@ -1,6 +1,12 @@
 use {
-	crate::Cli, byteorder::ReadBytesExt as _, std::os::fd::AsRawFd as _, tangram_client::prelude::*,
+	crate::Cli,
+	std::path::Path,
+	tangram_client::prelude::*,
+	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _, Interest, unix::AsyncFd},
 };
+
+/// The maximum number of bytes of the server's log to include in a startup error.
+const LOG_TAIL_LENGTH: u64 = 8192;
 
 impl Cli {
 	/// Spawn a server.
@@ -67,36 +73,21 @@ impl Cli {
 		let executable = tangram_util::env::current_exe()
 			.map_err(|error| tg::error!(!error, "failed to get the current executable path"))?;
 
+		// Get the length of the log, so that a startup failure reports only this server's output.
+		let log_offset = stdout
+			.metadata()
+			.map_err(|error| tg::error!(!error, "failed to get the log file metadata"))?
+			.len();
+
+		// Create the notify socket, on which the server sends `READY=1` when it is ready.
+		let listener = tangram_util::notify::Listener::new()
+			.map_err(|error| tg::error!(!error, "failed to create the server notify socket"))?;
+		// SAFETY: The listener owns the socket, which stays open and unchanged for the lifetime of the `AsyncFd`.
+		let listener = unsafe { AsyncFd::register_with_interest(listener, Interest::READABLE) }
+			.map_err(|error| tg::error!(!error, "failed to register the server notify socket"))?;
+
 		// Spawn the server.
 		let mut command = tokio::process::Command::new(executable);
-
-		// Create the ready pipe.
-		let (mut ready_reader, ready_writer) = std::io::pipe()
-			.map_err(|error| tg::error!(!error, "failed to create the server ready pipe"))?;
-
-		// Unset FD_CLOEXEC on the ready writer.
-		let flags = unsafe { libc::fcntl(ready_writer.as_raw_fd(), libc::F_GETFD) };
-		if flags < 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to get the ready pipe flags"
-			));
-		}
-		let ret = unsafe {
-			libc::fcntl(
-				ready_writer.as_raw_fd(),
-				libc::F_SETFD,
-				flags & !libc::FD_CLOEXEC,
-			)
-		};
-		if ret < 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to set the ready pipe flags"
-			));
-		}
-		let ready_fd = ready_writer.as_raw_fd();
-
 		let mut args = vec![];
 		if let Some(config) = &self.args.config {
 			let config = std::path::absolute(config)
@@ -128,11 +119,10 @@ impl Cli {
 			args.push(tracing.clone());
 		}
 		args.push("serve".to_owned());
-		args.push("--ready-fd".to_owned());
-		args.push(ready_fd.to_string());
 		command
 			.args(args)
 			.current_dir("/")
+			.env("NOTIFY_SOCKET", listener.get_ref().path())
 			.stdin(std::process::Stdio::null())
 			.stdout(stdout)
 			.stderr(stderr);
@@ -149,33 +139,39 @@ impl Cli {
 		let mut server = command
 			.spawn()
 			.map_err(|error| tg::error!(!error, "failed to spawn the server"))?;
-		drop(ready_writer);
 
-		// Wait for the server to be ready.
+		// Wait for the server to be ready, to exit, or to time out.
 		let start_timeout = self.server_config().start_timeout;
-		let task = tokio::task::spawn_blocking(move || ready_reader.read_u8());
-		let ready = tokio::time::timeout(start_timeout, task)
-			.await
-			.map_err(|error| tg::error!(!error, "timed out waiting for the server ready signal"))
-			.and_then(|output| {
-				output.map_err(|error| tg::error!(!error, "the server ready task panicked"))
-			})
-			.and_then(|output| {
-				output.map_err(|error| tg::error!(!error, "failed to read the server ready signal"))
-			})
-			.and_then(|byte| {
-				if byte != 0x00 {
-					return Err(tg::error!("received an invalid ready byte {byte}"));
-				}
-				Ok(())
-			});
+		let ready = tokio::time::timeout(start_timeout, async {
+			tokio::select! {
+				result = wait_for_ready(&listener) => {
+					result.map_err(|error| tg::error!(!error, "failed to receive the server ready notification"))
+				},
+				result = server.wait() => {
+					let status = result.map_err(|error| tg::error!(!error, "failed to wait for the server"))?;
+					Err(tg::error!(%status, "the server exited before it was ready"))
+				},
+			}
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "timed out waiting for the server to be ready"))
+		.and_then(|result| result);
+		drop(listener);
+
+		// Stop the server if it did not become ready, and report its log unless a concurrent server is running.
 		if let Err(error) = ready {
 			server.start_kill().ok();
 			server.wait().await.ok();
 			if client.connect().await.is_ok() {
 				return Ok(());
 			}
-			return Err(tg::error!(!error, "failed to start the server"));
+			let log = read_log_tail(&log_path, log_offset).await;
+			let error = if log.is_empty() {
+				tg::error!(!error, "failed to start the server")
+			} else {
+				tg::error!(!error, path = %log_path.display(), "failed to start the server\nlog:\n{log}")
+			};
+			return Err(error);
 		}
 		if client.connect().await.is_err() {
 			return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
@@ -289,4 +285,34 @@ impl Cli {
 		// If the server has still not exited, then return an error.
 		Err(tg::error!("failed to terminate the server"))
 	}
+}
+
+/// Wait for the server to send `READY=1` to the notify socket.
+async fn wait_for_ready(listener: &AsyncFd<tangram_util::notify::Listener>) -> std::io::Result<()> {
+	loop {
+		let mut guard = listener.readable().await?;
+		if guard.get_inner().try_receive_ready()? {
+			return Ok(());
+		}
+		guard.clear_ready();
+	}
+}
+
+/// Read the end of the log that follows the offset.
+async fn read_log_tail(path: &Path, offset: u64) -> String {
+	let Ok(mut file) = tokio::fs::File::open(path).await else {
+		return String::new();
+	};
+	let Ok(metadata) = file.metadata().await else {
+		return String::new();
+	};
+	let start = offset.max(metadata.len().saturating_sub(LOG_TAIL_LENGTH));
+	if file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
+		return String::new();
+	}
+	let mut bytes = Vec::new();
+	if file.read_to_end(&mut bytes).await.is_err() {
+		return String::new();
+	}
+	String::from_utf8_lossy(&bytes).trim().to_owned()
 }

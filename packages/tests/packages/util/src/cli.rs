@@ -3,16 +3,13 @@ use {
 	std::{
 		ffi::OsStr,
 		fs::File,
-		io::Read as _,
-		os::{
-			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
-			unix::process::CommandExt as _,
-		},
+		os::unix::process::CommandExt as _,
 		path::{Path, PathBuf},
 		process::{Child, Command, Stdio},
 		time::Duration,
 	},
 	tangram_client::prelude::*,
+	tokio::io::{Interest, unix::AsyncFd},
 };
 
 /// A server that runs as a `tangram serve` subprocess.
@@ -354,19 +351,16 @@ async fn spawn(
 	path: &Path,
 	url: &tangram_uri::Uri,
 ) -> tg::Result<Child> {
-	// Create the ready pipe. Both ends close on exec, and the child duplicates the write end to descriptor 3.
-	let mut fds = [0; 2];
-	// SAFETY: The array has room for the two descriptors.
-	if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to create the ready pipe"));
-	}
-	for fd in fds {
-		// SAFETY: The descriptor was just created.
-		unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
-	}
-	// SAFETY: The descriptors were just created and are owned by nothing else.
-	let (reader, writer) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+	// Create the notify socket, on which the server sends `READY=1` when it is ready.
+	let listener = tangram_util::notify::Listener::new()
+		.map_err(|error| tg::error!(!error, "failed to create the notify socket"))?;
+	// SAFETY: The listener owns the socket, which stays open and unchanged for the lifetime of the `AsyncFd`.
+	let listener = unsafe { AsyncFd::register_with_interest(listener, Interest::READABLE) }
+		.map_err(|error| tg::error!(!error, "failed to register the notify socket"))?;
+
+	// Listen for SIGCHLD before spawning, so that the server's exit is not missed.
+	let mut sigchld = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
+		.map_err(|error| tg::error!(!error, "failed to listen for SIGCHLD"))?;
 
 	// Create the command, sending its output to the log.
 	let log = File::options()
@@ -386,8 +380,7 @@ async fn spawn(
 		.arg("--url")
 		.arg(url.to_string())
 		.arg("serve")
-		.arg("--ready-fd")
-		.arg("3")
+		.env("NOTIFY_SOCKET", listener.get_ref().path())
 		.process_group(0)
 		.stdin(Stdio::null())
 		.stdout(log)
@@ -397,34 +390,35 @@ async fn spawn(
 	for key in tangram_env_keys() {
 		command.env_remove(key);
 	}
-	let writer_fd = writer.as_raw_fd();
-	// SAFETY: The closure calls only async-signal-safe functions.
-	unsafe {
-		command.pre_exec(move || {
-			if libc::dup2(writer_fd, 3) < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			Ok(())
-		});
-	}
 	let mut child = command.spawn().map_err(
 		|error| tg::error!(!error, path = %tangram.display(), "failed to spawn the server"),
 	)?;
-	drop(writer);
 
-	// Wait for the ready signal. The pipe closes without one if the server exits first.
-	let ready = tokio::task::spawn_blocking(move || {
-		let mut file = File::from(reader);
-		let mut byte = [0u8; 1];
-		file.read(&mut byte)
-	})
-	.await
-	.map_err(|error| tg::error!(!error, "the ready task panicked"))?
-	.map_err(|error| tg::error!(!error, "failed to read the ready signal"))?;
-	if ready == 0 {
-		child.wait().ok();
-		let log = std::fs::read_to_string(temp.join("log")).unwrap_or_default();
-		return Err(tg::error!(%log, "the server exited before it was ready"));
+	// Wait for the ready notification, or for the server to exit first.
+	loop {
+		tokio::select! {
+			result = listener.readable() => {
+				let mut guard = result
+					.map_err(|error| tg::error!(!error, "failed to wait for the notify socket"))?;
+				let ready = guard
+					.get_inner()
+					.try_receive_ready()
+					.map_err(|error| tg::error!(!error, "failed to receive the ready notification"))?;
+				if ready {
+					break;
+				}
+				guard.clear_ready();
+			},
+			_ = sigchld.recv() => {
+				let status = child
+					.try_wait()
+					.map_err(|error| tg::error!(!error, "failed to wait for the server"))?;
+				if let Some(status) = status {
+					let log = std::fs::read_to_string(temp.join("log")).unwrap_or_default();
+					return Err(tg::error!(%log, %status, "the server exited before it was ready"));
+				}
+			},
+		}
 	}
 
 	Ok(child)

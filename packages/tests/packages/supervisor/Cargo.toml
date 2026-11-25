@@ -20,3 +20,4 @@ workspace = true
 [dependencies]
 clap = { workspace = true }
 libc = { workspace = true }
+tangram_util = { workspace = true }

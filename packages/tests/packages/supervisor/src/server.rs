@@ -43,7 +43,11 @@ pub struct StartArgs {
 	#[arg(long)]
 	name: String,
 
-	/// The file descriptor on which the process writes a zero byte when it is ready. Without it, the process is ready once it is spawned.
+	/// Wait for the process to send `READY=1` to the socket in its `NOTIFY_SOCKET` environment variable.
+	#[arg(conflicts_with = "ready_fd", long)]
+	notify: bool,
+
+	/// The file descriptor on which the process writes a zero byte when it is ready. Without it or `--notify`, the process is ready once it is spawned.
 	#[arg(long)]
 	ready_fd: Option<libc::c_int>,
 
@@ -259,7 +263,11 @@ fn supervise_inner(args: &StartArgs, reporter: &mut Option<OwnedFd>) -> Result<u
 		libc::SIGUSR1,
 	])?;
 
-	// Create the readiness and output pipes.
+	// Create the notify socket, and the readiness and output pipes.
+	let notify = args
+		.notify
+		.then(tangram_util::notify::Listener::new)
+		.transpose()?;
 	let ready = args.ready_fd.map(|_| process::pipe()).transpose()?;
 	let (output, output_write) = process::pipe()?;
 	process::set_nonblocking(&output)?;
@@ -271,6 +279,9 @@ fn supervise_inner(args: &StartArgs, reporter: &mut Option<OwnedFd>) -> Result<u
 		.stdin(Stdio::null())
 		.stdout(output_write.try_clone()?)
 		.stderr(output_write);
+	if let Some(notify) = &notify {
+		command.env("NOTIFY_SOCKET", notify.path());
+	}
 	if let (Some(target), Some((_, ready_write))) = (args.ready_fd, &ready) {
 		let source = ready_write.as_raw_fd();
 		// SAFETY: The closure only calls async-signal-safe functions.
@@ -306,7 +317,7 @@ fn supervise_inner(args: &StartArgs, reporter: &mut Option<OwnedFd>) -> Result<u
 		args.directory.join("pid"),
 		format!("{supervisor}\n{server}\n"),
 	)?;
-	if ready.is_none() {
+	if notify.is_none() && ready.is_none() {
 		report(reporter, &Message::Ready);
 	}
 
@@ -316,6 +327,7 @@ fn supervise_inner(args: &StartArgs, reporter: &mut Option<OwnedFd>) -> Result<u
 		.create(true)
 		.open(args.directory.join("log"))?;
 	let mut lines = Lines::new(&args.name);
+	let mut notify = notify;
 	let mut ready = ready;
 	let mut output = Some(output);
 	let status = loop {
@@ -324,6 +336,13 @@ fn supervise_inner(args: &StartArgs, reporter: &mut Option<OwnedFd>) -> Result<u
 			fd: signals.fd(),
 			revents: 0,
 		}];
+		if let Some(notify) = &notify {
+			fds.push(libc::pollfd {
+				events: libc::POLLIN,
+				fd: notify.as_raw_fd(),
+				revents: 0,
+			});
+		}
 		if let Some(ready) = &ready {
 			fds.push(libc::pollfd {
 				events: libc::POLLIN,
@@ -339,6 +358,17 @@ fn supervise_inner(args: &StartArgs, reporter: &mut Option<OwnedFd>) -> Result<u
 			});
 		}
 		process::poll(&mut fds, None)?;
+
+		// Receive the ready notification, and remove the notify socket once it arrives.
+		if let Some(listener) = &notify
+			&& fds
+				.iter()
+				.any(|pollfd| pollfd.fd == listener.as_raw_fd() && pollfd.revents != 0)
+			&& listener.try_receive_ready()?
+		{
+			report(reporter, &Message::Ready);
+			notify = None;
+		}
 
 		// Read the readiness byte.
 		if let Some(fd) = &ready

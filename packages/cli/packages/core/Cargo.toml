@@ -25,7 +25,6 @@ workspace = true
 
 [dependencies]
 anstream = { workspace = true }
-byteorder = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { workspace = true }
 crossterm = { workspace = true }

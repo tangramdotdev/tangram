@@ -7,7 +7,7 @@ let bin_path = $path | path join 'bin'
 mkdir $bin_path
 let tangram_path = $bin_path | path join 'tangram'
 '#!/bin/sh
-printf "\000" >&3
+exec python3 -c "import os, socket; socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM).sendto(b\"READY=1\", os.environ[\"NOTIFY_SOCKET\"])"
 ' | save $tangram_path
 chmod +x $tangram_path
 let marker_path = $env.TMPDIR | path join '.tangram_test_vfs_cleanup'
