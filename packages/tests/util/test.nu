@@ -1029,6 +1029,11 @@ export def "checkpoint unwatch" [checkpoint: record] {
 	tg ...$checkpoint.connection checkpoint unwatch $checkpoint.name $checkpoint.watch
 }
 
+# Read the pid of the server that holds the lock in a directory.
+export def server_pid [directory: string] {
+	open --raw ($directory | path join 'lock') | from json | get pid
+}
+
 # Wait for a process to exit. Unlike polling `ps`, this returns as soon as the process exits.
 export def wait_for_exit [
 	pid: int

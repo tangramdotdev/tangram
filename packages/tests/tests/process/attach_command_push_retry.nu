@@ -60,7 +60,7 @@ success $output "spawn should return while the command push is blocked"
 
 # Terminate the remote, wait for the command push attempt to fail, and then kill and restart the remote, so that the command push must retry against a server that has no attach for its nonce.
 let failure_watch = tg --url $local.url checkpoint watch push.attempt.failed | from json | get watch
-let pid = open ($remote.directory | path join 'lock') | into int
+let pid = server_pid $remote.directory
 kill --signal 15 $pid
 success (tg --url $local.url checkpoint wait --timeout 30s push.attempt.failed $failure_watch 0 | complete) "the command push attempt must fail when the remote terminates"
 # Kill the remote, which may already have exited from its graceful shutdown.

@@ -31,7 +31,7 @@ tg --url $remote.url index
 let output = tg --url $local.url get $sandbox | from json
 assert equal $output.data.status destroyed
 
-let pid = open ($remote.directory | path join lock) | into int
+let pid = server_pid $remote.directory
 kill --signal 2 $pid
 wait_for_exit $pid "the remote should stop"
 

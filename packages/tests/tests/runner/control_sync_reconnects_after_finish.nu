@@ -28,7 +28,7 @@ tg --url $remote.url --token $alice.token index
 assert equal $outcome.exit 0
 assert ($outcome.output.value | str contains 'tokens[') "the indexed outcome must carry authorization before reconnect"
 
-let remote_pid = open ($remote.directory | path join 'lock') | into int
+let remote_pid = server_pid $remote.directory
 kill --signal 9 $remote_pid
 wait_for_exit $remote_pid "the server must exit"
 let remote = server start $remote

@@ -30,7 +30,7 @@ let output = job recv --tag $build --timeout 10sec
 assert equal $output.exit_code 130 'the build should exit after Ctrl-C'
 
 # A terminal sends Ctrl-C to the foreground process group. Signalling only the server PID misses the sandbox launchers that share its group on Linux.
-let pid = open --raw ($local.directory | path join lock) | str trim | into int
+let pid = server_pid $local.directory
 ^kill --signal INT -- $'-($pid)'
 
 # Wait for the graceful shutdown to finish.

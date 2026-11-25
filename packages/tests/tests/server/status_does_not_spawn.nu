@@ -5,9 +5,9 @@ use ../../util/test.nu *
 let directory = mktemp -d
 let output = with-env { TANGRAM_MODE: auto } { tg -d $directory server status | complete }
 success $output
-assert equal ($output.stdout | from json) 'stopped'
+assert equal ($output.stdout | from json) { status: stopped }
 
 # A second status check still reports the server as stopped.
 let output = with-env { TANGRAM_MODE: auto } { tg -d $directory server status | complete }
 success $output
-assert equal ($output.stdout | from json) 'stopped'
+assert equal ($output.stdout | from json) { status: stopped }

@@ -97,13 +97,20 @@ impl Server {
 				"failed to lock the lock file"
 			));
 		}
+
+		// Write the manager and the pid to the lock file in place, because the server holds its lock on this file.
 		let pid = std::process::id();
+		let contents = tg::server::Lock {
+			manager: config.manager,
+			pid,
+		};
+		let bytes = contents.serialize()?;
 		lock.set_len(0)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to truncate the lock file"))?;
-		lock.write_all(pid.to_string().as_bytes())
+		lock.write_all(&bytes)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to write the pid to the lock file"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the lock file"))?;
 		let lock = Mutex::new(Some(lock));
 
 		// Ensure the temp directory exists.

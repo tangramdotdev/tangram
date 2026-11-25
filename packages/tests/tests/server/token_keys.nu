@@ -15,7 +15,7 @@ let local = server restart $local
 success (tg --url $local.url --token $bob.token get $reference | complete) 'the token must be accepted after a graceful restart'
 
 # The token is accepted after an abrupt restart.
-let pid = open ($local.directory | path join 'lock') | into int
+let pid = server_pid $local.directory
 kill --signal 9 $pid
 wait_for_exit $pid 'the server must stop'
 let local = server start $local

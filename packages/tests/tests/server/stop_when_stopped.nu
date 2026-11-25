@@ -6,10 +6,14 @@ let directory = mktemp -d
 let output = tg -d $directory server stop | complete
 success $output 'stopping a server that has never started should succeed'
 
-let local = server spawn
-
-let output = tg -d $local.directory server stop | complete
+let config_path = $directory | path join 'config.json'
+{ vfs: false } | to json | save $config_path
+let tangram = [--config $config_path --directory ($directory | path join 'server') --no-remotes]
+let output = tangram ...$tangram server start | complete
 success $output
 
-let output = tg -d $local.directory server stop | complete
+let output = tangram ...$tangram server stop | complete
+success $output
+
+let output = tangram ...$tangram server stop | complete
 success $output 'stopping an already stopped server should succeed'

@@ -17,7 +17,7 @@ for directory in [true false] {
 	let process = $queued | first | get node
 
 	# Crash the server, remove the sandboxes' directories to leave the state of a crash before the runner created the sandbox's directory if requested, and start the server again.
-	let pid = open ($server.directory | path join 'lock') | into int
+	let pid = server_pid $server.directory
 	kill --signal 9 $pid
 	wait_for_exit $pid
 	if not $directory {

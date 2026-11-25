@@ -59,7 +59,7 @@ let output = job recv --tag $run --timeout 30sec
 success $output "spawn should return while the command push is blocked"
 
 # Crash and restart the remote without removing its runners, so that the command push's connection breaks partway through its transfer.
-let pid = open --raw ($remote.directory | path join lock) | str trim | into int
+let pid = server_pid $remote.directory
 kill --signal 9 $pid
 wait_for_exit $pid "the remote should exit"
 let remote = server start $remote

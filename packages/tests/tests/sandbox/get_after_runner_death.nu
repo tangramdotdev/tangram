@@ -29,7 +29,7 @@ let id = tg --url $local.url build --wait --no-tokens --remote --detach $path | 
 let sandbox = tg --url $remote.url --token $root_token get $id | from json | get sandbox
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) "started"
 
-let runner_pid = open ($runner.directory | path join 'lock') | into int
+let runner_pid = server_pid $runner.directory
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 

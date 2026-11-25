@@ -51,7 +51,7 @@ let start = job spawn {
 	0 | job send --tag $id 0
 }
 checkpoint wait $enqueue | ignore
-let pid = open ($remote.directory | path join 'lock') | into int
+let pid = server_pid $remote.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 job recv --tag $start --timeout 30sec | ignore

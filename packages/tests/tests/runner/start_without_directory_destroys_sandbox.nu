@@ -19,7 +19,7 @@ let runner = server spawn --name runner --config {
 let sandbox = tg --url $remote.url --token $root_token sandbox create --wait --no-tokens | referent node
 
 # Kill the runner, remove the sandboxes' directories, and start the runner again.
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 ^chmod -R u+rwx ($runner.directory | path join 'sandboxes')

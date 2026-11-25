@@ -18,7 +18,7 @@ let sandbox = tg --url $remote.url --token $root_token sandbox create --wait --n
 tg --url $remote.url --token $root_token sandbox stop --wait $sandbox
 
 # Kill the runner, and destroy the stopped sandbox while the scheduler still has the runner.
-let runner_pid = open ($runner.directory | path join 'lock') | into int
+let runner_pid = server_pid $runner.directory
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 success (tg --url $remote.url --token $root_token sandbox destroy $sandbox | complete) "the destroy should be recorded"

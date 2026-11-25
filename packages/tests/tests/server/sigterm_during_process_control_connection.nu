@@ -40,7 +40,7 @@ tg checkpoint unwatch runner.process.start $start_watch
 wait_for_log $local 'started the process'
 
 # Send SIGTERM to the server while process control remains blocked.
-let pid = open ($local.directory | path join 'lock') | into int
+let pid = server_pid $local.directory
 kill --signal 15 $pid
 
 # The server and build request must exit without process control connecting.

@@ -7,15 +7,12 @@ import SwiftUI
 
 private enum AppError: LocalizedError {
 	case failedToStopServer
-	case invalidPidFile
 	case invalidSocketPath
 
 	var errorDescription: String? {
 		switch self {
 		case .failedToStopServer:
 			"failed to stop the server"
-		case .invalidPidFile:
-			"invalid pid file"
 		case .invalidSocketPath:
 			"invalid socket path"
 		}
@@ -70,6 +67,11 @@ private let appGroupIdentifier: String = {
 	}
 	return identifier
 }()
+
+// The content of the server's lock file.
+private struct ServerLock: Decodable {
+	let pid: pid_t
+}
 
 private struct VfsBrokerRequest: Decodable {
 	let dataDirectory: String
@@ -859,7 +861,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
 	private func serverArguments() -> [String] {
 		var arguments = ["-c", configFile.path()]
-		arguments += ["-d", dataDirectory.path(), "serve"]
+		arguments += ["-d", dataDirectory.path(), "serve", "--manager", "app"]
 		return arguments
 	}
 
@@ -933,17 +935,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		model.log += line
 	}
 
+	// Read the pid from the server's lock file, which is empty or invalid when no server holds the lock.
 	private func readServerPid() throws -> pid_t? {
 		do {
-			let contents = try String(contentsOf: pidFile, encoding: .utf8)
-			let string = contents.trimmingCharacters(in: .whitespacesAndNewlines)
-			guard !string.isEmpty else {
+			let data = try Data(contentsOf: pidFile)
+			guard let lock = try? JSONDecoder().decode(ServerLock.self, from: data), lock.pid > 0 else {
 				return nil
 			}
-			guard let pid = pid_t(string), pid > 0 else {
-				throw AppError.invalidPidFile
-			}
-			return pid
+			return lock.pid
 		} catch {
 			if let error = error as? CocoaError, error.code == .fileReadNoSuchFile {
 				return nil

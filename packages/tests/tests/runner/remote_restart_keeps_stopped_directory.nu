@@ -42,7 +42,7 @@ success (tg --url $remote.url --token $root_token run $'--sandbox=($stopped)' $w
 let destroyed = tg --url $remote.url --token $root_token sandbox create --wait --no-tokens --time-to-live 0 | referent node
 
 # Kill the runner, and start it again.
-let runner_pid = open ($runner.directory | path join 'lock') | into int
+let runner_pid = server_pid $runner.directory
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 let runner = server start $runner

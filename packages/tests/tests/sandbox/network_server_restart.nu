@@ -53,7 +53,7 @@ for firewall in [nft iptables] {
 	assert equal ($output.stdout | str trim) a
 
 	# Kill the first server, then restart it in the same directory and publish a port from a new sandbox.
-	let pid = open ($a.directory | path join 'lock') | str trim | into int
+	let pid = server_pid $a.directory
 	sudo -n kill -9 $pid
 	wait_for_exit $pid
 	let a = server start $a

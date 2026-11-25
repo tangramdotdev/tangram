@@ -52,7 +52,7 @@ for kind in [sandbox process] {
 	success (tg --url $runner.url checkpoint wait --timeout 30s $checkpoint $control_watch $control_hit | complete)
 
 	# Leave the handshake blocked and terminate the runner.
-	let pid = open ($runner.directory | path join lock) | into int
+	let pid = server_pid $runner.directory
 	kill --signal 15 $pid
 	wait_for_exit --timeout 20sec $pid "the runner should exit without waiting for the shortcut handshake"
 	job kill $build

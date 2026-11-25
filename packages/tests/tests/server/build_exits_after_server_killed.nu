@@ -27,7 +27,7 @@ let build = job spawn {
 success (tg checkpoint wait --timeout 30s process.stdio.read.ack $watch 0 | complete) 'the viewer must receive the process log'
 
 # Kill the server.
-let pid = open --raw ($server.directory | path join 'lock') | str trim | into int
+let pid = server_pid $server.directory
 kill --signal 9 $pid
 
 # The build must report a wait error within 30 seconds of the server being killed.

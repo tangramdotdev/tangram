@@ -43,7 +43,7 @@ let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 
 success $output "the remote should receive the process start"
 
 # Crash the remote without gracefully removing its runners, then replay the unacknowledged initialization.
-let pid = open --raw ($remote.directory | path join lock) | str trim | into int
+let pid = server_pid $remote.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 let remote = server start $remote

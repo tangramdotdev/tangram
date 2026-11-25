@@ -32,7 +32,7 @@ assert ($refreshed_output.stderr != $first_output.stderr) "the refreshed token s
 advance_time $remote 2sec
 advance_time $local 2sec
 
-let pid = open ($remote.directory | path join lock) | into int
+let pid = server_pid $remote.directory
 kill --signal 2 $pid
 wait_for_exit $pid "the remote should stop"
 

@@ -38,7 +38,7 @@ success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.contr
 tg --url $runner.url checkpoint unwatch runner.process.control.start.succeeded $started_watch
 
 # Crash and restart the remote without removing its runners, so that the child's control connection reconnects with a resume.
-let pid = open --raw ($remote.directory | path join lock) | str trim | into int
+let pid = server_pid $remote.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 let remote = server start $remote

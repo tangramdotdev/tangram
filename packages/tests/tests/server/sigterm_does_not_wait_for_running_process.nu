@@ -18,7 +18,7 @@ let process = tg build --no-tokens --detach $path | referent node
 success (timeout 30s tg log --no-timeout --length 8 $process | complete) "the process must start"
 
 # Send SIGTERM to the server.
-let pid = open ($local.directory | path join 'lock') | into int
+let pid = server_pid $local.directory
 kill --signal 15 $pid
 
 # The server must exit rather than wait for the process to finish.

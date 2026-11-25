@@ -40,7 +40,7 @@ let sandbox = tg --url $remote.url --token $root_token sandbox create --no-token
 success (tg --url $remote.url --token $root_token run $'--sandbox=($sandbox)' $write | complete) "the write should succeed"
 
 # Kill the runner, then start it again and wait for its connection to stop the sandbox.
-let runner_pid = open ($runner.directory | path join 'lock') | into int
+let runner_pid = server_pid $runner.directory
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 let runner = server start $runner

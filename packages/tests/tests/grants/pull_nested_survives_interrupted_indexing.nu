@@ -17,7 +17,7 @@ let directory_id = tg --url $local_producer.url --token $root_token put --no-tok
 tg --url $local_producer.url --token $root_token grant public object_subtree $nested_id | ignore
 tg --url $local_producer.url --token $root_token checkpoint wait index.write $watch 0 | ignore
 
-let pid = open ($local_producer.directory | path join 'lock') | into int
+let pid = server_pid $local_producer.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 

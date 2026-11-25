@@ -1,5 +1,5 @@
 use {
-	crate::{Cli, Mode, version},
+	crate::{Cli, Mode, server::Stop, version},
 	tangram_client::prelude::*,
 };
 
@@ -106,24 +106,29 @@ impl Cli {
 			if let Some(server_version) =
 				server_version.filter(|server_version| version() != *server_version)
 			{
-				if !self.args.quiet.get() {
-					let diagnostic = tg::Diagnostic {
-						location: None,
-						message: format!(
-							"the server version ({server_version}) differs from the CLI version ({}); restarting the local server",
-							version()
-						),
-						severity: tg::diagnostic::Severity::Warning,
-					};
-					self.print_diagnostic(tg::Referent::with_node(diagnostic))
-						.await;
-				}
+				// Stop the server if `tangram server start` started it, and otherwise leave it running, so that the version mismatch warning is printed.
 				client.disconnect().await;
-				self.stop_server().await?;
-				self.spawn_server(&client).await.map_err(
-					|error| tg::error!(!error, url = %client.url(), "failed to start the server"),
-				)?;
-				self.health.take();
+				let stop = self.try_stop_server().await?;
+
+				// Start the server again if it stopped.
+				if let Stop::Stopped = stop {
+					if !self.args.quiet.get() {
+						let diagnostic = tg::Diagnostic {
+							location: None,
+							message: format!(
+								"the server version ({server_version}) differs from the CLI version ({}); restarting the local server",
+								version()
+							),
+							severity: tg::diagnostic::Severity::Warning,
+						};
+						self.print_diagnostic(tg::Referent::with_node(diagnostic))
+							.await;
+					}
+					self.spawn_server(&client).await.map_err(
+						|error| tg::error!(!error, url = %client.url(), "failed to start the server"),
+					)?;
+					self.health.take();
+				}
 			}
 		}
 

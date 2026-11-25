@@ -41,7 +41,7 @@ wait_for_log $second_runner 'the runner is ready to accept work'
 # Hold both runners' next connections, and crash the scheduler before its handoff write.
 let first_connection = checkpoint watch runner.connection.start --token $root --url $gateway.url --params { runner: $first.data.id }
 let second_connection = checkpoint watch runner.connection.start --token $root --url $gateway.url --params { runner: $second.data.id }
-let pid = open ($scheduler.directory | path join 'lock') | into int
+let pid = server_pid $scheduler.directory
 kill --signal 9 $pid
 wait_for_exit $pid "the scheduler must exit"
 let scheduler = server start $scheduler
@@ -53,7 +53,7 @@ checkpoint pass $added | ignore
 checkpoint unwatch $added
 
 # Crash the first runner and start it again before the recovery ends.
-let pid = open ($first_runner.directory | path join 'lock') | into int
+let pid = server_pid $first_runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid "the first runner must exit"
 let added = checkpoint watch scheduler.runner.added --token $root --url $scheduler.url --params { runner: $first.data.id }

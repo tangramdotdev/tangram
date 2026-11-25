@@ -28,7 +28,7 @@ let runner = server start $runner
 tg --url $remote.url --token $root_token sandbox create --wait --no-tokens | referent node | ignore
 
 # Crash the runner, and replace it with one that has the same ID and a fresh directory.
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 let runner = server spawn --name fresh --config $config

@@ -22,7 +22,7 @@ let local = server spawn --name local --config {
 
 let sandbox = tg --url $remote_alpha.url sandbox create --no-tokens --no-network | referent node
 
-let pid = open ($remote_zeta.directory | path join lock) | into int
+let pid = server_pid $remote_zeta.directory
 kill --signal 2 $pid
 wait_for_exit $pid "the zeta remote should stop"
 

@@ -28,7 +28,7 @@ checkpoint pass $enqueued
 checkpoint unwatch $enqueued
 
 # Kill the runner and advance the remote's clock past the runner ttl so that the scheduler expires it.
-let runner_pid = open ($runner.directory | path join 'lock') | into int
+let runner_pid = server_pid $runner.directory
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 advance_time $remote 4sec

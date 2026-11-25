@@ -3,7 +3,7 @@ use ../../util/test.nu *
 # Index updates committed without an indexer are applied in commit order by a later indexer.
 
 def stop [instance: record] {
-	let pid = open ($instance.directory | path join 'lock') | into int
+	let pid = server_pid $instance.directory
 	kill --signal 2 $pid
 	wait_for_exit $pid
 }

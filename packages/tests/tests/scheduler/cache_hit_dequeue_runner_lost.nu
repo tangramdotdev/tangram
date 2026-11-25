@@ -47,7 +47,7 @@ checkpoint pass $cached | ignore
 checkpoint unwatch $cached
 
 # Lose the runner before it answers the offer.
-let pid = open ($runner.directory | path join 'lock') | into int
+let pid = server_pid $runner.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 

@@ -115,6 +115,7 @@ pub mod runner;
 pub mod sandbox;
 pub mod scheduler;
 pub mod selector;
+pub mod server;
 pub mod specifier;
 pub mod storage;
 pub mod store;

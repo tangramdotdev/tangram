@@ -15,7 +15,7 @@ for io in $transports {
 	success (^stat -L $path | complete)
 
 	# Pause the server so a second request cannot be mistaken for a cache hit.
-	let pid = open ($local.directory | path join lock) | into int
+	let pid = server_pid $local.directory
 	let parent = job id
 	kill --signal 19 $pid
 	job spawn {

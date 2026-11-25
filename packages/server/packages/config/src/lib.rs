@@ -51,6 +51,8 @@ pub struct Config {
 
 	pub instance: Option<String>,
 
+	pub manager: Option<tg::server::Manager>,
+
 	pub messenger: Messenger,
 
 	pub object: Object,
@@ -2252,6 +2254,7 @@ impl Default for Config {
 			index: Index::default(),
 			indexer: Indexer::default(),
 			instance: None,
+			manager: None,
 			messenger: Messenger::default(),
 			object: Object::default(),
 			pagination: Pagination::default(),

@@ -68,7 +68,7 @@ let process = tg --url $local.url build --no-tokens --detach --remote $path | re
 # scheduler before the parent requests its child sandbox.
 tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | ignore
 
-let pid = open ($remote.directory | path join 'lock') | into int
+let pid = server_pid $remote.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 

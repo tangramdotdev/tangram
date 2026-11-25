@@ -39,7 +39,7 @@ checkpoint wait $submitted | ignore
 let index = checkpoint watch scheduler.runner.index --params { runner: $created.data.id } --token $root_token --url $remote.url
 
 # Kill the runner and advance the remote's clock past the runner ttl, so that the scheduler removes the runner.
-let runner_pid = open ($runner.directory | path join 'lock') | into int
+let runner_pid = server_pid $runner.directory
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 advance_time $remote 4sec

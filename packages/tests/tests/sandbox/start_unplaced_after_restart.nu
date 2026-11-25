@@ -12,7 +12,7 @@ let started = tg sandbox create --wait --no-tokens --cpu 1 | referent node
 let queued = tg sandbox create --no-tokens --cpu 1 | referent node
 
 # Kill the server while the second sandbox is queued, and start it again.
-let pid = open ($local.directory | path join 'lock') | into int
+let pid = server_pid $local.directory
 kill --signal 9 $pid
 wait_for_exit $pid
 let local = server start $local

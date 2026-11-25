@@ -25,7 +25,7 @@ success (timeout 30s tg log --no-timeout --length 8 $process | complete) "the pr
 print -e 'the process is running'
 
 # Kill the server.
-let pid = open ($local.directory | path join 'lock') | into int
+let pid = server_pid $local.directory
 print -e $'killing the server ($pid)'
 kill --signal 9 $pid
 wait_for_exit $pid "the server must stop"

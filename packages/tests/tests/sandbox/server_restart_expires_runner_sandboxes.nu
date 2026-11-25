@@ -17,7 +17,7 @@ let sandbox = tg --url $remote.url --token $root_token sandbox create --wait --n
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) started
 
 # Kill the runner and then the remote, and start the remote again without the runner.
-let runner_pid = open ($runner.directory | path join 'lock') | into int
+let runner_pid = server_pid $runner.directory
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 kill --signal 9 $remote.pid
