@@ -20,6 +20,7 @@ use {
 		Session, checkin,
 		checkin::TaskOutput,
 		checkpoint,
+		temp::Temp,
 		watch::{self, Watch},
 	},
 	tracing::Instrument as _,
@@ -84,16 +85,26 @@ impl Component {
 }
 
 impl Component {
+	pub(crate) async fn checkin(
+		&self,
+		session: &Session,
+		arg: tg::checkin::Arg,
+	) -> tg::Result<checkin::Stream> {
+		let options = checkin::Options::default();
+		self.checkin_with_options(session, arg, options).await
+	}
+
 	#[tracing::instrument(
-		fields(path = ?arg.path, root = arg.options.root),
+		fields(path = ?arg.path, root = arg.options.root, trusted = options.trusted),
 		level = "trace",
 		name = "checkin",
 		skip_all
 	)]
-	pub(crate) async fn checkin(
+	pub(crate) async fn checkin_with_options(
 		&self,
 		session: &Session,
 		mut arg: tg::checkin::Arg,
+		options: checkin::Options,
 	) -> tg::Result<checkin::Stream> {
 		if !session.server.checkouts_enabled() {
 			return Err(tg::error!("checkouts are disabled"));
@@ -152,6 +163,25 @@ impl Component {
 				.map_err(|error| tg::error!(!error, "failed to find the root path"))?
 		};
 
+		// For an untrusted destructive checkin, check in a copy of the root with the same name in a temp, so that a writer of the original cannot change the checked-in files.
+		let path = arg.path.clone();
+		let (root, copy) = if arg.options.destructive && !options.trusted {
+			let temp = Temp::new(&session.server);
+			let name = root
+				.file_name()
+				.ok_or_else(|| tg::error!(path = %root.display(), "the root must have a name"))?;
+			let copy = temp.path().join(name);
+			let relative = arg.path.strip_prefix(&root).unwrap();
+			arg.path = if relative.as_os_str().is_empty() {
+				copy.clone()
+			} else {
+				copy.join(relative)
+			};
+			(copy, Some((root, temp)))
+		} else {
+			(root, None)
+		};
+
 		// Get or spawn the checkin task for the root.
 		let key = TaskKey {
 			options: arg.options.clone(),
@@ -170,7 +200,8 @@ impl Component {
 				let root = root.clone();
 				async move {
 					let result = AssertUnwindSafe(
-						component.checkin_task(&session, arg, &root, ignorer, &progress),
+						component
+							.checkin_task_with_copy(&session, arg, &root, ignorer, &progress, copy),
 					)
 					.catch_unwind()
 					.boxed()
@@ -211,7 +242,7 @@ impl Component {
 
 		// Spawn the task.
 		let now = session.server.clock.unix_timestamp();
-		let path = arg.path.clone();
+		let checkin_path = arg.path.clone();
 		let task = Task::spawn({
 			let component = self.clone();
 			let session = session.clone();
@@ -244,7 +275,7 @@ impl Component {
 				};
 
 				// Look up the path in the graph.
-				let Some(index) = output.graph.paths.get(&path).copied() else {
+				let Some(index) = output.graph.paths.get(&checkin_path).copied() else {
 					progress.error(tg::error!("failed to get the node"));
 					return;
 				};
@@ -402,6 +433,54 @@ impl Component {
 			data.children(children);
 		});
 		graph.nodes.get_mut(&index).unwrap().object_complete = true;
+	}
+
+	// Check in the artifact, after copying the original root to the root in the temp if there is a copy, and then remove the original root.
+	async fn checkin_task_with_copy(
+		&self,
+		session: &Session,
+		arg: tg::checkin::Arg,
+		root: &Path,
+		ignorer: Option<ignore::Ignorer>,
+		progress: &tg::progress::Handle<TaskOutput>,
+		copy: Option<(PathBuf, Temp)>,
+	) -> tg::Result<TaskOutput> {
+		let Some((original, temp)) = copy else {
+			return self
+				.checkin_task(session, arg, root, ignorer, progress)
+				.await;
+		};
+
+		// Copy the original root to the temp.
+		progress.spinner("copying", "copying");
+		tokio::task::spawn_blocking({
+			let original = original.clone();
+			let root = root.to_owned();
+			let temp = temp.path().to_owned();
+			move || {
+				std::fs::create_dir(&temp).map_err(
+					|error| tg::error!(!error, path = %temp.display(), "failed to create the temp"),
+				)?;
+				Self::checkin_checkout_destructive_copy_inner(&original, &root)
+			}
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "the checkin copy task panicked"))?
+		.map_err(|error| tg::error!(!error, "failed to copy the root"))?;
+		progress.finish("copying");
+
+		// Check in the copy.
+		let output = self
+			.checkin_task(session, arg, root, ignorer, progress)
+			.await?;
+
+		// Remove the original root and the temp.
+		tangram_util::fs::remove(&original).await.map_err(
+			|error| tg::error!(!error, path = %original.display(), "failed to remove the root"),
+		)?;
+		drop(temp);
+
+		Ok(output)
 	}
 
 	// Check in the artifact.
@@ -1138,6 +1217,15 @@ impl tangram_server_core::checkin::Component for Component {
 		arg: tg::checkin::Arg,
 	) -> BoxFuture<'a, tg::Result<checkin::Stream>> {
 		self.checkin(session, arg).boxed()
+	}
+
+	fn checkin_with_options<'a>(
+		&'a self,
+		session: &'a Session,
+		arg: tg::checkin::Arg,
+		options: checkin::Options,
+	) -> BoxFuture<'a, tg::Result<checkin::Stream>> {
+		self.checkin_with_options(session, arg, options).boxed()
 	}
 
 	fn checkin_request<'a>(
