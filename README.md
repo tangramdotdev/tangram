@@ -198,6 +198,17 @@ To publish a multiarchitecture image index:
 tg run .#imagePublish -- --tag ghcr.io/tangramdotdev/tangram:latest
 ```
 
+The release script builds a separate runtime image from each staged GNU Linux
+binary with `packages/linux/image/Dockerfile`, and saves it under
+`release/image/`. It has the same layout as the Linux packages: the
+configuration is at `/etc/tangram/config.json`, and the server's state is in a
+volume at `/var/lib/tangram`. To run the server and use it:
+
+```nu
+docker run --detach --name tangram --privileged --volume tangram:/var/lib/tangram ghcr.io/tangramdotdev/tangram:<version>-amd64
+docker exec tangram tg health
+```
+
 Keep build and runtime libc versions aligned rather than copying a binary
 linked on a rolling host into an older runtime image. ARM execution and build
 workloads still need verification on native ARM hardware.

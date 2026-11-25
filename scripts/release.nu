@@ -46,6 +46,7 @@ The pull stage pulls the tags for the commit of this checkout from the default r
 A push does not replace a tag that has a different target unless --force is passed.
 Each staged target includes its source revision and file checksums. Push and package reject stale or changed files, and macOS targets require both the helper and its matching provider library.
 The package stage signs Linux repositories using the authenticated cf CLI.
+The package stage builds a container image for each GNU Linux target with Docker Buildx, and saves it under release/image/.
 Signed macOS packaging requires a Mac and a positive --build-number, and includes Tangram.dmg and its Sparkle appcast.
 The package stage signs and notarizes the macOS binaries when TANGRAM_APPLE_P12, TANGRAM_APPLE_P12_PASSWORD_FILE, and TANGRAM_APPLE_API_KEY are set.
 Downloaded keys are stored temporarily under keys/. Use --no-sign for local unsigned packages.
@@ -423,6 +424,7 @@ exec tg run -b "$@"
 				}
 				^nu packages/linux/deb/package.nu $archive $architectures.deb $version
 				^nu packages/linux/rpm/package.nu $archive $architectures.rpm $version
+				^nu packages/linux/image/package.nu $archive $architectures.deb $version
 			}
 			aarch64-linux-musl | x86_64-linux-musl => {
 				let architecture = $target | str replace '-linux-musl' ''
