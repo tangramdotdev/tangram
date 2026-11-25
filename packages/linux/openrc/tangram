@@ -5,6 +5,7 @@ command=/usr/bin/tangram
 command_args="serve --config /etc/tangram/config.json --directory /var/lib/tangram --group-access"
 command_user=root:tangram
 supervisor=supervise-daemon
+notify=socket:ready
 pidfile=/run/tangram.pid
 umask=0077
 

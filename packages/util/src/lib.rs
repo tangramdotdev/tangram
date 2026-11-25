@@ -6,6 +6,7 @@ pub mod fs;
 pub mod interrupt;
 pub mod io;
 pub mod iter;
+pub mod notify;
 pub mod path;
 pub mod read;
 pub mod serde;

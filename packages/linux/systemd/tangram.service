@@ -3,7 +3,8 @@ Description=Tangram server
 After=network.target
 
 [Service]
-Type=exec
+Type=notify
+NotifyAccess=main
 User=root
 Group=tangram
 UMask=0077
