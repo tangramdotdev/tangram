@@ -3,13 +3,22 @@ use {
 		Component, {CacheArgs, Contents, Graph, IndexObjectArgs},
 	},
 	futures::{StreamExt as _, TryStreamExt as _, stream},
-	std::collections::{BTreeMap, BTreeSet},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		io::Write as _,
+	},
 	tangram_client::prelude::*,
-	tangram_server_core::{Session, temp::Temp, write::Destination},
+	tangram_server_core::{Session, config::CheckinCopy, temp::Temp, write::Destination},
 };
 
 /// The temps that hold the copies of the files that were hashed, by node index.
 pub(super) type Temps = BTreeMap<usize, Temp>;
+
+/// A reader that writes every byte that it reads to an output.
+struct Tee {
+	input: std::fs::File,
+	output: std::fs::File,
+}
 
 pub(super) struct CheckinCreateBlobsArg<'a> {
 	pub arg: &'a tg::checkin::Arg,
@@ -62,7 +71,8 @@ impl Component {
 		);
 
 		let checkout_pointers = arg.options.checkout_pointers;
-		let copy = checkout_pointers && !arg.options.destructive;
+		let copy = (checkout_pointers && !arg.options.destructive)
+			.then_some(session.server.config.checkin.copy);
 		let outputs = stream::iter(nodes)
 			.map(|(index, path, _)| {
 				let progress = progress.clone();
@@ -71,23 +81,41 @@ impl Component {
 					let (blob, temp) = tokio::task::spawn_blocking({
 						let path = path.clone();
 						move || {
-							// Copy the file to a temp, so that the bytes that are hashed are the bytes that are checked out.
-							let temp = copy.then(|| Temp::new(&session.server));
-							if let Some(temp) = &temp {
-								reflink_copy::reflink_or_copy(&path, temp.path()).map_err(
-									|error| tg::error!(!error, path = %path.display(), "failed to copy the file"),
-								)?;
-							}
-
-							// Hash the file.
-							let path = temp.as_ref().map_or(path.as_path(), Temp::path);
-							let mut file = std::fs::File::open(path).map_err(
-								|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
-							)?;
+							// Hash the file, copying it to a temp first if it is checked out, so that the bytes that are hashed are the bytes that are checked out.
 							let destination = if checkout_pointers {
 								None
 							} else {
 								Some(Destination::Cache)
+							};
+							let temp = copy.map(|_| Temp::new(&session.server));
+							let mut reader: Box<dyn std::io::Read> = match (copy, &temp) {
+								(Some(CheckinCopy::Reflink), Some(temp)) => {
+									reflink_copy::reflink_or_copy(&path, temp.path()).map_err(
+										|error| tg::error!(!error, path = %path.display(), "failed to copy the file"),
+									)?;
+									let file = std::fs::File::open(temp.path()).map_err(
+										|error| tg::error!(!error, path = %temp.path().display(), "failed to open the file"),
+									)?;
+									Box::new(file)
+								},
+								(Some(CheckinCopy::Stream), Some(temp)) => {
+									let file = std::fs::File::open(&path).map_err(
+										|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
+									)?;
+									let output = std::fs::File::create_new(temp.path()).map_err(
+										|error| tg::error!(!error, path = %temp.path().display(), "failed to create the file"),
+									)?;
+									Box::new(Tee {
+										input: file,
+										output,
+									})
+								},
+								_ => {
+									let file = std::fs::File::open(&path).map_err(
+										|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
+									)?;
+									Box::new(file)
+								},
 							};
 							let blob = session
 								.server
@@ -95,13 +123,26 @@ impl Component {
 								.write
 								.write_inner_sync(
 									&session,
-									&mut file,
+									&mut reader,
 									destination.as_ref(),
 									&progress,
 								)
 								.map_err(
 									|error| tg::error!(!error, path = %path.display(), "failed to create the blob"),
 								)?;
+							drop(reader);
+
+							// Give a streamed copy the file's permissions, as a reflink does.
+							if let (Some(CheckinCopy::Stream), Some(temp)) = (copy, &temp) {
+								let permissions = std::fs::metadata(&path)
+									.map_err(
+										|error| tg::error!(!error, path = %path.display(), "failed to get the metadata"),
+									)?
+									.permissions();
+								std::fs::set_permissions(temp.path(), permissions).map_err(
+									|error| tg::error!(!error, path = %temp.path().display(), "failed to set permissions"),
+								)?;
+							}
 
 							Ok::<_, tg::Error>((blob, temp))
 						}
@@ -194,5 +235,13 @@ impl Component {
 		}
 
 		Ok(temps)
+	}
+}
+
+impl std::io::Read for Tee {
+	fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+		let length = self.input.read(buffer)?;
+		self.output.write_all(&buffer[..length])?;
+		Ok(length)
 	}
 }

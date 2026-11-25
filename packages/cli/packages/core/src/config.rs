@@ -620,6 +620,9 @@ pub struct Checkin {
 	pub checkout: Option<CheckinCheckout>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub copy: Option<CheckinCopy>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub solve: Option<CheckinSolve>,
 }
 
@@ -640,6 +643,13 @@ pub struct CheckinCheckout {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckinCopy {
+	Reflink,
+	Stream,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]

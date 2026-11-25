@@ -361,6 +361,9 @@ pub struct Checkin {
 
 	pub checkout: CheckinCheckout,
 
+	/// How a checkin with checkout pointers copies each file to a temp before it hashes the copy.
+	pub copy: CheckinCopy,
+
 	pub solve: CheckinSolve,
 }
 
@@ -374,6 +377,16 @@ pub struct CheckinCheckout {
 	pub batch_size: usize,
 
 	pub concurrency: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CheckinCopy {
+	/// Reflink the file to the temp, falling back to a byte copy where the filesystem cannot reflink, and then hash the temp.
+	#[default]
+	Reflink,
+
+	/// Read the file once, writing the temp while hashing the bytes that are read.
+	Stream,
 }
 
 #[derive(Clone, Debug)]
