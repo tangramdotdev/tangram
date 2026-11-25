@@ -1,7 +1,7 @@
 use {
 	crate::{Component, Directory, File, Graph, Node, Symlink, Variant},
 	std::{
-		collections::BTreeMap,
+		collections::{BTreeMap, BTreeSet},
 		os::unix::fs::PermissionsExt as _,
 		path::{Path, PathBuf},
 	},
@@ -223,6 +223,17 @@ impl Component {
 				.map_err(|error| tg::error!(!error, "failed to ignore"))?
 				.is_some_and(|ignore| ignore)
 		{
+			// Record the name of an ignored directory entry, so that a watch can tell it from an entry that the checkin did not see.
+			if let Some(Parent {
+				index,
+				variant: ParentVariant::DirectoryEntry(name),
+			}) = item.parent
+				&& let Variant::Directory(directory) =
+					&mut state.graph.nodes.get_mut(&index).unwrap().variant
+			{
+				directory.ignored.insert(name);
+			}
+
 			return Ok(());
 		}
 
@@ -230,6 +241,7 @@ impl Component {
 		let variant = if metadata.is_dir() {
 			Variant::Directory(Directory {
 				entries: BTreeMap::new(),
+				ignored: BTreeSet::new(),
 			})
 		} else if metadata.is_file() {
 			Variant::File(File {
@@ -333,6 +345,7 @@ impl Component {
 		let read_dir = std::fs::read_dir(path).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to read the directory"),
 		)?;
+		let mut ignored = BTreeSet::new();
 		let mut names = Vec::new();
 		for result in read_dir {
 			let entry =
@@ -343,9 +356,17 @@ impl Component {
 				.ok_or_else(|| tg::error!("expected the entry name to be a string"))?
 				.to_owned();
 			if name == ".tangram" {
+				ignored.insert(name);
 				continue;
 			}
 			names.push(name);
+		}
+
+		// Record the names of the ignored entries.
+		if let Variant::Directory(directory) =
+			&mut state.graph.nodes.get_mut(&index).unwrap().variant
+		{
+			directory.ignored.extend(ignored);
 		}
 
 		// Sort the entries.

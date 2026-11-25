@@ -1148,7 +1148,8 @@ impl Component {
 					.await?;
 				let entries = collected.entries;
 				directory_options = collected.options;
-				Variant::Directory(Directory { entries })
+				let ignored = std::collections::BTreeSet::new();
+				Variant::Directory(Directory { entries, ignored })
 			},
 			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
 				let contents = if let Some(id) = file.contents {
@@ -1305,7 +1306,8 @@ impl Component {
 					.await?;
 				let entries = collected.entries;
 				directory_options = collected.options;
-				Variant::Directory(Directory { entries })
+				let ignored = std::collections::BTreeSet::new();
+				Variant::Directory(Directory { entries, ignored })
 			},
 
 			tg::graph::data::Node::File(file) => {

@@ -1,7 +1,7 @@
 use {
 	smallvec::SmallVec,
 	std::{
-		collections::{BTreeMap, HashSet},
+		collections::{BTreeMap, BTreeSet, HashSet},
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
@@ -49,6 +49,9 @@ pub enum Variant {
 #[derive(Clone, Debug)]
 pub struct Directory {
 	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
+
+	/// The names of the entries that the checkin ignored.
+	pub ignored: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug)]

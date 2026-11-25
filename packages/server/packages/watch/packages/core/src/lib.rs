@@ -7,7 +7,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{task::Shared, task::Task},
-	tangram_server_checkin_core::{Graph, Solutions, lockfile_path, try_read_lock},
+	tangram_server_checkin_core::{Graph, Solutions, Variant, lockfile_path, try_read_lock},
 	tangram_server_clock_core::Clock,
 };
 
@@ -443,18 +443,31 @@ impl Watch {
 					.await
 					.map_err(|error| tg::error!(!error, "the indexing task panicked"))
 					.and_then(|result| result);
-				let state = state.lock().unwrap();
-				if state.version != version {
+				let snapshot = {
+					let state = state.lock().unwrap();
+					if state.version != version {
+						continue;
+					}
+					result?;
+					state.snapshot(id)
+				};
+
+				// Find the paths that changed and whose events have not arrived, without holding the lock.
+				let graph = snapshot.graph.clone();
+				let paths = tokio::task::spawn_blocking(move || State::changed_paths(&graph, 0))
+					.await
+					.map_err(|error| tg::error!(!error, "the changed paths task panicked"))?;
+				if paths.is_empty() {
+					return Ok(snapshot);
+				}
+
+				// Remove the nodes for the paths, unless the state changed in the meantime.
+				let mut state = state.lock().unwrap();
+				if state.version != snapshot.version {
 					continue;
 				}
-				result?;
-				let snapshot = Snapshot {
-					graph: state.graph.clone(),
-					id,
-					lock: state.lock.clone(),
-					solutions: state.solutions.clone(),
-					version: state.version,
-				};
+				state.remove_changed_paths(&paths);
+				let snapshot = state.snapshot(id);
 
 				return Ok(snapshot);
 			}
@@ -575,6 +588,16 @@ impl Watch {
 }
 
 impl State {
+	fn snapshot(&self, id: Id) -> Snapshot {
+		Snapshot {
+			graph: self.graph.clone(),
+			id,
+			lock: self.lock.clone(),
+			solutions: self.solutions.clone(),
+			version: self.version,
+		}
+	}
+
 	fn can_publish(&self, graph: &Graph, version: u64) -> bool {
 		if self.version == version {
 			return true;
@@ -610,8 +633,30 @@ impl State {
 			{
 				true
 			},
+			(None, Ok(_)) if graph_index.is_none() => Self::graph_ignores_path(graph, path),
 			_ => false,
 		}
+	}
+
+	// Whether the graph ignores a path, which is the case if the nearest directory above the path that is in the graph ignored the entry that leads to the path.
+	fn graph_ignores_path(graph: &Graph, path: &Path) -> bool {
+		let mut child = path;
+		while let Some(parent) = child.parent() {
+			let Some(index) = graph.paths.get(parent) else {
+				child = parent;
+				continue;
+			};
+			let Some(name) = child.file_name().and_then(|name| name.to_str()) else {
+				return false;
+			};
+			let node = graph.nodes.get(index).unwrap();
+			return match &node.variant {
+				Variant::Directory(directory) => directory.ignored.contains(name),
+				Variant::File(_) | Variant::Object | Variant::Symlink(_) => false,
+			};
+		}
+
+		false
 	}
 
 	fn metadata_matches(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
@@ -648,8 +693,9 @@ impl State {
 			},
 		};
 
-		// Remove the nodes for paths that changed after the checkin read them and before they were watched.
-		self.remove_changed_paths(next);
+		// Remove the nodes for paths that changed after the checkin read them and before they were watched, because no event reports such a change.
+		let paths = Self::changed_paths(&self.graph, next);
+		self.remove_changed_paths(&paths);
 	}
 
 	fn try_watch_paths(&mut self, next: usize) -> tg::Result<usize> {
@@ -670,26 +716,28 @@ impl State {
 		Ok(next)
 	}
 
-	fn remove_changed_paths(&mut self, next: usize) {
-		// Find the paths read by the checkin whose metadata no longer matches the graph, because no event reports a change made before a path was watched.
-		let paths = self
-			.graph
+	// Find the paths of the nodes from `next` whose metadata no longer matches the graph.
+	fn changed_paths(graph: &Graph, next: usize) -> Vec<PathBuf> {
+		graph
 			.nodes
 			.range(next..)
-			.filter_map(|(_, node)| node.path.clone())
-			.filter(|path| !Self::graph_matches_path(&self.graph, path))
-			.collect::<Vec<_>>();
+			.filter_map(|(_, node)| node.path.as_ref())
+			.filter(|path| !Self::graph_matches_path(graph, path))
+			.cloned()
+			.collect()
+	}
+
+	// Remove the nodes for paths that changed and invalidate any checkins that read the paths before the change.
+	fn remove_changed_paths(&mut self, paths: &[PathBuf]) {
 		if paths.is_empty() {
 			return;
 		}
-
-		// Remove the nodes and invalidate any checkins that read the paths before the change.
-		for path in &paths {
-			tracing::trace!(path = %path.display(), "changed before it was watched");
+		for path in paths {
+			tracing::trace!(path = %path.display(), "changed before its event");
 			self.remove_path(path);
 		}
 		self.version += 1;
-		self.invalidated_paths.extend(paths);
+		self.invalidated_paths.extend(paths.iter().cloned());
 	}
 
 	fn remove_descendants(&mut self, path: &Path) -> bool {
