@@ -272,20 +272,16 @@ def push [selected_targets: list<string>, force: bool] {
 
 def pull [selected_targets: list<string>] {
 	let commit = ^python3 scripts/version.py | str trim
-	let candidates = if ($selected_targets | is-empty) { $targets } else { $selected_targets }
+	let selected_targets = if ($selected_targets | is-empty) { tagged-targets $commit } else { $selected_targets }
 	mkdir release
 	let temporary = ^mktemp -d release/.pull.XXXXXXXX | str trim
-	let pulled = try {
-		$candidates | each {|target|
+	try {
+		for target in $selected_targets {
 			let tag = release-tag $commit $target
 
 			# Pull the tag, and replace a local tag that has a different target, because the remote decides what the tag is.
 			let output = ^tg pull --force $tag | complete
 			if $output.exit_code != 0 {
-				# Skip a target that is not tagged unless it was selected.
-				if ($selected_targets | is-empty) and ($output.stderr | str contains 'failed to get the reference') {
-					return null
-				}
 				error make {msg: $'failed to pull ($tag): ($output.stderr | str trim)'}
 			}
 
@@ -294,17 +290,28 @@ def pull [selected_targets: list<string>] {
 			^tg checkout --no-lock $tag $'--path=($directory | path expand)' | ignore
 			stage install $directory $target $commit
 			print $'staged ($target)'
-			$target
-		} | compact
+		}
 	} catch {|error|
 		rm -rf $temporary
 		error make $error.raw
 	}
 	^chmod -R u+w $temporary
 	rm -rf $temporary
-	if ($pulled | is-empty) {
-		error make {msg: $'no release targets are tagged under ($tag_prefix)/($commit)'}
+}
+
+# List the targets that are tagged on the remote for a commit. Do not use a cached listing, which can omit a target and hide a remote that cannot be reached, because a pull of a tag fails in the same way when the tag does not exist and when the remote cannot be reached.
+def tagged-targets [commit: string] {
+	let parent = $'($tag_prefix)/($commit)'
+	let output = ^tg list --all --remote --ttl 0 $parent | complete
+	if $output.exit_code != 0 {
+		error make {msg: $'failed to list the release targets that are tagged under ($parent): ($output.stderr | str trim)'}
 	}
+	let names = $output.stdout | from json | get specifier | each {|specifier| $specifier | split row '/' | last }
+	let tagged = $targets | where {|target| $target in $names }
+	if ($tagged | is-empty) {
+		error make {msg: $'no release targets are tagged under ($parent)'}
+	}
+	$tagged
 }
 
 def package [selected_targets: list<string>, version: string, sign: bool, build_number: string] {
@@ -332,6 +339,15 @@ def package [selected_targets: list<string>, version: string, sign: bool, build_
 		let binary = staged-binary $target
 		if ($binary | path type) != file or (^test -x $binary | complete).exit_code != 0 {
 			error make {msg: $'expected a staged executable at ($binary)'}
+		}
+	}
+
+	# Check before packaging that this machine runs containers for the architecture of each container image, because its Dockerfile runs commands in the image.
+	for target in ($selected_targets | where {|target| $target ends-with '-linux-gnu' }) {
+		let platform = if ($target starts-with 'aarch64-') { 'linux/arm64' } else { 'linux/amd64' }
+		let output = ^docker run --rm --platform $platform debian:trixie-slim true | complete
+		if $output.exit_code != 0 {
+			error make {msg: $'this machine cannot run ($platform) containers, which the container image for ($target) needs, so install QEMU emulation or package it on another machine: ($output.stderr | str trim)'}
 		}
 	}
 	if $macos_app {
