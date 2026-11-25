@@ -8,9 +8,11 @@ def step [message: string] {
 
 def main [
 	--build-number: string
+	--helper: path # A prebuilt tangram executable for this Mac's architecture to embed instead of building one with Cargo.
 	--install
 	--no-sign
 	--notary-profile: string
+	--provider: path # A prebuilt libtangram_vfs_provider.a for this Mac's architecture to link instead of building one with Cargo.
 	--version: string
 ] {
 	let root = ($env.FILE_PWD | path dirname | path dirname)
@@ -26,7 +28,13 @@ def main [
 	let appcast_path = ($build_path | path join "appcast.xml")
 	let project = ($path | path join "Tangram.xcodeproj")
 	let result_bundle_path = ($build_path | path join "TangramArchive.xcresult")
-	let source_path = ($root | path join "target/release/tangram")
+	let prebuilt = $helper != null or $provider != null
+	if $prebuilt and ($helper == null or $provider == null) {
+		error make {msg: '--helper and --provider must be passed together'}
+	}
+	let source_path = if $prebuilt { $helper | path expand } else { $root | path join "target/release/tangram" }
+	let provider_path = if $prebuilt { $provider | path expand } else { null }
+	let library_path = ($build_path | path join "Libraries")
 	let export_options_path = ($path | path join "ExportOptions.plist")
 	let profile = if ($notary_profile | is-empty) {
 		$env.TANGRAM_NOTARY_PROFILE? | default "Tangram"
@@ -65,14 +73,28 @@ def main [
 		"https://pkgs.tangram.dev/stable/macos/appcast.xml"
 	}
 	step "Checking the macOS release environment"
+	let prebuilt_flags = if $prebuilt { ['--prebuilt'] } else { [] }
 	if $no_sign {
-		^nu $doctor
+		^nu $doctor ...$prebuilt_flags
 	} else {
-		^nu $doctor --release --notary-profile $profile
+		^nu $doctor ...$prebuilt_flags --release --notary-profile $profile
 	}
 
-	step "Building the Tangram helper"
-	^cargo build --release -p tangram_cli -p tangram_vfs_provider
+	let arch = (^uname -m | str trim)
+	if $prebuilt {
+		step "Checking the prebuilt Tangram helper and provider library"
+		for file in [$source_path $provider_path] {
+			if ($file | path type) != file {
+				error make {msg: $'the prebuilt file was not found at ($file)'}
+			}
+			if $arch not-in (^lipo -archs $file | str trim | split row ' ') {
+				error make {msg: $'($file) is not built for ($arch)'}
+			}
+		}
+	} else {
+		step "Building the Tangram helper"
+		^cargo build --release -p tangram_cli -p tangram_vfs_provider
+	}
 
 	step "Generating the Xcode project"
 	$env.TANGRAM_DEVELOPMENT_TEAM = (identifiers).development_team
@@ -81,7 +103,14 @@ def main [
 	step "Archiving Tangram"
 	rm -rf $build_path
 	mkdir $build_path
-	let arch = (^uname -m | str trim)
+	let library_args = if $prebuilt {
+		# Give the prebuilt provider library the name that the extension links.
+		mkdir $library_path
+		^install -m 644 $provider_path ($library_path | path join libtangram_vfs_provider.a)
+		[$"LIBRARY_SEARCH_PATHS=($library_path)"]
+	} else {
+		[]
+	}
 	let signing_args = if $no_sign { ['CODE_SIGNING_ALLOWED=NO'] } else { ['-allowProvisioningUpdates'] }
 	(
 		xcodebuild
@@ -100,6 +129,7 @@ def main [
 			$"TANGRAM_HELPER_PATH=($source_path)"
 			$"TANGRAM_SPARKLE_FEED_URL=($feed_url)"
 			$"TANGRAM_SPARKLE_PUBLIC_KEY=($public_key)"
+			...$library_args
 			archive
 	)
 
