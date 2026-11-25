@@ -197,19 +197,15 @@ export const image = async (...args: tg.Args<Arg>) => {
 			"bin/cloud-hypervisor",
 		),
 		curl: executable(curl(packageArg), "bin/curl"),
-		"docker-entrypoint.sh": tg.file(
-			'#!/bin/sh\nexport TANGRAM_START="${TANGRAM_START-true}"\nexec /bin/tangram-entrypoint.sh "$@"\n',
-			{ executable: true },
-		),
+		"docker-entrypoint.sh": source_
+			.get("scripts/image/entrypoint.sh")
+			.then(tg.File.expect),
 		env: executable(std.utils.coreutils.build(packageArg), "bin/env"),
 		fusermount3: executable(libfuse(packageArg), "bin/fusermount3"),
 		mksquashfs: executable(squashfs, "bin/mksquashfs"),
 		nft: executable(nftables(packageArg), "bin/nft"),
 		passt: executable(passt(packageArg), "bin/passt"),
 		pasta: tg.symlink("passt"),
-		"tangram-entrypoint.sh": source_
-			.get("scripts/image/entrypoint.sh")
-			.then(tg.File.expect),
 		unsquashfs: executable(squashfs, "bin/unsquashfs"),
 		"xtables-legacy-multi": executable(xtables, "bin/xtables-legacy-multi"),
 		"xtables-nft-multi": executable(xtables, "bin/xtables-nft-multi"),
@@ -302,6 +298,7 @@ export const image = async (...args: tg.Args<Arg>) => {
 	return await std.image({
 		cmd: ["serve"],
 		entrypoint: ["/bin/docker-entrypoint.sh"],
+		env: { TANGRAM_START: "true" },
 		labels: {
 			"org.opencontainers.image.description":
 				"Tangram build system and package manager",
