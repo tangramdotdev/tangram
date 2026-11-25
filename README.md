@@ -200,11 +200,14 @@ tg run .#imagePublish -- --tag ghcr.io/tangramdotdev/tangram:latest
 
 The release script builds a separate runtime image from each staged GNU Linux
 binary with `packages/linux/image/Dockerfile`, and saves it under
-`release/image/`. It has the same layout as the Linux packages: the
-configuration is at `/etc/tangram/config.json`, and the server's state is in a
-volume at `/var/lib/tangram`. To run the server and use it:
+`release/image/`. Building the image for another architecture needs QEMU
+emulation. The script tags the image in the local Docker but does not publish
+it. The image has the same layout as the Linux packages: the configuration is at
+`/etc/tangram/config.json`, and the server's state is in a volume at
+`/var/lib/tangram`. To load the image, run the server, and use it:
 
 ```nu
+docker load --input release/image/tangram_<version>_amd64.tar
 docker run --detach --name tangram --privileged --volume tangram:/var/lib/tangram ghcr.io/tangramdotdev/tangram:<version>-amd64
 docker exec tangram tg health
 ```
