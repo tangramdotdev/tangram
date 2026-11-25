@@ -10939,6 +10939,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "xattr",
 ]
 
 [[package]]

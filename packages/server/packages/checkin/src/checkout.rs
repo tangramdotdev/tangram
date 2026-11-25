@@ -357,7 +357,10 @@ impl Component {
 		.map_err(|error| tg::error!(!error, "the destructive checkin copy task panicked"))?
 	}
 
-	fn checkin_checkout_destructive_copy_inner(src: &Path, dst: &Path) -> tg::Result<()> {
+	pub(super) fn checkin_checkout_destructive_copy_inner(
+		src: &Path,
+		dst: &Path,
+	) -> tg::Result<()> {
 		let metadata = std::fs::symlink_metadata(src).map_err(
 			|error| tg::error!(!error, path = %src.display(), "failed to get the metadata"),
 		)?;
@@ -376,7 +379,7 @@ impl Component {
 				Self::checkin_checkout_destructive_copy_inner(&src, &dst)?;
 			}
 		} else if metadata.is_file() {
-			std::fs::copy(src, dst)
+			reflink_copy::reflink_or_copy(src, dst)
 				.map_err(|error| tg::error!(!error, "failed to copy the file"))?;
 		} else if metadata.is_symlink() {
 			let target = std::fs::read_link(src)
@@ -386,6 +389,40 @@ impl Component {
 		} else {
 			return Err(tg::error!(path = %src.display(), "invalid file type"));
 		}
+
+		// Copy the xattrs of a file or a directory, making the copy writable while they are set.
+		let names = if metadata.is_symlink() {
+			Vec::new()
+		} else {
+			xattr::list(src)
+				.map_err(
+					|error| tg::error!(!error, path = %src.display(), "failed to list the xattrs"),
+				)?
+				.collect::<Vec<_>>()
+		};
+		if !names.is_empty() {
+			let permissions =
+				std::fs::Permissions::from_mode(metadata.permissions().mode() | 0o200);
+			std::fs::set_permissions(dst, permissions).map_err(
+				|error| tg::error!(!error, path = %dst.display(), "failed to set permissions"),
+			)?;
+			for name in names {
+				let Some(value) = xattr::get(src, &name).map_err(
+					|error| tg::error!(!error, path = %src.display(), "failed to get the xattr"),
+				)?
+				else {
+					continue;
+				};
+				xattr::set(dst, &name, &value).map_err(
+					|error| tg::error!(!error, path = %dst.display(), "failed to set the xattr"),
+				)?;
+			}
+			std::fs::set_permissions(dst, metadata.permissions()).map_err(
+				|error| tg::error!(!error, path = %dst.display(), "failed to restore permissions"),
+			)?;
+		}
+
+		// Fix up the copy.
 		Self::checkin_fixup(dst, &metadata).map_err(
 			|error| tg::error!(!error, path = %dst.display(), "failed to fix up the copied path"),
 		)?;
