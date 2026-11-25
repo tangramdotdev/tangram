@@ -206,8 +206,20 @@ enum Command {
 
 fn main() -> std::process::ExitCode {
 	// Parse the args.
-	let (args, argument_order) =
+	let (mut args, argument_order) =
 		parse_args(std::env::args_os().collect()).unwrap_or_else(|error| error.exit());
+
+	// Take the notify socket from the environment, so that the server's child processes do not inherit it.
+	if let Command::Serve(serve_args)
+	| Command::Server(tangram_cli_server::Args {
+		command: tangram_cli_server::Command::Run(serve_args),
+		..
+	}) = &mut args.command
+	{
+		serve_args.notify_socket = std::env::var_os("NOTIFY_SOCKET");
+		// SAFETY: The process is single-threaded here, because no runtime has been created and no thread has been spawned.
+		unsafe { std::env::remove_var("NOTIFY_SOCKET") };
+	}
 
 	// Run native sandbox commands before initializing the runtime.
 	let result = match args.command {

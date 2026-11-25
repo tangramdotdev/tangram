@@ -7,14 +7,14 @@ upgrade=$2
 socket=/var/lib/tangram/socket
 export DEBIAN_FRONTEND=noninteractive
 
-wait_for_server() {
-	curl --fail --silent --show-error --retry 12 --retry-delay 1 --retry-all-errors \
-		--unix-socket "$socket" http://localhost/health >/dev/null
+# The service is ready once systemctl returns, because the unit has Type=notify.
+check_health() {
+	curl --fail --silent --show-error --unix-socket "$socket" http://localhost/health >/dev/null
 }
 
 apt-get install -y "$initial"
 systemctl --quiet is-enabled tangram.service
-wait_for_server
+check_health
 findmnt --mountpoint /var/lib/tangram/store --noheadings --output FSTYPE | grep '^fuse'
 
 useradd --groups tangram tg-member
@@ -36,7 +36,7 @@ test "$(runuser -u tg-member -- cat "/var/lib/tangram/store/${artifact%%\?*}")" 
 
 pid=$(systemctl show --property=MainPID --value tangram.service)
 apt-get install -y "$upgrade"
-wait_for_server
+check_health
 test "$(systemctl show --property=MainPID --value tangram.service)" != "$pid"
 test "$(runuser -u tg-member -- cat "$checkout")" = 'shared artifact'
 
@@ -48,7 +48,7 @@ if systemctl --quiet is-active tangram.service || systemctl --quiet is-enabled t
 fi
 
 systemctl start tangram.service
-wait_for_server
+check_health
 apt-get purge -y tangram
 test ! -S "$socket"
 test -d /var/lib/tangram

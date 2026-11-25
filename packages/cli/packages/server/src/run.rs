@@ -2,6 +2,7 @@ use {
 	futures::FutureExt as _,
 	std::{
 		collections::BTreeMap,
+		ffi::OsString,
 		io::Write as _,
 		os::fd::{FromRawFd as _, RawFd},
 		path::PathBuf,
@@ -27,6 +28,10 @@ pub struct Args {
 	/// Let members of the server's group use the local socket and checkouts.
 	#[arg(long)]
 	pub group_access: bool,
+
+	/// The service manager's notify socket, which is taken from the `NOTIFY_SOCKET` environment variable.
+	#[arg(skip)]
+	pub notify_socket: Option<OsString>,
 
 	#[arg(hide = true, long)]
 	pub ready_fd: Option<RawFd>,
@@ -110,6 +115,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		}
 	}
 
+	let notify_socket = args.notify_socket;
 	let ready_fd = args.ready_fd;
 
 	let future = async move {
@@ -140,6 +146,16 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			ready
 				.flush()
 				.map_err(|error| tg::error!(!error, "failed to flush the ready signal"))?;
+		}
+
+		// Notify the service manager that the server is ready.
+		if let Some(notify_socket) = notify_socket {
+			tangram_util::notify::ready(&notify_socket).map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to notify the service manager that the server is ready"
+				)
+			})?;
 		}
 
 		let shutdown = tokio::select! {
