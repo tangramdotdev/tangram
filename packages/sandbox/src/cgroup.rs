@@ -147,8 +147,6 @@ impl Cgroup {
 
 	/// Create a cgroup, or return `None` if cgroup v2 is not available or no cgroup parent is writable.
 	pub fn try_new(name: &str, options: &Options) -> tg::Result<Option<Self>> {
-		use std::os::unix::fs::OpenOptionsExt as _;
-
 		// Resolve the current cgroup.
 		let root = Path::new(ROOT);
 		if !root.join("cgroup.controllers").exists() {
@@ -166,17 +164,13 @@ impl Cgroup {
 		let name = sanitize_name(name);
 
 		// Hold the parent directory open so the cgroup can be removed even after the sandbox replaces the cgroup mount it was resolved through.
-		let parent = std::fs::OpenOptions::new()
-			.read(true)
-			.custom_flags(libc::O_DIRECTORY | libc::O_PATH)
-			.open(&current)
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					path = %current.display(),
-					"failed to open the cgroup directory",
-				)
-			})?;
+		let parent = open_path(&current, rustix::fs::OFlags::DIRECTORY).map_err(|error| {
+			tg::error!(
+				!error,
+				path = %current.display(),
+				"failed to open the cgroup directory",
+			)
+		})?;
 		let parent = OwnedFd::from(parent);
 		let path = current.join(&name);
 
@@ -188,17 +182,13 @@ impl Cgroup {
 				"failed to create the cgroup"
 			)
 		})?;
-		let directory = std::fs::OpenOptions::new()
-			.read(true)
-			.custom_flags(libc::O_DIRECTORY | libc::O_PATH)
-			.open(&path)
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					path = %path.display(),
-					"failed to open the cgroup directory",
-				)
-			})?;
+		let directory = open_path(&path, rustix::fs::OFlags::DIRECTORY).map_err(|error| {
+			tg::error!(
+				!error,
+				path = %path.display(),
+				"failed to open the cgroup directory",
+			)
+		})?;
 		let directory = OwnedFd::from(directory);
 
 		let cleanup = Cleanup {
@@ -475,20 +465,14 @@ impl Cgroup {
 
 impl Handle {
 	pub(crate) fn current() -> tg::Result<Self> {
-		use std::os::unix::fs::OpenOptionsExt as _;
-
 		let path = current(Path::new("/sys/fs/cgroup"))?;
-		let directory = std::fs::OpenOptions::new()
-			.read(true)
-			.custom_flags(libc::O_DIRECTORY | libc::O_PATH)
-			.open(&path)
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					path = %path.display(),
-					"failed to open the cgroup directory",
-				)
-			})?;
+		let directory = open_path(&path, rustix::fs::OFlags::DIRECTORY).map_err(|error| {
+			tg::error!(
+				!error,
+				path = %path.display(),
+				"failed to open the cgroup directory",
+			)
+		})?;
 		let directory = OwnedFd::from(directory);
 		let handle = Self { directory };
 		Ok(handle)
@@ -914,6 +898,14 @@ fn read_file_at(directory: &OwnedFd, name: &CStr) -> std::io::Result<String> {
 fn write_file_at(directory: &OwnedFd, name: &CStr, bytes: &[u8]) -> std::io::Result<()> {
 	let mut file = open_file_at(directory, name, libc::O_WRONLY)?;
 	file.write_all(bytes)
+}
+
+/// Open a path with `O_PATH`, which `std::fs::OpenOptions` drops on musl, where the access mode mask includes it.
+pub(crate) fn open_path(path: &Path, flags: rustix::fs::OFlags) -> std::io::Result<std::fs::File> {
+	let flags = flags | rustix::fs::OFlags::PATH | rustix::fs::OFlags::CLOEXEC;
+	let fd = rustix::fs::open(path, flags, rustix::fs::Mode::empty())?;
+	let file = std::fs::File::from(fd);
+	Ok(file)
 }
 
 #[cfg(test)]
