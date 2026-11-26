@@ -12,8 +12,8 @@ export def metadata [target: string] {
 	$'tangram_($target).json'
 }
 
-# Record the source revision and the contents of every compiled file.
-export def record [directory: path, target: string, commit: string] {
+# Record the source revision, the compiled artifact, and the contents of every compiled file.
+export def record [directory: path, target: string, commit: string, artifact: string] {
 	for file in (files $target) {
 		if ($directory | path join $file.name | path type) != file {
 			error make {msg: $'the release target is missing ($file.name)'}
@@ -22,7 +22,7 @@ export def record [directory: path, target: string, commit: string] {
 	let hashes = files $target | each {|file|
 		{($file.name): (open --raw ($directory | path join $file.name) | hash sha256)}
 	} | reduce -f {} {|entry, hashes| $hashes | merge $entry }
-	{commit: $commit, files: $hashes, target: $target} | to json | save -f ($directory | path join (metadata $target))
+	{artifact: $artifact, commit: $commit, files: $hashes, target: $target} | to json | save -f ($directory | path join (metadata $target))
 }
 
 # Reject stale source revisions, changed files, and incomplete helper/provider pairs.
@@ -45,6 +45,15 @@ export def validate [directory: path, target: string, commit: string] {
 			error make {msg: $'the release checksum does not match for ($file.name); compile or pull the target again'}
 		}
 	}
+}
+
+# Get the compiled artifact of a validated target, the directory that its compile built, which packaging builds from.
+export def artifact [directory: path, target: string] {
+	let artifact = open ($directory | path join (metadata $target)) | get -o artifact
+	if ($artifact | describe) != string or $artifact !~ '^dir_[0-9a-z]+$' {
+		error make {msg: $'the release metadata has no compiled artifact for ($target); compile the target again'}
+	}
+	$artifact
 }
 
 # Validate and copy the complete target before replacing any staged file, then install its metadata last.

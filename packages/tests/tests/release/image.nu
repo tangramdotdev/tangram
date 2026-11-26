@@ -14,7 +14,7 @@ let target = 'x86_64-linux-gnu'
 mkdir release
 'binary' | save release/tangram_x86_64-linux-gnu
 ^chmod 755 release/tangram_x86_64-linux-gnu
-stage record release $target $commit
+stage record release $target $commit dir_0
 let output = tg run .#release -- --stage package --no-sign --target $target | complete
 failure $output
 assert ($output.stderr | str contains 'building the container image for x86_64-linux-gnu requires Linux')

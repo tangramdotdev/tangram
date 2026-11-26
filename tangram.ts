@@ -38,7 +38,7 @@ export const checkScripts = async () => {
 	await task(
 		"scripts",
 		"check",
-		tg.run`oxlint tangram.ts build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff check scripts/*.py packages/release/*.py`
+		tg.run`oxlint tangram.ts build.tg.ts packages/release/build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff check scripts/*.py packages/release/*.py`
 			.cwd(cwd)
 			.env(env),
 	);
@@ -63,7 +63,7 @@ export const formatScripts = async () => {
 	await task(
 		"scripts",
 		"format",
-		tg.run`oxfmt --write tangram.ts build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff format scripts/*.py packages/release/*.py`
+		tg.run`oxfmt --write tangram.ts build.tg.ts packages/release/build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff format scripts/*.py packages/release/*.py`
 			.cwd(cwd)
 			.env(env),
 	);
