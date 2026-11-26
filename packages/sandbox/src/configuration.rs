@@ -375,7 +375,7 @@ impl Namespaces {
 }
 
 fn user_namespace(namespace: &OwnedFd) -> tg::Result<OwnedFd> {
-	const NS_GET_USERNS: libc::c_ulong = 0xb701;
+	const NS_GET_USERNS: libc::Ioctl = 0xb701;
 	// SAFETY: The ioctl reads the namespace descriptor and returns a newly owned descriptor.
 	let fd = unsafe { libc::ioctl(namespace.as_raw_fd(), NS_GET_USERNS) };
 	if fd < 0 {

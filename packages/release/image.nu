@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-const repository_path = path self '../'
+const repository_path = path self '../../'
 const repository = 'ghcr.io/tangramdotdev/tangram'
 const default_tag = 'ghcr.io/tangramdotdev/tangram:latest'
 const platforms = {
@@ -10,7 +10,7 @@ const platforms = {
 
 # Build the container image with Tangram and load or publish it with Docker.
 def main [] {
-	print 'Usage: nu scripts/image.nu <build|package|publish> [--fast] [--platform <linux/amd64|linux/arm64>] [--tag <tag>] [--version <version>]'
+	print 'Usage: nu packages/release/image.nu <build|package|publish> [--fast] [--platform <linux/amd64|linux/arm64>] [--tag <tag>] [--version <version>]'
 }
 
 # Build the image for one platform and load it into Docker under the tag.

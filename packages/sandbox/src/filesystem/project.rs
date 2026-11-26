@@ -129,7 +129,12 @@ pub(super) fn usage(directory: &std::fs::File, project: u32) -> tg::Result<u64> 
 	Ok(quota.dqb_curspace)
 }
 
-const fn ioctl_read_request(group: u8, number: u8, size: usize) -> libc::c_ulong {
+#[allow(
+	clippy::cast_possible_truncation,
+	clippy::cast_possible_wrap,
+	reason = "an ioctl request is an `int` in musl and an `unsigned long` in glibc, with the same bits"
+)]
+const fn ioctl_read_request(group: u8, number: u8, size: usize) -> libc::Ioctl {
 	#[cfg(any(
 		target_arch = "mips",
 		target_arch = "mips32r6",
@@ -152,10 +157,15 @@ const fn ioctl_read_request(group: u8, number: u8, size: usize) -> libc::c_ulong
 		| ((size as u64) << 16)
 		| ((group as u64) << 8)
 		| number as u64;
-	value as libc::c_ulong
+	value as libc::Ioctl
 }
 
-const fn ioctl_write_request(group: u8, number: u8, size: usize) -> libc::c_ulong {
+#[allow(
+	clippy::cast_possible_truncation,
+	clippy::cast_possible_wrap,
+	reason = "an ioctl request is an `int` in musl and an `unsigned long` in glibc, with the same bits"
+)]
+const fn ioctl_write_request(group: u8, number: u8, size: usize) -> libc::Ioctl {
 	#[cfg(any(
 		target_arch = "mips",
 		target_arch = "mips32r6",
@@ -178,5 +188,5 @@ const fn ioctl_write_request(group: u8, number: u8, size: usize) -> libc::c_ulon
 		| ((size as u64) << 16)
 		| ((group as u64) << 8)
 		| number as u64;
-	value as libc::c_ulong
+	value as libc::Ioctl
 }

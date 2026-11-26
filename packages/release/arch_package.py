@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-LINUX = ROOT / "packages" / "linux"
+PACKAGE = ROOT / "packages" / "release"
 RELEASE = ROOT / "release"
 TARBALL_BASE = "https://github.com/tangramdotdev/tangram/releases/download"
 ARCHITECTURES = ("aarch64", "x86_64")
@@ -39,11 +39,11 @@ def main(version, targets):
         )
         for target in targets
     }
-    service = (LINUX / "systemd" / "tangram.service").read_bytes()
+    service = (PACKAGE / "systemd" / "tangram.service").read_bytes()
     service = service.replace(
         b"ExecStart=/usr/bin/tangram ", b"ExecStart=/usr/lib/tangram/tangram "
     )
-    config = json.loads((LINUX / "config.json").read_text())
+    config = json.loads((PACKAGE / "config.json").read_text())
     if "manager" in config:
         raise ValueError("expected the shared Linux config to leave the manager unset")
     config["manager"] = "systemd"
@@ -51,7 +51,7 @@ def main(version, targets):
     files = {
         "config.json": config,
         "tangram.service": service,
-        "tangram.sysusers": (LINUX / "arch" / "tangram.sysusers").read_bytes(),
+        "tangram.sysusers": (PACKAGE / "arch" / "tangram.sysusers").read_bytes(),
         "LICENSE": (ROOT / "LICENSE").read_bytes(),
     }
     with tempfile.TemporaryDirectory(prefix=".aur-", dir=RELEASE) as directory:
@@ -82,7 +82,7 @@ def write_recipe(directory, version, archives):
         sources.append(f"source_{arch}=('{url}')")
         sources.append(f"sha256sums_{arch}=('{digest}')")
     values["ARCHIVE_SOURCES"] = "\n".join(sources)
-    recipe = (LINUX / "arch" / "PKGBUILD.in").read_text()
+    recipe = (PACKAGE / "arch" / "PKGBUILD.in").read_text()
     for key, value in values.items():
         recipe = recipe.replace(f"@{key}@", value)
     recipe_path = directory / "PKGBUILD"

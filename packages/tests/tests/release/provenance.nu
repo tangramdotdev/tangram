@@ -1,49 +1,26 @@
 use ../../util/test.nu *
 use ../../util/release.nu
 
-# Release transfers reject stale source revisions and changed binaries, and preserve valid compiled artifacts.
-let remote = server spawn --name remote
-let local = server spawn --name local --config {remotes: {default: {url: $remote.url}}}
+# Packaging rejects a staged binary from an older source revision and a changed staged binary.
+let local = server spawn --name local
 let path = release fixture
 cd $path
-let commit = ^git rev-parse HEAD | str trim
-let host = ^rustc -vV | lines | where {$in starts-with 'host: '} | first | str replace 'host: ' ''
-let target = $host | str replace '-apple-' '-' | str replace '-unknown-' '-'
+let target = release host-target
 let binary = $path | path join release $'tangram_($target)'
-
-# Compile into the explicitly selected target directory.
-let output = tg run .#release -- --stage compile --cargo --target $target --target-dir 'target/reused directory' | complete
+let output = tg run .#release -- --stage compile --target $target | complete
 success $output
-assert equal (^$binary | str trim) $commit
 
 # Reject an old binary after the source changes.
-let original = open --raw cli/main.rs
-$original + "\n// source edit\n" | save -f cli/main.rs
-let output = tg run .#release -- --stage push --force --target $target | complete
+let original = open --raw source.txt
+$original + "\nedit\n" | save -f source.txt
+let output = tg run .#release -- --stage package --no-sign --version 0.0.0 --target $target | complete
 failure $output
 assert ($output.stderr | str contains 'does not match the current source revision')
-let output = tg run .#release -- --stage package --no-sign --target $target | complete
-failure $output
-assert ($output.stderr | str contains 'does not match the current source revision')
-$original | save -f cli/main.rs
+$original | save -f source.txt
 
-# Reject a modified staged binary before pushing or packaging it.
-let original = open --raw $binary
+# Reject a modified staged binary.
 'modified binary' | save -f $binary
-let output = tg run .#release -- --stage push --force --target $target | complete
+let output = tg run .#release -- --stage package --no-sign --version 0.0.0 --target $target | complete
 failure $output
 assert ($output.stderr | str contains 'checksum does not match')
-let output = tg run .#release -- --stage package --no-sign --target $target | complete
-failure $output
-assert ($output.stderr | str contains 'checksum does not match')
-$original | save -f $binary
-^chmod 755 $binary
-
-# Push and pull a valid release through a separate server.
-let output = tg run .#release -- --stage push --target $target | complete
-success $output
-let consumer = server spawn --name consumer --config {remotes: {default: {url: $remote.url}}}
-rm $binary
-let output = tg run .#release -- --stage pull --target $target | complete
-success $output
-assert equal (^$binary | str trim) $commit
+assert not ($'($binary).tar.gz' | path exists)

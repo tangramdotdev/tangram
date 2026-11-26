@@ -44,6 +44,7 @@ license = MIT
 depend = ca-certificates
 depend = fuse3
 depend = iptables
+depend = libgcc
 depend = musl
 depend = nftables
 depend = openrc

@@ -14,12 +14,13 @@ export def metadata [target: string] {
 
 # Record the source revision and the contents of every compiled file.
 export def record [directory: path, target: string, commit: string] {
-	let hashes = files $target | each {|file|
-		let path = $directory | path join $file.name
-		if ($path | path type) != file {
+	for file in (files $target) {
+		if ($directory | path join $file.name | path type) != file {
 			error make {msg: $'the release target is missing ($file.name)'}
 		}
-		{($file.name): (open --raw $path | hash sha256)}
+	}
+	let hashes = files $target | each {|file|
+		{($file.name): (open --raw ($directory | path join $file.name) | hash sha256)}
 	} | reduce -f {} {|entry, hashes| $hashes | merge $entry }
 	{commit: $commit, files: $hashes, target: $target} | to json | save -f ($directory | path join (metadata $target))
 }
