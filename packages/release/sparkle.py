@@ -16,7 +16,7 @@ KEY_OBJECT = "sparkle-ed25519.key.gpg"
 PUBLIC_KEY = Path("packages/macos/SparklePublicKey.txt")
 APPCAST = "appcast.xml"
 MACOS_PREFIX = "stable/macos"
-PACKAGE_HOST = "https://pkgs.tangram.dev"
+PACKAGE_HOST = os.environ.get("TANGRAM_PACKAGE_HOST", "https://pkgs.tangram.dev")
 BUILD_NUMBER = r"[1-9][0-9]*"
 
 
