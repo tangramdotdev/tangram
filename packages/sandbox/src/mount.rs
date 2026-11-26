@@ -4,7 +4,7 @@ use {
 		ffi::{CString, OsStr},
 		os::{
 			fd::{AsFd as _, AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
-			unix::{ffi::OsStrExt as _, fs::OpenOptionsExt as _},
+			unix::ffi::OsStrExt as _,
 		},
 		path::{Path, PathBuf},
 	},
@@ -536,10 +536,7 @@ fn open_absolute_path(path: &Path) -> std::io::Result<OwnedFd> {
 	let suffix = path
 		.strip_prefix("/")
 		.map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))?;
-	let root = std::fs::OpenOptions::new()
-		.custom_flags(libc::O_PATH | libc::O_CLOEXEC)
-		.read(true)
-		.open("/")?;
+	let root = crate::cgroup::open_path(Path::new("/"), rustix::fs::OFlags::empty())?;
 	let suffix = if suffix.as_os_str().is_empty() {
 		Path::new(".")
 	} else {
@@ -1094,11 +1091,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 		("/dev/fuse", true),
 		("/dev/net/tun", true),
 	] {
-		let file = match std::fs::File::options()
-			.custom_flags(libc::O_PATH)
-			.read(true)
-			.open(path)
-		{
+		let file = match crate::cgroup::open_path(Path::new(path), rustix::fs::OFlags::empty()) {
 			Ok(file) => file,
 			Err(error) if optional && error.kind() == std::io::ErrorKind::NotFound => {
 				continue;
