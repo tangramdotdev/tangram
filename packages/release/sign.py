@@ -1,4 +1,4 @@
-"""Prepare signed Linux repositories from the staged packages."""
+"""Sign the Linux packages, and then the repository metadata generated over them."""
 
 import getpass
 import os
@@ -16,45 +16,65 @@ KEY_BUCKET = "keys-tangram-dev"
 PUBLIC_KEYS = Path("packages/release/keys").resolve()
 APT_SIGNER = "6CA7EC3F820AD62E65DD5D1B7BDC43714473D2A5"
 RPM_SIGNER = "09C7C2B1A3F349390984A7D148E333B80D02A7E8"
-APT_IMAGE = """\
-FROM debian:trixie-slim
-RUN apt-get update -qq && apt-get install -yq --no-install-recommends apt-utils
-"""
 RPM_IMAGE = (
     "FROM fedora:45\n"
     "RUN dnf -qy --setopt=install_weak_deps=False install "
-    "rpm-sign createrepo_c gnupg2 && dnf clean all\n"
+    "rpm-sign gnupg2 && dnf clean all\n"
 )
 APK_IMAGE = """\
 FROM alpine:3.22
 RUN apk add --no-cache abuild tar
 """
+RPM_AGENT = f"""
+        export GNUPGHOME=$(mktemp -d)
+        echo allow-preset-passphrase > "$GNUPGHOME/gpg-agent.conf"
+        gpg --batch --import /signing-key
+        grip=$(gpg --batch --with-colons --with-keygrip -K {RPM_SIGNER} |
+            awk -F: '$1 == "grp" {{ print $10; exit }}')
+        test -n "$grip"
+        gpg-connect-agent /bye > /dev/null
+        /usr/libexec/gpg-preset-passphrase --preset "$grip"
+"""
+APK_KEY = """
+        umask 077
+        work=$(mktemp -d)
+        openssl pkey -in /signing-key -passin stdin -out "$work/key"
+        openssl pkey -in "$work/key" -pubout -out "$work/tangram-apk.rsa.pub"
+        cmp "$work/tangram-apk.rsa.pub" /repo/tangram-apk.rsa.pub
+        apk_repo() {
+            apk --repositories-file /dev/null --keys-dir /repo --arch "$arch" "$@"
+        }
+"""
 
 
-def main(version, targets):
+def main(action, version, targets):
     release = Path("release").resolve()
-    repositories = {
-        "apt": [
-            release / "apt" / f"tangram_{version}_{architecture}.deb"
-            for target, architecture in [
-                ("aarch64-linux-gnu", "arm64"),
-                ("x86_64-linux-gnu", "amd64"),
-            ]
-            if target in targets
-        ],
-        "rpm": [
-            release
-            / "rpm"
-            / f"tangram-{version.replace('-', '~')}-1.{architecture}.rpm"
-            for architecture in ("aarch64", "x86_64")
-            if f"{architecture}-linux-gnu" in targets
-        ],
-        "apk": [
-            release / "apk" / architecture / apk_name(version)
-            for architecture in ("aarch64", "x86_64")
-            if f"{architecture}-linux-musl" in targets
-        ],
-    }
+    gnu = [arch for arch in ("aarch64", "x86_64") if f"{arch}-linux-gnu" in targets]
+    musl = [arch for arch in ("aarch64", "x86_64") if f"{arch}-linux-musl" in targets]
+    if action == "packages":
+        # Sign the packages, which the repository metadata then covers.
+        repositories = {
+            "rpm": [
+                Path("rpm") / f"tangram-{version.replace('-', '~')}-1.{arch}.rpm"
+                for arch in gnu
+            ],
+            "apk": [Path("apk") / arch / apk_name(version) for arch in musl],
+        }
+        signers = {"rpm": sign_rpm_packages, "apk": sign_apk_packages}
+    elif action == "repositories":
+        # Sign the repository metadata that was generated over the signed packages.
+        repositories = {
+            "apt": [Path("apt") / "Release"] if gnu else [],
+            "rpm": [Path("rpm") / "repodata" / "repomd.xml"] if gnu else [],
+            "apk": [Path("apk") / arch / "APKINDEX.tar.gz" for arch in musl],
+        }
+        signers = {
+            "apt": sign_apt_release,
+            "rpm": sign_rpm_metadata,
+            "apk": sign_apk_index,
+        }
+    else:
+        raise ValueError("expected packages or repositories")
     if not any(repositories.values()):
         return
 
@@ -66,18 +86,13 @@ def main(version, targets):
                     continue
                 repo = stage / name
                 for path in files:
-                    destination = stage / path.relative_to(release)
+                    destination = stage / path
                     destination.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(path, destination)
-                print(f"Preparing signed {name.upper()} repository.", flush=True)
-                if name == "apt":
-                    sign_apt(repo, secrets)
-                elif name == "rpm":
-                    sign_rpm(repo, secrets)
-                elif name == "apk":
-                    sign_apk(repo, secrets)
+                    shutil.copy2(release / path, destination)
+                print(f"Signing the {name.upper()} {action}.", flush=True)
+                signers[name](repo, secrets)
 
-            # Place verified files before the indexes and their signatures.
+            # Place the verified packages before the indexes and their signatures.
             outputs = sorted(
                 (path for path in stage.rglob("*") if path.is_file()),
                 key=lambda path: path.suffix not in (".deb", ".rpm", ".apk"),
@@ -178,21 +193,9 @@ def container(dockerfile, repo, command, *, key=None, password=None):
     subprocess.run(args + [image, "sh", "-ec", command], input=password, check=True)
 
 
-def sign_apt(repo, secrets):
+def sign_apt_release(repo, secrets):
     key = download_key(secrets, "apt-signing-subkey.asc")
     public = PUBLIC_KEYS / "tangram-apt.asc"
-    container(
-        APT_IMAGE,
-        repo,
-        """
-        apt-ftparchive packages . > Packages
-        gzip -nc Packages > Packages.gz
-        apt-ftparchive -o APT::FTPArchive::Release::Origin=Tangram \
-            -o APT::FTPArchive::Release::Acquire-By-Hash=yes \
-            -o APT::FTPArchive::Release::Suite=stable release . > /tmp/Release
-        cp /tmp/Release Release
-        """,
-    )
     home = secrets / "gnupg"
     home.mkdir(mode=0o700)
     gpg = ["gpg", "--homedir", str(home), "--batch", "--no-tty"]
@@ -239,27 +242,34 @@ def sign_apt(repo, secrets):
     shutil.copyfile(public, repo / public.name)
 
 
-def sign_rpm(repo, secrets):
+def sign_rpm_packages(repo, secrets):
     key = download_key(secrets, "rpm-signing.asc")
     public = PUBLIC_KEYS / "RPM-GPG-KEY-tangram"
     shutil.copyfile(public, repo / public.name)
     container(
         RPM_IMAGE,
         repo,
-        f"""
-        export GNUPGHOME=$(mktemp -d)
-        echo allow-preset-passphrase > "$GNUPGHOME/gpg-agent.conf"
-        gpg --batch --import /signing-key
-        grip=$(gpg --batch --with-colons --with-keygrip -K {RPM_SIGNER} |
-            awk -F: '$1 == "grp" {{ print $10; exit }}')
-        test -n "$grip"
-        gpg-connect-agent /bye > /dev/null
-        /usr/libexec/gpg-preset-passphrase --preset "$grip"
+        RPM_AGENT
+        + f"""
         rpmsign --define '_openpgp_sign gpg' --define '_gpg_digest_algo sha256' \
             --define '_openpgp_sign_id {RPM_SIGNER}!' --resign --rpmv4 ./*.rpm
         rpmkeys --dbpath "$GNUPGHOME/rpmdb" --import RPM-GPG-KEY-tangram
         rpmkeys --dbpath "$GNUPGHOME/rpmdb" --checksig ./*.rpm
-        createrepo_c .
+        """,
+        key=key,
+        password=passphrase("RPM"),
+    )
+
+
+def sign_rpm_metadata(repo, secrets):
+    key = download_key(secrets, "rpm-signing.asc")
+    public = PUBLIC_KEYS / "RPM-GPG-KEY-tangram"
+    shutil.copyfile(public, repo / public.name)
+    container(
+        RPM_IMAGE,
+        repo,
+        RPM_AGENT
+        + f"""
         gpg --batch --local-user {RPM_SIGNER}! --digest-algo SHA256 --armor \
             --detach-sign repodata/repomd.xml
         gpg --batch --verify repodata/repomd.xml.asc repodata/repomd.xml
@@ -269,19 +279,15 @@ def sign_rpm(repo, secrets):
     )
 
 
-def sign_apk(repo, secrets):
+def sign_apk_packages(repo, secrets):
     key = download_key(secrets, "tangram-apk.rsa")
     public = PUBLIC_KEYS / "tangram-apk.rsa.pub"
     shutil.copyfile(public, repo / public.name)
     container(
         APK_IMAGE,
         repo,
-        """
-        umask 077
-        work=$(mktemp -d)
-        openssl pkey -in /signing-key -passin stdin -out "$work/key"
-        openssl pkey -in "$work/key" -pubout -out "$work/tangram-apk.rsa.pub"
-        cmp "$work/tangram-apk.rsa.pub" /repo/tangram-apk.rsa.pub
+        APK_KEY
+        + """
         for architecture in /repo/*/; do
             for package in "$architecture"*.apk; do
                 (
@@ -293,11 +299,26 @@ def sign_apk(repo, secrets):
             done
             cd "$architecture"
             arch=$(basename "$architecture")
-            apk_repo() {
-                apk --repositories-file /dev/null --keys-dir /repo --arch "$arch" "$@"
-            }
             apk_repo verify ./*.apk
-            apk_repo index --no-warnings --output APKINDEX.tar.gz ./*.apk
+        done
+        """,
+        key=key,
+        password=passphrase("Alpine"),
+    )
+
+
+def sign_apk_index(repo, secrets):
+    key = download_key(secrets, "tangram-apk.rsa")
+    public = PUBLIC_KEYS / "tangram-apk.rsa.pub"
+    shutil.copyfile(public, repo / public.name)
+    container(
+        APK_IMAGE,
+        repo,
+        APK_KEY
+        + """
+        for architecture in /repo/*/; do
+            cd "$architecture"
+            arch=$(basename "$architecture")
             abuild-sign -t RSA256 -k "$work/key" -p tangram-apk.rsa.pub APKINDEX.tar.gz
             apk_repo --repository /repo search --exact tangramdotdev |
                 grep -q '^tangramdotdev-'
@@ -310,6 +331,6 @@ def sign_apk(repo, secrets):
 
 if __name__ == "__main__":
     try:
-        main(sys.argv[1], sys.argv[2:])
-    except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+        main(sys.argv[1], sys.argv[2], sys.argv[3:])
+    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
         sys.exit(str(error))

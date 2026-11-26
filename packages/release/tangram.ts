@@ -35,15 +35,15 @@ const localBuild = "pass --stage compile --stage package for a local build";
 
 const usage = `Usage: tg run .#release -- [--stage <compile|package|publish>] [--target <target>] [--version <version>] [--build-number <number>] [--no-sign] [--retry]
 
-Release Tangram. For each target, the compile stage builds the standalone executable in a sandboxed Tangram build and stages it in release/, and the package stage packages it. The targets run concurrently. After every target is packaged, the package stage builds the macOS app, the AUR package, and the signed Linux repositories, and the publish stage publishes the release.
+Release Tangram. For each target, the compile stage builds the standalone executable in a sandboxed Tangram build and stages it in release/, and the package stage packages it in sandboxed Tangram builds: the tarball, and the deb and rpm of a GNU Linux target or the apk of a musl Linux target. The targets run concurrently. After every target is packaged, the package stage builds the macOS app, the AUR package, and the Linux repositories, and the publish stage publishes the release.
 Repeat --stage or --target to select more than one. The default is every stage, so a plain run publishes, which requires --version with a numeric release version, a matching GitHub tag, and signed packaging. These are checked before any work starts; ${localBuild}.
 Without --target, the compile stage builds every target on Linux and the macOS targets on a Mac, and together with the package stage it builds only the targets that this machine can package: the Linux targets on Linux and the macOS targets on a Mac. The package stage alone packages every staged target, and the publish stage alone publishes the targets of the signed package manifest.
 Each staged target includes its source revision and file checksums in release/tangram_<target>.json, and packaging rejects stale or changed files. macOS targets require both the helper and its matching provider library.
 Use --retry to retry failed builds.
 The package stage builds a container image for each GNU Linux target with Tangram and std.image, which requires Linux, and saves it under release/image/.
 Packaging a macOS target requires a Mac and a numeric --version, and includes Tangram.dmg. Signed macOS packaging also requires a positive --build-number, and includes the Sparkle appcast.
-The package stage signs and notarizes the macOS binaries when TANGRAM_APPLE_P12, TANGRAM_APPLE_P12_PASSWORD_FILE, and TANGRAM_APPLE_API_KEY are set, and signs the Linux repositories using the authenticated cf CLI.
-Downloaded keys are stored temporarily under keys/. Use --no-sign for local unsigned packages.
+The package stage signs and notarizes the macOS binaries when TANGRAM_APPLE_P12, TANGRAM_APPLE_P12_PASSWORD_FILE, and TANGRAM_APPLE_API_KEY are set. It signs the rpm and apk packages, generates the repository metadata over them in a sandboxed Tangram build, and then signs the metadata, using keys that it downloads with the authenticated cf CLI.
+Downloaded keys are stored temporarily under keys/. Use --no-sign for local unsigned packages and repository metadata.
 Existing assets can be replaced, including for version 0.0.0.`;
 
 /** Release Tangram. Run `tg run .#release -- --help` for the arguments. */
@@ -153,35 +153,19 @@ export default async (...args: Array<string>) => {
 			await task(
 				target,
 				"tarball",
-				nu(repository, release, "tarball", target, ...noSign),
+				nu(repository, release, "tarball", target, ...noSign, ...retry),
 			);
-			const archive = `release/tangram_${target}.tar.gz`;
-			const architecture = target.split("-")[0]!;
+			const packageStep = (name: string) =>
+				task(
+					target,
+					name,
+					nu(repository, release, name, target, "--version", version, ...retry),
+				);
 			if (target.endsWith("-linux-gnu")) {
-				const deb = architecture === "aarch64" ? "arm64" : "amd64";
+				const architecture = target.startsWith("aarch64") ? "arm64" : "amd64";
 				await all([
-					task(
-						target,
-						"deb",
-						nu(
-							repository,
-							"packages/release/deb/package.nu",
-							archive,
-							deb,
-							version,
-						),
-					),
-					task(
-						target,
-						"rpm",
-						nu(
-							repository,
-							"packages/release/rpm/package.nu",
-							archive,
-							architecture,
-							version,
-						),
-					),
+					packageStep("deb"),
+					packageStep("rpm"),
 					task(
 						target,
 						"image",
@@ -190,29 +174,19 @@ export default async (...args: Array<string>) => {
 							"packages/release/image.nu",
 							"package",
 							"--platform",
-							`linux/${deb}`,
+							`linux/${architecture}`,
 							"--version",
 							version,
 						),
 					),
 				]);
 			} else if (target.endsWith("-linux-musl")) {
-				await task(
-					target,
-					"apk",
-					nu(
-						repository,
-						"packages/release/apk/package.nu",
-						archive,
-						architecture,
-						version,
-					),
-				);
+				await packageStep("apk");
 			}
 		}),
 	);
 
-	// Build the macOS app, the AUR package, and the signed Linux repositories from every packaged target.
+	// Build the macOS app, the AUR package, and the Linux repositories from every packaged target. Sign the packages before generating the repository metadata over them, and then sign the metadata.
 	if (package_) {
 		if (darwin.length > 0) {
 			const buildNumber =
@@ -237,28 +211,47 @@ export default async (...args: Array<string>) => {
 			await task(
 				"release",
 				"aur",
-				python(repository, "packages/release/arch_package.py", version, ...gnu),
+				nu(repository, release, "aur", version, ...gnu, ...retry),
 			);
 		}
-		if (arg.sign) {
-			await task(
-				"release",
-				"sign",
-				python(repository, "packages/release/sign.py", version, ...selected),
-			);
-			if (stableVersion.test(version)) {
+		const linux = selected.filter(
+			(target) =>
+				target.endsWith("-linux-gnu") || target.endsWith("-linux-musl"),
+		);
+		if (linux.length > 0) {
+			const sign = "packages/release/sign.py";
+			if (arg.sign) {
 				await task(
 					"release",
-					"manifest",
-					python(
-						repository,
-						"packages/release/publish.py",
-						"manifest",
-						version,
-						...selected,
-					),
+					"sign packages",
+					python(repository, sign, "packages", version, ...linux),
 				);
 			}
+			await task(
+				"release",
+				"repositories",
+				nu(repository, release, "repository", version, ...linux, ...retry),
+			);
+			if (arg.sign) {
+				await task(
+					"release",
+					"sign repositories",
+					python(repository, sign, "repositories", version, ...linux),
+				);
+			}
+		}
+		if (arg.sign && stableVersion.test(version)) {
+			await task(
+				"release",
+				"manifest",
+				python(
+					repository,
+					"packages/release/publish.py",
+					"manifest",
+					version,
+					...selected,
+				),
+			);
 		}
 	}
 

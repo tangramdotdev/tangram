@@ -2,7 +2,7 @@ use ./test.nu *
 
 const repository = path self '../../../'
 
-# Create a small release workspace with the repository's release package, whose sandboxed build makes an executable that prints the commit.
+# Create a small release workspace with the repository's release orchestration, whose sandboxed compile makes an executable that prints the commit, and whose packaging builds and image stand in for the real ones with files that name their inputs.
 export def fixture [] {
 	let path = artifact {
 		'.gitignore': "/release\n"
@@ -19,6 +19,51 @@ export def fixture [] {
 		'
 		packages: {
 			release: {
+				'build.tg.ts': '
+					const text = async (release: tg.Directory) => (await release.get("tangram").then(tg.File.expect)).text;
+					export const tarball = async (arg: { release: tg.Directory }) => tg.file(`tarball of ${await text(arg.release)}`);
+					const package_ = async (name: string, arg: { release: tg.Directory; target: string; version: string }) =>
+						tg.directory({ [name]: tg.file(`${arg.target} ${arg.version} from ${await (await tarball(arg)).text}`) });
+					export const deb = (arg: { release: tg.Directory; target: string; version: string }) =>
+						package_(`tangram_${arg.version}_${arg.target.startsWith("aarch64") ? "arm64" : "amd64"}.deb`, arg);
+					export const rpm = (arg: { release: tg.Directory; target: string; version: string }) =>
+						package_(`tangram-${arg.version}-1.${arg.target.split("-")[0]}.rpm`, arg);
+					export const apk = (arg: { release: tg.Directory; target: string; version: string }) =>
+						package_(`tangramdotdev-${arg.version}-r0.apk`, arg);
+					export const aur = (arg: { archives: Record<string, string>; version: string }) =>
+						tg.directory({ PKGBUILD: tg.file(JSON.stringify(arg)), ".SRCINFO": tg.file("srcinfo") });
+					const list = async (directory: tg.Directory) => {
+						const lines = [];
+						for await (const [name, artifact] of directory) {
+							lines.push(artifact instanceof tg.File ? `${name}: ${await artifact.text}` : `${name}/`);
+						}
+						return tg.file(lines.join("\n"));
+					};
+					export const repository = async (arg: { apk?: tg.Directory; apt?: tg.Directory; rpm?: tg.Directory }) => {
+						const output: Record<string, tg.Unresolved<tg.Artifact>> = {};
+						if (arg.apt !== undefined) {
+							output.apt = tg.directory({ Packages: list(arg.apt), "Packages.gz": tg.file(""), Release: tg.file("") });
+						}
+						if (arg.rpm !== undefined) {
+							output.rpm = tg.directory({ repodata: { "repomd.xml": list(arg.rpm) } });
+						}
+						if (arg.apk !== undefined) {
+							const apk: Record<string, tg.Unresolved<tg.Artifact>> = {};
+							for await (const [architecture, directory] of arg.apk) {
+								apk[architecture] = tg.directory({ "APKINDEX.tar.gz": list(tg.Directory.expect(directory)) });
+							}
+							output.apk = tg.directory(apk);
+						}
+						return tg.directory(output);
+					};
+				'
+				'image.nu': '
+					def main [] {}
+					def "main package" [--platform: string, --version: string] {
+						mkdir release/image
+						$"image ($platform)" | save -f $"release/image/tangram_($version).tar"
+					}
+				'
 				'release.nu': (open --raw ($repository | path join packages/release/release.nu))
 				'stage.nu': (open --raw ($repository | path join packages/release/stage.nu))
 				'tangram.ts': (open --raw ($repository | path join packages/release/tangram.ts))

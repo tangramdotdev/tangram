@@ -16,7 +16,7 @@ let target = 'aarch64-darwin'
 mkdir release
 'old helper' | save release/tangram_aarch64-darwin
 'old provider' | save release/libtangram_vfs_provider_aarch64-darwin.a
-stage record release $target $commit
+stage record release $target $commit dir_0
 let output = tg run .#release -- --stage compile --target $target | complete
 failure $output
 assert ($output.stderr | str contains 'missing libtangram_vfs_provider_aarch64-darwin.a')

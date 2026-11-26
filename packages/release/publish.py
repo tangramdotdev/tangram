@@ -15,7 +15,6 @@ from urllib.request import Request, urlopen
 from uuid import uuid4
 from xml.etree import ElementTree
 
-from arch_package import write_recipe
 from sparkle import APPCAST, BUILD_NUMBER, MACOS_PREFIX, PACKAGE_HOST
 
 RELEASE = Path("release")
@@ -489,6 +488,26 @@ def homebrew_formula(formula, manifest):
                     f"expected one Homebrew URL and checksum for {filename}"
                 )
     return formula
+
+
+def write_recipe(directory, version, archives):
+    # Write the AUR recipe and its source information in the sandboxed packaging build.
+    arg = json.dumps({"archives": archives, "version": version}, separators=(",", ":"))
+    with tempfile.TemporaryDirectory(prefix="tangram-aur-") as temporary:
+        output = Path(temporary) / "aur"
+        subprocess.run(
+            [
+                "tg",
+                "build",
+                "./packages/release/build.tg.ts#aur",
+                "--arg-value",
+                arg,
+                f"--checkout={output}",
+            ],
+            check=True,
+        )
+        for name in ("PKGBUILD", ".SRCINFO"):
+            atomic_write(directory / name, (output / name).read_bytes())
 
 
 def update_aur(manifest, assets):
