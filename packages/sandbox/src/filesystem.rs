@@ -316,7 +316,15 @@ pub(crate) fn kind(fd: std::os::fd::BorrowedFd<'_>) -> tg::Result<libc::c_long> 
 	// SAFETY: fstatfs initialized the structure on success.
 	let statistics = unsafe { statistics.assume_init() };
 
-	Ok(statistics.f_type)
+	// Convert the type, which is unsigned in musl's `statfs` and signed in glibc's.
+	#[allow(
+		clippy::cast_possible_wrap,
+		clippy::unnecessary_cast,
+		reason = "the type of `f_type` depends on the C library, and its values fit in both types"
+	)]
+	let kind = statistics.f_type as libc::c_long;
+
+	Ok(kind)
 }
 
 #[cfg(test)]
