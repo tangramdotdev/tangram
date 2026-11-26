@@ -42,7 +42,7 @@ def main [
 	let p12_path = $env.TANGRAM_APPLE_P12 | path expand
 	let p12_password_path = $env.TANGRAM_APPLE_P12_PASSWORD_FILE | path expand
 	let api_key_path = $env.TANGRAM_APPLE_API_KEY | path expand
-	let entitlements_path = $repository_path | path join scripts/release/tangram.entitlements
+	let entitlements_path = $repository_path | path join packages/release/tangram.entitlements
 
 	let temporary_path = ^mktemp -d release/.sign.XXXXXXXX | str trim | path expand
 	let result = try {

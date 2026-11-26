@@ -48,16 +48,18 @@ export def fixture [] {
 			'
 			'lib.rs': '#[no_mangle] pub extern "C" fn provider() {}'
 		}
-		scripts: {
-			'release.nu': (open --raw ($repository | path join scripts/release.nu))
-			'version.py': (open --raw ($repository | path join scripts/version.py))
+		packages: {
 			release: {
-				'stage.nu': (open --raw ($repository | path join scripts/release/stage.nu))
+				'release.nu': (open --raw ($repository | path join packages/release/release.nu))
+				'stage.nu': (open --raw ($repository | path join packages/release/stage.nu))
 			}
+		}
+		scripts: {
+			'version.py': (open --raw ($repository | path join scripts/version.py))
 		}
 		'tangram.ts': '
 			export const release = async (...args: Array<string>) => {
-				await tg.run`nu scripts/release.nu "$@"`
+				await tg.run`nu packages/release/release.nu "$@"`
 					.executable("sh")
 					.args(["--", ...args])
 					.cwd(tg.process.cwd);

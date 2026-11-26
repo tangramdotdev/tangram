@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-use ./release/stage.nu
+use ./stage.nu
 
 const stages = [compile push pull package publish]
 const stable_version = '^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$'
@@ -122,7 +122,7 @@ Existing assets can be replaced, including for version 0.0.0.'
 				push => { push $selected_targets $force }
 				pull => { pull $selected_targets }
 				package => { package $selected_targets $version $sign $build_number }
-				publish => { ^python3 scripts/release/publish.py publish $version ...$selected_targets }
+				publish => { ^python3 packages/release/publish.py publish $version ...$selected_targets }
 			}
 		}
 	}
@@ -390,7 +390,7 @@ def package [selected_targets: list<string>, version: string, sign: bool, build_
 			^install -m 755 (staged-binary $target) ($temporary | path join $'tangram_($target)')
 		}
 		if $sign {
-			^nu scripts/release/sign.nu --directory $temporary ...$darwin_targets
+			^nu packages/release/sign.nu --directory $temporary ...$darwin_targets
 		}
 		package-binaries $selected_targets $version $sign $temporary
 	} catch {|error|
@@ -435,25 +435,25 @@ exec tg run -b "$@"
 				} else {
 					{deb: 'amd64', rpm: 'x86_64'}
 				}
-				^nu packages/linux/deb/package.nu $archive $architectures.deb $version
-				^nu packages/linux/rpm/package.nu $archive $architectures.rpm $version
-				^nu scripts/image.nu package --platform $'linux/($architectures.deb)' --version $version
+				^nu packages/release/deb/package.nu $archive $architectures.deb $version
+				^nu packages/release/rpm/package.nu $archive $architectures.rpm $version
+				^nu packages/release/image.nu package --platform $'linux/($architectures.deb)' --version $version
 			}
 			aarch64-linux-musl | x86_64-linux-musl => {
 				let architecture = $target | str replace '-linux-musl' ''
-				^nu packages/linux/apk/package.nu $archive $architecture $version
+				^nu packages/release/apk/package.nu $archive $architecture $version
 			}
 			_ => {}
 		}
 	}
 	let gnu_targets = $selected_targets | where {|target| $target ends-with '-linux-gnu' }
 	if not ($gnu_targets | is-empty) {
-		^python3 scripts/release/arch_package.py $version ...$gnu_targets
+		^python3 packages/release/arch_package.py $version ...$gnu_targets
 	}
 	if $sign {
-		^python3 scripts/release/sign.py $version ...$selected_targets
+		^python3 packages/release/sign.py $version ...$selected_targets
 		if $version =~ $stable_version {
-			^python3 scripts/release/publish.py manifest $version ...$selected_targets
+			^python3 packages/release/publish.py manifest $version ...$selected_targets
 		}
 	}
 }

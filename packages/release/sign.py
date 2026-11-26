@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import unquote_to_bytes
 
 KEY_BUCKET = "keys-tangram-dev"
-PUBLIC_KEYS = Path("packages/linux/keys").resolve()
+PUBLIC_KEYS = Path("packages/release/keys").resolve()
 APT_SIGNER = "6CA7EC3F820AD62E65DD5D1B7BDC43714473D2A5"
 RPM_SIGNER = "09C7C2B1A3F349390984A7D148E333B80D02A7E8"
 APT_IMAGE = """\

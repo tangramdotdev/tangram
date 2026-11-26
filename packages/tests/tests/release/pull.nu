@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 use ../../util/release.nu
-use ../../../../scripts/release/stage.nu
+use ../../../release/stage.nu
 
 # A pull without a target stages every target that is tagged on the remote, and fails when it cannot pull one of them.
 let remote = server spawn --name remote

@@ -181,7 +181,7 @@ def main [
 	if not $no_sign {
 		step "Signing the Sparkle update"
 		let tool = ($derived_data_path | path join "SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast")
-		^python3 scripts/release/sparkle.py $tool $dmg_path $appcast_path $build_number
+		^python3 packages/release/sparkle.py $tool $dmg_path $appcast_path $build_number
 	}
 
 	step "Creating the distributable archive"

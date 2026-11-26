@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 use ../../util/release.nu
-use ../../../../scripts/release/stage.nu
+use ../../../release/stage.nu
 
 # An incomplete Darwin release cannot replace a previously staged helper/provider pair.
 let remote = server spawn --name remote

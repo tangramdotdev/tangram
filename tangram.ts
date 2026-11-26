@@ -37,7 +37,7 @@ export const checkScripts = async () => {
 	await task(
 		"scripts",
 		"check",
-		tg.run`oxlint tangram.ts build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff check scripts/*.py scripts/release/*.py`
+		tg.run`oxlint tangram.ts build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff check scripts/*.py packages/release/*.py`
 			.cwd(cwd)
 			.env(env),
 	);
@@ -62,7 +62,7 @@ export const formatScripts = async () => {
 	await task(
 		"scripts",
 		"format",
-		tg.run`oxfmt --write tangram.ts build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff format scripts/*.py scripts/release/*.py`
+		tg.run`oxfmt --write tangram.ts build.tg.ts scripts/canary.ts scripts/*.tg.ts packages/*/tangram.ts packages/clients/*/tangram.ts scripts/*/tangram.ts && uv run --locked python -m ruff format scripts/*.py packages/release/*.py`
 			.cwd(cwd)
 			.env(env),
 	);
@@ -135,7 +135,7 @@ export const cliSudo = async (...args: Array<string>) => {
 
 export const imageBuild = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
-	await tg.run`nu scripts/image.nu build "$@"`
+	await tg.run`nu packages/release/image.nu build "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
@@ -153,7 +153,7 @@ export const imagePush = async (...args: Array<string>) => {
 
 export const imagePublish = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
-	await tg.run`nu scripts/image.nu publish "$@"`
+	await tg.run`nu packages/release/image.nu publish "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)
@@ -180,7 +180,7 @@ export const installDev = async (...args: Array<string>) => {
 
 export const release = async (...args: Array<string>) => {
 	const { cwd, env } = await context();
-	await tg.run`nu scripts/release.nu "$@"`
+	await tg.run`nu packages/release/release.nu "$@"`
 		.executable("sh")
 		.args(["--", ...args])
 		.cwd(cwd)

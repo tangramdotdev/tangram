@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 use ../../util/release.nu
-use ../../../../scripts/release/stage.nu
+use ../../../release/stage.nu
 
 # The package stage fails before it packages anything when it would build a container image on a machine that is not Linux.
 if $nu.os-info.name == 'linux' {

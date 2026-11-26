@@ -58,7 +58,7 @@ Compilation records each target's source revision and file checksums in `release
 
 For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `packages/macos/Local.xcconfig` and set the bundle prefix and development team. Create Apple Development and Developer ID Application certificates in the login keychain. Store the notarization credentials interactively with `xcrun notarytool store-credentials Tangram --apple-id <apple-id> --team-id <team-id>`. Do not store private signing keys or notarization passwords in the repository.
 
-Run `python3 scripts/release/sparkle.py bootstrap` to create or recover the production Sparkle key. The encrypted private key is stored in the private `keys-tangram-dev` bucket. Keep its passphrase in the team password vault and commit only `packages/macos/SparklePublicKey.txt`. Signed macOS packaging downloads and decrypts the key for that run.
+Run `python3 packages/release/sparkle.py bootstrap` to create or recover the production Sparkle key. The encrypted private key is stored in the private `keys-tangram-dev` bucket. Keep its passphrase in the team password vault and commit only `packages/macos/SparklePublicKey.txt`. Signed macOS packaging downloads and decrypts the key for that run.
 
 Use an increasing `--build-number` when running `tg run .#release` with the macOS package stage, even when reusing a public version. Publish with one operator at a time. The publisher verifies the immutable, build-specific DMG before replacing the stable appcast. The stable image currently targets Apple Silicon, so publish a universal image before using the same feed for Intel clients.
 

@@ -198,7 +198,7 @@ export const image = async (...args: tg.Args<Arg>) => {
 		),
 		curl: executable(curl(packageArg), "bin/curl"),
 		"docker-entrypoint.sh": source_
-			.get("scripts/image/entrypoint.sh")
+			.get("packages/release/image/entrypoint.sh")
 			.then(tg.File.expect),
 		env: executable(std.utils.coreutils.build(packageArg), "bin/env"),
 		fusermount3: executable(libfuse(packageArg), "bin/fusermount3"),
@@ -282,7 +282,7 @@ export const image = async (...args: tg.Args<Arg>) => {
 			.caCertificates()
 			.then((directory) => directory.get("cacert.pem")),
 		[configPath.slice(1)]: source_
-			.get("packages/linux/config.json")
+			.get("packages/release/config.json")
 			.then(tg.File.expect),
 		lib,
 		lib64: tg.symlink("lib"),
