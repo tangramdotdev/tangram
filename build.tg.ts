@@ -336,18 +336,18 @@ export const release = async (arg: { commit: string; target: string }) => {
 	const standalone =
 		platform === "linux-gnu" ? ({ glibcVersion: "2.35" } as const) : true;
 
-	// Link the C runtime of a musl target dynamically, or statically for the static target, because Rust links it statically by default.
-	const crt =
+	// Link the C runtime of a musl target dynamically, or statically for the static target, because Rust links it statically by default. Link the static target as a position-dependent executable, because the SDK's static musl C library is not position-independent, so it cannot be linked into a static position-independent executable.
+	const flags =
 		platform === "linux-musl"
 			? static_ === undefined
-				? "-crt-static"
-				: "+crt-static"
+				? "-C target-feature=-crt-static"
+				: "-C target-feature=+crt-static -C relocation-model=static"
 			: undefined;
 	const env = {
 		TANGRAM_CLI_COMMIT_HASH: arg.commit,
-		...(crt === undefined
+		...(flags === undefined
 			? {}
-			: { RUSTFLAGS: tg.Mutation.suffix(`-C target-feature=${crt}`, " ") }),
+			: { RUSTFLAGS: tg.Mutation.suffix(flags, " ") }),
 	};
 
 	// Build the executable, and the provider library for a macOS target.
