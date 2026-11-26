@@ -450,6 +450,11 @@ impl Client {
 	}
 
 	#[must_use]
+	pub fn user_agent(version: &str) -> String {
+		format!("tangram/{version}")
+	}
+
+	#[must_use]
 	pub fn version(&self) -> &str {
 		&self.0.version
 	}

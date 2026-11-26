@@ -183,6 +183,10 @@ impl tg::Client {
 					})
 				}))
 				.insert_request_header_if_not_present(
+					http::header::USER_AGENT,
+					http::HeaderValue::from_str(&Self::user_agent(version)).unwrap(),
+				)
+				.insert_request_header_if_not_present(
 					http::HeaderName::from_str("x-tg-compatibility-date").unwrap(),
 					http::HeaderValue::from_str(&Self::compatibility_date().to_string()).unwrap(),
 				)

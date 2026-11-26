@@ -367,6 +367,7 @@ impl Component {
 		let client = github_client(&github)?;
 		let http_client = oauth2::reqwest::ClientBuilder::new()
 			.redirect(oauth2::reqwest::redirect::Policy::none())
+			.user_agent(tg::Client::user_agent(env!("CARGO_PKG_VERSION")))
 			.build()
 			.map_err(|error| tg::error!(!error, "failed to build the HTTP client"))?;
 		let http_client_ = http_client.clone();

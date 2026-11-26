@@ -62,7 +62,10 @@ impl Client {
 		let available_query = config.available_query.clone();
 		let cache = Mutex::new(None);
 		let total_query = config.total_query.clone();
-		let http = reqwest::Client::new();
+		let http = reqwest::Client::builder()
+			.user_agent(tg::Client::user_agent(env!("CARGO_PKG_VERSION")))
+			.build()
+			.map_err(|error| tg::error!(!error, "failed to build the HTTP client"))?;
 		let time_to_live = config.time_to_live;
 
 		Ok(Self {

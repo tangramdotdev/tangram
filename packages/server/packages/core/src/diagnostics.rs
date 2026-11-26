@@ -38,7 +38,7 @@ impl Server {
 				"https://api.github.com/repos/tangramdotdev/tangram/releases/latest",
 			)
 			.header("Accept", "application/vnd.github+json")
-			.header("User-Agent", "tangram")
+			.header("User-Agent", tg::Client::user_agent(&self.version))
 			.send()
 			.await
 			.inspect_err(|error| tracing::warn!(%error, "failed to get response from github"))

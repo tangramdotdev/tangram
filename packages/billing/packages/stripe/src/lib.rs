@@ -72,8 +72,12 @@ struct EventData {
 impl Billing {
 	#[must_use]
 	pub fn new(config: &Config) -> Self {
+		let client = reqwest::Client::builder()
+			.user_agent(tg::Client::user_agent(env!("CARGO_PKG_VERSION")))
+			.build()
+			.unwrap();
 		Self {
-			client: reqwest::Client::new(),
+			client,
 			secret_key: config.secret_key.clone(),
 			url: config.url.to_string().trim_end_matches('/').to_owned(),
 			webhook_secret: config.webhook_secret.clone(),

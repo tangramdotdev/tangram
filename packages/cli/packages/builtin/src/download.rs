@@ -39,7 +39,11 @@ pub struct Args {
 
 pub async fn run(args: Args, progress_interval: std::time::Duration) -> tg::Result<()> {
 	let output = super::util::resolve_path(args.output_named, args.output_positional);
-	let response = reqwest::get(args.url.as_str())
+	let user_agent = tg::Client::user_agent(&tangram_cli_core::version());
+	let response = reqwest::Client::new()
+		.get(args.url.as_str())
+		.header(reqwest::header::USER_AGENT, user_agent)
+		.send()
 		.await
 		.map_err(|error| tg::error!(!error, url = %args.url, "failed to perform the request"))?
 		.error_for_status()
