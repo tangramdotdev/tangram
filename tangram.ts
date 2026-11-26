@@ -2,6 +2,7 @@ import * as javascriptClient from "./packages/clients/javascript";
 import * as pythonClient from "./packages/clients/python";
 import * as javascript from "./packages/javascript";
 import * as python from "./packages/python";
+import release_ from "./packages/release";
 import * as tests from "./packages/tests";
 import * as vscode from "./packages/vscode";
 import { context } from "./scripts/context.tg.ts";
@@ -179,12 +180,7 @@ export const installDev = async (...args: Array<string>) => {
 };
 
 export const release = async (...args: Array<string>) => {
-	const { cwd, env } = await context();
-	await tg.run`nu packages/release/release.nu "$@"`
-		.executable("sh")
-		.args(["--", ...args])
-		.cwd(cwd)
-		.env(env);
+	await release_(...args);
 };
 
 export const run = async (...args: Array<string>) => {

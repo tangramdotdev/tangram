@@ -195,8 +195,8 @@ index:
 tg run .#imagePublish -- --tag ghcr.io/tangramdotdev/tangram:latest
 ```
 
-The release script's package stage builds the image for each GNU Linux target
-and saves it under `release/image/`, which requires Linux. The script tags the
+The release's package stage builds the image for each GNU Linux target and
+saves it under `release/image/`, which requires Linux. The release tags the
 image in the local Docker but does not publish it.
 
 The image has the same layout as the Linux packages: the packaged configuration

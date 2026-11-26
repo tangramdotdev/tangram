@@ -216,6 +216,20 @@ def gh_release(tag):
     )
 
 
+def check_tag(tag):
+    response = subprocess.run(
+        ["gh", "api", f"repos/{GITHUB_REPO}/git/ref/tags/{tag}"],
+        capture_output=True,
+        text=True,
+    )
+    if response.returncode:
+        raise ValueError(
+            f"publishing requires the GitHub tag {tag}, which could not be found: "
+            f"{response.stderr.strip() or 'gh api failed'}; push the tag, or pass "
+            "--stage compile --stage package for a local build"
+        )
+
+
 def gh_assets(release):
     endpoint = (
         f"repos/{GITHUB_REPO}/releases/{release['databaseId']}/assets?per_page=100"
@@ -520,12 +534,15 @@ def main(action, version, targets):
     if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
         raise ValueError("expected a numeric release version")
     manifest_path = RELEASE / "manifest.json"
+    if action == "check":
+        check_tag(f"v{version}")
+        return
     if action == "manifest":
         manifest = release_manifest(version, targets)
         atomic_write(manifest_path, (json.dumps(manifest, indent=2) + "\n").encode())
         return
     if action != "publish":
-        raise ValueError("expected manifest or publish")
+        raise ValueError("expected check, manifest, or publish")
     if not manifest_path.is_file():
         raise ValueError("release/manifest.json is missing; run signed packaging")
     prepared = json.loads(manifest_path.read_bytes())

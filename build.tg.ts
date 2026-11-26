@@ -313,31 +313,58 @@ export const image = async (...args: tg.Args<Arg>) => {
 	});
 };
 
-/** Compile a release target through the compiler cache in the user's Cargo target directory. */
-export const release = async (arg: { commit: string; host: string }) => {
+/** Build the standalone executable of a release target, such as `x86_64-linux-gnu` or `x86_64-linux-musl-static`, in the sandbox, with the VFS provider library for a macOS target, as a directory with `tangram` and `libtangram_vfs_provider.a`. */
+export const release = async (arg: { commit: string; target: string }) => {
 	const build = std.triple.host();
-	const target = rustTriple(arg.host);
+	const match =
+		/^(aarch64|x86_64)-(darwin|linux-gnu|linux-musl)(-static)?$/.exec(
+			arg.target,
+		);
+	if (match === null || (match[3] !== undefined && match[2] !== "linux-musl")) {
+		throw new Error(`unsupported release target ${arg.target}`);
+	}
+	const [, arch, platform, static_] = match;
+	const target =
+		platform === "darwin"
+			? `${arch}-apple-darwin`
+			: `${arch}-unknown-${platform}`;
 	const host =
 		std.sdk.canonicalTriple(build) === std.sdk.canonicalTriple(target)
 			? build
 			: target;
-	const darwin = std.triple.os(host) === "darwin";
-	const standalone = darwin ? true : ({ glibcVersion: "2.35" } as const);
-	const options = await buildArg({
-		build,
-		env: { TANGRAM_CLI_COMMIT_HASH: arg.commit },
-		host,
-		proxy: true,
-		...(darwin ? {} : { sdk: { linker: "mold" as const } }),
-		standalone,
-	});
-	const packages = ["tangram_cli", ...(darwin ? ["tangram_vfs_provider"] : [])];
-	return cargo.build({ ...options, packages, targetDir: true });
-};
+	const darwin = platform === "darwin";
+	const standalone =
+		platform === "linux-gnu" ? ({ glibcVersion: "2.35" } as const) : true;
 
-/** Export a Cargo output without its build-time wrapper or artifact dependencies. */
-export const releaseBinary = async (file: tg.File, host: string) =>
-	std.file.standalone(file, host);
+	// Link the C runtime of a musl target dynamically, or statically for the static target, because Rust links it statically by default.
+	const crt =
+		platform === "linux-musl"
+			? static_ === undefined
+				? "-crt-static"
+				: "+crt-static"
+			: undefined;
+	const env = {
+		TANGRAM_CLI_COMMIT_HASH: arg.commit,
+		...(crt === undefined
+			? {}
+			: { RUSTFLAGS: tg.Mutation.suffix(`-C target-feature=${crt}`, " ") }),
+	};
+
+	// Build the executable, and the provider library for a macOS target.
+	const options = await buildArg({ build, env, host, standalone });
+	const packages = ["tangram_cli", ...(darwin ? ["tangram_vfs_provider"] : [])];
+	const output = await cargo.build({ ...options, packages });
+	const files: Record<string, Promise<tg.File>> = {
+		tangram: output.get("bin/tangram").then(tg.File.expect),
+	};
+	if (darwin) {
+		files["libtangram_vfs_provider.a"] = output
+			.get("lib/libtangram_vfs_provider.a")
+			.then(tg.File.expect);
+	}
+
+	return tg.directory(files);
+};
 
 // Test targets.
 
@@ -719,7 +746,7 @@ const librustyv8 = async (lockfile: tg.File, ...hosts: Array<string>) => {
 		if (std.triple.os(host) === "darwin") {
 			os = "apple-darwin";
 		} else if (std.triple.os(host) === "linux") {
-			os = "unknown-linux-gnu";
+			os = `unknown-linux-${std.triple.environment(host) === "musl" ? "musl" : "gnu"}`;
 		} else {
 			throw new Error(`unsupported host ${host}`);
 		}
