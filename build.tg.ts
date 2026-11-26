@@ -188,7 +188,7 @@ export const image = async (...args: tg.Args<Arg>) => {
 	const executable = (directory: Promise<tg.Directory>, path: string) =>
 		directory.then((directory) => directory.get(path)).then(tg.File.expect);
 
-	// Collect the programs that the server runs, without the rest of their packages.
+	// Collect the programs that the server runs, the entrypoint, and the GNU env that the entrypoint uses to give a command the default actions for SIGINT and SIGQUIT, which the utilities' env cannot do, without the rest of their packages.
 	const squashfs = squashfsTools(packageArg);
 	const xtables = iptables(packageArg);
 	const bin: Record<string, tg.Unresolved<tg.Artifact>> = {
@@ -197,6 +197,10 @@ export const image = async (...args: tg.Args<Arg>) => {
 			"bin/cloud-hypervisor",
 		),
 		curl: executable(curl(packageArg), "bin/curl"),
+		"docker-entrypoint.sh": source_
+			.get("scripts/image/entrypoint.sh")
+			.then(tg.File.expect),
+		env: executable(std.utils.coreutils.build(packageArg), "bin/env"),
 		fusermount3: executable(libfuse(packageArg), "bin/fusermount3"),
 		mksquashfs: executable(squashfs, "bin/mksquashfs"),
 		nft: executable(nftables(packageArg), "bin/nft"),
@@ -227,7 +231,7 @@ export const image = async (...args: tg.Args<Arg>) => {
 						" ",
 					),
 				},
-				standalone: { glibcVersion: "2.39" },
+				standalone: { glibcVersion: "2.39", libraries: ["libfdb_c.so"] },
 			},
 			merged,
 			{ build: buildMachine, host },
@@ -290,10 +294,11 @@ export const image = async (...args: tg.Args<Arg>) => {
 	// Add a shell and the basic utilities as a layer of their own.
 	const utils = await std.bootstrap.utils(host).then(tg.Directory.expect);
 
-	// Serve from the state directory by default, and keep it in a volume.
+	// Run the server by default, start a server on demand for any other command, and keep the state directory in a volume. The entrypoint runs a server command directly, and stops the server that any other command started when the command exits. The CLI reads the packaged configuration, which serves from the state directory, by default.
 	return await std.image({
-		cmd: ["serve", "--config", configPath, "--directory", stateDirectory],
-		entrypoint: ["/bin/tangram"],
+		cmd: ["serve"],
+		entrypoint: ["/bin/docker-entrypoint.sh"],
+		env: { TANGRAM_START: "true" },
 		labels: {
 			"org.opencontainers.image.description":
 				"Tangram build system and package manager",

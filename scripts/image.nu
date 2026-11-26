@@ -24,7 +24,7 @@ def 'main build' [
 	load $platform $tag $fast
 }
 
-# Build the image for one platform and save it under release/image/, with the name and the tag that the release script's Dockerfile image has.
+# Build the image for one platform and save it under release/image/, with the name and the tag that the release script uses.
 def 'main package' [
 	--platform: string # The platform to build for. The default is this machine's platform.
 	--version: string # The version of the release.
