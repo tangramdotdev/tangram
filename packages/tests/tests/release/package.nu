@@ -33,7 +33,8 @@ assert equal (open --raw release/aur/.SRCINFO) 'srcinfo'
 
 # The metadata covers only this release's packages, and the earlier metadata and signature are gone.
 assert equal (open --raw release/apt/Packages) $'tangram_0.0.0_amd64.deb: x86_64-linux-gnu 0.0.0 from ($compiled)'
-assert equal (open --raw release/rpm/repodata/repomd.xml) $'tangram-0.0.0-1.x86_64.rpm: x86_64-linux-gnu 0.0.0 from ($compiled)'
+let primary = open --raw release/rpm/repodata/repomd.xml | parse --regex 'href="(?<href>[^"]+)"' | get href | first
+assert equal (open --raw ('release/rpm' | path join $primary)) $'tangram-0.0.0-1.x86_64.rpm: x86_64-linux-gnu 0.0.0 from ($compiled)'
 assert equal (open --raw release/apk/x86_64/APKINDEX.tar.gz) $'tangramdotdev-0.0.0-r0.apk: x86_64-linux-musl 0.0.0 from ($compiled)'
 assert not ('release/apt/InRelease' | path exists)
-assert equal (ls release/rpm/repodata | get name | path basename) ['repomd.xml']
+assert equal (ls release/rpm/repodata | get name | path basename | sort) [($primary | path basename) 'repomd.xml']

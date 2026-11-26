@@ -36,6 +36,7 @@ const localBuild = "pass --stage compile --stage package for a local build";
 const usage = `Usage: tg run .#release -- [--stage <compile|package|publish>] [--target <target>] [--version <version>] [--build-number <number>] [--no-sign] [--retry]
 
 Release Tangram. For each target, the compile stage builds the standalone executable in a sandboxed Tangram build and stages it in release/, and the package stage packages it in sandboxed Tangram builds: the tarball, and the deb and rpm of a GNU Linux target or the apk of a musl Linux target. The targets run concurrently. After every target is packaged, the package stage builds the macOS app, the AUR package, and the Linux repositories, and the publish stage publishes the release.
+Publishing is additive, so that machines that build different targets can each publish theirs. The publish stage publishes this run's targets and records them in the release's record, which also records the source commit, and then it updates the indexes over every target that the release has published: the apt and rpm repositories, the container image index, the Homebrew formula, the AUR package, and the GitHub release notes. A run refuses to add to a release that records a different commit, and a run of the same targets from the same commit replaces them. Signed packaging fetches the GNU Linux packages that other runs published, so that the repository metadata covers them.
 Repeat --stage or --target to select more than one. The default is every stage, so a plain run publishes, which requires --version with a numeric release version, a matching GitHub tag, and signed packaging. These are checked before any work starts; ${localBuild}.
 Without --target, the compile stage builds every target on Linux and the macOS targets on a Mac, and together with the package stage it builds only the targets that this machine can package: the Linux targets on Linux and the macOS targets on a Mac. The package stage alone packages every staged target, and the publish stage alone publishes the targets of the signed package manifest.
 Each staged target includes its source revision and file checksums in release/tangram_<target>.json, and packaging rejects stale or changed files. macOS targets require both the helper and its matching provider library.
@@ -188,6 +189,32 @@ export default async (...args: Array<string>) => {
 
 	// Build the macOS app, the AUR package, and the Linux repositories from every packaged target. Sign the packages before generating the repository metadata over them, and then sign the metadata.
 	if (package_) {
+		// Fetch the GNU Linux packages that other runs published for the release, so that the repository metadata of a signed packaging covers them.
+		const publishable = arg.sign && stableVersion.test(version);
+		let published: Array<Target> = [];
+		if (publishable) {
+			await task(
+				"release",
+				"fetch the published packages",
+				python(
+					repository,
+					"packages/release/publish.py",
+					"fetch",
+					version,
+					...selected,
+				),
+			);
+			const bytes = await tg.host.readFile(
+				tg.path.join(cwd, "release/published.json"),
+			);
+			const others = Object.keys(JSON.parse(tg.encoding.utf8.decode(bytes)));
+			published = targets.filter(
+				(target) =>
+					gnu.length > 0 &&
+					target.endsWith("-linux-gnu") &&
+					others.includes(target),
+			);
+		}
 		if (darwin.length > 0) {
 			const buildNumber =
 				arg.buildNumber === undefined
@@ -218,6 +245,7 @@ export default async (...args: Array<string>) => {
 			(target) =>
 				target.endsWith("-linux-gnu") || target.endsWith("-linux-musl"),
 		);
+		const indexed = [...linux, ...published];
 		if (linux.length > 0) {
 			const sign = "packages/release/sign.py";
 			if (arg.sign) {
@@ -230,17 +258,17 @@ export default async (...args: Array<string>) => {
 			await task(
 				"release",
 				"repositories",
-				nu(repository, release, "repository", version, ...linux, ...retry),
+				nu(repository, release, "repository", version, ...indexed, ...retry),
 			);
 			if (arg.sign) {
 				await task(
 					"release",
 					"sign repositories",
-					python(repository, sign, "repositories", version, ...linux),
+					python(repository, sign, "repositories", version, ...indexed),
 				);
 			}
 		}
-		if (arg.sign && stableVersion.test(version)) {
+		if (publishable) {
 			await task(
 				"release",
 				"manifest",
