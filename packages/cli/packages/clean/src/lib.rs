@@ -96,8 +96,13 @@ pub async fn run_force(cli: &mut Cli) -> tg::Result<()> {
 			Some(0),
 			None,
 		);
+
+		// Collect the paths to remove, except the directory of installed executables, which the standalone installer creates in the default directory, and which may hold the executable that is running.
+		let root = path;
+		let bin = root.join("bin");
+		let preserved = bin.exists();
 		let mut paths = Vec::new();
-		let mut stack = vec![path.clone()];
+		let mut stack = vec![root.clone()];
 		while let Some(path) = stack.pop() {
 			let metadata = std::fs::symlink_metadata(&path)
 				.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
@@ -125,6 +130,9 @@ pub async fn run_force(cli: &mut Cli) -> tg::Result<()> {
 				for entry in entries {
 					let entry = entry
 						.map_err(|error| tg::error!(!error, "failed to read the directory"))?;
+					if entry.path() == bin {
+						continue;
+					}
 					stack.push(entry.path());
 				}
 			}
@@ -140,8 +148,12 @@ pub async fn run_force(cli: &mut Cli) -> tg::Result<()> {
 			Some(0),
 			Some(paths.len().to_u64().unwrap()),
 		);
-		let root = path;
 		for (path, metadata) in paths.into_iter().rev() {
+			// Keep the directory itself if it holds the installed executables.
+			if path == root && preserved {
+				progress_.increment("cleaning", 1);
+				continue;
+			}
 			if metadata.is_dir() {
 				match std::fs::remove_dir(&path) {
 					Ok(()) => {},
