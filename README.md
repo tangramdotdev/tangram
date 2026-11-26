@@ -145,8 +145,6 @@ have their hooks invoked automatically.
 | `run`, `runRelease` | Build and run a Tangram target with the local CLI |
 | `test`, `testRust` | Full test suite or the Rust tests |
 | `imageBuild`, `imagePush`, `imagePublish` | Build or publish the container image |
-| `imageClean` | Remove unused Docker build cache mounts |
-| `imageBuildTangram`, `imagePublishTangram` | Build or publish the container image with Tangram instead of the Dockerfile |
 | `canary` | Build and publish the canary release |
 | `clean` | Remove checkout state, dependencies, and build output |
 
@@ -171,63 +169,16 @@ of the working-tree contents instead. Computing it leaves the staging
 area unchanged. Commands warn when the connected server's version differs;
 automatic local-server mode also restarts the server with the installed binary.
 
-### Container architectures
+### Container image
 
-The Dockerfile builds the CLI and its native dependencies against Debian and
-supports Linux amd64 and arm64 builds from an x86 Linux host. On an x86 Linux
-host, install Docker Buildx and QEMU user-mode binfmt support for ARM runtime
-image assembly; the Rust compilation itself uses a cross compiler.
-
-```nu
-tg run .#imageBuild -- --platform linux/arm64
-```
-
-Builds on the same Docker builder reuse Cargo's registry, Git, and target caches.
-To clear unused cache mounts, including those shared with other builds on the
-selected builder, run:
+Tangram builds the container image itself. `build.tg.ts#image` builds the CLI
+with every feature, collects the programs that the server runs, and assembles
+them with `std.image`. The image has no base distribution, and Docker is needed
+only to load, tag, and push it. Building it requires Linux, and uses the
+packages repository checked out next to this one.
 
 ```nu
-tg run .#imageClean
-```
-
-Pass `-- --force` to skip Docker's confirmation prompt, or `-- --builder <name>`
-to select another builder.
-
-To publish a multiarchitecture image index:
-
-```nu
-tg run .#imagePublish -- --tag ghcr.io/tangramdotdev/tangram:latest
-```
-
-The release script builds a separate runtime image from each staged GNU Linux
-binary with `packages/linux/image/Dockerfile`, and saves it under
-`release/image/`. Building the image for another architecture needs QEMU
-emulation. The script tags the image in the local Docker but does not publish
-it. The image has the same layout as the Linux packages: the configuration is at
-`/etc/tangram/config.json`, and the server's state is in a volume at
-`/var/lib/tangram`. To load the image, run the server, and use it:
-
-```nu
-docker load --input release/image/tangram_<version>_amd64.tar
-docker run --detach --name tangram --privileged --volume tangram:/var/lib/tangram ghcr.io/tangramdotdev/tangram:<version>-amd64
-docker exec tangram tg health
-```
-
-Keep build and runtime libc versions aligned rather than copying a binary
-linked on a rolling host into an older runtime image. ARM execution and build
-workloads still need verification on native ARM hardware.
-
-### Container image built with Tangram
-
-As an alternative to the Dockerfile, Tangram can build the container image
-itself. `build.tg.ts#image` builds the CLI with every feature, collects the
-programs that the server runs, and assembles them with `std.image`. This image
-has no base distribution, and Docker is needed only to load, tag, and push it.
-Building it requires Linux, and uses the packages repository checked out next to
-this one.
-
-```nu
-tg run .#imageBuildTangram
+tg run .#imageBuild
 ```
 
 This loads the image for this machine's architecture into Docker as
@@ -241,21 +192,25 @@ To build both architectures, push them, and publish a multiarchitecture image
 index:
 
 ```nu
-tg run .#imagePublishTangram -- --tag ghcr.io/tangramdotdev/tangram:latest
+tg run .#imagePublish -- --tag ghcr.io/tangramdotdev/tangram:latest
 ```
 
-This image has the same layout as the one that the release script builds from
-the Dockerfile: the packaged configuration is at `/etc/tangram/config.json`,
-the state directory `/var/lib/tangram` is a volume, and the default command
-serves from it. To make the release script's package stage build this image
-instead, for the same file under `release/image/` and the same tag, pass
-`--tangram-image`:
+The release script's package stage builds the image for each GNU Linux target
+and saves it under `release/image/`, which requires Linux. The script tags the
+image in the local Docker but does not publish it.
+
+The image has the same layout as the Linux packages: the packaged configuration
+is at `/etc/tangram/config.json`, and the server's state is in a volume at
+`/var/lib/tangram`. Every argument to the image is a Tangram command, and the
+default command is `serve`, which runs the server in the foreground. Any other
+command starts a server if it needs one, and stops it when the command exits.
+To load the image, run the server, and use it:
 
 ```nu
-tg run .#release -- --stage package --tangram-image --target x86_64-linux-gnu
+docker load --input release/image/tangram_<version>_amd64.tar
+docker run --detach --name tangram --privileged --volume tangram:/var/lib/tangram ghcr.io/tangramdotdev/tangram:<version>-amd64
+docker exec tangram tg health
 ```
-
-This needs a std with the `volumes` option of `std.image`.
 
 Cross-built V8 runtimes initialize the bundled JavaScript on the target instead
 of embedding a snapshot generated for the build host's architecture. Native
