@@ -36,7 +36,7 @@ struct Tasks {
 
 impl Server {
 	pub async fn start(
-		config: Config,
+		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))] mut config: Config,
 		components: impl FnOnce(&crate::component::Arg<'_>) -> tg::Result<Components> + Send,
 	) -> tg::Result<Owned> {
 		// Validate the configuration.
@@ -44,6 +44,10 @@ impl Server {
 
 		// Prepare the directory.
 		let directory = Self::start_directory(&config).await?;
+
+		// Detect the default subordinate identity maps.
+		#[cfg(target_os = "linux")]
+		Self::start_id_maps(&mut config, &directory.path).await;
 
 		// Create the server.
 		let state = Self::start_state(config, directory, components)
@@ -198,6 +202,74 @@ impl Server {
 		};
 
 		Ok(directory)
+	}
+
+	/// Map the default subordinate ranges into the sandboxes of a builtin runner that configures no identity maps, and keep mapping a single identity if the host cannot.
+	#[cfg(target_os = "linux")]
+	async fn start_id_maps(config: &mut Config, path: &Path) {
+		// Find the backend that uses the default.
+		if !config.roles.contains(&crate::config::Role::Runner) {
+			return;
+		}
+		let crate::config::RunnerBackend::Builtin(backend) = &mut config.runner.backend else {
+			return;
+		};
+		if !backend.subordinate_ids || backend.uid_map.is_some() || backend.gid_map.is_some() {
+			return;
+		}
+
+		// Keep a single identity when the store is a VFS mount that only the server's user can access.
+		if config.vfs.is_some() && config.access != tg::server::Access::Group {
+			tracing::debug!("the VFS store does not allow access by the subordinate identities");
+			return;
+		}
+
+		// Find the ranges.
+		let Some((uid_map, gid_map)) = tangram_sandbox::host::subordinate_id_maps() else {
+			tracing::debug!("found no subordinate identity ranges for the sandboxes");
+			return;
+		};
+
+		// Check that the runner can map the ranges and the sandboxes' filesystem.
+		let result = async {
+			// SAFETY: This function has no preconditions.
+			let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+			let config_uid_map = crate::config::IdMap {
+				count: uid_map.count,
+				helper: uid_map.helper.clone(),
+				host: uid_map.host,
+			};
+			config_uid_map.validate(uid, "uid")?;
+			let config_gid_map = crate::config::IdMap {
+				count: gid_map.count,
+				helper: gid_map.helper.clone(),
+				host: gid_map.host,
+			};
+			config_gid_map.validate(gid, "gid")?;
+			let sandboxes_path = path.join("sandboxes");
+			tangram_sandbox::host::validate_id_maps(&sandboxes_path, &uid_map, &gid_map).await?;
+			Ok::<_, tg::Error>((config_uid_map, config_gid_map))
+		}
+		.await;
+		let (uid_map, gid_map) = match result {
+			Ok(maps) => maps,
+			Err(error) => {
+				tracing::debug!(
+					error = %error.trace(),
+					"failed to map the subordinate identity ranges into the sandboxes"
+				);
+				return;
+			},
+		};
+
+		// Use the maps.
+		tracing::info!(
+			gid_map = ?(gid_map.host, gid_map.count),
+			uid_map = ?(uid_map.host, uid_map.count),
+			"mapping the subordinate identity ranges into the sandboxes"
+		);
+		backend.gid_map = Some(gid_map);
+		backend.uid_map = Some(uid_map);
 	}
 
 	async fn start_state(

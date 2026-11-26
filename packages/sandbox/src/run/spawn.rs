@@ -660,19 +660,7 @@ async fn configure_user_namespace(
 		.await
 		.map_err(|error| tg::error!(!error, "failed to wait for the user namespace"))?;
 	let pid = libc::pid_t::from_ne_bytes(buffer);
-
-	// SAFETY: This function has no preconditions.
-	let setup_uid = unsafe { libc::geteuid() };
-
-	// SAFETY: This function has no preconditions.
-	let setup_gid = unsafe { libc::getegid() };
-	if setup_uid == 0 {
-		write_id_map(pid, "uid_map", uid_map, setup_uid)?;
-		write_id_map(pid, "gid_map", gid_map, setup_gid)?;
-	} else {
-		run_id_map_helper(pid, uid_map, setup_uid, "uid").await?;
-		run_id_map_helper(pid, gid_map, setup_gid, "gid").await?;
-	}
+	write_id_maps(pid, uid_map, gid_map).await?;
 
 	// Send the ID-mapped mounts, which also releases the user namespace.
 	let namespace = std::fs::File::open(format!("/proc/{pid}/ns/user"))
@@ -688,6 +676,28 @@ async fn configure_user_namespace(
 	for path in paths {
 		let filesystem = crate::filesystem::open_mapped(path, &namespace)?;
 		crate::filesystem::send(&socket, &filesystem)?;
+	}
+
+	Ok(())
+}
+
+/// Install the identity maps of a process in a new user namespace, which map the range to the namespace's first identities and the runner's identity after them.
+pub(crate) async fn write_id_maps(
+	pid: libc::pid_t,
+	uid_map: &crate::IdMap,
+	gid_map: &crate::IdMap,
+) -> tg::Result<()> {
+	// SAFETY: This function has no preconditions.
+	let setup_uid = unsafe { libc::geteuid() };
+
+	// SAFETY: This function has no preconditions.
+	let setup_gid = unsafe { libc::getegid() };
+	if setup_uid == 0 {
+		write_id_map(pid, "uid_map", uid_map, setup_uid)?;
+		write_id_map(pid, "gid_map", gid_map, setup_gid)?;
+	} else {
+		run_id_map_helper(pid, uid_map, setup_uid, "uid").await?;
+		run_id_map_helper(pid, gid_map, setup_gid, "gid").await?;
 	}
 
 	Ok(())
@@ -817,6 +827,12 @@ fn render_passwd(user: &User) -> String {
 		.unwrap();
 	}
 	passwd
+}
+
+/// Get the name of the user that runs the runner.
+pub(crate) fn user_name() -> tg::Result<String> {
+	let user = resolve_user(None)?;
+	Ok(user.name)
 }
 
 fn resolve_user(name: Option<&str>) -> tg::Result<User> {

@@ -17,7 +17,8 @@ Source1: config.json
 Source2: tangram.service
 Source3: LICENSE
 Requires: ca-certificates, fuse3, iptables, nftables, passt, squashfs-tools, systemd
-Requires(pre): shadow-utils
+Requires(pre): coreutils, grep, shadow-utils
+Requires(postun): sed
 
 %description
 Includes the Tangram CLI and a systemd-managed server.
@@ -31,6 +32,27 @@ install -Dm644 "%{SOURCE3}" "%{buildroot}%{_datadir}/licenses/%{name}/LICENSE"
 
 %pre
 getent group tangram >/dev/null || groupadd --system tangram
+
+# Register a subordinate id range for the server's sandboxes after the ranges that are already registered.
+for file in /etc/subuid /etc/subgid; do
+	touch "$file"
+	if ! grep -q '^tangram:' "$file"; then
+		start=100000
+		while IFS=: read -r name first count || [ -n "$name" ]; do
+			case "$first" in '' | *[!0-9]*) continue ;; esac
+			case "$count" in '' | *[!0-9]*) continue ;; esac
+			if [ $((first + count)) -gt "$start" ]; then
+				start=$((first + count))
+			fi
+		done < "$file"
+		if [ $((start + 65536)) -le 4294967295 ]; then
+			if [ -s "$file" ] && [ -n "$(tail -c 1 "$file")" ]; then
+				echo >> "$file"
+			fi
+			echo "tangram:$start:65536" >> "$file"
+		fi
+	fi
+done
 
 %post
 if [ "$1" -eq 1 ]; then
@@ -56,6 +78,14 @@ fi
 %postun
 if [ "$1" -eq 0 ] && [ -d /run/systemd/system ]; then
 	systemctl daemon-reload || :
+fi
+if [ "$1" -eq 0 ]; then
+	# Remove the subordinate id range of the server's sandboxes.
+	for file in /etc/subuid /etc/subgid; do
+		if [ -f "$file" ]; then
+			sed -i '/^tangram:/d' "$file"
+		fi
+	done
 fi
 
 %files

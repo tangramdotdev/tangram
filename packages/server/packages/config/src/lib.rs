@@ -1238,15 +1238,25 @@ pub enum RunnerBackend {
 	Seatbelt,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct BuiltinBackend {
 	pub gid_map: Option<IdMap>,
+
 	pub harden: bool,
+
 	pub max_filesystem_inodes: Option<u64>,
+
 	pub max_filesystem_size: Option<u64>,
+
 	pub max_open_files: Option<u64>,
+
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+
 	pub storage_limits: bool,
+
+	/// Whether the runner maps the subordinate ranges of `/etc/subuid` and `/etc/subgid` into its sandboxes when `uid_map` and `gid_map` are not configured, which are the ranges of the runner's user, or of the `tangram` entry for a runner that runs as root.
+	pub subordinate_ids: bool,
+
 	pub uid_map: Option<IdMap>,
 }
 
@@ -1921,7 +1931,7 @@ impl FilesystemProjectIds {
 }
 
 impl IdMap {
-	pub(crate) fn validate(&self, id: u32, kind: &str) -> tg::Result<()> {
+	pub fn validate(&self, id: u32, kind: &str) -> tg::Result<()> {
 		if self.count == 0 {
 			return Err(tg::error!(
 				"the container {kind} map count must be greater than zero"
@@ -2219,6 +2229,22 @@ impl Default for RunnerBackend {
 			Self::Seatbelt
 		} else {
 			Self::Builtin(BuiltinBackend::default())
+		}
+	}
+}
+
+impl Default for BuiltinBackend {
+	fn default() -> Self {
+		Self {
+			gid_map: None,
+			harden: false,
+			max_filesystem_inodes: None,
+			max_filesystem_size: None,
+			max_open_files: None,
+			seccomp: None,
+			storage_limits: false,
+			subordinate_ids: true,
+			uid_map: None,
 		}
 	}
 }

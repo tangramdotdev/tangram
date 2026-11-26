@@ -9,6 +9,7 @@ license=('MIT')
 depends=('ca-certificates' 'fuse3' 'glibc' 'iptables' 'libcap-ng' 'libgcc'
          'nftables' 'passt' 'squashfs-tools' 'systemd')
 backup=('etc/tangram/config.json')
+install=tangram.install
 options=('!debug' '!strip')
 source=('config.json' 'tangram.service' 'tangram.sysusers' 'LICENSE')
 sha256sums=('@CONFIG_SHA256@' '@SERVICE_SHA256@' '@SYSUSERS_SHA256@' '@LICENSE_SHA256@')

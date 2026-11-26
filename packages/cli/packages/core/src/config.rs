@@ -2076,6 +2076,10 @@ pub struct BuiltinBackend {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub storage_limits: Option<bool>,
 
+	/// Whether to map the subordinate ranges of `/etc/subuid` and `/etc/subgid` into sandboxes when `uid_map` and `gid_map` are not set, which defaults to true.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub subordinate_ids: Option<bool>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub uid_map: Option<IdMap>,
 }

@@ -37,6 +37,7 @@ export def fixture [] {
 							".SRCINFO": tg.file("srcinfo"),
 							LICENSE: tg.file("license"),
 							"config.json": tg.file("config"),
+							"tangram.install": tg.file("install"),
 							"tangram.service": tg.file("service"),
 							"tangram.sysusers": tg.file("sysusers"),
 						});

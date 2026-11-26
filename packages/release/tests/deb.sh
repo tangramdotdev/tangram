@@ -16,6 +16,8 @@ apt-get install -y "$initial"
 systemctl --quiet is-enabled tangram.service
 check_health
 findmnt --mountpoint /var/lib/tangram/store --noheadings --output FSTYPE | grep '^fuse'
+grep -q '^tangram:[0-9]*:65536$' /etc/subuid
+grep -q '^tangram:[0-9]*:65536$' /etc/subgid
 
 useradd --groups tangram tg-member
 useradd tg-outsider
@@ -52,3 +54,7 @@ check_health
 apt-get purge -y tangram
 test ! -S "$socket"
 test -d /var/lib/tangram
+if grep -q '^tangram:' /etc/subuid /etc/subgid; then
+	echo "the purge kept the subordinate id range" >&2
+	exit 1
+fi

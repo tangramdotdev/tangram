@@ -211,6 +211,10 @@ export const aur = async (arg: {
 	const files: Record<string, string | Uint8Array> = {
 		"config.json": `${await configText("systemd")}\n`,
 		"tangram.service": serviceText,
+		"tangram.install": await archFiles
+			.get("tangram.install")
+			.then(tg.File.expect)
+			.then((file) => file.text),
 		"tangram.sysusers": await archFiles
 			.get("tangram.sysusers")
 			.then(tg.File.expect)

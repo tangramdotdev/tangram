@@ -2083,6 +2083,7 @@ fn resolve_runner_backend(source: RunnerBackend) -> tg::Result<server::RunnerBac
 				max_open_files: source.max_open_files,
 				seccomp: source.seccomp,
 				storage_limits: source.storage_limits.unwrap_or_default(),
+				subordinate_ids: source.subordinate_ids.unwrap_or(true),
 				uid_map: source
 					.uid_map
 					.map(|map| resolve_runner_id_map(map, "/usr/bin/newuidmap")),

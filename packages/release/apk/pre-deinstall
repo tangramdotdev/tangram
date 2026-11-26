@@ -5,3 +5,10 @@ if [ -f /run/openrc/softlevel ]; then
 	rc-service --ifstarted tangram stop
 fi
 rc-update --all --quiet del tangram >/dev/null 2>&1 || :
+
+# Remove the subordinate id range of the server's sandboxes.
+for file in /etc/subuid /etc/subgid; do
+	if [ -f "$file" ]; then
+		sed -i '/^tangram:/d' "$file"
+	fi
+done

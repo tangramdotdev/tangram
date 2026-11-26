@@ -6,7 +6,7 @@ use {
 			fd::{AsRawFd as _, FromRawFd as _},
 			unix::net::UnixStream,
 		},
-		path::Path,
+		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
 };
@@ -43,14 +43,106 @@ pub fn validate(filesystem_path: &Path, options: &Options) -> tg::Result<()> {
 	Ok(())
 }
 
+/// Find the default subordinate identity maps, which are the first ranges in `/etc/subuid` and `/etc/subgid` that belong to the runner's user, or to the `tangram` entry for a runner that runs as root.
+#[must_use]
+pub fn subordinate_id_maps() -> Option<(crate::IdMap, crate::IdMap)> {
+	// Find the owner of the ranges and the helpers that install them, which a runner that runs as root does not need.
+	// SAFETY: This function has no preconditions.
+	let (owner, uid, uid_helper, gid_helper) = if unsafe { libc::geteuid() } == 0 {
+		let owner = "tangram".to_owned();
+		let uid_helper = PathBuf::from("/usr/bin/newuidmap");
+		let gid_helper = PathBuf::from("/usr/bin/newgidmap");
+		(owner, None, uid_helper, gid_helper)
+	} else {
+		let owner = crate::run::user_name().ok()?;
+
+		// SAFETY: This function has no preconditions.
+		let uid = unsafe { libc::getuid() };
+		let path = std::env::var_os("PATH")?;
+		let uid_helper =
+			crate::util::which(Path::new(&path), Path::new("newuidmap"), Path::new("/"))?;
+		let gid_helper =
+			crate::util::which(Path::new(&path), Path::new("newgidmap"), Path::new("/"))?;
+		(owner, Some(uid), uid_helper, gid_helper)
+	};
+
+	// Find the ranges.
+	let subuid = std::fs::read_to_string("/etc/subuid").ok()?;
+	let subgid = std::fs::read_to_string("/etc/subgid").ok()?;
+	let (host, count) = subordinate_range(&subuid, &owner, uid)?;
+	let uid_map = crate::IdMap {
+		count,
+		helper: uid_helper,
+		host,
+	};
+	let (host, count) = subordinate_range(&subgid, &owner, uid)?;
+	let gid_map = crate::IdMap {
+		count,
+		helper: gid_helper,
+		host,
+	};
+
+	Some((uid_map, gid_map))
+}
+
+/// Check that the runner can install the identity maps in a user namespace and map the filesystem at the path into it.
+pub async fn validate_id_maps(
+	path: &Path,
+	uid_map: &crate::IdMap,
+	gid_map: &crate::IdMap,
+) -> tg::Result<()> {
+	// Create a user namespace in a child that waits for its maps.
+	let (pid, parent) = spawn_probe_namespace(false)?;
+
+	// Install the maps, and map the filesystem without attaching a mount to the host namespace.
+	let result = async {
+		crate::run::write_id_maps(pid, uid_map, gid_map).await?;
+		let namespace = std::fs::File::open(format!("/proc/{pid}/ns/user"))
+			.map_err(|error| tg::error!(!error, "failed to open the mount probe namespace"))?
+			.into();
+		crate::filesystem::open_mapped(path, &namespace)?;
+		Ok::<_, tg::Error>(())
+	}
+	.await;
+
+	// Release and reap the child even if the probe failed.
+	let finished = finish_probe_namespace(pid, parent);
+	result?;
+	finished?;
+
+	Ok(())
+}
+
 fn validate_id_mapped_mount(path: &Path) -> tg::Result<()> {
+	// Create a user namespace in a child that maps the runner's identity.
+	let (pid, parent) = spawn_probe_namespace(true)?;
+
+	// Probe the backing filesystem without attaching a mount to the host namespace.
+	let result = (|| {
+		let namespace = std::fs::File::open(format!("/proc/{pid}/ns/user"))
+			.map_err(|error| tg::error!(!error, "failed to open the mount probe namespace"))?
+			.into();
+		crate::filesystem::open_mapped(path, &namespace)?;
+		Ok::<_, tg::Error>(())
+	})();
+
+	// Release and reap the child even if the probe failed.
+	let finished = finish_probe_namespace(pid, parent);
+	result?;
+	finished?;
+
+	Ok(())
+}
+
+/// Fork a child that creates a user namespace, maps the runner's identity in it if `map` is set, and waits until the returned socket closes, while the parent retains its filesystem privileges.
+fn spawn_probe_namespace(map: bool) -> tg::Result<(libc::pid_t, UnixStream)> {
 	// Encode the identity maps before forking the child.
 	// SAFETY: These functions have no preconditions.
 	let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
 	let uid_map = CString::new(format!("0 {uid} 1\n")).unwrap();
 	let gid_map = CString::new(format!("0 {gid} 1\n")).unwrap();
 
-	// Create a user namespace in a child while retaining the parent's filesystem privileges.
+	// Create a user namespace in the child.
 	let (mut parent, child) = UnixStream::pair()
 		.map_err(|error| tg::error!(!error, "failed to create the mount probe socket pair"))?;
 	let pid = crate::linux::fork()?;
@@ -62,9 +154,11 @@ fn validate_id_mapped_mount(path: &Path) -> tg::Result<()> {
 			// Make the child's mapping files writable after an executable with file capabilities disables dumpability.
 			let error = if libc::unshare(libc::CLONE_NEWUSER) == 0
 				&& libc::prctl(libc::PR_SET_DUMPABLE, 1, 0, 0, 0) == 0
-				&& write_probe_file(c"/proc/self/uid_map", uid_map.as_bytes_with_nul()) == 0
-				&& write_probe_file(c"/proc/self/setgroups", b"deny\0") == 0
-				&& write_probe_file(c"/proc/self/gid_map", gid_map.as_bytes_with_nul()) == 0
+				&& (!map
+					|| (write_probe_file(c"/proc/self/uid_map", uid_map.as_bytes_with_nul()) == 0
+						&& write_probe_file(c"/proc/self/setgroups", b"deny\0") == 0
+						&& write_probe_file(c"/proc/self/gid_map", gid_map.as_bytes_with_nul())
+							== 0))
 			{
 				0
 			} else {
@@ -88,36 +182,60 @@ fn validate_id_mapped_mount(path: &Path) -> tg::Result<()> {
 		}
 	}
 
-	// Probe the backing filesystem without attaching a mount to the host namespace.
+	// Wait for the child to create the namespace, and reap the child if it failed.
 	drop(child);
-	let result = (|| {
-		let mut bytes = [0; std::mem::size_of::<libc::c_int>()];
-		parent
-			.read_exact(&mut bytes)
-			.map_err(|error| tg::error!(!error, "failed to wait for the mount probe namespace"))?;
-		let error = libc::c_int::from_ne_bytes(bytes);
-		if error != 0 {
-			return Err(tg::error!(
-				source = std::io::Error::from_raw_os_error(error),
-				"failed to create the mount probe namespace"
-			));
-		}
-		let namespace = std::fs::File::open(format!("/proc/{pid}/ns/user"))
-			.map_err(|error| tg::error!(!error, "failed to open the mount probe namespace"))?
-			.into();
-		crate::filesystem::open_mapped(path, &namespace)?;
-		Ok(())
-	})();
+	let mut bytes = [0; std::mem::size_of::<libc::c_int>()];
+	let result = parent
+		.read_exact(&mut bytes)
+		.map_err(|error| tg::error!(!error, "failed to wait for the mount probe namespace"))
+		.and_then(|()| {
+			let error = libc::c_int::from_ne_bytes(bytes);
+			if error != 0 {
+				return Err(tg::error!(
+					source = std::io::Error::from_raw_os_error(error),
+					"failed to create the mount probe namespace"
+				));
+			}
+			Ok(())
+		});
+	if let Err(error) = result {
+		finish_probe_namespace(pid, parent).ok();
+		return Err(error);
+	}
 
-	// Release and reap the child even if the probe failed.
+	Ok((pid, parent))
+}
+
+/// Release the child of a probe namespace and reap it.
+fn finish_probe_namespace(pid: libc::pid_t, parent: UnixStream) -> tg::Result<()> {
 	drop(parent);
 	let status = crate::linux::wait_for_child(pid)?;
-	result?;
 	if status != 0 {
 		return Err(tg::error!(%status, "the mount probe child failed"));
 	}
-
 	Ok(())
+}
+
+/// Find the first range in the contents of `/etc/subuid` or `/etc/subgid` that belongs to the owner, which an entry names by the owner's name or by its numeric uid.
+fn subordinate_range(contents: &str, owner: &str, uid: Option<u32>) -> Option<(u32, u32)> {
+	contents.lines().find_map(|line| {
+		let mut fields = line.trim().split(':');
+		let (Some(name), Some(start), Some(count), None) =
+			(fields.next(), fields.next(), fields.next(), fields.next())
+		else {
+			return None;
+		};
+		let owned = name == owner || uid.is_some_and(|uid| name.parse::<u32>().ok() == Some(uid));
+		if !owned {
+			return None;
+		}
+		let start = start.parse::<u32>().ok()?;
+		let count = count.parse::<u32>().ok()?;
+		if count == 0 || start.checked_add(count).is_none() {
+			return None;
+		}
+		Some((start, count))
+	})
 }
 
 fn validate_filesystem(root: &Path) -> tg::Result<()> {
@@ -516,6 +634,52 @@ fn probe_openat2() -> tg::Result<()> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn find_the_subordinate_range() {
+		let contents = indoc::indoc!(
+			"
+				# A comment.
+				other:100000:65536
+				nitsky:abc:65536
+				nitsky:200000:0
+				nitsky:165536:65536
+				nitsky:300000:65536
+			"
+		);
+		assert_eq!(
+			subordinate_range(contents, "nitsky", None),
+			Some((165_536, 65_536))
+		);
+		assert_eq!(
+			subordinate_range(contents, "other", Some(1001)),
+			Some((100_000, 65_536))
+		);
+		assert_eq!(subordinate_range(contents, "tangram", None), None);
+	}
+
+	#[test]
+	fn find_the_subordinate_range_by_uid() {
+		let contents = "1001:400000:1000\nnitsky:165536:65536\n";
+		assert_eq!(
+			subordinate_range(contents, "nitsky", Some(1001)),
+			Some((400_000, 1000))
+		);
+		assert_eq!(
+			subordinate_range(contents, "nitsky", None),
+			Some((165_536, 65_536))
+		);
+		assert_eq!(subordinate_range(contents, "other", Some(1002)), None);
+	}
+
+	#[test]
+	fn skip_a_subordinate_range_that_overflows() {
+		let contents = "tangram:4294967295:2\ntangram:4294901760:65535\n";
+		assert_eq!(
+			subordinate_range(contents, "tangram", None),
+			Some((4_294_901_760, 65_535))
+		);
+	}
 
 	#[test]
 	fn validate_required_cgroup_features() {
