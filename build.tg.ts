@@ -317,7 +317,7 @@ export const image = async (...args: tg.Args<Arg>) => {
 	});
 };
 
-/** Build the standalone executable of a release target, such as `x86_64-linux-gnu` or `x86_64-linux-musl-static`, in the sandbox, with the VFS provider library for a macOS target, as a directory with `tangram` and `libtangram_vfs_provider.a`. */
+/** Create the command that compiles the stripped standalone executable of a release target, such as `x86_64-linux-gnu` or `x86_64-linux-musl-static`, and the VFS provider library for a macOS target. The command runs Cargo on the host in the user's target directory, so that Cargo compiles only what changed, and the rustc proxy compiles each crate in a sandbox. */
 export const release = async (arg: { commit: string; target: string }) => {
 	const build = std.triple.host();
 	const match =
@@ -349,32 +349,25 @@ export const release = async (arg: { commit: string; target: string }) => {
 			: undefined;
 	const env = {
 		CARGO_PROFILE_RELEASE_STRIP: "symbols",
+		TANGRAM_CLI_COMMIT_HASH: arg.commit,
 		...(flags === undefined
 			? {}
 			: { RUSTFLAGS: tg.Mutation.suffix(flags, " ") }),
 	};
 
-	// Build the stripped executable, and the provider library for a macOS target, through the rustc proxy, so that each crate that did not change is a cache hit.
+	// Create the command.
 	const options = await buildArg({
 		build,
-		commit: arg.commit,
 		env,
 		host,
 		proxy: true,
+		...(darwin ? {} : { sdk: { linker: "mold" as const } }),
 		standalone,
 	});
 	const packages = ["tangram_cli", ...(darwin ? ["tangram_vfs_provider"] : [])];
-	const output = await cargo.build({ ...options, packages });
-	const files: Record<string, Promise<tg.File>> = {
-		tangram: output.get("bin/tangram").then(tg.File.expect),
-	};
-	if (darwin) {
-		files["libtangram_vfs_provider.a"] = output
-			.get("lib/libtangram_vfs_provider.a")
-			.then(tg.File.expect);
-	}
+	const command = cargo.build({ ...options, packages, targetDir: true });
 
-	return tg.directory(files);
+	return command;
 };
 
 // Test targets.

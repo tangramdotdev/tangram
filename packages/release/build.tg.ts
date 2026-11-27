@@ -44,6 +44,34 @@ export type Arg = {
 
 const architectures = ["aarch64", "x86_64"] as const;
 
+/** Collect the files that Cargo compiled for a release target as the directory that the package builds take, with the `tangram` executable without its build-time wrapper and artifact dependencies, and the VFS provider library of a macOS target. */
+export const binary = async (arg: {
+	executable: tg.File;
+	provider?: tg.File | undefined;
+	target: string;
+}) => {
+	const match = /^(aarch64|x86_64)-(darwin|linux-gnu|linux-musl)(-static)?$/.exec(
+		arg.target,
+	);
+	if (match === null) {
+		throw new Error(`unsupported release target ${arg.target}`);
+	}
+	const [, arch, platform] = match;
+	const host =
+		platform === "darwin"
+			? `${arch}-apple-darwin`
+			: `${arch}-unknown-${platform}`;
+	const entries: Record<string, tg.Unresolved<tg.Artifact>> = {
+		tangram: std.file.standalone(arg.executable, host),
+	};
+	if (arg.provider !== undefined) {
+		entries["libtangram_vfs_provider.a"] = arg.provider;
+	}
+	const output = await tg.directory(entries);
+
+	return output;
+};
+
 /** Archive a release target's `tangram` executable with the `tg` symlink and the `tgx` wrapper as a gzipped tarball. */
 export const tarball = async (
 	arg: Pick<Arg, "release" | "sourceDateEpoch">,

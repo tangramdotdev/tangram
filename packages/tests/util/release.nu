@@ -3,25 +3,28 @@ use ./test.nu *
 const repository = path self '../../../'
 const services = path self release_services.py
 
-# Create a small release workspace with the repository's release orchestration and publishing, whose sandboxed compile makes an executable that prints the commit, and whose packaging builds, image, and signing stand in for the real ones with files that name their inputs.
+# Create a small release workspace with the repository's release orchestration and publishing, whose compile command makes an executable that prints the commit in the target directory, and whose packaging builds, image, and signing stand in for the real ones with files that name their inputs.
 export def fixture [] {
 	let path = artifact {
-		'.gitignore': "/release\n__pycache__\n"
+		'.gitignore': "/release\n/target\n__pycache__\n"
 		'Cargo.toml': '
 			[workspace.package]
 			version = "0.0.0"
 		'
 		'build.tg.ts': '
-			export const release = (arg: { commit: string; target: string }) =>
-				tg.directory({
-					tangram: tg.file(`#!/bin/sh\necho ${arg.commit}\n`, { executable: true }),
-					...(arg.target.endsWith("-darwin") ? { "libtangram_vfs_provider.a": tg.file("provider") } : {}),
-				});
+			export const release = (arg: { commit: string; target: string }) => {
+				const host = arg.target.replace(/-static$/, "").replace("-darwin", "-apple-darwin").replace("-linux-", "-unknown-linux-");
+				const provider = arg.target.endsWith("-darwin") ? `&& echo provider > "$out/libtangram_vfs_provider.a"` : "";
+				const script = `out="$CARGO_TARGET_DIR/${host}/release" && mkdir -p "$out" && echo "#!/bin/sh" > "$out/tangram" && echo "echo ${arg.commit}" >> "$out/tangram" && chmod +x "$out/tangram" ${provider}`;
+				return tg.command({ args: ["-c", script], executable: "/bin/sh" });
+			};
 		'
 		packages: {
 			release: {
 				'build.tg.ts': '
 					const text = async (release: tg.Directory) => (await release.get("tangram").then(tg.File.expect)).text;
+					export const binary = (arg: { executable: tg.File; provider?: tg.File; target: string }) =>
+						tg.directory({ tangram: arg.executable, ...(arg.provider === undefined ? {} : { "libtangram_vfs_provider.a": arg.provider }) });
 					export const tarball = async (arg: { release: tg.Directory }) => tg.file(`tarball of ${await text(arg.release)}`);
 					const package_ = async (name: string, arg: { release: tg.Directory; target: string; version: string }) =>
 						tg.directory({ [name]: tg.file(`${arg.target} ${arg.version} from ${await (await tarball(arg)).text}`) });
