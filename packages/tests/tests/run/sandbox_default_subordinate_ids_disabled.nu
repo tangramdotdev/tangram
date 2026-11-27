@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# With the default identity maps disabled, a sandbox maps only the server's identity, so that its workload cannot use a second identity.
+# With the default identity maps disabled, a sandbox maps only the server's identity, at the workload's root, so that its workload cannot use a second identity.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
@@ -20,7 +20,7 @@ let lines = $output.stdout | lines | each {
 }
 let uid = id -u | into int
 let gid = id -g | into int
-assert equal $lines [[$uid $uid 1] [$gid $gid 1]]
+assert equal $lines [[0 $uid 1] [0 $gid 1]]
 
 let command = artifact {
 	tangram.ts: '

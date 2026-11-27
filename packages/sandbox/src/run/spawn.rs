@@ -434,7 +434,7 @@ pub(crate) async fn spawn(
 				configure_mapped_user_namespace(host, maps, &paths).await?;
 			},
 			crate::Ids::Rootless(maps) => {
-				configure_rootless_user_namespace(host, maps, &user).await?;
+				configure_rootless_user_namespace(host, maps).await?;
 			},
 			crate::Ids::Single => {
 				return Err(tg::error!("a sandbox with a single identity has no maps"));
@@ -584,10 +584,10 @@ fn prepare_user_namespace(
 	isolation: &crate::Resources,
 	user: &User,
 ) -> tg::Result<Option<(UnixStream, UnixStream)>> {
-	// Validate that the maps contain the workload's identities.
+	// Validate that the maps contain the workload's identities, which the rootless layout maps to the runner's identities.
 	let contained = match &isolation.ids {
 		crate::Ids::Mapped(maps) => user.uid < maps.uid.count && user.gid < maps.gid.count,
-		crate::Ids::Rootless(maps) => user.uid <= maps.uid.count && user.gid <= maps.gid.count,
+		crate::Ids::Rootless(_) => true,
 		crate::Ids::Single => return Ok(None),
 	};
 	if !contained {
@@ -646,11 +646,10 @@ async fn configure_mapped_user_namespace(
 async fn configure_rootless_user_namespace(
 	socket: UnixStream,
 	maps: &crate::IdMaps,
-	user: &User,
 ) -> tg::Result<()> {
 	// Install the maps once the launcher has created its user namespace.
 	let (mut socket, pid) = wait_for_user_namespace(socket).await?;
-	crate::ids::write_rootless(pid, maps, user.uid, user.gid).await?;
+	crate::ids::write_rootless(pid, maps).await?;
 
 	// Release the user namespace.
 	socket
@@ -764,11 +763,13 @@ fn render_passwd(user: &User) -> String {
 	passwd
 }
 
-/// Get the user that a sandbox's workload runs as, which is root in a rootless sandbox, as the root of a rootless container is the user that runs it, and the runner's user otherwise.
+/// Get the user that a sandbox's workload runs as, which is root, as in a container, except in the mapped layout of a runner that is not root, whose ID-mapped mounts would store a root workload's files as the host's root, and which keeps the runner's user.
 fn workload_user(ids: &crate::Ids) -> tg::Result<User> {
+	// SAFETY: This function has no preconditions.
+	let root = unsafe { libc::geteuid() } == 0;
 	match ids {
-		crate::Ids::Mapped(_) | crate::Ids::Single => resolve_user(None),
-		crate::Ids::Rootless(_) => {
+		crate::Ids::Mapped(_) if !root => resolve_user(None),
+		crate::Ids::Mapped(_) | crate::Ids::Rootless(_) | crate::Ids::Single => {
 			let user = User {
 				gid: 0,
 				home: "/root".into(),

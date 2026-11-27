@@ -214,7 +214,7 @@ async fn run(
 			stdout.read_exact(&mut byte).await.map_err(|error| {
 				tg::error!(!error, "failed to wait for the user namespace helper")
 			})?;
-			crate::ids::write_rootless(pid, maps, 0, 0).await?;
+			crate::ids::write_rootless(pid, maps).await?;
 			stdin.write_all(&[0]).await.map_err(|error| {
 				tg::error!(!error, "failed to release the user namespace helper")
 			})?;

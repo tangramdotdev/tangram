@@ -250,13 +250,13 @@ pub struct Resources {
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Ids {
-	/// Map the ranges to the sandbox identities from zero and the runner's identities after them, and show the runner's files to the workload through ID-mapped mounts, which requires `CAP_SYS_ADMIN` in the filesystem's user namespace.
+	/// Map the ranges to the sandbox identities from zero and the runner's identities after them, and show the runner's files to the workload through ID-mapped mounts, which requires `CAP_SYS_ADMIN` in the filesystem's user namespace. The workload runs as root for a runner that is root and as the runner's user otherwise.
 	Mapped(IdMaps),
 
-	/// Map the workload's identities, which are root, to the runner's identities and every other sandbox identity up to the count of a range to that range, which a runner without privileges installs with `newuidmap` and `newgidmap`.
+	/// Map the sandbox's root, which the workload runs as, to the runner's identities and the sandbox identities from one through the count of a range to that range, which a runner without privileges installs with `newuidmap` and `newgidmap`.
 	Rootless(IdMaps),
 
-	/// Map only the runner's identities, at the workload's identities.
+	/// Map only the runner's identities, at the sandbox's root, which the workload runs as.
 	#[default]
 	Single,
 }

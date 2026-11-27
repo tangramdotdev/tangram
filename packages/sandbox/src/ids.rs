@@ -22,18 +22,13 @@ pub(crate) async fn write_mapped(pid: libc::pid_t, maps: &crate::IdMaps) -> tg::
 	Ok(())
 }
 
-/// Install the maps of the rootless layout in the user namespace of a process, which map the workload's identities to the runner's identities and the other sandbox identities to the ranges.
-pub(crate) async fn write_rootless(
-	pid: libc::pid_t,
-	maps: &crate::IdMaps,
-	uid: u32,
-	gid: u32,
-) -> tg::Result<()> {
+/// Install the maps of the rootless layout in the user namespace of a process, which map the sandbox's root to the runner's identities and the other sandbox identities to the ranges.
+pub(crate) async fn write_rootless(pid: libc::pid_t, maps: &crate::IdMaps) -> tg::Result<()> {
 	// SAFETY: These functions have no preconditions.
-	let (runner_uid, runner_gid) = unsafe { (libc::geteuid(), libc::getegid()) };
-	let extents = rootless_extents(&maps.uid, uid, runner_uid)?;
+	let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
+	let extents = rootless_extents(&maps.uid, uid);
 	write(pid, "uid", &maps.uid.helper, &extents).await?;
-	let extents = rootless_extents(&maps.gid, gid, runner_gid)?;
+	let extents = rootless_extents(&maps.gid, gid);
 	write(pid, "gid", &maps.gid.helper, &extents).await?;
 	Ok(())
 }
@@ -52,35 +47,19 @@ fn mapped_extents(map: &crate::IdMap, runner: u32) -> Vec<Extent> {
 	vec![range, runner]
 }
 
-/// Compute the extents of the rootless layout, which map the sandbox identities from zero through the range's count, the workload's identity to the runner's identity, and the others in order to the range.
-fn rootless_extents(map: &crate::IdMap, workload: u32, runner: u32) -> tg::Result<Vec<Extent>> {
-	if workload > map.count {
-		return Err(tg::error!(
-			count = %map.count,
-			id = %workload,
-			"the rootless identity map does not contain the workload identity"
-		));
-	}
-	let below = Extent {
-		count: workload,
-		inside: 0,
-		outside: map.host,
-	};
-	let workload_extent = Extent {
+/// Compute the extents of the rootless layout, which map the sandbox's root to the runner's identity and the sandbox identities from one through the range's count to the range.
+fn rootless_extents(map: &crate::IdMap, runner: u32) -> Vec<Extent> {
+	let root = Extent {
 		count: 1,
-		inside: workload,
+		inside: 0,
 		outside: runner,
 	};
-	let above = Extent {
-		count: map.count - workload,
-		inside: workload + 1,
-		outside: map.host + workload,
+	let range = Extent {
+		count: map.count,
+		inside: 1,
+		outside: map.host,
 	};
-	let extents = [below, workload_extent, above]
-		.into_iter()
-		.filter(|extent| extent.count > 0)
-		.collect();
-	Ok(extents)
+	vec![root, range]
 }
 
 async fn write(pid: libc::pid_t, kind: &str, helper: &Path, extents: &[Extent]) -> tg::Result<()> {
@@ -143,8 +122,8 @@ mod tests {
 	}
 
 	#[test]
-	fn map_a_root_workload_to_the_runner() {
-		let extents = rootless_extents(&map(), 0, 1000).unwrap();
+	fn map_the_root_to_the_runner() {
+		let extents = rootless_extents(&map(), 1000);
 		assert_eq!(
 			extents,
 			[
@@ -160,52 +139,6 @@ mod tests {
 				},
 			]
 		);
-	}
-
-	#[test]
-	fn map_a_workload_with_a_nonzero_identity_to_the_runner() {
-		let extents = rootless_extents(&map(), 1000, 1000).unwrap();
-		assert_eq!(
-			extents,
-			[
-				Extent {
-					count: 1000,
-					inside: 0,
-					outside: 165_536,
-				},
-				Extent {
-					count: 1,
-					inside: 1000,
-					outside: 1000,
-				},
-				Extent {
-					count: 64_536,
-					inside: 1001,
-					outside: 166_536,
-				},
-			]
-		);
-	}
-
-	#[test]
-	fn map_a_workload_at_the_last_identity_to_the_runner() {
-		let extents = rootless_extents(&map(), 65_536, 1000).unwrap();
-		assert_eq!(
-			extents,
-			[
-				Extent {
-					count: 65_536,
-					inside: 0,
-					outside: 165_536,
-				},
-				Extent {
-					count: 1,
-					inside: 65_536,
-					outside: 1000,
-				},
-			]
-		);
-		assert!(rootless_extents(&map(), 65_537, 1000).is_err());
 	}
 
 	#[test]

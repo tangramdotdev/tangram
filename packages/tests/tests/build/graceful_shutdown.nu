@@ -69,7 +69,7 @@ let id = tg --url $local.url build --no-tokens --remote --detach -E TANGRAM_QUIE
 # Replace the remote after it schedules the process but before the runner
 # starts it, then verify that the runner delivers the complete logs.
 tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | ignore
-tg --url $remote.url server restart
+let remote = server restart $remote
 tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
 
