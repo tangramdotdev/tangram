@@ -125,9 +125,14 @@ fn build(
 		stage_tangram(path, tangram_path)?;
 	}
 
-	// Stage the shared libraries.
+	// Stage the shared libraries. When tangram links musl dynamically, stage them apart from the root filesystem's glibc libraries, and launch tangram with the musl loader, because the root filesystem's launcher uses the glibc loader.
 	let lib_path = path.join("opt/tangram/lib");
-	libraries::stage(&lib_path, libraries)?;
+	if let Some(loader) = musl_loader(libraries) {
+		libraries::stage(&lib_path.join("musl"), libraries)?;
+		write_musl_launcher(path, loader)?;
+	} else {
+		libraries::stage(&lib_path, libraries)?;
+	}
 
 	// Sync the root filesystem and update its modification time.
 	tangram_util::fs::sync_recursive_sync(path).map_err(|error| {
@@ -336,6 +341,28 @@ fn restore_rootfs_symlinks(rootfs_path: &Path) -> tg::Result<()> {
 	std::fs::remove_file(&tg_path).ok();
 	std::os::unix::fs::symlink("tangram", &tg_path)
 		.map_err(|error| tg::error!(!error, "failed to restore the tg symlink"))?;
+	Ok(())
+}
+
+fn musl_loader(libraries: &[libraries::Library]) -> Option<&libraries::Library> {
+	libraries
+		.iter()
+		.find(|library| library.name.as_encoded_bytes().starts_with(b"ld-musl-"))
+}
+
+fn write_musl_launcher(rootfs_path: &Path, loader: &libraries::Library) -> tg::Result<()> {
+	let loader = Path::new(&loader.name).display();
+	let path = rootfs_path.join("opt/tangram/bin/tangram");
+	let contents = format!(
+		"#!/bin/sh\nexec /opt/tangram/lib/musl/{loader} --library-path /opt/tangram/lib/musl /opt/tangram/libexec/tangram \"$@\"\n"
+	);
+	std::fs::write(&path, contents).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to write the musl launcher"
+		)
+	})?;
 	Ok(())
 }
 
