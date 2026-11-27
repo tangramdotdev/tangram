@@ -1008,23 +1008,27 @@ impl Config {
 			));
 		}
 		if let super::RunnerBackend::Builtin(backend) = &self.runner.backend {
-			if backend.harden && (backend.uid_map.is_none() || backend.gid_map.is_none()) {
-				return Err(tg::error!(
-					"hardened builtin isolation requires subordinate identity maps"
-				));
-			}
-			if backend.uid_map.is_some() != backend.gid_map.is_some() {
-				return Err(tg::error!(
-					"builtin uid and gid maps must be configured together"
-				));
-			}
-			if let Some(map) = &backend.uid_map {
-				// SAFETY: This function has no preconditions.
-				map.validate(unsafe { libc::getuid() }, "uid")?;
-			}
-			if let Some(map) = &backend.gid_map {
-				// SAFETY: This function has no preconditions.
-				map.validate(unsafe { libc::getgid() }, "gid")?;
+			match &backend.ids {
+				super::Ids::Detect | super::Ids::Rootless(_) | super::Ids::Single
+					if backend.harden =>
+				{
+					return Err(tg::error!(
+						"hardened builtin isolation requires subordinate identity maps"
+					));
+				},
+				super::Ids::Mapped(maps) => {
+					// SAFETY: These functions have no preconditions.
+					let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+					maps.uid.validate_mapped(uid, "uid")?;
+					maps.gid.validate_mapped(gid, "gid")?;
+				},
+				super::Ids::Rootless(maps) => {
+					// SAFETY: These functions have no preconditions.
+					let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+					maps.uid.validate_rootless(uid, "uid")?;
+					maps.gid.validate_rootless(gid, "gid")?;
+				},
+				super::Ids::Detect | super::Ids::Single => {},
 			}
 		}
 

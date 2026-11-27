@@ -2073,20 +2073,27 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 fn resolve_runner_backend(source: RunnerBackend) -> tg::Result<server::RunnerBackend> {
 	let backend = match source {
 		RunnerBackend::Builtin(source) => {
+			let ids = match (source.uid_map, source.gid_map) {
+				(Some(uid), Some(gid)) => server::Ids::Mapped(server::IdMaps {
+					gid: resolve_runner_id_map(gid, "/usr/bin/newgidmap"),
+					uid: resolve_runner_id_map(uid, "/usr/bin/newuidmap"),
+				}),
+				(None, None) if source.subordinate_ids.unwrap_or(true) => server::Ids::Detect,
+				(None, None) => server::Ids::Single,
+				(Some(_), None) | (None, Some(_)) => {
+					return Err(tg::error!(
+						"builtin uid and gid maps must be configured together"
+					));
+				},
+			};
 			let config = server::BuiltinBackend {
-				gid_map: source
-					.gid_map
-					.map(|map| resolve_runner_id_map(map, "/usr/bin/newgidmap")),
 				harden: source.harden.unwrap_or_default(),
+				ids,
 				max_filesystem_inodes: source.max_filesystem_inodes,
 				max_filesystem_size: source.max_filesystem_size,
 				max_open_files: source.max_open_files,
 				seccomp: source.seccomp,
 				storage_limits: source.storage_limits.unwrap_or_default(),
-				subordinate_ids: source.subordinate_ids.unwrap_or(true),
-				uid_map: source
-					.uid_map
-					.map(|map| resolve_runner_id_map(map, "/usr/bin/newuidmap")),
 			};
 			server::RunnerBackend::Builtin(config)
 		},
@@ -3363,12 +3370,12 @@ mod tests {
 		// Verify the resolved resource settings.
 		assert_eq!(target.resources.filesystem_project_ids.count, 10_000);
 		assert_eq!(target.resources.filesystem_project_ids.start, 20_000);
-		assert_eq!(container.gid_map.as_ref().unwrap().count, 65_536);
-		assert_eq!(
-			container.gid_map.as_ref().unwrap().helper,
-			Path::new("/usr/bin/newgidmap")
-		);
-		assert_eq!(container.gid_map.as_ref().unwrap().host, 200_000);
+		let tangram_sandbox::Ids::Mapped(maps) = &container.ids else {
+			panic!("expected the mapped identity layout");
+		};
+		assert_eq!(maps.gid.count, 65_536);
+		assert_eq!(maps.gid.helper, Path::new("/usr/bin/newgidmap"));
+		assert_eq!(maps.gid.host, 200_000);
 		assert!(target.backend.harden());
 		assert_eq!(container.max_duration, Some(Duration::from_millis(123_500)));
 		assert_eq!(container.max_open_files, Some(2048));
@@ -3377,12 +3384,9 @@ mod tests {
 			container.seccomp,
 			Some(tangram_sandbox::SeccompPolicy::Default)
 		);
-		assert_eq!(container.uid_map.as_ref().unwrap().count, 1000);
-		assert_eq!(
-			container.uid_map.as_ref().unwrap().helper,
-			Path::new("/opt/newuidmap")
-		);
-		assert_eq!(container.uid_map.as_ref().unwrap().host, 100_000);
+		assert_eq!(maps.uid.count, 1000);
+		assert_eq!(maps.uid.helper, Path::new("/opt/newuidmap"));
+		assert_eq!(maps.uid.host, 100_000);
 	}
 
 	#[test]
@@ -3400,9 +3404,8 @@ mod tests {
 			i32::MAX.cast_unsigned()
 		);
 		assert_eq!(target.resources.filesystem_project_ids.start, 1);
-		assert!(container.gid_map.is_none());
+		assert_eq!(container.ids, tangram_sandbox::Ids::Single);
 		assert_eq!(container.max_pids, None);
-		assert!(container.uid_map.is_none());
 	}
 
 	#[test]

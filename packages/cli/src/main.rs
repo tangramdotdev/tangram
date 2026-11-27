@@ -231,6 +231,10 @@ fn main() -> std::process::ExitCode {
 		Command::Sandbox(tangram_cli_sandbox::Args {
 			command: tangram_cli_sandbox::Command::Run(args),
 		}) => tangram_cli_sandbox::run::run(args),
+		#[cfg(target_os = "linux")]
+		Command::Sandbox(tangram_cli_sandbox::Args {
+			command: tangram_cli_sandbox::Command::Unshare(args),
+		}) => tangram_cli_sandbox::unshare::run(&args),
 		command => {
 			let runtime = tokio::runtime::Builder::new_current_thread()
 				.enable_all()

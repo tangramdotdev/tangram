@@ -1456,6 +1456,16 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the sandbox directory"))?;
 
+		// Give the runner the directories that it prepares, which the workload of an earlier boot on the directory may have given to other identities of the sandbox.
+		#[cfg(target_os = "linux")]
+		tangram_sandbox::unshare::reclaim_directories(
+			&resources.ids,
+			&session.server.tangram_path,
+			temp.path(),
+		)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to reclaim the sandbox directories"))?;
+
 		// Assign a new directory to its sandbox before the sandbox writes any file in it.
 		if let Some(sandbox) = &assigned {
 			directory::write(temp.path(), sandbox)?;
@@ -1833,7 +1843,7 @@ impl Component {
 				let _ = project_id;
 				kept.store(true, Ordering::Release);
 			} else {
-				self.remove_sandbox_directory(id.clone(), directory, temp)
+				self.remove_sandbox_directory(&session.server, id.clone(), directory, temp)
 					.await;
 			}
 		}
@@ -2308,9 +2318,10 @@ impl Component {
 						tokio::spawn({
 							let component = self.clone();
 							let id = id.clone();
+							let server = session.server.clone();
 							async move {
 								component
-									.remove_sandbox_directory(id, directory, temp)
+									.remove_sandbox_directory(&server, id, directory, temp)
 									.await;
 							}
 						});
@@ -3148,17 +3159,50 @@ impl Component {
 	/// Remove a sandbox's directory, and then forget the directory, unless the sandbox has another directory by then.
 	async fn remove_sandbox_directory(
 		&self,
+		server: &Server,
 		id: tg::sandbox::Id,
 		directory: directory::Id,
 		mut temp: Temp,
 	) {
-		if let Err(error) = temp.remove().await {
-			tracing::error!(%error, sandbox = %id, "failed to remove the sandbox directory");
+		if let Err(error) = Self::remove_sandbox_temp(server, &mut temp).await {
+			tracing::error!(error = %error.trace(), sandbox = %id, "failed to remove the sandbox directory");
 			return;
 		}
 		self.state
 			.sandbox_directories
 			.remove_if(&id, |_, value| *value == directory);
+	}
+
+	/// Remove the temp of a sandbox's directory, whose files the sandbox's workload may have given to any of the sandbox's identities.
+	async fn remove_sandbox_temp(server: &Server, temp: &mut Temp) -> tg::Result<()> {
+		Self::remove_sandbox_path(server, temp.path()).await?;
+		temp.remove()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to remove the sandbox directory"))?;
+		Ok(())
+	}
+
+	/// Remove a sandbox's directory, whose files the sandbox's workload may have given to any of the sandbox's identities, and succeed if it does not exist.
+	async fn remove_sandbox_path(server: &Server, path: &std::path::Path) -> tg::Result<()> {
+		#[cfg(target_os = "linux")]
+		{
+			let ids = server.config.runner.backend.ids();
+			tangram_sandbox::unshare::remove(&ids, &server.tangram_path, path).await?;
+		}
+		#[cfg(not(target_os = "linux"))]
+		{
+			let _ = server;
+			match tangram_util::fs::remove(path).await {
+				Ok(()) => {},
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+				Err(error) => {
+					return Err(
+						tg::error!(!error, path = %path.display(), "failed to remove the sandbox directory"),
+					);
+				},
+			}
+		}
+		Ok(())
 	}
 
 	fn sandbox_status(session: &Session, id: &tg::sandbox::Id) -> Option<tg::sandbox::Status> {
@@ -3213,8 +3257,8 @@ impl Component {
 
 			// Remove a directory that is not assigned to a sandbox.
 			let (Some(id), Some(sandbox)) = (id, sandbox) else {
-				if let Err(error) = tangram_util::fs::remove(&path).await {
-					tracing::error!(%error, path = %path.display(), "failed to remove an unassigned sandbox directory");
+				if let Err(error) = Self::remove_sandbox_path(server, &path).await {
+					tracing::error!(error = %error.trace(), path = %path.display(), "failed to remove an unassigned sandbox directory");
 				}
 				continue;
 			};
@@ -3222,8 +3266,8 @@ impl Component {
 			// Remove a directory that is not the first directory assigned to its sandbox.
 			if self.state.sandbox_directories.contains_key(&sandbox) {
 				tracing::error!(sandbox = %sandbox, path = %path.display(), "removing another directory assigned to the sandbox");
-				if let Err(error) = tangram_util::fs::remove(&path).await {
-					tracing::error!(%error, path = %path.display(), "failed to remove the sandbox directory");
+				if let Err(error) = Self::remove_sandbox_path(server, &path).await {
+					tracing::error!(error = %error.trace(), path = %path.display(), "failed to remove the sandbox directory");
 				}
 				continue;
 			}
@@ -3789,9 +3833,11 @@ impl Component {
 		if let Some(directory) = self.try_get_sandbox_directory(id) {
 			let path = Self::sandbox_directory_path(session, directory);
 			let mut temp = Temp::with_path(&session.server, path);
-			temp.remove().await.map_err(
-				|error| tg::error!(!error, %id, "failed to remove the sandbox directory"),
-			)?;
+			Self::remove_sandbox_temp(&session.server, &mut temp)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to remove the sandbox directory"),
+				)?;
 			self.state
 				.sandbox_directories
 				.remove_if(id, |_, value| *value == directory);

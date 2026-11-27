@@ -24,6 +24,8 @@ mod command;
 mod configuration;
 #[cfg(target_os = "linux")]
 mod filesystem;
+#[cfg(target_os = "linux")]
+mod ids;
 mod libraries;
 #[cfg(target_os = "linux")]
 mod mount;
@@ -73,6 +75,8 @@ pub mod run;
 pub mod seatbelt;
 pub mod serve;
 pub mod stdio;
+#[cfg(target_os = "linux")]
+pub mod unshare;
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -233,16 +237,37 @@ pub struct Command {
 pub struct Resources {
 	pub cgroup_readonly: bool,
 	pub filesystem_project_id: Option<u32>,
-	pub gid_map: Option<IdMap>,
+	pub ids: Ids,
 	pub max_duration: Option<Duration>,
 	pub max_filesystem_inodes: Option<u64>,
 	pub max_filesystem_size: Option<u64>,
 	pub max_open_files: Option<u64>,
 	pub max_pids: Option<u64>,
 	pub seccomp: Option<SeccompPolicy>,
-	pub uid_map: Option<IdMap>,
 }
 
+/// The identities that a sandbox maps into its user namespace.
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum Ids {
+	/// Map the ranges to the sandbox identities from zero and the runner's identities after them, and show the runner's files to the workload through ID-mapped mounts, which requires `CAP_SYS_ADMIN` in the filesystem's user namespace.
+	Mapped(IdMaps),
+
+	/// Map the workload's identities, which are root, to the runner's identities and every other sandbox identity up to the count of a range to that range, which a runner without privileges installs with `newuidmap` and `newgidmap`.
+	Rootless(IdMaps),
+
+	/// Map only the runner's identities, at the workload's identities.
+	#[default]
+	Single,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct IdMaps {
+	pub gid: IdMap,
+	pub uid: IdMap,
+}
+
+/// A range of `count` host identities from `host`, and the helper that installs it for a runner that is not root.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct IdMap {
 	pub count: u32,
@@ -1020,7 +1045,8 @@ impl Sandbox {
 		#[cfg(target_os = "linux")]
 		if self.0.arg.storage.is_some() {
 			let path = Self::host_filesystem_path_from_root(&self.0.arg.path);
-			tangram_util::fs::remove(&path)
+			let ids = &self.0.arg.resources.ids;
+			unshare::remove(ids, &self.0.arg.tangram_path, &path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to remove the sandbox storage"))?;
 		}

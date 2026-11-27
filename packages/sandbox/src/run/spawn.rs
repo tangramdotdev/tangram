@@ -4,6 +4,7 @@ use {
 	std::{
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
+		io::Write as _,
 		mem::MaybeUninit,
 		os::{
 			fd::AsRawFd as _,
@@ -75,7 +76,12 @@ pub(crate) async fn spawn(
 		.map(crate::budget::Allocation::limit)
 		.or(isolation.max_filesystem_size);
 	let filesystem_limited = filesystem_inodes.is_some() || filesystem_size.is_some();
-	let filesystem_separate = filesystem_limited || isolation.uid_map.is_some();
+	if filesystem_limited && matches!(isolation.ids, crate::Ids::Rootless(_)) {
+		return Err(tg::error!(
+			"filesystem limits are not supported with rootless identity maps"
+		));
+	}
+	let filesystem_separate = filesystem_limited || matches!(isolation.ids, crate::Ids::Mapped(_));
 	let filesystem_path = if filesystem_separate {
 		Sandbox::host_filesystem_path_from_root(&arg.path)
 	} else {
@@ -101,17 +107,13 @@ pub(crate) async fn spawn(
 	}
 
 	// Prepare the sandbox directories and identity.
-	prepare_sandbox_directory(
-		&arg.path,
-		&filesystem_path,
-		filesystem_separate,
-		isolation.uid_map.is_some(),
-	)?;
-	let user = prepare_etc_files(&arg.path, network.as_deref())?;
+	prepare_sandbox_directory(&arg.path, &filesystem_path, filesystem_separate)?;
+	let user = workload_user(&isolation.ids)?;
+	prepare_etc_files(&arg.path, network.as_deref(), &user)?;
 	let user_namespace = prepare_user_namespace(isolation, &user)?;
 
-	// Open the runner's view, so that its files keep their host ownership during cleanup.
-	let host_filesystem = if user_namespace.is_some() {
+	// Open the runner's view of a filesystem that the workload sees through an ID-mapped mount, so that its files keep their host ownership during cleanup.
+	let host_filesystem = if matches!(isolation.ids, crate::Ids::Mapped(_)) {
 		let fd = crate::filesystem::open(&filesystem_path).map_err(|error| {
 			tg::error!(
 				!error,
@@ -335,9 +337,7 @@ pub(crate) async fn spawn(
 		network: network_arg,
 		nice: arg.nice,
 		rlimit_nofile: isolation.max_open_files,
-		user_namespace_fd: user_namespace
-			.as_ref()
-			.map(|(_, guest, _, _)| guest.as_raw_fd()),
+		user_namespace_fd: user_namespace.as_ref().map(|(_, guest)| guest.as_raw_fd()),
 		..Default::default()
 	};
 
@@ -423,14 +423,23 @@ pub(crate) async fn spawn(
 	let affinity = cgroup.and_then(crate::cgroup::Cgroup::affinity);
 	let child = spawn_command(&mut command, launcher_cgroup.as_ref(), affinity)?;
 	config.finish().await?;
-	if let Some((host, guest, uid_map, gid_map)) = user_namespace {
+	if let Some((host, guest)) = user_namespace {
 		drop(guest);
-
-		// Map the overlay lower layers too, so that copy-up preserves the runner's on-disk ownership.
-		let paths = std::iter::once(&filesystem_path)
-			.chain(&launch.options.mounts.overlay_sources)
-			.collect::<Vec<_>>();
-		configure_user_namespace(host, &uid_map, &gid_map, &paths).await?;
+		match &isolation.ids {
+			crate::Ids::Mapped(maps) => {
+				// Map the overlay lower layers too, so that copy-up preserves the runner's on-disk ownership.
+				let paths = std::iter::once(&filesystem_path)
+					.chain(&launch.options.mounts.overlay_sources)
+					.collect::<Vec<_>>();
+				configure_mapped_user_namespace(host, maps, &paths).await?;
+			},
+			crate::Ids::Rootless(maps) => {
+				configure_rootless_user_namespace(host, maps, &user).await?;
+			},
+			crate::Ids::Single => {
+				return Err(tg::error!("a sandbox with a single identity has no maps"));
+			},
+		}
 	}
 
 	// Complete the network setup.
@@ -527,7 +536,6 @@ fn prepare_sandbox_directory(
 	sandbox_path: &Path,
 	filesystem_path: &Path,
 	filesystem_separate: bool,
-	mapped_identity: bool,
 ) -> tg::Result<()> {
 	// Create the sandbox directories.
 	let mut paths = vec![Sandbox::host_etc_path_from_root(sandbox_path)];
@@ -547,9 +555,9 @@ fn prepare_sandbox_directory(
 	}
 
 	// Set the filesystem directory permissions.
-	let permissions =
-		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
 	if !filesystem_separate {
+		let permissions =
+			<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
 		let tmp_path = Sandbox::host_tmp_path_from_root(filesystem_path);
 		std::fs::set_permissions(&tmp_path, permissions).map_err(|error| {
 			tg::error!(
@@ -567,25 +575,6 @@ fn prepare_sandbox_directory(
 				"failed to create the sandbox path"
 			)
 		})?;
-		if mapped_identity {
-			for path in [
-				Sandbox::host_output_path_from_root(filesystem_path),
-				Sandbox::host_scratch_path_from_root(filesystem_path),
-				Sandbox::host_upper_path_from_root(filesystem_path),
-				Sandbox::host_work_path_from_root(filesystem_path),
-				tangram_path,
-			] {
-				let permissions =
-					<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o777);
-				std::fs::set_permissions(&path, permissions).map_err(|error| {
-					tg::error!(
-						!error,
-						path = %path.display(),
-						"failed to set mapped sandbox path permissions"
-					)
-				})?;
-			}
-		}
 	}
 
 	Ok(())
@@ -594,37 +583,26 @@ fn prepare_sandbox_directory(
 fn prepare_user_namespace(
 	isolation: &crate::Resources,
 	user: &User,
-) -> tg::Result<Option<(UnixStream, UnixStream, crate::IdMap, crate::IdMap)>> {
-	// Validate the subordinate identity maps.
-	let (Some(uid_map), Some(gid_map)) = (&isolation.uid_map, &isolation.gid_map) else {
-		if isolation.uid_map.is_some() || isolation.gid_map.is_some() {
-			return Err(tg::error!(
-				"container uid and gid maps must be configured together"
-			));
-		}
-		return Ok(None);
+) -> tg::Result<Option<(UnixStream, UnixStream)>> {
+	// Validate that the maps contain the workload's identities.
+	let contained = match &isolation.ids {
+		crate::Ids::Mapped(maps) => user.uid < maps.uid.count && user.gid < maps.gid.count,
+		crate::Ids::Rootless(maps) => user.uid <= maps.uid.count && user.gid <= maps.gid.count,
+		crate::Ids::Single => return Ok(None),
 	};
-	if user.uid >= uid_map.count {
+	if !contained {
 		return Err(tg::error!(
-			count = %uid_map.count,
-			uid = %user.uid,
-			"the container uid map does not contain the workload uid"
-		));
-	}
-	if user.gid >= gid_map.count {
-		return Err(tg::error!(
-			count = %gid_map.count,
 			gid = %user.gid,
-			"the container gid map does not contain the workload gid"
+			uid = %user.uid,
+			"the container identity maps do not contain the workload identities"
 		));
 	}
 
 	// Create the namespace synchronization socket.
-	let (host, guest) = UnixStream::pair()
+	let output = UnixStream::pair()
 		.map_err(|error| tg::error!(!error, "failed to create a user namespace socket pair"))?;
-	let output = Some((host, guest, uid_map.clone(), gid_map.clone()));
 
-	Ok(output)
+	Ok(Some(output))
 }
 
 pub(crate) fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
@@ -643,12 +621,47 @@ pub(crate) fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int
 	}
 }
 
-async fn configure_user_namespace(
+async fn configure_mapped_user_namespace(
 	socket: UnixStream,
-	uid_map: &crate::IdMap,
-	gid_map: &crate::IdMap,
+	maps: &crate::IdMaps,
 	paths: &[&PathBuf],
 ) -> tg::Result<()> {
+	// Install the maps once the launcher has created its user namespace.
+	let (socket, pid) = wait_for_user_namespace(socket).await?;
+	crate::ids::write_mapped(pid, maps).await?;
+
+	// Send the ID-mapped mounts, which also releases the user namespace.
+	let namespace = std::fs::File::open(format!("/proc/{pid}/ns/user"))
+		.map_err(|error| tg::error!(!error, "failed to open the workload user namespace"))?
+		.into();
+	let socket = socket.into();
+	for path in paths {
+		let filesystem = crate::filesystem::open_mapped(path, &namespace)?;
+		crate::filesystem::send(&socket, &filesystem)?;
+	}
+
+	Ok(())
+}
+
+async fn configure_rootless_user_namespace(
+	socket: UnixStream,
+	maps: &crate::IdMaps,
+	user: &User,
+) -> tg::Result<()> {
+	// Install the maps once the launcher has created its user namespace.
+	let (mut socket, pid) = wait_for_user_namespace(socket).await?;
+	crate::ids::write_rootless(pid, maps, user.uid, user.gid).await?;
+
+	// Release the user namespace.
+	socket
+		.write_all(&[0])
+		.map_err(|error| tg::error!(!error, "failed to release the user namespace"))?;
+
+	Ok(())
+}
+
+/// Wait for the launcher to send the process ID of its new user namespace, and return the socket in blocking mode.
+async fn wait_for_user_namespace(socket: UnixStream) -> tg::Result<(UnixStream, libc::pid_t)> {
 	socket
 		.set_nonblocking(true)
 		.map_err(|error| tg::error!(!error, "failed to configure the identity socket"))?;
@@ -660,100 +673,22 @@ async fn configure_user_namespace(
 		.await
 		.map_err(|error| tg::error!(!error, "failed to wait for the user namespace"))?;
 	let pid = libc::pid_t::from_ne_bytes(buffer);
-	write_id_maps(pid, uid_map, gid_map).await?;
-
-	// Send the ID-mapped mounts, which also releases the user namespace.
-	let namespace = std::fs::File::open(format!("/proc/{pid}/ns/user"))
-		.map_err(|error| tg::error!(!error, "failed to open the workload user namespace"))?
-		.into();
 	let socket = socket
 		.into_std()
 		.map_err(|error| tg::error!(!error, "failed to deregister the identity socket"))?;
 	socket
 		.set_nonblocking(false)
 		.map_err(|error| tg::error!(!error, "failed to configure the identity socket"))?;
-	let socket = socket.into();
-	for path in paths {
-		let filesystem = crate::filesystem::open_mapped(path, &namespace)?;
-		crate::filesystem::send(&socket, &filesystem)?;
-	}
-
-	Ok(())
-}
-
-/// Install the identity maps of a process in a new user namespace, which map the range to the namespace's first identities and the runner's identity after them.
-pub(crate) async fn write_id_maps(
-	pid: libc::pid_t,
-	uid_map: &crate::IdMap,
-	gid_map: &crate::IdMap,
-) -> tg::Result<()> {
-	// SAFETY: This function has no preconditions.
-	let setup_uid = unsafe { libc::geteuid() };
-
-	// SAFETY: This function has no preconditions.
-	let setup_gid = unsafe { libc::getegid() };
-	if setup_uid == 0 {
-		write_id_map(pid, "uid_map", uid_map, setup_uid)?;
-		write_id_map(pid, "gid_map", gid_map, setup_gid)?;
-	} else {
-		run_id_map_helper(pid, uid_map, setup_uid, "uid").await?;
-		run_id_map_helper(pid, gid_map, setup_gid, "gid").await?;
-	}
-
-	Ok(())
-}
-
-fn write_id_map(pid: libc::pid_t, name: &str, map: &crate::IdMap, setup: u32) -> tg::Result<()> {
-	let path = PathBuf::from(format!("/proc/{pid}/{name}"));
-	let contents = format!("0 {} {}\n{} {} 1\n", map.host, map.count, map.count, setup);
-	std::fs::write(&path, contents).map_err(
-		|error| tg::error!(!error, path = %path.display(), "failed to write the user namespace map"),
-	)?;
-	Ok(())
-}
-
-async fn run_id_map_helper(
-	pid: libc::pid_t,
-	map: &crate::IdMap,
-	setup: u32,
-	kind: &str,
-) -> tg::Result<()> {
-	let output = tokio::process::Command::new(&map.helper)
-		.kill_on_drop(true)
-		.arg(pid.to_string())
-		.arg("0")
-		.arg(map.host.to_string())
-		.arg(map.count.to_string())
-		.arg(map.count.to_string())
-		.arg(setup.to_string())
-		.arg("1")
-		.output()
-		.await
-		.map_err(|error| {
-			tg::error!(
-				!error,
-				path = %map.helper.display(),
-				"failed to run the {kind} map helper"
-			)
-		})?;
-	if !output.status.success() {
-		let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-		return Err(tg::error!(
-			%stderr,
-			status = %output.status,
-			"the {kind} map helper failed"
-		));
-	}
-	Ok(())
+	Ok((socket, pid))
 }
 
 fn prepare_etc_files(
 	sandbox_path: &Path,
 	network: Option<&crate::network::Network>,
-) -> tg::Result<User> {
+	user: &User,
+) -> tg::Result<()> {
 	// Write the passwd file.
-	let user = resolve_user(None)?;
-	let passwd = render_passwd(&user);
+	let passwd = render_passwd(user);
 	std::fs::write(Sandbox::host_passwd_path_from_root(sandbox_path), passwd)
 		.map_err(|error| tg::error!(!error, "failed to write /etc/passwd"))?;
 
@@ -788,7 +723,7 @@ fn prepare_etc_files(
 		None => (),
 	}
 
-	Ok(user)
+	Ok(())
 }
 
 /// Render the resolver configuration of a network that provides its own DNS servers.
@@ -827,6 +762,22 @@ fn render_passwd(user: &User) -> String {
 		.unwrap();
 	}
 	passwd
+}
+
+/// Get the user that a sandbox's workload runs as, which is root in a rootless sandbox, as the root of a rootless container is the user that runs it, and the runner's user otherwise.
+fn workload_user(ids: &crate::Ids) -> tg::Result<User> {
+	match ids {
+		crate::Ids::Mapped(_) | crate::Ids::Single => resolve_user(None),
+		crate::Ids::Rootless(_) => {
+			let user = User {
+				gid: 0,
+				home: "/root".into(),
+				name: "root".to_owned(),
+				uid: 0,
+			};
+			Ok(user)
+		},
+	}
 }
 
 /// Get the name of the user that runs the runner.

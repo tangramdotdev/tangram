@@ -12,6 +12,8 @@ pub mod serve;
 pub mod start;
 pub mod status;
 pub mod stop;
+#[cfg(target_os = "linux")]
+pub mod unshare;
 pub mod wait;
 
 /// Manage sandboxes.
@@ -51,6 +53,10 @@ pub enum Command {
 	Status(self::status::Args),
 
 	Stop(self::stop::Args),
+
+	#[cfg(target_os = "linux")]
+	#[command(hide = true)]
+	Unshare(self::unshare::Args),
 
 	Wait(self::wait::Args),
 }
@@ -276,6 +282,10 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		},
 		Command::Stop(args) => {
 			crate::stop::run(cli, args).await?;
+		},
+		#[cfg(target_os = "linux")]
+		Command::Unshare(args) => {
+			cli.exit = Some(crate::unshare::run(&args)?);
 		},
 		Command::Wait(args) => {
 			crate::wait::run(cli, args).await?;

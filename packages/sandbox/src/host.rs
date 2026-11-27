@@ -43,12 +43,13 @@ pub fn validate(filesystem_path: &Path, options: &Options) -> tg::Result<()> {
 	Ok(())
 }
 
-/// Find the default subordinate identity maps, which are the first ranges in `/etc/subuid` and `/etc/subgid` that belong to the runner's user, or to the `tangram` entry for a runner that runs as root.
+/// Find the default subordinate identities, which are the first ranges in `/etc/subuid` and `/etc/subgid` of the `tangram` entry in the mapped layout for a runner that runs as root, and of the runner's user in the rootless layout otherwise.
 #[must_use]
-pub fn subordinate_id_maps() -> Option<(crate::IdMap, crate::IdMap)> {
+pub fn subordinate_ids() -> Option<crate::Ids> {
 	// Find the owner of the ranges and the helpers that install them, which a runner that runs as root does not need.
 	// SAFETY: This function has no preconditions.
-	let (owner, uid, uid_helper, gid_helper) = if unsafe { libc::geteuid() } == 0 {
+	let root = unsafe { libc::geteuid() } == 0;
+	let (owner, runner, uid_helper, gid_helper) = if root {
 		let owner = "tangram".to_owned();
 		let uid_helper = PathBuf::from("/usr/bin/newuidmap");
 		let gid_helper = PathBuf::from("/usr/bin/newgidmap");
@@ -69,34 +70,36 @@ pub fn subordinate_id_maps() -> Option<(crate::IdMap, crate::IdMap)> {
 	// Find the ranges.
 	let subuid = std::fs::read_to_string("/etc/subuid").ok()?;
 	let subgid = std::fs::read_to_string("/etc/subgid").ok()?;
-	let (host, count) = subordinate_range(&subuid, &owner, uid)?;
-	let uid_map = crate::IdMap {
+	let (host, count) = subordinate_range(&subuid, &owner, runner)?;
+	let uid = crate::IdMap {
 		count,
 		helper: uid_helper,
 		host,
 	};
-	let (host, count) = subordinate_range(&subgid, &owner, uid)?;
-	let gid_map = crate::IdMap {
+	let (host, count) = subordinate_range(&subgid, &owner, runner)?;
+	let gid = crate::IdMap {
 		count,
 		helper: gid_helper,
 		host,
 	};
+	let maps = crate::IdMaps { gid, uid };
+	let ids = if root {
+		crate::Ids::Mapped(maps)
+	} else {
+		crate::Ids::Rootless(maps)
+	};
 
-	Some((uid_map, gid_map))
+	Some(ids)
 }
 
-/// Check that the runner can install the identity maps in a user namespace and map the filesystem at the path into it.
-pub async fn validate_id_maps(
-	path: &Path,
-	uid_map: &crate::IdMap,
-	gid_map: &crate::IdMap,
-) -> tg::Result<()> {
+/// Check that the runner can install the mapped layout's maps in a user namespace and map the filesystem at the path into it.
+pub async fn validate_mapped_ids(path: &Path, maps: &crate::IdMaps) -> tg::Result<()> {
 	// Create a user namespace in a child that waits for its maps.
 	let (pid, parent) = spawn_probe_namespace(false)?;
 
 	// Install the maps, and map the filesystem without attaching a mount to the host namespace.
 	let result = async {
-		crate::run::write_id_maps(pid, uid_map, gid_map).await?;
+		crate::ids::write_mapped(pid, maps).await?;
 		let namespace = std::fs::File::open(format!("/proc/{pid}/ns/user"))
 			.map_err(|error| tg::error!(!error, "failed to open the mount probe namespace"))?
 			.into();

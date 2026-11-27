@@ -57,20 +57,29 @@ impl Drop for Temp {
 	}
 }
 
-/// Remove a directory. If removal fails, grant the owner full permissions on every directory and try again.
+/// Remove a directory. If removal fails, grant the owner full permissions on every directory and try again, and on Linux, then remove it as root of a user namespace that maps the user's subordinate ranges, which own the files that a sandbox of a failed test left.
 pub fn remove(path: &Path) -> io::Result<()> {
 	if std::fs::remove_dir_all(path).is_ok() || !path.exists() {
 		return Ok(());
 	}
 	grant(path);
-	std::fs::remove_dir_all(path).map_err(|error| {
-		io::Error::other(format!(
-			"failed to remove the test temp directory {}: {error}",
-			path.display()
-		))
-	})?;
-
-	Ok(())
+	let error = match std::fs::remove_dir_all(path) {
+		Ok(()) => return Ok(()),
+		Err(error) => error,
+	};
+	#[cfg(target_os = "linux")]
+	if std::process::Command::new("unshare")
+		.args(["--map-auto", "--map-root-user", "rm", "-rf", "--"])
+		.arg(path)
+		.status()
+		.is_ok_and(|status| status.success())
+	{
+		return Ok(());
+	}
+	Err(io::Error::other(format!(
+		"failed to remove the test temp directory {}: {error}",
+		path.display()
+	)))
 }
 
 /// Grant the owner full permissions on a directory and every directory under it.

@@ -41,8 +41,8 @@ impl Component {
 			| tangram_sandbox::Backend::Bubblewrap { .. }
 			| tangram_sandbox::Backend::Gvisor { .. } => {
 				let output = Self::run_create_unix_listener(root_path).await?;
-				if resources.uid_map.is_some() {
-					// Restrict host access before allowing the mapped workload to connect to its API socket.
+				if !matches!(resources.ids, tangram_sandbox::Ids::Single) {
+					// Restrict host access before allowing the workload to connect to its API socket under any of the sandbox's identities.
 					let permissions =
 						<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(
 							0o700,
@@ -53,14 +53,18 @@ impl Component {
 							tg::error!(!error, "failed to restrict the sandbox directory")
 						})?;
 					let path = output.2.as_ref().unwrap();
-					tokio::fs::set_permissions(path.parent().unwrap(), permissions)
-						.await
-						.map_err(|error| {
-							tg::error!(
-								!error,
-								"failed to restrict the sandbox API socket directory"
-							)
-						})?;
+
+					// Restrict the socket's directory in the mapped layout, where it is outside the workload's root, but not in the rootless layout, where it is the workload's /opt/tangram, which every sandbox identity must traverse.
+					if matches!(resources.ids, tangram_sandbox::Ids::Mapped(_)) {
+						tokio::fs::set_permissions(path.parent().unwrap(), permissions)
+							.await
+							.map_err(|error| {
+								tg::error!(
+									!error,
+									"failed to restrict the sandbox API socket directory"
+								)
+							})?;
+					}
 					let permissions =
 						<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(
 							0o666,

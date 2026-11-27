@@ -1238,26 +1238,15 @@ pub enum RunnerBackend {
 	Seatbelt,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct BuiltinBackend {
-	pub gid_map: Option<IdMap>,
-
 	pub harden: bool,
-
+	pub ids: Ids,
 	pub max_filesystem_inodes: Option<u64>,
-
 	pub max_filesystem_size: Option<u64>,
-
 	pub max_open_files: Option<u64>,
-
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
-
 	pub storage_limits: bool,
-
-	/// Whether the runner maps the subordinate ranges of `/etc/subuid` and `/etc/subgid` into its sandboxes when `uid_map` and `gid_map` are not configured, which are the ranges of the runner's user, or of the `tangram` entry for a runner that runs as root.
-	pub subordinate_ids: bool,
-
-	pub uid_map: Option<IdMap>,
 }
 
 #[derive(Clone, Debug)]
@@ -1289,6 +1278,29 @@ pub struct RunnerResources {
 	pub max_duration: Option<Duration>,
 
 	pub max_pids: Option<u64>,
+}
+
+/// The identities that a builtin runner maps into its sandboxes.
+#[derive(Clone, Debug, Default)]
+pub enum Ids {
+	/// Map the first subordinate ranges of `/etc/subuid` and `/etc/subgid` when the runner starts, of the `tangram` entry in the mapped layout for a runner that runs as root and of the runner's user in the rootless layout otherwise, or map only the runner's identities if the host cannot map them.
+	#[default]
+	Detect,
+
+	/// Map the ranges in the mapped layout, which shows the runner's files to the workload through ID-mapped mounts.
+	Mapped(IdMaps),
+
+	/// Map the ranges in the rootless layout, which maps the workload's root to the runner's identities.
+	Rootless(IdMaps),
+
+	/// Map only the runner's identities.
+	Single,
+}
+
+#[derive(Clone, Debug)]
+pub struct IdMaps {
+	pub gid: IdMap,
+	pub uid: IdMap,
 }
 
 #[derive(Clone, Debug)]
@@ -1857,14 +1869,13 @@ impl RunnerBackend {
 		// Resolve the backend resources.
 		let mut resources = match self {
 			Self::Builtin(config) => tangram_sandbox::Resources {
-				gid_map: config.gid_map.as_ref().map(Into::into),
+				ids: self.ids(),
 				max_filesystem_inodes: config.max_filesystem_inodes,
 				max_filesystem_size: config.max_filesystem_size,
 				max_open_files: config.max_open_files,
 				seccomp: config.seccomp.or(config
 					.harden
 					.then_some(tangram_sandbox::SeccompPolicy::Default)),
-				uid_map: config.uid_map.as_ref().map(Into::into),
 				..Default::default()
 			},
 			Self::Bubblewrap(config) => tangram_sandbox::Resources {
@@ -1901,6 +1912,21 @@ impl RunnerBackend {
 
 		resources
 	}
+
+	/// Get the identities that the backend maps into its sandboxes, which are only the runner's identities until a runner that detects its subordinate ranges starts.
+	#[must_use]
+	pub fn ids(&self) -> tangram_sandbox::Ids {
+		match self {
+			Self::Builtin(config) => match &config.ids {
+				Ids::Detect | Ids::Single => tangram_sandbox::Ids::Single,
+				Ids::Mapped(maps) => tangram_sandbox::Ids::Mapped(maps.into()),
+				Ids::Rootless(maps) => tangram_sandbox::Ids::Rootless(maps.into()),
+			},
+			Self::Bubblewrap(_) | Self::CloudHypervisor(_) | Self::Gvisor(_) | Self::Seatbelt => {
+				tangram_sandbox::Ids::Single
+			},
+		}
+	}
 }
 
 impl FilesystemProjectIds {
@@ -1931,7 +1957,8 @@ impl FilesystemProjectIds {
 }
 
 impl IdMap {
-	pub fn validate(&self, id: u32, kind: &str) -> tg::Result<()> {
+	/// Validate a range of the mapped layout, which maps the sandbox identities below its count, including the workload's identity, to the range.
+	pub fn validate_mapped(&self, id: u32, kind: &str) -> tg::Result<()> {
 		if self.count == 0 {
 			return Err(tg::error!(
 				"the container {kind} map count must be greater than zero"
@@ -1944,6 +1971,29 @@ impl IdMap {
 				"the container {kind} map does not contain the runner identity"
 			));
 		}
+		self.validate_range(id, kind)?;
+		self.validate_helper(kind)?;
+		Ok(())
+	}
+
+	/// Validate a range of the rootless layout, which maps the runner's host identity at the workload's identity and the other sandbox identities to the range.
+	pub fn validate_rootless(&self, id: u32, kind: &str) -> tg::Result<()> {
+		if self.count == 0 {
+			return Err(tg::error!(
+				"the container {kind} map count must be greater than zero"
+			));
+		}
+		if self.count == u32::MAX {
+			return Err(tg::error!(
+				"the container {kind} map exceeds the sandbox identity range"
+			));
+		}
+		self.validate_range(id, kind)?;
+		self.validate_helper(kind)?;
+		Ok(())
+	}
+
+	fn validate_range(&self, id: u32, kind: &str) -> tg::Result<()> {
 		let end = self.host.checked_add(self.count).ok_or_else(|| {
 			tg::error!("the container {kind} map exceeds the host identity range")
 		})?;
@@ -1952,6 +2002,10 @@ impl IdMap {
 				"the container {kind} map must not contain the runner host identity"
 			));
 		}
+		Ok(())
+	}
+
+	fn validate_helper(&self, kind: &str) -> tg::Result<()> {
 		if !self.helper.is_absolute() {
 			return Err(tg::error!(
 				"the container {kind} map helper path must be absolute"
@@ -2233,24 +2287,36 @@ impl Default for RunnerBackend {
 	}
 }
 
-impl Default for BuiltinBackend {
-	fn default() -> Self {
+impl From<&IdMaps> for tangram_sandbox::IdMaps {
+	fn from(value: &IdMaps) -> Self {
 		Self {
-			gid_map: None,
-			harden: false,
-			max_filesystem_inodes: None,
-			max_filesystem_size: None,
-			max_open_files: None,
-			seccomp: None,
-			storage_limits: false,
-			subordinate_ids: true,
-			uid_map: None,
+			gid: (&value.gid).into(),
+			uid: (&value.uid).into(),
+		}
+	}
+}
+
+impl From<&tangram_sandbox::IdMaps> for IdMaps {
+	fn from(value: &tangram_sandbox::IdMaps) -> Self {
+		Self {
+			gid: (&value.gid).into(),
+			uid: (&value.uid).into(),
 		}
 	}
 }
 
 impl From<&IdMap> for tangram_sandbox::IdMap {
 	fn from(value: &IdMap) -> Self {
+		Self {
+			count: value.count,
+			helper: value.helper.clone(),
+			host: value.host,
+		}
+	}
+}
+
+impl From<&tangram_sandbox::IdMap> for IdMap {
+	fn from(value: &tangram_sandbox::IdMap) -> Self {
 		Self {
 			count: value.count,
 			helper: value.helper.clone(),

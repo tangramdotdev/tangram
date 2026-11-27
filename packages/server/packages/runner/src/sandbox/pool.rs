@@ -79,7 +79,7 @@ pub(super) async fn destroy(output: CreateSandboxOutput) -> tg::Result<()> {
 		.await
 		.map_err(|error| tg::error!(!error, "the pooled sandbox serve task panicked"));
 
-	// Remove the directory.
+	// Remove the directory, which holds only the runner's files, because a pooled sandbox runs no process until a sandbox claims it.
 	let temp_result = temp
 		.remove()
 		.await
