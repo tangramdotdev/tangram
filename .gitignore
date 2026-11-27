@@ -14,7 +14,6 @@
 __pycache__
 /packages/typescript/dist
 /keys/
-/packages/cli/packages/core/commit
 /release
 /target
 node_modules

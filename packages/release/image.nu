@@ -15,7 +15,7 @@ def main [] {
 
 # Build the image for one platform and load it into Docker under the tag.
 def 'main build' [
-	--fast # Compile with the fast profile, so that a small change rebuilds quickly.
+	--fast # Compile with the fast profile, which links quickly.
 	--platform: string # The platform to build for. The default is this machine's platform.
 	--tag: string = $default_tag # The tag to give the loaded image.
 ] {
@@ -83,15 +83,26 @@ def load [platform: string, tag: string, fast: bool] {
 		error make {msg: $'unsupported platform ($platform), expected one of ($platforms | columns | str join ", ")'}
 	}
 
-	# Build the image, which reports the commit of this checkout. Name the host only for a cross build, because std spells a native host like the machine.
+	# Compile the image's executable, which reports the commit of this checkout, with Cargo in its own target directory, where the rustc proxy compiles each crate in a sandbox.
 	let commit = ^python3 scripts/version.py | str trim
-	let arg = {commit: $commit}
-	let arg = if $platform == (host-platform) { $arg } else { $arg | insert host $host }
-	let arg = if $fast { $arg | merge {profile: fast} } else { $arg }
+	let target = $host | str replace '-unknown-linux-gnu' '-linux-gnu'
+	let arg = {commit: $commit, image: true, target: $target}
+	let arg = if $fast { $arg | insert profile fast } else { $arg }
+	let directory = $env.CARGO_TARGET_DIR? | default target | path expand | path join image
+	let command = ^tg build ./build.tg.ts#release --arg-value ($arg | to json --raw) | str trim
+	with-env {CARGO_TARGET_DIR: $directory} {
+		^tg run $command
+	}
+	let profile = if $fast { 'fast' } else { 'release' }
+	let executable = ^tg checkin --root --no-lock ($directory | path join $host $profile tangram) | str trim | split row '?' | first
+	let release = ^tg build ./packages/release/build.tg.ts#binary --arg-value $'{"target":($target | to json),"executable":($executable)}' | str trim | split row '?' | first
+
+	# Build the image. Name the host only for a cross build, because std spells a native host like the machine.
+	let arg = if $platform == (host-platform) { $'{"release":($release)}' } else { $'{"host":($host | to json),"release":($release)}' }
 	let temporary = ^mktemp -d | str trim
 	let image = $temporary | path join image.tar
 	try {
-		^tg build ./build.tg.ts#image --arg-value ($arg | to json --raw) $'--checkout=($image)'
+		^tg build ./build.tg.ts#image --arg-value $arg $'--checkout=($image)'
 
 		# Load the image, which has no name of its own, and tag it.
 		let loaded = ^docker load --input $image | lines | last

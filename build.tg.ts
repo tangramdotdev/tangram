@@ -45,8 +45,6 @@ import source from "." with { type: "directory" };
 export type Arg = cargo.Arg & {
 	/** Enable every feature of the CLI, like `cargo build --all-features`. */
 	allFeatures?: boolean;
-	/** The commit hash that the version reports. */
-	commit?: string;
 	foundationdb?: boolean;
 	nats?: boolean;
 	postgres?: boolean;
@@ -173,13 +171,17 @@ export const cloud = async (...args: tg.Args<Arg>) => {
 	return output;
 };
 
-/** Build the server's container image for a Linux host, as a file that `docker load` reads. */
-export const image = async (...args: tg.Args<Arg>) => {
-	const merged = await mergeArgs(args);
+/** Build the server's container image for a Linux host from the directory with the `tangram` executable that the release compiles for the image, as a file that `docker load` reads. */
+export const image = async (arg: {
+	build?: string;
+	host?: string;
+	release: tg.Directory;
+	source?: tg.Directory;
+}) => {
 	const machine = std.triple.host();
-	const host = merged.host ?? machine;
-	const buildMachine = merged.build ?? machine;
-	const source_ = merged.source ?? source;
+	const host = arg.host ?? machine;
+	const buildMachine = arg.build ?? machine;
+	const source_ = arg.source ?? source;
 	if (std.triple.os(host) !== "linux") {
 		throw new Error("the container image is only available for Linux hosts");
 	}
@@ -221,27 +223,9 @@ export const image = async (...args: tg.Args<Arg>) => {
 		}
 	}
 
-	// Build tangram with every feature as a stripped standalone executable that finds its libraries in the image, because the server starts itself again inside each sandbox, where a wrapped executable cannot find its interpreter.
+	// Add tangram, which is a standalone executable that finds its libraries in the image, because the server starts itself again inside each sandbox, where a wrapped executable cannot find its interpreter.
 	const libraryDirectory = "/lib";
-	const tangram = executable(
-		build(
-			{
-				allFeatures: true,
-				env: {
-					CARGO_PROFILE_RELEASE_STRIP: "symbols",
-					RUSTFLAGS: tg.Mutation.suffix(
-						`-C link-arg=-Wl,-rpath,${libraryDirectory}`,
-						" ",
-					),
-				},
-				proxy: true,
-				standalone: { glibcVersion: "2.39", libraries: ["libfdb_c.so"] },
-			},
-			merged,
-			{ build: buildMachine, host },
-		),
-		"bin/tangram",
-	);
+	const tangram = arg.release.get("tangram").then(tg.File.expect);
 	bin["tangram"] = tangram;
 	bin["tg"] = tg.symlink("tangram");
 	bin["tgx"] = tg.file('#!/bin/sh\nexec tg run -b "$@"\n', {
@@ -317,8 +301,13 @@ export const image = async (...args: tg.Args<Arg>) => {
 	});
 };
 
-/** Create the command that compiles the stripped standalone executable of a release target, such as `x86_64-linux-gnu` or `x86_64-linux-musl-static`, and the VFS provider library for a macOS target. The command runs Cargo on the host in the user's target directory, so that Cargo compiles only what changed, and the rustc proxy compiles each crate in a sandbox. */
-export const release = async (arg: { commit: string; target: string }) => {
+/** Create the command that compiles the stripped standalone executable of a release target, such as `x86_64-linux-gnu` or `x86_64-linux-musl-static`, and the VFS provider library for a macOS target, or with `image`, the executable of the container image, which has every feature and finds its libraries in the image. The command runs Cargo on the host in the user's target directory, so that Cargo compiles only what changed, and the rustc proxy compiles each crate in a sandbox. */
+export const release = async (arg: {
+	commit: string;
+	image?: boolean;
+	profile?: string;
+	target: string;
+}) => {
 	const build = std.triple.host();
 	const match =
 		/^(aarch64|x86_64)-(darwin|linux-gnu|linux-musl)(-static)?$/.exec(
@@ -337,12 +326,20 @@ export const release = async (arg: { commit: string; target: string }) => {
 			? build
 			: target;
 	const darwin = platform === "darwin";
-	const standalone =
-		platform === "linux-gnu" ? ({ glibcVersion: "2.35" } as const) : true;
+	const image = arg.image ?? false;
+	if (image && platform !== "linux-gnu") {
+		throw new Error("the container image requires a GNU Linux target");
+	}
+	const standalone = image
+		? ({ glibcVersion: "2.39", libraries: ["libfdb_c.so"] } as const)
+		: platform === "linux-gnu"
+			? ({ glibcVersion: "2.35" } as const)
+			: true;
 
-	// Link the C runtime of a musl target dynamically, or statically for the static target, because Rust links it statically by default. Link the static target as a position-dependent executable, because the SDK's static musl C library is not position-independent, so it cannot be linked into a static position-independent executable.
-	const flags =
-		platform === "linux-musl"
+	// Give the image's executable the path of the image's libraries. Link the C runtime of a musl target dynamically, or statically for the static target, because Rust links it statically by default. Link the static target as a position-dependent executable, because the SDK's static musl C library is not position-independent, so it cannot be linked into a static position-independent executable.
+	const flags = image
+		? "-C link-arg=-Wl,-rpath,/lib"
+		: platform === "linux-musl"
 			? static_ === undefined
 				? "-C target-feature=-crt-static"
 				: "-C target-feature=+crt-static -C relocation-model=static"
@@ -357,9 +354,11 @@ export const release = async (arg: { commit: string; target: string }) => {
 
 	// Create the command.
 	const options = await buildArg({
+		allFeatures: image,
 		build,
 		env,
 		host,
+		...std.args.optional("profile", arg.profile),
 		proxy: true,
 		...(darwin ? {} : { sdk: { linker: "mold" as const } }),
 		standalone,
@@ -392,26 +391,17 @@ const buildArg = async (merged: Arg): Promise<cargo.Arg> => {
 		build: build_,
 		captureStderr = false,
 		channel = "stable",
-		commit,
 		disableDefaultFeatures = false,
 		env: env_,
 		host: host_,
 		profile,
 		proxy = false,
 		sdk,
-		source: unstamped = source,
+		source: source_ = source,
 		standalone = false,
 	} = merged;
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
-
-	// Add the commit hash as a file in the crate that reports the version, so that a new commit recompiles only that crate and its dependents, which an environment variable would not, because every compilation receives the environment.
-	const source_ =
-		commit === undefined
-			? unstamped
-			: await tg.directory(unstamped, {
-					"packages/cli/packages/core/commit": tg.file(`${commit}\n`),
-				});
 	const useFoundationdb = allFeatures || (merged.foundationdb ?? false);
 	const features = allFeatures
 		? await allFeatureList(source_)
@@ -445,12 +435,6 @@ const buildArg = async (merged: Arg): Promise<cargo.Arg> => {
 		libpython(source_, build, host),
 		sandboxRootfs(host),
 	];
-
-	// Name the PyO3 configuration by its own file. Cargo's configuration names it relative to the source, which would make every compilation depend on the whole source, so that no crate would be a cache hit after any change.
-	const pyo3 = source_
-		.get("packages/python/packages/build/pyo3.txt")
-		.then(tg.File.expect);
-	envs.push({ PYO3_CONFIG_FILE: tg`${pyo3}` });
 
 	// Run the v8 build script directly rather than in the rustc proxy's sandbox, because it writes the V8 library outside of its `OUT_DIR`, where the sandbox does not keep it.
 	if (proxy) {
