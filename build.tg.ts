@@ -453,6 +453,12 @@ const buildArg = async (merged: Arg): Promise<cargo.Arg> => {
 		sandboxRootfs(host),
 	];
 
+	// Name the PyO3 configuration by its own file. Cargo's configuration names it relative to the source, which would make every compilation depend on the whole source, so that no crate would be a cache hit after any change.
+	const pyo3 = source_
+		.get("packages/python/packages/build/pyo3.txt")
+		.then(tg.File.expect);
+	envs.push({ PYO3_CONFIG_FILE: tg`${pyo3}` });
+
 	// Run the v8 build script directly rather than in the rustc proxy's sandbox, because it writes the V8 library outside of its `OUT_DIR`, where the sandbox does not keep it.
 	if (proxy) {
 		envs.push({ TGRUSTC_RUNNER_PASSTHROUGH: "v8" });
