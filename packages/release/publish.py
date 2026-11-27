@@ -24,6 +24,7 @@ AUR_FILES = (
     "LICENSE",
     "PKGBUILD",
     "config.json",
+    "tangram.install",
     "tangram.service",
     "tangram.sysusers",
 )

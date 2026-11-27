@@ -88,6 +88,35 @@ export def container_id_maps [
 	}
 }
 
+# Get the subordinate ID ranges that a server maps into its sandboxes by default and their layout, which are the ranges of the `tangram` entry in the mapped layout for a server that runs as root, and its user's first ranges in the rootless layout otherwise, or skip the test if the host cannot map them.
+export def default_id_maps [] {
+	if $nu.os-info.name != 'linux' {
+		skip_test 'this test requires linux'
+	}
+	let uid = id -u | into int
+	if $uid != 0 and ((which newuidmap | is-empty) or (which newgidmap | is-empty)) {
+		skip_test 'this test requires newuidmap and newgidmap'
+	}
+	let owners = if $uid == 0 { ['tangram'] } else { [(id -un | str trim) ($uid | into string)] }
+	let ranges = [/etc/subuid /etc/subgid] | each {|path|
+		if not ($path | path exists) {
+			skip_test 'this test requires subordinate uid and gid ranges'
+		}
+		let ranges = open --raw $path
+			| lines
+			| parse '{name}:{host}:{count}'
+			| where { $in.name in $owners and $in.host =~ '^[0-9]+$' and $in.count =~ '^[1-9][0-9]*$' }
+		if ($ranges | is-empty) {
+			skip_test 'this test requires subordinate uid and gid ranges'
+		}
+		let range = $ranges | first
+		{ count: ($range.count | into int), host: ($range.host | into int) }
+	}
+	let layout = if $uid == 0 { 'mapped' } else { 'rootless' }
+
+	{ gid_map: ($ranges | get 1), layout: $layout, uid_map: ($ranges | get 0) }
+}
+
 # Get the arguments that bind the host's program and library directories into an empty sandbox root, including the Tangram store when the tests run in a Tangram sandbox.
 export def program_binds [] {
 	[/usr /bin /lib /lib64 /opt/tangram/store]

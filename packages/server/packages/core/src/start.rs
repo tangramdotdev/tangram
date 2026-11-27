@@ -36,7 +36,7 @@ struct Tasks {
 
 impl Server {
 	pub async fn start(
-		config: Config,
+		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))] mut config: Config,
 		components: impl FnOnce(&crate::component::Arg<'_>) -> tg::Result<Components> + Send,
 	) -> tg::Result<Owned> {
 		// Validate the configuration.
@@ -44,6 +44,10 @@ impl Server {
 
 		// Prepare the directory.
 		let directory = Self::start_directory(&config).await?;
+
+		// Detect the default subordinate identity maps.
+		#[cfg(target_os = "linux")]
+		Self::start_id_maps(&mut config, &directory.path).await;
 
 		// Create the server.
 		let state = Self::start_state(config, directory, components)
@@ -161,7 +165,7 @@ impl Server {
 			let container = config.runner.backend.resources(&config.runner.resources);
 			let options = tangram_sandbox::host::Options {
 				harden: config.runner.backend.harden(),
-				id_mapped_mounts: container.uid_map.is_some() || container.gid_map.is_some(),
+				id_mapped_mounts: matches!(container.ids, tangram_sandbox::Ids::Mapped(_)),
 			};
 			tangram_sandbox::host::validate(&sandboxes_path, &options).map_err(|error| {
 				tg::error!(
@@ -174,14 +178,13 @@ impl Server {
 					cpu = ?config.scheduler.default_cpu,
 					filesystem_inodes = ?container.max_filesystem_inodes,
 					filesystem_size = ?container.max_filesystem_size,
-					gid_map = ?container.gid_map.as_ref().map(|map| (map.host, map.count)),
 					harden = true,
+					ids = ?container.ids,
 					max_duration = ?container.max_duration,
 					max_open_files = ?container.max_open_files,
 					max_pids = ?container.max_pids,
 					memory = ?config.scheduler.default_memory,
 					seccomp = ?container.seccomp,
-					uid_map = ?container.uid_map.as_ref().map(|map| (map.host, map.count)),
 					"validated the hardened container isolation profile"
 				);
 			}
@@ -198,6 +201,74 @@ impl Server {
 		};
 
 		Ok(directory)
+	}
+
+	/// Map the default subordinate ranges into the sandboxes of a builtin runner that detects them, and map only the runner's identities if the host cannot.
+	#[cfg(target_os = "linux")]
+	async fn start_id_maps(config: &mut Config, path: &Path) {
+		// Find the backend that detects its identities.
+		let crate::config::RunnerBackend::Builtin(backend) = &mut config.runner.backend else {
+			return;
+		};
+		if !matches!(backend.ids, crate::config::Ids::Detect) {
+			return;
+		}
+		backend.ids = crate::config::Ids::Single;
+		if !config.roles.contains(&crate::config::Role::Runner) {
+			return;
+		}
+
+		// Find the ranges.
+		let Some(ids) = tangram_sandbox::host::subordinate_ids() else {
+			tracing::debug!("found no subordinate identity ranges for the sandboxes");
+			return;
+		};
+
+		// Check that the runner can install the maps in the layout that its sandboxes use.
+		let result = async {
+			// SAFETY: These functions have no preconditions.
+			let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+			let sandboxes_path = path.join("sandboxes");
+			let resolved = match &ids {
+				tangram_sandbox::Ids::Mapped(maps) => {
+					let config_maps = crate::config::IdMaps::from(maps);
+					config_maps.uid.validate_mapped(uid, "uid")?;
+					config_maps.gid.validate_mapped(gid, "gid")?;
+					tangram_sandbox::host::validate_mapped_ids(&sandboxes_path, maps).await?;
+					crate::config::Ids::Mapped(config_maps)
+				},
+				tangram_sandbox::Ids::Rootless(maps) => {
+					let config_maps = crate::config::IdMaps::from(maps);
+					config_maps.uid.validate_rootless(uid, "uid")?;
+					config_maps.gid.validate_rootless(gid, "gid")?;
+					let tangram_path = tangram_util::env::current_exe().map_err(|error| {
+						tg::error!(!error, "failed to get the tangram executable path")
+					})?;
+					tangram_sandbox::unshare::probe(&tangram_path, &sandboxes_path, maps).await?;
+					crate::config::Ids::Rootless(config_maps)
+				},
+				tangram_sandbox::Ids::Single => crate::config::Ids::Single,
+			};
+			Ok::<_, tg::Error>(resolved)
+		}
+		.await;
+		let resolved = match result {
+			Ok(resolved) => resolved,
+			Err(error) => {
+				tracing::debug!(
+					error = %error.trace(),
+					"failed to map the subordinate identity ranges into the sandboxes"
+				);
+				return;
+			},
+		};
+
+		// Use the maps.
+		tracing::info!(
+			?ids,
+			"mapping the subordinate identity ranges into the sandboxes"
+		);
+		backend.ids = resolved;
 	}
 
 	async fn start_state(

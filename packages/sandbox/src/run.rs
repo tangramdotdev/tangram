@@ -15,7 +15,7 @@ use {
 mod spawn;
 
 #[cfg(target_os = "linux")]
-pub(crate) use self::spawn::{inherit_fd, resolv_conf, spawn, spawn_command};
+pub(crate) use self::spawn::{inherit_fd, resolv_conf, spawn, spawn_command, user_name};
 pub use crate::command::Command;
 
 #[cfg(target_os = "linux")]

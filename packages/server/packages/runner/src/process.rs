@@ -2494,6 +2494,16 @@ impl Component {
 			exit,
 			output: None,
 		};
+
+		// Give the runner the files of the output that the process gave to another of the sandbox's identities, so that it can read and move them.
+		#[cfg(target_os = "linux")]
+		{
+			let ids = session.server.config.runner.backend.ids();
+			tangram_sandbox::unshare::reclaim(&ids, &session.server.tangram_path, &path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to reclaim the output"))?;
+		}
+
 		let exists = tokio::fs::try_exists(&path)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to determine if the output path exists"))?;

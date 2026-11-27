@@ -443,11 +443,11 @@ fn mount_dev_fuse_once(sendfd: &OwnedFd, path: &Path) -> std::io::Result<()> {
 		.open("/dev/fuse")?
 		.into();
 
-	// Mount the filesystem.
+	// Mount the filesystem for every process in the mounting user namespace, which is the sandbox's, so that a workload can read it under any of the sandbox's identities, which the kernel confines to the namespace.
 	let uid = rustix::process::getuid().as_raw();
 	let gid = rustix::process::getgid().as_raw();
 	let options = format!(
-		"fd={},rootmode=40755,user_id={uid},group_id={gid},default_permissions",
+		"fd={},rootmode=40755,user_id={uid},group_id={gid},default_permissions,allow_other",
 		fd.as_raw_fd(),
 	);
 	let options = CString::new(options).map_err(|_| Error::other("invalid mount options"))?;

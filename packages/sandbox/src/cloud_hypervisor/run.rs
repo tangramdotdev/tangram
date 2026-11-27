@@ -2,7 +2,7 @@ use {
 	crate::{Sandbox, cloud_hypervisor::virtiofs, mount},
 	std::{
 		collections::hash_map::DefaultHasher,
-		ffi::{CStr, CString, OsStr},
+		ffi::CString,
 		fmt::Write as _,
 		hash::{Hash as _, Hasher as _},
 		io::Write as _,
@@ -102,10 +102,9 @@ impl std::str::FromStr for NetworkKind {
 	}
 }
 
+/// The identity of the guest workload and of the host helpers in their user namespaces, which is root, so that the workload is root as in a container.
 struct User {
 	gid: libc::gid_t,
-	home: PathBuf,
-	name: String,
 	uid: libc::uid_t,
 }
 
@@ -300,9 +299,9 @@ pub fn run(command: &crate::run::Command, arg: &Arg) -> tg::Result<u8> {
 
 	// Prepare the sandbox directory.
 	tracing::trace!("sandbox directory: {}", arg.path.display());
-	let user = resolve_user(None)?;
+	let user = User { gid: 0, uid: 0 };
 	prepare_sandbox_directory(&arg.path)?;
-	prepare_etc_files(&arg.path, &user)?;
+	prepare_etc_files(&arg.path)?;
 
 	// Create the network.
 	let network = Network::new(arg)?;
@@ -1009,24 +1008,10 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn prepare_etc_files(sandbox_path: &Path, user: &User) -> tg::Result<()> {
+fn prepare_etc_files(sandbox_path: &Path) -> tg::Result<()> {
 	// Write the passwd file.
-	let mut passwd = String::from(
-		"root:!:0:0:root:/root:/bin/false\nnobody:!:65534:65534:nobody:/nonexistent:/bin/false\n",
-	);
-	if user.uid != 0 && user.uid != 65534 {
-		use std::fmt::Write as _;
-		writeln!(
-			passwd,
-			"{}:!:{}:{}:{}:{}:/bin/false",
-			user.name,
-			user.uid,
-			user.gid,
-			user.name,
-			user.home.display(),
-		)
-		.unwrap();
-	}
+	let passwd =
+		"root:!:0:0:root:/root:/bin/false\nnobody:!:65534:65534:nobody:/nonexistent:/bin/false\n";
 	std::fs::write(host_share_passwd_path_from_root(sandbox_path), passwd)
 		.map_err(|error| tg::error!(!error, "failed to write /etc/passwd"))?;
 
@@ -1042,38 +1027,6 @@ fn prepare_etc_files(sandbox_path: &Path, user: &User) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, "failed to write /etc/nsswitch.conf"))?;
 
 	Ok(())
-}
-
-fn resolve_user(name: Option<&str>) -> tg::Result<User> {
-	// Look up the passwd record.
-	let ptr = unsafe {
-		if let Some(name) = name {
-			let name = CString::new(OsStr::new(name).as_bytes())
-				.map_err(|error| tg::error!(!error, "failed to encode the user name"))?;
-			libc::getpwnam(name.as_ptr())
-		} else {
-			libc::getpwuid(libc::getuid())
-		}
-	};
-	if ptr.is_null() {
-		return Err(tg::error!("failed to resolve the user"));
-	}
-
-	// Read the user name and home directory.
-	let passwd = unsafe { &*ptr };
-	let name = unsafe { CStr::from_ptr(passwd.pw_name) }
-		.to_string_lossy()
-		.into_owned();
-	let home = unsafe { CStr::from_ptr(passwd.pw_dir) }
-		.to_string_lossy()
-		.into_owned();
-
-	Ok(User {
-		gid: passwd.pw_gid,
-		home: PathBuf::from(home),
-		name,
-		uid: passwd.pw_uid,
-	})
 }
 
 fn set_no_new_privs() -> tg::Result<()> {
