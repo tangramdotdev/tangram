@@ -31,6 +31,7 @@ import config from "./config.json" with { type: "file" };
 import debFiles from "./deb" with { type: "directory" };
 import apkKey from "./keys/tangram-apk.rsa.pub" with { type: "file" };
 import openrc from "./openrc/tangram" with { type: "file" };
+import logrotate from "./openrc/tangram.logrotate" with { type: "file" };
 import spec from "./rpm/tangram.spec" with { type: "file" };
 import service from "./systemd/tangram.service" with { type: "file" };
 
@@ -162,6 +163,7 @@ export const apk = async (arg: Arg) => {
 		cp ${archive} tangram.tar.gz
 		cp ${linuxConfig("openrc")} config.json
 		cp ${openrc} tangram
+		cp ${logrotate} logrotate
 		cp ${license} LICENSE
 		for script in pre-install post-install post-upgrade pre-deinstall; do
 			install -m 755 ${apkFiles}/$script .$script

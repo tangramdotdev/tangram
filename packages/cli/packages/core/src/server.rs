@@ -1,12 +1,18 @@
 use {
 	crate::Cli,
-	std::{os::fd::AsRawFd as _, path::Path},
+	std::{
+		os::fd::AsRawFd as _,
+		path::{Path, PathBuf},
+	},
 	tangram_client::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _, Interest, unix::AsyncFd},
 };
 
-/// The maximum number of bytes of the server's log to include in a startup error.
-const LOG_TAIL_LENGTH: u64 = 8192;
+/// The maximum number of bytes of the server's output and of its log to include in a startup error.
+const LOG_TAIL_LENGTH: usize = 8192;
+
+/// The time to wait for the rest of the server's output after it exits during startup.
+const OUTPUT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The outcome of an attempt to stop the server.
 #[derive(Clone, Copy, Debug)]
@@ -104,40 +110,28 @@ impl Cli {
 			return Ok(());
 		}
 
-		// Get the log file path.
-		let log_path = directory.join("log");
-
-		// Create files for stdout and stderr.
-		let stdout = tokio::fs::OpenOptions::new()
-			.create(true)
-			.write(true)
-			.append(true)
-			.truncate(false)
-			.open(&log_path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to open the log file"))?
-			.into_std()
-			.await;
-		let stderr = tokio::fs::OpenOptions::new()
-			.create(true)
-			.write(true)
-			.append(true)
-			.truncate(false)
-			.open(&log_path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to open the log file"))?
-			.into_std()
-			.await;
-
 		// Get the path to the current executable.
 		let executable = tangram_util::env::current_exe()
 			.map_err(|error| tg::error!(!error, "failed to get the current executable path"))?;
 
-		// Get the length of the log, so that a startup failure reports only this server's output.
-		let log_offset = stdout
-			.metadata()
-			.map_err(|error| tg::error!(!error, "failed to get the log file metadata"))?
-			.len();
+		// Get the names of the existing log files, so that a startup failure reports only the log of this server.
+		let log_directory = directory.join("log");
+		let log_names = crate::log::list(&log_directory).unwrap_or_default();
+
+		// Create the pipe that receives the server's output until the server redirects its output to its log, and read it as it arrives so that the server never blocks writing to it.
+		let (reader, writer) = std::io::pipe()
+			.map_err(|error| tg::error!(!error, "failed to create the output pipe"))?;
+		let stdout = writer
+			.try_clone()
+			.map_err(|error| tg::error!(!error, "failed to duplicate the output pipe"))?;
+		let stderr = writer;
+		let reader = tokio::net::unix::pipe::Receiver::from_owned_fd(reader.into())
+			.map_err(|error| tg::error!(!error, "failed to register the output pipe"))?;
+		let output = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+		let output_task = tokio::spawn({
+			let output = output.clone();
+			async move { read_output(reader, &output).await }
+		});
 
 		// Create the notify socket, on which the server sends `READY=1` when it is ready.
 		let listener = tangram_util::notify::Listener::new()
@@ -181,6 +175,7 @@ impl Cli {
 		args.push("serve".to_owned());
 		args.push("--access".to_owned());
 		args.push(access.to_string());
+		args.push("--log".to_owned());
 		args.push("--manager".to_owned());
 		args.push(tg::server::Manager::Cli.to_string());
 		command
@@ -211,6 +206,9 @@ impl Cli {
 			.spawn()
 			.map_err(|error| tg::error!(!error, "failed to spawn the server"))?;
 
+		// Close this process's ends of the output pipe, so that the pipe ends when the server redirects its output or exits.
+		drop(command);
+
 		// Wait for the server to be ready, to exit, or to time out.
 		let start_timeout = self.server_config().start_timeout;
 		let ready = tokio::time::timeout(start_timeout, async {
@@ -229,21 +227,32 @@ impl Cli {
 		.and_then(|result| result);
 		drop(listener);
 
-		// Stop the server if it did not become ready, and report its log unless a concurrent server is running.
+		// Stop the server if it did not become ready, and report its output and its log unless a concurrent server is running.
 		if let Err(error) = ready {
 			server.start_kill().ok();
 			server.wait().await.ok();
 			if client.connect().await.is_ok() {
 				return Ok(());
 			}
-			let log = read_log_tail(&log_path, log_offset).await;
-			let error = if log.is_empty() {
-				tg::error!(!error, "failed to start the server")
-			} else {
-				tg::error!(!error, path = %log_path.display(), "failed to start the server\nlog:\n{log}")
+			tokio::time::timeout(OUTPUT_TIMEOUT, output_task).await.ok();
+			let output = output.lock().unwrap().clone();
+			let output = String::from_utf8_lossy(&output).trim().to_owned();
+			let log = read_new_log_tail(&log_directory, &log_names).await;
+			let mut message = "failed to start the server".to_owned();
+			if !output.is_empty() {
+				message.push_str("\noutput:\n");
+				message.push_str(&output);
+			}
+			let Some((path, log)) = log else {
+				return Err(tg::error!(!error, "{message}"));
 			};
-			return Err(error);
+			if !log.is_empty() {
+				message.push_str("\nlog:\n");
+				message.push_str(&log);
+			}
+			return Err(tg::error!(!error, path = %path.display(), "{message}"));
 		}
+		output_task.abort();
 		if client.connect().await.is_err() {
 			return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
 		}
@@ -691,23 +700,44 @@ async fn wait_for_ready(listener: &AsyncFd<tangram_util::notify::Listener>) -> s
 	}
 }
 
-/// Read the end of the log that follows the offset.
-async fn read_log_tail(path: &Path, offset: u64) -> String {
-	let Ok(mut file) = tokio::fs::File::open(path).await else {
-		return String::new();
+/// Read the server's output from the pipe until it ends, keeping only its end.
+async fn read_output(
+	mut reader: tokio::net::unix::pipe::Receiver,
+	output: &std::sync::Mutex<Vec<u8>>,
+) {
+	let mut buffer = vec![0; 4096];
+	while let Ok(n) = reader.read(&mut buffer).await {
+		if n == 0 {
+			break;
+		}
+		let mut output = output.lock().unwrap();
+		output.extend_from_slice(&buffer[..n]);
+		let excess = output.len().saturating_sub(LOG_TAIL_LENGTH);
+		output.drain(..excess);
+	}
+}
+
+/// Read the end of the newest log file that is not one of the existing files, returning its path and its end.
+async fn read_new_log_tail(directory: &Path, existing: &[String]) -> Option<(PathBuf, String)> {
+	let names = crate::log::list(directory).ok()?;
+	let name = names.iter().rev().find(|name| !existing.contains(name))?;
+	let path = directory.join(name);
+	let Ok(mut file) = tokio::fs::File::open(&path).await else {
+		return Some((path, String::new()));
 	};
 	let Ok(metadata) = file.metadata().await else {
-		return String::new();
+		return Some((path, String::new()));
 	};
-	let start = offset.max(metadata.len().saturating_sub(LOG_TAIL_LENGTH));
+	let start = metadata.len().saturating_sub(LOG_TAIL_LENGTH as u64);
 	if file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
-		return String::new();
+		return Some((path, String::new()));
 	}
 	let mut bytes = Vec::new();
 	if file.read_to_end(&mut bytes).await.is_err() {
-		return String::new();
+		return Some((path, String::new()));
 	}
-	String::from_utf8_lossy(&bytes).trim().to_owned()
+	let log = String::from_utf8_lossy(&bytes).trim().to_owned();
+	Some((path, log))
 }
 
 /// Create the error for a command that only the server's manager may run, with a hint for how to run it.

@@ -1,6 +1,7 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 pub mod config;
+pub mod log;
 pub mod restart;
 pub mod run;
 pub mod start;
@@ -17,6 +18,7 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
+	Log(self::log::Args),
 	Restart(self::restart::Args),
 	Run(self::run::Args),
 	Start(self::start::Args),
@@ -26,6 +28,9 @@ pub enum Command {
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
+		Command::Log(args) => {
+			self::log::run(cli, args).await?;
+		},
 		Command::Restart(args) => {
 			self::restart::run(cli, args).await?;
 		},

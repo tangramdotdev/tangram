@@ -47,6 +47,7 @@ merge! {
 		index,
 		indexer: section,
 		instance,
+		log,
 		manager,
 		messenger,
 		object: section,

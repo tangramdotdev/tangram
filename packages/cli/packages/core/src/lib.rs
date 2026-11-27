@@ -7,6 +7,7 @@ pub mod client;
 pub mod config;
 pub mod error;
 pub mod location;
+pub mod log;
 pub mod node;
 pub mod print;
 pub mod progress;

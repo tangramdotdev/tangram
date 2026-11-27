@@ -23,6 +23,10 @@ pub struct Args {
 	#[arg(long, short)]
 	pub directory: Option<PathBuf>,
 
+	/// Write the server's output to its log directory, because the output has nowhere else to go. This enables the log with the default limits when the config does not set the `log` key, and discards the output when the config sets it to `false`.
+	#[arg(long)]
+	pub log: bool,
+
 	/// Override the `manager` key in the config, which names the manager that starts and stops the server: `app`, `cli`, `openrc`, or `systemd`. A server run without a manager can only be stopped by stopping its process.
 	#[arg(long)]
 	pub manager: Option<tg::server::Manager>,

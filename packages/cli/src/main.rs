@@ -390,6 +390,23 @@ async fn main_inner(
 			})
 	);
 
+	// Redirect the server's output to its log.
+	if let Command::Serve(serve_args)
+	| Command::Server(tangram_cli_server::Args {
+		command: tangram_cli_server::Command::Run(serve_args),
+		..
+	}) = &command
+	{
+		let access = serve_args
+			.access
+			.unwrap_or_else(|| cli.server_config().access);
+		if let Err(error) = cli.initialize_server_log(serve_args.log, access) {
+			Cli::print_error_message("an error occurred");
+			Cli::print_error_basic(tg::Referent::with_node(error), false);
+			return std::process::ExitCode::FAILURE;
+		}
+	}
+
 	// Set the file descriptor limit.
 	if server {
 		Cli::set_file_descriptor_limit()

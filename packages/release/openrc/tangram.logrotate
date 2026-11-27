@@ -1,0 +1,8 @@
+/var/log/tangram.log {
+	compress
+	copytruncate
+	missingok
+	notifempty
+	rotate 8
+	size 256M
+}

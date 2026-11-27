@@ -7,6 +7,8 @@ command_user=root:tangram
 supervisor=supervise-daemon
 notify=socket:ready
 pidfile=/run/tangram.pid
+output_log=/var/log/tangram.log
+error_log=/var/log/tangram.log
 umask=0077
 
 depend() {
