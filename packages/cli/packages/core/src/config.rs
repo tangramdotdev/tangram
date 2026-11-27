@@ -80,6 +80,10 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub instance: Option<String>,
 
+	/// Configure the server's log, which the server writes to files in the `log` directory of its directory when this is `true` or an object, or when `tangram serve` is run with `--log` and this is absent.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub log: Option<BoolOr<Log>>,
+
 	/// The manager that starts and stops the server: `app`, `cli`, `openrc`, or `systemd`. A declared `openrc` or `systemd` applies only where that manager is running.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub manager: Option<tg::server::Manager>,
@@ -1288,6 +1292,18 @@ pub struct IndexerUpdate {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partitions: Option<IndexerPartitions>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Log {
+	/// The maximum number of log files to keep, including the current one. The default is 8.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_files: Option<usize>,
+
+	/// The size in bytes at which the server starts a new log file. The default is 256 MiB.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_size: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -3393,6 +3409,10 @@ pub struct Tracing {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub output: Option<TracingOutput>,
 
+	/// The span events that the JSON format writes, drawn from `new`, `enter`, `exit`, and `close`. The default is all four.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub span_events: Option<Vec<TracingSpanEvent>>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stderr_format: Option<TracingFormat>,
 }
@@ -3425,6 +3445,15 @@ pub enum TracingOutput {
 
 	#[default]
 	Stderr,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TracingSpanEvent {
+	Close,
+	Enter,
+	Exit,
+	New,
 }
 
 #[derive(Clone, Copy, Debug)]

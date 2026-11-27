@@ -45,7 +45,7 @@ for io in [auto read_write] {
 		let server_path = mktemp --directory --tmpdir-path $directory
 		let script = $script | str replace 'UNAVAILABLE' $unavailable
 		let output = ^unshare --user --map-current-user --mount --keep-caps sh -ec $script sh $config_path $server_path $file_path | complete
-		let log = try { open --raw ($server_path | path join 'log') } catch { '' }
+		let log = try { tangram --config $config_path --directory $server_path --no-remotes server log } catch { '' }
 		success $output $"the VFS server failed with ($io): ($log)"
 		assert equal $output.stdout 'hello'
 	}

@@ -14,10 +14,11 @@ cut_tar() {
 	cat >/dev/null
 }
 
-mkdir -p root/usr/bin root/etc/tangram root/etc/init.d root/usr/share/licenses/tangram
+mkdir -p root/usr/bin root/etc/tangram root/etc/init.d root/etc/logrotate.d root/usr/share/licenses/tangram
 tar -xzf tangram.tar.gz -C root/usr/bin tangram tg tgx
 install -m 644 config.json root/etc/tangram/config.json
 install -m 755 tangram root/etc/init.d/tangram
+install -m 644 logrotate root/etc/logrotate.d/tangram
 install -m 644 LICENSE root/usr/share/licenses/tangram/LICENSE
 
 # Use Alpine's tar postprocessor to write the APK payload checksums.

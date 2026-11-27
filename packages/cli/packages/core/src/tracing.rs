@@ -1,10 +1,10 @@
 use {
 	crate::{
 		Cli, Config,
-		config::{BoolOr, Tracing, TracingOutput},
+		config::{BoolOr, Tracing, TracingOutput, TracingSpanEvent},
 		telemetry::Telemetry,
 	},
-	tracing_subscriber::prelude::*,
+	tracing_subscriber::{fmt::format::FmtSpan, prelude::*},
 };
 
 const DEFAULT_FILTER: &str = concat!(
@@ -56,7 +56,7 @@ impl Cli {
 					.unwrap_or(crate::config::TracingFormat::Pretty);
 				let output_layer = match format {
 					crate::config::TracingFormat::Json => tracing_subscriber::fmt::layer()
-						.with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+						.with_span_events(span_events(config_tracing))
 						.with_writer(std::io::stderr)
 						.json()
 						.boxed(),
@@ -102,5 +102,43 @@ impl Cli {
 			let backtrace = std::backtrace::Backtrace::force_capture();
 			tracing::error!(payload, location, %backtrace, "panic");
 		}));
+	}
+}
+
+/// Get the span events that the JSON format writes, which are all of them unless the config lists some.
+fn span_events(tracing: Option<&Tracing>) -> FmtSpan {
+	let Some(events) = tracing.and_then(|tracing| tracing.span_events.as_ref()) else {
+		return FmtSpan::FULL;
+	};
+	events
+		.iter()
+		.fold(FmtSpan::NONE, |span, event| match event {
+			TracingSpanEvent::Close => span | FmtSpan::CLOSE,
+			TracingSpanEvent::Enter => span | FmtSpan::ENTER,
+			TracingSpanEvent::Exit => span | FmtSpan::EXIT,
+			TracingSpanEvent::New => span | FmtSpan::NEW,
+		})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	// The JSON format writes every span event unless the config lists some, and only the listed ones otherwise.
+	#[test]
+	fn span_events_config() {
+		assert_eq!(span_events(None), FmtSpan::FULL);
+		let tracing = Tracing::default();
+		assert_eq!(span_events(Some(&tracing)), FmtSpan::FULL);
+		let tracing = Tracing {
+			span_events: Some(vec![TracingSpanEvent::Close, TracingSpanEvent::New]),
+			..Tracing::default()
+		};
+		assert_eq!(span_events(Some(&tracing)), FmtSpan::CLOSE | FmtSpan::NEW);
+		let tracing = Tracing {
+			span_events: Some(Vec::new()),
+			..Tracing::default()
+		};
+		assert_eq!(span_events(Some(&tracing)), FmtSpan::NONE);
 	}
 }

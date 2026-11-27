@@ -13,5 +13,5 @@ let script = $'tangram --directory "($directory)" --no-remotes server start; tan
 let output = tg sandbox run --backend builtin --bind / / --dev /dev --gid $gid --uid $uid --unshare-all -- /bin/sh -ec $script | complete
 
 # The server reports why it failed to start in its log rather than to the client.
-let log = try { open --raw ($directory | path join 'log') } catch { '' }
+let log = try { tangram --directory $directory server log } catch { '' }
 success $output $"the server failed to start in the sandbox: ($log)"

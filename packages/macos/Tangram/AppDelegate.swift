@@ -548,8 +548,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 	)
 	private var window: NSWindow?
 	private var process: Process?
-	private var logHandle: FileHandle?
 	private var logPipe: Pipe?
+	private var logReadFile: URL?
 	private var logReadOffset: UInt64 = 0
 	private var logTailTimer: Timer?
 	private var lastError: String?
@@ -578,8 +578,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		homeDirectory.appending(path: ".config/tangram/config.json")
 	}
 
-	private var logFile: URL {
-		dataDirectory.appending(path: "log")
+	private var logDirectory: URL {
+		dataDirectory.appending(path: "log", directoryHint: .isDirectory)
 	}
 
 	private var pidFile: URL {
@@ -688,7 +688,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		appendDiagnostic("real home: \(realHomeDirectory.path())")
 		appendDiagnostic("data: \(dataDirectory.path())")
 		appendDiagnostic("config: \(configFile.path())")
-		appendDiagnostic("log: \(logFile.path())")
+		appendDiagnostic("log: \(logDirectory.path())")
 		appendDiagnostic("helper: \(tangramExecutable.path())")
 		appendDiagnostic("helper exists: \(FileManager.default.fileExists(atPath: tangramExecutable.path()))")
 
@@ -737,14 +737,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 			}
 			cleanupExistingVfsState()
 			appendDiagnostic("stopped any existing server and VFS")
-			if !FileManager.default.fileExists(atPath: logFile.path()) {
-				FileManager.default.createFile(atPath: logFile.path(), contents: nil)
-				appendDiagnostic("created the server log")
-			}
-			let logHandle = try FileHandle(forWritingTo: logFile)
-			try logHandle.seekToEnd()
-			appendDiagnostic("opened the server log")
-
 			let process = Process()
 			let vfsBroker = VfsBroker(socketDirectory: homeDirectory)
 			try vfsBroker.start()
@@ -774,13 +766,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 			environment["TANGRAM_MACOS_APP_GROUP_IDENTIFIER"] = appGroupIdentifier
 			process.environment = environment
 			process.standardInput = FileHandle.nullDevice
+			// Show the server's output from before it redirects its output to its log directory, and stop reading when the pipe ends.
 			let logPipe = Pipe()
-			logPipe.fileHandleForReading.readabilityHandler = { [weak self, weak logHandle] handle in
+			logPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
 				let data = handle.availableData
 				guard !data.isEmpty else {
+					handle.readabilityHandler = nil
 					return
 				}
-				try? logHandle?.write(contentsOf: data)
 				let text = String(decoding: data, as: UTF8.self)
 				Task { @MainActor in
 					self?.appendDiagnostic(text.trimmingCharacters(in: .newlines))
@@ -797,14 +790,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 			try process.run()
 			appendDiagnostic("started the server process with pid \(process.processIdentifier)")
 			self.process = process
-			self.logHandle = logHandle
 			self.logPipe = logPipe
 			startTailingLog()
 			lastError = nil
 		} catch {
 			self.process = nil
 			self.logPipe = nil
-			self.logHandle = nil
 			self.vfsBroker?.stop()
 			self.vfsBroker = nil
 			cleanupExistingVfsState()
@@ -909,7 +900,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
 	private func serverArguments() -> [String] {
 		var arguments = ["-c", configFile.path()]
-		arguments += ["-d", dataDirectory.path(), "serve", "--manager", "app"]
+		arguments += ["-d", dataDirectory.path(), "serve", "--log", "--manager", "app"]
 		return arguments
 	}
 
@@ -922,10 +913,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		vfsBroker?.stop()
 		vfsBroker = nil
 		cleanupExistingVfsState()
-		try? logHandle?.close()
 		logPipe?.fileHandleForReading.readabilityHandler = nil
 		logPipe = nil
-		logHandle = nil
 		if !isStopping, exitedProcess.terminationStatus != 0 {
 			lastError = "server exited with status \(exitedProcess.terminationStatus)"
 		}
@@ -934,6 +923,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
 	private func startTailingLog() {
 		stopTailingLog()
+		logReadFile = nil
 		logReadOffset = 0
 		model.log = ""
 		appendAvailableLogData()
@@ -949,8 +939,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		logTailTimer = nil
 	}
 
+	// Append what the server wrote to the newest file in its log directory, moving to a new file when the server starts one.
 	private func appendAvailableLogData() {
 		do {
+			let names = try FileManager.default.contentsOfDirectory(atPath: logDirectory.path())
+			guard let name = names.filter({ $0.hasSuffix(".log") }).max() else {
+				return
+			}
+			let logFile = logDirectory.appending(path: name)
+			if logFile != logReadFile {
+				logReadFile = logFile
+				logReadOffset = 0
+			}
 			let handle = try FileHandle(forReadingFrom: logFile)
 			defer {
 				try? handle.close()
@@ -1115,7 +1115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		model.details = [
 			"Data: \(dataDirectory.path())",
 			"Config: \(configFile.path())",
-			"Log: \(logFile.path())",
+			"Log: \(logDirectory.path())",
 			"PID: \(pidFile.path())",
 		].joined(separator: "\n")
 	}
