@@ -15,7 +15,7 @@ def main [] {
 
 # Build the image for one platform and load it into Docker under the tag.
 def 'main build' [
-	--fast # Compile each crate in its own cached process with the fast profile, so that a small change rebuilds quickly.
+	--fast # Compile with the fast profile, so that a small change rebuilds quickly.
 	--platform: string # The platform to build for. The default is this machine's platform.
 	--tag: string = $default_tag # The tag to give the loaded image.
 ] {
@@ -85,9 +85,9 @@ def load [platform: string, tag: string, fast: bool] {
 
 	# Build the image, which reports the commit of this checkout. Name the host only for a cross build, because std spells a native host like the machine.
 	let commit = ^python3 scripts/version.py | str trim
-	let arg = {env: {TANGRAM_CLI_COMMIT_HASH: $commit}}
+	let arg = {commit: $commit}
 	let arg = if $platform == (host-platform) { $arg } else { $arg | insert host $host }
-	let arg = if $fast { $arg | merge {profile: fast, proxy: true} } else { $arg }
+	let arg = if $fast { $arg | merge {profile: fast} } else { $arg }
 	let temporary = ^mktemp -d | str trim
 	let image = $temporary | path join image.tar
 	try {

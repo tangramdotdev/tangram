@@ -45,6 +45,8 @@ import source from "." with { type: "directory" };
 export type Arg = cargo.Arg & {
 	/** Enable every feature of the CLI, like `cargo build --all-features`. */
 	allFeatures?: boolean;
+	/** The commit hash that the version reports. */
+	commit?: string;
 	foundationdb?: boolean;
 	nats?: boolean;
 	postgres?: boolean;
@@ -219,18 +221,20 @@ export const image = async (...args: tg.Args<Arg>) => {
 		}
 	}
 
-	// Build tangram with every feature as a standalone executable that finds its libraries in the image, because the server starts itself again inside each sandbox, where a wrapped executable cannot find its interpreter.
+	// Build tangram with every feature as a stripped standalone executable that finds its libraries in the image, because the server starts itself again inside each sandbox, where a wrapped executable cannot find its interpreter.
 	const libraryDirectory = "/lib";
 	const tangram = executable(
 		build(
 			{
 				allFeatures: true,
 				env: {
+					CARGO_PROFILE_RELEASE_STRIP: "symbols",
 					RUSTFLAGS: tg.Mutation.suffix(
 						`-C link-arg=-Wl,-rpath,${libraryDirectory}`,
 						" ",
 					),
 				},
+				proxy: true,
 				standalone: { glibcVersion: "2.39", libraries: ["libfdb_c.so"] },
 			},
 			merged,
@@ -344,14 +348,21 @@ export const release = async (arg: { commit: string; target: string }) => {
 				: "-C target-feature=+crt-static -C relocation-model=static"
 			: undefined;
 	const env = {
-		TANGRAM_CLI_COMMIT_HASH: arg.commit,
+		CARGO_PROFILE_RELEASE_STRIP: "symbols",
 		...(flags === undefined
 			? {}
 			: { RUSTFLAGS: tg.Mutation.suffix(flags, " ") }),
 	};
 
-	// Build the executable, and the provider library for a macOS target.
-	const options = await buildArg({ build, env, host, standalone });
+	// Build the stripped executable, and the provider library for a macOS target, through the rustc proxy, so that each crate that did not change is a cache hit.
+	const options = await buildArg({
+		build,
+		commit: arg.commit,
+		env,
+		host,
+		proxy: true,
+		standalone,
+	});
 	const packages = ["tangram_cli", ...(darwin ? ["tangram_vfs_provider"] : [])];
 	const output = await cargo.build({ ...options, packages });
 	const files: Record<string, Promise<tg.File>> = {
@@ -388,17 +399,26 @@ const buildArg = async (merged: Arg): Promise<cargo.Arg> => {
 		build: build_,
 		captureStderr = false,
 		channel = "stable",
+		commit,
 		disableDefaultFeatures = false,
 		env: env_,
 		host: host_,
 		profile,
 		proxy = false,
 		sdk,
-		source: source_ = source,
+		source: unstamped = source,
 		standalone = false,
 	} = merged;
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
+
+	// Add the commit hash as a file in the crate that reports the version, so that a new commit recompiles only that crate and its dependents, which an environment variable would not, because every compilation receives the environment.
+	const source_ =
+		commit === undefined
+			? unstamped
+			: await tg.directory(unstamped, {
+					"packages/cli/packages/core/commit": tg.file(`${commit}\n`),
+				});
 	const useFoundationdb = allFeatures || (merged.foundationdb ?? false);
 	const features = allFeatures
 		? await allFeatureList(source_)
