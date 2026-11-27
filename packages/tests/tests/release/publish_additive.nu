@@ -16,7 +16,7 @@ cd $path
 let output = tg run .#release -- --version 1.0.0 --target x86_64-linux-gnu | complete
 success $output
 cd $other
-let output = tg run .#release -- --version 1.0.0 --target aarch64-linux-gnu | complete
+let output = tg run .#release -- --version 1.0.0 --target aarch64-linux-gnu --untested | complete
 success $output
 
 # The apt and rpm repositories cover the signed packages of both targets.

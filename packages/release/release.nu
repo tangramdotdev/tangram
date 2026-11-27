@@ -190,6 +190,36 @@ def 'main repository' [
 	print $'generated the ($repositories | get name | str join ", ") repository metadata'
 }
 
+# Smoke test a Linux target's packaged artifacts in sandboxed builds: its tarball, its packages from the repositories in release/, and the container image of a GNU Linux target.
+def 'main test' [
+	target: string # The release target to test.
+	--retry # Retry failed builds.
+	--version: string # The version of the release.
+] {
+	if $version == null {
+		error make {msg: 'expected --version followed by a package version'}
+	}
+	staged-artifact $target | ignore
+	let architecture = $target | split row '-' | first
+	let artifacts = if ($target ends-with '-linux-gnu') {
+		let docker = if $architecture == aarch64 { 'arm64' } else { 'amd64' }
+		{apt: 'release/apt', image: $'release/image/tangram_($version)_($docker).tar', rpm: 'release/rpm'}
+	} else if ($target ends-with '-linux-musl') {
+		{apk: ('release/apk' | path join $architecture)}
+	} else {
+		{}
+	} | insert tarball $'(staged-binary $target).tar.gz'
+	let artifacts = $artifacts | transpose key value | each {|entry|
+		if not ($entry.value | path exists) {
+			error make {msg: $'expected a packaged artifact at ($entry.value)'}
+		}
+		{($entry.key): (checkin $entry.value)}
+	} | reduce -f {} {|entry, artifacts| $artifacts | merge $entry }
+	let retry_flags = if $retry { ['--retry'] } else { [] }
+	^tg build $'($builds)#test' ...$retry_flags --arg-value (arg-value {target: $target} $artifacts) o> /dev/null
+	print $'tested ($target)'
+}
+
 # Build the macOS app with the staged helper and provider library for this Mac's architecture, and place Tangram.dmg, and its Sparkle appcast when signing, in release/.
 def 'main macos' [
 	--build-number: string # The build number of the app.
