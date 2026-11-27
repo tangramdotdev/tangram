@@ -16,6 +16,9 @@ import * as dpkg from "dpkg" with {
 import * as fileTools from "file" with {
 	source: "../../../packages/packages/file.tg.ts",
 };
+import * as jq from "jq" with {
+	source: "../../../packages/packages/jq.tg.ts",
+};
 import * as pacman from "pacman" with {
 	source: "../../../packages/packages/pacman.tg.ts",
 };
@@ -23,6 +26,9 @@ import * as rpmTools from "rpm" with {
 	source: "../../../packages/packages/rpm.tg.ts",
 };
 import * as std from "std" with { source: "../../../packages/packages/std" };
+import * as utilLinux from "util-linux" with {
+	source: "../../../packages/packages/util-linux.tg.ts",
+};
 
 import license from "../../LICENSE" with { type: "file" };
 import apkFiles from "./apk" with { type: "directory" };
@@ -33,6 +39,7 @@ import apkKey from "./keys/tangram-apk.rsa.pub" with { type: "file" };
 import openrc from "./openrc/tangram" with { type: "file" };
 import spec from "./rpm/tangram.spec" with { type: "file" };
 import service from "./systemd/tangram.service" with { type: "file" };
+import enter from "./tests/enter.sh" with { type: "file" };
 
 /** The arg of a package build: the release target's compiled directory with its `tangram` executable, the target, the release version, and the time to give every file. */
 export type Arg = {
@@ -42,7 +49,36 @@ export type Arg = {
 	version: string;
 };
 
+/** The arg of a release target's smoke tests: its tarball, the repositories that hold the packages of a GNU or musl Linux target, with the apk repository of the target's architecture alone, and the container image of a GNU Linux target. */
+export type TestArg = {
+	apk?: tg.Directory | undefined;
+	apt?: tg.Directory | undefined;
+	image?: tg.File | undefined;
+	rpm?: tg.Directory | undefined;
+	tarball: tg.File;
+	target: string;
+};
+
 const architectures = ["aarch64", "x86_64"] as const;
+
+/** The root filesystems that the smoke tests install the artifacts in, as archives with their checksums. */
+const roots = {
+	alpine: {
+		checksum:
+			"sha256:cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012",
+		url: "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-minirootfs-3.24.4-x86_64.tar.gz",
+	},
+	debian: {
+		checksum:
+			"sha256:40748add9f4f6f944f334cbfc286590d6e93f60fb06f6ee7ffa1b894080ad861",
+		url: "https://raw.githubusercontent.com/debuerreotype/docker-debian-artifacts/865e49bb5782df1fa4b4c4d8d474e3583b67bfda/trixie/slim/oci/blobs/rootfs.tar.gz",
+	},
+	fedora: {
+		checksum:
+			"sha256:cfd51bdc8a26bc6f23c6993145e19e9a2be4c7af2aefa1f309c5e05e5beac197",
+		url: "https://dl.fedoraproject.org/pub/fedora/linux/releases/45/Container/x86_64/images/Fedora-Container-Base-Generic-45-1.4.x86_64.oci.tar.xz",
+	},
+} as const;
 
 /** Archive a release target's `tangram` executable with the `tg` symlink and the `tgx` wrapper as a gzipped tarball. */
 export const tarball = async (
@@ -339,6 +375,63 @@ export const repository = async (arg: {
 	return output;
 };
 
+/** Smoke test the artifacts of an x86_64 Linux release target, as a directory with the output of each test's build. Each test is a sandboxed build that installs an artifact the way a user would in a root filesystem, which it enters with `tests/enter.sh`, starts the server the way the artifact intends, and builds through the server with the server's sandbox. Only the tests that install packages from a distribution's repositories have network access. */
+export const test = async (arg: TestArg) => {
+	// Start the tests of the target's artifacts.
+	const { apk, apt, image, rpm, tarball, target } = arg;
+	const tests: Record<string, Promise<tg.File>> = {};
+	switch (target) {
+		case "x86_64-linux-gnu": {
+			tg.assert(apt !== undefined, "expected the apt repository");
+			tg.assert(image !== undefined, "expected the container image");
+			tg.assert(rpm !== undefined, "expected the rpm repository");
+			tests.tarball = testGnuTarball(tarball);
+			tests.deb = testDeb(apt);
+			tests.rpm = testRpm(rpm);
+			tests.image = testImage(image);
+			break;
+		}
+		case "x86_64-linux-musl": {
+			tg.assert(apk !== undefined, "expected the apk repository");
+			tests.tarball = testMuslTarball(tarball);
+			tests.apk = testApk(apk);
+			break;
+		}
+		case "x86_64-linux-musl-static": {
+			tests.tarball = testStaticTarball(tarball);
+			break;
+		}
+		default: {
+			throw new Error(
+				`expected an x86_64 Linux release target to test, got ${target}`,
+			);
+		}
+	}
+
+	// Wait for every test, and then fail with the failed tests, so that no test is left running.
+	const names = Object.keys(tests);
+	const results = await Promise.allSettled(Object.values(tests));
+	const failed = names.filter(
+		(_, index) => results[index]!.status === "rejected",
+	);
+	const failure = results.find((result) => result.status === "rejected");
+	if (failure !== undefined) {
+		throw new Error(
+			`the ${failed.join(", ")} smoke tests of ${target} failed`,
+			{ cause: failure.reason },
+		);
+	}
+	const entries: Record<string, tg.File> = {};
+	for (const [index, result] of results.entries()) {
+		if (result.status === "fulfilled") {
+			entries[names[index]!] = result.value;
+		}
+	}
+	const output = await tg.directory(entries);
+
+	return output;
+};
+
 /** Get the Debian architecture of a GNU Linux release target. */
 const debArchitecture = (target: string) =>
 	targetArchitecture(target, "linux-gnu") === "aarch64" ? "arm64" : "amd64";
@@ -400,4 +493,282 @@ const sha256 = async (contents: string | Uint8Array) => {
 	}
 
 	return match[1]!;
+};
+
+/** Test the GNU Linux tarball: extract it in Debian, start a server on demand, and build through it. */
+const testGnuTarball = async (tarball: tg.File) => {
+	const script = tg.file(`
+		tar -xzf /smoke/tangram.tar.gz -C /usr/local/bin
+		tangram --start build /smoke/package --checkout=/smoke/output
+		tangram server stop
+	`);
+	const output = await smoke({
+		name: "tarball",
+		network: false,
+		setup: tg`
+			tar -xzf ${download(roots.debian)} -C root $owner --exclude='./dev/*'
+			cp ${tarball} root/smoke/tangram.tar.gz
+			run ${script}
+		`,
+	});
+
+	return output;
+};
+
+/** Test the musl Linux tarball: extract it in Alpine with the libraries that it links, start a server on demand, and build through it. */
+const testMuslTarball = async (tarball: tg.File) => {
+	const script = tg.file(`
+		apk add libgcc
+		tar -xzf /smoke/tangram.tar.gz -C /usr/local/bin
+		tangram --start build /smoke/package --checkout=/smoke/output
+		tangram server stop
+	`);
+	const output = await smoke({
+		name: "tarball",
+		network: true,
+		setup: tg`
+			tar -xzf ${download(roots.alpine)} -C root $owner --exclude='./dev/*'
+			cp ${tarball} root/smoke/tangram.tar.gz
+			run ${script}
+		`,
+	});
+
+	return output;
+};
+
+/** Test the static musl Linux tarball: extract it in a root filesystem with no C library and no files other than the user database, which the server reads to create a sandbox, start a server on demand, and build through it. */
+const testStaticTarball = async (tarball: tg.File) => {
+	const output = await smoke({
+		name: "tarball",
+		network: false,
+		setup: tg`
+			mkdir -p root/etc root/root root/usr/bin
+			echo 'root:x:0:0:root:/root:/usr/bin/tangram' > root/etc/passwd
+			echo 'root:x:0:' > root/etc/group
+			tar -xzf ${tarball} -C root/usr/bin
+			env -i HOME=/root PATH="$PATH" timeout -s KILL 900 sh ${enter} root /usr/bin/tangram --start build /smoke/package --checkout=/smoke/output
+		`,
+	});
+
+	return output;
+};
+
+/** Test the Debian package: install it from the apt repository in Debian booted with systemd, which starts the packaged service, and build through the service. Install systemd without its recommendations, because dbus fails to give its helper to its group in the sandbox. Remove the policy that the container image adds to keep packages from starting services. */
+const testDeb = async (repository: tg.Directory) => {
+	const output = await smokeSystemd({
+		install: `
+			export DEBIAN_FRONTEND=noninteractive
+			echo 'deb [trusted=yes] file:/smoke/repository ./' > /etc/apt/sources.list.d/tangram.list
+			apt-get update
+			apt-get install -y tangram
+		`,
+		name: "deb",
+		repository,
+		root: tg`tar -xzf ${download(roots.debian)} -C root $owner --exclude='./dev/*'`,
+		setup: `
+			export DEBIAN_FRONTEND=noninteractive
+			echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/90sandbox
+			rm -f /usr/sbin/policy-rc.d
+			apt-get update
+			apt-get install -y --no-install-recommends systemd
+		`,
+	});
+
+	return output;
+};
+
+/** Test the RPM package: install it from the rpm repository in Fedora booted with systemd, which starts the packaged service, and build through the service. */
+const testRpm = async (repository: tg.Directory) => {
+	const output = await smokeSystemd({
+		install: `
+			printf '[tangram]\\nname=Tangram\\nbaseurl=file:///smoke/repository\\ngpgcheck=0\\nrepo_gpgcheck=0\\n' > /etc/yum.repos.d/tangram.repo
+			dnf install -y tangram
+		`,
+		name: "rpm",
+		repository,
+		root: tg`
+			mkdir oci
+			tar -xJf ${download(roots.fedora)} -C oci
+			image oci
+		`,
+		setup: `
+			dnf install -y systemd
+		`,
+	});
+
+	return output;
+};
+
+/** Test the Alpine package: install it from the apk repository in Alpine booted with OpenRC, which starts the packaged service, and build through the service. */
+const testApk = async (repository: tg.Directory) => {
+	const setup = tg.file(`
+		apk add openrc
+		sed -i 's/^#\\?rc_sys=.*/rc_sys="lxc"/' /etc/rc.conf
+	`);
+	const boot = tg.file(`
+		openrc sysinit
+		openrc boot
+		openrc default
+		echo /smoke/repository >> /etc/apk/repositories
+		apk add --allow-untrusted tangramdotdev
+		rc-service tangram status
+		tangram build /smoke/package --checkout=/smoke/output
+	`);
+	const output = await smoke({
+		name: "apk",
+		network: true,
+		setup: tg`
+			require_ids
+			tar -xzf ${download(roots.alpine)} -C root $owner --exclude='./dev/*'
+			cp -R ${tg.directory({ x86_64: repository })} root/smoke/repository
+			run ${setup}
+			run ${boot}
+		`,
+	});
+
+	return output;
+};
+
+/** Test the container image: run its entrypoint in its root filesystem with its environment and a build command, which starts a server on demand, builds through it, and stops it. */
+const testImage = async (image: tg.File) => {
+	const output = await smoke({
+		name: "image",
+		network: false,
+		setup: tg`
+			mkdir archive root/root
+			tar -xf ${image} -C archive
+			image archive
+			config=archive/$(jq -r '.[0].Config' archive/manifest.json)
+			set -- /bin/env -i HOME=/root
+			while IFS= read -r word; do
+				set -- "$@" "$word"
+			done <<-EOF
+				$(jq -r '(.config.Env // [])[], (.config.Entrypoint // [])[]' "$config")
+			EOF
+			env -i PATH="$PATH" timeout -s KILL 900 sh ${enter} root "$@" build /smoke/package --checkout=/smoke/output
+		`,
+	});
+
+	return output;
+};
+
+/** Run a smoke test that boots systemd: install systemd in the distribution with the setup script, add a unit that installs the package from the repository with the install script and builds through the packaged service, boot, and check that the unit succeeded. */
+const smokeSystemd = async (arg: {
+	install: string;
+	name: string;
+	repository: tg.Directory;
+	root: tg.Template.Arg;
+	setup: string;
+}) => {
+	const script = tg.file(`
+		${arg.install}
+		systemctl is-active tangram.service
+		tangram build /smoke/package --checkout=/smoke/output
+	`);
+	const unit = tg.file(`[Unit]
+Description=Tangram smoke test
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'sh -eux /smoke/smoke.sh > /smoke/log 2>&1; echo $$? > /smoke/status; systemctl poweroff --force'
+
+[Install]
+WantedBy=multi-user.target
+`);
+	const output = await smoke({
+		name: arg.name,
+		network: true,
+		setup: tg`
+			require_ids
+			${arg.root}
+			cp -R ${arg.repository} root/smoke/repository
+			run ${tg.file(arg.setup)}
+			cp ${script} root/smoke/smoke.sh
+			cp ${unit} root/etc/systemd/system/smoke.service
+			mkdir -p root/etc/systemd/system/multi-user.target.wants
+			ln -s ../smoke.service root/etc/systemd/system/multi-user.target.wants/smoke.service
+			env -i PATH="$PATH" timeout -s KILL 900 sh ${enter} root /usr/bin/env -i container=tangram /usr/lib/systemd/systemd || true
+			cat root/smoke/log
+			test "$(cat root/smoke/status)" = 0
+		`,
+	});
+
+	return output;
+};
+
+/** Run a smoke test in a sandboxed build: run the setup, which fills the root filesystem at root/, then installs and starts the artifact in it and builds the smoke package, which builds in the server's sandbox, through the artifact's server, checking out the output at /smoke/output. Check the output, and print the server's log on a failure. The setup can extract the layers of an image with `image`, as root, so that a layer can replace what a read-only directory of an earlier layer holds, and run a script in the root filesystem as root with `run`, which gives it the sandbox's name servers. Keep the files' owners when the sandbox maps subordinate IDs, and require them with `require_ids` in the tests of the packages, which run the server with the tangram group. */
+const smoke = async (arg: {
+	name: string;
+	network: boolean;
+	setup: tg.Template.Arg;
+}) => {
+	const package_ = tg.directory({
+		"tangram.ts": tg.file(
+			"export default () => tg.build`echo hi > ${tg.output}`;\n",
+		),
+	});
+	const builder = std.build`
+		set -eu
+		trap 'status=$?; if [ "$status" -ne 0 ]; then for log in root/root/.tangram/log root/var/lib/tangram/log; do if [ -f "$log" ]; then echo "$log:"; tail -n 100 "$log"; fi; done; fi' EXIT
+		ids() {
+			count=0
+			while read -r _ _ length; do
+				count=$((count + length))
+			done < "$1"
+			echo "$count"
+		}
+		owner=
+		if [ "$(ids /proc/self/uid_map)" -le 1 ] || [ "$(ids /proc/self/gid_map)" -le 1 ]; then
+			owner=--no-same-owner
+		fi
+		require_ids() {
+			if [ -n "$owner" ]; then
+				echo "the smoke tests of the packages require a sandbox that maps subordinate user and group IDs, because the packages run the server with the tangram group, so set the uid_map and gid_map of the runner's builtin backend in the config of the server that runs the tests" >&2
+				exit 1
+			fi
+		}
+		image() {
+			if [ -f "$1/manifest.json" ]; then
+				jq -r '.[0].Layers[]' "$1/manifest.json"
+			else
+				manifest=$(jq -r '.manifests[0].digest' "$1/index.json" | tr : /)
+				jq -r '.layers[].digest' "$1/blobs/$manifest" | sed 's|^|blobs/|; s|:|/|'
+			fi | while read -r layer; do
+				\${owner:+unshare --map-root-user} tar -xf "$1/$layer" -C root $owner --exclude='./dev/*' --exclude='dev/*'
+			done
+		}
+		run() {
+			if [ -f /etc/resolv.conf ]; then
+				rm -f root/etc/resolv.conf
+				cp /etc/resolv.conf root/etc/resolv.conf
+			fi
+			rm -f root/smoke/run.sh
+			cp "$1" root/smoke/run.sh
+			env -i PATH="$PATH" timeout -s KILL 900 sh ${enter} root /usr/bin/env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/sh -eux /smoke/run.sh
+		}
+		mkdir -p root/smoke
+		cp -R ${package_} root/smoke/package
+		chmod -R u+w root/smoke/package
+		${arg.setup}
+		test "$(cat root/smoke/output)" = hi
+		cp root/smoke/output ${tg.output}
+	`
+		.env(jq.build(), utilLinux.build(), {
+			PATH: tg.Mutation.suffix(tg`${utilLinux.build()}/sbin`, ":"),
+		})
+		.named(`test ${arg.name}`);
+	const output = await (
+		arg.network ? builder.network(true).checksum("sha256:any") : builder
+	).then(tg.File.expect);
+
+	return output;
+};
+
+/** Download a root filesystem's archive. */
+const download = async (root: { checksum: tg.Checksum; url: string }) => {
+	const blob = await tg.download(root.url, root.checksum).then(tg.Blob.expect);
+	const output = await tg.file(blob);
+
+	return output;
 };

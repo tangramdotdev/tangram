@@ -17,7 +17,7 @@ let published = release published $state
 # Commit a change, and add another target from the new commit.
 "\nedit\n" | save --append source.txt
 ^git -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false commit -qam edit
-let output = tg run .#release -- --version 1.0.0 --target aarch64-linux-gnu | complete
+let output = tg run .#release -- --version 1.0.0 --target aarch64-linux-gnu --untested | complete
 failure $output
 assert ($output.stderr | str contains $'release 1.0.0 was published from commit ($commit)')
 assert not ('release/tangram_aarch64-linux-gnu' | path exists)

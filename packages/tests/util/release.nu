@@ -3,7 +3,7 @@ use ./test.nu *
 const repository = path self '../../../'
 const services = path self release_services.py
 
-# Create a small release workspace with the repository's release orchestration and publishing, whose sandboxed compile makes an executable that prints the commit, and whose packaging builds, image, and signing stand in for the real ones with files that name their inputs.
+# Create a small release workspace with the repository's release orchestration and publishing, whose sandboxed compile makes an executable that prints the commit, and whose packaging builds, smoke tests, image, and signing stand in for the real ones with files that name their inputs.
 export def fixture [] {
 	let path = artifact {
 		'.gitignore': "/release\n__pycache__\n"
@@ -48,6 +48,8 @@ export def fixture [] {
 						return lines.join("\n");
 					};
 					const list = async (directory: tg.Directory) => tg.file(await listing(directory));
+					export const test = async (arg: { apk?: tg.Directory; apt?: tg.Directory; image?: tg.File; rpm?: tg.Directory; tarball: tg.File; target: string }) =>
+						tg.file(`tested ${arg.target} from ${await arg.tarball.text}`);
 					export const repository = async (arg: { apk?: tg.Directory; apt?: tg.Directory; rpm?: tg.Directory }) => {
 						const output: Record<string, tg.Unresolved<tg.Artifact>> = {};
 						if (arg.apt !== undefined) {
