@@ -95,7 +95,7 @@ def load [platform: string, tag: string, fast: bool] {
 	}
 	let profile = if $fast { 'fast' } else { 'release' }
 	let executable = ^tg checkin --root --no-lock ($directory | path join $host $profile tangram) | str trim | split row '?' | first
-	let release = ^tg build ./packages/release/build.tg.ts#binary --arg-value $'{"target":($target | to json),"executable":($executable)}' | str trim | split row '?' | first
+	let release = ^tg build ./packages/release/build.tg.ts#binary --arg-value $'{"executable":($executable),"image":true,"target":($target | to json)}' | str trim | split row '?' | first
 
 	# Build the image. Name the host only for a cross build, because std spells a native host like the machine.
 	let arg = if $platform == (host-platform) { $'{"release":($release)}' } else { $'{"host":($host | to json),"release":($release)}' }

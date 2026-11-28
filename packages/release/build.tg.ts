@@ -44,15 +44,17 @@ export type Arg = {
 
 const architectures = ["aarch64", "x86_64"] as const;
 
-/** Collect the files that Cargo compiled for a release target as the directory that the package builds take, with the `tangram` executable without its build-time wrapper and artifact dependencies, and the VFS provider library of a macOS target. */
+/** Collect the files that Cargo compiled for a release target as the directory that the package builds take, with the `tangram` executable without its build-time wrapper and artifact dependencies, and the VFS provider library of a macOS target. With `image`, the executable is the container image's, which may require the FoundationDB client library that the image provides. */
 export const binary = async (arg: {
 	executable: tg.File;
+	image?: boolean | undefined;
 	provider?: tg.File | undefined;
 	target: string;
 }) => {
-	const match = /^(aarch64|x86_64)-(darwin|linux-gnu|linux-musl)(-static)?$/.exec(
-		arg.target,
-	);
+	const match =
+		/^(aarch64|x86_64)-(darwin|linux-gnu|linux-musl)(-static)?$/.exec(
+			arg.target,
+		);
 	if (match === null) {
 		throw new Error(`unsupported release target ${arg.target}`);
 	}
@@ -62,7 +64,11 @@ export const binary = async (arg: {
 			? `${arch}-apple-darwin`
 			: `${arch}-unknown-${platform}`;
 	const entries: Record<string, tg.Unresolved<tg.Artifact>> = {
-		tangram: std.file.standalone(arg.executable, host),
+		tangram: std.file.standalone(
+			arg.executable,
+			host,
+			arg.image === true ? { libraries: ["libfdb_c.so"] } : undefined,
+		),
 	};
 	if (arg.provider !== undefined) {
 		entries["libtangram_vfs_provider.a"] = arg.provider;
