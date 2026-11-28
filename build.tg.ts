@@ -336,7 +336,7 @@ export const release = async (arg: {
 			? ({ glibcVersion: "2.35" } as const)
 			: true;
 
-	// Give the image's executable the path of the image's libraries. Link the C runtime of a musl target dynamically, or statically for the static target, because Rust links it statically by default. Link the static target as a position-dependent executable, because the SDK's static musl C library is not position-independent, so it cannot be linked into a static position-independent executable.
+	// Give the image's executable the path of the image's libraries. Link the C runtime of a musl target dynamically, or statically for the static target, because Rust links it statically by default. Link the static target as a position-dependent executable, because the SDK's static musl C library is not position-independent, so it cannot be linked into a static position-independent executable. Link it with the default linker, because mold gives a static executable a program interpreter, which makes it crash at start.
 	const flags = image
 		? "-C link-arg=-Wl,-rpath,/lib"
 		: platform === "linux-musl"
@@ -360,7 +360,9 @@ export const release = async (arg: {
 		host,
 		...std.args.optional("profile", arg.profile),
 		proxy: true,
-		...(darwin ? {} : { sdk: { linker: "mold" as const } }),
+		...(darwin || static_ !== undefined
+			? {}
+			: { sdk: { linker: "mold" as const } }),
 		standalone,
 	});
 	const packages = ["tangram_cli", ...(darwin ? ["tangram_vfs_provider"] : [])];
