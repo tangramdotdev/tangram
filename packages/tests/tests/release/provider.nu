@@ -7,8 +7,10 @@ let local = server spawn --name local
 let path = release fixture
 cd $path
 '
-	export const release = (arg: { commit: string; target: string }) =>
-		tg.directory({ tangram: tg.file("new helper", { executable: true }) });
+	export const release = (arg: { commit: string; target: string }) => {
+		const script = `out="$CARGO_TARGET_DIR/aarch64-apple-darwin/release" && mkdir -p "$out" && echo "new helper" > "$out/tangram" && chmod +x "$out/tangram"`;
+		return tg.command({ args: ["-c", script], executable: "/bin/sh" });
+	};
 ' | save -f build.tg.ts
 ^git -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false commit -qam 'omit the provider'
 let commit = ^git rev-parse HEAD | str trim
@@ -19,6 +21,5 @@ mkdir release
 stage record release $target $commit dir_0
 let output = tg run .#release -- --stage compile --target $target | complete
 failure $output
-assert ($output.stderr | str contains 'missing libtangram_vfs_provider_aarch64-darwin.a')
 assert equal (open --raw release/tangram_aarch64-darwin) 'old helper'
 assert equal (open --raw release/libtangram_vfs_provider_aarch64-darwin.a) 'old provider'

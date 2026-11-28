@@ -10,7 +10,7 @@ def main [] {
 	print 'Usage: tg run .#release -- --help'
 }
 
-# Compile a release target in a sandboxed Tangram build, and stage it in release/ with the artifact that the build made.
+# Compile a release target with Cargo on the host, in the user's target directory, where the rustc proxy compiles each crate in a sandbox, and stage it in release/ with the artifact of its files.
 def 'main compile' [
 	target: string # The release target to compile.
 	--retry # Retry failed builds.
@@ -18,11 +18,29 @@ def 'main compile' [
 	let commit = ^python3 scripts/version.py | str trim
 	let retry_flags = if $retry { ['--retry'] } else { [] }
 	let arg = {commit: $commit, target: $target}
+	let host = $target | str replace --regex '-static$' '' | str replace '-darwin' '-apple-darwin' | str replace '-linux-' '-unknown-linux-'
+
+	# Give the static musl target its own target directory, because it shares its Rust target with the dynamic musl target and differs only in its flags.
+	let directory = $env.CARGO_TARGET_DIR? | default target | path expand
+	let directory = if ($target ends-with '-static') { $directory | path join static } else { $directory }
 	mkdir release
 	let temporary = ^mktemp -d release/.compile.XXXXXXXX | str trim
 	try {
-		# Build the standalone executable, and the provider library for a macOS target, and check them out.
-		let artifact = ^tg build ./build.tg.ts#release ...$retry_flags --arg-value ($arg | to json --raw) | artifact-id
+		# Create the command, and run Cargo.
+		let command = ^tg build ./build.tg.ts#release ...$retry_flags --arg-value ($arg | to json --raw) | str trim
+		with-env {CARGO_TARGET_DIR: $directory, TGRUSTC_RETRY: (if $retry { '1' } else { '0' })} {
+			^tg run ...$retry_flags $command
+		}
+
+		# Collect the executable, and the provider library for a macOS target, and check them out.
+		let outputs = $directory | path join $host release
+		let files = {executable: (checkin ($outputs | path join tangram))}
+		let files = if ($target ends-with '-darwin') {
+			$files | insert provider (checkin ($outputs | path join libtangram_vfs_provider.a))
+		} else {
+			$files
+		}
+		let artifact = ^tg build $'($builds)#binary' ...$retry_flags --arg-value (arg-value {target: $target} $files) | artifact-id
 		let output = $temporary | path join output
 		^tg checkout $artifact --path $output
 		^install -m 755 ($output | path join tangram) ($temporary | path join $'tangram_($target)')

@@ -171,13 +171,17 @@ export const cloud = async (...args: tg.Args<Arg>) => {
 	return output;
 };
 
-/** Build the server's container image for a Linux host, as a file that `docker load` reads. */
-export const image = async (...args: tg.Args<Arg>) => {
-	const merged = await mergeArgs(args);
+/** Build the server's container image for a Linux host from the directory with the `tangram` executable that the release compiles for the image, as a file that `docker load` reads. */
+export const image = async (arg: {
+	build?: string;
+	host?: string;
+	release: tg.Directory;
+	source?: tg.Directory;
+}) => {
 	const machine = std.triple.host();
-	const host = merged.host ?? machine;
-	const buildMachine = merged.build ?? machine;
-	const source_ = merged.source ?? source;
+	const host = arg.host ?? machine;
+	const buildMachine = arg.build ?? machine;
+	const source_ = arg.source ?? source;
 	if (std.triple.os(host) !== "linux") {
 		throw new Error("the container image is only available for Linux hosts");
 	}
@@ -219,25 +223,9 @@ export const image = async (...args: tg.Args<Arg>) => {
 		}
 	}
 
-	// Build tangram with every feature as a standalone executable that finds its libraries in the image, because the server starts itself again inside each sandbox, where a wrapped executable cannot find its interpreter.
+	// Add tangram, which is a standalone executable that finds its libraries in the image, because the server starts itself again inside each sandbox, where a wrapped executable cannot find its interpreter.
 	const libraryDirectory = "/lib";
-	const tangram = executable(
-		build(
-			{
-				allFeatures: true,
-				env: {
-					RUSTFLAGS: tg.Mutation.suffix(
-						`-C link-arg=-Wl,-rpath,${libraryDirectory}`,
-						" ",
-					),
-				},
-				standalone: { glibcVersion: "2.39", libraries: ["libfdb_c.so"] },
-			},
-			merged,
-			{ build: buildMachine, host },
-		),
-		"bin/tangram",
-	);
+	const tangram = arg.release.get("tangram").then(tg.File.expect);
 	bin["tangram"] = tangram;
 	bin["tg"] = tg.symlink("tangram");
 	bin["tgx"] = tg.file('#!/bin/sh\nexec tg run -b "$@"\n', {
@@ -313,8 +301,13 @@ export const image = async (...args: tg.Args<Arg>) => {
 	});
 };
 
-/** Build the standalone executable of a release target, such as `x86_64-linux-gnu` or `x86_64-linux-musl-static`, in the sandbox, with the VFS provider library for a macOS target, as a directory with `tangram` and `libtangram_vfs_provider.a`. */
-export const release = async (arg: { commit: string; target: string }) => {
+/** Create the command that compiles the stripped standalone executable of a release target, such as `x86_64-linux-gnu` or `x86_64-linux-musl-static`, and the VFS provider library for a macOS target, or with `image`, the executable of the container image, which has every feature and finds its libraries in the image. The command runs Cargo on the host in the user's target directory, so that Cargo compiles only what changed, and the rustc proxy compiles each crate in a sandbox. */
+export const release = async (arg: {
+	commit: string;
+	image?: boolean;
+	profile?: string;
+	target: string;
+}) => {
 	const build = std.triple.host();
 	const match =
 		/^(aarch64|x86_64)-(darwin|linux-gnu|linux-musl)(-static)?$/.exec(
@@ -333,37 +326,49 @@ export const release = async (arg: { commit: string; target: string }) => {
 			? build
 			: target;
 	const darwin = platform === "darwin";
-	const standalone =
-		platform === "linux-gnu" ? ({ glibcVersion: "2.35" } as const) : true;
+	const image = arg.image ?? false;
+	if (image && platform !== "linux-gnu") {
+		throw new Error("the container image requires a GNU Linux target");
+	}
+	const standalone = image
+		? ({ glibcVersion: "2.39", libraries: ["libfdb_c.so"] } as const)
+		: platform === "linux-gnu"
+			? ({ glibcVersion: "2.35" } as const)
+			: true;
 
-	// Link the C runtime of a musl target dynamically, or statically for the static target, because Rust links it statically by default. Link the static target as a position-dependent executable, because the SDK's static musl C library is not position-independent, so it cannot be linked into a static position-independent executable.
-	const flags =
-		platform === "linux-musl"
+	// Give the image's executable the path of the image's libraries. Link the C runtime of a musl target dynamically, or statically for the static target, because Rust links it statically by default. Link the static target as a position-dependent executable, because the SDK's static musl C library is not position-independent, so it cannot be linked into a static position-independent executable. Link it with the default linker, because mold gives a static executable a program interpreter, which makes it crash at start.
+	const flags = image
+		? "-C link-arg=-Wl,-rpath,/lib"
+		: platform === "linux-musl"
 			? static_ === undefined
 				? "-C target-feature=-crt-static"
 				: "-C target-feature=+crt-static -C relocation-model=static"
 			: undefined;
 	const env = {
+		CARGO_PROFILE_RELEASE_STRIP: "symbols",
 		TANGRAM_CLI_COMMIT_HASH: arg.commit,
 		...(flags === undefined
 			? {}
 			: { RUSTFLAGS: tg.Mutation.suffix(flags, " ") }),
 	};
 
-	// Build the executable, and the provider library for a macOS target.
-	const options = await buildArg({ build, env, host, standalone });
+	// Create the command.
+	const options = await buildArg({
+		allFeatures: image,
+		build,
+		env,
+		host,
+		...std.args.optional("profile", arg.profile),
+		proxy: true,
+		...(darwin || static_ !== undefined
+			? {}
+			: { sdk: { linker: "mold" as const } }),
+		standalone,
+	});
 	const packages = ["tangram_cli", ...(darwin ? ["tangram_vfs_provider"] : [])];
-	const output = await cargo.build({ ...options, packages });
-	const files: Record<string, Promise<tg.File>> = {
-		tangram: output.get("bin/tangram").then(tg.File.expect),
-	};
-	if (darwin) {
-		files["libtangram_vfs_provider.a"] = output
-			.get("lib/libtangram_vfs_provider.a")
-			.then(tg.File.expect);
-	}
+	const command = cargo.build({ ...options, packages, targetDir: true });
 
-	return tg.directory(files);
+	return command;
 };
 
 // Test targets.
